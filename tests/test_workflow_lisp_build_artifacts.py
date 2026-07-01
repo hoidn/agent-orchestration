@@ -3806,6 +3806,7 @@ def test_build_artifacts_emit_entrypoint_managed_write_root_allocations(
 
 def test_design_delta_work_item_runtime_context_inputs_stay_internal(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, _, compile_result = _compile_design_delta_work_item_without_shared_validation(tmp_path)
     lowered = _design_delta_work_item_run_work_item_lowered(compile_result)
@@ -3833,16 +3834,28 @@ def test_design_delta_work_item_runtime_context_inputs_stay_internal(
     }.issubset(flattened_input_names)
     assert "progress_ledger_path" in flattened_input_names
     assert "run_state_path" not in flattened_input_names
+    assert {
+        name
+        for name, reason in internal_inputs.items()
+        if reason == "compatibility_bridge"
+    } == {"progress_ledger_path"}
     assert set(internal_inputs.values()) == {
-        "managed_write_root",
         "runtime_owned_context",
         "compatibility_bridge",
     }
-    assert all(
-        name.startswith("__write_root__")
-        for name, reason in internal_inputs.items()
-        if reason == "managed_write_root"
+    built = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        resume_plumbing_retirement_manifest_payload=_aligned_design_delta_resume_plumbing_retirement_manifest(),
     )
+    bundle = built.validated_bundle.imports["lisp_frontend_design_delta/work_item::run-work-item"]
+    boundary = _workflow_boundary_projection(bundle)
+    assert boundary.private_managed_write_root_inputs == ()
+    assert [binding.binding_id for binding in boundary.private_runtime_context_bindings] == [
+        "phase-ctx"
+    ]
+    assert boundary.private_compatibility_bridge_inputs == ("progress_ledger_path",)
 
 
 def test_design_delta_work_item_direct_entry_phase_context_binding_uses_runtime_bootstrap_defaults(
@@ -3949,6 +3962,7 @@ def test_design_delta_plan_phase_boundary_hides_phase_context_and_bridge_inputs(
 
 def test_design_delta_work_item_boundary_labels_legacy_state_inputs_as_compatibility_bridge(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, _, compile_result = _compile_design_delta_work_item_without_shared_validation(tmp_path)
     assert compile_result.entry_result.lowering_schema_version == 2
@@ -3958,16 +3972,22 @@ def test_design_delta_work_item_boundary_labels_legacy_state_inputs_as_compatibi
         for item in lowered.boundary_projection.generated_internal_inputs
     }
 
-    expected_bridge_inputs = {
-        "progress_ledger_path",
-        "run_state_path",
-    }
-    assert expected_bridge_inputs.issubset(lowered.compatibility_bridge_inputs)
-    assert {internal_inputs[name] for name in expected_bridge_inputs} == {
-        "compatibility_bridge"
-    }
-    assert expected_bridge_inputs.issubset(lowered.origin_map.internal_input_spans)
-    assert expected_bridge_inputs.isdisjoint(lowered.origin_map.authored_input_spans)
+    built = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        resume_plumbing_retirement_manifest_payload=_aligned_design_delta_resume_plumbing_retirement_manifest(),
+    )
+    bundle = built.validated_bundle.imports["lisp_frontend_design_delta/work_item::run-work-item"]
+    boundary = _workflow_boundary_projection(bundle)
+
+    assert lowered.compatibility_bridge_inputs == ("progress_ledger_path",)
+    assert lowered.compatibility_bridge_inputs == boundary.private_compatibility_bridge_inputs
+    assert internal_inputs["progress_ledger_path"] == "compatibility_bridge"
+    assert "run_state_path" not in lowered.compatibility_bridge_inputs
+    assert "run_state_path" not in internal_inputs
+    assert "progress_ledger_path" in lowered.origin_map.internal_input_spans
+    assert "progress_ledger_path" not in lowered.origin_map.authored_input_spans
 
 
 def test_design_delta_work_item_command_boundary_lineage_records_family_adapters(

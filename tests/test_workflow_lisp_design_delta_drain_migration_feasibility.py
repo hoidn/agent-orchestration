@@ -3032,7 +3032,6 @@ def _execute_design_delta_runtime_view_fixture(tmp_path: Path):
 
     runtime_inputs = dict(workflow_runtime_input_contracts(bundle))
     provided_inputs: dict[str, str] = {
-        "run_state_path": "state/run_state.json",
         "drain_status": "BLOCKED",
         "drain_status_reason": "runtime_native_fixture",
         "summary_path": "artifacts/work/drain_summary.json",
@@ -3051,7 +3050,22 @@ def _execute_design_delta_runtime_view_fixture(tmp_path: Path):
         bound_inputs=bind_workflow_inputs(binding_inputs, provided_inputs, tmp_path),
     )
     state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="stop")
-    return tmp_path, state, bundle, lowered, summary_path, pointer_path
+    transition_bundle = bundle.imports[
+        "lisp_frontend_design_delta/transitions::emit-drain-status-transition-audit"
+    ]
+    transition_resource = transition_bundle.surface.steps[0].resource_transition["resource"]
+    native_state_path = tmp_path / transition_resource["state_path"]
+    audit_path = tmp_path / transition_resource["audit_path"]
+    return (
+        tmp_path,
+        state,
+        bundle,
+        lowered,
+        summary_path,
+        pointer_path,
+        native_state_path,
+        audit_path,
+    )
 
 
 def _build_module():
@@ -4648,12 +4662,26 @@ def test_design_delta_checked_in_command_boundaries_drop_legacy_drain_summary_fi
 def test_design_delta_runtime_view_fixture_materializes_summary_and_pointer_views(
     tmp_path: Path,
 ) -> None:
-    workspace, state, bundle, _lowered, summary_path, pointer_path = _execute_design_delta_runtime_view_fixture(
-        tmp_path / "runtime-view-fixture"
-    )
-    rerun_workspace, rerun_state, _rerun_bundle, _rerun_lowered, rerun_summary_path, rerun_pointer_path = (
-        _execute_design_delta_runtime_view_fixture(tmp_path / "runtime-view-fixture-rerun")
-    )
+    (
+        workspace,
+        state,
+        bundle,
+        _lowered,
+        summary_path,
+        pointer_path,
+        native_state_path,
+        audit_path,
+    ) = _execute_design_delta_runtime_view_fixture(tmp_path / "runtime-view-fixture")
+    (
+        _rerun_workspace,
+        rerun_state,
+        _rerun_bundle,
+        _rerun_lowered,
+        rerun_summary_path,
+        rerun_pointer_path,
+        rerun_native_state_path,
+        rerun_audit_path,
+    ) = _execute_design_delta_runtime_view_fixture(tmp_path / "runtime-view-fixture-rerun")
 
     assert state["status"] == "completed"
     assert rerun_state["status"] == "completed"
@@ -4703,9 +4731,38 @@ def test_design_delta_runtime_view_fixture_materializes_summary_and_pointer_view
     assert rerun_pointer_path.read_bytes() == expected_pointer_bytes
 
     run_state = json.loads((workspace / "state" / "run_state.json").read_text(encoding="utf-8"))
-    assert run_state["drain_status"] == "BLOCKED"
-    assert run_state["drain_status_reason"] == "runtime_native_fixture"
-    assert run_state["drain_status_summary"] == "artifacts/work/drain_summary.json"
+    assert run_state == {
+        "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+        "completed_items": [],
+        "completed_design_gaps": [],
+        "blocked_items": {},
+        "blocked_design_gaps": {},
+        "history": [],
+    }
+
+    native_state = json.loads(native_state_path.read_text(encoding="utf-8"))
+    assert native_state["state"]["drain_status"] == "BLOCKED"
+    assert native_state["state"]["drain_status_reason"] == "runtime_native_fixture"
+    assert native_state["state"]["drain_status_summary"] == "artifacts/work/drain_summary.json"
+
+    rerun_native_state = json.loads(rerun_native_state_path.read_text(encoding="utf-8"))
+    assert rerun_native_state == native_state
+
+    audit_rows = [
+        json.loads(line)
+        for line in audit_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert audit_rows[-1]["outcome_code"] == "committed"
+    assert audit_rows[-1]["transition_name"] == "write-drain-status-runtime-native"
+
+    rerun_audit_rows = [
+        json.loads(line)
+        for line in rerun_audit_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert rerun_audit_rows[-1]["outcome_code"] == "committed"
+    assert rerun_audit_rows[-1]["transition_name"] == "write-drain-status-runtime-native"
 
     assert bundle.surface.steps[1].materialize_view["renderer_id"] == "canonical-json"
     assert bundle.surface.steps[2].materialize_view["renderer_id"] == "posix-path-line"
