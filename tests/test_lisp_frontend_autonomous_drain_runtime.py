@@ -7194,23 +7194,24 @@ def _run_workflow_with_providers(
 def test_lisp_frontend_drain_design_gap_runtime_smoke(tmp_path):
     workspace = tmp_path / "workspace"
     workflow_path = _copy_runtime_files(workspace)
+    provider_sequence = [
+        ("SelectNextWork", _write_selector_design_gap),
+        ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+        ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
+        ("DraftPlan", _write_plan),
+        ("ReviewPlan", _write_plan_review),
+        ("ExecuteImplementation", _write_execution_state),
+        ("ReviewImplementation", _write_implementation_review),
+        ("SelectNextWork", _write_selector_done),
+    ]
 
     state = _run_workflow_with_providers(
         workspace,
         workflow_path,
-        [
-            ("SelectNextWork", _write_selector_design_gap),
-            ("DraftDesignGapArchitecture", _write_design_gap_architecture),
-            ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
-            ("DraftPlan", _write_plan),
-            ("ReviewPlan", _write_plan_review),
-            ("ExecuteImplementation", _write_execution_state),
-            ("ReviewImplementation", _write_implementation_review),
-            ("SelectNextWork", _write_selector_done),
-        ],
+        provider_sequence,
     )
 
-    assert state["__provider_calls"] == 7
+    assert state["__provider_calls"] == len(provider_sequence)
     summary = json.loads(
         (workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json").read_text(
             encoding="utf-8"

@@ -91,8 +91,23 @@ OBSERVABILITY_OLD_WRITER_COMPARISONS_PATH = (
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.observability_old_writer_comparisons.json"
 )
+REFERENCE_FAMILY_EVIDENCE_PATHS = importlib.import_module(
+    "orchestrator.workflow_lisp.build"
+)._resolve_reference_family_evidence_paths()
 REFERENCE_FAMILY_RUN_STATE_RELATIVE_PATH = (
-    "state/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/drain/run_state.json"
+    REFERENCE_FAMILY_EVIDENCE_PATHS.run_state_path.relative_to(REPO_ROOT).as_posix()
+)
+REFERENCE_FAMILY_DRAIN_SUMMARY_RELATIVE_PATH = (
+    REFERENCE_FAMILY_EVIDENCE_PATHS.drain_summary_path.relative_to(REPO_ROOT).as_posix()
+)
+REFERENCE_FAMILY_DESIGN_GAP_SUMMARY_ROOT_RELATIVE_PATH = (
+    REFERENCE_FAMILY_EVIDENCE_PATHS.design_gap_summary_root.relative_to(REPO_ROOT).as_posix()
+)
+REFERENCE_FAMILY_IMPLEMENTATION_ARCHITECTURE_ROOT_RELATIVE_PATH = (
+    REFERENCE_FAMILY_EVIDENCE_PATHS.implementation_architecture_root.relative_to(REPO_ROOT).as_posix()
+)
+REFERENCE_FAMILY_ARCHITECTURE_INDEX_RELATIVE_PATH = (
+    REFERENCE_FAMILY_EVIDENCE_PATHS.architecture_index_path.relative_to(REPO_ROOT).as_posix()
 )
 REFERENCE_FAMILY_COMPLETED_GAP_IDS = json.loads(
     (
@@ -407,34 +422,16 @@ def _write_parity_fixture(repo_root: Path) -> dict[str, Path]:
 def _reference_family_fixture(tmp_path: Path) -> dict[str, object]:
     repo_root = tmp_path / "repo"
     run_state_path = _write_json(
-        repo_root
-        / "state"
-        / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-        / "drain"
-        / "run_state.json",
+        repo_root / REFERENCE_FAMILY_RUN_STATE_RELATIVE_PATH,
         {"completed_design_gaps": list(REFERENCE_FAMILY_COMPLETED_GAP_IDS)},
     )
     drain_summary_path = _write_json(
-        repo_root
-        / "artifacts"
-        / "work"
-        / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-        / "drain-summary.json",
+        repo_root / REFERENCE_FAMILY_DRAIN_SUMMARY_RELATIVE_PATH,
         {"completed_design_gaps": list(REFERENCE_FAMILY_COMPLETED_GAP_IDS)},
     )
-    design_gap_summary_root = (
-        repo_root
-        / "artifacts"
-        / "work"
-        / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-        / "design-gaps"
-    )
+    design_gap_summary_root = repo_root / REFERENCE_FAMILY_DESIGN_GAP_SUMMARY_ROOT_RELATIVE_PATH
     implementation_architecture_root = (
-        repo_root
-        / "docs"
-        / "plans"
-        / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-        / "design-gaps"
+        repo_root / REFERENCE_FAMILY_IMPLEMENTATION_ARCHITECTURE_ROOT_RELATIVE_PATH
     )
     architecture_index_lines: list[str] = []
     for gap_id in REFERENCE_FAMILY_COMPLETED_GAP_IDS:
@@ -450,15 +447,7 @@ def _reference_family_fixture(tmp_path: Path) -> dict[str, object]:
             architecture_path.relative_to(repo_root).as_posix()
         )
     architecture_index_path = _write_text(
-        repo_root
-        / "state"
-        / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-        / "drain"
-        / "iterations"
-        / "12"
-        / "done-review"
-        / "design-gap-architect"
-        / "existing-architecture-index.md",
+        repo_root / REFERENCE_FAMILY_ARCHITECTURE_INDEX_RELATIVE_PATH,
         "\n".join(f"- {line}" for line in architecture_index_lines) + "\n",
     )
     target_design_path = _write_text(
@@ -545,8 +534,12 @@ def test_build_reference_family_conformance_profile_passes_for_aligned_fixture(
     assert profile["schema_version"] == "workflow_lisp_reference_family_conformance_profile.v1"
     assert "schema_id" not in profile
     assert profile["profile_status"] == "pass"
-    assert profile["completed_gap_reconciliation"]["run_state_count"] == 44
-    assert profile["completed_gap_reconciliation"]["drain_summary_count"] == 44
+    assert profile["completed_gap_reconciliation"]["run_state_count"] == len(
+        REFERENCE_FAMILY_COMPLETED_GAP_IDS
+    )
+    assert profile["completed_gap_reconciliation"]["drain_summary_count"] == len(
+        REFERENCE_FAMILY_COMPLETED_GAP_IDS
+    )
     assert profile["target_design"] == "docs/design/workflow_lisp_runtime_native_drain_authoring.md"
     assert profile["baseline_design"] == "docs/design/workflow_lisp_frontend_specification.md"
     assert isinstance(profile["generated_at"], str) and profile["generated_at"]
@@ -593,12 +586,13 @@ def test_build_reference_family_conformance_profile_reports_live_one_gap_omissio
 ) -> None:
     module = _reference_family_module()
     fixture = _reference_family_fixture(tmp_path)
+    selected_gap_id = REFERENCE_FAMILY_COMPLETED_GAP_IDS[0]
     summary_copy = _aligned_drain_summary_copy(fixture, tmp_path / "drain-summary.json")
     payload = json.loads(summary_copy.read_text(encoding="utf-8"))
     payload["completed_design_gaps"] = [
         gap_id
         for gap_id in payload["completed_design_gaps"]
-        if gap_id not in set(LIVE_MISSING_GAP_IDS)
+        if gap_id != selected_gap_id
     ]
     summary_copy.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
@@ -607,9 +601,15 @@ def test_build_reference_family_conformance_profile_reports_live_one_gap_omissio
     )
 
     assert profile["profile_status"] == "fail"
-    assert profile["completed_gap_reconciliation"]["run_state_count"] == 44
-    assert profile["completed_gap_reconciliation"]["drain_summary_count"] == 43
-    assert profile["completed_gap_reconciliation"]["missing_from_drain_summary"] == LIVE_MISSING_GAP_IDS
+    assert profile["completed_gap_reconciliation"]["run_state_count"] == len(
+        REFERENCE_FAMILY_COMPLETED_GAP_IDS
+    )
+    assert profile["completed_gap_reconciliation"]["drain_summary_count"] == len(
+        REFERENCE_FAMILY_COMPLETED_GAP_IDS
+    ) - 1
+    assert profile["completed_gap_reconciliation"]["missing_from_drain_summary"] == [
+        selected_gap_id
+    ]
     assert [
         diagnostic["code"] for diagnostic in profile["diagnostics"]
     ] == ["reference_family_completed_gap_summary_mismatch"]
@@ -623,7 +623,7 @@ def test_build_reference_family_conformance_profile_reports_missing_per_gap_summ
     summary_root = _copy_tree(
         fixture["design_gap_summary_root"], tmp_path / "design-gap-summaries"
     )
-    missing_gap_id = "workflow-lisp-runtime-native-drain-typed-provider-request-records"
+    missing_gap_id = REFERENCE_FAMILY_COMPLETED_GAP_IDS[0]
     (summary_root / f"{missing_gap_id}-summary.json").unlink()
 
     profile = module.build_reference_family_conformance_profile(
@@ -647,7 +647,7 @@ def test_build_reference_family_conformance_profile_rejects_incomplete_per_gap_s
     summary_root = _copy_tree(
         fixture["design_gap_summary_root"], tmp_path / "design-gap-summaries"
     )
-    invalid_gap_id = LIVE_MISSING_GAP_IDS[0]
+    invalid_gap_id = REFERENCE_FAMILY_COMPLETED_GAP_IDS[0]
     summary_path = summary_root / f"{invalid_gap_id}-summary.json"
     payload = json.loads(summary_path.read_text(encoding="utf-8"))
     payload["item_status"] = "IN_PROGRESS"
@@ -671,7 +671,7 @@ def test_build_reference_family_conformance_profile_rejects_per_gap_summary_run_
     summary_root = _copy_tree(
         fixture["design_gap_summary_root"], tmp_path / "design-gap-summaries"
     )
-    invalid_gap_id = LIVE_MISSING_GAP_IDS[0]
+    invalid_gap_id = REFERENCE_FAMILY_COMPLETED_GAP_IDS[0]
     summary_path = summary_root / f"{invalid_gap_id}-summary.json"
     payload = json.loads(summary_path.read_text(encoding="utf-8"))
     payload["run_state_path"] = "state/other/run_state.json"
@@ -694,7 +694,7 @@ def test_build_reference_family_conformance_profile_reports_missing_implementati
     fixture = _reference_family_fixture(tmp_path)
     architecture_root = tmp_path / "implementation-architectures"
     _copy_tree(fixture["implementation_architecture_root"], architecture_root)
-    missing_gap_id = "workflow-lisp-runtime-native-drain-typed-provider-request-records"
+    missing_gap_id = REFERENCE_FAMILY_COMPLETED_GAP_IDS[0]
     (
         architecture_root / missing_gap_id / "implementation_architecture.md"
     ).unlink()
@@ -722,12 +722,9 @@ def test_build_reference_family_conformance_profile_rejects_missing_architecture
     fixture = _reference_family_fixture(tmp_path)
     architecture_index_path = tmp_path / "existing-architecture-index.md"
     _copy_json(fixture["architecture_index_path"], architecture_index_path)
-    selected_gap_id = (
-        "workflow-lisp-runtime-native-drain-reference-family-completion-"
-        "inventory-realignment-after-final-gap-closures"
-    )
+    selected_gap_id = REFERENCE_FAMILY_COMPLETED_GAP_IDS[0]
     architecture_path = (
-        "docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/"
+        f"{REFERENCE_FAMILY_IMPLEMENTATION_ARCHITECTURE_ROOT_RELATIVE_PATH}/"
         f"{selected_gap_id}/implementation_architecture.md"
     )
     architecture_index_path.write_text(
@@ -759,6 +756,33 @@ def test_build_reference_family_conformance_profile_rejects_missing_architecture
     ]
 
 
+def test_build_reference_family_conformance_profile_allows_missing_owned_architecture_index_with_direct_reconciliation(
+    tmp_path: Path,
+) -> None:
+    module = _reference_family_module()
+    fixture = _reference_family_fixture(tmp_path)
+    missing_index_path = tmp_path / "missing-existing-architecture-index.md"
+
+    profile = module.build_reference_family_conformance_profile(
+        **_reference_family_inputs(
+            fixture,
+            architecture_index_path=missing_index_path,
+        )
+    )
+
+    assert profile["profile_status"] == "pass"
+    assert profile["completed_gap_reconciliation"]["status"] == "pass"
+    assert profile["completed_gap_reconciliation"]["missing_from_architecture_index"] == []
+    assert (
+        profile["completed_gap_reconciliation"]["architecture_index_strategy"]
+        == "direct_architecture_root_reconciliation"
+    )
+    architecture_index_row = next(
+        row for row in profile["evidence_inputs"] if row["input_id"] == "architecture_index"
+    )
+    assert architecture_index_row["load_status"] == "missing"
+
+
 @pytest.mark.parametrize(
     (
         "missing_input_id",
@@ -768,7 +792,6 @@ def test_build_reference_family_conformance_profile_rejects_missing_architecture
         "command_adapter_contract_path",
     ),
     [
-        ("architecture_index", Path("/does/not/exist.md"), None, None, None),
         ("target_design", None, Path("/does/not/exist.md"), None, None),
         ("baseline_design", None, None, Path("/does/not/exist.md"), None),
         ("command_adapter_contract", None, None, None, Path("/does/not/exist.md")),
@@ -796,9 +819,7 @@ def test_build_reference_family_conformance_profile_fails_closed_when_required_e
     )
 
     assert profile["profile_status"] == "fail"
-    evidence_row = next(
-        row for row in profile["evidence_inputs"] if row["input_id"] == missing_input_id
-    )
+    evidence_row = next(row for row in profile["evidence_inputs"] if row["input_id"] == missing_input_id)
     assert evidence_row["load_status"] == "missing"
     assert any(
         diagnostic["code"] == "reference_family_conformance_input_missing"

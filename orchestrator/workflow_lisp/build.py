@@ -324,6 +324,128 @@ DESIGN_DELTA_G8_REMOVED_PYTHON_SYMBOLS = (
     "name_lane_fallback_counts",
     "clear_name_lane_fallback_counts",
 )
+
+
+@dataclass(frozen=True)
+class ReferenceFamilyEvidencePaths:
+    run_state_path: Path
+    drain_summary_path: Path
+    design_gap_summary_root: Path
+    implementation_architecture_root: Path
+    architecture_index_path: Path
+    target_design_path: Path
+    baseline_design_path: Path
+    command_adapter_contract_path: Path
+    parity_targets_path: Path
+    parity_report_json_path: Path
+    parity_report_markdown_path: Path
+    parity_index_path: Path
+
+
+def _reference_family_versioned_roots() -> list[tuple[int, str, Path, Path]]:
+    candidates: list[tuple[int, str, Path, Path]] = []
+    for run_state_path in (REPO_ROOT / "state").glob(
+        "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R*/drain/run_state.json"
+    ):
+        root_name = run_state_path.parents[1].name
+        if "-R" not in root_name:
+            continue
+        try:
+            version = int(root_name.rsplit("-R", 1)[1])
+        except ValueError:
+            continue
+        artifact_root = REPO_ROOT / "artifacts" / "work" / root_name
+        drain_summary_path = artifact_root / "drain-summary.json"
+        if drain_summary_path.is_file():
+            candidates.append((version, root_name, run_state_path, artifact_root))
+    return sorted(candidates)
+
+
+def _reference_family_implementation_root_from_run_state(
+    run_state_payload: Mapping[str, object],
+    *,
+    default_root_name: str,
+) -> Path:
+    candidate_roots: list[Path] = []
+    stack: list[object] = [run_state_payload]
+    while stack:
+        current = stack.pop(0)
+        if isinstance(current, Mapping):
+            architecture_path = current.get("architecture_path")
+            if isinstance(architecture_path, str):
+                path_parts = Path(architecture_path).parts
+                if (
+                    len(path_parts) >= 4
+                    and path_parts[0] == "docs"
+                    and path_parts[1] == "plans"
+                    and path_parts[3] == "design-gaps"
+                ):
+                    candidate_roots.append(REPO_ROOT.joinpath(*path_parts[:4]))
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            stack.extend(current)
+    for root in candidate_roots:
+        if root.is_dir():
+            return root
+    versioned_root = REPO_ROOT / "docs" / "plans" / default_root_name / "design-gaps"
+    if versioned_root.is_dir():
+        return versioned_root
+    return REFERENCE_FAMILY_IMPLEMENTATION_ARCHITECTURE_ROOT
+
+
+def _resolve_reference_family_architecture_index(root_name: str) -> Path:
+    versioned_iterations_root = REPO_ROOT / "state" / root_name / "drain" / "iterations"
+    candidates = sorted(
+        versioned_iterations_root.glob("*/done-review/design-gap-architect/existing-architecture-index.md")
+    )
+    if not candidates:
+        candidates = sorted(
+            versioned_iterations_root.glob("*/design-gap-architect/existing-architecture-index.md")
+        )
+    if candidates:
+        return candidates[-1]
+    if versioned_iterations_root.exists():
+        return versioned_iterations_root / "existing-architecture-index.md"
+    return REFERENCE_FAMILY_ARCHITECTURE_INDEX_PATH
+
+
+def _resolve_reference_family_evidence_paths() -> ReferenceFamilyEvidencePaths:
+    versioned_roots = _reference_family_versioned_roots()
+    if versioned_roots:
+        _version, root_name, run_state_path, artifact_root = versioned_roots[-1]
+        run_state_payload = json.loads(run_state_path.read_text(encoding="utf-8"))
+        implementation_architecture_root = _reference_family_implementation_root_from_run_state(
+            run_state_payload,
+            default_root_name=root_name,
+        )
+        return ReferenceFamilyEvidencePaths(
+            run_state_path=run_state_path,
+            drain_summary_path=artifact_root / "drain-summary.json",
+            design_gap_summary_root=artifact_root / "design-gaps",
+            implementation_architecture_root=implementation_architecture_root,
+            architecture_index_path=_resolve_reference_family_architecture_index(root_name),
+            target_design_path=REFERENCE_FAMILY_TARGET_DESIGN_PATH,
+            baseline_design_path=REFERENCE_FAMILY_BASELINE_DESIGN_PATH,
+            command_adapter_contract_path=REFERENCE_FAMILY_COMMAND_ADAPTER_CONTRACT_PATH,
+            parity_targets_path=REFERENCE_FAMILY_PARITY_TARGETS_PATH,
+            parity_report_json_path=REFERENCE_FAMILY_PARITY_REPORT_JSON_PATH,
+            parity_report_markdown_path=REFERENCE_FAMILY_PARITY_REPORT_MARKDOWN_PATH,
+            parity_index_path=REFERENCE_FAMILY_PARITY_INDEX_PATH,
+        )
+    return ReferenceFamilyEvidencePaths(
+        run_state_path=REFERENCE_FAMILY_RUN_STATE_PATH,
+        drain_summary_path=REFERENCE_FAMILY_DRAIN_SUMMARY_PATH,
+        design_gap_summary_root=REFERENCE_FAMILY_DESIGN_GAP_SUMMARY_ROOT,
+        implementation_architecture_root=REFERENCE_FAMILY_IMPLEMENTATION_ARCHITECTURE_ROOT,
+        architecture_index_path=REFERENCE_FAMILY_ARCHITECTURE_INDEX_PATH,
+        target_design_path=REFERENCE_FAMILY_TARGET_DESIGN_PATH,
+        baseline_design_path=REFERENCE_FAMILY_BASELINE_DESIGN_PATH,
+        command_adapter_contract_path=REFERENCE_FAMILY_COMMAND_ADAPTER_CONTRACT_PATH,
+        parity_targets_path=REFERENCE_FAMILY_PARITY_TARGETS_PATH,
+        parity_report_json_path=REFERENCE_FAMILY_PARITY_REPORT_JSON_PATH,
+        parity_report_markdown_path=REFERENCE_FAMILY_PARITY_REPORT_MARKDOWN_PATH,
+        parity_index_path=REFERENCE_FAMILY_PARITY_INDEX_PATH,
+    )
 DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS = (
     "with-phase",
     "finalize-selected-item",
@@ -698,6 +820,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     materialize_view_effects: list[dict[str, Any]] = []
     view_dual_run_vectors = None
     view_dual_run_report = None
+    reference_family_evidence_paths = _resolve_reference_family_evidence_paths()
     if boundary_authority_registry is not None:
         view_dual_run_vectors = _maybe_load_design_delta_view_dual_run_vectors(
             entry_workflow=entry_selection.canonical_name,
@@ -1435,18 +1558,18 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
             reference_family_conformance_profile_payload = (
                 build_reference_family_conformance_profile(
                     workflow_family="design_delta_parent_drain",
-                    run_state_path=REFERENCE_FAMILY_RUN_STATE_PATH,
-                    drain_summary_path=REFERENCE_FAMILY_DRAIN_SUMMARY_PATH,
-                    design_gap_summary_root=REFERENCE_FAMILY_DESIGN_GAP_SUMMARY_ROOT,
-                    implementation_architecture_root=REFERENCE_FAMILY_IMPLEMENTATION_ARCHITECTURE_ROOT,
-                    architecture_index_path=REFERENCE_FAMILY_ARCHITECTURE_INDEX_PATH,
-                    target_design_path=REFERENCE_FAMILY_TARGET_DESIGN_PATH,
-                    baseline_design_path=REFERENCE_FAMILY_BASELINE_DESIGN_PATH,
-                    command_adapter_contract_path=REFERENCE_FAMILY_COMMAND_ADAPTER_CONTRACT_PATH,
-                    parity_targets_path=REFERENCE_FAMILY_PARITY_TARGETS_PATH,
-                    parity_report_json_path=REFERENCE_FAMILY_PARITY_REPORT_JSON_PATH,
-                    parity_report_markdown_path=REFERENCE_FAMILY_PARITY_REPORT_MARKDOWN_PATH,
-                    parity_index_path=REFERENCE_FAMILY_PARITY_INDEX_PATH,
+                    run_state_path=reference_family_evidence_paths.run_state_path,
+                    drain_summary_path=reference_family_evidence_paths.drain_summary_path,
+                    design_gap_summary_root=reference_family_evidence_paths.design_gap_summary_root,
+                    implementation_architecture_root=reference_family_evidence_paths.implementation_architecture_root,
+                    architecture_index_path=reference_family_evidence_paths.architecture_index_path,
+                    target_design_path=reference_family_evidence_paths.target_design_path,
+                    baseline_design_path=reference_family_evidence_paths.baseline_design_path,
+                    command_adapter_contract_path=reference_family_evidence_paths.command_adapter_contract_path,
+                    parity_targets_path=reference_family_evidence_paths.parity_targets_path,
+                    parity_report_json_path=reference_family_evidence_paths.parity_report_json_path,
+                    parity_report_markdown_path=reference_family_evidence_paths.parity_report_markdown_path,
+                    parity_index_path=reference_family_evidence_paths.parity_index_path,
                     checked_manifest_paths={
                         "boundary_authority_manifest": DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH,
                         "command_boundaries_manifest": DESIGN_DELTA_PARENT_DRAIN_COMMAND_BOUNDARIES_PATH,
@@ -1498,14 +1621,14 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                     (
                         _cli_request_diagnostic(
                             code="reference_family_conformance_invalid",
-                            message=(
-                                "design-delta reference-family conformance profile failed: "
-                                f"{first_code}"
+                                message=(
+                                    "design-delta reference-family conformance profile failed: "
+                                    f"{first_code}"
+                                ),
+                                path=reference_family_evidence_paths.drain_summary_path,
                             ),
-                            path=REFERENCE_FAMILY_DRAIN_SUMMARY_PATH,
-                        ),
+                        )
                     )
-                )
     if family_profile_metadata is not None:
         if boundary_authority_report_payload is not None:
             boundary_authority_report_payload = {

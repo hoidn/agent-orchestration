@@ -229,7 +229,6 @@ def build_reference_family_conformance_profile(
         drain_summary,
         summary_inventory,
         implementation_architectures,
-        architecture_index,
         target_design,
         baseline_design,
         command_adapter_contract,
@@ -587,9 +586,13 @@ def _reconcile_completed_gaps(
         or not implementation_paths[gap_id].is_file()
     )
 
+    architecture_index_record = architecture_index["record"]
+    architecture_index_strategy = "architecture_index"
     missing_from_architecture_index: list[str] = []
     architecture_index_text = architecture_index.get("text")
-    if isinstance(architecture_index_text, str):
+    if architecture_index_record.load_status == "loaded" and isinstance(
+        architecture_index_text, str
+    ):
         for gap_id in run_completed:
             expected_path = implementation_paths.get(gap_id)
             relpath = gap_id
@@ -597,6 +600,22 @@ def _reconcile_completed_gaps(
                 relpath = _relative_or_absolute_path(expected_path, repo_root)
             if gap_id not in architecture_index_text and relpath not in architecture_index_text:
                 missing_from_architecture_index.append(gap_id)
+    elif architecture_index_record.load_status == "missing":
+        architecture_index_strategy = "direct_architecture_root_reconciliation"
+    else:
+        architecture_index_strategy = "invalid_architecture_index"
+        diagnostics.append(
+            Diagnostic(
+                code="reference_family_conformance_input_invalid",
+                message="required evidence input `architecture_index` is invalid",
+                severity="error",
+                details={
+                    "input_id": architecture_index_record.input_id,
+                    "evidence_path": architecture_index_record.path,
+                    "related_surface_id": "completion_inventory",
+                },
+            )
+        )
 
     if missing_from_summary or extra_in_summary or not ordered_list_matches:
         diagnostics.append(
@@ -668,6 +687,9 @@ def _reconcile_completed_gaps(
         "stale_summary_metadata": stale_summary_metadata,
         "missing_architecture_files": missing_architecture_files,
         "missing_from_architecture_index": missing_from_architecture_index,
+        "architecture_index_path": architecture_index_record.path,
+        "architecture_index_status": architecture_index_record.load_status,
+        "architecture_index_strategy": architecture_index_strategy,
         "evidence_paths": sorted(
             {
                 path
