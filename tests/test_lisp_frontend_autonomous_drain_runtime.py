@@ -857,6 +857,49 @@ def test_blocked_recovery_detector_allows_diagnostic_mechanics_for_discovery(tmp
     assert payload["recovery_route"] == "NOT_APPLICABLE"
 
 
+def test_blocked_recovery_detector_routes_empty_manifest_to_done_review(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_state = workspace / "state/run_state.json"
+    selector_manifest = workspace / "state/selector-manifest.json"
+    output = workspace / "state/blocked-recovery.json"
+    run_state.parent.mkdir(parents=True)
+    run_state.write_text(json.dumps({"blocked_design_gaps": {}, "blocked_items": {}}) + "\n", encoding="utf-8")
+    selector_manifest.write_text(
+        json.dumps(
+            {
+                "items": [],
+                "design_gaps": [],
+                "eligible_items": [],
+                "eligible_design_gaps": [],
+                "priority_recovery_work": [],
+                "blocking_mechanics_errors": [],
+                "hidden_summary": {"blocked_by_dependencies": 0, "invalid_dependencies": 0},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py"),
+        "--run-state-path",
+        run_state.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work",
+        "--selector-manifest-path",
+        selector_manifest.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "SELECT_DONE_REVIEW"
+    assert payload["recovery_reason"] == "no_selectable_manifest_work"
+    assert payload["recovery_status"] == "DONE_REVIEW_REQUIRED"
+
+
 def test_blocked_recovery_detector_skips_hidden_prerequisite_from_diagnostic_manifest(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -981,6 +1024,134 @@ def test_prerequisite_selection_requires_eligible_design_gap(tmp_path):
     assert payload["design_gap_id"] == "b"
 
 
+def test_selection_bundle_publish_requires_eligible_design_gap_when_manifest_has_work(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state_root = workspace / "state"
+    state_root.mkdir()
+    selection = state_root / "selection.json"
+    manifest = state_root / "selector-manifest.json"
+    output = state_root / "selection-bundle-path.json"
+    selection.write_text(
+        json.dumps(
+            {
+                "selection_status": "DRAFT_DESIGN_GAP",
+                "design_gap_id": "stale-hidden-gap",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manifest.write_text(
+        json.dumps(
+            {
+                "eligible_design_gaps": [{"design_gap_id": "current-gap", "status": "available"}],
+                "eligible_items": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/publish_lisp_frontend_selection_bundle.py"),
+        "--selection-path",
+        selection.relative_to(workspace).as_posix(),
+        "--manifest-path",
+        manifest.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "design_gap_id is not eligible: stale-hidden-gap" in result.stderr
+    assert not output.exists()
+
+
+def test_selection_bundle_publish_accepts_eligible_design_gap(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state_root = workspace / "state"
+    state_root.mkdir()
+    selection = state_root / "selection.json"
+    manifest = state_root / "selector-manifest.json"
+    output = state_root / "selection-bundle-path.json"
+    selection.write_text(
+        json.dumps(
+            {
+                "selection_status": "DRAFT_DESIGN_GAP",
+                "design_gap_id": "current-gap",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manifest.write_text(
+        json.dumps(
+            {
+                "eligible_design_gaps": [{"design_gap_id": "current-gap", "status": "available"}],
+                "eligible_items": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/publish_lisp_frontend_selection_bundle.py"),
+        "--selection-path",
+        selection.relative_to(workspace).as_posix(),
+        "--manifest-path",
+        manifest.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["selection_bundle_path"] == "state/selection.json"
+
+
+def test_selection_bundle_publish_allows_new_gap_discovery_when_no_eligible_work(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state_root = workspace / "state"
+    state_root.mkdir()
+    selection = state_root / "selection.json"
+    manifest = state_root / "selector-manifest.json"
+    output = state_root / "selection-bundle-path.json"
+    selection.write_text(
+        json.dumps(
+            {
+                "selection_status": "DRAFT_DESIGN_GAP",
+                "design_gap_id": "new-target-gap",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manifest.write_text(
+        json.dumps({"eligible_design_gaps": [], "eligible_items": []}) + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/publish_lisp_frontend_selection_bundle.py"),
+        "--selection-path",
+        selection.relative_to(workspace).as_posix(),
+        "--manifest-path",
+        manifest.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["selection_bundle_path"] == "state/selection.json"
+
+
 def test_prerequisite_selection_blocks_hidden_design_gap(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -1087,6 +1258,7 @@ def test_selector_manifest_hides_blocked_dependent_and_filters_counts(tmp_path):
     manifest_path = workspace / "state/drain/manifest.json"
     run_state_path = workspace / "state/drain/run_state.json"
     output_path = workspace / "state/drain/selector-manifest.json"
+    control_path = workspace / "state/drain/selector-control-manifest.json"
     gap_root = workspace / "docs/plans/DRAIN/design-gaps"
     for gap_id in ("a", "b"):
         _write_selector_manifest_gap_architecture(workspace, gap_id)
@@ -1119,21 +1291,28 @@ def test_selector_manifest_hides_blocked_dependent_and_filters_counts(tmp_path):
         gap_root.relative_to(workspace).as_posix(),
         "--run-state-path",
         run_state_path.relative_to(workspace).as_posix(),
+        "--control-output",
+        control_path.relative_to(workspace).as_posix(),
         "--output",
         output_path.relative_to(workspace).as_posix(),
     )
 
     payload = json.loads(output_path.read_text(encoding="utf-8"))
+    control = json.loads(control_path.read_text(encoding="utf-8"))
     assert [gap["design_gap_id"] for gap in payload["eligible_design_gaps"]] == ["b"]
     assert [gap["design_gap_id"] for gap in payload["design_gaps"]] == ["b"]
     assert payload["design_gap_count"] == 1
     assert payload["all_design_gap_count_diagnostic"] == 2
     assert payload["priority_recovery_work"] == [{"source": "DESIGN_GAP", "id": "b", "status": "available"}]
-    assert payload["hidden_work"][0]["id"] == "a"
-    assert "waiting_on" not in payload["hidden_work"][0]
     assert payload["hidden_summary"]["blocked_by_dependencies"] == 1
-    assert payload["blocking_mechanics_errors"] == []
-    assert payload["diagnostic_mechanics_errors"] == []
+    assert "hidden_work" not in payload
+    assert "blocking_mechanics_errors" not in payload
+    assert "diagnostic_mechanics_errors" not in payload
+    assert "target_gap_discovery_allowed" not in payload
+    assert control["hidden_work"][0]["id"] == "a"
+    assert control["hidden_work"][0]["waiting_on"] == {"source": "DESIGN_GAP", "id": "b"}
+    assert control["blocking_mechanics_errors"] == []
+    assert control["diagnostic_mechanics_errors"] == []
 
 
 def test_selector_manifest_keeps_new_gap_discovery_available_for_missing_prerequisite(tmp_path):
@@ -1142,6 +1321,7 @@ def test_selector_manifest_keeps_new_gap_discovery_available_for_missing_prerequ
     manifest_path = workspace / "state/drain/manifest.json"
     run_state_path = workspace / "state/drain/run_state.json"
     output_path = workspace / "state/drain/selector-manifest.json"
+    control_path = workspace / "state/drain/selector-control-manifest.json"
     gap_root = workspace / "docs/plans/DRAIN/design-gaps"
     for gap_id in ("a", "b"):
         _write_selector_manifest_gap_architecture(workspace, gap_id)
@@ -1178,20 +1358,27 @@ def test_selector_manifest_keeps_new_gap_discovery_available_for_missing_prerequ
         gap_root.relative_to(workspace).as_posix(),
         "--run-state-path",
         run_state_path.relative_to(workspace).as_posix(),
+        "--control-output",
+        control_path.relative_to(workspace).as_posix(),
         "--output",
         output_path.relative_to(workspace).as_posix(),
     )
 
     payload = json.loads(output_path.read_text(encoding="utf-8"))
-    assert payload["target_gap_discovery_allowed"] is True
+    control = json.loads(control_path.read_text(encoding="utf-8"))
+    assert "target_gap_discovery_allowed" not in payload
     assert payload["eligible_design_gaps"] == []
     assert payload["design_gaps"] == []
     assert payload["design_gap_count"] == 0
-    assert {item["id"] for item in payload["hidden_work"]} == {"a", "b"}
     assert payload["priority_recovery_work"] == []
-    assert payload["blocking_mechanics_errors"] == []
-    assert payload["diagnostic_mechanics_errors"][0]["code"] == "missing_dependency_target"
+    assert "hidden_work" not in payload
+    assert "blocking_mechanics_errors" not in payload
+    assert "diagnostic_mechanics_errors" not in payload
     assert "missing-c" not in json.dumps(payload)
+    assert control["target_gap_discovery_allowed"] is True
+    assert {item["id"] for item in control["hidden_work"]} == {"a", "b"}
+    assert control["blocking_mechanics_errors"] == []
+    assert control["diagnostic_mechanics_errors"][0]["code"] == "missing_dependency_target"
 
 
 def test_selector_manifest_blocks_missing_prerequisite_when_discovery_disabled(tmp_path):
@@ -1200,6 +1387,7 @@ def test_selector_manifest_blocks_missing_prerequisite_when_discovery_disabled(t
     manifest_path = workspace / "state/drain/manifest.json"
     run_state_path = workspace / "state/drain/run_state.json"
     output_path = workspace / "state/drain/selector-manifest.json"
+    control_path = workspace / "state/drain/selector-control-manifest.json"
     gap_root = workspace / "docs/plans/DRAIN/design-gaps"
     _write_selector_manifest_gap_architecture(workspace, "a")
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1233,16 +1421,22 @@ def test_selector_manifest_blocks_missing_prerequisite_when_discovery_disabled(t
         run_state_path.relative_to(workspace).as_posix(),
         "--target-gap-discovery-allowed",
         "false",
+        "--control-output",
+        control_path.relative_to(workspace).as_posix(),
         "--output",
         output_path.relative_to(workspace).as_posix(),
     )
 
     payload = json.loads(output_path.read_text(encoding="utf-8"))
-    assert payload["target_gap_discovery_allowed"] is False
+    control = json.loads(control_path.read_text(encoding="utf-8"))
+    assert "target_gap_discovery_allowed" not in payload
     assert payload["design_gaps"] == []
-    assert payload["blocking_mechanics_errors"][0]["code"] == "missing_dependency_target"
-    assert payload["diagnostic_mechanics_errors"] == []
+    assert "blocking_mechanics_errors" not in payload
+    assert "diagnostic_mechanics_errors" not in payload
     assert "missing-c" not in json.dumps(payload)
+    assert control["target_gap_discovery_allowed"] is False
+    assert control["blocking_mechanics_errors"][0]["code"] == "missing_dependency_target"
+    assert control["diagnostic_mechanics_errors"] == []
 
 
 def test_recovered_design_gap_materializer_ignores_stale_prior_bundle_paths(tmp_path):
@@ -5499,10 +5693,24 @@ def test_design_delta_drain_checks_blocked_recovery_before_selection():
 
     selector = next(step for step in repeat_steps if step["name"] == "SelectNextWork")
     selector_cases = selector["match"]["cases"]
+    normal_case_names = [step["name"] for step in selector_cases["SELECT_NORMAL_WORK"]["steps"]]
+    assert "ClearSelectorControlManifest" in normal_case_names
     assert any(step["name"] == "RunNormalSelector" for step in selector_cases["SELECT_NORMAL_WORK"]["steps"])
+    assert normal_case_names.index("ClearSelectorControlManifest") < normal_case_names.index("RunNormalSelector")
+    clear_control = next(
+        step for step in selector_cases["SELECT_NORMAL_WORK"]["steps"]
+        if step["name"] == "ClearSelectorControlManifest"
+    )
+    assert any(part.endswith("remove_lisp_frontend_private_artifact.py") for part in clear_control["command"])
+    assert "${inputs.drain_state_root}/iterations/${loop.index}/selector-control-manifest.json" in clear_control["command"]
     normal_selector = next(step for step in selector_cases["SELECT_NORMAL_WORK"]["steps"] if step["name"] == "RunNormalSelector")
-    assert normal_selector["with"]["run_state_path"]["ref"] == "inputs.run_state_target_path"
-    assert normal_selector["with"]["post_wcc_inventory_path"]["ref"] == "inputs.post_wcc_inventory_path"
+    assert "run_state_path" not in normal_selector["with"]
+    assert "progress_ledger_path" not in normal_selector["with"]
+    assert "post_wcc_inventory_path" not in normal_selector["with"]
+    done_review_case = selector_cases["SELECT_DONE_REVIEW"]
+    done_review_names = [step["name"] for step in done_review_case["steps"]]
+    assert done_review_names == ["WriteDoneReviewSelection", "PublishDoneReviewSelectionBundle"]
+    assert all(step["name"] != "RunNormalSelector" for step in done_review_case["steps"])
     assert any(
         step["name"] == "WritePrerequisiteRecoverySelection"
         for step in selector_cases["SELECT_PREREQUISITE_WORK"]["steps"]
@@ -5812,26 +6020,34 @@ def test_design_delta_drain_done_route_requires_terminal_review_gate():
     )
 
 
-def test_design_delta_selector_workflow_consumes_post_wcc_inventory_authority():
+def test_design_delta_selector_workflow_excludes_historical_state_from_provider_context():
     selector_workflow = yaml.safe_load(
         (ROOT / "workflows/library/lisp_frontend_design_delta_selector.v214.yaml").read_text()
     )
 
-    assert selector_workflow["inputs"]["post_wcc_inventory_path"]["under"] == "docs/plans"
-    assert selector_workflow["artifacts"]["post_wcc_inventory"]["pointer"] == (
-        "${inputs.state_root}/post_wcc_inventory_path.txt"
-    )
+    for input_name in ("post_wcc_inventory_path", "progress_ledger_path", "run_state_path"):
+        assert input_name not in selector_workflow["inputs"]
+    for artifact_name in ("post_wcc_inventory", "progress_ledger", "run_state"):
+        assert artifact_name not in selector_workflow["artifacts"]
 
     materialize = next(step for step in selector_workflow["steps"] if step["name"] == "MaterializeSelectorInputs")
     names = materialize["materialize_artifacts"]["input_values"][0]["names"]
-    assert "post_wcc_inventory_path" in names
+    assert "post_wcc_inventory_path" not in names
+    assert "progress_ledger_path" not in names
+    assert "run_state_path" not in names
     publishes = {entry["artifact"]: entry["from"] for entry in materialize["publishes"]}
-    assert publishes["post_wcc_inventory"] == "post_wcc_inventory_path"
+    assert "post_wcc_inventory" not in publishes
+    assert "progress_ledger" not in publishes
+    assert "run_state" not in publishes
 
     select = next(step for step in selector_workflow["steps"] if step["name"] == "SelectNextWork")
     consumed = [entry["artifact"] for entry in select["consumes"]]
-    assert "post_wcc_inventory" in consumed
-    assert "post_wcc_inventory" in select["prompt_consumes"]
+    assert "post_wcc_inventory" not in consumed
+    assert "post_wcc_inventory" not in select["prompt_consumes"]
+    assert "progress_ledger" not in consumed
+    assert "progress_ledger" not in select["prompt_consumes"]
+    assert "run_state" not in consumed
+    assert "run_state" not in select["prompt_consumes"]
     assert "baseline_design" in consumed
     assert "baseline_design" not in select["prompt_consumes"]
 

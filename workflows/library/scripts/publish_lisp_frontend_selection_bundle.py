@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 
 REPO_ROOT = Path.cwd()
@@ -23,17 +24,72 @@ def _safe_relpath(value: str, *, under: str, must_exist: bool = False) -> Path:
     return path
 
 
+def _load_json(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise SystemExit(f"Missing required JSON file: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise SystemExit(f"Expected JSON object: {path}")
+    return payload
+
+
+def _row_id(row: Any, *keys: str) -> str:
+    if not isinstance(row, dict):
+        return ""
+    for key in keys:
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _ids(rows: Any, *keys: str) -> set[str]:
+    if not isinstance(rows, list):
+        return set()
+    return {item for row in rows if (item := _row_id(row, *keys))}
+
+
+def _validate_against_manifest(selection: dict[str, Any], manifest: dict[str, Any]) -> None:
+    status = str(selection.get("selection_status") or "").strip()
+    eligible_items = _ids(manifest.get("eligible_items") or manifest.get("items"), "item_id", "id")
+    eligible_gaps = _ids(
+        manifest.get("eligible_design_gaps") or manifest.get("design_gaps"),
+        "design_gap_id",
+        "id",
+    )
+
+    if status == "SELECT_BACKLOG_ITEM":
+        selected = str(selection.get("selected_item_id") or "").strip()
+        if not selected:
+            raise SystemExit("SELECT_BACKLOG_ITEM selection missing selected_item_id")
+        if eligible_items and selected not in eligible_items:
+            raise SystemExit(f"selected_item_id is not eligible: {selected}")
+        return
+
+    if status == "DRAFT_DESIGN_GAP":
+        selected = str(selection.get("design_gap_id") or "").strip()
+        if not selected:
+            raise SystemExit("DRAFT_DESIGN_GAP selection missing design_gap_id")
+        if eligible_gaps and selected not in eligible_gaps:
+            raise SystemExit(f"design_gap_id is not eligible: {selected}")
+        return
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--selection-path", required=True)
+    parser.add_argument("--manifest-path", default="")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
     selection_rel = _safe_relpath(args.selection_path, under="state", must_exist=True)
-    selection = json.loads((REPO_ROOT / selection_rel).read_text(encoding="utf-8"))
+    selection = _load_json(REPO_ROOT / selection_rel)
     status = selection.get("selection_status")
     if status not in ALLOWED_STATUSES:
         raise SystemExit(f"Invalid selection_status: {status}")
+    if args.manifest_path:
+        manifest_rel = _safe_relpath(args.manifest_path, under="state", must_exist=True)
+        _validate_against_manifest(selection, _load_json(REPO_ROOT / manifest_rel))
 
     output_rel = _safe_relpath(args.output, under="state")
     output_path = REPO_ROOT / output_rel

@@ -126,6 +126,7 @@ def main() -> int:
     parser.add_argument("--architecture-index-root", required=True)
     parser.add_argument("--run-state-path", required=True)
     parser.add_argument("--target-gap-discovery-allowed", type=_bool_arg, default=True)
+    parser.add_argument("--control-output")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -171,7 +172,7 @@ def main() -> int:
         for ref in eligibility["eligible_work"]
         if _ref_key(str(ref.get("source") or ""), str(ref.get("id") or "")) in gap_rows_by_key
     ]
-    payload = {
+    provider_payload = {
         "manifest_version": 1,
         "manifest_path": output_rel.as_posix(),
         "backlog_root": manifest.get("backlog_root", ""),
@@ -184,16 +185,29 @@ def main() -> int:
         "eligible_design_gaps": eligible_design_gaps,
         "all_design_gap_count_diagnostic": len(design_gaps),
         "priority_recovery_work": eligibility["priority_recovery_work"],
-        "hidden_work": _public_hidden_work(eligibility["hidden_work"]),
         "hidden_summary": eligibility["hidden_summary"],
+        "blocking_mechanics_error_count": len(eligibility["blocking_mechanics_errors"]),
+    }
+    control_rel = (
+        _safe_relpath(args.control_output, under="state")
+        if args.control_output
+        else output_rel.with_name(f"{output_rel.stem}-control{output_rel.suffix}")
+    )
+    control_payload = {
+        **provider_payload,
+        "manifest_path": control_rel.as_posix(),
+        "provider_manifest_path": output_rel.as_posix(),
+        "hidden_work": eligibility["hidden_work"],
         "blocking_mechanics_errors": _public_mechanics_errors(eligibility["blocking_mechanics_errors"]),
         "diagnostic_mechanics_errors": _public_mechanics_errors(eligibility["diagnostic_mechanics_errors"]),
-        "blocking_mechanics_error_count": len(eligibility["blocking_mechanics_errors"]),
         "target_gap_discovery_allowed": args.target_gap_discovery_allowed,
     }
     output_path = REPO_ROOT / output_rel
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    output_path.write_text(json.dumps(provider_payload, indent=2) + "\n", encoding="utf-8")
+    control_path = REPO_ROOT / control_rel
+    control_path.parent.mkdir(parents=True, exist_ok=True)
+    control_path.write_text(json.dumps(control_payload, indent=2) + "\n", encoding="utf-8")
     return 0
 
 

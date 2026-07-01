@@ -7,7 +7,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 try:
     from workflows.library.scripts.workflow_recovery_dependencies import (
@@ -126,6 +126,22 @@ def _selector_manifest_payload(path: Path | None) -> dict[str, Any]:
     if path is None or not path.exists():
         return {}
     return _load_json(path)
+
+
+def _selector_manifest_has_selectable_work(manifest: Mapping[str, Any]) -> bool:
+    for key in ("items", "design_gaps", "eligible_items", "eligible_design_gaps", "priority_recovery_work"):
+        value = manifest.get(key)
+        if isinstance(value, list) and value:
+            return True
+    return False
+
+
+def _selector_manifest_requests_done_review(manifest: Mapping[str, Any]) -> bool:
+    if not manifest:
+        return False
+    if manifest.get("blocking_mechanics_errors"):
+        return False
+    return not _selector_manifest_has_selectable_work(manifest)
 
 
 def _manifest_ref_set(rows: Any) -> set[tuple[str, str]]:
@@ -360,6 +376,12 @@ def _recovery_payload(
         )
         payload.update(_pointer_fields(decision))
         return payload
+    if _selector_manifest_requests_done_review(selector_manifest):
+        return _none_payload(
+            recovery_reason="no_selectable_manifest_work",
+            pre_selection_route="SELECT_DONE_REVIEW",
+            recovery_status="DONE_REVIEW_REQUIRED",
+        )
     return _none_payload()
 
 

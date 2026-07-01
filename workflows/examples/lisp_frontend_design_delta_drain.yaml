@@ -213,6 +213,8 @@ steps:
             - ${inputs.architecture_index_root}
             - --run-state-path
             - ${inputs.run_state_target_path}
+            - --control-output
+            - ${inputs.drain_state_root}/iterations/${loop.index}/selector-control-manifest.json
             - --output
             - ${inputs.drain_state_root}/iterations/${loop.index}/selector-manifest.json
           output_bundle:
@@ -330,7 +332,7 @@ steps:
             - --non-progress-decision-path
             - ${inputs.drain_state_root}/iterations/${loop.index}/non-progress-decision.json
             - --selector-manifest-path
-            - ${inputs.drain_state_root}/iterations/${loop.index}/selector-manifest.json
+            - ${inputs.drain_state_root}/iterations/${loop.index}/selector-control-manifest.json
             - --output
             - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery.json
           output_bundle:
@@ -339,7 +341,7 @@ steps:
               - name: pre_selection_route
                 json_pointer: /pre_selection_route
                 type: enum
-                allowed: ["SELECT_NORMAL_WORK", "SELECT_PREREQUISITE_WORK", "RECOVER_BLOCKED_DESIGN_GAP", "BLOCKED"]
+                allowed: ["SELECT_NORMAL_WORK", "SELECT_DONE_REVIEW", "SELECT_PREREQUISITE_WORK", "RECOVER_BLOCKED_DESIGN_GAP", "BLOCKED"]
               - name: design_gap_id
                 json_pointer: /design_gap_id
                 type: string
@@ -506,6 +508,15 @@ steps:
                     from:
                       ref: self.steps.RunNormalSelector.artifacts.selection_bundle_path
                 steps:
+                  - name: ClearSelectorControlManifest
+                    id: clear_selector_control_manifest
+                    command:
+                      - python
+                      - workflows/library/scripts/remove_lisp_frontend_private_artifact.py
+                      - --path
+                      - ${inputs.drain_state_root}/iterations/${loop.index}/selector-control-manifest.json
+                      - --under
+                      - state
                   - name: RunNormalSelector
                     id: run_normal_selector
                     call: selector
@@ -518,14 +529,57 @@ steps:
                         ref: inputs.target_design_path
                       baseline_design_path:
                         ref: inputs.baseline_design_path
-                      post_wcc_inventory_path:
-                        ref: inputs.post_wcc_inventory_path
                       manifest_path:
                         ref: parent.steps.ProjectSelectorManifest.artifacts.manifest_path
-                      progress_ledger_path:
-                        ref: inputs.progress_ledger_path
-                      run_state_path:
-                        ref: inputs.run_state_target_path
+              SELECT_DONE_REVIEW:
+                id: deterministic_done_review_path
+                outputs:
+                  selection_status:
+                    kind: scalar
+                    type: enum
+                    allowed: ["SELECT_BACKLOG_ITEM", "DRAFT_DESIGN_GAP", "DONE", "BLOCKED"]
+                    from:
+                      ref: self.steps.WriteDoneReviewSelection.artifacts.selection_status
+                  selection_bundle_path:
+                    type: relpath
+                    under: state
+                    must_exist_target: true
+                    from:
+                      ref: self.steps.PublishDoneReviewSelectionBundle.artifacts.selection_bundle_path
+                steps:
+                  - name: WriteDoneReviewSelection
+                    id: write_done_review_selection
+                    command:
+                      - python
+                      - workflows/library/scripts/write_lisp_frontend_done_selection.py
+                      - --output
+                      - ${inputs.drain_state_root}/iterations/${loop.index}/done-review-selection.json
+                    output_bundle:
+                      path: ${inputs.drain_state_root}/iterations/${loop.index}/done-review-selection.json
+                      fields:
+                        - name: selection_status
+                          json_pointer: /selection_status
+                          type: enum
+                          allowed: ["SELECT_BACKLOG_ITEM", "DRAFT_DESIGN_GAP", "DONE", "BLOCKED"]
+                  - name: PublishDoneReviewSelectionBundle
+                    id: publish_done_review_selection_bundle
+                    command:
+                      - python
+                      - workflows/library/scripts/publish_lisp_frontend_selection_bundle.py
+                      - --selection-path
+                      - ${inputs.drain_state_root}/iterations/${loop.index}/done-review-selection.json
+                      - --manifest-path
+                      - ${inputs.drain_state_root}/iterations/${loop.index}/selector-control-manifest.json
+                      - --output
+                      - ${inputs.drain_state_root}/iterations/${loop.index}/done-review-selection-bundle-path.json
+                    output_bundle:
+                      path: ${inputs.drain_state_root}/iterations/${loop.index}/done-review-selection-bundle-path.json
+                      fields:
+                        - name: selection_bundle_path
+                          json_pointer: /selection_bundle_path
+                          type: relpath
+                          under: state
+                          must_exist_target: true
               SELECT_PREREQUISITE_WORK:
                 id: run_prerequisite_recovery_selector_path
                 outputs:
@@ -550,7 +604,7 @@ steps:
                       - --pre-selection-path
                       - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery.json
                       - --manifest-path
-                      - ${parent.steps.ProjectSelectorManifest.artifacts.manifest_path}
+                      - ${inputs.drain_state_root}/iterations/${loop.index}/selector-control-manifest.json
                       - --target-design-path
                       - ${inputs.target_design_path}
                       - --output
@@ -856,6 +910,11 @@ steps:
                     ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
                   op: eq
                   right: SELECT_NORMAL_WORK
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
+                  op: eq
+                  right: SELECT_DONE_REVIEW
               - compare:
                   left:
                     ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route

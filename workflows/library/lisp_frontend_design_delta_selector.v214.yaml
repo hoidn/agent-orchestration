@@ -21,19 +21,7 @@ inputs:
     type: relpath
     under: docs/design
     must_exist_target: true
-  post_wcc_inventory_path:
-    type: relpath
-    under: docs/plans
-    must_exist_target: true
   manifest_path:
-    type: relpath
-    under: state
-    must_exist_target: true
-  progress_ledger_path:
-    type: relpath
-    under: state
-    must_exist_target: true
-  run_state_path:
     type: relpath
     under: state
     must_exist_target: true
@@ -79,28 +67,10 @@ artifacts:
     pointer: ${inputs.state_root}/baseline_design_path.txt
     under: docs/design
     must_exist_target: true
-  post_wcc_inventory:
-    kind: relpath
-    type: relpath
-    pointer: ${inputs.state_root}/post_wcc_inventory_path.txt
-    under: docs/plans
-    must_exist_target: true
   manifest:
     kind: relpath
     type: relpath
     pointer: ${inputs.state_root}/manifest_path.txt
-    under: state
-    must_exist_target: true
-  progress_ledger:
-    kind: relpath
-    type: relpath
-    pointer: ${inputs.state_root}/progress_ledger_path.txt
-    under: state
-    must_exist_target: true
-  run_state:
-    kind: relpath
-    type: relpath
-    pointer: ${inputs.state_root}/run_state_path.txt
     under: state
     must_exist_target: true
 
@@ -113,10 +83,7 @@ steps:
             - steering_path
             - target_design_path
             - baseline_design_path
-            - post_wcc_inventory_path
             - manifest_path
-            - progress_ledger_path
-            - run_state_path
           contract: inherit
           pointer_template: ${inputs.state_root}/{name}.txt
     publishes:
@@ -126,14 +93,8 @@ steps:
         from: target_design_path
       - artifact: baseline_design
         from: baseline_design_path
-      - artifact: post_wcc_inventory
-        from: post_wcc_inventory_path
       - artifact: manifest
         from: manifest_path
-      - artifact: progress_ledger
-        from: progress_ledger_path
-      - artifact: run_state
-        from: run_state_path
 
   - name: SelectNextWork
     id: select_next_work
@@ -169,6 +130,8 @@ steps:
       - workflows/library/scripts/publish_lisp_frontend_selection_bundle.py
       - --selection-path
       - ${inputs.state_root}/selection.json
+      - --manifest-path
+      - ${inputs.manifest_path}
       - --output
       - ${inputs.state_root}/selection-bundle-path.json
     output_bundle:
