@@ -1576,6 +1576,8 @@ steps:
             - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery-drain-status.txt
             - --recovered-work-item-status-path
             - ${inputs.drain_state_root}/iterations/${loop.index}/recovered-gap/work-item/drain_status.txt
+            - --recovered-work-item-status-value
+            - ${self.steps.RunRecoveredBlockedGapWorkItem.artifacts.drain_status}
             - --run-state-path
             - ${inputs.run_state_target_path}
             - --output
@@ -1606,6 +1608,8 @@ steps:
             - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery-drain-status.txt
             - --recovered-work-item-status-path
             - ${inputs.drain_state_root}/iterations/${loop.index}/recovered-gap/work-item/drain_status.txt
+            - --recovered-work-item-status-value
+            - ${self.steps.RunRecoveredBlockedGapWorkItem.artifacts.drain_status}
             - --step-back-status-path
             - ${inputs.drain_state_root}/iterations/${loop.index}/step-back-drain-status.txt
             - --run-state-path

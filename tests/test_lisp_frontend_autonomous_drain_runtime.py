@@ -5895,6 +5895,8 @@ def test_design_delta_drain_checks_blocked_recovery_before_selection():
         assert _condition_has_pre_selection_recovery_guard(recover[step_name]["when"]), step_name
     retry_unavailable = recover["RecordRecoveredRetryUnavailable"]
     assert any(part.endswith("record_lisp_frontend_recovered_retry_unavailable.py") for part in retry_unavailable["command"])
+    assert "--recovered-work-item-status-value" in retry_unavailable["command"]
+    assert "RunRecoveredBlockedGapWorkItem.artifacts.drain_status" in json.dumps(retry_unavailable["command"])
     materializer_condition = json.dumps(recover["MaterializeRecoveredBlockedGapDraft"]["when"])
     assert "RETRY_READY" in materializer_condition
     assert "RecordBlockedRecoveryOutcome.artifacts.recovery_drain_status" in materializer_condition
@@ -5906,6 +5908,9 @@ def test_design_delta_drain_checks_blocked_recovery_before_selection():
         "RecordRecoveredRetryUnavailable",
     ]:
         assert _condition_has_recovered_retry_request_guard(recover[step_name]["when"]), step_name
+    resolver = recover["ResolveIterationDrainStatus"]
+    assert "--recovered-work-item-status-value" in resolver["command"]
+    assert "RunRecoveredBlockedGapWorkItem.artifacts.drain_status" in json.dumps(resolver["command"])
 
 
 def test_prerequisite_boundary_workflow_route():
