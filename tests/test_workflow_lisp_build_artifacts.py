@@ -701,6 +701,46 @@ def _build_design_delta_parent_drain(
             parity_index_path,
             raising=False,
         )
+    if any(
+        path is not None
+        for path in (
+            run_state_path,
+            drain_summary_path,
+            design_gap_summary_root,
+            implementation_architecture_root,
+            architecture_index_path,
+            target_design_path,
+            parity_targets_path,
+            parity_report_json_path,
+            parity_report_markdown_path,
+            parity_index_path,
+        )
+    ):
+        resolved_paths = build._resolve_reference_family_evidence_paths()
+        monkeypatch.setattr(
+            build,
+            "_resolve_reference_family_evidence_paths",
+            lambda: build.ReferenceFamilyEvidencePaths(
+                run_state_path=run_state_path or resolved_paths.run_state_path,
+                drain_summary_path=drain_summary_path or resolved_paths.drain_summary_path,
+                design_gap_summary_root=design_gap_summary_root
+                or resolved_paths.design_gap_summary_root,
+                implementation_architecture_root=implementation_architecture_root
+                or resolved_paths.implementation_architecture_root,
+                architecture_index_path=architecture_index_path
+                or resolved_paths.architecture_index_path,
+                target_design_path=target_design_path or resolved_paths.target_design_path,
+                baseline_design_path=resolved_paths.baseline_design_path,
+                command_adapter_contract_path=resolved_paths.command_adapter_contract_path,
+                parity_targets_path=parity_targets_path or resolved_paths.parity_targets_path,
+                parity_report_json_path=parity_report_json_path
+                or resolved_paths.parity_report_json_path,
+                parity_report_markdown_path=parity_report_markdown_path
+                or resolved_paths.parity_report_markdown_path,
+                parity_index_path=parity_index_path or resolved_paths.parity_index_path,
+            ),
+            raising=False,
+        )
     return build_frontend_bundle(
         _design_delta_parent_drain_request(
             tmp_path,
@@ -713,58 +753,85 @@ def _load_design_delta_boundary_authority_registry() -> dict[str, object]:
     return json.loads(DESIGN_DELTA_BOUNDARY_AUTHORITY_PATH.read_text(encoding="utf-8"))
 
 
+REFERENCE_FAMILY_SYNTHETIC_COMPLETED_GAP_ID = (
+    "workflow-lisp-runtime-native-drain-reference-family-completion-inventory-smoke-gap"
+)
+
+
+def _resolved_reference_family_evidence_paths():
+    build = _build_module()
+    return getattr(build, "_resolve_reference_family_evidence_paths")()
+
+
 def _aligned_reference_family_drain_summary(tmp_path: Path) -> Path:
-    payload = json.loads(
-        (
-            REPO_ROOT
-            / "artifacts"
-            / "work"
-            / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-            / "drain-summary.json"
-        ).read_text(encoding="utf-8")
-    )
-    run_state = json.loads(
-        (
-            REPO_ROOT
-            / "state"
-            / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-            / "drain"
-            / "run_state.json"
-        ).read_text(encoding="utf-8")
-    )
-    payload["completed_design_gaps"] = list(run_state["completed_design_gaps"])
+    evidence_paths = _resolved_reference_family_evidence_paths()
+    payload = json.loads(evidence_paths.drain_summary_path.read_text(encoding="utf-8"))
+    run_state = json.loads(evidence_paths.run_state_path.read_text(encoding="utf-8"))
+    completed_design_gaps = list(run_state.get("completed_design_gaps", ()))
+    if not completed_design_gaps:
+        completed_design_gaps = [REFERENCE_FAMILY_SYNTHETIC_COMPLETED_GAP_ID]
+    payload["completed_design_gaps"] = completed_design_gaps
     path = tmp_path / "reference-family-drain-summary.json"
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return path
 
 
+def _aligned_reference_family_run_state(tmp_path: Path) -> Path:
+    evidence_paths = _resolved_reference_family_evidence_paths()
+    payload = json.loads(evidence_paths.run_state_path.read_text(encoding="utf-8"))
+    completed_design_gaps = list(payload.get("completed_design_gaps", ()))
+    if not completed_design_gaps:
+        completed_design_gaps = [REFERENCE_FAMILY_SYNTHETIC_COMPLETED_GAP_ID]
+    payload["completed_design_gaps"] = completed_design_gaps
+    path = tmp_path / "reference-family-run-state.json"
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def _aligned_reference_family_design_gap_summary_root(
+    tmp_path: Path,
+    run_state_path: Path,
+) -> Path:
+    evidence_paths = _resolved_reference_family_evidence_paths()
+    source_root = evidence_paths.design_gap_summary_root
+    destination = tmp_path / "reference-family-design-gap-summaries"
+    shutil.copytree(source_root, destination)
+    run_state = json.loads(run_state_path.read_text(encoding="utf-8"))
+    completed_design_gaps = list(run_state.get("completed_design_gaps", ()))
+    if not completed_design_gaps:
+        completed_design_gaps = [REFERENCE_FAMILY_SYNTHETIC_COMPLETED_GAP_ID]
+    for gap_id in completed_design_gaps:
+        summary_path = destination / f"{gap_id}-summary.json"
+        if not summary_path.exists():
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "gap_id": gap_id,
+                        "item_status": "COMPLETED",
+                        "run_state_path": str(run_state_path),
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+    return destination
+
+
 def _aligned_reference_family_architecture_index(tmp_path: Path) -> Path:
-    source_path = (
-        REPO_ROOT
-        / "state"
-        / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-        / "drain"
-        / "iterations"
-        / "10"
-        / "design-gap-architect"
-        / "existing-architecture-index.md"
-    )
+    evidence_paths = _resolved_reference_family_evidence_paths()
+    source_path = evidence_paths.architecture_index_path
     text = source_path.read_text(encoding="utf-8").rstrip()
-    run_state = json.loads(
-        (
-            REPO_ROOT
-            / "state"
-            / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-            / "drain"
-            / "run_state.json"
-        ).read_text(encoding="utf-8")
-    )
+    run_state = json.loads(evidence_paths.run_state_path.read_text(encoding="utf-8"))
+    implementation_root = evidence_paths.implementation_architecture_root
+    completed_design_gaps = list(run_state.get("completed_design_gaps", ()))
+    if not completed_design_gaps:
+        completed_design_gaps = [REFERENCE_FAMILY_SYNTHETIC_COMPLETED_GAP_ID]
     missing_entries: list[str] = []
-    for gap_id in run_state["completed_design_gaps"]:
+    for gap_id in completed_design_gaps:
         relpath = (
-            "docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/"
-            f"{gap_id}/implementation_architecture.md"
-        )
+            implementation_root / gap_id / "implementation_architecture.md"
+        ).relative_to(REPO_ROOT).as_posix()
         if relpath not in text and gap_id not in text:
             missing_entries.append(f"- {relpath}")
     path = tmp_path / "reference-family-architecture-index.md"
@@ -776,25 +843,15 @@ def _aligned_reference_family_architecture_index(tmp_path: Path) -> Path:
 def _aligned_reference_family_implementation_architecture_root(
     tmp_path: Path,
 ) -> Path:
-    source_root = (
-        REPO_ROOT
-        / "docs"
-        / "plans"
-        / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-        / "design-gaps"
-    )
+    evidence_paths = _resolved_reference_family_evidence_paths()
+    source_root = evidence_paths.implementation_architecture_root
     destination = tmp_path / "reference-family-implementation-architectures"
     shutil.copytree(source_root, destination)
-    run_state = json.loads(
-        (
-            REPO_ROOT
-            / "state"
-            / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-            / "drain"
-            / "run_state.json"
-        ).read_text(encoding="utf-8")
-    )
-    for gap_id in run_state["completed_design_gaps"]:
+    run_state = json.loads(evidence_paths.run_state_path.read_text(encoding="utf-8"))
+    completed_design_gaps = list(run_state.get("completed_design_gaps", ()))
+    if not completed_design_gaps:
+        completed_design_gaps = [REFERENCE_FAMILY_SYNTHETIC_COMPLETED_GAP_ID]
+    for gap_id in completed_design_gaps:
         architecture_path = destination / gap_id / "implementation_architecture.md"
         if not architecture_path.exists():
             architecture_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1091,14 +1148,97 @@ def _load_hidden_compatibility_bridge_reread_pointer_authority_fixture() -> dict
 def _aligned_design_delta_resume_plumbing_retirement_manifest(
     *,
     census_path: Path = DESIGN_DELTA_VALUE_FLOW_CENSUS_PATH,
+    census_payload: dict[str, object] | None = None,
 ) -> dict[str, object]:
     payload = _load_design_delta_resume_plumbing_retirement_manifest(
         DESIGN_DELTA_RESUME_PLUMBING_RETIREMENT_PATH
     )
+    census_fingerprint = (
+        hashlib.sha256((json.dumps(census_payload, indent=2) + "\n").encode("utf-8")).hexdigest()
+        if census_payload is not None
+        else hashlib.sha256(census_path.read_bytes()).hexdigest()
+    )
     payload["source_census"] = {
         "path": str(census_path),
-        "fingerprint": "sha256:" + hashlib.sha256(census_path.read_bytes()).hexdigest(),
+        "fingerprint": "sha256:" + census_fingerprint,
     }
+    return payload
+
+
+def _reintroduced_work_item_run_state_row(
+    *,
+    boundary_authority_class: str = "compatibility_bridge",
+) -> dict[str, object]:
+    return {
+        "row_id": "work_item.loop.run_state_path",
+        "boundary_authority_class": boundary_authority_class,
+        "bridge": {
+            "bridge_owner": "workflow_lisp_generic_core_g0",
+            "consumer": "runtime_transition_bridge",
+            "file_shape": "private_run_state_bridge",
+            "retirement_condition": (
+                "remove after runtime-native drain-run-state backing stops injecting the private work-item run_state_path bridge"
+            ),
+        },
+        "command_boundary": None,
+        "current_consumer": "runtime_resume",
+        "notes": "Synthetic stale work-item run_state_path row for negative retirement coverage.",
+        "path_or_contract": "run_state_path",
+        "plumbing_class": "resume_only",
+        "replacement_target": "Track R runtime-derived drain-run-state backing",
+        "semantic_owner": "compatibility_bridge",
+        "source_evidence": [
+            {
+                "kind": "boundary_authority_registry",
+                "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.boundary_authority.json",
+            },
+            {
+                "kind": "resume_plumbing_retirement",
+                "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.resume_plumbing_retirement.json",
+            },
+        ],
+        "source_kind": "loop_state_field",
+        "symbol_or_field": "run_state_path",
+        "track_owner": "R",
+        "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+    }
+
+
+def _value_flow_census_with_reintroduced_work_item_run_state_row(
+    *,
+    boundary_authority_class: str = "compatibility_bridge",
+) -> dict[str, object]:
+    payload = copy.deepcopy(_load_design_delta_value_flow_census())
+    payload["rows"].append(
+        _reintroduced_work_item_run_state_row(
+            boundary_authority_class=boundary_authority_class
+        )
+    )
+    return payload
+
+
+def _resume_manifest_with_retained_work_item_run_state(
+    *,
+    census_path: Path = DESIGN_DELTA_VALUE_FLOW_CENSUS_PATH,
+    census_payload: dict[str, object] | None = None,
+) -> dict[str, object]:
+    payload = _aligned_design_delta_resume_plumbing_retirement_manifest(
+        census_path=census_path,
+        census_payload=census_payload,
+    )
+    payload["decisions"].append(
+        {
+            "row_id": "work_item.loop.run_state_path",
+            "decision": "KEPT_COMPATIBILITY",
+            "remaining_consumer": "runtime_transition_bridge",
+            "retirement_condition": (
+                "remove after runtime-native drain-run-state backing stops injecting the private work-item run_state_path bridge"
+            ),
+            "parity_constraint": (
+                "R5 keeps the existing drain-run-state transition surface and must record the surviving private work-item bridge explicitly rather than claiming full retirement"
+            ),
+        }
+    )
     return payload
 
 
@@ -1192,6 +1332,30 @@ def _aligned_design_delta_boundary_authority_registry(tmp_path: Path) -> dict[st
         "schema_version": "workflow_lisp_design_delta_boundary_authority.v1",
         "rows": rows,
     }
+
+
+def _boundary_authority_registry_with_reintroduced_work_item_run_state(
+    tmp_path: Path,
+    *,
+    authority_class: str = "compatibility_bridge",
+) -> dict[str, object]:
+    payload = _aligned_design_delta_boundary_authority_registry(tmp_path)
+    payload["rows"].append(
+        {
+            "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
+            "field_name": "run_state_path",
+            "surface_kind": "compatibility_bridge_input",
+            "authority_class": authority_class,
+            "path_like": True,
+            "owner": "workflow_lisp_generic_core_g0",
+            "justification": (
+                "Synthetic stale work-item run_state_path row for negative retirement coverage."
+            ),
+            "replacement_tranche": "G0",
+            "parity_constrained": True,
+        }
+    )
+    return payload
 
 
 def _validate_review_findings_retirement_metadata() -> dict[str, object]:
@@ -5845,13 +6009,7 @@ def test_design_delta_parent_drain_boundary_authority_registry_covers_expected_r
         (workflow_name, field_name, row["surface_kind"])
         for (workflow_name, field_name), row in expected_rows.items()
     }
-    assert registry_keys == expected_keys | {
-        (
-            "lisp_frontend_design_delta/work_item::run-work-item",
-            "run_state_path",
-            "compatibility_bridge_input",
-        )
-    }
+    assert registry_keys == expected_keys
 
 
 def test_design_delta_parent_drain_boundary_authority_registry_uses_checkout_owned_metadata() -> None:
@@ -5928,7 +6086,7 @@ def test_design_delta_parent_drain_boundary_authority_expected_rows_include_gene
     compatibility_bridge_coverage = {
         field_name
         for (workflow_name, field_name), row in expected_rows.items()
-        if workflow_name == "lisp_frontend_design_delta/drain::drain"
+        if workflow_name == "lisp_frontend_design_delta/work_item::run-work-item"
         and row["surface_kind"] == "compatibility_bridge_input"
     }
     managed_write_root_rows = {
@@ -5976,10 +6134,7 @@ def test_design_delta_parent_drain_boundary_authority_expected_rows_exclude_scal
     assert (
         "lisp_frontend_design_delta/drain::drain",
         "run_state_path",
-    ) in expected_rows
-    assert expected_rows[
-        ("lisp_frontend_design_delta/drain::drain", "run_state_path")
-    ]["surface_kind"] == "compatibility_bridge_input"
+    ) not in expected_rows
     assert all(
         ("lisp_frontend_design_delta/drain::drain", field_name) not in expected_rows
         for field_name in {
@@ -5993,10 +6148,10 @@ def test_design_delta_parent_drain_boundary_authority_expected_rows_exclude_scal
     for field_name in {"architecture_bundle_path", "manifest_path", "progress_ledger_path"}:
         row = expected_rows[("lisp_frontend_design_delta/drain::drain", field_name)]
         assert row["surface_kind"] == "public_input"
-    run_state_row = expected_rows[
-        ("lisp_frontend_design_delta/drain::drain", "run_state_path")
+    progress_ledger_row = expected_rows[
+        ("lisp_frontend_design_delta/work_item::run-work-item", "progress_ledger_path")
     ]
-    assert run_state_row["surface_kind"] == "compatibility_bridge_input"
+    assert progress_ledger_row["surface_kind"] == "compatibility_bridge_input"
 
 
 def test_design_delta_parent_drain_build_rejects_unclassified_path_like_boundary_value(
@@ -6153,13 +6308,17 @@ def test_design_delta_parent_drain_boundary_authority_report_records_generated_a
     managed_write_root_inputs = set(
         drain_row["compiled_evidence"]["private_managed_write_root_inputs"]
     )
-
-    assert generated_internal_inputs == set(drain_row["generated_internal"]).union(
-        {"run_state_path"}
+    work_item_row = next(
+        row
+        for row in payload["workflows"]
+        if row["workflow_name"] == "lisp_frontend_design_delta/work_item::run-work-item"
     )
+
+    assert generated_internal_inputs == set(drain_row["generated_internal"])
     assert managed_write_root_inputs == set(drain_row["generated_internal"])
     assert drain_row["generated_internal"] != []
-    assert set(drain_row["compatibility_bridge"]) == {"run_state_path"}
+    assert drain_row["compatibility_bridge"] == []
+    assert set(work_item_row["compatibility_bridge"]) == {"progress_ledger_path"}
 
 
 def test_boundary_authority_report_records_pure_projection_classification_for_fixture_local_projection_helpers(
@@ -7895,11 +8054,16 @@ def test_design_delta_parent_drain_build_emits_reference_family_conformance_prof
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    run_state_path = _aligned_reference_family_run_state(tmp_path)
     result = _build_design_delta_parent_drain(
         tmp_path,
         monkeypatch,
         registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        run_state_path=run_state_path,
         drain_summary_path=_aligned_reference_family_drain_summary(tmp_path),
+        design_gap_summary_root=_aligned_reference_family_design_gap_summary_root(
+            tmp_path, run_state_path
+        ),
         implementation_architecture_root=_aligned_reference_family_implementation_architecture_root(
             tmp_path
         ),
@@ -7975,11 +8139,10 @@ def test_design_delta_parent_drain_build_rejects_reference_family_completed_gap_
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    run_state_path = _aligned_reference_family_run_state(tmp_path)
     drain_summary_path = _aligned_reference_family_drain_summary(tmp_path)
     payload = json.loads(drain_summary_path.read_text(encoding="utf-8"))
-    payload["completed_design_gaps"].remove(
-        "workflow-lisp-runtime-native-drain-reference-family-acceptance-evidence-realignment-regression-reopen"
-    )
+    payload["completed_design_gaps"].remove(REFERENCE_FAMILY_SYNTHETIC_COMPLETED_GAP_ID)
     drain_summary_path.write_text(
         json.dumps(payload, indent=2) + "\n",
         encoding="utf-8",
@@ -8004,16 +8167,17 @@ def test_design_delta_parent_drain_build_rejects_reference_family_completed_gap_
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    run_state_path = _aligned_reference_family_run_state(tmp_path)
     implementation_architecture_root = (
         _aligned_reference_family_implementation_architecture_root(tmp_path)
     )
     architecture_index_path = _aligned_reference_family_architecture_index(tmp_path)
-    selected_gap_id = (
-        "workflow-lisp-runtime-native-drain-reference-family-completion-"
-        "inventory-realignment-after-final-gap-closures"
-    )
+    selected_gap_id = REFERENCE_FAMILY_SYNTHETIC_COMPLETED_GAP_ID
     architecture_path = (
-        "docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/"
+        _resolved_reference_family_evidence_paths()
+        .implementation_architecture_root.relative_to(REPO_ROOT)
+        .as_posix()
+        + "/"
         f"{selected_gap_id}/implementation_architecture.md"
     )
     architecture_index_path.write_text(
@@ -8047,6 +8211,11 @@ def test_design_delta_parent_drain_build_rejects_reference_family_parity_surface
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    run_state_path = _aligned_reference_family_run_state(tmp_path)
+    implementation_architecture_root = (
+        _aligned_reference_family_implementation_architecture_root(tmp_path)
+    )
+    architecture_index_path = _aligned_reference_family_architecture_index(tmp_path)
     markdown_path = tmp_path / "design_delta_parent_drain.md"
     markdown_path.write_text(
         (
@@ -8082,6 +8251,11 @@ def test_design_delta_parent_drain_build_rejects_reference_family_invalid_parity
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    run_state_path = _aligned_reference_family_run_state(tmp_path)
+    implementation_architecture_root = (
+        _aligned_reference_family_implementation_architecture_root(tmp_path)
+    )
+    architecture_index_path = _aligned_reference_family_architecture_index(tmp_path)
     parity_json_path = tmp_path / "design_delta_parent_drain.json"
     payload = json.loads(
         (
@@ -8115,6 +8289,11 @@ def test_design_delta_parent_drain_build_rejects_reference_family_malformed_pari
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    run_state_path = _aligned_reference_family_run_state(tmp_path)
+    implementation_architecture_root = (
+        _aligned_reference_family_implementation_architecture_root(tmp_path)
+    )
+    architecture_index_path = _aligned_reference_family_architecture_index(tmp_path)
     markdown_path = tmp_path / "design_delta_parent_drain.md"
     markdown_path.write_text(
         (
@@ -8200,13 +8379,15 @@ def test_design_delta_parent_drain_checked_inputs_keep_work_item_run_state_retir
     census = _load_design_delta_value_flow_census()
     registry = _load_design_delta_boundary_authority_registry()
 
-    assert any(
-        row["row_id"] == "work_item.loop.run_state_path"
+    assert all(
+        row["row_id"] != "work_item.loop.run_state_path"
         for row in census["rows"]
     )
-    assert any(
-        row["workflow_name"] == "lisp_frontend_design_delta/work_item::run-work-item"
-        and row["field_name"] == "run_state_path"
+    assert all(
+        not (
+            row["workflow_name"] == "lisp_frontend_design_delta/work_item::run-work-item"
+            and row["field_name"] == "run_state_path"
+        )
         for row in registry["rows"]
     )
 
@@ -8229,7 +8410,7 @@ def test_design_delta_parent_drain_boundary_authority_report_keeps_live_work_ite
         if row["workflow_name"] == "lisp_frontend_design_delta/work_item::run-work-item"
     )
 
-    assert "run_state_path" in workflow_row["compatibility_bridge"]
+    assert "run_state_path" not in workflow_row["compatibility_bridge"]
 
 
 def test_design_delta_parent_drain_build_source_map_finalizer_compat_retirement_removes_helpers_from_ordinary_work_item_routes(
@@ -8278,13 +8459,10 @@ def test_design_delta_parent_drain_resume_plumbing_retirement_report_records_wor
             encoding="utf-8"
         )
     )
-    decision = next(
-        row
+    assert all(
+        row["row_id"] != "work_item.loop.run_state_path"
         for row in payload["decisions"]
-        if row["row_id"] == "work_item.loop.run_state_path"
     )
-    assert decision["decision"] == "KEPT_COMPATIBILITY"
-    assert decision["observed_locations"] == []
     assert payload["manifest"]["path"].endswith(
         "design_delta_parent_drain.resume_plumbing_retirement.json"
     )
@@ -8313,8 +8491,8 @@ def test_design_delta_parent_drain_resume_plumbing_retirement_report_records_dra
         if row["row_id"] == "transitions.resource.drain_run_state"
     )
 
-    assert decision["decision"] == "KEPT_COMPATIBILITY"
-    assert decision["observed_locations"] == ["resource_bridge_backing"]
+    assert decision["decision"] == "RETIRED"
+    assert decision["observed_locations"] == []
     assert payload["manifest"]["path"].endswith(
         "design_delta_parent_drain.resume_plumbing_retirement.json"
     )
@@ -8374,13 +8552,17 @@ def test_design_delta_parent_drain_resume_plumbing_retirement_retained_work_item
         if row.get("row_id") == "drain.loop.run_state_path"
         else original_retirement_diagnostics(row, **kwargs),
     )
+    value_flow_census_payload = _value_flow_census_with_reintroduced_work_item_run_state_row()
+    registry_payload = _boundary_authority_registry_with_reintroduced_work_item_run_state(
+        tmp_path
+    )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _build_design_delta_parent_drain(
             tmp_path,
             monkeypatch,
-            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
-            resume_plumbing_retirement_manifest_payload=_aligned_design_delta_resume_plumbing_retirement_manifest(),
+            registry_payload=registry_payload,
+            value_flow_census_payload=value_flow_census_payload,
         )
     assert excinfo.value.diagnostics[0].code == "resume_plumbing_retirement_invalid"
     assert "resume_plumbing_retirement_public_boundary_exposed" in excinfo.value.diagnostics[0].message
@@ -8452,13 +8634,17 @@ def test_design_delta_parent_drain_resume_plumbing_retirement_retained_work_item
         if row.get("row_id") == "drain.loop.run_state_path"
         else original_retirement_diagnostics(row, **kwargs),
     )
+    value_flow_census_payload = _value_flow_census_with_reintroduced_work_item_run_state_row()
+    registry_payload = _boundary_authority_registry_with_reintroduced_work_item_run_state(
+        tmp_path
+    )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _build_design_delta_parent_drain(
             tmp_path,
             monkeypatch,
-            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
-            resume_plumbing_retirement_manifest_payload=_aligned_design_delta_resume_plumbing_retirement_manifest(),
+            registry_payload=registry_payload,
+            value_flow_census_payload=value_flow_census_payload,
         )
     assert excinfo.value.diagnostics[0].code == "resume_plumbing_retirement_invalid"
     assert "resume_plumbing_retirement_loop_state_exposed" in excinfo.value.diagnostics[0].message
@@ -8499,13 +8685,17 @@ def test_design_delta_parent_drain_resume_plumbing_retirement_retained_work_item
         if row.get("row_id") == "drain.loop.run_state_path"
         else original_retirement_diagnostics(row, **kwargs),
     )
+    value_flow_census_payload = _value_flow_census_with_reintroduced_work_item_run_state_row()
+    registry_payload = _boundary_authority_registry_with_reintroduced_work_item_run_state(
+        tmp_path
+    )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _build_design_delta_parent_drain(
             tmp_path,
             monkeypatch,
-            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
-            resume_plumbing_retirement_manifest_payload=_aligned_design_delta_resume_plumbing_retirement_manifest(),
+            registry_payload=registry_payload,
+            value_flow_census_payload=value_flow_census_payload,
         )
     assert excinfo.value.diagnostics[0].code == "resume_plumbing_retirement_invalid"
     assert "resume_plumbing_retirement_call_signature_exposed" in excinfo.value.diagnostics[0].message
@@ -8546,13 +8736,23 @@ def test_design_delta_parent_drain_resume_plumbing_retirement_retained_work_item
         if row.get("row_id") == "drain.loop.run_state_path"
         else original_retirement_diagnostics(row, **kwargs),
     )
+    value_flow_census_payload = _value_flow_census_with_reintroduced_work_item_run_state_row()
+    census_path = tmp_path / "design_delta_parent_drain.value_flow_census.json"
+    registry_payload = _boundary_authority_registry_with_reintroduced_work_item_run_state(
+        tmp_path
+    )
+    resume_manifest_payload = _resume_manifest_with_retained_work_item_run_state(
+        census_path=census_path,
+        census_payload=value_flow_census_payload,
+    )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _build_design_delta_parent_drain(
             tmp_path,
             monkeypatch,
-            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
-            resume_plumbing_retirement_manifest_payload=_aligned_design_delta_resume_plumbing_retirement_manifest(),
+            registry_payload=registry_payload,
+            value_flow_census_payload=value_flow_census_payload,
+            resume_plumbing_retirement_manifest_payload=resume_manifest_payload,
         )
     assert excinfo.value.diagnostics[0].code == "resume_plumbing_retirement_invalid"
     assert "resume_plumbing_retirement_runtime_derived_reclassification" in excinfo.value.diagnostics[0].message
@@ -8586,13 +8786,17 @@ def test_design_delta_parent_drain_rejects_hidden_compatibility_bridge_reread_po
         if row.get("row_id") == "drain.loop.run_state_path"
         else original_retirement_diagnostics(row, **kwargs),
     )
+    value_flow_census_payload = _value_flow_census_with_reintroduced_work_item_run_state_row()
+    registry_payload = _boundary_authority_registry_with_reintroduced_work_item_run_state(
+        tmp_path
+    )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _build_design_delta_parent_drain(
             tmp_path,
             monkeypatch,
-            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
-            resume_plumbing_retirement_manifest_payload=_aligned_design_delta_resume_plumbing_retirement_manifest(),
+            registry_payload=registry_payload,
+            value_flow_census_payload=value_flow_census_payload,
         )
     assert excinfo.value.diagnostics[0].code == "resume_plumbing_retirement_invalid"
     assert "resume_plumbing_retirement_checkpoint_used_as_authority" in excinfo.value.diagnostics[0].message
@@ -8682,11 +8886,9 @@ def test_design_delta_parent_drain_resume_plumbing_retirement_build_passes_check
             shadow_report_payload["schema_version"]
             == "workflow_lisp_lexical_checkpoint_shadow_report.v1"
         )
-        assert any(
-            point.get("workflow_name")
-            == "lisp_frontend_design_delta/work_item::run-work-item"
-            for point in points_payload["points"]
-        )
+        assert {
+            point.get("workflow_name") for point in points_payload["points"]
+        } == {"lisp_frontend_design_delta/drain::drain"}
         assert any(
             "drain_runtime_owned"
             in (
@@ -8815,14 +9017,10 @@ def test_design_delta_parent_drain_default_resume_report_marks_live_run_state_br
         row["row_id"]: row for row in payload["cleanup_candidates"]
     }
 
-    assert cleanup_candidates["work_item.loop.run_state_path"]["cleanup_action"] in {
-        "BLOCKED",
-        "KEEP_HISTORICAL_ONLY",
-    }
-    assert cleanup_candidates["transitions.resource.drain_run_state"]["cleanup_action"] in {
-        "BLOCKED",
-        "KEEP_HISTORICAL_ONLY",
-    }
+    assert "work_item.loop.run_state_path" not in cleanup_candidates
+    assert cleanup_candidates["transitions.resource.drain_run_state"]["cleanup_action"] == (
+        "REMOVE_COMPATIBILITY_ALLOWLIST"
+    )
 
 
 def test_design_delta_parent_drain_default_resume_report_keeps_track_c_rows_out_of_cleanup(
