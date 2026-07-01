@@ -288,6 +288,11 @@ document owns the answer.
 **Keywords:** lisp-frontend, drain, runtime-native, typed-values, provider-inputs, private-context, consumer-rendering, resource-transitions, adapter-retirement
 **Use this when:** Planning or reviewing the concrete reference-family acceptance target for a principled Design Delta Drain `.orc` translation.
 
+### [Workflow Lisp Shared Owner-Lane Prerequisites](design/workflow_lisp_shared_owner_lane_prerequisites.md)
+**Description:** Prerequisite ledger split out of the runtime-native drain authoring target: the shared parent-loop, phase-family boundary, and `std/phase` self-hosting capability contracts that gate imported stdlib adoption claims, each with a minimum contract, minimum behavior check, and adoption-claim rule, plus the former Section 9 numbering map.
+**Keywords:** lisp-frontend, drain, stdlib-adoption, prerequisites, backlog-drain, gap-drafter, run-item, finalize-selected-item, phase-family, owner-lane
+**Use this when:** Checking whether a shared owner-lane capability exists before claiming imported `std/drain`, `std/phase`, or `std/resource` adoption for a workflow family, or resolving a former Section 9.x citation.
+
 ### [Workflow Lisp Consumer-Side Rendering](design/workflow_lisp_consumer_side_rendering.md)
 **Description:** Predecessor draft for the umbrella target's consumer-rendering track.
 **Keywords:** lisp-frontend, rendering, materialized-views, prompts, observability, publish-policy, compatibility-bridges
