@@ -115,11 +115,9 @@ def project_progress_signals(
         )
         dependency_edge_event, dependency_edge_fingerprint, dependency_chain_depth = _dependency_edge_signal(entry)
         plan_revised = event_name in {"plan_revision", "gap_design_revision", "design_revision", "blocked_recovery_review_revise"}
-        step_back_recorded = event_name == "step_back"
         accepted_change = (
             event_name == "completed"
-            or plan_revised
-            or step_back_recorded
+            or (plan_revised and event_name != "blocked_recovery_review_revise")
             or dependency_edge_event == "retry_ready"
         )
         outcome = "completed" if event_name == "completed" else "changed" if accepted_change else "blocked"

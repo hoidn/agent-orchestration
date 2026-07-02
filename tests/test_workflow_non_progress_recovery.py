@@ -196,6 +196,58 @@ def test_projector_emits_dependency_edge_signal_fields():
     assert event["dependency_edge_fingerprint"]
 
 
+def test_rejected_blocked_revision_is_not_an_accepted_change():
+    from workflows.library.scripts.project_lisp_frontend_progress_signals import project_progress_signals
+    from workflows.library.scripts.evaluate_workflow_non_progress import evaluate_non_progress
+
+    history = [
+        {"event": "blocked", "item_id": "item-a", "source": "IMPLEMENTATION", "reason": "tests_failing"},
+        {
+            "event": "blocked_recovery_review_revise",
+            "item_id": "item-a",
+            "source": "IMPLEMENTATION",
+            "reason": "tests_failing",
+        },
+        {
+            "event": "blocked_recovery_review_revise",
+            "item_id": "item-a",
+            "source": "IMPLEMENTATION",
+            "reason": "tests_failing",
+        },
+    ]
+    signals = project_progress_signals(run_id="run-1", run_state={"history": history}, current_iteration=len(history))
+
+    revise_event = signals["events"][1]
+    assert revise_event["plan_revised"] is True
+    assert revise_event["accepted_change"] is False
+    assert revise_event["outcome"] == "blocked"
+
+    decision = evaluate_non_progress(signals, plan_churn_threshold=2)
+
+    assert decision["route"] == "STEP_BACK_REQUIRED"
+    assert "plan_churn_without_outcome_change" in decision["trigger_codes"]
+
+
+def test_step_back_event_does_not_reset_unresolved_suffix_for_repeated_blocker():
+    from workflows.library.scripts.project_lisp_frontend_progress_signals import project_progress_signals
+    from workflows.library.scripts.evaluate_workflow_non_progress import evaluate_non_progress
+
+    history = [
+        {"event": "blocked", "item_id": "item-a", "source": "IMPLEMENTATION", "reason": "tests_failing"},
+        {"event": "step_back", "item_id": "item-a", "source": "IMPLEMENTATION", "reason": "tests_failing"},
+        {"event": "blocked", "item_id": "item-a", "source": "IMPLEMENTATION", "reason": "tests_failing"},
+    ]
+    signals = project_progress_signals(run_id="run-1", run_state={"history": history}, current_iteration=len(history))
+
+    step_back_event = signals["events"][1]
+    assert step_back_event["accepted_change"] is False
+
+    decision = evaluate_non_progress(signals, repeated_blocker_threshold=2)
+
+    assert decision["route"] == "STEP_BACK_REQUIRED"
+    assert "same_blocker_repeated" in decision["trigger_codes"]
+
+
 def test_evaluator_requires_step_back_for_plan_churn_without_outcome_change():
     from workflows.library.scripts.evaluate_workflow_non_progress import evaluate_non_progress
 
