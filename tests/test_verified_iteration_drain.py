@@ -275,3 +275,9 @@ def test_record_accepted_interrupts_stall_window(tmp_path):
     workspace = _init_workspace(tmp_path)
     status, drain = _record(workspace, seed_statuses=["NO_CHANGE", "ACCEPTED"], verify="RED")
     assert (status, drain) == ("CHECKS_RED", "CONTINUE")
+
+
+def test_verified_iteration_drain_workflow_loads(tmp_path):
+    loader = WorkflowLoader(ROOT)
+    loader.load_bundle(ROOT / WORKFLOW)
+    assert loader.error_count() == 0
