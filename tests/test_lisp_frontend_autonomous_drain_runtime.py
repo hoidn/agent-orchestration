@@ -1557,6 +1557,14 @@ def test_recovered_design_gap_materializer_ignores_stale_prior_bundle_paths(tmp_
         workspace
         / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/1/design-gap-architect/architecture-validation.json"
     )
+    stale_context_path = (
+        workspace
+        / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/1/design-gap-architect/work_item_context.md"
+    )
+    stale_checks_path = (
+        workspace
+        / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/1/design-gap-architect/check_commands.json"
+    )
     output_path = workspace / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/3/recovered-gap/draft-architecture.json"
     architecture_path.parent.mkdir(parents=True, exist_ok=True)
     recovery_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1580,6 +1588,8 @@ def test_recovered_design_gap_materializer_ignores_stale_prior_bundle_paths(tmp_
         + "\n",
         encoding="utf-8",
     )
+    stale_context_path.write_text("# Stale prior context\n", encoding="utf-8")
+    stale_checks_path.write_text(json.dumps(["python -m pytest stale_selector"]) + "\n", encoding="utf-8")
     stale_bundle_path.write_text(
         json.dumps(
             {
@@ -1617,6 +1627,11 @@ def test_recovered_design_gap_materializer_ignores_stale_prior_bundle_paths(tmp_
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["work_item_context_path"].endswith("/recovered-gap/recovered-work-item-context.md")
     assert payload["check_commands_path"].endswith("/recovered-gap/recovered-check-commands.json")
+    assert payload["work_item_context_path"] != stale_context_path.relative_to(workspace).as_posix()
+    assert payload["check_commands_path"] != stale_checks_path.relative_to(workspace).as_posix()
+    context = (workspace / payload["work_item_context_path"]).read_text(encoding="utf-8")
+    assert "Do not copy their generated `state/...` paths into durable design or plan documents." in context
+    assert "stale_selector" not in (workspace / payload["check_commands_path"]).read_text(encoding="utf-8")
 
 
 def test_architecture_validator_rejects_stale_draft_for_current_target(tmp_path):

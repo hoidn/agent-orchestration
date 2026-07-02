@@ -72,13 +72,14 @@ def _bundle_input_paths_exist(payload: dict[str, Any]) -> bool:
     )
 
 
-def _fallback_retry_bundle(
+def _materialize_retry_bundle(
     *,
     design_gap_id: str,
     recovery: dict[str, Any],
     architecture_path: Path,
     plan_path: Path,
     output_path: Path,
+    previous: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     context_path = output_path.with_name("recovered-work-item-context.md")
@@ -104,6 +105,12 @@ def _fallback_retry_bundle(
                 f"- plan_target_path: `{plan_path.as_posix()}`",
                 f"- progress_report_path: `{str(recovery.get('progress_report_path') or '').strip()}`",
                 "",
+                "## Runtime Artifacts",
+                "",
+                "Recovered retry context and check-command files are runtime artifacts.",
+                "Do not copy their generated `state/...` paths into durable design or plan documents.",
+                "If a durable document needs to mention them, describe the artifact role instead.",
+                "",
             ]
         ),
         encoding="utf-8",
@@ -120,7 +127,11 @@ def _fallback_retry_bundle(
         "check_commands_path": _repo_relpath(checks_path),
         "summary": (
             "Recovered design gap retry reconstructed from durable blocked state "
-            "because the prior architecture-validation bundle was unavailable."
+            + (
+                "with regenerated retry artifacts so stale generated paths are not reused."
+                if previous is not None
+                else "because the prior architecture-validation bundle was unavailable."
+            )
         ),
     }
 
@@ -142,14 +153,14 @@ def main() -> int:
     architecture_path = _safe_relpath(str(recovery.get("architecture_path") or ""), under="docs/plans", must_exist=True)
     plan_path = _safe_relpath(str(recovery.get("plan_path") or ""), under="docs/plans", must_exist=False)
     previous = _find_previous_bundle(drain_state_root, design_gap_id)
-    if previous is None:
-        previous = _fallback_retry_bundle(
-            design_gap_id=design_gap_id,
-            recovery=recovery,
-            architecture_path=architecture_path,
-            plan_path=plan_path,
-            output_path=REPO_ROOT / output_rel,
-        )
+    previous = _materialize_retry_bundle(
+        design_gap_id=design_gap_id,
+        recovery=recovery,
+        architecture_path=architecture_path,
+        plan_path=plan_path,
+        output_path=REPO_ROOT / output_rel,
+        previous=previous,
+    )
     context_path = _safe_relpath(str(previous.get("work_item_context_path") or ""), under="state", must_exist=True)
     checks_path = _safe_relpath(str(previous.get("check_commands_path") or ""), under="state", must_exist=True)
 
