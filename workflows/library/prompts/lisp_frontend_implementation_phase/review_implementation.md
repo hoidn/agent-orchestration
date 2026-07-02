@@ -51,20 +51,6 @@ When reviewing:
   successful behavior, not only the final output.
 - reject changes that make implementation-only data part of the user-facing or
   domain contract unless the governing design or spec explicitly requires it.
-- for numerical parity failures in current-scope or claimed behavior,
-  distinguish implementation defects, insufficient diagnosis, and cases where
-  the comparison standard is too strict for the supported claim. Treat
-  tolerance or comparator changes as acceptable only when residual evidence
-  supports numerical-method drift rather than semantic or physics drift,
-  unaffected invariants stay strict, and the authoritative spec, catalog, test
-  helper, or gate is updated.
-- for parity or benchmark work, reject implementations where validation data is
-  part of the production mechanism being validated, unless the approved design
-  explicitly defines the feature as reference-data lookup. Validation data
-  includes expected outputs, oracle data, fixtures, generated evidence,
-  checked-in answer tables, derived reference templates, or equivalent encoded
-  answers. It may support tests, diagnostics, and review evidence; it must not
-  be what makes production behavior pass.
 - distinguish:
   - unfinished current-scope work
   - defects in already-implemented work that block delivered behavior
@@ -90,9 +76,6 @@ Write `APPROVE` or `REVISE` to the `implementation_review_decision` path
 specified in the Output Contract.
 
 Group findings by severity.
-If there are any high-severity findings, include a section header exactly
-`## High`.
-If there are no high-severity findings, do not emit a `## High` section.
 Include a section `## Follow-Up Work` for unfinished plan work that is real but
 not required for approving the delivered scope.
 

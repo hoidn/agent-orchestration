@@ -97,10 +97,6 @@ outputs:
       ref: root.steps.RouteWorkItemTerminal.artifacts.item_summary_path
 
 artifacts:
-  design_revision_review_decision:
-    kind: scalar
-    type: enum
-    allowed: ["APPROVE", "REVISE", "BLOCKED"]
   target_design:
     kind: relpath
     type: relpath

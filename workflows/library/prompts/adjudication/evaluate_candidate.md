@@ -4,4 +4,4 @@ Score the candidate as a single global value from 0.0 to 1.0 based on how well i
 
 Do not use pass/fail categories. Do not prefer verbosity for its own sake.
 
-Write strict JSON with `candidate_id`, `score`, and `summary`.
+Your entire stdout must be exactly one JSON object (no fences, no prose) with `candidate_id`, `score`, and `summary`.

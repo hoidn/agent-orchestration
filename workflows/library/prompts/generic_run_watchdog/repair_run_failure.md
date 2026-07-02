@@ -4,12 +4,9 @@ You are repairing a failed, crashed, stalled, or unknown orchestrator workflow r
 
 Authoritative inputs:
 
-- Watch bundle: `${inputs.state_root}/watch.json`
-- Evidence bundle path is recorded inside that watch bundle.
-- Repair result target: `${inputs.repair_result_target_path}`
-- Target run id is recorded inside the watch bundle.
+- The injected watch bundle records the evidence paths, target run id, and the repair result target path.
 
-Before acting, use the `managing-workflows` skill. Apply only fixes that are
+Before acting, diagnose and repair the target run's durable workflow mechanics on your own, without waiting for repeated prompting. Apply only fixes that are
 needed to recover the target run or its durable workflow mechanics. If a
 provider prompt needs a broader policy change, record that as the repair
 blocker instead of changing unrelated prompt behavior.
@@ -54,3 +51,4 @@ Write `${inputs.repair_result_target_path}` as JSON with this shape:
 ```
 
 If no plan was needed, set `plan_path` to an empty string. If no new run was launched, set `new_run_id` to an empty string.
+`PLAN_WRITTEN` pairs with `recovery_action: DECLINED`, since writing a plan does not resume or relaunch the run within this iteration.

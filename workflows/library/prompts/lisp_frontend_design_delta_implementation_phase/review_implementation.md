@@ -69,9 +69,6 @@ Write `APPROVE` or `REVISE` to the `implementation_review_decision` path
 specified in the Output Contract.
 
 Group findings by severity.
-If there are any high-severity findings, include a section header exactly
-`## High`.
-If there are no high-severity findings, do not emit a `## High` section.
 Include a section `## Follow-Up Work` for unfinished plan work that is real but
 not required for approving the delivered scope.
 

@@ -1,7 +1,7 @@
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
 Read the consumed `design`, `plan`, `execution_report`, `execution_report_target`, `checks_report`, and `implementation_review_report` artifacts before acting.
 
-Use executing-plans to address the implementation review while staying aligned with the design and plan.
+Execute the plan task by task, verifying each step's expected result before moving on, to address the implementation review while staying aligned with the design and plan.
 Do not use `git worktree` or another checkout.
 If the repo is dirty, stay in the current checkout and leave unrelated files alone.
 Do not modify YAML, prompt files, or transient state files unless the plan explicitly requires it.

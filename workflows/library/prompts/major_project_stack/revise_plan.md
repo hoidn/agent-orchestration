@@ -1,4 +1,4 @@
-use receiving-code-review to address the feedback
+Before disputing or implementing a review finding, verify it against the code, and address the feedback.
 
 Major-project tranche plan revision additions:
 - Read the consumed `upstream_escalation_context` artifact. If it is active, preserve its evidence while revising.
