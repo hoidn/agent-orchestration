@@ -9,6 +9,8 @@ target-design requirement that the implementation could affect.
 Reject it if it turns the architecture into an execution plan: task order,
 command-order checklists, and workflow recovery procedure belong outside
 `implementation_architecture.md`.
+Also reject requirements or check commands not traceable to the target design
+or to verified current behavior.
 
 The baseline design is the accepted baseline design contract. The target design
 is the active contract for this review.

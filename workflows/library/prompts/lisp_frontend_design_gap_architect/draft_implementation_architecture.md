@@ -19,7 +19,11 @@ template is for system/spec-level designs, not bounded gap architectures.
 Keep procedure out of the architecture file. Describe ownership, constraints,
 allowed and forbidden implementation shapes, source surfaces, and acceptance
 conditions. Do not include task order, command-order checklists, recovery
-procedure, or manifest/report refresh chores.
+procedure, or manifest/report refresh chores. Every acceptance condition and
+check command must be traceable to the target design or to behavior whose
+consumer you verified is live in the current checkout; classify any failing
+pre-existing check as a live contract to satisfy or a stale artifact to
+exclude before including it.
 
 Preserve coherence with prior implementation architecture documents listed in
 the architecture index:

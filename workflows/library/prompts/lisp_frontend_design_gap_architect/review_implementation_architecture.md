@@ -9,6 +9,8 @@ target-design requirement that the implementation could affect.
 Reject it if it turns the architecture into an execution plan: task order,
 command-order checklists, workflow recovery procedure, and manifest/report
 refresh chores belong outside `implementation_architecture.md`.
+Also reject requirements or check commands not traceable to the target design
+or to verified current behavior.
 
 The full design is the target design for this review. The MVP design is
 compatibility context.

@@ -12,6 +12,15 @@ execution_report artifacts before acting.
 Review the implementation against the target design, the gap architecture, the
 approved plan, the plan's stated current implementation scope, and any explicit
 deferrals.
+Do not treat generated reports, projections, summaries, preferred packaging, or
+other derived evidence artifacts as blocking by themselves unless they are
+the requested product behavior, a stable input to normal runtime/product
+behavior, or evidence that implemented behavior is wrong. Acceptance, progress,
+review, promotion, conformance, and closeout evidence may block closeout or
+promotion, but they do not block implementation approval by themselves.
+Conversely, do not approve an implementation that only aligns evidence files
+while the claimed source/runtime behavior still fails to compile, run, or meet
+the approved contract.
 
 Your job is to decide whether the delivered implementation is correct,
 maintainable, and honestly scoped.
@@ -40,6 +49,10 @@ When reviewing:
   deleting it.
 - reject changes that make implementation-only data part of the user-facing or
   domain contract unless the governing design or spec explicitly requires it.
+- classify each blocking issue as an implementation defect, missing evidence for
+  a claim, invalid or non-runnable gate, environment blocker, or pre-existing
+  drift. Do not treat invalid gates or unavailable environment tools as
+  implementation defects unless the plan assigns implementation to fix them.
 
 In the verification section, note whether relevant project-native lint/static
 checks were run. Distinguish correctness-relevant findings from pre-existing or
@@ -65,4 +78,4 @@ not required for approving the delivered scope.
 Approve only if:
 - there are no high- or medium-severity findings
 - the delivered behavior matches the approved current implementation scope
-- no concrete bug, contract mismatch, fixture shortcut, or missing required check remains
+- no concrete bug, contract mismatch, fixture shortcut, or missing explicitly-blocking check remains

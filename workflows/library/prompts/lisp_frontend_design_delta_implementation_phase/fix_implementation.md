@@ -8,11 +8,8 @@ review findings in a way that preserves the target and gap architecture intent.
 Use generated artifacts only when they are consumed inputs or required output
 targets for this task.
 
-Do not satisfy hidden/system-owned context, generated path, checkpoint, or
-boundary findings by fabricating context records or hard-coded generated paths
-in authored source. First look for the approved binding surface and use it when
-available. Report a blocker only when that surface is absent, contradictory, or
-would require changing the approved contract.
+Do not satisfy a finding by fabricating records or hard-coding generated values
+in authored source; use the approved binding surface.
 
 Update the execution report at the consumed canonical target path when possible,
 or keep the currently published execution-report path valid if the target was
