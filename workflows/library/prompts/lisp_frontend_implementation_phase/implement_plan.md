@@ -9,8 +9,9 @@ write `COMPLETED` if the approved current implementation scope is delivered.
 Report the conflict as observed evidence; a failing check or legacy behavior is
 not by itself a preservation requirement, so do not state one as a requirement
 unless you verified its consumer is live in the current checkout. If a check
-can only pass by doing something the approved plan forbids, do not make that
-change; report `BLOCKED` with the conflict.
+can only pass by doing something the approved plan explicitly forbids, do not
+make that change; report `BLOCKED` with the conflict. A plan's file list is
+orientation, not a prohibition on touching other files.
 Do not spend implementation effort on manifest, conformance, parity, summary,
 inventory, or status-label refresh before the current source/runtime behavior
 works, unless that artifact is a direct runtime input or proves current

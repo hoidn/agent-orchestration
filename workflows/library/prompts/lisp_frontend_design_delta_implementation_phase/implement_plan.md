@@ -1,7 +1,8 @@
 Implement only the approved plan for the target-design work item.
 Use `superpowers:executing-plans` to execute the approved plan task by task.
-If a check can only pass by doing something the approved plan forbids, do not
-make that change; report `BLOCKED` with the conflict.
+If a check can only pass by doing something the approved plan explicitly
+forbids, do not make that change; report `BLOCKED` with the conflict. A
+plan's file list is orientation, not a prohibition on touching other files.
 
 Read the consumed target design, gap architecture, approved plan, and check
 commands before editing. Preserve the target and gap architecture intent while
