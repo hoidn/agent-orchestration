@@ -332,6 +332,42 @@ def _record_prerequisite_retry_ready(
     return 0
 
 
+def _clear_retry_block_fields(entry: dict[str, Any]) -> None:
+    for key in (
+        "retry_block_reason",
+        "retry_block_detail",
+        "retry_blocked_at_utc",
+        "recovered_architecture_validation_path",
+    ):
+        entry.pop(key, None)
+
+
+def _record_gap_design_revision_retry_ready(args: argparse.Namespace, reason: str) -> None:
+    state_path = Path(args.state_path)
+    state = _load_state(state_path)
+    blocked_key = "blocked_design_gaps" if args.source == "DESIGN_GAP" else "blocked_items"
+    blocked = dict(state.get(blocked_key) or {})
+    existing = dict(blocked.get(args.item_id) or {})
+    existing.update(
+        {
+            "reason": "implementation_blocked",
+            "timestamp_utc": _timestamp(),
+            "recovery_route": args.recovery_route,
+            "recovery_reason": reason,
+            "progress_report_path": args.progress_report_path,
+            "implementation_state_path": args.implementation_state_path,
+            "architecture_path": _architecture_path(args),
+            "plan_path": args.plan_path,
+            "recovery_event_id": args.recovery_event_id,
+            "recovery_status": "RETRY_READY",
+        }
+    )
+    _clear_retry_block_fields(existing)
+    blocked[args.item_id] = {key: value for key, value in existing.items() if value}
+    state[blocked_key] = blocked
+    _save_state(state_path, state)
+
+
 def _is_repeated_retry_failure(
     args: argparse.Namespace,
     state: dict[str, Any],
@@ -656,6 +692,7 @@ def main() -> int:
                 raise SystemExit(f"Unexpected gap design revision decision: {decision}")
             result = _run_update(args, "gap_design_revision", reason)
             if result == 0 and args.terminal_action == "continue":
+                _record_gap_design_revision_retry_ready(args, reason)
                 Path(args.drain_status_path).write_text("RUN_RECOVERED_GAP\n", encoding="utf-8")
             return result
         result = _run_update(args, "blocked", reason)

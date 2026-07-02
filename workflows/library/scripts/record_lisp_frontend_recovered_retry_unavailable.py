@@ -55,6 +55,8 @@ def _record_retry_unavailable(
     if not entry:
         entry = {"reason": "implementation_blocked"}
     entry.setdefault("reason", "implementation_blocked")
+    if str(entry.get("recovery_status") or "").strip() == "RETRY_READY":
+        entry["recovery_status"] = "RECOVERED_RETRY_UNAVAILABLE"
     entry["retry_block_reason"] = reason
     if detail:
         entry["retry_block_detail"] = detail
