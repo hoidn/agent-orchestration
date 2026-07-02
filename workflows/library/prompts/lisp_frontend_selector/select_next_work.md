@@ -1,5 +1,5 @@
-Read the consumed steering, full design, MVP design, and work graph or backlog
-input before acting.
+Read the consumed steering, full design, MVP design, and selector manifest or
+backlog input before acting.
 
 Select exactly one next Lisp frontend implementation work item.
 

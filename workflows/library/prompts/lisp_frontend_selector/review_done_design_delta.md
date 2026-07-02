@@ -1,4 +1,4 @@
-Read the steering file, target design, compact work graph, and selector DONE
+Read the steering file, target design, compact selector manifest, and selector DONE
 bundle before acting. Use the baseline design only as a compatibility
 background when needed.
 

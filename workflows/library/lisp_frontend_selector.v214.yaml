@@ -162,6 +162,8 @@ steps:
       - workflows/library/scripts/publish_lisp_frontend_selection_bundle.py
       - --selection-path
       - ${inputs.state_root}/selection.json
+      - --manifest-path
+      - ${inputs.manifest_path}
       - --output
       - ${inputs.state_root}/selection-bundle-path.json
     output_bundle:

@@ -1,21 +1,17 @@
 Read the consumed steering, target design, and selector manifest before acting.
 Use `attempt_history_summary` when present to avoid repeating failed or
 completed attempts.
-Existing selectable work is limited to manifest rows; use target-design
-reasoning only to propose genuinely new bounded gaps.
 
 Select exactly one next implementation unit for the target design.
 
-Use the target design as the active implementation target. Use the baseline
-design as a background contract that the target work must not violate.
+Use the target design as the active implementation target.
 
 Decision rules:
 
 - Return `SELECT_BACKLOG_ITEM` when an active backlog item directly covers the
   next useful target design implementation task.
-- Return `DRAFT_DESIGN_GAP` when no active backlog item is the right next task
-  and the target design still has an under-specified or unimplemented bounded
-  unit.
+- Return `DRAFT_DESIGN_GAP` only for a design gap listed as eligible in the
+  manifest.
 - Return `DONE` only when the target design is implemented and no target design
   gaps remain.
 - Return `BLOCKED` only when target design work remains but the target and
@@ -30,9 +26,6 @@ Select implementation work for source/runtime behavior, authoring surface, or
 contract defects required by the target design. If no such target-design work
 can be identified from the available inputs, return `DONE` or `BLOCKED` with a
 short reason.
-
-Do not select refactoring twice in a row. If the most recent completed unit was
-refactoring, select target design feature work, `DONE`, or `BLOCKED`.
 
 A refactor must leave the frontend ready for the next target design feature
 slice. If it changes current relied-upon architecture/design docs, update those
@@ -53,7 +46,6 @@ Backlog selection:
   "selection_status": "SELECT_BACKLOG_ITEM",
   "selected_item_id": "<selected_item_id>",
   "selected_item_path": "<selected_item_path>",
-  "prerequisite_relation": "only when selecting prerequisite recovery work",
   "selection_rationale": "short reason"
 }
 ```
@@ -68,7 +60,6 @@ Design gap:
   "source_sections": ["Target design section name"],
   "missing_component": "Under-specified or unimplemented target design unit",
   "proposed_scope": "Draft one bounded implementation architecture only.",
-  "prerequisite_relation": "only when drafting prerequisite recovery work",
   "selection_rationale": "short reason"
 }
 ```
