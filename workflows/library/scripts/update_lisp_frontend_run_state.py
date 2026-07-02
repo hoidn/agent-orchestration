@@ -198,6 +198,13 @@ def _record_run_blocked(
     if selection_path:
         selection = json.loads(Path(selection_path).read_text(encoding="utf-8"))
     if "pre_selection_route" in selection:
+        if selection.get("pre_selection_route") != "RECOVER_BLOCKED_DESIGN_GAP":
+            state["blocked_run"] = {
+                "reason": str(
+                    selection.get("block_reason") or selection.get("recovery_reason") or "workflow_run_blocked"
+                ).strip(),
+                "timestamp_utc": _timestamp(),
+            }
         return
     timestamp = _timestamp()
     entry = {
