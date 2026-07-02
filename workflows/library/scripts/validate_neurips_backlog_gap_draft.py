@@ -225,7 +225,7 @@ def main() -> int:
         output_path = _resolve_workspace_path(args.output)
         _write_validation_failure(output_path, reason)
         print(reason, file=sys.stderr)
-        return 1
+        return 0
 
 
 if __name__ == "__main__":

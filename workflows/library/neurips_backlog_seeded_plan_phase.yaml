@@ -385,6 +385,42 @@ steps:
                     publishes:
                       - artifact: plan
                         from: plan_path
+                  - name: ExtractOpenPlanFindings
+                    id: extract_open_plan_findings
+                    command:
+                      - bash
+                      - -lc
+                      - |
+                        python - <<'PY'
+                        import json
+                        from pathlib import Path
+
+                        review_pointer = Path("${inputs.state_root}/plan_review_report_path.txt")
+                        review_path = Path(review_pointer.read_text(encoding="utf-8").strip())
+                        report = json.loads(review_path.read_text(encoding="utf-8"))
+
+                        carried = []
+                        for finding in report.get("findings", []):
+                            if finding.get("status") in {"STILL_OPEN", "NEW", "SPLIT"}:
+                                carried.append(finding)
+
+                        open_findings_pointer = Path("${inputs.state_root}/open_findings_path.txt")
+                        open_findings_path = Path(open_findings_pointer.read_text(encoding="utf-8").strip())
+                        open_findings_path.parent.mkdir(parents=True, exist_ok=True)
+                        open_findings_path.write_text(
+                            json.dumps({"findings": carried}, indent=2) + "\n",
+                            encoding="utf-8",
+                        )
+                        PY
+                    expected_outputs:
+                      - name: open_findings_path
+                        path: ${inputs.state_root}/open_findings_path.txt
+                        type: relpath
+                        under: state
+                        must_exist_target: true
+                    publishes:
+                      - artifact: open_findings
+                        from: open_findings_path
                   - name: WriteRevisedPlanDecision
                     id: write_revised_plan_decision
                     set_scalar:

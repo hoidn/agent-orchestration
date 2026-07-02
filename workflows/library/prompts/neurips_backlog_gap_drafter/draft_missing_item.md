@@ -9,14 +9,14 @@ Your task is narrow:
 - Use only work already authorized by the roadmap gate and gap request.
 - Do not edit the roadmap, steering document, progress ledger, run state, existing backlog items, source code, tests, or artifacts.
 - Do not write directly to `docs/backlog/active`; the validator installs valid candidates.
-- Do not advance to CDI, Phase 3, Phase 4, or Phase 5 work.
+- Use only roadmap phases the gap request's allowed_roadmap_phase_prefixes permit, and do not draft items in its disallowed phases.
 
 The backlog item frontmatter must include:
 
 - `priority`
 - `plan_path` pointing to the final seed plan target under the plan target root
 - non-empty `check_commands`
-- `related_roadmap_phases` containing an allowed Phase 2 PDEBench phase from the gap request
+- `related_roadmap_phases` Use only roadmap phases the gap request's allowed_roadmap_phase_prefixes permit, and do not draft items in its disallowed phases.
 
 The seed plan may be concise, but it must identify the objective, scope, non-goals, expected artifacts, and verification commands for the drafted backlog item.
 

@@ -400,7 +400,7 @@ def test_roadmap_gate_empty_active_backlog_drafts_gap_request(tmp_path: Path) ->
     assert gap_request["invalid_count"] == 0
 
 
-def test_roadmap_gate_empty_active_backlog_blocks_when_gap_policy_blocks(tmp_path: Path) -> None:
+def test_roadmap_gate_empty_active_backlog_done_when_gap_policy_blocks(tmp_path: Path) -> None:
     manifest_path = tmp_path / "state/backlog/manifest.json"
     output_path = tmp_path / "state/backlog/roadmap-gate.json"
     (tmp_path / "docs/backlog/active").mkdir(parents=True, exist_ok=True)
@@ -448,7 +448,7 @@ def test_roadmap_gate_empty_active_backlog_blocks_when_gap_policy_blocks(tmp_pat
     )
 
     gate = json.loads(output_path.read_text(encoding="utf-8"))
-    assert gate["gate_status"] == "BLOCKED"
+    assert gate["gate_status"] == "DONE"
 
 
 def test_steered_drain_selected_item_uses_selector_eligible_manifest() -> None:
@@ -700,10 +700,10 @@ related_roadmap_phases:
         cwd=tmp_path,
         text=True,
         capture_output=True,
-        check=False,
+        check=True,
     )
 
-    assert result.returncode != 0
+    assert result.returncode == 0
     assert "disallowed" in result.stderr.lower() or "allowed" in result.stderr.lower()
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["draft_validation_status"] == "INVALID"
@@ -896,10 +896,10 @@ related_roadmap_phases:
         cwd=tmp_path,
         text=True,
         capture_output=True,
-        check=False,
+        check=True,
     )
 
-    assert result.returncode != 0
+    assert result.returncode == 0
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["draft_validation_status"] == "INVALID"
     assert not final_item.exists()

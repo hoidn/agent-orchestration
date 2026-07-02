@@ -223,6 +223,8 @@ def main() -> int:
         gate_status = "ELIGIBLE"
     elif has_current_phase_item:
         gate_status = "BLOCKED"
+    elif not all_items and policy["gap_policy"] == "block":
+        gate_status = "DONE"
     elif policy["gap_policy"] == "draft_backlog_item":
         gate_status = "BACKLOG_GAP"
     else:

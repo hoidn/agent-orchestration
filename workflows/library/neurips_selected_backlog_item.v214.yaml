@@ -745,6 +745,7 @@ steps:
       - |
         import json
         import pathlib
+        import subprocess
         import sys
 
         active_path = pathlib.Path(sys.argv[1])
@@ -752,9 +753,31 @@ steps:
         summary_path = pathlib.Path(sys.argv[3])
         outcome_path = pathlib.Path(sys.argv[4])
         current_roadmap_path = sys.argv[5]
+        run_state_path = sys.argv[6]
 
         item_path = active_path if active_path.is_file() else in_progress_path
         item_id = item_path.stem
+        reason = "Selected item was rejected before completion (selection, sync, or review did not approve it)."
+        subprocess.run(
+            [
+                "python",
+                "workflows/library/scripts/update_neurips_backlog_run_state.py",
+                "--state-path",
+                run_state_path,
+                "block",
+                "--item-id",
+                item_id,
+                "--item-path",
+                item_path.as_posix(),
+                "--stage",
+                "selection_or_review",
+                "--reason",
+                reason,
+                "--roadmap-path",
+                current_roadmap_path,
+            ],
+            check=True,
+        )
         summary_target = pathlib.Path(summary_path)
         summary_target.parent.mkdir(parents=True, exist_ok=True)
         summary_target.write_text(
@@ -762,10 +785,10 @@ steps:
                 {
                     "item_id": item_id,
                     "item_outcome": "SELECTION_REJECTED",
-                    "failed_stage": "roadmap_sync",
+                    "failed_stage": "selection_or_review",
                     "item_path": item_path.as_posix(),
                     "roadmap_path": current_roadmap_path,
-                    "reason": "Roadmap sync rejected the selected backlog item before queue ownership changed.",
+                    "reason": reason,
                 },
                 indent=2,
             )
@@ -788,76 +811,7 @@ steps:
       - ${steps.ResolveSelectedItemInputs.artifacts.item_summary_target_path}
       - ${steps.ResolveSelectedItemInputs.artifacts.outcome_bundle_path}
       - ${inputs.current_roadmap_path}
-    on:
-      success:
-        goto: FinalizeSelectedItemOutcome
-
-  - name: RecordRoadmapBlocked
-    id: record_roadmap_blocked
-    command:
-      - python
-      - -c
-      - |
-        import json
-        import pathlib
-        import subprocess
-        import sys
-
-        item_path, summary_path, outcome_path, run_state_path, current_roadmap_path = sys.argv[1:6]
-        item_id = pathlib.Path(item_path).stem
-        subprocess.run(
-            [
-                "python",
-                "workflows/library/scripts/update_neurips_backlog_run_state.py",
-                "--state-path",
-                run_state_path,
-                "block",
-                "--item-id",
-                item_id,
-                "--item-path",
-                item_path,
-                "--stage",
-                "roadmap_sync",
-                "--reason",
-                "Roadmap sync blocked the selected backlog item.",
-                "--roadmap-path",
-                current_roadmap_path,
-            ],
-            check=True,
-        )
-        summary_target = pathlib.Path(summary_path)
-        summary_target.parent.mkdir(parents=True, exist_ok=True)
-        summary_target.write_text(
-            json.dumps(
-                {
-                    "item_id": item_id,
-                    "item_outcome": "BLOCKED",
-                    "failed_stage": "roadmap_sync",
-                    "item_path": item_path,
-                    "roadmap_path": current_roadmap_path,
-                    "reason": "Roadmap sync blocked the selected backlog item.",
-                },
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        pathlib.Path(outcome_path).write_text(
-            json.dumps(
-                {
-                    "drain_status": "BLOCKED",
-                    "item_summary_path": summary_target.as_posix(),
-                },
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-      - ${steps.ResolveSelectedItemInputs.artifacts.selected_item_in_progress_path}
-      - ${steps.ResolveSelectedItemInputs.artifacts.item_summary_target_path}
-      - ${steps.ResolveSelectedItemInputs.artifacts.outcome_bundle_path}
       - ${inputs.run_state_path}
-      - ${inputs.current_roadmap_path}
     on:
       success:
         goto: FinalizeSelectedItemOutcome
