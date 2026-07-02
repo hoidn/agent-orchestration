@@ -52,6 +52,41 @@ def _find_progress_report(artifact_work_root: Path, design_gap_id: str, entry: d
     return None
 
 
+def _write_recovered_validation_progress_report(
+    progress_copy_path: Path,
+    *,
+    design_gap_id: str,
+    entry: Mapping[str, Any],
+) -> bool:
+    retry_reason = str(entry.get("retry_block_reason") or "").strip()
+    if retry_reason not in {"recovered_architecture_invalid", "recovered_architecture_blocked"}:
+        return False
+    validation_path = str(entry.get("recovered_architecture_validation_path") or "").strip()
+    detail = str(entry.get("retry_block_detail") or "").strip()
+    lines = [
+        "Status: BLOCKED",
+        "",
+        "Recovered blocked-gap retry did not run because the recovered architecture bundle failed validation.",
+        "",
+        f"Design gap: `{design_gap_id}`",
+        f"Recovery validation reason: `{retry_reason}`",
+    ]
+    if validation_path:
+        lines.append(f"Validation bundle: `{validation_path}`")
+    if detail:
+        lines.extend(["", "Validation detail:", detail])
+    lines.extend(
+        [
+            "",
+            "The next recovery decision should revise the gap architecture or plan to satisfy this validation failure.",
+            "Do not classify stale implementation-progress evidence as the current blocker for this retry.",
+        ]
+    )
+    progress_copy_path.parent.mkdir(parents=True, exist_ok=True)
+    progress_copy_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return True
+
+
 def _gap_design_paths(architecture_index_root: Path, design_gap_id: str, entry: dict[str, Any]) -> tuple[str, str]:
     architecture_path = str(entry.get("architecture_path") or "").strip()
     plan_path = str(entry.get("plan_path") or "").strip()
@@ -367,7 +402,7 @@ def _recovery_payload(
                 if _manifest_has_diagnostic_only_errors(selector_manifest) and not _manifest_ref_is_selectable(
                     selector_manifest, decision.target
                 ):
-                    return _none_payload()
+                    continue
                 payload = _none_payload(
                     recovery_route=recovery_route,
                     recovery_reason=recovery_reason,
@@ -381,15 +416,24 @@ def _recovery_payload(
                 return payload
             elif decision.route == "BLOCKED_TERMINAL":
                 return _block_payload("prerequisite_blocker_terminal")
+        wrote_recovered_validation_report = _write_recovered_validation_progress_report(
+            progress_copy_path,
+            design_gap_id=design_gap_id,
+            entry=entry,
+        )
         progress_path = _find_progress_report(artifact_work_root, design_gap_id, entry)
-        if progress_path is None:
-            return _block_payload("missing_blocked_progress_report")
-        progress_copy_path.parent.mkdir(parents=True, exist_ok=True)
-        progress_copy_path.write_text(progress_path.read_text(encoding="utf-8"), encoding="utf-8")
+        if not wrote_recovered_validation_report:
+            if progress_path is None:
+                return _block_payload("missing_blocked_progress_report")
+            progress_copy_path.parent.mkdir(parents=True, exist_ok=True)
+            progress_copy_path.write_text(progress_path.read_text(encoding="utf-8"), encoding="utf-8")
         blocker_class = str(entry.get("blocker_class") or "").strip()
         if not blocker_class:
-            progress_text = progress_path.read_text(encoding="utf-8")
-            blocker_class = "roadmap_conflict" if "roadmap_conflict" in progress_text else "unknown"
+            if wrote_recovered_validation_report:
+                blocker_class = "recovery_validation"
+            else:
+                progress_text = progress_path.read_text(encoding="utf-8")
+                blocker_class = "roadmap_conflict" if "roadmap_conflict" in progress_text else "unknown"
         architecture_path, plan_path = _gap_design_paths(architecture_index_root, design_gap_id, entry)
         architecture = Path(architecture_path)
         plan = Path(plan_path)
@@ -404,7 +448,11 @@ def _recovery_payload(
             "recovery_route": recovery_route,
             "recovery_reason": recovery_reason,
             "recovery_status": recovery_status,
-            "progress_report_path": progress_path.as_posix(),
+            "progress_report_path": (
+                progress_copy_path.as_posix()
+                if wrote_recovered_validation_report
+                else progress_path.as_posix()
+            ),
             "architecture_path": architecture_path,
             "plan_path": plan_path,
             "architecture_copy_path": architecture_copy_path.as_posix(),

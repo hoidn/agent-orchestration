@@ -11,7 +11,7 @@ from typing import Any, Mapping
 
 
 ALLOWED_ACTIONS = {
-    "FIX_WORKFLOW_MECHANICS",
+    "STOP_FOR_EXTERNAL_REVIEW",
     "CONTINUE_WITH_CURRENT_PLAN",
     "NEEDS_HUMAN_DECISION",
 }
@@ -55,7 +55,7 @@ def record_step_back_outcome(
     rationale = str(diagnosis.get("rationale") or "").strip()
     trigger_codes = list(decision.get("trigger_codes") or [])
     failure_fingerprint = str(decision.get("failure_fingerprint") or "").strip()
-    drain_status = "BLOCKED" if action in {"FIX_WORKFLOW_MECHANICS", "NEEDS_HUMAN_DECISION"} else "CONTINUE"
+    drain_status = "BLOCKED" if action in {"STOP_FOR_EXTERNAL_REVIEW", "NEEDS_HUMAN_DECISION"} else "CONTINUE"
 
     event = {
         "event": "step_back",

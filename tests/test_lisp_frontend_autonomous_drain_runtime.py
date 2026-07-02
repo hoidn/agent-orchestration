@@ -889,6 +889,87 @@ def test_blocked_recovery_detector_prefers_recoverable_gap_over_generic_step_bac
     assert payload["recovery_route"] == "GAP_DESIGN_REVISION_REQUIRED"
 
 
+def test_blocked_recovery_detector_skips_unavailable_prerequisite_to_recover_other_gap(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_state = workspace / "state/run_state.json"
+    manifest = workspace / "state/selector-manifest.json"
+    output = workspace / "state/blocked-recovery.json"
+    progress = workspace / "artifacts/work/gap-b/progress_report.md"
+    architecture = workspace / "docs/plans/design-gaps/gap-b/implementation_architecture.md"
+    plan = workspace / "docs/plans/design-gaps/gap-b/execution_plan.md"
+    run_state.parent.mkdir(parents=True)
+    progress.parent.mkdir(parents=True)
+    architecture.parent.mkdir(parents=True)
+    progress.write_text("Status: BLOCKED\n", encoding="utf-8")
+    architecture.write_text("# Gap B\n", encoding="utf-8")
+    plan.write_text("# Plan B\n", encoding="utf-8")
+    run_state.write_text(
+        json.dumps(
+            {
+                "blocked_design_gaps": {
+                    "gap-a": {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                        "recovery_reason": "prerequisite_gap_required",
+                        "recovery_status": "PREREQUISITE_WORK_PENDING",
+                        "recovery_event_id": "run:gap-a:blocked",
+                        "recovery_dependency_edge": _recovery_dependency_edge(
+                            blocked="gap-a",
+                            blocker="missing-gap",
+                        ),
+                    },
+                    "gap-b": {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
+                        "recovery_reason": "implementation_architecture_under_scoped",
+                        "recovery_event_id": "run:gap-b:blocked",
+                        "progress_report_path": progress.relative_to(workspace).as_posix(),
+                        "architecture_path": architecture.relative_to(workspace).as_posix(),
+                        "plan_path": plan.relative_to(workspace).as_posix(),
+                    },
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manifest.write_text(
+        json.dumps(
+            {
+                "diagnostic_mechanics_errors": [{"code": "missing_dependency_target"}],
+                "blocking_mechanics_errors": [],
+                "target_gap_discovery_allowed": True,
+                "eligible_design_gaps": [],
+                "eligible_items": [],
+                "priority_recovery_work": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py"),
+        "--run-state-path",
+        run_state.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work",
+        "--architecture-index-root",
+        "docs/plans/design-gaps",
+        "--selector-manifest-path",
+        manifest.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
+    assert payload["design_gap_id"] == "gap-b"
+    assert payload["recovery_route"] == "GAP_DESIGN_REVISION_REQUIRED"
+
+
 def test_blocked_recovery_detector_suppresses_repeated_continue_with_current_plan_step_back(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -5981,6 +6062,79 @@ def test_record_recovered_retry_unavailable_keeps_blocked_reason_visible(tmp_pat
     assert state["history"][-1]["reason"] == "recovered_retry_status_missing"
 
 
+def test_record_recovered_retry_unavailable_preserves_invalid_recovered_architecture_reason(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state_path = workspace / "state/drain/run_state.json"
+    bundle = workspace / "state/drain/pre-selection.json"
+    recovery_status = workspace / "state/drain/recovery-status.txt"
+    recovered_status = workspace / "state/drain/recovered-gap/work-item/drain_status.txt"
+    validation = workspace / "state/drain/recovered-gap/architecture-validation.json"
+    output = workspace / "state/drain/retry-availability.json"
+    state_path.parent.mkdir(parents=True)
+    validation.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {
+                    "parser-syntax": {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
+                        "recovery_reason": "implementation_architecture_under_scoped",
+                        "recovery_event_id": "parser-syntax-implementation-blocked",
+                    }
+                },
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    bundle.write_text(
+        json.dumps({"pre_selection_route": "RECOVER_BLOCKED_DESIGN_GAP", "design_gap_id": "parser-syntax"}) + "\n",
+        encoding="utf-8",
+    )
+    recovery_status.write_text("RUN_RECOVERED_GAP\n", encoding="utf-8")
+    validation.write_text(
+        json.dumps(
+            {
+                "architecture_validation_status": "INVALID",
+                "reason": "durable design-gap document contains generated run-scoped path",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/record_lisp_frontend_recovered_retry_unavailable.py"),
+        "--pre-selection-bundle-path",
+        bundle.relative_to(workspace).as_posix(),
+        "--recovery-record-status-path",
+        recovery_status.relative_to(workspace).as_posix(),
+        "--recovered-work-item-status-path",
+        recovered_status.relative_to(workspace).as_posix(),
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    blocked = state["blocked_design_gaps"]["parser-syntax"]
+    assert payload["record_status"] == "BLOCKED_RECORDED"
+    assert blocked["retry_block_reason"] == "recovered_architecture_invalid"
+    assert blocked["retry_block_detail"] == "durable design-gap document contains generated run-scoped path"
+    assert blocked["recovered_architecture_validation_path"] == validation.relative_to(workspace).as_posix()
+    assert state["history"][-1]["reason"] == "recovered_architecture_invalid"
+
+
 def test_record_recovered_retry_unavailable_uses_recovered_child_output_value(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -6037,6 +6191,70 @@ def test_record_recovered_retry_unavailable_uses_recovered_child_output_value(tm
     assert payload["record_status"] == "RETRY_STATUS_AVAILABLE"
     assert "retry_block_reason" not in state["blocked_design_gaps"]["parser-syntax"]
     assert state["history"] == []
+
+
+def test_detect_blocked_recovery_uses_recovered_architecture_validation_report_instead_of_stale_progress(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state_path = workspace / "state/drain/run_state.json"
+    artifact_root = workspace / "artifacts/work"
+    architecture_root = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps"
+    architecture = architecture_root / "parser-syntax/implementation_architecture.md"
+    plan = architecture_root / "parser-syntax/execution_plan.md"
+    output = workspace / "state/drain/iterations/0/blocked-recovery.json"
+    validation = workspace / "state/drain/iterations/0/recovered-gap/architecture-validation.json"
+    for path in (state_path, architecture, plan, validation):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    architecture.write_text("# Parser Syntax Architecture\n", encoding="utf-8")
+    plan.write_text("# Parser Syntax Plan\n", encoding="utf-8")
+    validation.write_text('{"architecture_validation_status":"INVALID"}\n', encoding="utf-8")
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "blocked_items": {},
+                "blocked_design_gaps": {
+                    "parser-syntax": {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
+                        "recovery_reason": "implementation_architecture_under_scoped",
+                        "recovery_event_id": "parser-syntax-implementation-blocked",
+                        "architecture_path": architecture.relative_to(workspace).as_posix(),
+                        "plan_path": plan.relative_to(workspace).as_posix(),
+                        "implementation_state_path": "state/workflow_lisp/calls/test/implementation_state.json",
+                        "retry_block_reason": "recovered_architecture_invalid",
+                        "retry_block_detail": "durable design-gap document contains generated run-scoped path",
+                        "recovered_architecture_validation_path": validation.relative_to(workspace).as_posix(),
+                    }
+                },
+                "blocked_run": None,
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py"),
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        artifact_root.relative_to(workspace).as_posix(),
+        "--architecture-index-root",
+        architecture_root.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    copied_progress = output.with_name("blocked-progress-report.md").read_text(encoding="utf-8")
+    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
+    assert payload["blocker_class"] == "recovery_validation"
+    assert payload["progress_report_path"] == output.with_name("blocked-progress-report.md").relative_to(workspace).as_posix()
+    assert "durable design-gap document contains generated run-scoped path" in copied_progress
+    assert "Stale implementation blocker" not in copied_progress
 
 
 def _assert_gap_architect_review_loop(workflow: dict, *, draft_provider_routing: bool) -> None:

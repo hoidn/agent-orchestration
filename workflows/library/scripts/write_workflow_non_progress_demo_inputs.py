@@ -59,7 +59,7 @@ def _write_diagnosis(output: Path) -> None:
     _save_json(
         output,
         {
-            "action": "FIX_WORKFLOW_MECHANICS",
+            "action": "STOP_FOR_EXTERNAL_REVIEW",
             "rationale": "The demo intentionally repeats a blocker to prove step-back recording continues the workflow.",
         },
     )

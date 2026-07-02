@@ -28,7 +28,27 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def _record_retry_unavailable(run_state_path: Path, *, design_gap_id: str, reason: str) -> None:
+def _recovered_architecture_validation(status_path: Path) -> tuple[str, str, Path | None]:
+    validation_path = status_path.parent.parent / "architecture-validation.json"
+    if not validation_path.exists():
+        return "", "", None
+    try:
+        payload = _load_json(validation_path)
+    except json.JSONDecodeError:
+        return "INVALID", f"Invalid architecture validation JSON: {validation_path.as_posix()}", validation_path
+    status = str(payload.get("architecture_validation_status") or "").strip()
+    reason = str(payload.get("reason") or "").strip()
+    return status, reason, validation_path
+
+
+def _record_retry_unavailable(
+    run_state_path: Path,
+    *,
+    design_gap_id: str,
+    reason: str,
+    detail: str = "",
+    validation_path: Path | None = None,
+) -> None:
     state = _load_json(run_state_path)
     blocked = dict(state.get("blocked_design_gaps") or {})
     entry = dict(blocked.get(design_gap_id) or {})
@@ -36,6 +56,10 @@ def _record_retry_unavailable(run_state_path: Path, *, design_gap_id: str, reaso
         entry = {"reason": "implementation_blocked"}
     entry.setdefault("reason", "implementation_blocked")
     entry["retry_block_reason"] = reason
+    if detail:
+        entry["retry_block_detail"] = detail
+    if validation_path is not None:
+        entry["recovered_architecture_validation_path"] = validation_path.as_posix()
     entry["retry_blocked_at_utc"] = _timestamp()
     blocked[design_gap_id] = entry
     state["blocked_design_gaps"] = blocked
@@ -76,8 +100,23 @@ def main() -> int:
         else:
             if not design_gap_id:
                 raise SystemExit("Missing design_gap_id for recovered retry unavailable record")
-            reason = "recovered_retry_status_missing"
-            _record_retry_unavailable(Path(args.run_state_path), design_gap_id=design_gap_id, reason=reason)
+            detail = ""
+            validation_path = None
+            architecture_status, architecture_reason, validation_path = _recovered_architecture_validation(
+                Path(args.recovered_work_item_status_path)
+            )
+            if architecture_status in {"INVALID", "BLOCKED"}:
+                reason = f"recovered_architecture_{architecture_status.lower()}"
+                detail = architecture_reason
+            else:
+                reason = "recovered_retry_status_missing"
+            _record_retry_unavailable(
+                Path(args.run_state_path),
+                design_gap_id=design_gap_id,
+                reason=reason,
+                detail=detail,
+                validation_path=validation_path,
+            )
             record_status = "BLOCKED_RECORDED"
 
     _write_json(Path(args.output), {"record_status": record_status, "retry_block_reason": reason})

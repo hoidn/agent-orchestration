@@ -497,7 +497,7 @@ steps:
                 json_pointer: /action
                 type: enum
                 allowed:
-                  - FIX_WORKFLOW_MECHANICS
+                  - STOP_FOR_EXTERNAL_REVIEW
                   - CONTINUE_WITH_CURRENT_PLAN
                   - NEEDS_HUMAN_DECISION
               - name: rationale
