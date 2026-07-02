@@ -84,6 +84,19 @@ inputs:
     kind: scalar
     type: string
     default: "high"
+  blocked_design_revision_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude"]
+    default: "claude"
+  blocked_design_revision_model:
+    kind: scalar
+    type: string
+    default: "fable"
+  blocked_design_revision_effort:
+    kind: scalar
+    type: string
+    default: "high"
   selector_provider:
     kind: scalar
     type: enum
@@ -125,6 +138,12 @@ providers:
     input_mode: "stdin"
     defaults:
       model: "opus"
+      effort: "high"
+  claude:
+    command: ["claude", "-p", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
+    input_mode: "stdin"
+    defaults:
+      model: "fable"
       effort: "high"
 
 outputs:
@@ -1060,6 +1079,131 @@ steps:
                 type: string
                 required: false
 
+        - name: ValidateBlockedDesignRevisionProviderRouting
+          id: validate_blocked_design_revision_provider_routing
+          when:
+            all_of:
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
+                  op: eq
+                  right: RECOVER_BLOCKED_DESIGN_GAP
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                  op: ne
+                  right: RETRY_READY
+              - any_of:
+                  - compare:
+                      left:
+                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                      op: eq
+                      right: TARGET_DESIGN_REVISION_REQUIRED
+                  - compare:
+                      left:
+                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                      op: eq
+                      right: GAP_DESIGN_REVISION_REQUIRED
+          command:
+            - python
+            - -c
+            - |
+              import json
+              import pathlib
+              import subprocess
+              import sys
+
+              provider = sys.argv[1]
+              model = sys.argv[2]
+              effort = sys.argv[3]
+              output_path = pathlib.Path(sys.argv[4])
+
+              errors = []
+              requested_provider = provider
+              requested_model = model
+              requested_effort = effort
+              fallback_reason = ""
+              if provider == "claude" and model not in {"opus", "fable", "claude-fable-5"}:
+                  errors.append(
+                      f"blocked design-gap revision via Claude must use a supported Claude model alias, got {model!r}"
+                  )
+              if provider == "codex" and not (
+                  model.startswith("gpt-")
+                  or "codex" in model
+              ):
+                  errors.append(f"provider=codex requires a Codex/OpenAI model, got {model!r}")
+              codex_efforts = {"low", "medium", "high", "xhigh"}
+              claude_efforts = {"low", "medium", "high", "xhigh", "max"}
+              allowed_efforts = claude_efforts if provider == "claude" else codex_efforts
+              if effort not in allowed_efforts:
+                  errors.append(
+                      f"unsupported effort {effort!r} for provider={provider}; "
+                      f"allowed={sorted(allowed_efforts)}"
+                  )
+              if provider == "claude" and not errors:
+                  probe = subprocess.run(
+                      [
+                          "claude",
+                          "-p",
+                          "--model",
+                          model,
+                          "--effort",
+                          effort,
+                          "--permission-mode",
+                          "bypassPermissions",
+                      ],
+                      input="Say OK only.\n",
+                      text=True,
+                      stdout=subprocess.PIPE,
+                      stderr=subprocess.STDOUT,
+                      timeout=45,
+                      check=False,
+                  )
+                  if probe.returncode != 0:
+                      provider = "codex"
+                      model = "gpt-5.5"
+                      effort = "high"
+                      fallback_reason = (
+                          "Claude blocked design-gap revision model unavailable; falling back to Codex gpt-5.5. "
+                          + (probe.stdout or "").strip()
+                      )
+
+              output_path.parent.mkdir(parents=True, exist_ok=True)
+              payload = {
+                  "provider": provider,
+                  "model": model,
+                  "effort": effort,
+                  "requested_provider": requested_provider,
+                  "requested_model": requested_model,
+                  "requested_effort": requested_effort,
+                  "fallback_reason": fallback_reason,
+                  "routing_status": "INVALID" if errors else "VALID",
+                  "errors": errors,
+              }
+              output_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+              if errors:
+                  raise SystemExit("; ".join(errors))
+            - ${inputs.blocked_design_revision_provider}
+            - ${inputs.blocked_design_revision_model}
+            - ${inputs.blocked_design_revision_effort}
+            - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-provider-routing.json
+          output_bundle:
+            path: ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-provider-routing.json
+            fields:
+              - name: routing_status
+                json_pointer: /routing_status
+                type: enum
+                allowed: ["VALID", "INVALID"]
+              - name: provider
+                json_pointer: /provider
+                type: string
+              - name: model
+                json_pointer: /model
+                type: string
+              - name: effort
+                json_pointer: /effort
+                type: string
+
         - name: ReviseBlockedDesignGap
           id: revise_blocked_design_gap
           when:
@@ -1085,7 +1229,10 @@ steps:
                         ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
                       op: eq
                       right: GAP_DESIGN_REVISION_REQUIRED
-          provider: ${inputs.implementation_execute_provider}
+          provider: ${steps.ValidateBlockedDesignRevisionProviderRouting.artifacts.provider}
+          provider_params:
+            model: ${steps.ValidateBlockedDesignRevisionProviderRouting.artifacts.model}
+            effort: ${steps.ValidateBlockedDesignRevisionProviderRouting.artifacts.effort}
           input_file: workflows/library/prompts/lisp_frontend_design_delta_work_item/revise_prior_blocked_design_gap.md
           timeout_sec: 3600
           depends_on:
