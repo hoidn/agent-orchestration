@@ -639,7 +639,7 @@ def main() -> int:
                     review_decision=decision,
                 )
                 drain_state_root = Path(args.state_path).parent
-                feedback_target = drain_state_root / "blocked-revision-review-feedback.md"
+                feedback_target = drain_state_root / f"blocked-revision-review-feedback.{args.item_id}.md"
                 feedback_target.write_text(
                     revision_report_path.read_text(encoding="utf-8"), encoding="utf-8"
                 )
