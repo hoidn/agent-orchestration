@@ -99,3 +99,57 @@ def test_prepare_fails_fast_on_missing_target_design(tmp_path):
         check=False,
     )
     assert result.returncode != 0
+
+
+def _run_checks(workspace: Path, base_sha: str, *, checks: str = "workflows/examples/inputs/pilot_checks.json", iteration: int = 0) -> dict:
+    _run_script(
+        workspace,
+        str(ROOT / CHECKS),
+        "--check-commands-path", checks,
+        "--base-sha", base_sha,
+        "--iteration-dir", f"{STATE_ROOT}/iterations/{iteration}",
+        "--output", f"{STATE_ROOT}/iterations/{iteration}/checks-result.json",
+    )
+    return json.loads((workspace / STATE_ROOT / "iterations" / str(iteration) / "checks-result.json").read_text(encoding="utf-8"))
+
+
+def test_checks_green_with_commits_packages_diff(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    base = _git(workspace, "rev-parse", "HEAD")
+    (workspace / "hello.txt").write_text("hi\n", encoding="utf-8")
+    _git(workspace, "add", "hello.txt")
+    _git(workspace, "commit", "-qm", "add hello")
+    result = _run_checks(workspace, base)
+    assert result["verify_status"] == "GREEN"
+    assert result["commits_landed"] == "true"
+    package = (workspace / result["review_package_path"]).read_text(encoding="utf-8")
+    assert "add hello" in package
+    assert "hello.txt" in package
+
+
+def test_checks_red_on_failing_command_still_exits_zero(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    (workspace / "workflows/examples/inputs/red_checks.json").write_text(
+        json.dumps(["python -c \"raise SystemExit(1)\""]) + "\n", encoding="utf-8"
+    )
+    base = _git(workspace, "rev-parse", "HEAD")
+    result = _run_checks(workspace, base, checks="workflows/examples/inputs/red_checks.json")
+    assert result["verify_status"] == "RED"
+    assert result["commits_landed"] == "false"
+    assert "exit 1" in (workspace / result["checks_log_path"]).read_text(encoding="utf-8")
+
+
+def test_checks_fails_fast_on_invalid_checks_file(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    (workspace / "workflows/examples/inputs/bad_checks.json").write_text("{}\n", encoding="utf-8")
+    base = _git(workspace, "rev-parse", "HEAD")
+    proc = _run_script(
+        workspace,
+        str(ROOT / CHECKS),
+        "--check-commands-path", "workflows/examples/inputs/bad_checks.json",
+        "--base-sha", base,
+        "--iteration-dir", f"{STATE_ROOT}/iterations/0",
+        "--output", f"{STATE_ROOT}/iterations/0/checks-result.json",
+        check=False,
+    )
+    assert proc.returncode != 0
