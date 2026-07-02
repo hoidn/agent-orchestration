@@ -84,6 +84,16 @@ def _materialize_retry_bundle(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     context_path = output_path.with_name("recovered-work-item-context.md")
     checks_path = output_path.with_name("recovered-check-commands.json")
+    progress_report_rel = str(recovery.get("progress_report_path") or "").strip()
+    progress_report_file = REPO_ROOT / progress_report_rel if progress_report_rel else None
+    prior_progress_lines: list[str] = []
+    if progress_report_file is not None and progress_report_file.is_file():
+        prior_progress_lines = [
+            "## Prior Attempt Progress Report",
+            "",
+            progress_report_file.read_text(encoding="utf-8").rstrip(),
+            "",
+        ]
     context_path.write_text(
         "\n".join(
             [
@@ -103,8 +113,9 @@ def _materialize_retry_bundle(
                 "",
                 f"- architecture_path: `{architecture_path.as_posix()}`",
                 f"- plan_target_path: `{plan_path.as_posix()}`",
-                f"- progress_report_path: `{str(recovery.get('progress_report_path') or '').strip()}`",
+                f"- progress_report_path: `{progress_report_rel}`",
                 "",
+                *prior_progress_lines,
                 "## Runtime Artifacts",
                 "",
                 "Recovered retry context and check-command files are runtime artifacts.",

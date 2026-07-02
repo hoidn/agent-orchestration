@@ -771,6 +771,57 @@ def test_recovered_design_gap_materializer_reconstructs_missing_prior_bundle(tmp
     assert f"test -f {architecture_path.relative_to(workspace).as_posix()}" in checks
 
 
+def test_recovered_design_gap_materializer_embeds_prior_progress_report(tmp_path):
+    workspace = tmp_path / "workspace"
+    shutil.copytree(FIXTURE_ROOT, workspace)
+    architecture_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
+    plan_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/execution_plan.md"
+    progress_path = workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/parser-syntax/progress_report.md"
+    recovery_path = workspace / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/3/blocked-recovery.json"
+    output_path = workspace / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/3/recovered-gap/draft-architecture.json"
+    architecture_path.parent.mkdir(parents=True, exist_ok=True)
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
+    recovery_path.parent.mkdir(parents=True, exist_ok=True)
+    architecture_path.write_text("# Parser Syntax Architecture\n", encoding="utf-8")
+    plan_path.write_text("# Parser Syntax Execution Plan\n", encoding="utf-8")
+    progress_path.write_text(
+        "Status: BLOCKED\n\nBlocking evidence:\n- selector fails with type_unknown ExampleType\n",
+        encoding="utf-8",
+    )
+    recovery_path.write_text(
+        json.dumps(
+            {
+                "pre_selection_route": "RECOVER_BLOCKED_DESIGN_GAP",
+                "design_gap_id": "parser-syntax",
+                "recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
+                "recovery_reason": "implementation_architecture_under_scoped",
+                "recovery_status": "",
+                "recovery_event_id": "old-run:parser-syntax:implementation-blocked",
+                "architecture_path": architecture_path.relative_to(workspace).as_posix(),
+                "plan_path": plan_path.relative_to(workspace).as_posix(),
+                "progress_report_path": progress_path.relative_to(workspace).as_posix(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/materialize_lisp_frontend_recovered_design_gap_draft.py"),
+        "--recovery-bundle-path",
+        recovery_path.relative_to(workspace).as_posix(),
+        "--drain-state-root",
+        "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain",
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    context = (workspace / payload["work_item_context_path"]).read_text(encoding="utf-8")
+    assert "selector fails with type_unknown ExampleType" in context
+
+
 def test_blocked_recovery_detector_honors_generic_step_back_decision(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
