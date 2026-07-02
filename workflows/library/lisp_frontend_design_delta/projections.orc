@@ -127,10 +127,6 @@
     :lowering inline
     (let* ((is-backlog-item
              (= work_item_source WorkItemSource.BACKLOG_ITEM))
-           (rewrite-user-decision
-             (and
-               (= blocked_recovery_route BlockedRecoveryRoute.TERMINAL_BLOCKED)
-               (= reason BlockedRecoveryReason.user_decision_required)))
            (is-gap-design-revision
              (= blocked_recovery_route BlockedRecoveryRoute.GAP_DESIGN_REVISION_REQUIRED))
            (is-target-design-revision
@@ -140,18 +136,15 @@
       (if is-backlog-item
         (variant BlockedRecoveryDecision TERMINAL_BLOCKED
           :reason BlockedRecoveryReason.implementation_blocked)
-        (if rewrite-user-decision
+        (if is-gap-design-revision
           (variant BlockedRecoveryDecision GAP_DESIGN_REVISION_REQUIRED
-            :reason BlockedRecoveryReason.implementation_architecture_under_scoped)
-          (if is-gap-design-revision
-            (variant BlockedRecoveryDecision GAP_DESIGN_REVISION_REQUIRED
+            :reason reason)
+          (if is-target-design-revision
+            (variant BlockedRecoveryDecision TARGET_DESIGN_REVISION_REQUIRED
               :reason reason)
-            (if is-target-design-revision
-              (variant BlockedRecoveryDecision TARGET_DESIGN_REVISION_REQUIRED
+            (if is-prerequisite-gap
+              (variant BlockedRecoveryDecision PREREQUISITE_GAP_REQUIRED
                 :reason reason)
-              (if is-prerequisite-gap
-                (variant BlockedRecoveryDecision PREREQUISITE_GAP_REQUIRED
-                  :reason reason)
-                (variant BlockedRecoveryDecision TERMINAL_BLOCKED
-                  :reason reason)))))))
+              (variant BlockedRecoveryDecision TERMINAL_BLOCKED
+                :reason reason))))))
 ))

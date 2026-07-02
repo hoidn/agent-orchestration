@@ -302,7 +302,7 @@
           "accepted_differences": []
         },
         {
-          "id": "blocked_recovery_terminal_user_decision_rewrite",
+          "id": "blocked_recovery_terminal_user_decision_honored",
           "replacement_inputs": {
             "work_item_source": "DESIGN_GAP",
             "blocked_recovery_route": "TERMINAL_BLOCKED",
@@ -315,8 +315,8 @@
             "reason": "user_decision_required"
           },
           "expected_result": {
-            "variant": "GAP_DESIGN_REVISION_REQUIRED",
-            "reason": "implementation_architecture_under_scoped"
+            "variant": "TERMINAL_BLOCKED",
+            "reason": "user_decision_required"
           },
           "accepted_differences": []
         },

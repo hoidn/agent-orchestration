@@ -18,34 +18,6 @@ RECOVERY_ROUTES = {
     "TERMINAL_BLOCKED",
 }
 
-TERMINAL_USER_DECISION_EVIDENCE = (
-    "cannot be resolved by target design revision",
-    "cannot be resolved by gap design revision",
-    "cannot be resolved by prerequisite",
-    "cannot be represented as a design change",
-    "ambiguity in intention",
-    "ambiguous product intent",
-    "environment issue",
-    "credential",
-    "access required",
-    "permission",
-    "local setup",
-    "user intervention",
-    "outside repository authority",
-    "external human authority",
-)
-
-
-def _normalize_design_gap_recovery(route: str, reason: str, bundle: dict[str, Any]) -> tuple[str, str]:
-    if route != "TERMINAL_BLOCKED" or reason != "user_decision_required":
-        return route, reason
-
-    summary = str(bundle.get("summary") or "").lower()
-    if any(marker in summary for marker in TERMINAL_USER_DECISION_EVIDENCE):
-        return route, reason
-
-    return "GAP_DESIGN_REVISION_REQUIRED", "implementation_architecture_under_scoped"
-
 
 def _load_optional_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
@@ -71,7 +43,6 @@ def main() -> int:
                     raise SystemExit(f"Unexpected blocked_recovery_route: {route}")
                 if not reason:
                     raise SystemExit("Blocked recovery classifier payload missing reason")
-                route, reason = _normalize_design_gap_recovery(route, reason, payload)
             else:
                 route = "TERMINAL_BLOCKED"
                 reason = "implementation_blocked"
@@ -105,7 +76,6 @@ def main() -> int:
                 raise SystemExit(f"Unexpected blocked_recovery_route: {route}")
             if not reason:
                 raise SystemExit("Blocked recovery classifier bundle missing reason")
-            route, reason = _normalize_design_gap_recovery(route, reason, bundle)
         else:
             route = "TERMINAL_BLOCKED"
             reason = "implementation_blocked"

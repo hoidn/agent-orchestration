@@ -142,16 +142,9 @@
     ((blocked_recovery_route BlockedRecoveryRoute)
      (reason BlockedRecoveryReason))
     -> BlockedRecoveryDecision
-    (let* ((rewrite-user-decision
-             (and
-               (= blocked_recovery_route BlockedRecoveryRoute.TERMINAL_BLOCKED)
-               (= reason BlockedRecoveryReason.user_decision_required))))
-      (if rewrite-user-decision
-        (variant BlockedRecoveryDecision GAP_DESIGN_REVISION_REQUIRED
-          :reason BlockedRecoveryReason.implementation_architecture_under_scoped)
-        (call normalize-design-gap-blocked-recovery-route-after-rewrite
-          :blocked_recovery_route blocked_recovery_route
-          :reason reason))))
+    (call normalize-design-gap-blocked-recovery-route-after-rewrite
+      :blocked_recovery_route blocked_recovery_route
+      :reason reason))
 
   (defworkflow normalize-blocked-recovery-route
     ((work_item_source WorkItemSource)
