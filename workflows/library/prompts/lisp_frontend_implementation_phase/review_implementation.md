@@ -48,7 +48,8 @@ When reviewing:
   artifacts, mocks, stubs, cached results, replay tables, fallback paths,
   dev-only helpers, feature flags, or test-only paths were moved into or made
   reachable from the production/default path. Review the provenance of the
-  successful behavior, not only the final output.
+  successful behavior, not only the final output, unless the approved design
+  explicitly defines the feature as reference-data lookup.
 - reject changes that make implementation-only data part of the user-facing or
   domain contract unless the governing design or spec explicitly requires it.
 - distinguish:
