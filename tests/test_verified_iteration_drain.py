@@ -153,3 +153,125 @@ def test_checks_fails_fast_on_invalid_checks_file(tmp_path):
         check=False,
     )
     assert proc.returncode != 0
+
+
+def _record(
+    workspace: Path,
+    *,
+    iteration: int = 0,
+    verify: str = "GREEN",
+    commits: str = "false",
+    verdict: str = "CONTINUE",
+    review: str | None = None,
+    done_review: str | None = None,
+    blocked_note: bool = False,
+    stall_limit: str = "3",
+    seed_statuses: list[str] | None = None,
+) -> tuple[str, str]:
+    iteration_dir = workspace / STATE_ROOT / "iterations" / str(iteration)
+    iteration_dir.mkdir(parents=True, exist_ok=True)
+    (iteration_dir / "checks-result.json").write_text(
+        json.dumps(
+            {
+                "verify_status": verify,
+                "commits_landed": commits,
+                "head_sha": "h" * 40,
+                "checks_log_path": f"{STATE_ROOT}/iterations/{iteration}/checks-log.txt",
+                "review_package_path": f"{STATE_ROOT}/iterations/{iteration}/review-package.md",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (iteration_dir / "worker-verdict.txt").write_text(verdict + "\n", encoding="utf-8")
+    (iteration_dir / "worker-note.txt").write_text("did a thing\n", encoding="utf-8")
+    if review is not None:
+        (iteration_dir / "review-decision.txt").write_text(review + "\n", encoding="utf-8")
+    if done_review is not None:
+        (iteration_dir / "done-review-decision.txt").write_text(done_review + "\n", encoding="utf-8")
+    blocked_dir = workspace / WORK_ROOT / "blocked"
+    blocked_dir.mkdir(parents=True, exist_ok=True)
+    if blocked_note:
+        (blocked_dir / "BLOCKED-env.md").write_text("need credentials\n", encoding="utf-8")
+    (workspace / WORK_ROOT / "ledger.md").parent.mkdir(parents=True, exist_ok=True)
+    statuses = workspace / STATE_ROOT / "statuses.txt"
+    if seed_statuses:
+        statuses.write_text("".join(token + "\n" for token in seed_statuses), encoding="utf-8")
+    _run_script(
+        workspace,
+        str(ROOT / RECORD),
+        "--iteration", str(iteration),
+        "--base-sha", "b" * 40,
+        "--checks-result-path", f"{STATE_ROOT}/iterations/{iteration}/checks-result.json",
+        "--review-decision-path", f"{STATE_ROOT}/iterations/{iteration}/review-decision.txt",
+        "--done-review-decision-path", f"{STATE_ROOT}/iterations/{iteration}/done-review-decision.txt",
+        "--worker-verdict-path", f"{STATE_ROOT}/iterations/{iteration}/worker-verdict.txt",
+        "--worker-note-path", f"{STATE_ROOT}/iterations/{iteration}/worker-note.txt",
+        "--blocked-notes-dir", f"{WORK_ROOT}/blocked",
+        "--ledger-path", f"{WORK_ROOT}/ledger.md",
+        "--statuses-path", f"{STATE_ROOT}/statuses.txt",
+        "--stall-limit", stall_limit,
+        "--summary-path", f"{WORK_ROOT}/drain-summary.json",
+        "--drain-status-path", f"{STATE_ROOT}/iterations/{iteration}/drain-status.txt",
+    )
+    tokens = statuses.read_text(encoding="utf-8").split()
+    drain = (workspace / STATE_ROOT / "iterations" / str(iteration) / "drain-status.txt").read_text(encoding="utf-8").strip()
+    return tokens[-1], drain
+
+
+def test_record_accepted_iteration_continues(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    status, drain = _record(workspace, commits="true", review="APPROVE")
+    assert (status, drain) == ("ACCEPTED", "CONTINUE")
+    ledger = (workspace / WORK_ROOT / "ledger.md").read_text(encoding="utf-8")
+    assert "ACCEPTED" in ledger and "did a thing" in ledger
+
+
+def test_record_checks_red_takes_precedence_over_done(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    status, drain = _record(workspace, verify="RED", commits="true", verdict="DONE", done_review="APPROVE")
+    assert (status, drain) == ("CHECKS_RED", "CONTINUE")
+
+
+def test_record_review_findings_block_acceptance(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    status, drain = _record(workspace, commits="true", review="FINDINGS")
+    assert (status, drain) == ("FINDINGS", "CONTINUE")
+
+
+def test_record_done_requires_done_review_approval(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    status, drain = _record(workspace, commits="true", verdict="DONE", review="APPROVE", done_review="APPROVE")
+    assert (status, drain) == ("DONE", "DONE")
+    status, drain = _record(workspace, iteration=1, verdict="DONE", done_review="REJECT")
+    assert (status, drain) == ("FINDINGS", "CONTINUE")
+
+
+def test_record_done_claim_without_done_review_is_findings(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    status, drain = _record(workspace, verdict="DONE")
+    assert (status, drain) == ("FINDINGS", "CONTINUE")
+
+
+def test_record_blocked_requires_a_note(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    status, drain = _record(workspace, verdict="BLOCKED_ON_USER", blocked_note=True)
+    assert (status, drain) == ("BLOCKED_ON_USER", "BLOCKED_ON_USER")
+    workspace2 = _init_workspace(tmp_path / "second")
+    status, drain = _record(workspace2, verdict="BLOCKED_ON_USER")
+    assert (status, drain) == ("NO_CHANGE", "CONTINUE")
+
+
+def test_record_stall_after_consecutive_non_accepted(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    status, drain = _record(workspace, seed_statuses=["NO_CHANGE", "FINDINGS"], verify="RED")
+    assert (status, drain) == ("CHECKS_RED", "STALLED")
+    summary = json.loads((workspace / WORK_ROOT / "drain-summary.json").read_text(encoding="utf-8"))
+    assert summary["drain_status"] == "STALLED"
+    assert summary["statuses"] == ["NO_CHANGE", "FINDINGS", "CHECKS_RED"]
+
+
+def test_record_accepted_interrupts_stall_window(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    status, drain = _record(workspace, seed_statuses=["NO_CHANGE", "ACCEPTED"], verify="RED")
+    assert (status, drain) == ("CHECKS_RED", "CONTINUE")
