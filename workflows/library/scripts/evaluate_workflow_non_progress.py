@@ -193,11 +193,11 @@ def _recommended_focus(trigger_codes: list[str]) -> str:
     if "dependency_downstream_selected_early" in trigger_codes:
         return "Select or complete the dependency blocker before downstream work."
     if "same_blocker_repeated" in trigger_codes or "same_work_item_repeatedly_blocked" in trigger_codes:
-        return "Reassess the blocker and choose a different plan, split, or workflow-mechanics fix."
+        return "Reassess the blocker: fix workflow mechanics, escalate for a human decision, or let the loop's own recovery machinery continue."
     if "review_findings_not_converging" in trigger_codes:
         return "Reassess repeated review findings instead of continuing incremental fixes."
     if "plan_churn_without_outcome_change" in trigger_codes:
-        return "Redraft or split the plan rather than revising it incrementally again."
+        return "Stop revising the plan incrementally; fix workflow mechanics or escalate for a human decision."
     if "no_accepted_change_streak" in trigger_codes:
         return "Identify why iterations produce no accepted change."
     return ""

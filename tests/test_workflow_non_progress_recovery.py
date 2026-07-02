@@ -535,3 +535,30 @@ def test_iteration_resolver_prefers_step_back_status(tmp_path):
     )
 
     assert output.read_text(encoding="utf-8").strip() == "CONTINUE"
+
+
+def test_recommended_focus_excludes_deleted_actions():
+    """Verify that recommended_step_back_focus never mentions split, redraft, or different plan."""
+    from workflows.library.scripts.evaluate_workflow_non_progress import evaluate_non_progress
+
+    # Test cases that trigger each recommendation path
+    test_cases = [
+        ("stale_artifact_provenance", [_event(iteration=1, stale_artifact_detected=True)]),
+        ("prerequisite_chain_growth", [_event(iteration=1, prerequisite_generated=True), _event(iteration=2, prerequisite_generated=True)]),
+        ("dependency_edge_invalid_repeated", [_event(iteration=1, dependency_edge_event="invalid", dependency_edge_fingerprint="edge-a"), _event(iteration=2, dependency_edge_event="invalid", dependency_edge_fingerprint="edge-a")]),
+        ("dependency_downstream_selected_early", [_event(iteration=1, dependency_edge_event="downstream_before_blocker_ready")]),
+        ("same_blocker_repeated", [_event(iteration=1, blocker_fingerprint="blocker-x"), _event(iteration=2, blocker_fingerprint="blocker-x")]),
+        ("review_findings_not_converging", [_event(iteration=1, review_finding_fingerprints=["finding-a"]), _event(iteration=2, review_finding_fingerprints=["finding-a"])]),
+        ("plan_churn_without_outcome_change", [_event(iteration=1, plan_revised=True), _event(iteration=2, plan_revised=True)]),
+        ("no_accepted_change_streak", [_event(iteration=1), _event(iteration=2), _event(iteration=3)]),
+    ]
+
+    forbidden_strings = ["split", "redraft", "different plan"]
+
+    for trigger_code, events in test_cases:
+        decision = evaluate_non_progress(_signals(events))
+        focus = decision["recommended_step_back_focus"]
+        focus_lower = focus.lower()
+
+        for forbidden in forbidden_strings:
+            assert forbidden not in focus_lower, f"Trigger '{trigger_code}' recommendation contains forbidden word '{forbidden}': {focus}"
