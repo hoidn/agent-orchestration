@@ -4,10 +4,10 @@ Approve only if the plan can be executed as written and follows the design and r
 Return `REVISE` for concrete high-severity scope, contract, API, fixture, or verification gaps.
 For medium verification gaps, approve with notes.
 Reject plans that contradict the gap architecture.
-Put source or runtime behavior repair before evidence refresh. Do not plan
-manifest, conformance, parity, summary, inventory, or status-label work as a
-blocking implementation task unless that artifact is a direct runtime input or
-proves the current behavior is wrong.
+Do not reject a plan solely because it treats manifest, conformance, parity,
+summary, inventory, or status-label work as follow-up rather than blocking
+tasks; reject on that axis only when such an artifact is a direct runtime input
+or proves the current behavior is wrong.
 If the plan cannot be made executable because the consumed design or gap
 architecture requires a route, mechanism, or artifact that is absent from or
 contradicted by the current checkout, name that requirement explicitly in the
