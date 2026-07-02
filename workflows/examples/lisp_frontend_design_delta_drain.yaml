@@ -1502,6 +1502,8 @@ steps:
             - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery-decision.json
             - --revision-report
             - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-report.json
+            - --review-report-path
+            - ${inputs.artifact_review_root}/blocked-design-revision-iteration-${loop.index}-review.json
             - --target-design-review-decision
             - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-loop-decision.txt
             - --terminal-action

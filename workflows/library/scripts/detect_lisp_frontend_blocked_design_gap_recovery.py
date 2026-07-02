@@ -101,13 +101,44 @@ def _step_back_payload(decision: dict[str, Any]) -> dict[str, str]:
     return payload
 
 
-def _non_progress_payload(path: Path | None) -> dict[str, str] | None:
+def _last_step_back_event(history: list[Any]) -> tuple[dict[str, Any] | None, bool]:
+    """Return the most recent step_back history entry and whether a later non-step_back entry follows it."""
+    last_step_back: dict[str, Any] | None = None
+    followed_by_other_event = False
+    for entry in history:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("event") or "").strip() == "step_back":
+            last_step_back = entry
+            followed_by_other_event = False
+        elif last_step_back is not None:
+            followed_by_other_event = True
+    return last_step_back, followed_by_other_event
+
+
+def _step_back_already_handled(state: Mapping[str, Any], decision: Mapping[str, Any]) -> bool:
+    history = state.get("history")
+    if not isinstance(history, list):
+        return False
+    last_step_back, followed_by_other_event = _last_step_back_event(history)
+    if last_step_back is None or followed_by_other_event:
+        return False
+    if str(last_step_back.get("action") or "").strip() != "CONTINUE_WITH_CURRENT_PLAN":
+        return False
+    last_fingerprint = str(last_step_back.get("failure_fingerprint") or "").strip()
+    current_fingerprint = str(decision.get("failure_fingerprint") or "").strip()
+    return bool(last_fingerprint) and last_fingerprint == current_fingerprint
+
+
+def _non_progress_payload(path: Path | None, state: Mapping[str, Any]) -> dict[str, str] | None:
     if path is None or not path.exists():
         return None
     decision = _load_json(path)
-    if str(decision.get("route") or "").strip() == "STEP_BACK_REQUIRED":
-        return _step_back_payload(decision)
-    return None
+    if str(decision.get("route") or "").strip() != "STEP_BACK_REQUIRED":
+        return None
+    if _step_back_already_handled(state, decision):
+        return None
+    return _step_back_payload(decision)
 
 
 def _selector_manifest_mechanics_payload(path: Path | None) -> dict[str, str] | None:
@@ -281,7 +312,8 @@ def _recovery_payload(
     non_progress_decision_path: Path | None = None,
     selector_manifest_path: Path | None = None,
 ) -> dict[str, str]:
-    non_progress = _non_progress_payload(non_progress_decision_path)
+    state = _load_json(run_state_path)
+    non_progress = _non_progress_payload(non_progress_decision_path, state)
     if non_progress is not None:
         return non_progress
     selector_mechanics = _selector_manifest_mechanics_payload(selector_manifest_path)
@@ -289,7 +321,6 @@ def _recovery_payload(
         return selector_mechanics
     selector_manifest = _selector_manifest_payload(selector_manifest_path)
 
-    state = _load_json(run_state_path)
     blocked = state.get("blocked_design_gaps") or {}
     for design_gap_id in _blocked_recovery_order(blocked):
         entry = blocked.get(design_gap_id) or {}

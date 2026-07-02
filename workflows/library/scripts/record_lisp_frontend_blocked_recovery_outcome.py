@@ -561,6 +561,7 @@ def main() -> int:
     parser.add_argument("--reason", default="")
     parser.add_argument("--recovery-bundle-path", default="")
     parser.add_argument("--revision-report", default="")
+    parser.add_argument("--review-report-path", default="")
     parser.add_argument("--target-design-review-decision", required=True)
     parser.add_argument("--terminal-action", required=True, choices=["block", "continue"])
     parser.add_argument("--state-path", required=True)
@@ -592,6 +593,8 @@ def main() -> int:
 
     revision_report_path = Path(args.revision_report) if args.revision_report else None
     revision_report_exists = revision_report_path is not None and revision_report_path.exists()
+    review_report_path = Path(args.review_report_path) if args.review_report_path else None
+    review_report_exists = review_report_path is not None and review_report_path.exists()
 
     if route == "GAP_DESIGN_REVISION_REQUIRED":
         if revision_report_exists:
@@ -640,8 +643,9 @@ def main() -> int:
                 )
                 drain_state_root = Path(args.state_path).parent
                 feedback_target = drain_state_root / f"blocked-revision-review-feedback.{args.item_id}.md"
+                feedback_source_path = review_report_path if review_report_exists else revision_report_path
                 feedback_target.write_text(
-                    revision_report_path.read_text(encoding="utf-8"), encoding="utf-8"
+                    feedback_source_path.read_text(encoding="utf-8"), encoding="utf-8"
                 )
                 if args.terminal_action == "continue":
                     Path(args.drain_status_path).write_text("CONTINUE\n", encoding="utf-8")

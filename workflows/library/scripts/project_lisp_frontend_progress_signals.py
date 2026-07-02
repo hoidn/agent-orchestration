@@ -130,18 +130,20 @@ def project_progress_signals(
                 "outcome": outcome,
                 "accepted_change": accepted_change,
                 "commit_hash": str(entry.get("commit_hash") or "").strip(),
-                "blocker_fingerprint": _stable_fingerprint(
-                    [
-                        item_id,
-                        source,
-                        reason,
-                        recovery_route,
-                        recovery_reason,
-                        blocker_class,
-                    ]
-                )
-                if not accepted_change
-                else "",
+                "blocker_fingerprint": (
+                    ""
+                    if accepted_change or event_name == "step_back"
+                    else _stable_fingerprint(
+                        [
+                            item_id,
+                            source,
+                            reason,
+                            recovery_route,
+                            recovery_reason,
+                            blocker_class,
+                        ]
+                    )
+                ),
                 "review_finding_fingerprints": list(entry.get("review_finding_fingerprints") or []),
                 "prerequisite_generated": prerequisite_generated,
                 "plan_revised": plan_revised,

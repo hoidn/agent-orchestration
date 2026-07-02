@@ -197,6 +197,8 @@ def _record_run_blocked(
     selection: dict[str, Any] = {}
     if selection_path:
         selection = json.loads(Path(selection_path).read_text(encoding="utf-8"))
+    if selection.get("step_back_drain_status") == "CONTINUE":
+        return
     if "pre_selection_route" in selection:
         if selection.get("pre_selection_route") != "RECOVER_BLOCKED_DESIGN_GAP":
             state["blocked_run"] = {
