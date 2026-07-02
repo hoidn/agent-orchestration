@@ -889,6 +889,126 @@ def test_blocked_recovery_detector_prefers_recoverable_gap_over_generic_step_bac
     assert payload["recovery_route"] == "GAP_DESIGN_REVISION_REQUIRED"
 
 
+def _write_blocked_gap_run_state(run_state: Path, workspace: Path, *, history: list[dict]) -> tuple[Path, Path, Path]:
+    progress = workspace / "artifacts/work/gap-a/progress_report.md"
+    architecture = workspace / "docs/plans/design-gaps/gap-a/implementation_architecture.md"
+    plan = workspace / "docs/plans/design-gaps/gap-a/execution_plan.md"
+    run_state.parent.mkdir(parents=True, exist_ok=True)
+    progress.parent.mkdir(parents=True, exist_ok=True)
+    architecture.parent.mkdir(parents=True, exist_ok=True)
+    progress.write_text("Status: BLOCKED\n", encoding="utf-8")
+    architecture.write_text("# Gap A\n", encoding="utf-8")
+    plan.write_text("# Plan A\n", encoding="utf-8")
+    run_state.write_text(
+        json.dumps(
+            {
+                "blocked_design_gaps": {
+                    "gap-a": {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
+                        "recovery_reason": "implementation_architecture_under_scoped",
+                        "recovery_event_id": "run:gap-a:blocked",
+                        "progress_report_path": progress.relative_to(workspace).as_posix(),
+                        "architecture_path": architecture.relative_to(workspace).as_posix(),
+                        "plan_path": plan.relative_to(workspace).as_posix(),
+                    }
+                },
+                "history": history,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return progress, architecture, plan
+
+
+def _revision_cycle_history(cycles: int) -> list[dict]:
+    history: list[dict] = [{"event": "blocked", "item_id": "gap-a", "reason": "implementation_blocked"}]
+    for _ in range(cycles):
+        history.append({"event": "gap_design_revision", "item_id": "gap-a"})
+        history.append({"event": "blocked", "item_id": "gap-a", "reason": "implementation_blocked"})
+    return history
+
+
+def test_blocked_recovery_detector_reports_revision_cycles_to_classifier(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_state = workspace / "state/run_state.json"
+    output = workspace / "state/blocked-recovery.json"
+    _write_blocked_gap_run_state(run_state, workspace, history=_revision_cycle_history(2))
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py"),
+        "--run-state-path",
+        run_state.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work",
+        "--architecture-index-root",
+        "docs/plans/design-gaps",
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
+    assert payload["revision_cycles"] == "2"
+
+
+def test_blocked_recovery_detector_stops_after_exhausted_revision_cycles(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_state = workspace / "state/run_state.json"
+    output = workspace / "state/blocked-recovery.json"
+    _write_blocked_gap_run_state(run_state, workspace, history=_revision_cycle_history(3))
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py"),
+        "--run-state-path",
+        run_state.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work",
+        "--architecture-index-root",
+        "docs/plans/design-gaps",
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "BLOCKED"
+    assert payload["block_reason"] == "local_recovery_exhausted"
+
+
+def test_blocked_recovery_detector_ignores_unretried_revisions_in_cycle_count(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_state = workspace / "state/run_state.json"
+    output = workspace / "state/blocked-recovery.json"
+    history = _revision_cycle_history(0)
+    for _ in range(4):
+        history.append({"event": "gap_design_revision", "item_id": "gap-a"})
+        history.append({"event": "recovered_retry_unavailable", "item_id": "gap-a"})
+    _write_blocked_gap_run_state(run_state, workspace, history=history)
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py"),
+        "--run-state-path",
+        run_state.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work",
+        "--architecture-index-root",
+        "docs/plans/design-gaps",
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
+    assert payload["revision_cycles"] == "0"
+
+
 def test_blocked_recovery_detector_skips_unavailable_prerequisite_to_recover_other_gap(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()

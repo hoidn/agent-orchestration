@@ -87,6 +87,29 @@ def _write_recovered_validation_progress_report(
     return True
 
 
+def _revision_cycles(state: Mapping[str, Any], design_gap_id: str) -> int:
+    """Count completed revise -> re-block cycles for one design gap.
+
+    A cycle is a design/gap revision event for the item followed later by a
+    blocked event for the same item, meaning the revised design was retried
+    and blocked again. Revisions whose retry never ran do not count.
+    """
+    cycles = 0
+    pending_revision = False
+    for entry in state.get("history") or []:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("item_id") or "").strip() != design_gap_id:
+            continue
+        event = str(entry.get("event") or "").strip()
+        if event in {"gap_design_revision", "design_revision"}:
+            pending_revision = True
+        elif event == "blocked" and pending_revision:
+            cycles += 1
+            pending_revision = False
+    return cycles
+
+
 def _gap_design_paths(architecture_index_root: Path, design_gap_id: str, entry: dict[str, Any]) -> tuple[str, str]:
     architecture_path = str(entry.get("architecture_path") or "").strip()
     plan_path = str(entry.get("plan_path") or "").strip()
@@ -416,6 +439,9 @@ def _recovery_payload(
                 return payload
             elif decision.route == "BLOCKED_TERMINAL":
                 return _block_payload("prerequisite_blocker_terminal")
+        revision_cycles = _revision_cycles(state, design_gap_id)
+        if revision_cycles >= 3 and recovery_status != "RETRY_READY":
+            return _block_payload("local_recovery_exhausted")
         wrote_recovered_validation_report = _write_recovered_validation_progress_report(
             progress_copy_path,
             design_gap_id=design_gap_id,
@@ -461,6 +487,7 @@ def _recovery_payload(
             "block_reason": "implementation_blocked",
             "implementation_state_path": str(entry.get("implementation_state_path") or "").strip(),
             "recovery_event_id": recovery_event_id,
+            "revision_cycles": str(revision_cycles),
         }
         feedback_path = run_state_path.parent / f"blocked-revision-review-feedback.{design_gap_id}.md"
         if feedback_path.is_file():
