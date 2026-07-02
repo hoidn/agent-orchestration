@@ -76,12 +76,21 @@ Record    (command)  derive iteration status from measurables, append one
 | `BLOCKED_ON_USER` | verdict BLOCKED_ON_USER ∧ at least one `BLOCKED-*.md` exists |
 | `NO_CHANGE` | everything else (including a blocked claim without notes) |
 
+The rows are not mutually exclusive; evaluation order is normative and part of
+this contract: `CHECKS_RED` → `FINDINGS` (review FINDINGS, or verdict DONE
+with done-review ≠ APPROVE) → `DONE` (verdict DONE ∧ done-review APPROVE) →
+`BLOCKED_ON_USER` (verdict BLOCKED_ON_USER ∧ ≥1 `BLOCKED-*.md`) → `ACCEPTED`
+(commits ∧ review APPROVE) → `NO_CHANGE`. Example that the order decides: a
+DONE claim whose done-review is REJECT records `FINDINGS`, never `ACCEPTED`,
+even when the diff itself was approved — because ledger tokens are append-only
+(P2), a misordered evaluation would be a permanent misrecord.
+
 ### Loop control (all measured)
 
 - `drain_status = DONE` when status is DONE.
 - `drain_status = BLOCKED_ON_USER` when status is BLOCKED_ON_USER.
-- `drain_status = STALLED` when the last `stall_limit` (default 3) status
-  tokens are all in {NO_CHANGE, CHECKS_RED, FINDINGS}.
+- `drain_status = STALLED` when the last `stall_limit` (default 3, must be
+  ≥ 1) status tokens are all in {NO_CHANGE, CHECKS_RED, FINDINGS}.
 - otherwise `CONTINUE`; `on_exhausted` (max_iterations) publishes `STALLED`.
 
 `CHECKS_RED` never mutates the tree (P6). The next iteration's work order

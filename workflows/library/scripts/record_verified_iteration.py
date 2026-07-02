@@ -24,6 +24,10 @@ def _read_token(path_value: str, *, default: str = "SKIPPED") -> str:
     return path.read_text(encoding="utf-8").strip() or default
 
 
+# Branch order is normative: the status rows are not mutually exclusive, so
+# evaluation order disambiguates (see docs/design/verified_iteration_drain.md,
+# "Iteration status" — precedence CHECKS_RED > FINDINGS > DONE >
+# BLOCKED_ON_USER > ACCEPTED > NO_CHANGE).
 def _derive_status(
     *,
     verify: str,
@@ -98,7 +102,7 @@ def main() -> int:
         drain_status = "DONE"
     elif status == "BLOCKED_ON_USER":
         drain_status = "BLOCKED_ON_USER"
-    elif len(tokens) >= stall_limit and all(token in STALL_STATUSES for token in tokens[-stall_limit:]):
+    elif stall_limit > 0 and len(tokens) >= stall_limit and all(token in STALL_STATUSES for token in tokens[-stall_limit:]):
         drain_status = "STALLED"
     else:
         drain_status = "CONTINUE"
