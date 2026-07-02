@@ -71,6 +71,12 @@ def main() -> int:
     verdict = _read_token(args.worker_verdict_path, default="")
     if verdict not in {"CONTINUE", "DONE", "BLOCKED_ON_USER"}:
         raise SystemExit(f"Invalid or missing worker verdict: {verdict!r}")
+    try:
+        stall_limit = int(args.stall_limit)
+    except ValueError:
+        stall_limit = 0
+    if stall_limit < 1:
+        raise SystemExit(f"--stall-limit must be a positive integer, got {args.stall_limit!r}")
     note = _read_token(args.worker_note_path, default="")
     blocked_dir = REPO_ROOT / args.blocked_notes_dir
     has_blocked_notes = blocked_dir.is_dir() and any(blocked_dir.glob("BLOCKED-*.md"))
@@ -87,22 +93,33 @@ def main() -> int:
     statuses_path = REPO_ROOT / args.statuses_path
     statuses_path.parent.mkdir(parents=True, exist_ok=True)
     tokens = statuses_path.read_text(encoding="utf-8").split() if statuses_path.is_file() else []
-    tokens.append(status)
-    with statuses_path.open("a", encoding="utf-8") as handle:
-        handle.write(status + "\n")
 
     head_sha = str(checks.get("head_sha") or "")
     ledger_path = REPO_ROOT / args.ledger_path
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    with ledger_path.open("a", encoding="utf-8") as handle:
-        handle.write(f"iter {args.iteration} | {status} | {args.base_sha[:7]}..{head_sha[:7]} | {note}\n")
+    ledger_lines = [
+        line for line in ledger_path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ] if ledger_path.is_file() else []
 
-    stall_limit = int(args.stall_limit)
+    # orchestrator resume re-runs the first non-terminal step of an iteration,
+    # so Record may be re-invoked for an iteration whose ledger line and
+    # status token already landed; detect that and skip re-appending so a
+    # resumed run cannot double-record the same iteration.
+    already_recorded = bool(ledger_lines) and ledger_lines[-1].startswith(f"iter {args.iteration} | ")
+    if already_recorded:
+        status = tokens[-1] if tokens else status
+    else:
+        tokens.append(status)
+        with statuses_path.open("a", encoding="utf-8") as handle:
+            handle.write(status + "\n")
+        with ledger_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"iter {args.iteration} | {status} | {args.base_sha[:7]}..{head_sha[:7]} | {note}\n")
+
     if status == "DONE":
         drain_status = "DONE"
     elif status == "BLOCKED_ON_USER":
         drain_status = "BLOCKED_ON_USER"
-    elif stall_limit > 0 and len(tokens) >= stall_limit and all(token in STALL_STATUSES for token in tokens[-stall_limit:]):
+    elif len(tokens) >= stall_limit and all(token in STALL_STATUSES for token in tokens[-stall_limit:]):
         drain_status = "STALLED"
     else:
         drain_status = "CONTINUE"

@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import yaml
+
 from orchestrator.loader import WorkflowLoader
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
@@ -167,7 +169,8 @@ def _record(
     blocked_note: bool = False,
     stall_limit: str = "3",
     seed_statuses: list[str] | None = None,
-) -> tuple[str, str]:
+    check: bool = True,
+) -> tuple[str, str] | subprocess.CompletedProcess[str]:
     iteration_dir = workspace / STATE_ROOT / "iterations" / str(iteration)
     iteration_dir.mkdir(parents=True, exist_ok=True)
     (iteration_dir / "checks-result.json").write_text(
@@ -197,7 +200,7 @@ def _record(
     statuses = workspace / STATE_ROOT / "statuses.txt"
     if seed_statuses:
         statuses.write_text("".join(token + "\n" for token in seed_statuses), encoding="utf-8")
-    _run_script(
+    proc = _run_script(
         workspace,
         str(ROOT / RECORD),
         "--iteration", str(iteration),
@@ -213,7 +216,10 @@ def _record(
         "--stall-limit", stall_limit,
         "--summary-path", f"{WORK_ROOT}/drain-summary.json",
         "--drain-status-path", f"{STATE_ROOT}/iterations/{iteration}/drain-status.txt",
+        check=check,
     )
+    if not check:
+        return proc
     tokens = statuses.read_text(encoding="utf-8").split()
     drain = (workspace / STATE_ROOT / "iterations" / str(iteration) / "drain-status.txt").read_text(encoding="utf-8").strip()
     return tokens[-1], drain
@@ -253,6 +259,12 @@ def test_record_done_claim_without_done_review_is_findings(tmp_path):
     assert (status, drain) == ("FINDINGS", "CONTINUE")
 
 
+def test_record_done_with_skipped_review_and_no_commits(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    status, drain = _record(workspace, verdict="DONE", done_review="APPROVE")
+    assert (status, drain) == ("DONE", "DONE")
+
+
 def test_record_blocked_requires_a_note(tmp_path):
     workspace = _init_workspace(tmp_path)
     status, drain = _record(workspace, verdict="BLOCKED_ON_USER", blocked_note=True)
@@ -277,10 +289,46 @@ def test_record_accepted_interrupts_stall_window(tmp_path):
     assert (status, drain) == ("CHECKS_RED", "CONTINUE")
 
 
+def test_record_rejects_non_positive_stall_limit(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    proc = _record(workspace, stall_limit="0", check=False)
+    assert proc.returncode != 0
+
+
+def test_record_is_idempotent_across_repeated_invocations(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    status1, drain1 = _record(workspace, commits="true", review="APPROVE")
+    status2, drain2 = _record(workspace, commits="true", review="APPROVE")
+    assert (status1, drain1) == ("ACCEPTED", "CONTINUE")
+    assert (status2, drain2) == ("ACCEPTED", "CONTINUE")
+    ledger_lines = [
+        line
+        for line in (workspace / WORK_ROOT / "ledger.md").read_text(encoding="utf-8").splitlines()
+        if line.startswith("iter 0 | ")
+    ]
+    assert len(ledger_lines) == 1
+    tokens = (workspace / STATE_ROOT / "statuses.txt").read_text(encoding="utf-8").split()
+    assert tokens == ["ACCEPTED"]
+
+
 def test_verified_iteration_drain_workflow_loads(tmp_path):
     loader = WorkflowLoader(ROOT)
     loader.load_bundle(ROOT / WORKFLOW)
     assert loader.error_count() == 0
+
+
+def test_review_prompts_are_pinned_to_expected_steps():
+    workflow = yaml.safe_load((ROOT / WORKFLOW).read_text(encoding="utf-8"))
+    body_steps = workflow["steps"][0]["repeat_until"]["steps"]
+    steps_by_name = {step["name"]: step for step in body_steps}
+    assert (
+        steps_by_name["ReviewIteration"]["input_file"]
+        == "workflows/library/prompts/verified_iteration_drain/review_iteration.md"
+    )
+    assert (
+        steps_by_name["ReviewDoneClaim"]["input_file"]
+        == "workflows/library/prompts/verified_iteration_drain/review_done.md"
+    )
 
 
 def _copy_drain_runtime_files(workspace: Path) -> Path:

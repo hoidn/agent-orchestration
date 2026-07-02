@@ -40,7 +40,7 @@
 **Interfaces:**
 - Produces `work-order.json` consumed by Work/reviewer prompts and by Tasks 2–3 tests. Keys (all strings): `iteration`, `base_sha`, `target_design_path`, `check_commands_path`, `ledger_path`, `blocked_notes_dir`, `worker_verdict_path`, `worker_note_path`, `review_decision_path`, `review_findings_path`, `done_review_decision_path`, `previous_review_findings_path` (empty if absent), `previous_checks_log_path` (empty if absent), `work_order_path`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_verified_iteration_drain.py`:
 
@@ -148,12 +148,12 @@ def test_prepare_fails_fast_on_missing_target_design(tmp_path):
     assert result.returncode != 0
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_verified_iteration_drain.py -q -k prepare`
 Expected: 3 failures (script file does not exist).
 
-- [ ] **Step 3: Write the script**
+- [x] **Step 3: Write the script**
 
 Create `workflows/library/scripts/prepare_verified_iteration.py`:
 
@@ -239,12 +239,12 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_verified_iteration_drain.py -q -k prepare`
 Expected: 3 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add workflows/library/scripts/prepare_verified_iteration.py tests/test_verified_iteration_drain.py
@@ -263,7 +263,7 @@ git commit -m "Add verified-iteration prepare script"
 - Consumes: `base_sha` from Task 1's order.
 - Produces `checks-result.json`: `verify_status` (`GREEN|RED`), `commits_landed` (`"true"|"false"`), `head_sha`, `checks_log_path`, `review_package_path`. Exit 0 for both GREEN and RED; nonzero only for a missing/invalid check-commands file.
 
-- [ ] **Step 1: Write the failing tests** (append to the test module)
+- [x] **Step 1: Write the failing tests** (append to the test module)
 
 ```python
 def _run_checks(workspace: Path, base_sha: str, *, checks: str = "workflows/examples/inputs/pilot_checks.json", iteration: int = 0) -> dict:
@@ -320,12 +320,12 @@ def test_checks_fails_fast_on_invalid_checks_file(tmp_path):
     assert proc.returncode != 0
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `pytest tests/test_verified_iteration_drain.py -q -k checks`
 Expected: 3 failures (script missing).
 
-- [ ] **Step 3: Write the script**
+- [x] **Step 3: Write the script**
 
 Create `workflows/library/scripts/run_verified_iteration_checks.py`:
 
@@ -408,12 +408,12 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `pytest tests/test_verified_iteration_drain.py -q -k checks`
 Expected: 3 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add workflows/library/scripts/run_verified_iteration_checks.py tests/test_verified_iteration_drain.py
@@ -432,7 +432,7 @@ git commit -m "Add verified-iteration check runner and diff packager"
 - Consumes Task 2's `checks-result.json`, decision files (missing ⇒ `SKIPPED`), verdict/note files, blocked-notes dir.
 - Produces: one appended line in `ledger.md`, one appended token in `statuses.txt`, regenerated `drain-summary.json`, and `drain-status.txt` ∈ `CONTINUE|DONE|BLOCKED_ON_USER|STALLED`.
 
-- [ ] **Step 1: Write the failing tests** (append to the test module)
+- [x] **Step 1: Write the failing tests** (append to the test module)
 
 ```python
 def _record(
@@ -557,12 +557,12 @@ def test_record_accepted_interrupts_stall_window(tmp_path):
     assert (status, drain) == ("CHECKS_RED", "CONTINUE")
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `pytest tests/test_verified_iteration_drain.py -q -k record`
 Expected: 8 failures (script missing).
 
-- [ ] **Step 3: Write the script**
+- [x] **Step 3: Write the script**
 
 Create `workflows/library/scripts/record_verified_iteration.py`:
 
@@ -695,12 +695,12 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `pytest tests/test_verified_iteration_drain.py -q -k record`
 Expected: 8 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add workflows/library/scripts/record_verified_iteration.py tests/test_verified_iteration_drain.py
@@ -718,7 +718,7 @@ git commit -m "Add verified-iteration status recorder"
 
 No tests in this task (prompt-text assertions are forbidden); Task 6's runtime smoke exercises them end-to-end via fake providers, and Task 5's loader smoke validates references.
 
-- [ ] **Step 1: Write `work.md`**
+- [x] **Step 1: Write `work.md`**
 
 ```markdown
 You are executing one iteration of an autonomous drain toward the consumed
@@ -751,7 +751,7 @@ Before finishing, write:
   or learned this iteration.
 ```
 
-- [ ] **Step 2: Write `review_iteration.md`**
+- [x] **Step 2: Write `review_iteration.md`**
 
 ```markdown
 Review one iteration of work toward the consumed target design.
@@ -769,7 +769,7 @@ the consumed work order. When returning `FINDINGS`, write the concrete
 findings to the file named by `review_findings_path`.
 ```
 
-- [ ] **Step 3: Write `review_done.md`**
+- [x] **Step 3: Write `review_done.md`**
 
 ```markdown
 Judge whether the consumed target design's acceptance criteria hold in the
@@ -784,7 +784,7 @@ in the consumed work order. When rejecting, append each unmet criterion and
 the evidence for it to the file named by `review_findings_path`.
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add workflows/library/prompts/verified_iteration_drain
@@ -803,7 +803,7 @@ git commit -m "Add verified-iteration drain prompts"
 - Consumes: the three scripts (Tasks 1–3), three prompts (Task 4), and the existing `workflows/library/scripts/write_lisp_frontend_relpath_value.py` (unchanged reuse for the summary-path output).
 - Produces workflow outputs `drain_status` and `drain_summary_path` consumed by Task 6's runtime tests.
 
-- [ ] **Step 1: Write the failing loader-smoke test** (append to the test module)
+- [x] **Step 1: Write the failing loader-smoke test** (append to the test module)
 
 ```python
 def test_verified_iteration_drain_workflow_loads(tmp_path):
@@ -815,7 +815,7 @@ def test_verified_iteration_drain_workflow_loads(tmp_path):
 Run: `pytest tests/test_verified_iteration_drain.py -q -k workflow_loads`
 Expected: FAIL (file not found).
 
-- [ ] **Step 2: Write the workflow**
+- [x] **Step 2: Write the workflow**
 
 Create `workflows/examples/verified_iteration_drain.yaml`:
 
@@ -1142,12 +1142,12 @@ steps:
         must_exist_target: true
 ```
 
-- [ ] **Step 3: Run loader smoke to verify pass**
+- [x] **Step 3: Run loader smoke to verify pass**
 
 Run: `pytest tests/test_verified_iteration_drain.py -q -k workflow_loads`
 Expected: PASS with zero loader errors. If the loader rejects a construct, fix the YAML against the working idioms in `workflows/examples/lisp_frontend_design_delta_drain.yaml` — do not change the loader.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add workflows/examples/verified_iteration_drain.yaml tests/test_verified_iteration_drain.py
@@ -1164,7 +1164,7 @@ git commit -m "Add verified-iteration drain workflow"
 **Interfaces:**
 - Consumes everything from Tasks 1–5. Reuses `_bundle_context_dict` imported from `tests/test_lisp_frontend_autonomous_drain_runtime` (already imported in Task 1's header). If that cross-module import fails at collection time, inline the two small helpers (`_thaw`, `_bundle_context_dict`) instead — they are pure functions.
 
-- [ ] **Step 1: Write the failing runtime tests** (append to the test module)
+- [x] **Step 1: Write the failing runtime tests** (append to the test module)
 
 ```python
 def _copy_drain_runtime_files(workspace: Path) -> Path:
@@ -1311,19 +1311,19 @@ def test_drain_exits_blocked_on_user_with_notes(tmp_path):
     assert summary["blocked_notes"] == ["BLOCKED-credentials.md"]
 ```
 
-- [ ] **Step 2: Run to verify current state**
+- [x] **Step 2: Run to verify current state**
 
 Run: `pytest tests/test_verified_iteration_drain.py -q -k drain_`
 Expected: 3 failures or errors initially; iterate on wiring mismatches (step names, artifact refs, gating) until green. Fix mismatches in the YAML/scripts, never by weakening assertions. Two known risk points and their intended resolutions: (a) if `${loop.index}` numbering starts at 1 rather than 0, adjust `_latest_iteration_dir` usage is already index-agnostic — but confirm `iterations/<n>` paths line up with `prepare --iteration ${loop.index}`; (b) if the executor requires provider steps to have `output_capture` or forbids skipped-step artifact refs, mirror how `workflows/examples/lisp_frontend_design_delta_drain.yaml` handles the same construct.
 
-- [ ] **Step 3: Run the whole module + collection**
+- [x] **Step 3: Run the whole module + collection**
 
 Run: `pytest tests/test_verified_iteration_drain.py -q`
 Expected: all tests pass (18 total).
 Run: `pytest tests/test_verified_iteration_drain.py --collect-only -q | tail -2`
 Expected: 18 tests collected.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/test_verified_iteration_drain.py
@@ -1338,14 +1338,14 @@ git commit -m "Add verified-iteration drain runtime smoke tests"
 - Modify: `docs/index.md` — add one routing line for `docs/design/verified_iteration_drain.md` in the design-doc section (match surrounding format).
 - Modify: `docs/capability_status_matrix.md` — add one row: verified-iteration drain, status "Implemented (pilot)", pointing at the workflow and design doc (match surrounding row format exactly).
 
-- [ ] **Step 1: Make both edits** (read each file's neighboring entries first and copy their format precisely; one line each)
+- [x] **Step 1: Make both edits** (read each file's neighboring entries first and copy their format precisely; one line each)
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `pytest tests/test_verified_iteration_drain.py -q`
 Expected: all pass (docs changes must not affect tests).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/index.md docs/capability_status_matrix.md

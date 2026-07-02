@@ -189,9 +189,11 @@ steps:
                 json_pointer: /commits_landed
                 type: enum
                 allowed: ["true", "false"]
-              - name: head_sha
-                json_pointer: /head_sha
-                type: string
+              - name: checks_log_path
+                json_pointer: /checks_log_path
+                type: relpath
+                under: state
+                must_exist_target: true
               - name: review_package_path
                 json_pointer: /review_package_path
                 type: relpath

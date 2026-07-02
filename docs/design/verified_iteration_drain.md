@@ -203,8 +203,14 @@ only what was measured.
 
 1. **Per-decision audit lineage is coarser.** No classification/revision
    bundles; the audit trail is ledger + git + review files.
-2. **Coarser resume granularity.** A mid-iteration crash re-runs the
-   iteration from its base snapshot rather than resuming a micro-step.
+2. **Resume granularity is per inner step, not per iteration.** A
+   mid-iteration crash resumes at the iteration's first non-terminal inner
+   step (Prepare/Work/Verify/Review/ReviewDone/Record), not from the
+   iteration's base snapshot. Record's ledger and status-token appends are
+   idempotent per iteration (a re-invocation whose ledger line already landed
+   skips both appends and only regenerates the summary/status surfaces), so a
+   resumed run cannot double-record an iteration even though Record itself
+   may be re-invoked.
 3. **Trusts one competent worker, gates its outcomes.** Weak workers produce
    NO_CHANGE/FINDINGS tokens and trip the stall rule rather than being
    corrected by machinery.
