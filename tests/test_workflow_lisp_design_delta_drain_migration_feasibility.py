@@ -2412,8 +2412,6 @@ def _design_delta_selected_item_stdlib_bound_inputs() -> dict[str, object]:
         "selection__target_design_path": "docs/design/target.md",
         "selection__baseline_design_path": "docs/design/baseline.md",
         "selection__progress_ledger_path": "state/progress_ledger.json",
-        "selection__run_state_path": "state/run_state.json",
-        "run_state_path": "state/run_state.json",
     }
 
 
@@ -2875,9 +2873,13 @@ def _execute_design_delta_work_item_bundle(
     )
 
     previous_cwd = Path.cwd()
+    smoke_pythonpath = os.pathsep.join(
+        [str(REPO_ROOT), *filter(None, [os.environ.get("PYTHONPATH")])]
+    )
     os.chdir(tmp_path)
     try:
         with ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ, {"PYTHONPATH": smoke_pythonpath}))
             stack.enter_context(
                 patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation)
             )
@@ -4957,18 +4959,44 @@ def test_design_delta_parent_drain_controlled_smoke_helper_seeds_hidden_run_stat
     assert set(bound_inputs).issuperset(_design_delta_parent_drain_bound_inputs())
 
 
-def test_design_delta_selected_item_stdlib_smoke_helper_seeds_hidden_run_state_bridge(
+def test_design_delta_selected_item_stdlib_smoke_helper_matches_real_selected_item_boundary(
+    tmp_path: Path,
 ) -> None:
     bound_inputs = _design_delta_selected_item_stdlib_bound_inputs()
+    _workflow_path, result, _lowered_by_name = (
+        _compile_design_delta_parent_call_work_item_entrypoint(tmp_path)
+    )
+    bundle = result.validated_bundles_by_name[
+        "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+    ]
+    boundary = workflow_boundary_projection(bundle)
+    item_ctx_binding = next(
+        binding
+        for binding in boundary.private_runtime_context_bindings
+        if binding.binding_id == "item-ctx"
+    )
+    expected_helper_inputs = set(workflow_public_input_contracts(bundle)) | set(
+        item_ctx_binding.generated_input_names
+    )
 
-    assert bound_inputs["run_state_path"] == "state/run_state.json"
-    assert bound_inputs["selection__run_state_path"] == "state/run_state.json"
+    assert set(bound_inputs) == expected_helper_inputs
+    assert all(
+        "run_state_path" not in binding.generated_input_names
+        for binding in boundary.private_runtime_context_bindings
+    )
     assert bound_inputs["item-ctx__run__run-id"] == "selected-item-stdlib"
+    assert bound_inputs["item-ctx__ledger"] == "state/progress_ledger.json"
+    assert bound_inputs["selection__item-id"] == "design-gap-work-item"
+    assert bound_inputs["selection__progress_ledger_path"] == "state/progress_ledger.json"
+    assert "run_state_path" not in bound_inputs
+    assert "selection__run_state_path" not in bound_inputs
     assert "phase-ctx__plan__run__run-id" not in bound_inputs
     assert "phase-ctx__implementation__run__run-id" not in bound_inputs
+    assert "run_state_path" not in expected_helper_inputs
 
 
 def test_design_delta_selected_item_stdlib_keeps_run_state_bridge_private(
+    tmp_path: Path,
 ) -> None:
     work_item_source = (
         REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc"
@@ -4977,12 +5005,26 @@ def test_design_delta_selected_item_stdlib_keeps_run_state_bridge_private(
         "(defworkflow run-selected-item-stdlib", 1
     )[1].split("(defworkflow run-work-item", 1)[0]
     bound_inputs = _design_delta_selected_item_stdlib_bound_inputs()
+    _workflow_path, result, _lowered_by_name = (
+        _compile_design_delta_parent_call_work_item_entrypoint(tmp_path)
+    )
+    bundle = result.validated_bundles_by_name[
+        "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+    ]
+    boundary = workflow_boundary_projection(bundle)
 
     assert "(run_state_path RunStatePath)" not in run_selected_item_stdlib
     assert ":run_state_path run_state_path" not in run_selected_item_stdlib
     assert "phase-ctx__plan__run__run-id" not in bound_inputs
     assert "phase-ctx__implementation__run__run-id" not in bound_inputs
-    assert bound_inputs["run_state_path"] == "state/run_state.json"
+    assert "run_state_path" not in bound_inputs
+    assert "selection__run_state_path" not in bound_inputs
+    assert "run_state_path" not in workflow_public_input_contracts(bundle)
+    assert all(
+        "run_state_path" not in binding.generated_input_names
+        for binding in boundary.private_runtime_context_bindings
+    )
+    assert boundary.private_compatibility_bridge_inputs == ()
 
 
 def test_design_delta_selected_item_stdlib_consumes_typed_child_result() -> None:
@@ -5733,14 +5775,8 @@ def test_design_delta_work_item_candidate_smokes_complete_and_blocked_recovery_r
     blocked_run_state = json.loads(
         (blocked_workspace / "state" / "run_state.json").read_text(encoding="utf-8")
     )
-    assert (
-        blocked_run_state["blocked_recovery_reason"]
-        == "implementation_architecture_under_scoped"
-    )
-    assert (
-        blocked_run_state["blocked_recovery_summary"]
-        == "artifacts/work/progress_report.md"
-    )
+    assert "blocked_recovery_reason" not in blocked_run_state
+    assert "blocked_recovery_summary" not in blocked_run_state
 
 
 def test_design_delta_runtime_compile_bundle_removes_authored_summary_bridge_steps(
@@ -5925,14 +5961,8 @@ def test_design_delta_parent_call_work_item_smokes_complete_and_blocked_recovery
     blocked_run_state = json.loads(
         (blocked_workspace / "state" / "run_state.json").read_text(encoding="utf-8")
     )
-    assert (
-        blocked_run_state["blocked_recovery_reason"]
-        == "implementation_architecture_under_scoped"
-    )
-    assert (
-        blocked_run_state["blocked_recovery_summary"]
-        == "artifacts/work/progress_report.md"
-    )
+    assert "blocked_recovery_reason" not in blocked_run_state
+    assert "blocked_recovery_summary" not in blocked_run_state
 
 def test_design_delta_parent_call_work_item_smokes_terminal_blocked_route(
     tmp_path: Path,
