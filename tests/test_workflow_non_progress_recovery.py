@@ -228,6 +228,49 @@ def test_rejected_blocked_revision_is_not_an_accepted_change():
     assert "plan_churn_without_outcome_change" in decision["trigger_codes"]
 
 
+def test_revision_without_retry_is_not_an_accepted_change():
+    from workflows.library.scripts.project_lisp_frontend_progress_signals import project_progress_signals
+    from workflows.library.scripts.evaluate_workflow_non_progress import evaluate_non_progress
+
+    history = [
+        {"event": "blocked", "item_id": "gap-a", "source": "DESIGN_GAP", "reason": "implementation_blocked"},
+        {"event": "gap_design_revision", "item_id": "gap-a", "source": "DESIGN_GAP"},
+        {"event": "recovered_retry_unavailable", "item_id": "gap-a", "reason": "recovered_architecture_invalid"},
+        {"event": "gap_design_revision", "item_id": "gap-a", "source": "DESIGN_GAP"},
+        {"event": "recovered_retry_unavailable", "item_id": "gap-a", "reason": "recovered_architecture_invalid"},
+    ]
+    signals = project_progress_signals(run_id="run-1", run_state={"history": history}, current_iteration=len(history))
+
+    rejected_events = [event for event in signals["events"] if event["plan_revised"]]
+    assert len(rejected_events) == 2
+    for event in rejected_events:
+        assert event["accepted_change"] is False
+        assert event["outcome"] == "blocked"
+        assert event["blocker_fingerprint"]
+    assert rejected_events[0]["blocker_fingerprint"] == rejected_events[1]["blocker_fingerprint"]
+
+    decision = evaluate_non_progress(signals, repeated_blocker_threshold=2)
+
+    assert decision["route"] == "STEP_BACK_REQUIRED"
+    assert "same_blocker_repeated" in decision["trigger_codes"]
+
+
+def test_revision_followed_by_retry_block_remains_an_accepted_change():
+    from workflows.library.scripts.project_lisp_frontend_progress_signals import project_progress_signals
+
+    history = [
+        {"event": "blocked", "item_id": "gap-a", "source": "DESIGN_GAP", "reason": "implementation_blocked"},
+        {"event": "gap_design_revision", "item_id": "gap-a", "source": "DESIGN_GAP"},
+        {"event": "blocked", "item_id": "gap-a", "source": "DESIGN_GAP", "reason": "implementation_blocked"},
+    ]
+    signals = project_progress_signals(run_id="run-1", run_state={"history": history}, current_iteration=len(history))
+
+    revision_event = signals["events"][1]
+    assert revision_event["plan_revised"] is True
+    assert revision_event["accepted_change"] is True
+    assert revision_event["outcome"] == "changed"
+
+
 def test_step_back_event_does_not_reset_unresolved_suffix_for_repeated_blocker():
     from workflows.library.scripts.project_lisp_frontend_progress_signals import project_progress_signals
     from workflows.library.scripts.evaluate_workflow_non_progress import evaluate_non_progress
@@ -421,7 +464,7 @@ def test_record_step_back_outcome_blocks_workflow_mechanics_repair(tmp_path):
         encoding="utf-8",
     )
     diagnosis.write_text(
-        json.dumps({"action": "FIX_WORKFLOW_MECHANICS", "rationale": "Stop recursive prerequisite recovery."}) + "\n",
+        json.dumps({"action": "STOP_FOR_EXTERNAL_REVIEW", "rationale": "Stop recursive prerequisite recovery."}) + "\n",
         encoding="utf-8",
     )
 
@@ -454,13 +497,13 @@ def test_record_step_back_outcome_blocks_workflow_mechanics_repair(tmp_path):
     assert event["iteration"] == 12
     assert event["trigger_codes"] == ["same_blocker_repeated"]
     assert event["failure_fingerprint"] == "same-blocker"
-    assert event["action"] == "FIX_WORKFLOW_MECHANICS"
+    assert event["action"] == "STOP_FOR_EXTERNAL_REVIEW"
     assert drain_status.read_text(encoding="utf-8").strip() == "BLOCKED"
     payload = json.loads(summary.read_text(encoding="utf-8"))
     assert payload["record_status"] == "STEP_BACK_RECORDED"
     bundle = json.loads(pre_selection.read_text(encoding="utf-8"))
     assert bundle["pre_selection_route"] == "BLOCKED"
-    assert bundle["step_back_action"] == "FIX_WORKFLOW_MECHANICS"
+    assert bundle["step_back_action"] == "STOP_FOR_EXTERNAL_REVIEW"
     assert bundle["step_back_drain_status"] == "BLOCKED"
 
 

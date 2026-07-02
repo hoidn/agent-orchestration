@@ -78,6 +78,30 @@ def _event_iteration(index: int, event: Mapping[str, Any]) -> int:
     return index
 
 
+def _revision_rejected_reasons(history: list[Any]) -> dict[int, str]:
+    """Map revision-event history indexes to the retry-block reason that rejected them.
+
+    A revision whose next same-item history event is `recovered_retry_unavailable`
+    never produced a retry attempt, so it must not count as an accepted change.
+    """
+    rejected: dict[int, str] = {}
+    pending_by_item: dict[str, int] = {}
+    for index, entry in enumerate(history):
+        if not isinstance(entry, dict):
+            continue
+        item_id = str(entry.get("item_id") or "").strip()
+        if not item_id:
+            continue
+        event = str(entry.get("event") or "").strip()
+        if event in {"plan_revision", "gap_design_revision", "design_revision"}:
+            pending_by_item[item_id] = index
+        elif event == "recovered_retry_unavailable" and item_id in pending_by_item:
+            rejected[pending_by_item.pop(item_id)] = str(entry.get("reason") or "recovered_retry_unavailable").strip()
+        else:
+            pending_by_item.pop(item_id, None)
+    return rejected
+
+
 def project_progress_signals(
     *,
     run_id: str,
@@ -85,7 +109,9 @@ def project_progress_signals(
     current_iteration: int,
 ) -> dict[str, Any]:
     events: list[dict[str, Any]] = []
-    for index, entry in enumerate(run_state.get("history") or []):
+    history = list(run_state.get("history") or [])
+    revision_rejected = _revision_rejected_reasons(history)
+    for index, entry in enumerate(history):
         if not isinstance(entry, dict):
             continue
         event_name = str(entry.get("event") or "").strip()
@@ -115,9 +141,10 @@ def project_progress_signals(
         )
         dependency_edge_event, dependency_edge_fingerprint, dependency_chain_depth = _dependency_edge_signal(entry)
         plan_revised = event_name in {"plan_revision", "gap_design_revision", "design_revision", "blocked_recovery_review_revise"}
+        revision_rejected_reason = revision_rejected.get(index, "")
         accepted_change = (
             event_name == "completed"
-            or (plan_revised and event_name != "blocked_recovery_review_revise")
+            or (plan_revised and event_name != "blocked_recovery_review_revise" and not revision_rejected_reason)
             or dependency_edge_event == "retry_ready"
         )
         outcome = "completed" if event_name == "completed" else "changed" if accepted_change else "blocked"
@@ -142,6 +169,7 @@ def project_progress_signals(
                             recovery_reason,
                             blocker_class,
                         ]
+                        + ([revision_rejected_reason] if revision_rejected_reason else [])
                     )
                 ),
                 "review_finding_fingerprints": list(entry.get("review_finding_fingerprints") or []),
