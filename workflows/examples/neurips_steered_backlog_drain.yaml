@@ -207,6 +207,9 @@ steps:
                 ref: self.outputs.drain_status
               op: eq
               right: BLOCKED
+      on_exhausted:
+        outputs:
+          drain_status: BLOCKED
       steps:
         - name: BuildBacklogManifest
           id: build_backlog_manifest

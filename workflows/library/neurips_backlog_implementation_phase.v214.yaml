@@ -388,6 +388,9 @@ steps:
             ref: self.outputs.review_decision
           op: eq
           right: APPROVE
+      on_exhausted:
+        outputs:
+          review_decision: REVISE
       steps:
         - name: RouteIterationWork
           id: route_iteration_work
