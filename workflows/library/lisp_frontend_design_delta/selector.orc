@@ -2,7 +2,6 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule lisp_frontend_design_delta/selector)
-  (import std/resource :only (StateExisting))
   (import lisp_frontend_design_delta/types :only
     (BaselineDesignDoc DesignDeltaDrainCtx SelectionBundlePath SelectionStatus
       SteeringDoc TargetDesignDoc WorkItemBootstrapSeed))
@@ -14,8 +13,7 @@
   (defrecord SelectorPromptSubject
     (steering SteeringDoc)
     (target_design TargetDesignDoc)
-    (baseline_design BaselineDesignDoc)
-    (run_state StateExisting))
+    (baseline_design BaselineDesignDoc))
 
   (defrecord SelectorRequest
     (subject SelectorPromptSubject))
@@ -40,8 +38,7 @@
              (record SelectorPromptSubject
                :steering inputs.ctx.steering_path
                :target_design inputs.ctx.target_design_path
-               :baseline_design inputs.ctx.baseline_design_path
-               :run_state inputs.ctx.run_state_path))
+               :baseline_design inputs.ctx.baseline_design_path))
            (request
              (record SelectorRequest
                :subject subject))

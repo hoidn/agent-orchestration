@@ -509,6 +509,158 @@
     {
       "bridge": null,
       "command_boundary": null,
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
+      "notes": "Compiled boundary inventory mirror of the helper fix-implementation checks-report return while the nested implementation helper still returns the durable report path.",
+      "renderer": {
+        "accepted_shape": "any_pure_value",
+        "renderer_id": "canonical-json",
+        "renderer_version": 1
+      },
+      "replacement_target": "Track C consumer-side rendering",
+      "row_id": "c0.implementation_phase_fix_return_checks_report_compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "source_kind": "materialized_output",
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/checks_report.json",
+          "artifacts/work/archive/checks_report.json"
+        ]
+      },
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "path": "artifacts/work/checks_report.md",
+          "report_kind": "checks"
+        }
+      },
+      "u0_row_id": "compiled_boundary::%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1::return__checks_report",
+      "workflow_surface": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1"
+    },
+    {
+      "bridge": null,
+      "command_boundary": null,
+      "consumer_lane": "retirement_candidate",
+      "durability": "ephemeral",
+      "notes": "Compiled boundary inventory mirror of the helper fix-implementation execution-report return while the nested implementation helper still returns the durable report path.",
+      "renderer": {
+        "accepted_shape": "any_pure_value",
+        "renderer_id": "canonical-json",
+        "renderer_version": 1
+      },
+      "replacement_target": "Track C consumer-side rendering",
+      "row_id": "c0.implementation_phase_fix_return_execution_report_compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "source_kind": "materialized_output",
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/execution_report.json",
+          "artifacts/work/archive/execution_report.json"
+        ]
+      },
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "path": "artifacts/work/execution_report.md",
+          "report_kind": "execution"
+        }
+      },
+      "u0_row_id": "compiled_boundary::%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1::return__execution_report",
+      "workflow_surface": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1"
+    },
+    {
+      "bridge": null,
+      "command_boundary": null,
+      "consumer_lane": "retirement_candidate",
+      "durability": "ephemeral",
+      "notes": "Validated findings items path still crosses the private review helper boundary as a file-backed path until typed prompt-input rendering absorbs that lane.",
+      "renderer": null,
+      "replacement_target": "Track C typed prompt-input rendering",
+      "row_id": "c0.implementation_phase_review_return_findings_items_path_compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "source_kind": "materialized_output",
+      "target_binding": null,
+      "track_c_decision": "BLOCKED",
+      "typed_value_source": null,
+      "u0_row_id": "compiled_boundary::%implementation_phase.lisp_frontend_design_delta/implementation_phase::review-implementation.v1::return__findings__items_path",
+      "workflow_surface": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::review-implementation.v1"
+    },
+    {
+      "bridge": null,
+      "command_boundary": null,
+      "consumer_lane": "retirement_candidate",
+      "durability": "ephemeral",
+      "notes": "Compiled boundary inventory mirror of the helper review-implementation review-report return while the nested helper still exposes the rendered report path.",
+      "renderer": {
+        "accepted_shape": "any_pure_value",
+        "renderer_id": "canonical-json",
+        "renderer_version": 1
+      },
+      "replacement_target": "Track C consumer-side rendering",
+      "row_id": "c0.implementation_phase_review_return_review_report_compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "source_kind": "materialized_output",
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/review_report.json",
+          "artifacts/work/archive/review_report.json"
+        ]
+      },
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "path": "artifacts/review/review_report.md",
+          "report_kind": "review"
+        }
+      },
+      "u0_row_id": "compiled_boundary::%implementation_phase.lisp_frontend_design_delta/implementation_phase::review-implementation.v1::return__review_report",
+      "workflow_surface": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::review-implementation.v1"
+    },
+    {
+      "bridge": null,
+      "command_boundary": null,
       "compiled_effect_match": {
         "step_id_suffix": "__materialize_view__blocked_implementation_review_report"
       },
@@ -1334,6 +1486,100 @@
     {
       "bridge": null,
       "command_boundary": null,
+      "consumer_lane": "retirement_candidate",
+      "durability": "ephemeral",
+      "notes": "Validated findings items path still crosses the private review-plan helper boundary as a file-backed path until typed prompt-input rendering absorbs that lane.",
+      "renderer": null,
+      "replacement_target": "Track C typed prompt-input rendering",
+      "row_id": "c0.plan_phase_review_return_findings_items_path_compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "source_kind": "materialized_output",
+      "target_binding": null,
+      "track_c_decision": "BLOCKED",
+      "typed_value_source": null,
+      "u0_row_id": "compiled_boundary::%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1::return__findings__items_path",
+      "workflow_surface": "%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1"
+    },
+    {
+      "bridge": null,
+      "command_boundary": null,
+      "consumer_lane": "retirement_candidate",
+      "durability": "ephemeral",
+      "notes": "Compiled boundary inventory mirror of the helper review-plan review-report return while the nested helper still exposes the rendered report path.",
+      "renderer": {
+        "accepted_shape": "any_pure_value",
+        "renderer_id": "canonical-json",
+        "renderer_version": 1
+      },
+      "replacement_target": "Track C consumer-side rendering",
+      "row_id": "c0.plan_phase_review_return_review_report_compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "source_kind": "materialized_output",
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/plan_review_report.json",
+          "artifacts/work/archive/plan_review_report.json"
+        ]
+      },
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "path": "artifacts/review/review_report.md",
+          "report_kind": "review"
+        }
+      },
+      "u0_row_id": "compiled_boundary::%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1::return__review_report",
+      "workflow_surface": "%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1"
+    },
+    {
+      "bridge": null,
+      "command_boundary": null,
+      "consumer_lane": "retirement_candidate",
+      "durability": "ephemeral",
+      "notes": "Revised plan path still crosses the private revise-plan helper boundary as a file-backed path until the typed plan handoff lane replaces that helper return.",
+      "renderer": null,
+      "replacement_target": "Track typed plan-phase handoff",
+      "row_id": "c0.plan_phase_fix_return_plan_path_compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "source_kind": "materialized_output",
+      "target_binding": null,
+      "track_c_decision": "BLOCKED",
+      "typed_value_source": null,
+      "u0_row_id": "compiled_boundary::%plan_phase.lisp_frontend_design_delta/plan_phase::revise-plan.v1::return__plan_path",
+      "workflow_surface": "%plan_phase.lisp_frontend_design_delta/plan_phase::revise-plan.v1"
+    },
+    {
+      "bridge": null,
+      "command_boundary": null,
       "compiled_effect_match": {
         "step_id_suffix": "__materialize_view__drain_summary_view"
       },
@@ -1574,14 +1820,6 @@
           "prompt": "selector.select_next_work"
         }
       },
-      "request_field_expectations": [
-        {
-          "authority_class": "compatibility_bridge",
-          "bridge_field_name": "run_state_path",
-          "field_path": "subject.run_state",
-          "source_binding": "ctx.run_state_path"
-        }
-      ],
       "u0_row_id": "selector.prompt.select_next_work",
       "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work"
     },
@@ -1925,49 +2163,6 @@
     {
       "bridge": null,
       "command_boundary": null,
-      "compiled_effect_match": {
-        "step_id_suffix": "__materialize_view__work_item_context_view"
-      },
-      "consumer_lane": "timed_body_materialization",
-      "durability": "durable_timed_body",
-      "notes": "Rendered work-item context view stays representation-only until typed blocked-recovery transitions can consume WorkItemContextValue directly.",
-      "renderer": {
-        "accepted_shape": "any_pure_value",
-        "renderer_id": "canonical-json",
-        "renderer_version": 1
-      },
-      "replacement_target": "Track C consumer-side rendering",
-      "row_id": "c0.work_item_materialized_work_item_context_view",
-      "source_evidence": [
-        {
-          "kind": "u0_checked_row",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        }
-      ],
-      "source_kind": "materialized_output",
-      "target_binding": {
-        "kind": "consumer_owned_target",
-        "target_labels": [
-          "artifacts/work/work_item_context_view.render_a.json",
-          "artifacts/work/archive/work_item_context_view.render_b.json"
-        ]
-      },
-      "track_c_decision": "KEEP_TIMED_PUBLICATION",
-      "typed_value_source": {
-        "kind": "sample_value_document",
-        "value_document": {
-          "baseline_design_path": "docs/design/workflow_lisp_frontend_specification.md",
-          "plan_path": "docs/plans/gap-1/execution_plan.md",
-          "target_design_path": "docs/design/workflow_lisp_runtime_native_drain_authoring.md",
-          "work_item_source": "DESIGN_GAP"
-        }
-      },
-      "u0_row_id": "work_item.materialized.work_item_context_view",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
-    },
-    {
-      "bridge": null,
-      "command_boundary": null,
       "consumer_lane": "prompt_injection",
       "durability": "none",
       "notes": "Blocked-recovery classifier prompt stays explicit until recovery routing can consume typed request values directly.",
@@ -2061,9 +2256,7 @@
     {
       "bridge": null,
       "command_boundary": null,
-      "compiled_effect_match": {
-        "step_id_suffix": "__materialize_view__canonical_work_item_summary"
-      },
+      "compiled_effect_match": null,
       "consumer_lane": "retirement_candidate",
       "durability": "durable_bridge",
       "notes": "Compiled boundary inventory mirror of the canonical item-summary path. Cleanup cannot retire this row independently because the checked bridge row still owns exact-path durability.",
@@ -2102,8 +2295,8 @@
           "work_item_source": "DESIGN_GAP"
         }
       },
-      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary-path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-selected-item-stdlib::return__summary-path",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
     }
   ],
   "schema_version": "workflow_lisp_consumer_rendering_census.v1",

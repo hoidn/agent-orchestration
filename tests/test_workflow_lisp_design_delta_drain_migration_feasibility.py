@@ -4869,25 +4869,34 @@ def test_design_delta_parent_drain_source_shape_finalizer_compat_retirement_remo
     work_item_source = (
         REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc"
     ).read_text(encoding="utf-8")
-    retired_helpers = (
-        "project-selected-item-compat",
-        "project-plan-approved-compat",
-        "project-plan-blocked-compat",
-        "project-completed-implementation-compat",
-        "project-blocked-implementation-compat",
+    stdlib_adapter_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "stdlib_adapters.orc"
+    ).read_text(encoding="utf-8")
+    bridge_support_path = (
+        REPO_ROOT
+        / "workflows"
+        / "library"
+        / "lisp_frontend_design_delta"
+        / "work_item_bridge_support.orc"
     )
-    ordinary_finalizer_sections = (
-        work_item_source.split("(defproc call-imported-finalize-selected-item", 1)[1].split(
-            "(defproc route-blocked-implementation", 1
-        )[0],
-        work_item_source.split("(defproc route-blocked-implementation", 1)[1].split(
-            "(defproc route-blocked-implementation-stdlib", 1
-        )[0],
-        work_item_source.split("(defworkflow run-work-item", 1)[1],
+    retired_internal_carriers = (
+        "SelectedItemStdlibCompat",
+        "QueueTransitionCompat",
+        "RoadmapCompat",
+        "SelectedItemPlanCompat",
+        "SelectedItemImplementationCompat",
+        "build-finalizer-",
+        "call-imported-finalize-selected-item",
+        "project-selected-compat",
+        "BranchingSelectedCompat",
     )
 
-    for helper_name in retired_helpers:
-        assert all(helper_name not in section for section in ordinary_finalizer_sections)
+    for retired_name in retired_internal_carriers:
+        assert retired_name not in work_item_source
+        assert retired_name not in stdlib_adapter_source
+
+    assert "finalize-selected-item-proc" in work_item_source
+    assert not bridge_support_path.exists()
 
 
 def _design_delta_parent_drain_workflow_signature_block() -> str:
@@ -5038,7 +5047,9 @@ def test_design_delta_selected_item_stdlib_consumes_typed_child_result() -> None
     assert "((item-ctx ItemCtx)" in run_selected_item_stdlib or "((item-ctx std/context/ItemCtx)" in run_selected_item_stdlib
     assert "(call run-work-item-pending" not in run_selected_item_stdlib
     assert "(call run-work-item" not in run_selected_item_stdlib
-    assert "call-imported-finalize-selected-item" in run_selected_item_stdlib
+    assert "call-imported-finalize-selected-item" not in run_selected_item_stdlib
+    assert "SelectedItemPlanCompat" not in run_selected_item_stdlib
+    assert "SelectedItemImplementationCompat" not in run_selected_item_stdlib
     assert "materialize-canonical-work-item-summary" not in run_selected_item_stdlib
 
 

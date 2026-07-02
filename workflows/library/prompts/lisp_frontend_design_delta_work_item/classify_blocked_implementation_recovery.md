@@ -6,7 +6,11 @@ progress report.
 
 Choose `GAP_DESIGN_REVISION_REQUIRED` when the target design is coherent but the
 selected gap's implementation architecture, decomposition, dependencies, or
-approved implementation slice is under-scoped.
+approved implementation slice no longer matches what the attempt proved: it may
+be missing needed scope, or it may require a route, mechanism, or behavior that
+is stale, absent from the current checkout, or in conflict with the target
+design. Name the causal gap assumption in `summary` and say whether it is
+missing scope or a stale requirement.
 
 Choose `TARGET_DESIGN_REVISION_REQUIRED` only when the blocker shows that the
 durable target design itself is under-specified, internally inconsistent, or
@@ -26,7 +30,8 @@ design, code, prompt, or contract repair.
 Do not choose `TERMINAL_BLOCKED` merely because the approved slice exposed
 repo-local work outside the current implementation plan, failed adjacent tests,
 or needs scope clarification. Use `GAP_DESIGN_REVISION_REQUIRED` when the gap
-architecture/plan is under-scoped, `TARGET_DESIGN_REVISION_REQUIRED` when the
+architecture/plan is missing needed scope or carries a stale requirement,
+`TARGET_DESIGN_REVISION_REQUIRED` when the
 target design needs to authorize or sequence the work, and
 `PREREQUISITE_GAP_REQUIRED` when another bounded prerequisite gap should be
 selected or drafted first.
@@ -37,18 +42,10 @@ Write one JSON bundle at the required output path:
 {
   "blocked_recovery_route": "GAP_DESIGN_REVISION_REQUIRED | TARGET_DESIGN_REVISION_REQUIRED | PREREQUISITE_GAP_REQUIRED | TERMINAL_BLOCKED",
   "reason": "implementation_architecture_under_scoped | target_design_contract_gap | prerequisite_gap_required | true_external_dependency | user_decision_required | unsupported_blocker",
-  "summary": ""
+  "summary": "",
+  "waiting_on_work_id": "<required for PREREQUISITE_GAP_REQUIRED, else omit>",
+  "waiting_on_work_source": "DESIGN_GAP | BACKLOG_ITEM (required for PREREQUISITE_GAP_REQUIRED, else omit)"
 }
 ```
 
-When `blocked_recovery_route` is `PREREQUISITE_GAP_REQUIRED`, include only
-`waiting_on_work_id` and `waiting_on_work_source` for the prerequisite work that
-must complete before retrying the blocked item. If no safe prerequisite can be
-identified, use `TERMINAL_BLOCKED` with `reason: unsupported_blocker`.
-
-```json
-{
-  "waiting_on_work_id": "<prerequisite-gap-or-item-id>",
-  "waiting_on_work_source": "DESIGN_GAP | BACKLOG_ITEM"
-}
-```
+If no safe prerequisite can be identified, use TERMINAL_BLOCKED with reason: unsupported_blocker.

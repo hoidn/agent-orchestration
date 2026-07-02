@@ -16,7 +16,7 @@ The backlog item frontmatter must include:
 - `priority`
 - `plan_path` pointing to the final seed plan target under the plan target root
 - non-empty `check_commands`
-- `related_roadmap_phases` Use only roadmap phases the gap request's allowed_roadmap_phase_prefixes permit, and do not draft items in its disallowed phases.
+- `related_roadmap_phases` listing only roadmap phases the gap request's allowed_roadmap_phase_prefixes permit; omit any of its disallowed phases.
 
 The seed plan may be concise, but it must identify the objective, scope, non-goals, expected artifacts, and verification commands for the drafted backlog item.
 

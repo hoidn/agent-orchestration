@@ -43,7 +43,7 @@
     (terminal_reason WorkItemTerminalReason)
     (terminal_summary WorkReportTarget)
     (blocked_recovery_reason BlockedRecoveryReason)
-    (blocked_recovery_summary WorkReportTarget))
+    (blocked_recovery_summary WorkReport))
 
   (defrecord DrainStatusRequest
     (status DrainTerminalStatus)
@@ -70,8 +70,7 @@
     (work_item_source WorkItemSource)
     (recovery_route BlockedRecoveryRoute)
     (reason BlockedRecoveryReason)
-    (summary_path WorkReportTarget)
-    (work_item_context_path WorkReport))
+    (summary_path WorkReport))
 
   (defrecord TerminalOutcomeResult
     (reason WorkItemTerminalReason)
@@ -79,7 +78,7 @@
 
   (defrecord BlockedRecoveryOutcomeResult
     (reason BlockedRecoveryReason)
-    (summary_path WorkReportTarget))
+    (summary_path WorkReport))
 
   (defrecord TerminalOutcomeAudit
     (reason WorkItemTerminalReason)
@@ -87,8 +86,8 @@
 
   (defrecord BlockedRecoveryOutcomeAudit
     (reason BlockedRecoveryReason)
-    (summary_path WorkReportTarget)
-    (work_item_context_path WorkReport))
+    (summary_path WorkReport)
+    (work_item_id String))
 
   (defrecord DesignGapProgressRequest
     (design_gap_id String)
@@ -109,6 +108,10 @@
   (defresource drain-run-state
     :state-type lisp_frontend_design_delta/transitions/DrainRunStateRecord
     :backing (bridge run_state_path))
+
+  (defresource drain-run-state-native
+    :state-type lisp_frontend_design_delta/transitions/DrainRunStateRecord
+    :backing state-layout)
 
   (deftransition write-drain-status-runtime-native
     :resource drain-run-state
@@ -131,6 +134,25 @@
 
   (deftransition write-drain-status
     :resource drain-run-state
+    :request-type lisp_frontend_design_delta/transitions/DrainStatusRequest
+    :result-type lisp_frontend_design_delta/transitions/DrainStatusResult
+    :preconditions ()
+    :updates ((set-field drain_status request.status)
+              (set-field drain_status_reason request.reason)
+              (set-field drain_status_summary request.summary_path))
+    :write-set (drain_status drain_status_reason drain_status_summary)
+    :idempotency-fields (status reason summary_path)
+    :result (record lisp_frontend_design_delta/transitions/DrainStatusResult
+      :status request.status
+      :summary_path request.summary_path)
+    :audit (record lisp_frontend_design_delta/transitions/DrainStatusAudit
+      :status request.status
+      :summary_path request.summary_path)
+    :conflict-policy fail_closed
+    :backend runtime_native)
+
+  (deftransition write-drain-status-stdlib
+    :resource drain-run-state-native
     :request-type lisp_frontend_design_delta/transitions/DrainStatusRequest
     :result-type lisp_frontend_design_delta/transitions/DrainStatusResult
     :preconditions ()
@@ -182,12 +204,52 @@
     :audit (record lisp_frontend_design_delta/transitions/BlockedRecoveryOutcomeAudit
       :reason request.reason
       :summary_path request.summary_path
-      :work_item_context_path request.work_item_context_path)
+      :work_item_id request.work_item_id)
+    :conflict-policy fail_closed
+    :backend runtime_native)
+
+  (deftransition record-blocked-recovery-outcome-stdlib
+    :resource drain-run-state-native
+    :request-type lisp_frontend_design_delta/transitions/BlockedRecoveryOutcomeRequest
+    :result-type lisp_frontend_design_delta/transitions/BlockedRecoveryOutcomeResult
+    :preconditions ((!= request.recovery_route BlockedRecoveryRoute.TERMINAL_BLOCKED)
+                    (!= request.reason BlockedRecoveryReason.not_blocked))
+    :updates ((set-field blocked_recovery_reason request.reason)
+              (set-field blocked_recovery_summary request.summary_path))
+    :write-set (blocked_recovery_reason blocked_recovery_summary)
+    :idempotency-fields (work_item_id work_item_source recovery_route reason summary_path)
+    :result (record lisp_frontend_design_delta/transitions/BlockedRecoveryOutcomeResult
+      :reason request.reason
+      :summary_path request.summary_path)
+    :audit (record lisp_frontend_design_delta/transitions/BlockedRecoveryOutcomeAudit
+      :reason request.reason
+      :summary_path request.summary_path
+      :work_item_id request.work_item_id)
     :conflict-policy fail_closed
     :backend runtime_native)
 
   (deftransition record-design-gap-progress-transition
     :resource drain-run-state
+    :request-type lisp_frontend_design_delta/transitions/DesignGapProgressRequest
+    :result-type lisp_frontend_design_delta/transitions/DesignGapProgressResult
+    :preconditions ((!= request.design_gap_id "")
+                    (= request.validation_status ArchitectureValidationResult.VALID))
+    :updates ((append-item completed_design_gaps request.design_gap_id))
+    :write-set (completed_design_gaps)
+    :idempotency-fields (design_gap_id architecture_path plan_target_path validation_status)
+    :result (record lisp_frontend_design_delta/transitions/DesignGapProgressResult
+      :design_gap_id request.design_gap_id
+      :validation_status request.validation_status)
+    :audit (record lisp_frontend_design_delta/transitions/DesignGapProgressAudit
+      :design_gap_id request.design_gap_id
+      :architecture_path request.architecture_path
+      :plan_target_path request.plan_target_path
+      :validation_status request.validation_status)
+    :conflict-policy fail_closed
+    :backend runtime_native)
+
+  (deftransition record-design-gap-progress-stdlib
+    :resource drain-run-state-native
     :request-type lisp_frontend_design_delta/transitions/DesignGapProgressRequest
     :result-type lisp_frontend_design_delta/transitions/DesignGapProgressResult
     :preconditions ((!= request.design_gap_id "")
@@ -258,8 +320,7 @@
         :state_version "lisp_frontend_autonomous_drain_run_state/v1")))
 
   (defproc record-design-gap-progress
-    ((run_state_path StateExisting)
-     (design_gap_id String)
+    ((design_gap_id String)
      (architecture_path PlanDocTarget)
      (plan_target_path PlanDocTarget)
      (validation_status ArchitectureValidationResult))
@@ -267,8 +328,8 @@
     :effects ((uses-command apply_resource_transition))
     :lowering inline
     (resource-transition
-      :transition record-design-gap-progress-transition
-      :resource drain-run-state
+      :transition record-design-gap-progress-stdlib
+      :resource drain-run-state-native
       :request (record DesignGapProgressRequest
         :design_gap_id design_gap_id
         :architecture_path architecture_path
@@ -276,8 +337,7 @@
         :validation_status validation_status)))
 
   (defproc record-drain-terminal-outcome-stdlib
-    ((run_state_path StateExisting)
-     (status DrainTerminalStatus)
+    ((status DrainTerminalStatus)
      (reason String))
     -> DrainSummaryValue
     :effects ((uses-command apply_resource_transition))
@@ -289,8 +349,8 @@
                "design_delta_parent_drain_summary"))
            (transition-result
              (resource-transition
-               :transition write-drain-status
-               :resource drain-run-state
+               :transition write-drain-status-stdlib
+               :resource drain-run-state-native
                :request (record lisp_frontend_design_delta/transitions/DrainStatusRequest
                  :status status
                  :reason reason
@@ -307,7 +367,7 @@
      (reason WorkItemTerminalReason)
      (summary_route String)
      (summary_reason String)
-     (summary_path WorkReport))
+     (summary_path WorkReportTarget))
     -> WorkItemSummaryValue
     :effects ((uses-command apply_resource_transition))
     :lowering inline
@@ -329,28 +389,25 @@
         :reason summary_reason)))
 
   (defproc record-work-item-blocked-recovery-summary
-    ((run_state_path StateExisting)
-     (work_item_id String)
+    ((work_item_id String)
      (work_item_source WorkItemSource)
      (recovery_route BlockedRecoveryRoute)
      (reason BlockedRecoveryReason)
      (summary_reason String)
-     (summary_path WorkReport)
-     (work_item_context_path WorkReport))
+     (summary_path WorkReport))
     -> WorkItemSummaryValue
     :effects ((uses-command apply_resource_transition))
     :lowering inline
     (let* ((transition-result
              (resource-transition
-               :transition record-blocked-recovery-outcome
-               :resource drain-run-state
+               :transition record-blocked-recovery-outcome-stdlib
+               :resource drain-run-state-native
                :request (record BlockedRecoveryOutcomeRequest
                  :work_item_id work_item_id
                  :work_item_source work_item_source
                  :recovery_route recovery_route
                  :reason reason
-                 :summary_path summary_path
-                 :work_item_context_path work_item_context_path)))
+                 :summary_path summary_path)))
            (ignored transition-result))
       (record WorkItemSummaryValue
         :work_item_id work_item_id

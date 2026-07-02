@@ -323,7 +323,7 @@ def test_checked_design_delta_value_flow_census_reclassifies_summary_authority()
     assert rows[summary_row_id]["boundary_authority_class"] == "compatibility_bridge"
     assert (
         "compiled_boundary::lisp_frontend_design_delta/work_item::run-selected-item-stdlib::return__summary-path"
-        not in rows
+        in rows
     )
     assert (
         "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary"

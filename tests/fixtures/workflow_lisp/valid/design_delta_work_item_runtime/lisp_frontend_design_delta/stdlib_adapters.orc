@@ -2,9 +2,8 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule lisp_frontend_design_delta/stdlib_adapters)
-  (import std/drain :only (DrainResult))
   (import std/resource :only
-    (BlockerClass StateExisting WorkReport))
+    (BlockerClass))
   (import lisp_frontend_design_delta/design_gap_architect :only
     (draft-design-gap-architecture-stdlib validate-design-gap-architecture-stdlib))
   (import lisp_frontend_design_delta/selector :only (select-next-work))
@@ -16,42 +15,11 @@
   (export
     DesignDeltaGapResult
     project-blocker-class-from-reason
-    QueueTransitionCompat
-    RoadmapCompat
-    SelectedItemImplementationCompat
-    SelectedItemPlanCompat
-    SelectedItemStdlibCompat
     select-next-work-stdlib
     draft-design-gap-stdlib)
 
   (defunion DesignDeltaGapResult
-    (CONTINUE
-      (run-state StateExisting))
-    (BLOCKED
-      (progress-report-path std/resource/WorkReport)
-      (blocker-class std/resource/BlockerClass)))
-
-  (defrecord SelectedItemStdlibCompat
-    (item-id String)
-    (is-active Bool)
-    (final-plan-gate-state StateExisting))
-
-  (defrecord QueueTransitionCompat
-    (transition-id String))
-
-  (defrecord RoadmapCompat
-    (status String))
-
-  (defunion SelectedItemPlanCompat
-    (APPROVED
-      (execution-report-path std/resource/WorkReport))
-    (BLOCKED
-      (progress-report-path std/resource/WorkReport)
-      (blocker-class std/resource/BlockerClass)))
-
-  (defunion SelectedItemImplementationCompat
-    (COMPLETED
-      (execution-report-path std/resource/WorkReport))
+    (CONTINUE)
     (BLOCKED
       (progress-report-path std/resource/WorkReport)
       (blocker-class std/resource/BlockerClass)))
@@ -75,8 +43,7 @@
                :steering_path ctx.steering_path
                :target_design_path ctx.target_design_path
                :baseline_design_path ctx.baseline_design_path
-               :progress_ledger_path ctx.progress_ledger_path
-               :run_state_path ctx.run_state_path))
+               :progress_ledger_path ctx.progress_ledger_path))
            (design-gap-payload
              (record DesignDeltaGapPayload
                :work_item_id selection.work_item_bootstrap.work_item_id
@@ -89,11 +56,9 @@
           (variant DesignDeltaSelectionResult GAP
             :gap design-gap-payload)
           (if selection.is_done
-            (variant DesignDeltaSelectionResult EMPTY
-              :run-state ctx.run_state_path)
+            (variant DesignDeltaSelectionResult EMPTY)
             (variant DesignDeltaSelectionResult BLOCKED
-              :reason selection.blocked_reason
-              :run-state ctx.run_state_path))))))
+              :reason selection.blocked_reason))))))
 
   (defworkflow draft-design-gap-stdlib
     ((ctx DesignDeltaDrainCtx)
@@ -111,19 +76,15 @@
              (call validate-design-gap-architecture-stdlib
                :gap gap))
            (blocked-progress-report
-             validation.work_item_bundle_path)
-           (continued-run-state
-             ctx.run_state_path))
+             validation.work_item_bundle_path))
       (if (= validation.architecture_validation_status "VALID")
         (let* ((recorded-progress
                  (record-design-gap-progress
-                   ctx.run_state_path
                    gap.work_item_id
                    gap.architecture_path
                    gap.plan_target_path
                    ArchitectureValidationResult.VALID)))
-          (variant DesignDeltaGapResult CONTINUE
-            :run-state continued-run-state))
+          (variant DesignDeltaGapResult CONTINUE))
         (if (= validation.architecture_validation_status "BLOCKED")
           (variant DesignDeltaGapResult BLOCKED
             :progress-report-path blocked-progress-report

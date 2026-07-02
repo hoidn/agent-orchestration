@@ -128,8 +128,35 @@ artifacts:
     kind: scalar
     type: enum
     allowed: ["CONTINUE", "DONE", "BLOCKED"]
+  target_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/target_design_path.txt
+    under: docs/design
+    must_exist_target: true
+  baseline_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/baseline_design_path.txt
+    under: docs/design
+    must_exist_target: true
 
 steps:
+  - name: MaterializeDesignContext
+    id: materialize_design_context
+    materialize_artifacts:
+      input_values:
+        - names:
+            - target_design_path
+            - baseline_design_path
+          contract: inherit
+          pointer_template: ${inputs.state_root}/{name}.txt
+    publishes:
+      - artifact: target_design
+        from: target_design_path
+      - artifact: baseline_design
+        from: baseline_design_path
+
   - name: ReviewDoneDecision
     id: review_done_decision
     provider: ${inputs.done_review_provider}
@@ -138,13 +165,23 @@ steps:
     depends_on:
       required:
         - ${inputs.steering_path}
-        - ${inputs.target_design_path}
-        - ${inputs.baseline_design_path}
         - ${inputs.manifest_path}
         - ${inputs.selection_bundle_path}
       inject:
         mode: content
         position: prepend
+    consumes:
+      - artifact: target_design
+        policy: latest_successful
+        freshness: any
+      - artifact: baseline_design
+        policy: latest_successful
+        freshness: any
+        prompt:
+          mode: reference
+          label: Baseline design
+          description: Accepted baseline design contract.
+    prompt_consumes: ["target_design", "baseline_design"]
     output_bundle:
       path: ${inputs.state_root}/done-review.json
       fields:
@@ -169,6 +206,8 @@ steps:
       - ${inputs.state_root}/reviewed-selection.json
       - --output
       - ${inputs.state_root}/reviewed-selection-path.json
+      - --run-state-path
+      - ${inputs.run_state_path}
     output_bundle:
       path: ${inputs.state_root}/reviewed-selection-path.json
       fields:

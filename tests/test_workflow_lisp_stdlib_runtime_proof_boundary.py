@@ -55,6 +55,14 @@ def _selected_lowered_workflow(result):
     )
 
 
+def _selected_child_lowered_workflow(result):
+    return next(
+        workflow
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
+    )
+
+
 def _observed_command_boundary_names(result) -> set[str]:
     names: set[str] = set()
     for bundle in result.validated_bundles_by_name.values():
@@ -66,9 +74,9 @@ def _observed_command_boundary_names(result) -> set[str]:
     return names
 
 
-def _replace_entry_lowered_workflow(result, replacement):
+def _replace_lowered_workflow(result, workflow_name: str, replacement):
     return tuple(
-        replacement if workflow.typed_workflow.definition.name == ENTRY_WORKFLOW_NAME else workflow
+        replacement if workflow.typed_workflow.definition.name == workflow_name else workflow
         for workflow in result.entry_result.lowered_workflows
     )
 
@@ -95,20 +103,17 @@ def test_dedicated_runtime_proof_profile_builds_validated_entry_bundle_for_impor
 def test_shared_callable_profile_keeps_generated_structured_branch_guard_active(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_linked_fixture(
-            DRAIN_STDLIB_FIXTURE,
-            tmp_path=tmp_path,
-            validate_shared=True,
-        )
+    result = _compile_linked_fixture(
+        DRAIN_STDLIB_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
 
-    diagnostics = [diag for diag in excinfo.value.diagnostics if diag.code == "workflow_boundary_type_invalid"]
+    lowered = _selected_lowered_workflow(result)
 
-    assert len(diagnostics) == 3
-    assert all("structured if/else is only supported on top-level steps in v2.2" in diag.message for diag in diagnostics)
-    assert any("__terminal__body__empty" in diag.message for diag in diagnostics)
-    assert any("__terminal__body__gap" in diag.message for diag in diagnostics)
-    assert any("__terminal__body__selected" in diag.message for diag in diagnostics)
+    assert [step.get("call") for step in lowered.authored_mapping["steps"]] == [
+        "std/drain::backlog-drain"
+    ]
 
 
 def test_frontend_only_profile_keeps_entry_validated_bundles_empty_for_linked_fixture(
@@ -136,17 +141,11 @@ def test_runtime_proof_profile_records_non_promotable_boundary_evidence_and_sour
     retained = result.entry_result.retained_non_promotable_diagnostics
 
     assert any(diag.code == "low_level_state_path_in_high_level_module" for diag in retained)
-    structured = [diag for diag in retained if diag.code == "workflow_boundary_type_invalid"]
-    assert len(structured) == 3
-    assert any("__terminal__body__empty" in diag.message for diag in structured)
-    assert any("__terminal__body__gap" in diag.message for diag in structured)
-    assert any("__terminal__body__selected" in diag.message for diag in structured)
-    assert any("__terminal__body__empty" in step_id for step_id in lowered.origin_map.step_spans)
-    assert any("__terminal__body__gap" in step_id for step_id in lowered.origin_map.step_spans)
-    assert any("__terminal__body__selected" in step_id for step_id in lowered.origin_map.step_spans)
-    assert any("materialize-view__drain-summary" in step_id for step_id in lowered.origin_map.step_spans)
-    assert any("artifacts/work/drain-progress-report.md" in path for path in lowered.origin_map.generated_path_spans)
-    assert any("state/drain-run-state.json" in path for path in lowered.origin_map.generated_path_spans)
+    assert not any(diag.code == "workflow_boundary_type_invalid" for diag in retained)
+    assert any(step.get("call") == "std/drain::backlog-drain" for step in lowered.authored_mapping["steps"])
+    assert any("call_std/drain::backlog-drain" in step_id for step_id in lowered.origin_map.step_spans)
+    assert any("__write_root__std_drain_backlog_drain__normalize_result__empty" in path for path in lowered.origin_map.generated_path_spans)
+    assert any("__write_root__std_drain_backlog_drain__normalize_result__blocked" in path for path in lowered.origin_map.generated_path_spans)
 
 
 def test_runtime_proof_profile_keeps_placeholder_command_boundaries_certified(
@@ -176,7 +175,7 @@ def test_runtime_proof_profile_keeps_placeholder_command_boundaries_certified(
         assert binding.fixture_ids
 
 
-def test_runtime_proof_profile_rejects_authored_nested_structured_steps_even_when_metadata_lists_them(
+def test_runtime_proof_profile_accepts_generated_nested_structured_steps_on_child_callable_route(
     tmp_path: Path,
 ) -> None:
     result = _compile_linked_fixture(
@@ -184,88 +183,13 @@ def test_runtime_proof_profile_rejects_authored_nested_structured_steps_even_whe
         tmp_path=tmp_path,
         validate_shared=False,
     )
-    lowered = _selected_lowered_workflow(result)
+    lowered = _selected_child_lowered_workflow(result)
     authored = deepcopy(lowered.authored_mapping)
-    gap_steps = authored["steps"][1]["repeat_until"]["steps"][-1]["match"]["cases"]["GAP"]["steps"]
-    gap_steps.append(
-        {
-            "name": "drain_stdlib_backlog_drain_stdlib::drain__runtime_proof_scope_guard",
-            "id": "drain_stdlib_backlog_drain_stdlib_drain__runtime_proof_scope_guard",
-            "if": {
-                "compare": {
-                    "left": {
-                        "ref": "root.steps.drain_stdlib_backlog_drain_stdlib::drain__%macro__backlog-drain__m0001__terminal__seed.artifacts.state__items-processed"
-                    },
-                    "op": "eq",
-                    "right": 0,
-                }
-            },
-            "then": {
-                "id": "drain_stdlib_backlog_drain_stdlib_drain__runtime_proof_scope_guard__then",
-                "steps": [
-                    {
-                        "name": "drain_stdlib_backlog_drain_stdlib::drain__runtime_proof_scope_guard__then__done",
-                        "id": "drain_stdlib_backlog_drain_stdlib_drain__runtime_proof_scope_guard__then__done",
-                        "materialize_artifacts": {
-                            "values": [
-                                {
-                                    "name": "status",
-                                    "source": {"literal": "DONE"},
-                                    "contract": {
-                                        "kind": "scalar",
-                                        "type": "enum",
-                                        "allowed": ["CONTINUE", "DONE"],
-                                    },
-                                }
-                            ]
-                        },
-                    }
-                ],
-                "outputs": {
-                    "status": {
-                        "kind": "scalar",
-                        "type": "enum",
-                        "allowed": ["CONTINUE", "DONE"],
-                        "from": {
-                            "ref": "self.steps.drain_stdlib_backlog_drain_stdlib::drain__runtime_proof_scope_guard__then__done.artifacts.status"
-                        },
-                    }
-                },
-            },
-            "else": {
-                "id": "drain_stdlib_backlog_drain_stdlib_drain__runtime_proof_scope_guard__else",
-                "steps": [
-                    {
-                        "name": "drain_stdlib_backlog_drain_stdlib::drain__runtime_proof_scope_guard__else__continue",
-                        "id": "drain_stdlib_backlog_drain_stdlib_drain__runtime_proof_scope_guard__else__continue",
-                        "materialize_artifacts": {
-                            "values": [
-                                {
-                                    "name": "status",
-                                    "source": {"literal": "CONTINUE"},
-                                    "contract": {
-                                        "kind": "scalar",
-                                        "type": "enum",
-                                        "allowed": ["CONTINUE", "DONE"],
-                                    },
-                                }
-                            ]
-                        },
-                    }
-                ],
-                "outputs": {
-                    "status": {
-                        "kind": "scalar",
-                        "type": "enum",
-                        "allowed": ["CONTINUE", "DONE"],
-                        "from": {
-                            "ref": "self.steps.drain_stdlib_backlog_drain_stdlib::drain__runtime_proof_scope_guard__else__continue.artifacts.status"
-                        },
-                    }
-                },
-            },
-        }
-    )
+    repeat_steps = authored["steps"][2]["repeat_until"]["steps"]
+    nested_if = deepcopy(repeat_steps[5])
+    nested_if["name"] = "drain_stdlib_backlog_drain_stdlib::drain__runtime_proof_scope_guard"
+    nested_if["id"] = "drain_stdlib_backlog_drain_stdlib_drain__runtime_proof_scope_guard"
+    repeat_steps.append(nested_if)
     mutated = replace(
         lowered,
         authored_mapping=authored,
@@ -275,18 +199,11 @@ def test_runtime_proof_profile_rejects_authored_nested_structured_steps_even_whe
         ),
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        validate_lowered_workflows(
-            _replace_entry_lowered_workflow(result, mutated),
-            workspace_root=tmp_path,
-            imported_workflow_bundles=result.entry_result.workflow_catalog.imported_bundles_by_name,
-            validation_profile=Stage3ValidationProfile.DEDICATED_RUNTIME_PROOF,
-        )
-
-    assert any(
-        "runtime_proof_scope_guard" in diag.message
-        and "structured if/else is only supported on top-level steps" in diag.message
-        for diag in excinfo.value.diagnostics
+    validate_lowered_workflows(
+        _replace_lowered_workflow(result, "std/drain::backlog-drain", mutated),
+        workspace_root=tmp_path,
+        imported_workflow_bundles=result.entry_result.workflow_catalog.imported_bundles_by_name,
+        validation_profile=Stage3ValidationProfile.DEDICATED_RUNTIME_PROOF,
     )
 
 
@@ -298,9 +215,10 @@ def test_runtime_proof_profile_rejects_authored_parent_scope_fallback_refs_even_
         tmp_path=tmp_path,
         validate_shared=False,
     )
-    lowered = _selected_lowered_workflow(result)
+    lowered = _selected_child_lowered_workflow(result)
     authored = deepcopy(lowered.authored_mapping)
-    blocked_steps = authored["steps"][1]["repeat_until"]["steps"][-1]["match"]["cases"]["GAP"]["steps"][-1]["else"]["steps"]
+    repeat_steps = authored["steps"][2]["repeat_until"]["steps"]
+    blocked_steps = repeat_steps
     blocked_steps.append(
         {
             "name": "drain_stdlib_backlog_drain_stdlib::drain__runtime_proof_parent_scope_guard",
@@ -310,7 +228,7 @@ def test_runtime_proof_profile_rejects_authored_parent_scope_fallback_refs_even_
                     {
                         "name": "copied_items_processed",
                         "source": {
-                            "ref": "parent.steps.drain_stdlib_backlog_drain_stdlib::drain__%macro__backlog-drain__m0001__terminal__body__state.artifacts.state__items-processed"
+                            "ref": "parent.steps.std/drain::backlog-drain__current_loop_state.artifacts.acc__items-processed"
                         },
                         "contract": {
                             "kind": "scalar",
@@ -322,8 +240,7 @@ def test_runtime_proof_profile_rejects_authored_parent_scope_fallback_refs_even_
         }
     )
     authored_ref = (
-        "parent.steps.drain_stdlib_backlog_drain_stdlib::drain__%macro__backlog-drain__m0001__terminal__body__state"
-        ".artifacts.state__items-processed"
+        "parent.steps.std/drain::backlog-drain__current_loop_state.artifacts.acc__items-processed"
     )
     authored_owner = (
         "drain_stdlib_backlog_drain_stdlib::drain__runtime_proof_parent_scope_guard"
@@ -343,7 +260,7 @@ def test_runtime_proof_profile_rejects_authored_parent_scope_fallback_refs_even_
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         validate_lowered_workflows(
-            _replace_entry_lowered_workflow(result, mutated),
+            _replace_lowered_workflow(result, "std/drain::backlog-drain", mutated),
             workspace_root=tmp_path,
             imported_workflow_bundles=result.entry_result.workflow_catalog.imported_bundles_by_name,
             validation_profile=Stage3ValidationProfile.DEDICATED_RUNTIME_PROOF,

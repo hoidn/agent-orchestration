@@ -224,6 +224,9 @@ steps:
                 ref: self.outputs.drain_status
               op: eq
               right: BLOCKED
+      on_exhausted:
+        outputs:
+          drain_status: BLOCKED
       steps:
         - name: BuildBacklogManifest
           id: build_backlog_manifest
@@ -372,7 +375,7 @@ steps:
               - name: non_progress_route
                 json_pointer: /route
                 type: enum
-                allowed: ["NORMAL_CONTINUE", "STEP_BACK_REQUIRED", "TERMINAL_HUMAN_DECISION"]
+                allowed: ["NORMAL_CONTINUE", "STEP_BACK_REQUIRED"]
               - name: failure_fingerprint
                 json_pointer: /failure_fingerprint
                 type: string
@@ -494,10 +497,6 @@ steps:
                 json_pointer: /action
                 type: enum
                 allowed:
-                  - REDRAFT_PLAN
-                  - REVISE_REQUIREMENTS
-                  - SPLIT_WORK_ITEM
-                  - DROP_OR_DEMOTE_WORK_ITEM
                   - FIX_WORKFLOW_MECHANICS
                   - CONTINUE_WITH_CURRENT_PLAN
                   - NEEDS_HUMAN_DECISION

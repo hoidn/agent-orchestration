@@ -58,7 +58,6 @@
       "module_name": "lisp_frontend_design_delta/work_item",
       "forbidden_substrings": [
         "TerminalWorkItemRequest",
-        "BlockedRecoveryOutcomeRequest",
         "record-terminal-work-item",
         "record-blocked-recovery-outcome"
       ]

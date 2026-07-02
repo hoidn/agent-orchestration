@@ -3902,6 +3902,9 @@ def test_design_delta_parent_drain_checked_parity_inputs_no_longer_rely_on_timed
     assert "c0.stdlib_adapters_selected_item_summary_seed" not in summary_rows
     assert "c0.work_item_materialized_selected_item_summary" not in summary_rows
     assert "c0.work_item_stdlib_materialized_selected_item_summary" not in summary_rows
+    assert "call-imported-finalize-selected-item" not in json.dumps(payload, sort_keys=True)
+    assert "SelectedItemPlanCompat" not in json.dumps(payload, sort_keys=True)
+    assert "SelectedItemImplementationCompat" not in json.dumps(payload, sort_keys=True)
     assert (
         summary_rows.get(
             "c0.work_item_stdlib_materialized_blocked_recovery_summary", {}

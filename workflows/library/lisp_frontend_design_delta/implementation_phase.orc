@@ -4,7 +4,7 @@
   (defmodule lisp_frontend_design_delta/implementation_phase)
   (import std/phase :only
     (BlockerClass ReviewDecision ReviewFindings ReviewFindingsJsonPath ReviewReportPath
-      review-revise-loop))
+      review-revise-loop with-phase))
   (import std/resource :only (WorkReport))
   (import lisp_frontend_design_delta/types :only
     (ArtifactChecksPath ArtifactChecksTargetPath ArtifactReviewTargetPath ArtifactWorkPath
@@ -195,28 +195,29 @@
      (checks_report_target_path ArtifactChecksTargetPath)
      (implementation_review_report_target_path ArtifactReviewTargetPath))
     -> ImplementationPhaseResult
-    (let* ((execute-subject
-             (record ImplementationExecutePromptSubject
-               :target_design target_design
-               :baseline_design baseline_design
-               :plan_path plan_path
-               :check_commands check_commands))
-           (execute-targets
-             (record ImplementationExecuteProviderTargets
-               :execution_report_target_path execution_report_target_path
-               :progress_report_target_path progress_report_target_path
-               :checks_report_target_path checks_report_target_path
-               :implementation_review_report_target_path implementation_review_report_target_path))
-           (execute-request
-             (record ImplementationExecuteRequest
-               :subject execute-subject
-               :targets execute-targets))
-           (attempt
-             (provider-result providers.implementation.execute
-               :prompt prompts.implementation.execute
-               :inputs (execute-request)
-               :returns ImplementationAttempt)))
-      (match attempt
+    (with-phase phase-ctx implementation
+      (let* ((execute-subject
+               (record ImplementationExecutePromptSubject
+                 :target_design target_design
+                 :baseline_design baseline_design
+                 :plan_path plan_path
+                 :check_commands check_commands))
+             (execute-targets
+               (record ImplementationExecuteProviderTargets
+                 :execution_report_target_path execution_report_target_path
+                 :progress_report_target_path progress_report_target_path
+                 :checks_report_target_path checks_report_target_path
+                 :implementation_review_report_target_path implementation_review_report_target_path))
+             (execute-request
+               (record ImplementationExecuteRequest
+                 :subject execute-subject
+                 :targets execute-targets))
+             (attempt
+               (provider-result providers.implementation.execute
+                 :prompt prompts.implementation.execute
+                 :inputs (execute-request)
+                 :returns ImplementationAttempt)))
+        (match attempt
         ((COMPLETED completed)
          (let* ((checks
                   (run-checks
@@ -306,31 +307,31 @@
                   :progress-report progress-report
                   :checks-report checks.checks_report
                   :implementation-review-report exhausted.last_review_report))))))
-        ((BLOCKED blocked)
-         (let* ((compat-value
-                  (record BlockedImplementationCompatValue
-                    :status "BLOCKED"
-                    :progress_report blocked.progress_report
-                    :blocker_class blocked.blocker_class))
-                (checks-report
-                  (materialize-view blocked-implementation-checks-report
-                    :value compat-value
-                    :renderer canonical-json
-                    :renderer-version 1
-                    :target checks_report_target_path
-                    :returns ArtifactChecksPath))
-                (review-report
-                  (materialize-view blocked-implementation-review-report
-                    :value compat-value
-                    :renderer canonical-json
-                    :renderer-version 1
-                    :target implementation_review_report_target_path
-                    :returns ReviewReportPath)))
-           (record ImplementationPhaseResult
-             :implementation-state blocked.implementation_state
-             :implementation-review-decision blocked.implementation_review_decision
-             :blocker-class blocked.blocker_class
-             :execution-report blocked.progress_report
-             :progress-report blocked.progress_report
-             :checks-report checks-report
-             :implementation-review-report review-report)))))))
+          ((BLOCKED blocked)
+           (let* ((compat-value
+                    (record BlockedImplementationCompatValue
+                      :status "BLOCKED"
+                      :progress_report blocked.progress_report
+                      :blocker_class blocked.blocker_class))
+                  (checks-report
+                    (materialize-view blocked-implementation-checks-report
+                      :value compat-value
+                      :renderer canonical-json
+                      :renderer-version 1
+                      :target checks_report_target_path
+                      :returns ArtifactChecksPath))
+                  (review-report
+                    (materialize-view blocked-implementation-review-report
+                      :value compat-value
+                      :renderer canonical-json
+                      :renderer-version 1
+                      :target implementation_review_report_target_path
+                      :returns ReviewReportPath)))
+             (record ImplementationPhaseResult
+               :implementation-state blocked.implementation_state
+               :implementation-review-decision blocked.implementation_review_decision
+               :blocker-class blocked.blocker_class
+               :execution-report blocked.progress_report
+               :progress-report blocked.progress_report
+               :checks-report checks-report
+               :implementation-review-report review-report))))))))

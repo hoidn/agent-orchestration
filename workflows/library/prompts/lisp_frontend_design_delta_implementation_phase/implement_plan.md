@@ -14,7 +14,9 @@ implementation-state bundle required by the output contract. When completed,
 write the execution report at the consumed canonical target path and reference
 that same path from the bundle. If blocked, write the progress report at the
 consumed canonical target path and record the structured blocker class in the
-bundle.
+bundle. Report the conflict as observed evidence; a failing check or legacy
+behavior is not by itself a preservation requirement, so do not state one as a
+requirement unless you verified its consumer is live in the current checkout.
 
 Do not use `user_decision_required` for repo-local scope, contract,
 verification, target-design, gap-design, or prerequisite-design issues. Those

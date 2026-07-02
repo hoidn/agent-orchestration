@@ -19,6 +19,7 @@
     "lisp_frontend_design_delta/selector::select-next-work",
     "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery",
     "lisp_frontend_design_delta/work_item::route-blocked-implementation",
+    "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
     "lisp_frontend_design_delta/work_item::run-work-item"
   ],
   "boundary_authority_registry": "design_delta_parent_drain.boundary_authority.json",
@@ -90,11 +91,6 @@
       "workflow_name": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "parameter_name": "phase-ctx",
       "phase_identity": "plan"
-    },
-    {
-      "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "parameter_name": "phase-ctx",
-      "phase_identity": "work-item"
     }
   ],
   "typed_prompt_input_rows": [

@@ -83,6 +83,18 @@
       "decision": "RETIRED_TO_OBSERVABILITY"
     },
     {
+      "c0_row_id": "c0.implementation_phase_fix_return_checks_report_compiled_boundary",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
+      "c0_row_id": "c0.implementation_phase_fix_return_execution_report_compiled_boundary",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
+      "c0_row_id": "c0.implementation_phase_review_return_review_report_compiled_boundary",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
       "c0_row_id": "c0.implementation_phase_materialized_return_implementation_review_report",
       "decision": "KEEP_TIMED_PUBLICATION"
     },
@@ -175,6 +187,10 @@
       "decision": "NOT_C5_TARGET"
     },
     {
+      "c0_row_id": "c0.plan_phase_review_return_review_report_compiled_boundary",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
       "c0_row_id": "c0.plan_phase_prompt_draft",
       "decision": "KEEP_TYPED"
     },
@@ -217,10 +233,6 @@
     {
       "c0_row_id": "c0.work_item_bridge_progress_ledger_path_compiled_boundary",
       "decision": "RETIRED_TO_BRIDGE_METADATA"
-    },
-    {
-      "c0_row_id": "c0.work_item_materialized_work_item_context_view",
-      "decision": "KEEP_TIMED_PUBLICATION"
     },
     {
       "c0_row_id": "c0.work_item_prompt_classify_blocked_recovery",

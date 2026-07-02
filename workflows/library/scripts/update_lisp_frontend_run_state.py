@@ -46,6 +46,11 @@ def _write_output_bundle(summary_path: str) -> None:
     path.write_text(json.dumps({"summary": summary_path}, indent=2) + "\n", encoding="utf-8")
 
 
+def _clear_run_blocked(state: dict[str, Any]) -> None:
+    if state.get("blocked_run") is not None:
+        state["blocked_run"] = None
+
+
 def _run_adapter_payload(payload: dict[str, Any]) -> int:
     state_path = str(payload.get("run_state_path") or "").strip()
     item_id = str(payload.get("work_item_id") or "").strip()
@@ -100,6 +105,7 @@ def _run_adapter_payload(payload: dict[str, Any]) -> int:
 
 
 def _record_completed(state: dict[str, Any], *, item_id: str, source: str) -> None:
+    _clear_run_blocked(state)
     key = "completed_design_gaps" if source == "DESIGN_GAP" else "completed_items"
     values = list(state.get(key, []))
     if item_id not in values:
@@ -140,6 +146,7 @@ def _record_blocked(
     retry_condition: str = "",
     recovery_dependency_edge: dict[str, Any] | None = None,
 ) -> None:
+    _clear_run_blocked(state)
     key = "blocked_design_gaps" if source == "DESIGN_GAP" else "blocked_items"
     blocked = dict(state.get(key, {}))
     entry = {"reason": reason, "timestamp_utc": _timestamp()}
@@ -208,6 +215,7 @@ def _record_run_blocked(
 
 
 def _record_design_revision(state: dict[str, Any], *, item_id: str, source: str, reason: str) -> None:
+    _clear_run_blocked(state)
     state.setdefault("history", []).append(
         {
             "event": "design_revision",
@@ -220,6 +228,7 @@ def _record_design_revision(state: dict[str, Any], *, item_id: str, source: str,
 
 
 def _record_gap_design_revision(state: dict[str, Any], *, item_id: str, source: str, reason: str) -> None:
+    _clear_run_blocked(state)
     state.setdefault("history", []).append(
         {
             "event": "gap_design_revision",

@@ -731,6 +731,7 @@ steps:
       success:
         goto: FinalizeSelectedItemOutcome
 
+  # Legacy comparison surface: intentionally does NOT carry the v214 RecordSelectionRejected fix (run-state block recording + neutral diagnostics, 2026-07-01 audit Task 11). A future rejection-path equivalence-oracle scenario will diverge here.
   - name: RecordSelectionRejected
     id: record_selection_rejected
     command:

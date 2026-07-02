@@ -624,6 +624,23 @@ def test_design_delta_parent_drain_manifest_keeps_only_retained_g8_rows_and_cont
     assert getattr(work_item_bootstrap, "evidence_refs")
 
 
+def test_design_delta_parent_drain_command_manifest_excludes_internal_finalizer_carrier_helpers() -> None:
+    manifest_text = DESIGN_DELTA_PARENT_DRAIN_COMMANDS.read_text(encoding="utf-8")
+
+    for retired_name in (
+        "SelectedItemStdlibCompat",
+        "QueueTransitionCompat",
+        "RoadmapCompat",
+        "SelectedItemPlanCompat",
+        "SelectedItemImplementationCompat",
+        "build-finalizer-",
+        "call-imported-finalize-selected-item",
+        "project-selected-compat",
+        "BranchingSelectedCompat",
+    ):
+        assert retired_name not in manifest_text
+
+
 def test_design_delta_parent_drain_manifest_rejects_unknown_retirement_class() -> None:
     payload = {
         "project_lisp_frontend_selector_action": _design_delta_retirement_row(

@@ -1059,6 +1059,63 @@ def test_provider_step_persists_artifacts_from_output_bundle(tmp_path: Path):
     assert result["artifacts"] == {"review_decision": "APPROVE"}
 
 
+def test_provider_valid_output_bundle_overrides_raw_nonzero_exit(tmp_path: Path):
+    """A validated provider bundle is authority even if agent tooling exits nonzero."""
+    workflow = {
+        "version": "1.3",
+        "name": "bundle-provider-valid-after-nonzero",
+        "steps": [{
+            "name": "Review",
+            "provider": "codex",
+            "output_bundle": {
+                "path": "artifacts/work/review.json",
+                "fields": [{
+                    "name": "review_decision",
+                    "json_pointer": "/review_decision",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                }],
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    executor.provider_executor.prepare_invocation = lambda *args, **kwargs: (SimpleNamespace(), None)
+
+    def _fake_execute(_invocation, **_kwargs):
+        (tmp_path / "artifacts" / "work").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "artifacts" / "work" / "review.json").write_text(
+            '{"review_decision":"APPROVE"}\n',
+            encoding="utf-8",
+        )
+        return SimpleNamespace(
+            exit_code=2,
+            stdout=b"",
+            stderr=b"one exploratory tool command failed",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.execute = _fake_execute
+
+    state = executor.execute()
+    result = state["steps"]["Review"]
+
+    assert result["exit_code"] == 0
+    assert result["status"] == "completed"
+    assert result["artifacts"] == {"review_decision": "APPROVE"}
+    assert result["debug"]["provider_output_bundle_exit_override"]["provider_exit_code"] == 2
+
+
 def test_nonzero_exit_skips_output_bundle_validation(tmp_path: Path):
     """Failed process exit should preserve original failure and skip bundle validation."""
     workflow = {

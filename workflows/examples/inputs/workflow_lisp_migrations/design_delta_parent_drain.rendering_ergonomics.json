@@ -1419,14 +1419,6 @@
         "override_allowed": true
       },
       "request_shape": {
-        "hidden_bridge_fields": [
-          {
-            "authority_class": "compatibility_bridge",
-            "bridge_field_name": "run_state_path",
-            "field_path": "subject.run_state",
-            "source_binding": "ctx.run_state_path"
-          }
-        ],
         "request_type_name": "SelectorRequest",
         "requires_request_record": true,
         "requires_target_split": false,
@@ -1611,38 +1603,6 @@
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
     {
-      "body_rendering_policy": "allow_timed",
-      "c0_row_id": "c0.work_item_materialized_work_item_context_view",
-      "consumer_lane": "timed_body_materialization",
-      "expected_track_c_lane": "C5",
-      "renderer_selection": {
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "mode": "infer",
-        "override_allowed": true
-      },
-      "slot_id": "work_item.materialized.work_item_context_view",
-      "source_form": {
-        "form_path": [
-          "work_item",
-          "materialized",
-          "work_item_context_view"
-        ],
-        "kind": "materialized_output",
-        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item"
-      },
-      "u0_row_id": "work_item.materialized.work_item_context_view",
-      "value": {
-        "authority": "typed_value",
-        "type_name": "work_item_context_view"
-      },
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
-    },
-    {
       "body_rendering_policy": "forbid",
       "c0_row_id": "c0.work_item_prompt_classify_blocked_recovery",
       "consumer_lane": "prompt_input",
@@ -1712,6 +1672,114 @@
         "type_name": "work_item_summary"
       },
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "body_rendering_policy": "allow_timed",
+      "c0_row_id": "c0.implementation_phase_fix_return_checks_report_compiled_boundary",
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
+      "renderer_selection": {
+        "allowed_renderers": [],
+        "mode": "none",
+        "override_allowed": false
+      },
+      "slot_id": "implementation_phase.fix.return_checks_report.compiled_boundary",
+      "source_form": {
+        "form_path": [
+          "implementation_phase",
+          "fix",
+          "return_checks_report"
+        ],
+        "kind": "materialized_output",
+        "source_map_origin_key": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1"
+      },
+      "u0_row_id": "compiled_boundary::%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1::return__checks_report",
+      "value": {
+        "authority": "typed_value",
+        "type_name": "return_checks_report"
+      },
+      "workflow_surface": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1"
+    },
+    {
+      "body_rendering_policy": "forbid",
+      "c0_row_id": "c0.implementation_phase_fix_return_execution_report_compiled_boundary",
+      "consumer_lane": "observability",
+      "expected_track_c_lane": "C2",
+      "renderer_selection": {
+        "allowed_renderers": [],
+        "mode": "none",
+        "override_allowed": false
+      },
+      "slot_id": "implementation_phase.fix.return_execution_report.compiled_boundary",
+      "source_form": {
+        "form_path": [
+          "implementation_phase",
+          "fix",
+          "return_execution_report"
+        ],
+        "kind": "materialized_output",
+        "source_map_origin_key": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1"
+      },
+      "u0_row_id": "compiled_boundary::%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1::return__execution_report",
+      "value": {
+        "authority": "typed_value",
+        "type_name": "return_execution_report"
+      },
+      "workflow_surface": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1"
+    },
+    {
+      "body_rendering_policy": "forbid",
+      "c0_row_id": "c0.implementation_phase_review_return_review_report_compiled_boundary",
+      "consumer_lane": "observability",
+      "expected_track_c_lane": "C2",
+      "renderer_selection": {
+        "allowed_renderers": [],
+        "mode": "none",
+        "override_allowed": false
+      },
+      "slot_id": "implementation_phase.review.return_review_report.compiled_boundary",
+      "source_form": {
+        "form_path": [
+          "implementation_phase",
+          "review",
+          "return_review_report"
+        ],
+        "kind": "materialized_output",
+        "source_map_origin_key": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::review-implementation.v1"
+      },
+      "u0_row_id": "compiled_boundary::%implementation_phase.lisp_frontend_design_delta/implementation_phase::review-implementation.v1::return__review_report",
+      "value": {
+        "authority": "typed_value",
+        "type_name": "return_review_report"
+      },
+      "workflow_surface": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::review-implementation.v1"
+    },
+    {
+      "body_rendering_policy": "forbid",
+      "c0_row_id": "c0.plan_phase_review_return_review_report_compiled_boundary",
+      "consumer_lane": "observability",
+      "expected_track_c_lane": "C2",
+      "renderer_selection": {
+        "allowed_renderers": [],
+        "mode": "none",
+        "override_allowed": false
+      },
+      "slot_id": "plan_phase.review.return_review_report.compiled_boundary",
+      "source_form": {
+        "form_path": [
+          "plan_phase",
+          "review",
+          "return_review_report"
+        ],
+        "kind": "materialized_output",
+        "source_map_origin_key": "%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1"
+      },
+      "u0_row_id": "compiled_boundary::%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1::return__review_report",
+      "value": {
+        "authority": "typed_value",
+        "type_name": "return_review_report"
+      },
+      "workflow_surface": "%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1"
     }
   ],
   "prerequisite_reports": {

@@ -9,7 +9,9 @@ Use generated artifacts only when they are consumed inputs or required output
 targets for this task.
 
 Do not satisfy a finding by fabricating records or hard-coding generated values
-in authored source; use the approved binding surface.
+in authored source; use the approved binding surface. Report a blocker only
+when that surface is absent, contradictory, or would require changing the
+approved contract.
 
 Update the execution report at the consumed canonical target path when possible,
 or keep the currently published execution-report path valid if the target was

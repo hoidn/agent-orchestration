@@ -20,10 +20,17 @@ authority for what may be edited:
   that prerequisite routing must be updated instead of revising design
   documents.
 
-Make the smallest principled design change that resolves the blocker and gives a
-future plan/implementation pass a coherent contract to use. If the blocker
-cannot be resolved by changing the allowed editable surface, write a revision
-report explaining why and set the decision to `BLOCKED`.
+Make the smallest principled design change that resolves the blocker by
+removing, narrowing, or splitting the stale assumption that caused it. Do not
+preserve a blocked requirement by adding more evidence, checks, or wording
+around the same failed path. Keep only requirements whose supporting routes,
+bindings, or mechanisms you have verified exist in the current checkout. If the
+blocker cannot be resolved by changing the allowed editable surface, write a
+revision report explaining why and set the decision to `BLOCKED`.
+
+If the recovery bundle names prior revision review feedback, read it and
+resolve the reviewer's concrete findings rather than repeating the rejected
+revision.
 
 Write:
 - the updated allowed design surface at its consumed path;
