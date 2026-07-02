@@ -368,6 +368,9 @@ def _recovery_payload(
             "implementation_state_path": str(entry.get("implementation_state_path") or "").strip(),
             "recovery_event_id": recovery_event_id,
         }
+        feedback_path = run_state_path.parent / "blocked-revision-review-feedback.md"
+        if feedback_path.is_file():
+            payload["prior_revision_review_feedback_path"] = feedback_path.as_posix()
         edge = edge_from_blocked_entry(WorkRef(source="DESIGN_GAP", id=design_gap_id), entry)
         decision = (
             evaluate_edge(edge, state)

@@ -638,6 +638,11 @@ def main() -> int:
                     revision_report_path=revision_report_path,
                     review_decision=decision,
                 )
+                drain_state_root = Path(args.state_path).parent
+                feedback_target = drain_state_root / "blocked-revision-review-feedback.md"
+                feedback_target.write_text(
+                    revision_report_path.read_text(encoding="utf-8"), encoding="utf-8"
+                )
                 if args.terminal_action == "continue":
                     Path(args.drain_status_path).write_text("CONTINUE\n", encoding="utf-8")
             return result
