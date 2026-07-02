@@ -75,6 +75,47 @@ def _validate_against_manifest(selection: dict[str, Any], manifest: dict[str, An
         return
 
 
+def _row_by_id(rows: Any, selected: str, *keys: str) -> dict[str, Any]:
+    if not isinstance(rows, list):
+        return {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if _row_id(row, *keys) == selected:
+            return dict(row)
+    return {}
+
+
+def _enrich_selection_bundle(selection: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(selection)
+    history = manifest.get("attempt_history_summary")
+    if isinstance(history, dict):
+        enriched["attempt_history_summary"] = history
+
+    status = str(selection.get("selection_status") or "").strip()
+    if status == "DRAFT_DESIGN_GAP":
+        selected = str(selection.get("design_gap_id") or "").strip()
+        row = _row_by_id(
+            manifest.get("eligible_design_gaps") or manifest.get("design_gaps"),
+            selected,
+            "design_gap_id",
+            "id",
+        )
+        if row:
+            enriched["selected_design_gap"] = row
+    elif status == "SELECT_BACKLOG_ITEM":
+        selected = str(selection.get("selected_item_id") or "").strip()
+        row = _row_by_id(
+            manifest.get("eligible_items") or manifest.get("items"),
+            selected,
+            "item_id",
+            "id",
+        )
+        if row:
+            enriched["selected_item"] = row
+    return enriched
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--selection-path", required=True)
@@ -87,9 +128,16 @@ def main() -> int:
     status = selection.get("selection_status")
     if status not in ALLOWED_STATUSES:
         raise SystemExit(f"Invalid selection_status: {status}")
+    manifest = None
     if args.manifest_path:
         manifest_rel = _safe_relpath(args.manifest_path, under="state", must_exist=True)
-        _validate_against_manifest(selection, _load_json(REPO_ROOT / manifest_rel))
+        manifest = _load_json(REPO_ROOT / manifest_rel)
+        _validate_against_manifest(selection, manifest)
+        selection = _enrich_selection_bundle(selection, manifest)
+        (REPO_ROOT / selection_rel).write_text(
+            json.dumps(selection, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
     output_rel = _safe_relpath(args.output, under="state")
     output_path = REPO_ROOT / output_rel

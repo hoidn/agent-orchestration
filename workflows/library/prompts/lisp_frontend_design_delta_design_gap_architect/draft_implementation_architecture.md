@@ -1,6 +1,8 @@
 Read the steering, target design, command-adapter contract, typed design-gap
 subject record, and architecture targets before acting. The baseline design path
 is available as the accepted baseline design contract.
+When the subject record includes selected docs or `attempt_history_summary`, use
+that context to avoid redrafting stale or already-blocked assumptions.
 
 Draft a single implementation-architecture document for exactly the selected
 target-design gap. The baseline design is the accepted baseline design contract

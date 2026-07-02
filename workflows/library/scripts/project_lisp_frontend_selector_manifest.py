@@ -81,9 +81,63 @@ def _design_gap_rows(root: Path, run_state: dict[str, Any]) -> list[dict[str, An
                 "title": title,
                 "status": _gap_status(raw_status, gap_id, run_state),
                 "architecture_path": rel,
+                **(
+                    {"plan_path": plan_path.relative_to(REPO_ROOT).as_posix()}
+                    if (plan_path := path.parent / "execution_plan.md").is_file()
+                    else {}
+                ),
             }
         )
     return rows
+
+
+def _safe_optional_relpath(value: Any, *, allowed_roots: tuple[str, ...]) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    path = Path(raw)
+    if path.is_absolute() or ".." in path.parts:
+        return ""
+    if path.parts[:1] not in {(root,) for root in allowed_roots}:
+        return ""
+    return path.as_posix()
+
+
+def _attempt_history_summary(
+    run_state: dict[str, Any],
+    *,
+    gap_rows_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    completed = [str(item) for item in run_state.get("completed_design_gaps") or []]
+    blocked_state = run_state.get("blocked_design_gaps") or {}
+    blocked: list[dict[str, Any]] = []
+    if isinstance(blocked_state, dict):
+        for gap_id, entry in blocked_state.items():
+            if not isinstance(entry, dict):
+                continue
+            row = gap_rows_by_id.get(str(gap_id), {})
+            blocked_row: dict[str, Any] = {
+                "design_gap_id": str(gap_id),
+                "reason": str(entry.get("reason") or ""),
+                "recovery_route": str(entry.get("recovery_route") or ""),
+                "recovery_reason": str(entry.get("recovery_reason") or ""),
+            }
+            for key in ("architecture_path", "plan_path"):
+                if row.get(key):
+                    blocked_row[key] = row[key]
+            progress_report_path = _safe_optional_relpath(
+                entry.get("progress_report_path"),
+                allowed_roots=("artifacts",),
+            )
+            if progress_report_path:
+                blocked_row["progress_report_path"] = progress_report_path
+            blocked.append(blocked_row)
+    last_blocked = blocked[-1] if blocked else None
+    return {
+        "completed_design_gap_ids": completed,
+        "blocked_design_gaps": blocked,
+        "last_blocked_design_gap": last_blocked,
+    }
 
 
 def _bool_arg(value: str) -> bool:
@@ -149,6 +203,11 @@ def main() -> int:
         for row in design_gaps
         if str(row.get("design_gap_id") or "").strip()
     }
+    gap_rows_by_id = {
+        str(row.get("design_gap_id") or "").strip(): row
+        for row in design_gaps
+        if str(row.get("design_gap_id") or "").strip()
+    }
     known_work = [
         {"source": "BACKLOG_ITEM", "id": key[1], "status": "available"}
         for key in item_rows_by_key
@@ -185,6 +244,10 @@ def main() -> int:
         "eligible_design_gaps": eligible_design_gaps,
         "all_design_gap_count_diagnostic": len(design_gaps),
         "priority_recovery_work": eligibility["priority_recovery_work"],
+        "attempt_history_summary": _attempt_history_summary(
+            run_state,
+            gap_rows_by_id=gap_rows_by_id,
+        ),
         "hidden_summary": eligibility["hidden_summary"],
         "blocking_mechanics_error_count": len(eligibility["blocking_mechanics_errors"]),
     }

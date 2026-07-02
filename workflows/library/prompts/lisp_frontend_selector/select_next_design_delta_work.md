@@ -1,4 +1,6 @@
 Read the consumed steering, target design, and selector manifest before acting.
+Use `attempt_history_summary` when present to avoid repeating failed or
+completed attempts.
 Existing selectable work is limited to manifest rows; use target-design
 reasoning only to propose genuinely new bounded gaps.
 

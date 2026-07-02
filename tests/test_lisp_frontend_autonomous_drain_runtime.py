@@ -207,6 +207,7 @@ def _write_selector_manifest_gap_architecture(
         f"# {gap_id}\n\nDesign gap id: `{gap_id}`\nStatus: draft\n",
         encoding="utf-8",
     )
+    (path.parent / "execution_plan.md").write_text("# execution plan\n", encoding="utf-8")
     return path
 
 
@@ -1145,8 +1146,36 @@ def test_selection_bundle_publish_accepts_eligible_design_gap(tmp_path):
     manifest.write_text(
         json.dumps(
             {
-                "eligible_design_gaps": [{"design_gap_id": "current-gap", "status": "available"}],
+                "eligible_design_gaps": [
+                    {
+                        "design_gap_id": "current-gap",
+                        "status": "available",
+                        "architecture_path": (
+                            "docs/plans/DRAIN/design-gaps/current-gap/"
+                            "implementation_architecture.md"
+                        ),
+                        "plan_path": (
+                            "docs/plans/DRAIN/design-gaps/current-gap/"
+                            "execution_plan.md"
+                        ),
+                    }
+                ],
                 "eligible_items": [],
+                "attempt_history_summary": {
+                    "completed_design_gap_ids": ["done-gap"],
+                    "blocked_design_gaps": [
+                        {
+                            "design_gap_id": "old-gap",
+                            "recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
+                            "progress_report_path": "artifacts/work/old-gap/progress_report.md",
+                        }
+                    ],
+                    "last_blocked_design_gap": {
+                        "design_gap_id": "old-gap",
+                        "recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
+                        "progress_report_path": "artifacts/work/old-gap/progress_report.md",
+                    },
+                },
             }
         )
         + "\n",
@@ -1166,6 +1195,18 @@ def test_selection_bundle_publish_accepts_eligible_design_gap(tmp_path):
 
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["selection_bundle_path"] == "state/selection.json"
+    selection_payload = json.loads(selection.read_text(encoding="utf-8"))
+    assert selection_payload["selected_design_gap"] == {
+        "design_gap_id": "current-gap",
+        "status": "available",
+        "architecture_path": "docs/plans/DRAIN/design-gaps/current-gap/implementation_architecture.md",
+        "plan_path": "docs/plans/DRAIN/design-gaps/current-gap/execution_plan.md",
+    }
+    assert selection_payload["attempt_history_summary"]["completed_design_gap_ids"] == ["done-gap"]
+    assert (
+        selection_payload["attempt_history_summary"]["last_blocked_design_gap"]["progress_report_path"]
+        == "artifacts/work/old-gap/progress_report.md"
+    )
 
 
 def test_selection_bundle_publish_allows_new_gap_discovery_when_no_eligible_work(tmp_path):
@@ -1354,10 +1395,23 @@ def test_selector_manifest_hides_blocked_dependent_and_filters_counts(tmp_path):
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     control = json.loads(control_path.read_text(encoding="utf-8"))
     assert [gap["design_gap_id"] for gap in payload["eligible_design_gaps"]] == ["b"]
+    assert payload["eligible_design_gaps"][0]["architecture_path"].endswith(
+        "docs/plans/DRAIN/design-gaps/b/implementation_architecture.md"
+    )
+    assert payload["eligible_design_gaps"][0]["plan_path"].endswith(
+        "docs/plans/DRAIN/design-gaps/b/execution_plan.md"
+    )
     assert [gap["design_gap_id"] for gap in payload["design_gaps"]] == ["b"]
     assert payload["design_gap_count"] == 1
     assert payload["all_design_gap_count_diagnostic"] == 2
     assert payload["priority_recovery_work"] == [{"source": "DESIGN_GAP", "id": "b", "status": "available"}]
+    assert payload["attempt_history_summary"]["blocked_design_gaps"][0]["design_gap_id"] == "a"
+    assert payload["attempt_history_summary"]["blocked_design_gaps"][0]["architecture_path"].endswith(
+        "docs/plans/DRAIN/design-gaps/a/implementation_architecture.md"
+    )
+    assert payload["attempt_history_summary"]["blocked_design_gaps"][0]["plan_path"].endswith(
+        "docs/plans/DRAIN/design-gaps/a/execution_plan.md"
+    )
     assert payload["hidden_summary"]["blocked_by_dependencies"] == 1
     assert "hidden_work" not in payload
     assert "blocking_mechanics_errors" not in payload
