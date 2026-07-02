@@ -197,6 +197,8 @@ def _record_run_blocked(
     selection: dict[str, Any] = {}
     if selection_path:
         selection = json.loads(Path(selection_path).read_text(encoding="utf-8"))
+    if "pre_selection_route" in selection:
+        return
     timestamp = _timestamp()
     entry = {
         "reason": reason,
