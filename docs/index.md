@@ -418,6 +418,11 @@ before adding or preserving the command boundary.
 **Keywords:** steering, local-run, roadmap-gate, dsl-v214  
 **Use this when:** Running or auditing the local NeurIPS-style backlog workflow.
 
+### [Verified-Iteration Drain](design/verified_iteration_drain.md)
+**Description:** Designed pilot for a single fused-session select/plan/implement/verify drain that treats the repo, git history, and check exit codes as sole authority, run alongside (not replacing) the `lisp_frontend_*` drain family.
+**Keywords:** drain, pilot, repeat_until, repo-as-truth, verified-iteration
+**Use this when:** Evaluating or running the verified-iteration pilot loop instead of authoring a new `lisp_frontend_*`-style drain.
+
 ## Normative Spec Modules (`specs/`)
 
 ### [Master Spec Index](../specs/index.md)

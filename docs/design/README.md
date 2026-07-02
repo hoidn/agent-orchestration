@@ -79,6 +79,7 @@ page, not a replacement for the linked docs.
 | Doc | Applies to | Current checkout? | Normal authoring guidance? | Notes |
 | --- | --- | ---: | ---: | --- |
 | [lisp_frontend_review_fix_loops.md](lisp_frontend_review_fix_loops.md) | Review/fix loop semantics | Partial/unknown from this index; read the doc and linked evidence | Yes | Use with review/revise stdlib and parity architecture docs. |
+| [verified_iteration_drain.md](verified_iteration_drain.md) | Verified-iteration drain: single fused-session select/plan/implement/verify loop | Designed (pilot) | No | Pilot alternative alongside, not replacing, the `lisp_frontend_*` drain family; treats the repo, git history, and check exit codes as the sole authority instead of a second typed state copy. See `docs/plans/2026-07-02-verified-iteration-drain.md` and `workflows/examples/verified_iteration_drain.yaml`. |
 
 ## Historical Or Narrow Decision Notes
 
