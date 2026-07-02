@@ -12,7 +12,6 @@ from typing import Any, Mapping
 
 NORMAL_CONTINUE = "NORMAL_CONTINUE"
 STEP_BACK_REQUIRED = "STEP_BACK_REQUIRED"
-TERMINAL_HUMAN_DECISION = "TERMINAL_HUMAN_DECISION"
 
 
 def _events(signals: Mapping[str, Any]) -> list[dict[str, Any]]:

@@ -13,7 +13,7 @@ artifacts:
   non_progress_route:
     kind: scalar
     type: enum
-    allowed: ["NORMAL_CONTINUE", "STEP_BACK_REQUIRED", "TERMINAL_HUMAN_DECISION"]
+    allowed: ["NORMAL_CONTINUE", "STEP_BACK_REQUIRED"]
   drain_status:
     kind: scalar
     type: enum
@@ -57,7 +57,7 @@ steps:
         - name: non_progress_route
           json_pointer: /route
           type: enum
-          allowed: ["NORMAL_CONTINUE", "STEP_BACK_REQUIRED", "TERMINAL_HUMAN_DECISION"]
+          allowed: ["NORMAL_CONTINUE", "STEP_BACK_REQUIRED"]
         - name: failure_fingerprint
           json_pointer: /failure_fingerprint
           type: string
@@ -138,18 +138,3 @@ steps:
                     json_pointer: /drain_status
                     type: enum
                     allowed: ["CONTINUE", "BLOCKED"]
-        TERMINAL_HUMAN_DECISION:
-          id: terminal_human_decision_path
-          outputs:
-            drain_status:
-              kind: scalar
-              type: enum
-              allowed: ["CONTINUE", "BLOCKED"]
-              from:
-                ref: self.steps.WriteBlocked.artifacts.drain_status
-          steps:
-            - name: WriteBlocked
-              id: write_blocked
-              set_scalar:
-                artifact: drain_status
-                value: BLOCKED
