@@ -281,3 +281,148 @@ def test_verified_iteration_drain_workflow_loads(tmp_path):
     loader = WorkflowLoader(ROOT)
     loader.load_bundle(ROOT / WORKFLOW)
     assert loader.error_count() == 0
+
+
+def _copy_drain_runtime_files(workspace: Path) -> Path:
+    for relpath in [
+        WORKFLOW,
+        PREPARE,
+        CHECKS,
+        RECORD,
+        "workflows/library/scripts/write_lisp_frontend_relpath_value.py",
+        "workflows/library/prompts/verified_iteration_drain/work.md",
+        "workflows/library/prompts/verified_iteration_drain/review_iteration.md",
+        "workflows/library/prompts/verified_iteration_drain/review_done.md",
+    ]:
+        dest = workspace / relpath
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text((ROOT / relpath).read_text(encoding="utf-8"), encoding="utf-8")
+    _git(workspace, "add", "workflows")
+    _git(workspace, "commit", "-qm", "add drain runtime files")
+    return workspace / WORKFLOW
+
+
+def _drain_inputs() -> dict:
+    return {
+        "target_design_path": "docs/design/pilot_target.md",
+        "check_commands_path": "workflows/examples/inputs/pilot_checks.json",
+        "stall_limit": "2",
+    }
+
+
+def _run_drain_with_providers(workspace: Path, provider_sequence) -> dict:
+    workflow_path = workspace / WORKFLOW
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    bound_inputs = bind_workflow_inputs(workflow_input_contracts(workflow), _drain_inputs(), workspace)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(
+        workflow_path.relative_to(workspace).as_posix(),
+        _bundle_context_dict(workflow),
+        bound_inputs=bound_inputs,
+    )
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+    call_index = {"value": 0}
+
+    def _prepare_invocation(_self, *args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
+
+    def _execute(_self, _invocation, **kwargs):
+        assert call_index["value"] < len(provider_sequence), f"unexpected provider call: {kwargs.get('step_name')}"
+        expected_step, writer = provider_sequence[call_index["value"]]
+        actual_step = kwargs.get("step_name")
+        if actual_step is not None:
+            assert expected_step in str(actual_step), f"expected {expected_step}, got {actual_step}"
+        call_index["value"] += 1
+        writer(workspace)
+        return SimpleNamespace(
+            exit_code=0, stdout=b"ok", stderr=b"", duration_ms=1, error=None,
+            missing_placeholders=None, invalid_prompt_placeholder=False,
+            raw_stdout=None, normalized_stdout=None, provider_session=None,
+        )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = executor.execute()
+    assert call_index["value"] == len(provider_sequence)
+    return state
+
+
+def _latest_iteration_dir(workspace: Path) -> Path:
+    iterations = sorted((workspace / STATE_ROOT / "iterations").iterdir(), key=lambda p: int(p.name))
+    return iterations[-1]
+
+
+def _worker_commits_and_claims_done(workspace: Path) -> None:
+    (workspace / "hello.txt").write_text("hi\n", encoding="utf-8")
+    _git(workspace, "add", "hello.txt")
+    _git(workspace, "commit", "-qm", "add hello per target design")
+    iteration_dir = _latest_iteration_dir(workspace)
+    (iteration_dir / "worker-verdict.txt").write_text("DONE\n", encoding="utf-8")
+    (iteration_dir / "worker-note.txt").write_text("created hello.txt\n", encoding="utf-8")
+
+
+def _worker_makes_no_progress(workspace: Path) -> None:
+    iteration_dir = _latest_iteration_dir(workspace)
+    (iteration_dir / "worker-verdict.txt").write_text("CONTINUE\n", encoding="utf-8")
+    (iteration_dir / "worker-note.txt").write_text("could not find a next step\n", encoding="utf-8")
+
+
+def _worker_blocks_on_user(workspace: Path) -> None:
+    blocked = workspace / WORK_ROOT / "blocked/BLOCKED-credentials.md"
+    blocked.parent.mkdir(parents=True, exist_ok=True)
+    blocked.write_text("Need the API token only the user holds.\n", encoding="utf-8")
+    iteration_dir = _latest_iteration_dir(workspace)
+    (iteration_dir / "worker-verdict.txt").write_text("BLOCKED_ON_USER\n", encoding="utf-8")
+    (iteration_dir / "worker-note.txt").write_text("all remaining work needs the token\n", encoding="utf-8")
+
+
+def _reviewer_approves_iteration(workspace: Path) -> None:
+    (_latest_iteration_dir(workspace) / "review-decision.txt").write_text("APPROVE\n", encoding="utf-8")
+
+
+def _reviewer_approves_done(workspace: Path) -> None:
+    (_latest_iteration_dir(workspace) / "done-review-decision.txt").write_text("APPROVE\n", encoding="utf-8")
+
+
+def test_drain_completes_in_one_verified_iteration(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    _copy_drain_runtime_files(workspace)
+    _run_drain_with_providers(
+        workspace,
+        [
+            ("Work", _worker_commits_and_claims_done),
+            ("ReviewIteration", _reviewer_approves_iteration),
+            ("ReviewDoneClaim", _reviewer_approves_done),
+        ],
+    )
+    summary = json.loads((workspace / WORK_ROOT / "drain-summary.json").read_text(encoding="utf-8"))
+    assert summary["drain_status"] == "DONE"
+    assert summary["statuses"] == ["DONE"]
+    ledger = (workspace / WORK_ROOT / "ledger.md").read_text(encoding="utf-8")
+    assert "DONE" in ledger and "created hello.txt" in ledger
+
+
+def test_drain_stalls_after_consecutive_no_change_iterations(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    _copy_drain_runtime_files(workspace)
+    _run_drain_with_providers(
+        workspace,
+        [
+            ("Work", _worker_makes_no_progress),
+            ("Work", _worker_makes_no_progress),
+        ],
+    )
+    summary = json.loads((workspace / WORK_ROOT / "drain-summary.json").read_text(encoding="utf-8"))
+    assert summary["drain_status"] == "STALLED"
+    assert summary["statuses"] == ["NO_CHANGE", "NO_CHANGE"]
+
+
+def test_drain_exits_blocked_on_user_with_notes(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    _copy_drain_runtime_files(workspace)
+    _run_drain_with_providers(workspace, [("Work", _worker_blocks_on_user)])
+    summary = json.loads((workspace / WORK_ROOT / "drain-summary.json").read_text(encoding="utf-8"))
+    assert summary["drain_status"] == "BLOCKED_ON_USER"
+    assert summary["blocked_notes"] == ["BLOCKED-credentials.md"]
