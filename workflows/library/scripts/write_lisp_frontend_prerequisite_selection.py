@@ -99,6 +99,21 @@ def _selected_ref(pre_selection: dict[str, Any]) -> tuple[str, str, str]:
     return "", "", status.lower() or "missing_recovery_pointer_status"
 
 
+def _proposed_prerequisite(pre_selection: dict[str, Any], source: str, item_id: str) -> dict[str, str]:
+    proposed_id = str(pre_selection.get("proposed_prerequisite_id") or "").strip()
+    proposed_source = str(pre_selection.get("proposed_prerequisite_source") or "DESIGN_GAP").strip()
+    if proposed_id and proposed_id == item_id and proposed_source == source:
+        return {
+            "title": str(pre_selection.get("proposed_prerequisite_title") or "").strip(),
+            "scope": str(pre_selection.get("proposed_prerequisite_scope") or "").strip(),
+            "reason": str(pre_selection.get("proposed_prerequisite_reason") or "").strip(),
+        }
+    hint = str(pre_selection.get("prerequisite_gap_hint") or "").strip()
+    if hint and source == "DESIGN_GAP":
+        return {"title": "", "scope": hint, "reason": ""}
+    return {}
+
+
 def _selection_for_ref(
     *,
     source: str,
@@ -106,15 +121,19 @@ def _selection_for_ref(
     relation: str,
     manifest: dict[str, Any],
     target_design_path: str,
+    proposed_prerequisite: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     if source == "DESIGN_GAP":
+        proposed = proposed_prerequisite or {}
+        missing_component = proposed.get("title") or "Prerequisite target-design work"
+        proposed_scope = proposed.get("scope") or "Draft one bounded implementation architecture only."
         return {
             "selection_status": "DRAFT_DESIGN_GAP",
             "design_gap_id": item_id,
             "source_design_path": target_design_path,
             "source_sections": [],
-            "missing_component": "Prerequisite target-design work",
-            "proposed_scope": "Draft one bounded implementation architecture only.",
+            "missing_component": missing_component,
+            "proposed_scope": proposed_scope,
             "prerequisite_relation": relation,
             "selection_rationale": "Selected by deterministic prerequisite recovery state.",
         }
@@ -155,7 +174,17 @@ def main() -> int:
         if not item_id:
             payload = _blocked(relation)
         elif not _eligible_ref(manifest, source, item_id):
-            if _hidden_ref(manifest, source, item_id):
+            proposed = _proposed_prerequisite(pre_selection, source, item_id)
+            if proposed and source == "DESIGN_GAP" and not _hidden_ref(manifest, source, item_id):
+                payload = _selection_for_ref(
+                    source=source,
+                    item_id=item_id,
+                    relation=relation,
+                    manifest=manifest,
+                    target_design_path=target_design_path,
+                    proposed_prerequisite=proposed,
+                )
+            elif _hidden_ref(manifest, source, item_id):
                 payload = _blocked(f"ineligible_prerequisite_work: {source} {item_id}")
             else:
                 payload = _blocked(f"missing_dependency_target: {source} {item_id}")

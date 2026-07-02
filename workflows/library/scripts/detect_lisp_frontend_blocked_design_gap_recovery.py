@@ -271,6 +271,21 @@ def _pointer_fields(decision: Any | None) -> dict[str, str]:
     return recovery_pointer_to_json(decision)
 
 
+def _proposed_prerequisite_fields(entry: Mapping[str, Any], edge: Any | None) -> dict[str, str]:
+    evidence = getattr(edge, "evidence", {}) if edge is not None else {}
+    proposed = evidence.get("proposed_prerequisite") if isinstance(evidence, Mapping) else None
+    if not isinstance(proposed, Mapping):
+        proposed = {}
+    return {
+        "prerequisite_gap_hint": str(entry.get("prerequisite_gap_hint") or "").strip(),
+        "proposed_prerequisite_id": str(proposed.get("id") or "").strip(),
+        "proposed_prerequisite_source": str(proposed.get("source") or "").strip(),
+        "proposed_prerequisite_title": str(proposed.get("title") or "").strip(),
+        "proposed_prerequisite_scope": str(proposed.get("scope") or "").strip(),
+        "proposed_prerequisite_reason": str(proposed.get("reason") or "").strip(),
+    }
+
+
 def _has_active_prerequisite_pointer(recovery_route: str, recovery_status: str) -> bool:
     return recovery_route == "PREREQUISITE_GAP_REQUIRED" and recovery_status in {
         "PREREQUISITE_WORK_PENDING",
@@ -362,6 +377,7 @@ def _recovery_payload(
                     recovery_status=recovery_status,
                 )
                 payload.update(_pointer_fields(decision))
+                payload.update(_proposed_prerequisite_fields(entry, edge))
                 return payload
             elif decision.route == "BLOCKED_TERMINAL":
                 return _block_payload("prerequisite_blocker_terminal")

@@ -1106,6 +1106,22 @@ steps:
                 json_pointer: /waiting_on_work_source
                 type: string
                 required: false
+              - name: proposed_prerequisite_id
+                json_pointer: /proposed_prerequisite/id
+                type: string
+                required: false
+              - name: proposed_prerequisite_title
+                json_pointer: /proposed_prerequisite/title
+                type: string
+                required: false
+              - name: proposed_prerequisite_scope
+                json_pointer: /proposed_prerequisite/scope
+                type: string
+                required: false
+              - name: proposed_prerequisite_reason
+                json_pointer: /proposed_prerequisite/reason
+                type: string
+                required: false
               - name: retry_target_id
                 json_pointer: /retry_target_id
                 type: string

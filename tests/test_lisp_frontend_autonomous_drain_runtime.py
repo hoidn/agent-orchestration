@@ -1521,6 +1521,128 @@ def test_prerequisite_selection_blocks_missing_design_gap(tmp_path):
     assert payload["blocking_reasons"] == ["missing_dependency_target: DESIGN_GAP missing-c"]
 
 
+def test_prerequisite_selection_drafts_missing_proposed_design_gap(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    pre_selection = workspace / "state/pre-selection.json"
+    manifest = workspace / "state/selector-manifest.json"
+    output = workspace / "state/selection.json"
+    pre_selection.parent.mkdir(parents=True)
+    pre_selection.write_text(
+        json.dumps(
+            {
+                "pre_selection_route": "SELECT_PREREQUISITE_WORK",
+                "recovery_pointer_status": "WAITING",
+                "waiting_on_work_source": "DESIGN_GAP",
+                "waiting_on_work_id": "child-union-provenance",
+                "proposed_prerequisite_id": "child-union-provenance",
+                "proposed_prerequisite_source": "DESIGN_GAP",
+                "proposed_prerequisite_title": "Child workflow union provenance",
+                "proposed_prerequisite_scope": (
+                    "Specify the compiler contract for child workflow union results."
+                ),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manifest.write_text(
+        json.dumps(
+            {
+                "design_gaps": [],
+                "eligible_design_gaps": [],
+                "priority_recovery_work": [],
+                "hidden_work": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/write_lisp_frontend_prerequisite_selection.py"),
+        "--pre-selection-path",
+        pre_selection.relative_to(workspace).as_posix(),
+        "--manifest-path",
+        manifest.relative_to(workspace).as_posix(),
+        "--target-design-path",
+        "docs/design/workflow_lisp_runtime_native_drain_authoring.md",
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["selection_status"] == "DRAFT_DESIGN_GAP"
+    assert payload["design_gap_id"] == "child-union-provenance"
+    assert payload["missing_component"] == "Child workflow union provenance"
+    assert payload["proposed_scope"] == "Specify the compiler contract for child workflow union results."
+
+
+def test_blocked_recovery_detector_carries_proposed_prerequisite_metadata(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_state = workspace / "state/run_state.json"
+    output = workspace / "state/blocked-recovery.json"
+    run_state.parent.mkdir(parents=True)
+    run_state.write_text(
+        json.dumps(
+            {
+                "completed_design_gaps": [],
+                "blocked_design_gaps": {
+                    "parser-syntax": {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                        "recovery_reason": "prerequisite_gap_required",
+                        "recovery_status": "PREREQUISITE_WORK_PENDING",
+                        "recovery_event_id": "parser-syntax-blocked",
+                        "prerequisite_gap_hint": (
+                            "Child workflow union provenance - Specify the compiler contract."
+                        ),
+                        "recovery_dependency_edge": {
+                            **_recovery_dependency_edge(
+                                blocked="parser-syntax",
+                                blocker="child-union-provenance",
+                                reason_code="prerequisite_gap_required",
+                            ),
+                            "evidence": {
+                                "proposed_prerequisite": {
+                                    "id": "child-union-provenance",
+                                    "source": "DESIGN_GAP",
+                                    "title": "Child workflow union provenance",
+                                    "scope": "Specify the compiler contract.",
+                                    "reason": "parent match cannot consume child union result",
+                                }
+                            },
+                        },
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py"),
+        "--run-state-path",
+        run_state.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work",
+        "--architecture-index-root",
+        "docs/plans/design-gaps",
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "SELECT_PREREQUISITE_WORK"
+    assert payload["waiting_on_work_id"] == "child-union-provenance"
+    assert payload["proposed_prerequisite_id"] == "child-union-provenance"
+    assert payload["proposed_prerequisite_scope"] == "Specify the compiler contract."
+
+
 def test_selector_manifest_hides_blocked_dependent_and_filters_counts(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -3713,6 +3835,110 @@ def test_prerequisite_recovery_rejects_missing_dependency_edge(tmp_path):
 
     assert result.returncode != 0
     assert "requires recovery_dependency_edge" in result.stderr
+
+
+def test_prerequisite_recovery_accepts_proposed_prerequisite_gap(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    state_path = workspace / "state/drain/run_state.json"
+    recovery_bundle = workspace / "state/drain/recovery-decision.json"
+    summary_path = workspace / "artifacts/work/blocked-summary.json"
+    pointer_path = workspace / "state/drain/blocked-summary-path.txt"
+    drain_status_path = workspace / "state/drain/blocked-drain-status.txt"
+    progress_path = workspace / "artifacts/work/design-gaps/parser-syntax/progress_report.md"
+    implementation_state_path = workspace / "state/drain/iterations/0/work-item/implementation_state.json"
+    architecture_path = workspace / "docs/plans/design-gaps/parser-syntax/implementation_architecture.md"
+    plan_path = workspace / "docs/plans/design-gaps/parser-syntax/execution_plan.md"
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {},
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    recovery_bundle.parent.mkdir(parents=True, exist_ok=True)
+    recovery_bundle.write_text(
+        json.dumps(
+            {
+                "blocked_recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                "reason": "prerequisite_gap_required",
+                "summary": "A child workflow union provenance gap must land first.",
+                "proposed_prerequisite": {
+                    "id": "child-union-provenance",
+                    "title": "Child workflow union provenance",
+                    "scope": "Specify child workflow union result provenance.",
+                    "reason": "parent match cannot consume child union result",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    for path, text in [
+        (progress_path, "# Progress Report\n\nChild union provenance is missing.\n"),
+        (implementation_state_path, "{}\n"),
+        (architecture_path, "# Parser Syntax Architecture\n"),
+        (plan_path, "# Parser Syntax Plan\n"),
+    ]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py",
+        "--recovery-bundle-path",
+        recovery_bundle.relative_to(workspace).as_posix(),
+        "--target-design-review-decision",
+        "NOT_APPLICABLE",
+        "--terminal-action",
+        "continue",
+        "--state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--item-id",
+        "parser-syntax",
+        "--source",
+        "DESIGN_GAP",
+        "--progress-report-path",
+        progress_path.relative_to(workspace).as_posix(),
+        "--implementation-state-path",
+        implementation_state_path.relative_to(workspace).as_posix(),
+        "--architecture-path",
+        architecture_path.relative_to(workspace).as_posix(),
+        "--plan-path",
+        plan_path.relative_to(workspace).as_posix(),
+        "--recovery-event-id",
+        "parser-syntax-implementation-blocked",
+        "--summary-path",
+        summary_path.relative_to(workspace).as_posix(),
+        "--summary-pointer-path",
+        pointer_path.relative_to(workspace).as_posix(),
+        "--drain-status-path",
+        drain_status_path.relative_to(workspace).as_posix(),
+    )
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    blocked = state["blocked_design_gaps"]["parser-syntax"]
+    assert blocked["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
+    assert blocked["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+    assert blocked["waiting_on_prerequisite_gap_id"] == "child-union-provenance"
+    assert blocked["prerequisite_gap_hint"] == (
+        "Child workflow union provenance - Specify child workflow union result provenance."
+    )
+    edge = blocked["recovery_dependency_edge"]
+    assert edge["blocker_work"] == {"source": "DESIGN_GAP", "id": "child-union-provenance"}
+    assert edge["evidence"]["proposed_prerequisite"]["scope"] == (
+        "Specify child workflow union result provenance."
+    )
+    assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
 
 
 def test_prerequisite_recovery_rejects_self_completion_edge(tmp_path):

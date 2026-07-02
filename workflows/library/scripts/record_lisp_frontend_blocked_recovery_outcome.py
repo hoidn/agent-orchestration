@@ -468,6 +468,48 @@ def _raw_edge_from_bundle(bundle: dict[str, Any], args: argparse.Namespace) -> d
     if isinstance(explicit, dict):
         return explicit
 
+    proposed = bundle.get("proposed_prerequisite")
+    proposed_id = ""
+    proposed_source = "DESIGN_GAP"
+    proposed_payload: dict[str, str] = {}
+    if isinstance(proposed, dict):
+        proposed_id = str(proposed.get("id") or "").strip()
+        proposed_source = str(proposed.get("source") or "DESIGN_GAP").strip()
+        proposed_payload = {
+            "id": proposed_id,
+            "source": proposed_source,
+            "title": str(proposed.get("title") or "").strip(),
+            "scope": str(proposed.get("scope") or "").strip(),
+            "reason": str(proposed.get("reason") or "").strip(),
+        }
+    if not proposed_id:
+        proposed_id = str(bundle.get("proposed_prerequisite_id") or "").strip()
+        if proposed_id:
+            proposed_source = str(bundle.get("proposed_prerequisite_source") or "DESIGN_GAP").strip()
+            proposed_payload = {
+                "id": proposed_id,
+                "source": proposed_source,
+                "title": str(bundle.get("proposed_prerequisite_title") or "").strip(),
+                "scope": str(bundle.get("proposed_prerequisite_scope") or "").strip(),
+                "reason": str(bundle.get("proposed_prerequisite_reason") or "").strip(),
+            }
+    if proposed_id:
+        blocked_id = str(bundle.get("blocked_work_id") or args.item_id or "").strip()
+        retry_source = str(bundle.get("retry_target_source") or args.source or "DESIGN_GAP").strip()
+        return {
+            "blocked_work": {"source": str(bundle.get("blocked_work_source") or args.source or "DESIGN_GAP"), "id": blocked_id},
+            "blocker_work": {"source": proposed_source, "id": proposed_id},
+            "relation": "requires_completion",
+            "reason_code": str(bundle.get("reason") or "prerequisite_gap_required").strip(),
+            "ready_when": {"kind": "completed", "source": proposed_source, "id": proposed_id},
+            "retry_target": {"source": retry_source, "id": str(bundle.get("retry_target_id") or blocked_id).strip()},
+            "downstream_work": bundle.get("downstream_work") if isinstance(bundle.get("downstream_work"), list) else [],
+            "evidence": {
+                "created_by": "blocked_recovery_classifier",
+                "proposed_prerequisite": proposed_payload,
+            },
+        }
+
     waiting_id = str(bundle.get("waiting_on_work_id") or "").strip()
     if waiting_id:
         blocked_id = str(bundle.get("blocked_work_id") or args.item_id or "").strip()
@@ -538,7 +580,15 @@ def _compat_metadata_from_edge(edge_json: dict[str, Any], bundle: dict[str, Any]
     retry = edge_json.get("retry_target") or {}
     downstream = edge_json.get("downstream_work") or []
     downstream_ref = downstream[0] if downstream and isinstance(downstream[0], dict) else {}
+    evidence = edge_json.get("evidence") if isinstance(edge_json.get("evidence"), dict) else {}
+    proposed = evidence.get("proposed_prerequisite") if isinstance(evidence.get("proposed_prerequisite"), dict) else {}
+    hint_parts = [
+        str(proposed.get("title") or "").strip(),
+        str(proposed.get("scope") or "").strip(),
+    ]
+    prerequisite_gap_hint = str(bundle.get("prerequisite_gap_hint") or " - ".join(part for part in hint_parts if part)).strip()
     return {
+        "prerequisite_gap_hint": prerequisite_gap_hint,
         "waiting_on_prerequisite_gap_id": str(blocker.get("id") or "").strip(),
         "waiting_on_prerequisite_source": str(blocker.get("source") or "").strip(),
         "prerequisite_recovery_status": str(bundle.get("prerequisite_recovery_status") or "WAITING_ON_PREREQUISITE").strip(),
@@ -680,6 +730,7 @@ def main() -> int:
             "blocked",
             reason,
             recovery_status="PREREQUISITE_WORK_PENDING",
+            prerequisite_gap_hint=metadata.get("prerequisite_gap_hint", ""),
             waiting_on_prerequisite_gap_id=metadata.get("waiting_on_prerequisite_gap_id", ""),
             waiting_on_prerequisite_source=metadata.get("waiting_on_prerequisite_source", ""),
             prerequisite_recovery_status=metadata.get("prerequisite_recovery_status", ""),
