@@ -262,10 +262,65 @@ steps:
             - artifact: plan_review_decision
               from: plan_review_decision
 
+        - name: NormalizePlanReviewOutputs
+          id: normalize_plan_review_outputs
+          command:
+            - python
+            - -c
+            - |
+              import pathlib
+              import shutil
+              import sys
+
+              state_root = pathlib.Path(sys.argv[1])
+              expected_report = pathlib.Path(sys.argv[2])
+              pointer = state_root / "plan_review_report_path.txt"
+              decision_path = state_root / "plan_review_decision.txt"
+
+              observed = pointer.read_text(encoding="utf-8").strip()
+              if not observed:
+                  raise SystemExit("plan_review_report_path.txt is empty")
+              observed_report = pathlib.Path(observed)
+
+              if observed_report != expected_report:
+                  if observed_report.is_file():
+                      expected_report.parent.mkdir(parents=True, exist_ok=True)
+                      shutil.copyfile(observed_report, expected_report)
+                  elif not expected_report.is_file():
+                      raise SystemExit(
+                          f"Plan review report target mismatch and neither report exists: "
+                          f"observed={observed_report} expected={expected_report}"
+                      )
+                  pointer.write_text(expected_report.as_posix() + "\n", encoding="utf-8")
+
+              if not expected_report.is_file():
+                  raise SystemExit(f"Plan review report does not exist: {expected_report}")
+
+              decision = decision_path.read_text(encoding="utf-8").strip()
+              if decision not in {"APPROVE", "REVISE"}:
+                  raise SystemExit(f"Unexpected plan review decision: {decision}")
+            - ${inputs.state_root}
+            - ${inputs.plan_review_report_target_path}
+          expected_outputs:
+            - name: plan_review_report_path
+              path: ${inputs.state_root}/plan_review_report_path.txt
+              type: relpath
+              under: artifacts/review
+              must_exist_target: true
+            - name: plan_review_decision
+              path: ${inputs.state_root}/plan_review_decision.txt
+              type: enum
+              allowed: ["APPROVE", "REVISE"]
+          publishes:
+            - artifact: plan_review_report
+              from: plan_review_report_path
+            - artifact: plan_review_decision
+              from: plan_review_decision
+
         - name: RoutePlanDecision
           id: route_plan_decision
           match:
-            ref: self.steps.ReviewPlan.artifacts.plan_review_decision
+            ref: self.steps.NormalizePlanReviewOutputs.artifacts.plan_review_decision
             cases:
               APPROVE:
                 id: approve_plan_path

@@ -101,6 +101,18 @@ artifacts:
     kind: scalar
     type: enum
     allowed: ["APPROVE", "REVISE", "BLOCKED"]
+  target_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/target_design_path.txt
+    under: docs/design
+    must_exist_target: true
+  baseline_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/baseline_design_path.txt
+    under: docs/design
+    must_exist_target: true
 
 steps:
   - name: ResolveWorkItemInputs
@@ -186,6 +198,21 @@ steps:
           type: relpath
           under: artifacts/work
 
+  - name: MaterializeDesignContext
+    id: materialize_design_context
+    materialize_artifacts:
+      input_values:
+        - names:
+            - target_design_path
+            - baseline_design_path
+          contract: inherit
+          pointer_template: ${inputs.state_root}/{name}.txt
+    publishes:
+      - artifact: target_design
+        from: target_design_path
+      - artifact: baseline_design
+        from: baseline_design_path
+
   - name: RunPlanPhase
     id: run_plan_phase
     call: plan_phase
@@ -198,6 +225,8 @@ steps:
         ref: inputs.target_design_path
       baseline_design_path:
         ref: inputs.baseline_design_path
+      architecture_path:
+        ref: root.steps.ResolveWorkItemInputs.artifacts.architecture_path
       work_item_context_path:
         ref: root.steps.ResolveWorkItemInputs.artifacts.work_item_context_path
       progress_ledger_path:
@@ -295,16 +324,49 @@ steps:
       effort: ${context.workflow_effort}
     asset_file: prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md
     timeout_sec: 1800
+    output_capture: json
+    allow_parse_error: true
+    output_file: ${inputs.state_root}/blocked-implementation-recovery.stdout.json
     depends_on:
       required:
-        - ${inputs.target_design_path}
-        - ${inputs.baseline_design_path}
         - ${inputs.state_root}/work-item-inputs.json
         - ${steps.RunPlanPhase.artifacts.plan_path}
         - ${steps.RunImplementationPhase.artifacts.implementation_state_bundle_path}
         - ${steps.ResolveWorkItemInputs.artifacts.progress_report_target_path}
       inject:
         mode: content
+    consumes:
+      - artifact: target_design
+        policy: latest_successful
+        freshness: any
+      - artifact: baseline_design
+        policy: latest_successful
+        freshness: any
+        prompt:
+          mode: reference
+          label: Baseline design
+          description: Accepted baseline design contract.
+    prompt_consumes: ["target_design", "baseline_design"]
+
+  - name: WriteBlockedImplementationRecoveryBundle
+    id: write_blocked_implementation_recovery_bundle
+    when:
+      all_of:
+        - compare:
+            left:
+              ref: root.steps.ClassifyWorkItemTerminal.artifacts.terminal_route
+            op: eq
+            right: IMPLEMENTATION_BLOCKED
+        - compare:
+            left:
+              ref: root.steps.ResolveWorkItemInputs.artifacts.work_item_source
+            op: eq
+            right: DESIGN_GAP
+    command:
+      - python
+      - workflows/library/scripts/materialize_lisp_frontend_blocked_recovery_bundle.py
+      - --source-json-path
+      - ${inputs.state_root}/blocked-implementation-recovery.stdout.json
     output_bundle:
       path: ${inputs.state_root}/blocked-implementation-recovery.json
       fields:

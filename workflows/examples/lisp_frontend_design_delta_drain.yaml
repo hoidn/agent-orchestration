@@ -175,6 +175,18 @@ artifacts:
     kind: scalar
     type: enum
     allowed: ["SELECT_BACKLOG_ITEM", "DRAFT_DESIGN_GAP", "DONE", "BLOCKED"]
+  target_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.drain_state_root}/target_design_path.txt
+    under: docs/design
+    must_exist_target: true
+  baseline_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.drain_state_root}/baseline_design_path.txt
+    under: docs/design
+    must_exist_target: true
 
 steps:
   - name: InitializeDrainState
@@ -304,6 +316,21 @@ steps:
                 json_pointer: /done_review_design_gap_work_item_state_root
                 type: relpath
                 under: state
+
+        - name: MaterializeDesignContext
+          id: materialize_design_context
+          materialize_artifacts:
+            input_values:
+              - names:
+                  - target_design_path
+                  - baseline_design_path
+                contract: inherit
+                pointer_template: ${inputs.drain_state_root}/{name}.txt
+          publishes:
+            - artifact: target_design
+              from: target_design_path
+            - artifact: baseline_design
+              from: baseline_design_path
 
         - name: ProjectProgressSignals
           id: project_progress_signals
@@ -1031,12 +1058,22 @@ steps:
           timeout_sec: 1800
           depends_on:
             required:
-              - ${inputs.target_design_path}
-              - ${inputs.baseline_design_path}
               - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery.json
               - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-progress-report.md
             inject:
               mode: content
+          consumes:
+            - artifact: target_design
+              policy: latest_successful
+              freshness: any
+            - artifact: baseline_design
+              policy: latest_successful
+              freshness: any
+              prompt:
+                mode: reference
+                label: Baseline design
+                description: Accepted baseline design contract.
+          prompt_consumes: ["target_design", "baseline_design"]
           output_bundle:
             path: ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery-decision.json
             fields:
@@ -1237,8 +1274,6 @@ steps:
           timeout_sec: 3600
           depends_on:
             required:
-              - ${inputs.target_design_path}
-              - ${inputs.baseline_design_path}
               - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery.json
               - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery-decision.json
               - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-progress-report.md
@@ -1246,6 +1281,18 @@ steps:
               - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-gap-execution-plan.md
             inject:
               mode: content
+          consumes:
+            - artifact: target_design
+              policy: latest_successful
+              freshness: any
+            - artifact: baseline_design
+              policy: latest_successful
+              freshness: any
+              prompt:
+                mode: reference
+                label: Baseline design
+                description: Accepted baseline design contract.
+          prompt_consumes: ["target_design", "baseline_design"]
           output_bundle:
             path: ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-report.json
             fields:
@@ -1325,13 +1372,23 @@ steps:
           timeout_sec: 1800
           depends_on:
             required:
-              - ${inputs.target_design_path}
-              - ${inputs.baseline_design_path}
               - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-progress-report.md
               - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-report.json
               - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-review-target-path.txt
             inject:
               mode: content
+          consumes:
+            - artifact: target_design
+              policy: latest_successful
+              freshness: any
+            - artifact: baseline_design
+              policy: latest_successful
+              freshness: any
+              prompt:
+                mode: reference
+                label: Baseline design
+                description: Accepted baseline design contract.
+          prompt_consumes: ["target_design", "baseline_design"]
           expected_outputs:
             - name: design_revision_review_decision
               path: ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-review-decision.txt

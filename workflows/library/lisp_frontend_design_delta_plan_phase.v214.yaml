@@ -21,6 +21,10 @@ inputs:
     type: relpath
     under: docs/design
     must_exist_target: true
+  architecture_path:
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
   work_item_context_path:
     type: relpath
     under: state
@@ -99,6 +103,12 @@ artifacts:
     pointer: ${inputs.state_root}/baseline_design_path.txt
     under: docs/design
     must_exist_target: true
+  architecture:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/architecture_path.txt
+    under: docs/plans
+    must_exist_target: true
   work_item_context:
     kind: relpath
     type: relpath
@@ -141,6 +151,7 @@ steps:
             - steering_path
             - target_design_path
             - baseline_design_path
+            - architecture_path
             - work_item_context_path
             - progress_ledger_path
           contract: inherit
@@ -171,6 +182,8 @@ steps:
         from: target_design_path
       - artifact: baseline_design
         from: baseline_design_path
+      - artifact: architecture
+        from: architecture_path
       - artifact: work_item_context
         from: work_item_context_path
       - artifact: progress_ledger
@@ -191,13 +204,16 @@ steps:
       - artifact: baseline_design
         policy: latest_successful
         freshness: any
+      - artifact: architecture
+        policy: latest_successful
+        freshness: any
       - artifact: work_item_context
         policy: latest_successful
         freshness: any
       - artifact: progress_ledger
         policy: latest_successful
         freshness: any
-    prompt_consumes: ["steering", "target_design", "baseline_design", "work_item_context"]
+    prompt_consumes: ["steering", "target_design", "baseline_design", "architecture", "work_item_context"]
     expected_outputs:
       - name: plan_path
         path: ${inputs.state_root}/plan_path.txt
@@ -255,13 +271,71 @@ steps:
             - artifact: baseline_design
               policy: latest_successful
               freshness: any
+            - artifact: architecture
+              policy: latest_successful
+              freshness: any
             - artifact: work_item_context
               policy: latest_successful
               freshness: any
             - artifact: plan
               policy: latest_successful
               freshness: any
-          prompt_consumes: ["target_design", "baseline_design", "work_item_context", "plan"]
+          prompt_consumes: ["target_design", "baseline_design", "architecture", "work_item_context", "plan"]
+          expected_outputs:
+            - name: plan_review_report_path
+              path: ${inputs.state_root}/plan_review_report_path.txt
+              type: relpath
+              under: artifacts/review
+              must_exist_target: true
+            - name: plan_review_decision
+              path: ${inputs.state_root}/plan_review_decision.txt
+              type: enum
+              allowed: ["APPROVE", "REVISE"]
+          publishes:
+            - artifact: plan_review_report
+              from: plan_review_report_path
+            - artifact: plan_review_decision
+              from: plan_review_decision
+
+        - name: NormalizePlanReviewOutputs
+          id: normalize_plan_review_outputs
+          command:
+            - python
+            - -c
+            - |
+              import pathlib
+              import shutil
+              import sys
+
+              state_root = pathlib.Path(sys.argv[1])
+              expected_report = pathlib.Path(sys.argv[2])
+              pointer = state_root / "plan_review_report_path.txt"
+              decision_path = state_root / "plan_review_decision.txt"
+
+              observed = pointer.read_text(encoding="utf-8").strip()
+              if not observed:
+                  raise SystemExit("plan_review_report_path.txt is empty")
+              observed_report = pathlib.Path(observed)
+
+              if observed_report != expected_report:
+                  if observed_report.is_file():
+                      expected_report.parent.mkdir(parents=True, exist_ok=True)
+                      shutil.copyfile(observed_report, expected_report)
+                  elif not expected_report.is_file():
+                      raise SystemExit(
+                          f"Plan review report target mismatch and neither report exists: "
+                          f"observed={observed_report} expected={expected_report}"
+                      )
+                  pointer.write_text(expected_report.as_posix() + "\n", encoding="utf-8")
+
+              if not expected_report.is_file():
+                  raise SystemExit(f"Plan review report does not exist: {expected_report}")
+
+              decision = decision_path.read_text(encoding="utf-8").strip()
+              if decision not in {"APPROVE", "REVISE"}:
+                  raise SystemExit(f"Unexpected plan review decision: {decision}")
+            - ${inputs.state_root}
+            - ${inputs.plan_review_report_target_path}
           expected_outputs:
             - name: plan_review_report_path
               path: ${inputs.state_root}/plan_review_report_path.txt
@@ -281,7 +355,7 @@ steps:
         - name: RoutePlanDecision
           id: route_plan_decision
           match:
-            ref: self.steps.ReviewPlan.artifacts.plan_review_decision
+            ref: self.steps.NormalizePlanReviewOutputs.artifacts.plan_review_decision
             cases:
               APPROVE:
                 id: approve_plan_path
@@ -320,6 +394,9 @@ steps:
                       - artifact: baseline_design
                         policy: latest_successful
                         freshness: any
+                      - artifact: architecture
+                        policy: latest_successful
+                        freshness: any
                       - artifact: work_item_context
                         policy: latest_successful
                         freshness: any
@@ -329,7 +406,7 @@ steps:
                       - artifact: plan_review_report
                         policy: latest_successful
                         freshness: since_last_consume
-                    prompt_consumes: ["target_design", "baseline_design", "work_item_context", "plan", "plan_review_report"]
+                    prompt_consumes: ["target_design", "baseline_design", "architecture", "work_item_context", "plan", "plan_review_report"]
                     expected_outputs:
                       - name: plan_path
                         path: ${inputs.state_root}/plan_path.txt

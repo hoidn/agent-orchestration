@@ -145,6 +145,12 @@ artifacts:
     pointer: ${inputs.state_root}/checks_report_path.txt
     under: artifacts/checks
     must_exist_target: true
+  pre_implementation_dirty_files:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/pre_implementation_dirty_files_path.txt
+    under: state
+    must_exist_target: true
   implementation_review_report:
     kind: relpath
     type: relpath
@@ -225,6 +231,68 @@ steps:
         from: execution_report_target_path
       - artifact: progress_report_target
         from: progress_report_target_path
+
+  - name: CapturePreImplementationDirtyFiles
+    id: capture_pre_implementation_dirty_files
+    command:
+      - python
+      - -c
+      - |
+        import json
+        import pathlib
+        import subprocess
+        import sys
+
+        state_root = pathlib.Path(sys.argv[1])
+        pointer = pathlib.Path(sys.argv[2])
+        output = state_root / "pre_implementation_dirty_files.json"
+
+        def run_git(*args):
+            result = subprocess.run(
+                ["git", *args],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            return {
+                "returncode": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            }
+
+        head = run_git("rev-parse", "HEAD")
+        status = run_git("status", "--porcelain=v1")
+        status_lines = [line for line in status["stdout"].splitlines() if line.strip()]
+        dirty_paths = []
+        for line in status_lines:
+            path = line[3:] if len(line) > 3 else line
+            if " -> " in path:
+                path = path.split(" -> ", 1)[1]
+            dirty_paths.append(path)
+
+        payload = {
+            "head": head["stdout"].strip() if head["returncode"] == 0 else None,
+            "git_head_error": head["stderr"].strip() if head["returncode"] else "",
+            "status_porcelain_v1": status_lines,
+            "git_status_error": status["stderr"].strip() if status["returncode"] else "",
+            "dirty_paths": sorted(set(dirty_paths)),
+        }
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        pointer.parent.mkdir(parents=True, exist_ok=True)
+        pointer.write_text(output.as_posix() + "\n", encoding="utf-8")
+      - ${inputs.state_root}
+      - ${inputs.state_root}/pre_implementation_dirty_files_path.txt
+    expected_outputs:
+      - name: pre_implementation_dirty_files_path
+        path: ${inputs.state_root}/pre_implementation_dirty_files_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
+    publishes:
+      - artifact: pre_implementation_dirty_files
+        from: pre_implementation_dirty_files_path
 
   - name: ExecuteImplementation
     id: execute_implementation
@@ -355,15 +423,21 @@ steps:
         review_decision:
           kind: scalar
           type: enum
-          allowed: ["APPROVE", "REVISE"]
+          allowed: ["APPROVE", "REVISE", "BLOCKED"]
           from:
             ref: self.steps.RouteIterationWork.artifacts.review_decision
       condition:
-        compare:
-          left:
-            ref: self.outputs.review_decision
-          op: eq
-          right: APPROVE
+        any_of:
+          - compare:
+              left:
+                ref: self.outputs.review_decision
+              op: eq
+              right: APPROVE
+          - compare:
+              left:
+                ref: self.outputs.review_decision
+              op: eq
+              right: BLOCKED
       on_exhausted:
         outputs:
           review_decision: REVISE
@@ -379,7 +453,7 @@ steps:
                   review_decision:
                     kind: scalar
                     type: enum
-                    allowed: ["APPROVE", "REVISE"]
+                    allowed: ["APPROVE", "REVISE", "BLOCKED"]
                     from:
                       ref: self.steps.WriteLoopReviewDecision.artifacts.review_decision
                 steps:
@@ -438,7 +512,10 @@ steps:
                       - artifact: checks_report
                         policy: latest_successful
                         freshness: any
-                    prompt_consumes: ["target_design", "architecture", "plan", "execution_report", "checks_report"]
+                      - artifact: pre_implementation_dirty_files
+                        policy: latest_successful
+                        freshness: any
+                    prompt_consumes: ["target_design", "architecture", "plan", "execution_report", "checks_report", "pre_implementation_dirty_files"]
                     expected_outputs:
                       - name: implementation_review_report_path
                         path: ${inputs.state_root}/implementation_review_report_path.txt
@@ -485,10 +562,35 @@ steps:
                       - artifact: checks_report
                         policy: latest_successful
                         freshness: any
+                      - artifact: pre_implementation_dirty_files
+                        policy: latest_successful
+                        freshness: any
                       - artifact: implementation_review_report
                         policy: latest_successful
                         freshness: since_last_consume
-                    prompt_consumes: ["target_design", "architecture", "plan", "execution_report", "execution_report_target", "checks_report", "implementation_review_report"]
+                    prompt_consumes: ["target_design", "architecture", "plan", "execution_report", "execution_report_target", "checks_report", "pre_implementation_dirty_files", "implementation_review_report"]
+                    variant_output:
+                      path: ${inputs.state_root}/implementation_state.json
+                      discriminant:
+                        name: implementation_state
+                        json_pointer: /implementation_state
+                        type: enum
+                        allowed: ["COMPLETED", "BLOCKED"]
+                      variants:
+                        COMPLETED:
+                          fields: []
+                        BLOCKED:
+                          fields:
+                            - name: blocker_class
+                              json_pointer: /blocker_class
+                              type: enum
+                              allowed:
+                                - missing_resource
+                                - unavailable_hardware
+                                - roadmap_conflict
+                                - external_dependency_outside_authority
+                                - user_decision_required
+                                - unrecoverable_after_fix_attempt
 
                   - name: PublishUpdatedExecutionReport
                     id: publish_updated_execution_report
@@ -546,29 +648,59 @@ steps:
                       - -c
                       - |
                         import pathlib
+                        import json
                         import sys
 
                         decision_path = pathlib.Path(sys.argv[1])
                         output_path = pathlib.Path(sys.argv[2])
+                        implementation_state_path = pathlib.Path(sys.argv[3])
+                        progress_report_target = pathlib.Path(sys.argv[4])
+                        progress_report_pointer = pathlib.Path(sys.argv[5])
+                        execution_report_pointer = pathlib.Path(sys.argv[6])
                         decision = decision_path.read_text(encoding="utf-8").strip()
                         if decision not in {"APPROVE", "REVISE"}:
                             raise SystemExit(f"Unexpected implementation review decision: {decision}")
+                        if decision == "REVISE" and implementation_state_path.is_file():
+                            payload = json.loads(implementation_state_path.read_text(encoding="utf-8"))
+                            implementation_state = payload.get("implementation_state")
+                            if implementation_state == "BLOCKED":
+                                decision = "BLOCKED"
+                                if progress_report_target.is_file():
+                                    progress_path = progress_report_target
+                                elif execution_report_pointer.is_file():
+                                    progress_path = pathlib.Path(
+                                        execution_report_pointer.read_text(encoding="utf-8").strip()
+                                    )
+                                else:
+                                    raise SystemExit(
+                                        "FixImplementation returned BLOCKED without a progress or execution report"
+                                    )
+                                if not progress_path.is_file():
+                                    raise SystemExit(f"Blocked progress report target does not exist: {progress_path}")
+                                progress_report_pointer.parent.mkdir(parents=True, exist_ok=True)
+                                progress_report_pointer.write_text(progress_path.as_posix() + "\n", encoding="utf-8")
+                            elif implementation_state not in {"COMPLETED", None}:
+                                raise SystemExit(f"Unexpected fix implementation state: {implementation_state}")
                         output_path.parent.mkdir(parents=True, exist_ok=True)
                         output_path.write_text(decision + "\n", encoding="utf-8")
                       - ${inputs.state_root}/implementation_review_decision.txt
                       - ${inputs.state_root}/loop_review_decision.txt
+                      - ${inputs.state_root}/implementation_state.json
+                      - ${inputs.progress_report_target_path}
+                      - ${inputs.state_root}/progress_report_path.txt
+                      - ${inputs.state_root}/execution_report_path.txt
                     expected_outputs:
                       - name: review_decision
                         path: ${inputs.state_root}/loop_review_decision.txt
                         type: enum
-                        allowed: ["APPROVE", "REVISE"]
+                        allowed: ["APPROVE", "REVISE", "BLOCKED"]
               BLOCKED:
                 id: blocked_iteration_path
                 outputs:
                   review_decision:
                     kind: scalar
                     type: enum
-                    allowed: ["APPROVE", "REVISE"]
+                    allowed: ["APPROVE", "REVISE", "BLOCKED"]
                     from:
                       ref: self.steps.WriteSkippedReviewDecision.artifacts.review_decision
                 steps:
