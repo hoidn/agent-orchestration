@@ -2,7 +2,7 @@ version: "2.14"
 name: "verified-iteration-drain"
 
 context:
-  workflow_model: "gpt-5.4"
+  workflow_model: "gpt-5.5"
   workflow_effort: "high"
 
 inputs:
@@ -30,11 +30,11 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude"]
-    default: "claude"
+    default: "codex"
   worker_model:
     kind: scalar
     type: string
-    default: "fable"
+    default: "gpt-5.5"
   worker_effort:
     kind: scalar
     type: string
@@ -43,11 +43,11 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude"]
-    default: "claude"
+    default: "codex"
   reviewer_model:
     kind: scalar
     type: string
-    default: "fable"
+    default: "gpt-5.5"
   reviewer_effort:
     kind: scalar
     type: string
