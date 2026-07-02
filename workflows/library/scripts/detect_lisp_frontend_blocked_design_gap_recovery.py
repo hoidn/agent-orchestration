@@ -93,6 +93,7 @@ def _revision_cycles(state: Mapping[str, Any], design_gap_id: str) -> int:
     A cycle is a design/gap revision event for the item followed later by a
     blocked event for the same item, meaning the revised design was retried
     and blocked again. Revisions whose retry never ran do not count.
+    A completed event for the item resets the count, since it ends the episode.
     """
     cycles = 0
     pending_revision = False
@@ -102,7 +103,10 @@ def _revision_cycles(state: Mapping[str, Any], design_gap_id: str) -> int:
         if str(entry.get("item_id") or "").strip() != design_gap_id:
             continue
         event = str(entry.get("event") or "").strip()
-        if event in {"gap_design_revision", "design_revision"}:
+        if event == "completed":
+            cycles = 0
+            pending_revision = False
+        elif event in {"gap_design_revision", "design_revision"}:
             pending_revision = True
         elif event == "blocked" and pending_revision:
             cycles += 1

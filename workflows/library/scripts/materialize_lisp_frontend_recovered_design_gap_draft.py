@@ -85,7 +85,13 @@ def _materialize_retry_bundle(
     context_path = output_path.with_name("recovered-work-item-context.md")
     checks_path = output_path.with_name("recovered-check-commands.json")
     progress_report_rel = str(recovery.get("progress_report_path") or "").strip()
-    progress_report_file = REPO_ROOT / progress_report_rel if progress_report_rel else None
+    progress_report_file = None
+    if progress_report_rel:
+        try:
+            progress_report_path = _safe_relpath(progress_report_rel, under="artifacts/work")
+        except SystemExit:
+            progress_report_path = _safe_relpath(progress_report_rel, under="state")
+        progress_report_file = REPO_ROOT / progress_report_path
     prior_progress_lines: list[str] = []
     if progress_report_file is not None and progress_report_file.is_file():
         prior_progress_lines = [
