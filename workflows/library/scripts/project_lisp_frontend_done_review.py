@@ -96,12 +96,31 @@ def _rejection_payload(review: dict[str, Any], original_selection_path: Path) ->
     }
 
 
+def _check_not_known_design_gap(review: dict[str, Any], run_state_path: str) -> None:
+    run_state_rel = _safe_relpath(run_state_path, under="state", must_exist=True)
+    run_state = _load_json(REPO_ROOT / run_state_rel)
+    gap_id = str(review.get("design_gap_id") or "").strip()
+    completed = {str(x) for x in (run_state.get("completed_design_gaps") or [])}
+    blocked_value = run_state.get("blocked_design_gaps")
+    blocked = (
+        {str(k) for k in blocked_value}
+        if isinstance(blocked_value, dict)
+        else {str(x) for x in (blocked_value or [])}
+    )
+    if gap_id in completed | blocked:
+        raise SystemExit(
+            f"done-review rejection re-mints a known design gap: {gap_id}; "
+            "route it through blocked-gap recovery or approve DONE"
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--review-path", required=True)
     parser.add_argument("--original-selection-path", required=True)
     parser.add_argument("--selection-output", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--run-state-path", required=False)
     args = parser.parse_args()
 
     review_rel = _safe_relpath(args.review_path, under="state", must_exist=True)
@@ -118,6 +137,8 @@ def main() -> int:
     if decision == "APPROVE_DONE":
         projected = _approval_payload(review, original_selection_rel)
     elif decision == "REJECT_DONE":
+        if args.run_state_path:
+            _check_not_known_design_gap(review, args.run_state_path)
         projected = _rejection_payload(review, original_selection_rel)
     else:
         raise SystemExit(f"invalid done_decision: {decision or '<empty>'}")

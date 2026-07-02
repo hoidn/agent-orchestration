@@ -20,6 +20,8 @@ Return `REJECT_DONE` when one next bounded source/runtime/authoring gap remains.
 On rejection, identify exactly one gap for the existing design-gap architect
 step to turn into an implementation architecture.
 
+Before rejecting DONE, check the manifest's attempt history; do not re-propose a design gap that is already completed or blocked.
+
 Make only this review judgment. Do not edit files, move backlog items, update
 ledgers, or manage the drain loop.
 
