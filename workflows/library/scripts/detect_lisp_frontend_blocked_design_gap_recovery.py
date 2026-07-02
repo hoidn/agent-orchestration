@@ -172,6 +172,8 @@ def _selector_manifest_requests_done_review(manifest: Mapping[str, Any]) -> bool
         return False
     if manifest.get("blocking_mechanics_errors"):
         return False
+    if manifest.get("diagnostic_mechanics_errors") and manifest.get("target_gap_discovery_allowed", True):
+        return False
     return not _selector_manifest_has_selectable_work(manifest)
 
 
@@ -313,9 +315,6 @@ def _recovery_payload(
     selector_manifest_path: Path | None = None,
 ) -> dict[str, str]:
     state = _load_json(run_state_path)
-    non_progress = _non_progress_payload(non_progress_decision_path, state)
-    if non_progress is not None:
-        return non_progress
     selector_mechanics = _selector_manifest_mechanics_payload(selector_manifest_path)
     if selector_mechanics is not None:
         return selector_mechanics
@@ -410,6 +409,9 @@ def _recovery_payload(
         )
         payload.update(_pointer_fields(decision))
         return payload
+    non_progress = _non_progress_payload(non_progress_decision_path, state)
+    if non_progress is not None:
+        return non_progress
     if _selector_manifest_requests_done_review(selector_manifest):
         return _none_payload(
             recovery_reason="no_selectable_manifest_work",

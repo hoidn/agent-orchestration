@@ -781,14 +781,8 @@ def test_blocked_recovery_detector_honors_generic_step_back_decision(tmp_path):
     run_state.write_text(
         json.dumps(
             {
-                "blocked_design_gaps": {
-                    "gap-a": {
-                        "reason": "implementation_blocked",
-                        "recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
-                        "recovery_reason": "implementation_architecture_under_scoped",
-                        "recovery_event_id": "run:gap-a:blocked",
-                    }
-                }
+                "blocked_design_gaps": {},
+                "blocked_items": {},
             }
         )
         + "\n",
@@ -826,6 +820,73 @@ def test_blocked_recovery_detector_honors_generic_step_back_decision(tmp_path):
     assert payload["recovery_status"] == "STEP_BACK_REQUIRED"
     assert payload["blocker_class"] == "workflow_non_progress"
     assert payload["block_reason"] == "same-work"
+
+
+def test_blocked_recovery_detector_prefers_recoverable_gap_over_generic_step_back(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_state = workspace / "state/run_state.json"
+    decision = workspace / "state/non-progress-decision.json"
+    output = workspace / "state/blocked-recovery.json"
+    progress = workspace / "artifacts/work/gap-a/progress_report.md"
+    architecture = workspace / "docs/plans/design-gaps/gap-a/implementation_architecture.md"
+    plan = workspace / "docs/plans/design-gaps/gap-a/execution_plan.md"
+    run_state.parent.mkdir(parents=True)
+    progress.parent.mkdir(parents=True)
+    architecture.parent.mkdir(parents=True)
+    progress.write_text("Status: BLOCKED\n", encoding="utf-8")
+    architecture.write_text("# Gap A\n", encoding="utf-8")
+    plan.write_text("# Plan A\n", encoding="utf-8")
+    run_state.write_text(
+        json.dumps(
+            {
+                "blocked_design_gaps": {
+                    "gap-a": {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
+                        "recovery_reason": "implementation_architecture_under_scoped",
+                        "recovery_event_id": "run:gap-a:blocked",
+                        "progress_report_path": progress.relative_to(workspace).as_posix(),
+                        "architecture_path": architecture.relative_to(workspace).as_posix(),
+                        "plan_path": plan.relative_to(workspace).as_posix(),
+                    }
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    decision.write_text(
+        json.dumps(
+            {
+                "route": "STEP_BACK_REQUIRED",
+                "trigger_codes": ["same_work_item_repeatedly_blocked"],
+                "failure_fingerprint": "same-work",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py"),
+        "--run-state-path",
+        run_state.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work",
+        "--architecture-index-root",
+        "docs/plans/design-gaps",
+        "--non-progress-decision-path",
+        decision.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
+    assert payload["design_gap_id"] == "gap-a"
+    assert payload["recovery_route"] == "GAP_DESIGN_REVISION_REQUIRED"
 
 
 def test_blocked_recovery_detector_suppresses_repeated_continue_with_current_plan_step_back(tmp_path):
