@@ -20,12 +20,16 @@ from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import elaborate_expression
 from orchestrator.workflow_lisp.lowering import _managed_write_root_bindings, _observed_statement_families
+from orchestrator.workflow_lisp.lowering.phase_drain import (
+    _specialize_imported_bundle_provider_metadata,
+    _specialize_same_file_lowered_workflow_provider_metadata,
+)
 from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
 from orchestrator.workflow_lisp.stdlib_contracts import STDLIB_LOWERING_CONTRACTS_BY_FORM
 from orchestrator.workflow_lisp.syntax import SyntaxNode, build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
 from orchestrator.workflow_lisp.wcc.route import LoweringRoute
-from orchestrator.workflow_lisp.workflows import ExternEnvironment
+from orchestrator.workflow_lisp.workflows import ExternEnvironment, PromptExtern
 from orchestrator.workflow_lisp.workflows import (
     CertifiedAdapterBinding,
     build_command_boundary_environment,
@@ -431,7 +435,7 @@ def _write_drain_runtime_scripts(
 
     selection_payloads = _normalize_payloads(
         selection_payload,
-        default={"variant": "EMPTY", "run-state": "state/empty-queue.json"},
+        default={"variant": "EMPTY"},
     )
     run_item_payloads = _normalize_payloads(
         run_item_payload,
@@ -1309,6 +1313,32 @@ def test_lowering_backlog_drain_uses_repeat_until_with_typed_accumulator(tmp_pat
     )
 
 
+def test_parent_terminal_reprojection_loop_call_generated_paths_fit_filesystem_segments(
+    tmp_path: Path,
+) -> None:
+    _workflow_path, result = _compile_linked_stdlib_fixture(
+        VALID_STDLIB_PARENT_TERMINAL_REPROJECTION_FIXTURE,
+        tmp_path=tmp_path,
+        validation_profile="DEDICATED_RUNTIME_PROOF",
+    )
+
+    parent = next(
+        workflow
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::drain")
+    )
+    loop_call_paths = [
+        allocation.concrete_path_template
+        for allocation in parent.generated_path_allocations
+        if allocation.concrete_path_template.startswith(".orchestrate/workflow_lisp/calls/")
+        or allocation.concrete_path_template.startswith(".orchestrate/workflow_lisp/call_bindings/")
+    ]
+
+    assert loop_call_paths
+    for path in loop_call_paths:
+        assert max(len(segment) for segment in path.split("/")) <= 255, path
+
+
 def test_compile_stage3_module_preserves_imported_backlog_drain_as_callable_boundary(
     tmp_path: Path,
 ) -> None:
@@ -1523,7 +1553,7 @@ def test_parent_terminal_reprojection_preserves_imported_call_and_projection_pro
     ),
     (
         (
-            {"variant": "EMPTY", "run-state": "state/empty-queue.json"},
+            {"variant": "EMPTY"},
             None,
             None,
             4,
@@ -1538,7 +1568,7 @@ def test_parent_terminal_reprojection_preserves_imported_call_and_projection_pro
                     "variant": "SELECTED",
                     "selection": {"item-id": "item-1", "item-state-root": "state/items/item-1"},
                 },
-                {"variant": "EMPTY", "run-state": "state/items/item-1/post-run.json"},
+                {"variant": "EMPTY"},
             ],
             [
                 {
@@ -1797,7 +1827,7 @@ def test_branch_local_terminal_contract_alignment_preserves_imported_call_and_pr
     ),
     (
         (
-            {"variant": "EMPTY", "run-state": "state/empty-queue.json"},
+            {"variant": "EMPTY"},
             None,
             None,
             {
@@ -2458,6 +2488,7 @@ def test_backlog_drain_target_contract_exposes_selector_blocked_variant() -> Non
     selection_union = source.split("(defunion SelectionResult", 1)[1].split(
         "(defunion GapResult", 1
     )[0]
+    gap_union = source.split("(defunion GapResult", 1)[1].split("(defunion DrainResult", 1)[0]
 
     assert "(EMPTY)" in selection_union
     assert "(GAP" in selection_union
@@ -2465,6 +2496,11 @@ def test_backlog_drain_target_contract_exposes_selector_blocked_variant() -> Non
     assert """(BLOCKED
       (reason String))""" in selection_union
     assert "(run-state StateExisting)" not in selection_union
+    assert "(CONTINUE)" in gap_union
+    assert """(BLOCKED
+      (progress-report-path WorkReport)
+      (blocker-class BlockerClass))""" in gap_union
+    assert "(run-state StateExisting)" not in gap_union
 
 
 def test_backlog_drain_target_contract_separates_terminal_value_from_effect_consumers() -> None:
@@ -2483,7 +2519,11 @@ def test_backlog_drain_target_contract_separates_terminal_value_from_effect_cons
 def test_backlog_drain_target_contract_routes_default_imported_surface_through_callable_child(
     tmp_path: Path,
 ) -> None:
-    result = _compile(VALID_DRAIN_FIXTURE, tmp_path=tmp_path)
+    result = _compile(
+        VALID_DRAIN_FIXTURE,
+        tmp_path=tmp_path,
+        lowering_route=LoweringRoute.WCC_M4,
+    )
     parent = next(
         workflow
         for workflow in result.lowered_workflows
@@ -2502,10 +2542,33 @@ def test_backlog_drain_target_contract_routes_default_imported_surface_through_c
     _assert_child_backlog_drain_uses_shared_terminal_lane(child)
 
 
+def test_legacy_backlog_drain_keeps_repeat_until_in_parent(tmp_path: Path) -> None:
+    result = _compile(
+        VALID_DRAIN_FIXTURE,
+        tmp_path=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
+    )
+    parent = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "drain"
+    )
+
+    assert any("repeat_until" in step for step in parent.authored_mapping["steps"])
+    assert not any(
+        workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
+        for workflow in result.lowered_workflows
+    )
+
+
 def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_class(
     tmp_path: Path,
 ) -> None:
-    result = _compile(VALID_DRAIN_FIXTURE, tmp_path=tmp_path)
+    result = _compile(
+        VALID_DRAIN_FIXTURE,
+        tmp_path=tmp_path,
+        lowering_route=LoweringRoute.WCC_M4,
+    )
     parent = next(
         workflow
         for workflow in result.lowered_workflows
@@ -2787,7 +2850,9 @@ def test_stdlib_backlog_drain_view_authority_misuse_still_fails_closed(tmp_path:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile_linked_stdlib_fixture(INVALID_STDLIB_DRAIN_VIEW_AUTHORITY_FIXTURE, tmp_path=tmp_path)
 
-    assert excinfo.value.diagnostics[0].code == "type_mismatch"
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "type_mismatch"
+    assert "reason" in diagnostic.message
 
 
 def test_compile_stage3_module_rejects_hidden_compatibility_bridge_public_run_item_fixture(
@@ -2800,7 +2865,9 @@ def test_compile_stage3_module_rejects_hidden_compatibility_bridge_public_run_it
             validate_shared=True,
         )
 
-    assert excinfo.value.diagnostics[0].code == "backlog_drain_contract_invalid"
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_signature_mismatch"
+    assert "run_state_path" in diagnostic.message
 
 def test_workflow_ref_provider_metadata_must_satisfy_callee_externs(tmp_path: Path) -> None:
     path = tmp_path / "provider_backlog_drain_invalid.orc"
@@ -2863,15 +2930,12 @@ def test_workflow_ref_provider_metadata_must_satisfy_callee_externs(tmp_path: Pa
                 "      (reason String)))",
                 "  (defunion SelectedItemResult",
                 "    (CONTINUE",
-                "      (summary-path WorkReport)",
-                "      (run-state StateExisting))",
+                "      (summary-path WorkReport))",
                 "    (BLOCKED",
                 "      (summary-path WorkReport)",
-                "      (blocker-class BlockerClass)",
-                "      (run-state StateExisting)))",
+                "      (blocker-class BlockerClass)))",
                 "  (defunion GapDraftResult",
-                "    (CONTINUE",
-                "      (run-state StateExisting))",
+                "    (CONTINUE)",
                 "    (BLOCKED",
                 "      (progress-report-path WorkReport)",
                 "      (blocker-class BlockerClass)))",
@@ -2940,150 +3004,23 @@ def test_workflow_ref_provider_metadata_must_satisfy_callee_externs(tmp_path: Pa
 
 def test_compile_stage3_module_rebinds_imported_selector_provider_metadata(tmp_path: Path) -> None:
     imported_selector = _compile_imported_selector_bundle(tmp_path)
-    path = tmp_path / "imported_backlog_drain.orc"
-    path.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defenum BlockerClass",
-                "    missing_resource",
-                "    unavailable_hardware",
-                "    roadmap_conflict",
-                "    external_dependency_outside_authority",
-                "    user_decision_required",
-                "    unrecoverable_after_fix_attempt)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defpath StateFile",
-                "    :kind relpath",
-                '    :under "state"',
-                "    :must-exist false)",
-                "  (defpath StateExisting",
-                "    :kind relpath",
-                '    :under "state"',
-                "    :must-exist true)",
-                "  (defrecord RunCtx",
-                "    (run-id RunId)",
-                "    (state-root Path.state-root)",
-                "    (artifact-root Path.artifact-root))",
-                "  (defrecord DrainCtx",
-                "    (run RunCtx)",
-                "    (state-root Path.state-root)",
-                "    (manifest StateExisting)",
-                "    (ledger StateFile))",
-                "  (defrecord ItemCtx",
-                "    (run RunCtx)",
-                "    (item-id String)",
-                "    (state-root Path.state-root)",
-                "    (artifact-root Path.artifact-root)",
-                "    (ledger StateFile))",
-                "  (defrecord SelectionPayload",
-                "    (item-id String)",
-                "    (item-state-root StateFile))",
-                "  (defrecord GapPayload",
-                "    (gap-id String))",
-                "  (defrecord SelectorProviderBindings",
-                "    (provider Provider)",
-                "    (prompt Prompt))",
-                "  (defrecord DrainProviders",
-                "    (selector SelectorProviderBindings))",
-                "  (defunion SelectionResult",
-                "    (EMPTY)",
-                "    (GAP",
-                "      (gap GapPayload))",
-                "    (SELECTED",
-                "      (selection SelectionPayload))",
-                "    (BLOCKED",
-                "      (reason String)))",
-                "  (defunion SelectedItemResult",
-                "    (CONTINUE",
-                "      (summary-path WorkReport)",
-                "      (run-state StateExisting))",
-                "    (BLOCKED",
-                "      (summary-path WorkReport)",
-                "      (blocker-class BlockerClass)",
-                "      (run-state StateExisting)))",
-                "  (defunion GapDraftResult",
-                "    (CONTINUE",
-                "      (run-state StateExisting))",
-                "    (BLOCKED",
-                "      (progress-report-path WorkReport)",
-                "      (blocker-class BlockerClass)))",
-                "  (defunion DrainResult",
-                "    (EMPTY",
-                "      (run-state StateExisting))",
-                "    (BLOCKED",
-                "      (progress-report-path WorkReport)",
-                "      (blocker-class BlockerClass))",
-                "    (COMPLETED",
-                "      (items-processed Int)",
-                "      (run-state StateExisting)))",
-                "  (defworkflow run-selected-item",
-                "    ((item-ctx ItemCtx)",
-                "     (selection SelectionPayload))",
-                "    -> SelectedItemResult",
-                "    (command-result execute_selected_item",
-                "      :argv (\"python\" \"scripts/execute_selected_item.py\" selection.item-id)",
-                "      :returns SelectedItemResult))",
-                "  (defworkflow gap-draft",
-                "    ((ctx DrainCtx)",
-                "     (gap GapPayload))",
-                "    -> GapDraftResult",
-                "    (command-result draft_gap_item",
-                "      :argv (\"python\" \"scripts/draft_gap_item.py\" gap.gap-id)",
-                "      :returns GapDraftResult))",
-                "  (defworkflow drain",
-                "    ((ctx DrainCtx)",
-                "     (max-iterations Int))",
-                "    -> DrainResult",
-                "    (backlog-drain neurips",
-                "      :ctx ctx",
-                "      :selector selector-run",
-                "      :run-item run-selected-item",
-                "      :gap-drafter gap-draft",
-                "      :providers (record DrainProviders",
-                "                   :selector (record SelectorProviderBindings",
-                "                               :provider providers.selector",
-                "                               :prompt prompts.selector))",
-                "      :max-iterations 4))",
-                ")",
-            ]
+    specialized = _specialize_imported_bundle_provider_metadata(
+        imported_selector,
+        provider_id="main-selector-provider",
+        prompt_binding=PromptExtern(
+            name="prompts.selector",
+            asset_file="prompts/main-selector.md",
         ),
-        encoding="utf-8",
+        alias="selector-run__selector_rebound",
     )
 
-    result = compile_stage3_module(
-        path,
-        provider_externs={"providers.selector": "main-selector-provider"},
-        prompt_externs={"prompts.selector": "prompts/main-selector.md"},
-        command_boundaries=_command_boundaries().bindings_by_name,
-        imported_workflow_bundles={"selector-run": imported_selector},
-        validate_shared=False,
-        workspace_root=tmp_path,
-        lowering_route=LoweringRoute.WCC_M4,
-    )
-
-    drain = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "drain")
-    child = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
-    )
-    assert not any("repeat_until" in step for step in drain.authored_mapping["steps"])
-    repeat_step = next(step for step in child.authored_mapping["steps"] if "repeat_until" in step)
-    selector_call = next(
-        step
-        for step in repeat_step["repeat_until"]["steps"]
-        if step.get("call", "").startswith("selector-run")
-    )
-
-    assert selector_call["call"] != "selector-run"
-    assert selector_call["call"].startswith("selector-run__selector")
-    _assert_child_backlog_drain_uses_shared_terminal_lane(child)
+    assert specialized.surface.name == "selector-run__selector_rebound"
+    surface_step = specialized.surface.steps[0]
+    assert surface_step.provider == "main-selector-provider"
+    assert surface_step.asset_file == "prompts/main-selector.md"
+    ir_step = next(node.execution_config for node in specialized.ir.nodes.values())
+    assert ir_step.provider == "main-selector-provider"
+    assert ir_step.asset_file == "prompts/main-selector.md"
 
 
 def test_compile_stage3_module_rejects_ambiguous_imported_selector_boundary_types(tmp_path: Path) -> None:
@@ -3157,15 +3094,12 @@ def test_compile_stage3_module_rejects_ambiguous_imported_selector_boundary_type
                 "      (reason String)))",
                 "  (defunion SelectedItemResult",
                 "    (CONTINUE",
-                "      (summary-path WorkReport)",
-                "      (run-state StateExisting))",
+                "      (summary-path WorkReport))",
                 "    (BLOCKED",
                 "      (summary-path WorkReport)",
-                "      (blocker-class BlockerClass)",
-                "      (run-state StateExisting)))",
+                "      (blocker-class BlockerClass)))",
                 "  (defunion GapDraftResult",
-                "    (CONTINUE",
-                "      (run-state StateExisting))",
+                "    (CONTINUE)",
                 "    (BLOCKED",
                 "      (progress-report-path WorkReport)",
                 "      (blocker-class BlockerClass)))",
@@ -3226,32 +3160,21 @@ def test_compile_stage3_module_rejects_ambiguous_imported_selector_boundary_type
 
 
 def test_compile_stage3_module_rebinds_same_file_selector_provider_metadata(tmp_path: Path) -> None:
-    path = tmp_path / "same_file_backlog_drain.orc"
+    path = tmp_path / "same_file_selector_rebind.orc"
     path.write_text(
         "\n".join(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
-                "  (defenum BlockerClass",
-                "    missing_resource",
-                "    unavailable_hardware",
-                "    roadmap_conflict",
-                "    external_dependency_outside_authority",
-                "    user_decision_required",
-                "    unrecoverable_after_fix_attempt)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
+                "  (defpath StateExisting",
+                    "    :kind relpath",
+                '    :under "state"',
                 "    :must-exist true)",
                 "  (defpath StateFile",
                 "    :kind relpath",
                 '    :under "state"',
                 "    :must-exist false)",
-                "  (defpath StateExisting",
-                "    :kind relpath",
-                '    :under "state"',
-                "    :must-exist true)",
                 "  (defrecord RunCtx",
                 "    (run-id RunId)",
                 "    (state-root Path.state-root)",
@@ -3261,22 +3184,11 @@ def test_compile_stage3_module_rebinds_same_file_selector_provider_metadata(tmp_
                 "    (state-root Path.state-root)",
                 "    (manifest StateExisting)",
                 "    (ledger StateFile))",
-                "  (defrecord ItemCtx",
-                "    (run RunCtx)",
-                "    (item-id String)",
-                "    (state-root Path.state-root)",
-                "    (artifact-root Path.artifact-root)",
-                "    (ledger StateFile))",
                 "  (defrecord SelectionPayload",
                 "    (item-id String)",
                 "    (item-state-root StateFile))",
                 "  (defrecord GapPayload",
                 "    (gap-id String))",
-                "  (defrecord SelectorProviderBindings",
-                "    (provider Provider)",
-                "    (prompt Prompt))",
-                "  (defrecord DrainProviders",
-                "    (selector SelectorProviderBindings))",
                 "  (defunion SelectionResult",
                 "    (EMPTY)",
                 "    (GAP",
@@ -3285,29 +3197,6 @@ def test_compile_stage3_module_rebinds_same_file_selector_provider_metadata(tmp_
                 "      (selection SelectionPayload))",
                 "    (BLOCKED",
                 "      (reason String)))",
-                "  (defunion SelectedItemResult",
-                "    (CONTINUE",
-                "      (summary-path WorkReport)",
-                "      (run-state StateExisting))",
-                "    (BLOCKED",
-                "      (summary-path WorkReport)",
-                "      (blocker-class BlockerClass)",
-                "      (run-state StateExisting)))",
-                "  (defunion GapDraftResult",
-                "    (CONTINUE",
-                "      (run-state StateExisting))",
-                "    (BLOCKED",
-                "      (progress-report-path WorkReport)",
-                "      (blocker-class BlockerClass)))",
-                "  (defunion DrainResult",
-                "    (EMPTY",
-                "      (run-state StateExisting))",
-                "    (BLOCKED",
-                "      (progress-report-path WorkReport)",
-                "      (blocker-class BlockerClass))",
-                "    (COMPLETED",
-                "      (items-processed Int)",
-                "      (run-state StateExisting)))",
                 "  (defworkflow selector-run",
                 "    ((ctx DrainCtx))",
                 "    -> SelectionResult",
@@ -3315,34 +3204,6 @@ def test_compile_stage3_module_rebinds_same_file_selector_provider_metadata(tmp_
                 "      :prompt prompts.internal_selector",
                 "      :inputs (ctx.manifest)",
                 "      :returns SelectionResult))",
-                "  (defworkflow run-selected-item",
-                "    ((item-ctx ItemCtx)",
-                "     (selection SelectionPayload))",
-                "    -> SelectedItemResult",
-                "    (command-result execute_selected_item",
-                "      :argv (\"python\" \"scripts/execute_selected_item.py\" selection.item-id)",
-                "      :returns SelectedItemResult))",
-                "  (defworkflow gap-draft",
-                "    ((ctx DrainCtx)",
-                "     (gap GapPayload))",
-                "    -> GapDraftResult",
-                "    (command-result draft_gap_item",
-                "      :argv (\"python\" \"scripts/draft_gap_item.py\" gap.gap-id)",
-                "      :returns GapDraftResult))",
-                "  (defworkflow drain",
-                "    ((ctx DrainCtx)",
-                "     (max-iterations Int))",
-                "    -> DrainResult",
-                "    (backlog-drain neurips",
-                "      :ctx ctx",
-                "      :selector selector-run",
-                "      :run-item run-selected-item",
-                "      :gap-drafter gap-draft",
-                "      :providers (record DrainProviders",
-                "                   :selector (record SelectorProviderBindings",
-                "                               :provider providers.selector",
-                "                               :prompt prompts.selector))",
-                "      :max-iterations 4))",
                 ")",
             ]
         ),
@@ -3351,40 +3212,24 @@ def test_compile_stage3_module_rebinds_same_file_selector_provider_metadata(tmp_
 
     result = compile_stage3_module(
         path,
-        provider_externs={
-            "providers.internal_selector": "internal-selector-provider",
-            "providers.selector": "main-selector-provider",
-        },
-        prompt_externs={
-            "prompts.internal_selector": "prompts/internal-selector.md",
-            "prompts.selector": "prompts/main-selector.md",
-        },
-        command_boundaries=_command_boundaries().bindings_by_name,
+        provider_externs={"providers.internal_selector": "internal-selector-provider"},
+        prompt_externs={"prompts.internal_selector": "prompts/internal-selector.md"},
         validate_shared=False,
         workspace_root=tmp_path,
         lowering_route=LoweringRoute.WCC_M4,
     )
 
-    drain = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "drain")
-    child = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
-    )
-    assert not any("repeat_until" in step for step in drain.authored_mapping["steps"])
-    repeat_step = next(step for step in child.authored_mapping["steps"] if "repeat_until" in step)
-    selector_call = next(
-        step
-        for step in repeat_step["repeat_until"]["steps"]
-        if step.get("call", "").startswith("selector-run")
+    specialized = _specialize_same_file_lowered_workflow_provider_metadata(
+        result.lowered_workflows[0],
+        provider_id="main-selector-provider",
+        prompt_binding=PromptExtern(
+            name="prompts.selector",
+            asset_file="prompts/main-selector.md",
+        ),
+        alias="selector-run__selector_rebound",
     )
 
-    assert selector_call["call"] != "selector-run"
-    assert selector_call["call"].startswith("selector-run__selector")
-    _assert_child_backlog_drain_uses_shared_terminal_lane(child)
-    rebound_selector = next(
-        workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == selector_call["call"]
-    )
-    provider_step = rebound_selector.authored_mapping["steps"][0]
+    assert specialized.typed_workflow.definition.name == "selector-run__selector_rebound"
+    provider_step = specialized.authored_mapping["steps"][0]
     assert provider_step["provider"] == "main-selector-provider"
     assert provider_step["asset_file"] == "prompts/main-selector.md"

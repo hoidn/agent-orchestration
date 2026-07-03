@@ -21,6 +21,7 @@ from .type_env import (
     TypeRef,
     UnionTypeRef,
     WorkflowRefTypeRef,
+    type_refs_compatible,
 )
 
 
@@ -31,11 +32,22 @@ class LoopStateCarrierMetadata:
     generated_type_name: str
     field_names: tuple[str, ...]
     field_types: tuple[tuple[str, TypeRef], ...]
+    type_ref: RecordTypeRef
     source_kind: str
 
 
 _CARRIER_METADATA_BY_NAME: dict[str, LoopStateCarrierMetadata] = {}
-_CARRIER_METADATA_BY_EXPR_KEY: dict[tuple[str, int, int, tuple[str, ...]], LoopStateCarrierMetadata] = {}
+_CARRIER_METADATA_BY_EXPR_KEY: dict[
+    tuple[str, int, int, tuple[str, ...]],
+    dict[tuple[tuple[str, str], ...], LoopStateCarrierMetadata],
+] = {}
+
+
+def reset_loop_state_metadata() -> None:
+    """Clear generated loop-state carrier metadata between compile sessions."""
+
+    _CARRIER_METADATA_BY_NAME.clear()
+    _CARRIER_METADATA_BY_EXPR_KEY.clear()
 
 
 def carrier_metadata_for_type(type_ref: TypeRef) -> LoopStateCarrierMetadata | None:
@@ -46,10 +58,62 @@ def carrier_metadata_for_type(type_ref: TypeRef) -> LoopStateCarrierMetadata | N
     return _CARRIER_METADATA_BY_NAME.get(type_ref.name)
 
 
-def carrier_metadata_for_expr(expr) -> LoopStateCarrierMetadata | None:
+def register_known_carrier_type(
+    type_env,
+    *,
+    type_name: str,
+    span,
+    form_path: tuple[str, ...],
+) -> bool:
+    """Re-register one generated loop-state carrier into another type env."""
+
+    metadata = _CARRIER_METADATA_BY_NAME.get(type_name)
+    if metadata is None:
+        return False
+    if type_env._type_refs.get(type_name) is None:
+        type_env._type_refs[type_name] = metadata.type_ref
+    return True
+
+
+def register_all_known_carrier_types(
+    type_env,
+    *,
+    span,
+    form_path: tuple[str, ...],
+) -> None:
+    """Hydrate one type env with every generated loop-state carrier seen so far."""
+
+    for type_name in tuple(_CARRIER_METADATA_BY_NAME):
+        register_known_carrier_type(
+            type_env,
+            type_name=type_name,
+            span=span,
+            form_path=form_path,
+        )
+
+
+def carrier_metadata_for_expr(
+    expr,
+    *,
+    field_signature: tuple[tuple[str, str], ...] | None = None,
+    field_types: tuple[tuple[str, TypeRef], ...] | None = None,
+) -> LoopStateCarrierMetadata | None:
     """Return loop-state metadata for one authored seed expression, if present."""
 
-    return _CARRIER_METADATA_BY_EXPR_KEY.get(_expr_metadata_key(expr))
+    metadata_by_signature = _CARRIER_METADATA_BY_EXPR_KEY.get(_expr_metadata_key(expr))
+    if not metadata_by_signature:
+        return None
+    if field_signature is not None:
+        matched = metadata_by_signature.get(field_signature)
+        if matched is not None:
+            return matched
+    if field_types is not None:
+        for metadata in metadata_by_signature.values():
+            if _loop_state_metadata_matches_field_types(metadata, field_types):
+                return metadata
+    if len(metadata_by_signature) == 1:
+        return next(iter(metadata_by_signature.values()))
+    return next(reversed(metadata_by_signature.values()))
 
 
 def loop_state_field_origin(expr, field_path: tuple[str, ...]):
@@ -167,10 +231,11 @@ def _typecheck_loop_state_seed(
         )
         resolved_fields.append((field.name, resolved_type))
 
+    field_signature = tuple((name, field_type.name) for name, field_type in resolved_fields)
     generated_name = _generated_loop_state_type_name(
         expr,
         context=context,
-        field_signature=tuple((name, field_type.name) for name, field_type in resolved_fields),
+        field_signature=field_signature,
     )
     _register_generated_record_type(
         context.type_env,
@@ -179,13 +244,6 @@ def _typecheck_loop_state_seed(
         span=expr.span,
         form_path=expr.form_path,
     )
-    _CARRIER_METADATA_BY_NAME[generated_name] = LoopStateCarrierMetadata(
-        generated_type_name=generated_name,
-        field_names=tuple(name for name, _ in resolved_fields),
-        field_types=tuple(resolved_fields),
-        source_kind="seed",
-    )
-    _CARRIER_METADATA_BY_EXPR_KEY[_expr_metadata_key(expr)] = _CARRIER_METADATA_BY_NAME[generated_name]
     record_type = context.type_env.resolve_type(
         generated_name,
         span=expr.span,
@@ -193,6 +251,16 @@ def _typecheck_loop_state_seed(
         expansion_stack=expr.expansion_stack,
     )
     assert isinstance(record_type, RecordTypeRef)
+    _CARRIER_METADATA_BY_NAME[generated_name] = LoopStateCarrierMetadata(
+        generated_type_name=generated_name,
+        field_names=tuple(name for name, _ in resolved_fields),
+        field_types=tuple(resolved_fields),
+        type_ref=record_type,
+        source_kind="seed",
+    )
+    _CARRIER_METADATA_BY_EXPR_KEY.setdefault(_expr_metadata_key(expr), {})[field_signature] = (
+        _CARRIER_METADATA_BY_NAME[generated_name]
+    )
     return typed_factory(
         expr=replace(expr, fields=tuple(rewritten_fields)),
         type_ref=record_type,
@@ -268,7 +336,7 @@ def _generated_loop_state_type_name(
     owner = getattr(context.session_state.workflow_signature, "name", None)
     if owner is None:
         owner = expr.form_path[-1] if expr.form_path else "local"
-    normalized_owner = re.sub(r"[^A-Za-z0-9_.-]+", "_", owner)
+    normalized_owner = re.sub(r"[^A-Za-z0-9_-]+", "_", owner).strip("_") or "local"
     digest = sha1(
         repr(
             (
@@ -281,7 +349,7 @@ def _generated_loop_state_type_name(
             )
         ).encode("utf-8")
     ).hexdigest()[:12]
-    return f"%loop-state.{normalized_owner}.{digest}"
+    return f"%loop-state.{normalized_owner}_{digest}"
 
 
 def _resolve_authored_field_type(
@@ -424,6 +492,26 @@ def _expr_metadata_key(expr) -> tuple[str, int, int, tuple[str, ...]]:
         expr.span.start.column,
         expr.form_path,
     )
+
+
+def _loop_state_metadata_matches_field_types(
+    metadata: LoopStateCarrierMetadata,
+    field_types: tuple[tuple[str, TypeRef], ...],
+) -> bool:
+    if len(metadata.field_types) != len(field_types):
+        return False
+    for (expected_name, expected_type), (actual_name, actual_type) in zip(
+        metadata.field_types,
+        field_types,
+        strict=True,
+    ):
+        if expected_name != actual_name:
+            return False
+        if not type_refs_compatible(expected_type, actual_type):
+            return False
+        if not type_refs_compatible(actual_type, expected_type):
+            return False
+    return True
 
 
 _TYPE_REF_CLASSES = (

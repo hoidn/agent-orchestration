@@ -3190,6 +3190,14 @@ def _validate_run_item_workflow_ref(
     form_path: tuple[str, ...],
 ) -> None:
     if len(signature.params) != 2:
+        if len(signature.params) > 2:
+            extra_param_name = signature.params[2][0]
+            _raise_error(
+                f"workflow ref `{signature.name}` must not expose public binding `{extra_param_name}`",
+                code="workflow_signature_mismatch",
+                span=span,
+                form_path=form_path,
+            )
         _raise_error(
             f"workflow ref `{signature.name}` must accept `ItemCtx` and the selector payload for `run-item`",
             code="backlog_drain_contract_invalid",

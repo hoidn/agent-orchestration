@@ -36,8 +36,8 @@
                :renderer canonical-json
                :renderer-version 1
                :returns StateExisting)))
-      (variant SelectionResult EMPTY
-        :run-state summary-state)))
+      (variant SelectionResult BLOCKED
+        :reason summary-state)))
   (defworkflow run-selected-item
     ((item-ctx ItemCtx)
      (selection SelectionPayload))

@@ -35,18 +35,15 @@
     (plan-target-path PlanTargetPath)
     (architecture-path ArchitecturePath))
   (defunion SelectionResult
-    (EMPTY
-      (run-state StateExisting))
+    (EMPTY)
     (GAP
       (gap GapPayload))
     (SELECTED
       (selection SelectionPayload))
     (BLOCKED
-      (reason String)
-      (run-state StateExisting)))
+      (reason String)))
   (defunion GapResult
-    (CONTINUE
-      (run-state StateExisting))
+    (CONTINUE)
     (BLOCKED
       (progress-report-path WorkReport)
       (blocker-class BlockerClass)))

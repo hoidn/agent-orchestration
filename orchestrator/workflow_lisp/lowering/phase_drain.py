@@ -210,7 +210,10 @@ def _callable_backlog_drain_enabled(
     expr: BacklogDrainExpr,
     context: _LoweringContext,
 ) -> bool:
-    return bool(expr.spec.preserve_owner_boundary and context.lowering_schema_version not in (None, 1))
+    return bool(
+        expr.spec.preserve_owner_boundary
+        and context.lowering_schema_version not in (None, 1)
+    )
 
 
 def _callable_backlog_drain_workflow_name() -> str:
@@ -466,6 +469,48 @@ def _phase_stdlib_lower_backlog_drain_impl(
             "return_type_ref": gap_drafter_ref.return_type_ref,
         },
     )()
+    def _require_backlog_drain_public_params(
+        *,
+        role_name: str,
+        signature: Any,
+        expected_count: int,
+    ) -> None:
+        actual_params = tuple(signature.params)
+        if len(actual_params) == expected_count:
+            return
+        if len(actual_params) > expected_count:
+            unexpected_name = actual_params[expected_count][0]
+            message = (
+                f"`backlog-drain :{role_name}` must not expose public binding "
+                f"`{unexpected_name}`; compatibility bridge inputs must stay private"
+            )
+        else:
+            message = (
+                f"`backlog-drain :{role_name}` must expose exactly {expected_count} public "
+                f"parameter{'s' if expected_count != 1 else ''}"
+            )
+        raise _compile_error(
+            code="workflow_signature_mismatch",
+            message=message,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+
+    _require_backlog_drain_public_params(
+        role_name="selector",
+        signature=selector_signature,
+        expected_count=1,
+    )
+    _require_backlog_drain_public_params(
+        role_name="run-item",
+        signature=run_item_signature,
+        expected_count=2,
+    )
+    _require_backlog_drain_public_params(
+        role_name="gap-drafter",
+        signature=gap_drafter_signature,
+        expected_count=2,
+    )
     selector_callee = context.lowered_callees.get(selector_ref.workflow_name)
     run_item_callee = context.lowered_callees.get(run_item_ref.workflow_name)
     gap_drafter_callee = context.lowered_callees.get(gap_drafter_ref.workflow_name)
@@ -675,7 +720,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
     loop_output_definitions = {
         "acc__loop-status": dict(accumulator_status_contract),
         "acc__items-processed": dict(items_processed_contract),
-        "acc__run-state": dict(accumulator_run_state_contract),
         "acc__progress-report-path": dict(accumulator_progress_contract),
         "acc__blocker-class": dict(accumulator_blocker_contract),
     }
@@ -685,6 +729,7 @@ def _phase_stdlib_lower_backlog_drain_impl(
             "from": {"ref": f"self.steps.{step_name}__route_selection.artifacts.{name}"},
         }
         for name, definition in loop_output_definitions.items()
+        if name != "acc__run-state"
     }
 
     def _materialize_outputs_step(
@@ -1059,7 +1104,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
         name: str,
         step_id_value: str,
         loop_status: str,
-        run_state_ref: str,
         progress_ref: str | None = None,
         blocker_ref: str | None = None,
         blocker_literal: str | None = None,
@@ -1079,11 +1123,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
                     "name": "acc__loop-status",
                     "source": {"literal": loop_status},
                     "contract": dict(accumulator_status_contract),
-                },
-                {
-                    "name": "acc__run-state",
-                    "source": {"ref": run_state_ref},
-                    "contract": dict(accumulator_run_state_contract),
                 },
                 {
                     "name": "acc__progress-report-path",
@@ -1111,10 +1150,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
             "acc__items-processed": {
                 **loop_output_definitions["acc__items-processed"],
                 "from": {"ref": items_processed_ref},
-            },
-            "acc__run-state": {
-                **loop_output_definitions["acc__run-state"],
-                "from": {"ref": f"self.steps.{marker_step_name}.artifacts.acc__run-state"},
             },
             "acc__progress-report-path": {
                 **loop_output_definitions["acc__progress-report-path"],
@@ -1184,10 +1219,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
         "then": {
             "id": _normalize_generated_step_id(f"{current_loop_state_name}__carry"),
             "outputs": {
-                "acc__run-state": {
-                    **dict(accumulator_run_state_contract),
-                    "from": {"ref": f"self.steps.{current_loop_state_use_carried_name}.artifacts.acc__run-state"},
-                },
                 "acc__progress-report-path": {
                     **dict(accumulator_progress_contract),
                     "from": {"ref": f"self.steps.{current_loop_state_use_carried_name}.artifacts.acc__progress-report-path"},
@@ -1202,11 +1233,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
                     name=current_loop_state_use_carried_name,
                     step_id_value=_normalize_generated_step_id(current_loop_state_use_carried_name),
                     values=[
-                        {
-                            "name": "acc__run-state",
-                            "source": {"ref": f"root.steps.{step_name}.artifacts.acc__run-state"},
-                            "contract": dict(accumulator_run_state_contract),
-                        },
                         {
                             "name": "acc__progress-report-path",
                             "source": {"ref": f"root.steps.{step_name}.artifacts.acc__progress-report-path"},
@@ -1224,10 +1250,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
         "else": {
             "id": _normalize_generated_step_id(f"{current_loop_state_name}__seed"),
             "outputs": {
-                "acc__run-state": {
-                    **dict(accumulator_run_state_contract),
-                    "from": {"ref": f"self.steps.{current_loop_state_use_seed_name}.artifacts.acc__run-state"},
-                },
                 "acc__progress-report-path": {
                     **dict(accumulator_progress_contract),
                     "from": {"ref": f"self.steps.{current_loop_state_use_seed_name}.artifacts.acc__progress-report-path"},
@@ -1243,11 +1265,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
                     step_id_value=_normalize_generated_step_id(current_loop_state_use_seed_name),
                     values=[
                         {
-                            "name": "acc__run-state",
-                            "source": {"ref": f"root.steps.{loop_state_seed_step_name}.artifacts.acc__run-state"},
-                            "contract": dict(accumulator_run_state_contract),
-                        },
-                        {
                             "name": "acc__progress-report-path",
                             "source": {"ref": f"root.steps.{loop_state_seed_step_name}.artifacts.acc__progress-report-path"},
                             "contract": dict(accumulator_progress_contract),
@@ -1262,7 +1279,7 @@ def _phase_stdlib_lower_backlog_drain_impl(
             ],
         },
     }
-    current_run_state_ref = f"parent.steps.{current_loop_state_name}.artifacts.acc__run-state"
+    current_run_state_ref = f"root.steps.{loop_state_seed_step_name}.artifacts.acc__run-state"
     current_progress_ref = f"parent.steps.{current_loop_state_name}.artifacts.acc__progress-report-path"
 
     selector_prepare_steps, selector_call_step = _managed_call_step(
@@ -1354,7 +1371,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
                     name=empty_marker_name,
                     step_id_value="mark_empty_selection",
                     loop_status="EMPTY",
-                    run_state_ref=current_run_state_ref,
                     progress_ref=current_progress_ref,
                 )
             ],
@@ -1370,7 +1386,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
                     name=completed_marker_name,
                     step_id_value="mark_completed_selection",
                     loop_status="COMPLETED",
-                    run_state_ref=current_run_state_ref,
                     progress_ref=current_progress_ref,
                 )
             ],
@@ -1408,7 +1423,7 @@ def _phase_stdlib_lower_backlog_drain_impl(
                         name=gap_marker_name,
                         step_id_value="mark_gap_continue",
                         loop_status="CONTINUE",
-                        run_state_ref=f"parent.steps.{gap_drafter_call_name}.artifacts.return__run-state",
+                        progress_ref=current_progress_ref,
                     )
                 ],
             },
@@ -1423,7 +1438,7 @@ def _phase_stdlib_lower_backlog_drain_impl(
                         name=gap_marker_name,
                         step_id_value="mark_gap_continue_else",
                         loop_status="CONTINUE",
-                        run_state_ref=f"parent.steps.{gap_drafter_call_name}.artifacts.return__run-state",
+                        progress_ref=current_progress_ref,
                     )
                 ],
             },
@@ -1455,7 +1470,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
                             name=gap_continue_marker_name,
                             step_id_value="mark_gap_continue",
                             loop_status="CONTINUE",
-                            run_state_ref=f"parent.steps.{gap_drafter_call_name}.artifacts.return__run-state",
                             progress_ref=current_progress_ref,
                         )
                     ],
@@ -1471,7 +1485,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
                                 name=gap_blocked_marker_name,
                                 step_id_value="mark_gap_blocked",
                                 loop_status="BLOCKED",
-                                run_state_ref=current_run_state_ref,
                                 progress_ref=f"parent.steps.{gap_drafter_call_name}.artifacts.return__progress-report-path",
                                 blocker_ref=f"parent.steps.{gap_drafter_call_name}.artifacts.return__blocker-class",
                             )
@@ -1517,7 +1530,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
                             name=selected_continue_marker_name,
                             step_id_value="mark_selected_continue",
                             loop_status="CONTINUE",
-                            run_state_ref=f"parent.steps.{run_item_call_name}.artifacts.return__run-state",
                             progress_ref=f"parent.steps.{run_item_call_name}.artifacts.return__summary-path",
                         ),
                     ],
@@ -1533,7 +1545,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
                             name=selected_blocked_marker_name,
                             step_id_value="mark_selected_blocked",
                             loop_status="BLOCKED",
-                            run_state_ref=f"parent.steps.{run_item_call_name}.artifacts.return__run-state",
                             progress_ref=f"parent.steps.{run_item_call_name}.artifacts.return__summary-path",
                             blocker_ref=f"parent.steps.{run_item_call_name}.artifacts.return__blocker-class",
                         )
@@ -1573,7 +1584,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
                     name=selector_blocked_marker_name,
                     step_id_value="mark_selector_blocked",
                     loop_status="BLOCKED",
-                    run_state_ref=current_run_state_ref,
                     progress_ref=current_progress_ref,
                     blocker_literal=selector_blocked_compatibility_blocker,
                 )
@@ -1590,7 +1600,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
                     name=selector_blocked_marker_name,
                     step_id_value="mark_selector_blocked_else",
                     loop_status="BLOCKED",
-                    run_state_ref=current_run_state_ref,
                     progress_ref=current_progress_ref,
                     blocker_literal=selector_blocked_compatibility_blocker,
                 )
@@ -1839,7 +1848,7 @@ def _phase_stdlib_lower_backlog_drain_impl(
     normalize_step_id = _normalize_generated_step_id(normalize_step_name)
     _record_step_origin(context, step_name=normalize_step_name, step_id=normalize_step_id, source=expr)
     accumulator_items_ref = f"root.steps.{step_name}.artifacts.acc__items-processed"
-    accumulator_run_state_ref = f"root.steps.{step_name}.artifacts.acc__run-state"
+    accumulator_run_state_ref = f"root.steps.{loop_state_seed_step_name}.artifacts.acc__run-state"
     accumulator_progress_ref = f"root.steps.{step_name}.artifacts.acc__progress-report-path"
     accumulator_blocker_ref = f"root.steps.{step_name}.artifacts.acc__blocker-class"
     terminal_carrier_step_name = f"{step_name}__terminal_carrier"

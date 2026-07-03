@@ -15,6 +15,7 @@ from ..contracts import GeneratedInternalInput, derive_workflow_signature_contra
 from ..conditionals import PureExprCondition, render_condition_predicate
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import (
+    BacklogDrainExpr,
     CallExpr,
     CommandResultExpr,
     ContinueExpr,
@@ -79,6 +80,7 @@ from ..lowering.phase_flow import (
     _phase_stdlib_lower_resume_or_start_impl,
     _phase_stdlib_lower_run_provider_phase_impl,
 )
+from ..lowering.phase_drain import _phase_stdlib_lower_backlog_drain_impl
 from ..lowering.phase_resource import (
     _phase_stdlib_lower_finalize_selected_item_impl,
     _phase_stdlib_lower_resource_transition_impl,
@@ -209,7 +211,9 @@ def lower_wcc_m2_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
+    available_workflows_by_name: Mapping[str, TypedWorkflowDef] | None = None,
     procedure_type_envs: Mapping[str, object],
+    workflow_type_envs: Mapping[str, object] | None = None,
     procedure_catalog: ProcedureCatalog,
     workflow_path: Path,
     workflow_catalog: WorkflowCatalog,
@@ -222,7 +226,9 @@ def lower_wcc_m2_workflow_definitions(
     return _lower_wcc_workflow_definitions(
         typed_workflows,
         typed_procedures=typed_procedures,
+        available_workflows_by_name=available_workflows_by_name,
         procedure_type_envs=procedure_type_envs,
+        workflow_type_envs=workflow_type_envs,
         procedure_catalog=procedure_catalog,
         workflow_path=workflow_path,
         workflow_catalog=workflow_catalog,
@@ -238,7 +244,9 @@ def lower_wcc_m3_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
+    available_workflows_by_name: Mapping[str, TypedWorkflowDef] | None = None,
     procedure_type_envs: Mapping[str, object],
+    workflow_type_envs: Mapping[str, object] | None = None,
     procedure_catalog: ProcedureCatalog,
     workflow_path: Path,
     workflow_catalog: WorkflowCatalog,
@@ -252,7 +260,9 @@ def lower_wcc_m3_workflow_definitions(
     return _lower_wcc_workflow_definitions(
         typed_workflows,
         typed_procedures=typed_procedures,
+        available_workflows_by_name=available_workflows_by_name,
         procedure_type_envs=procedure_type_envs,
+        workflow_type_envs=workflow_type_envs,
         procedure_catalog=procedure_catalog,
         workflow_path=workflow_path,
         workflow_catalog=workflow_catalog,
@@ -268,7 +278,9 @@ def lower_wcc_m4_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
+    available_workflows_by_name: Mapping[str, TypedWorkflowDef] | None = None,
     procedure_type_envs: Mapping[str, object],
+    workflow_type_envs: Mapping[str, object] | None = None,
     procedure_catalog: ProcedureCatalog,
     workflow_path: Path,
     workflow_catalog: WorkflowCatalog,
@@ -282,7 +294,9 @@ def lower_wcc_m4_workflow_definitions(
     return _lower_wcc_workflow_definitions(
         typed_workflows,
         typed_procedures=typed_procedures,
+        available_workflows_by_name=available_workflows_by_name,
         procedure_type_envs=procedure_type_envs,
+        workflow_type_envs=workflow_type_envs,
         procedure_catalog=procedure_catalog,
         workflow_path=workflow_path,
         workflow_catalog=workflow_catalog,
@@ -298,7 +312,9 @@ def _lower_wcc_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
+    available_workflows_by_name: Mapping[str, TypedWorkflowDef] | None = None,
     procedure_type_envs: Mapping[str, object],
+    workflow_type_envs: Mapping[str, object] | None = None,
     procedure_catalog: ProcedureCatalog,
     workflow_path: Path,
     workflow_catalog: WorkflowCatalog,
@@ -335,12 +351,14 @@ def _lower_wcc_workflow_definitions(
     }
     generated_private_workflow_names = frozenset(private_workflows)
     workflows_by_name: dict[str, TypedWorkflowDef] = {
+        **dict(available_workflows_by_name or {}),
         **{workflow.definition.name: workflow for workflow in typed_workflows},
         **private_workflows,
     }
     lowered_by_name: dict[str, lowering_core.LoweredWorkflow] = {}
     visiting: set[str] = set()
     specialized_workflows: dict[tuple[str, tuple[tuple[str, str], ...]], TypedWorkflowDef] = {}
+    lowered_order: list[str] = []
 
     def specialize_workflow(base_workflow_name: str, bindings: Mapping[str, ResolvedWorkflowRef]) -> TypedWorkflowDef:
         key = (
@@ -433,7 +451,10 @@ def _lower_wcc_workflow_definitions(
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             lowered_callees=lowered_by_name,
-            type_env=generated_private_workflow_type_envs.get(workflow_name, type_env),
+            type_env=generated_private_workflow_type_envs.get(
+                workflow_name,
+                (workflow_type_envs or {}).get(workflow_name, type_env),
+            ),
             typed_procedures=resolved_procedures,
             workflows_by_name=workflows_by_name,
             ensure_workflow_lowered=lower_one,
@@ -441,6 +462,7 @@ def _lower_wcc_workflow_definitions(
             route_schema_version=route_schema_version,
         )
         lowered_by_name[workflow_name] = lowered
+        lowered_order.append(workflow_name)
         visiting.remove(workflow_name)
         return lowered
 
@@ -456,12 +478,12 @@ def _lower_wcc_workflow_definitions(
         lowered = lower_one(workflow.definition.name)
         ordered.append(lowered)
         included_names.add(lowered.typed_workflow.definition.name)
-    for workflow_name in private_order:
-        ordered.append(lowered_by_name[workflow_name])
+    for workflow_name in lowered_order:
+        lowered = lowered_by_name[workflow_name]
+        if workflow_name in included_names:
+            continue
+        ordered.append(lowered)
         included_names.add(workflow_name)
-    for workflow_name, lowered in lowered_by_name.items():
-        if workflow_name not in included_names:
-            ordered.append(lowered)
     return tuple(ordered)
 
 
@@ -517,6 +539,7 @@ def _lower_one_wcc_workflow(
         ensure_workflow_lowered=ensure_workflow_lowered,
         specialize_workflow=specialize_workflow,
         type_env=type_env,
+        generated_private_workflow_type_envs=generated_private_workflow_type_envs,
         procedure_type_envs=procedure_type_envs,
         step_spans={},
         generated_input_spans=origin_inputs,
@@ -1338,6 +1361,12 @@ def _loop_frame_restore_descriptor(
 def _effect_boundary_step_kind(value: WccPerform | WccCall) -> str:
     if isinstance(value, WccCall):
         return "call"
+    if (
+        value.perform_kind == "resource_transition"
+        and isinstance(value.operation_payload, ResourceTransitionExpr)
+        and value.operation_payload.spec.mode != "declared_transition"
+    ):
+        return "command"
     return {
         "command_result": "command",
         "provider_result": "provider",
@@ -1402,6 +1431,8 @@ def _build_effect_resume_policy_payload(
         adapter_name = None
         if isinstance(payload, LowerableCommandResult):
             adapter_name = payload.adapter_name
+        elif isinstance(payload, ResourceTransitionExpr) and payload.spec.mode != "declared_transition":
+            adapter_name = "apply_resource_transition"
         elif isinstance(payload, Mapping):
             raw_adapter_name = payload.get("adapter_name")
             if isinstance(raw_adapter_name, str) and raw_adapter_name:
@@ -3058,6 +3089,7 @@ def _lower_effectful_binding(
                 local_values=local_values,
             )
         if value.perform_kind in {
+            "backlog_drain",
             "run_provider_phase",
             "produce_one_of",
             "resume_or_start",
@@ -3189,6 +3221,18 @@ def _lower_wcc_phase_effect(
         )
     if isinstance(payload, FinalizeSelectedItemExpr):
         return _phase_stdlib_lower_finalize_selected_item_impl(
+            TypedExpr(
+                expr=payload,
+                type_ref=binding_type,
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                effect_summary=value.metadata.effect_summary,
+            ),
+            context=context,
+            local_values=local_values,
+        )
+    if isinstance(payload, BacklogDrainExpr):
+        return _phase_stdlib_lower_backlog_drain_impl(
             TypedExpr(
                 expr=payload,
                 type_ref=binding_type,

@@ -586,6 +586,18 @@ _FORM_SPECS = (
         rationale="Backlog drain composition remains a compatibility intrinsic while the imported stdlib route is converging.",
     ),
     _spec(
+        "backlog-drain-callable-boundary",
+        kind=FormKind.TEMP_COMPILER_INTRINSIC,
+        owner_module="stdlib_modules/std/drain.orc",
+        introduced_in="workflow_lisp_shared_owner_lane_prerequisites",
+        remove_by="ordinary imported stdlib expansion",
+        macro_bindable=True,
+        admitted_top_level=False,
+        elaboration_route="backlog_drain",
+        feature_tags=("compatibility_route_only",),
+        rationale="Callable-boundary backlog drain is an authored alias onto the shared intrinsic lowering shape.",
+    ),
+    _spec(
         "materialize-view",
         kind=FormKind.TEMP_COMPILER_INTRINSIC,
         owner_module="expressions",

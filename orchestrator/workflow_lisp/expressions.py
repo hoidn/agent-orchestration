@@ -3132,9 +3132,12 @@ def _elaborate_backlog_drain(
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
 ) -> BacklogDrainExpr:
+    head = syntax_head(datum)
+    head_name = head.resolved_name if head is not None else "backlog-drain"
+    form_label = f"`{head_name}`"
     if len(datum.items) < 7:
         _raise_error(
-            "`backlog-drain` requires a drain name plus :ctx, :selector, :run-item, :gap-drafter, and :max-iterations",
+            f"{form_label} requires a drain name plus :ctx, :selector, :run-item, :gap-drafter, and :max-iterations",
             span=datum.span,
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
@@ -3142,16 +3145,16 @@ def _elaborate_backlog_drain(
     drain_identifier = syntax_identifier(datum.items[1])
     if drain_identifier is None:
         _raise_error(
-            "`backlog-drain` drain name must be a symbol",
+            f"{form_label} drain name must be a symbol",
             span=datum.items[1].span,
             form_path=form_path,
             expansion_stack=datum.items[1].expansion_stack,
         )
-    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`backlog-drain`")
+    sections = _keyword_sections(datum.items[2:], form_path=form_path, label=form_label)
     required = (":ctx", ":selector", ":run-item", ":gap-drafter", ":max-iterations")
     if any(sections.get(keyword) is None for keyword in required):
         _raise_error(
-            "`backlog-drain` requires :ctx, :selector, :run-item, :gap-drafter, and :max-iterations",
+            f"{form_label} requires :ctx, :selector, :run-item, :gap-drafter, and :max-iterations",
             span=datum.span,
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
@@ -3161,7 +3164,7 @@ def _elaborate_backlog_drain(
     gap_drafter_identifier = syntax_identifier(sections[":gap-drafter"])
     if selector_identifier is None or run_item_identifier is None or gap_drafter_identifier is None:
         _raise_error(
-            "`backlog-drain` workflow refs must be symbols",
+            f"{form_label} workflow refs must be symbols",
             span=datum.span,
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
@@ -3184,6 +3187,7 @@ def _elaborate_backlog_drain(
                 bound_names=bound_names,
                 procedure_names=procedure_names,
             ),
+            preserve_owner_boundary=True,
         ),
         span=datum.span,
         form_path=form_path,

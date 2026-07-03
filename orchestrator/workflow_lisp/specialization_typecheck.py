@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .procedures import TypedProcedureDef
+from .procedures import TypedProcedureDef, procedure_type_env_for
 from .type_env import FrontendTypeEnvironment
 
 if TYPE_CHECKING:
@@ -20,6 +20,7 @@ def materialize_pending_parametric_specialization(
     visible_typed_procedures_by_name: Mapping[str, TypedProcedureDef],
     typed_procedures: tuple[TypedProcedureDef, ...],
     type_env: FrontendTypeEnvironment,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> TypedProcedureDef | None:
     """Build one typed specialization target for the next stage-3 iteration."""
 
@@ -43,8 +44,13 @@ def materialize_pending_parametric_specialization(
         shared_union_field_capabilities=request.shared_union_field_capabilities,
         remaining_params=request.remaining_params,
         workflow_path=Path(base_procedure.definition.span.start.path),
-        type_env=type_env,
+        type_env=procedure_type_env_for(
+            base_procedure,
+            procedure_type_envs=procedure_type_envs,
+            default=type_env,
+        ),
         typed_procedures_by_name=typed_by_name,
+        procedure_type_envs=procedure_type_envs,
         specialized_name=request.specialized_name,
         origin_span=request.origin_span,
         origin_form_path=request.origin_form_path,

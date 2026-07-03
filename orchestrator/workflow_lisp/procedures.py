@@ -191,6 +191,68 @@ class TypedProcedureDef:
     specialization: object | None = None
 
 
+def procedure_type_env_for(
+    procedure: TypedProcedureDef,
+    *,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None,
+    default: FrontendTypeEnvironment,
+) -> FrontendTypeEnvironment:
+    """Resolve the owner type environment for one typed procedure body."""
+
+    if procedure_type_envs is None:
+        return default
+
+    candidate_names = [procedure.definition.name, procedure.signature.name]
+    specialization = getattr(procedure, "specialization", None)
+    base_name = getattr(specialization, "base_name", None)
+    if isinstance(base_name, str):
+        candidate_names.append(base_name)
+
+    expanded_candidate_names: list[str] = []
+    for candidate_name in candidate_names:
+        expanded_candidate_names.append(candidate_name)
+        if "::" in candidate_name:
+            expanded_candidate_names.append(candidate_name.rsplit("::", 1)[-1])
+        if "/" in candidate_name:
+            expanded_candidate_names.append(candidate_name.rsplit("/", 1)[-1])
+
+    for candidate_name in expanded_candidate_names:
+        resolved = procedure_type_envs.get(candidate_name)
+        if resolved is not None:
+            return resolved
+
+    generated_local_types = {
+        type_name
+        for type_name in (
+            *(param.type_name for param in procedure.definition.params),
+            procedure.definition.return_type_name,
+        )
+        if isinstance(type_name, str) and type_name.startswith("%loop-state.")
+    }
+    if generated_local_types:
+        for candidate_env in procedure_type_envs.values():
+            try:
+                for type_name in generated_local_types:
+                    candidate_env.resolve_type(
+                        type_name,
+                        span=procedure.definition.span,
+                        form_path=procedure.definition.form_path,
+                    )
+            except LispFrontendCompileError:
+                continue
+            return candidate_env
+        from .loop_state import register_known_carrier_type
+
+        for type_name in generated_local_types:
+            register_known_carrier_type(
+                default,
+                type_name=type_name,
+                span=procedure.definition.span,
+                form_path=procedure.definition.form_path,
+            )
+    return default
+
+
 @dataclass(frozen=True)
 class ProcedureCatalog:
     """Lookup table for procedure signatures, definitions, and call graph."""

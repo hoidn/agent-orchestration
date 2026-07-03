@@ -64,6 +64,7 @@ from orchestrator.workflow_lisp.workflows import (
     elaborate_workflow_definitions,
     typecheck_workflow_definitions,
 )
+from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
@@ -3543,6 +3544,393 @@ def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without
     }
     assert any(path.endswith("entry.orc") for path in origin_paths)
     assert any(path.endswith("stdlib/review_loop_consumer.orc") for path in origin_paths)
+
+
+def test_compile_stage3_imported_std_phase_review_loop_specialization_keeps_owner_env_and_loop_state_types(
+    tmp_path: Path,
+) -> None:
+    compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
+    assert callable(compile_fn), "compile_stage3_entrypoint is missing"
+
+    source_root = tmp_path / "std_phase_owner_env_consumer"
+    _write_module(
+        source_root / "helper.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule helper)",
+            "  (import std/phase :only (ReviewDecision ReviewFindings ReviewFindingsJsonPath ReviewLoopResult ReviewReportPath review-revise-loop-proc))",
+            "  (export CallCtx CompletedSurface InputsSurface run-review)",
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord CallCtx",
+            "    (phase_name String))",
+            "  (defrecord CompletedSurface",
+            "    (execution_report_path WorkReport))",
+            "  (defrecord InputsSurface",
+            "    (findings_path ReviewFindingsJsonPath)",
+            "    (review_report_path ReviewReportPath))",
+            "  (defrecord PlanReviewPromptSubject",
+            "    (execution_report_path WorkReport)",
+            "    (findings_path ReviewFindingsJsonPath))",
+            "  (defproc review-once",
+            "    ((completed CompletedSurface)",
+            "     (inputs InputsSurface))",
+            "    -> ReviewDecision",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (let* ((subject",
+            "             (record PlanReviewPromptSubject",
+            "               :execution_report_path completed.execution_report_path",
+            "               :findings_path inputs.findings_path)))",
+            "      (variant ReviewDecision REVISE",
+            "        :review_report inputs.review_report_path",
+            "        :findings (record ReviewFindings",
+            '                    :schema_version "ReviewFindings.v1"',
+            "                    :items_path subject.findings_path))))",
+            "  (defproc apply-fix",
+            "    ((completed CompletedSurface)",
+            "     (inputs InputsSurface)",
+            "     (findings ReviewFindings))",
+            "    -> CompletedSurface",
+            "    :effects ()",
+            "    :lowering inline",
+            "    completed)",
+            "  (defproc run-review",
+            "    ((ctx CallCtx)",
+            "     (completed CompletedSurface)",
+            "     (inputs InputsSurface))",
+            "    -> ReviewLoopResult",
+            "    :effects ((uses-command validate_review_findings_v1))",
+            "    :lowering inline",
+            "    (review-revise-loop-proc",
+            "      ctx",
+            "      completed",
+            "      inputs",
+            "      inputs.review_report_path",
+            "      (record ReviewFindings",
+            '        :schema_version "ReviewFindings.v1"',
+            "        :items_path inputs.findings_path)",
+            "      (proc-ref review-once)",
+            "      (proc-ref apply-fix)",
+            "      2)))",
+        ],
+    )
+    entry_path = _write_module(
+        source_root / "entry.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule entry)",
+            "  (import std/phase :only (ReviewLoopResult))",
+            "  (import helper :as helper :only (CallCtx CompletedSurface InputsSurface run-review))",
+            "  (defworkflow orchestrate",
+            "    ((ctx CallCtx)",
+            "     (completed CompletedSurface)",
+            "     (inputs InputsSurface))",
+            "    -> ReviewLoopResult",
+            "    (helper.run-review ctx completed inputs)))",
+        ],
+    )
+
+    result = compile_fn(
+        entry_path,
+        source_roots=(source_root,),
+        command_boundaries={
+            "validate_review_findings_v1": validate_review_findings_v1_binding()
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert any(
+        getattr(procedure.specialization, "base_name", "") == "std/phase::review-revise-loop-proc"
+        for procedure in result.compiled_results_by_name["helper"].typed_procedures
+    )
+    assert any(
+        workflow.typed_workflow.definition.name == "entry::orchestrate"
+        for workflow in result.entry_result.lowered_workflows
+    )
+
+
+def test_compile_stage3_imported_std_phase_review_loop_managed_write_root_bundle_paths_use_hidden_inputs(
+    tmp_path: Path,
+) -> None:
+    compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
+    assert callable(compile_fn), "compile_stage3_entrypoint is missing"
+
+    source_root = tmp_path / "std_phase_managed_write_root_consumer"
+    _write_module(
+        source_root / "helper.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule helper)",
+            "  (import std/phase :only (ReviewDecision ReviewFindings ReviewFindingsJsonPath ReviewLoopResult ReviewReportPath review-revise-loop-proc))",
+            "  (export CallCtx CompletedSurface InputsSurface run-review)",
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord CallCtx",
+            "    (phase_name String))",
+            "  (defrecord CompletedSurface",
+            "    (execution_report_path WorkReport))",
+            "  (defrecord InputsSurface",
+            "    (findings_path ReviewFindingsJsonPath)",
+            "    (review_report_path ReviewReportPath))",
+            "  (defproc review-once",
+            "    ((completed CompletedSurface)",
+            "     (inputs InputsSurface))",
+            "    -> ReviewDecision",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (variant ReviewDecision REVISE",
+            "      :review_report inputs.review_report_path",
+            "      :findings (record ReviewFindings",
+            '                  :schema_version "ReviewFindings.v1"',
+            "                  :items_path inputs.findings_path)))",
+            "  (defproc apply-fix",
+            "    ((completed CompletedSurface)",
+            "     (inputs InputsSurface)",
+            "     (findings ReviewFindings))",
+            "    -> CompletedSurface",
+            "    :effects ()",
+            "    :lowering inline",
+            "    completed)",
+            "  (defproc run-review",
+            "    ((ctx CallCtx)",
+            "     (completed CompletedSurface)",
+            "     (inputs InputsSurface))",
+            "    -> ReviewLoopResult",
+            "    :effects ((uses-command validate_review_findings_v1))",
+            "    :lowering inline",
+            "    (review-revise-loop-proc",
+            "      ctx",
+            "      completed",
+            "      inputs",
+            "      inputs.review_report_path",
+            "      (record ReviewFindings",
+            '        :schema_version "ReviewFindings.v1"',
+            "        :items_path inputs.findings_path)",
+            "      (proc-ref review-once)",
+            "      (proc-ref apply-fix)",
+            "      2)))",
+        ],
+    )
+    entry_path = _write_module(
+        source_root / "entry.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule entry)",
+            "  (import std/phase :only (ReviewLoopResult))",
+            "  (import helper :as helper :only (CallCtx CompletedSurface InputsSurface run-review))",
+            "  (defworkflow orchestrate",
+            "    ((ctx CallCtx)",
+            "     (completed CompletedSurface)",
+            "     (inputs InputsSurface))",
+            "    -> ReviewLoopResult",
+            "    (helper.run-review ctx completed inputs)))",
+        ],
+    )
+
+    result = compile_fn(
+        entry_path,
+        source_roots=(source_root,),
+        command_boundaries={
+            "validate_review_findings_v1": validate_review_findings_v1_binding()
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    def _walk_steps(steps):
+        for step in steps:
+            yield step
+            if "repeat_until" in step:
+                yield from _walk_steps(step["repeat_until"].get("steps", []))
+            if "match" in step:
+                for case in step["match"].get("cases", {}).values():
+                    yield from _walk_steps(case.get("steps", []))
+
+    lowered = next(
+        workflow
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "entry::orchestrate"
+    )
+    managed_write_root_steps = [
+        step
+        for step in _walk_steps(lowered.authored_mapping.get("steps", []))
+        if str(step.get("name", "")).endswith("__managed_write_roots")
+    ]
+
+    assert managed_write_root_steps
+    for step in managed_write_root_steps:
+        path = step["output_bundle"]["path"]
+        assert path.startswith("${inputs.")
+        assert path.endswith("}")
+        input_name = path[len("${inputs.") : -1]
+        assert input_name in lowered.authored_mapping["inputs"]
+
+
+def test_compile_stage3_imported_std_phase_review_loop_multiple_specializations_keep_distinct_loop_state_carriers(
+    tmp_path: Path,
+) -> None:
+    compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
+    assert callable(compile_fn), "compile_stage3_entrypoint is missing"
+
+    source_root = tmp_path / "std_phase_multi_owner_consumer"
+    _write_module(
+        source_root / "helper.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule helper)",
+            "  (import std/phase :only (ReviewDecision ReviewFindings ReviewFindingsJsonPath ReviewLoopResult ReviewReportPath review-revise-loop-proc))",
+            "  (export CallCtx PlanCompleted PlanInputs ImplCompleted ImplInputs plan-run-review impl-run-review)",
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord CallCtx",
+            "    (phase_name String))",
+            "  (defrecord PlanCompleted",
+            "    (plan_path WorkReport))",
+            "  (defrecord PlanInputs",
+            "    (findings_path ReviewFindingsJsonPath)",
+            "    (review_report_path ReviewReportPath))",
+            "  (defrecord ImplCompleted",
+            "    (execution_report_path WorkReport)",
+            "    (checks_report_path WorkReport))",
+            "  (defrecord ImplInputs",
+            "    (findings_path ReviewFindingsJsonPath)",
+            "    (review_report_path ReviewReportPath))",
+            "  (defproc plan-review-once",
+            "    ((completed PlanCompleted)",
+            "     (inputs PlanInputs))",
+            "    -> ReviewDecision",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (variant ReviewDecision REVISE",
+            "      :review_report inputs.review_report_path",
+            "      :findings (record ReviewFindings",
+            '                  :schema_version "ReviewFindings.v1"',
+            "                  :items_path inputs.findings_path)))",
+            "  (defproc plan-apply-fix",
+            "    ((completed PlanCompleted)",
+            "     (inputs PlanInputs)",
+            "     (findings ReviewFindings))",
+            "    -> PlanCompleted",
+            "    :effects ()",
+            "    :lowering inline",
+            "    completed)",
+            "  (defproc impl-review-once",
+            "    ((completed ImplCompleted)",
+            "     (inputs ImplInputs))",
+            "    -> ReviewDecision",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (variant ReviewDecision REVISE",
+            "      :review_report inputs.review_report_path",
+            "      :findings (record ReviewFindings",
+            '                  :schema_version "ReviewFindings.v1"',
+            "                  :items_path inputs.findings_path)))",
+            "  (defproc impl-apply-fix",
+            "    ((completed ImplCompleted)",
+            "     (inputs ImplInputs)",
+            "     (findings ReviewFindings))",
+            "    -> ImplCompleted",
+            "    :effects ()",
+            "    :lowering inline",
+            "    completed)",
+            "  (defproc plan-run-review",
+            "    ((ctx CallCtx)",
+            "     (completed PlanCompleted)",
+            "     (inputs PlanInputs))",
+            "    -> ReviewLoopResult",
+            "    :effects ((uses-command validate_review_findings_v1))",
+            "    :lowering inline",
+            "    (review-revise-loop-proc",
+            "      ctx",
+            "      completed",
+            "      inputs",
+            "      inputs.review_report_path",
+            "      (record ReviewFindings",
+            '        :schema_version "ReviewFindings.v1"',
+            "        :items_path inputs.findings_path)",
+            "      (proc-ref plan-review-once)",
+            "      (proc-ref plan-apply-fix)",
+            "      2))",
+            "  (defproc impl-run-review",
+            "    ((ctx CallCtx)",
+            "     (completed ImplCompleted)",
+            "     (inputs ImplInputs))",
+            "    -> ReviewLoopResult",
+            "    :effects ((uses-command validate_review_findings_v1))",
+            "    :lowering inline",
+            "    (review-revise-loop-proc",
+            "      ctx",
+            "      completed",
+            "      inputs",
+            "      inputs.review_report_path",
+            "      (record ReviewFindings",
+            '        :schema_version "ReviewFindings.v1"',
+            "        :items_path inputs.findings_path)",
+            "      (proc-ref impl-review-once)",
+            "      (proc-ref impl-apply-fix)",
+            "      2)))",
+        ],
+    )
+    entry_path = _write_module(
+        source_root / "entry.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule entry)",
+            "  (import std/phase :only (ReviewLoopResult))",
+            "  (import helper :as helper :only (CallCtx PlanCompleted PlanInputs ImplCompleted ImplInputs plan-run-review impl-run-review))",
+            "  (defworkflow orchestrate",
+            "    ((ctx CallCtx)",
+            "     (plan_completed PlanCompleted)",
+            "     (plan_inputs PlanInputs)",
+            "     (impl_completed ImplCompleted)",
+            "     (impl_inputs ImplInputs))",
+            "    -> ReviewLoopResult",
+            "    (let* ((plan_result",
+            "             (helper.plan-run-review ctx plan_completed plan_inputs)))",
+            "      (helper.impl-run-review ctx impl_completed impl_inputs))))",
+        ],
+    )
+
+    result = compile_fn(
+        entry_path,
+        source_roots=(source_root,),
+        command_boundaries={
+            "validate_review_findings_v1": validate_review_findings_v1_binding()
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    specialized_review_loops = [
+        procedure
+        for procedure in result.compiled_results_by_name["helper"].typed_procedures
+        if getattr(procedure.specialization, "base_name", "") == "std/phase::review-revise-loop-proc"
+    ]
+    assert len(specialized_review_loops) == 2
+    assert any(
+        workflow.typed_workflow.definition.name == "entry::orchestrate"
+        for workflow in result.entry_result.lowered_workflows
+    )
 
 
 def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_schema_version_on_exhausted_state_projection(

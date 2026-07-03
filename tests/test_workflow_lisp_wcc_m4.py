@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
@@ -211,6 +211,76 @@ def test_wcc_m4_route_validator_accepts_loop_recur_fixture(tmp_path: Path) -> No
         assert "LoopRecurExpr" in str(exc)
     except AttributeError as exc:
         assert "WccRecJoin" in str(exc)
+
+
+def test_wcc_m4_accepts_imported_procedure_calling_owner_module_workflow(tmp_path: Path) -> None:
+    package_dir = tmp_path / "pkg"
+    package_dir.mkdir(parents=True)
+    (package_dir / "helpers.orc").write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule pkg/helpers)",
+                "  (import std/resource :only (WorkReport))",
+                "  (export Outcome route)",
+                "  (defunion Outcome",
+                "    (DONE",
+                "      (summary-path WorkReport)))",
+                "  (defworkflow finalize",
+                "    ((summary-path WorkReport))",
+                "    -> Outcome",
+                "    (variant Outcome DONE",
+                "      :summary-path summary-path))",
+                "  (defproc route",
+                "    ((summary-path WorkReport))",
+                "    -> Outcome",
+                "    :effects ((calls-workflow pkg/helpers::finalize))",
+                "    :lowering inline",
+                "    (call finalize",
+                "      :summary-path summary-path)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    entry_path = package_dir / "entry.orc"
+    entry_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule pkg/entry)",
+                "  (import std/resource :only (WorkReport))",
+                "  (import pkg/helpers :only (Outcome route))",
+                "  (export drain)",
+                "  (defworkflow drain",
+                "    ((summary-path WorkReport))",
+                "    -> Outcome",
+                "    (route summary-path)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        entry_path,
+        source_roots=(tmp_path,),
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+        entry_workflow="drain",
+    )
+
+    lowered = {
+        workflow.typed_workflow.definition.name: workflow
+        for workflow in result.entry_result.lowered_workflows
+    }
+    assert "pkg/helpers::finalize" in lowered
+    assert "pkg/entry::drain" in lowered
 
 
 def test_wcc_m3_still_rejects_loop_recur_fixture(tmp_path: Path) -> None:

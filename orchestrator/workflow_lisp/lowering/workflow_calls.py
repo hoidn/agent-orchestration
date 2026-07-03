@@ -36,7 +36,7 @@ from ..workflows import PromotedEntryHiddenContextRequirement
 from ..type_env import PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, WorkflowRefTypeRef
 from . import core as lowering_core
 from .context import _TerminalResult
-from .generated_paths import allocate_compatibility_binding_bundle, allocate_reusable_call_write_root
+from .generated_paths import allocate_reusable_call_write_root
 from .origins import LoweringOrigin
 from .pure_projection import (
     is_pure_projection_expr,
@@ -63,6 +63,12 @@ class LowerableWorkflowCall:
 
 
 _COMPATIBILITY_BRIDGE_INPUT_CONTRACTS: dict[str, dict[str, Any]] = {
+    "run_state_path": {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "state",
+        "must_exist_target": True,
+    },
     "selection_bundle_path": {
         "kind": "relpath",
         "type": "relpath",
@@ -110,8 +116,6 @@ def _compatibility_bridge_omission_allowed(
     if context_signature is None:
         return False
     if callee_signature is None:
-        return False
-    if param_name == "run_state_path":
         return False
     if param_name not in getattr(callee_signature, "private_compatibility_bridge_types", {}):
         return False
@@ -878,13 +882,27 @@ def _managed_write_root_binding_step(
 
     prepare_step_name = f"{call_step_name}__managed_write_roots"
     prepare_step_id = lowering_core._normalize_generated_step_id(prepare_step_name)
-    bundle_allocation = allocate_compatibility_binding_bundle(
-        context=context,
-        source_expr=source_expr,
-        call_step_name=call_step_name,
-        callee_name=callee_name,
+    bundle_input_name = f"__write_root__{prepare_step_id}__managed_write_roots_bundle"
+    context.internal_generated_input_contracts.setdefault(
+        bundle_input_name,
+        {
+            "kind": "relpath",
+            "type": "relpath",
+        },
     )
-    bundle_path = bundle_allocation.concrete_path_template
+    context.generated_input_spans.setdefault(
+        bundle_input_name,
+        LoweringOrigin(
+            span=source_expr.span,
+            form_path=source_expr.form_path,
+            expansion_stack=getattr(source_expr, "expansion_stack", ()),
+        ),
+    )
+    context.internal_generated_input_reasons.setdefault(
+        bundle_input_name,
+        "managed_write_root",
+    )
+    bundle_path = f"${{inputs.{bundle_input_name}}}"
     command = [
         "python",
         "-c",

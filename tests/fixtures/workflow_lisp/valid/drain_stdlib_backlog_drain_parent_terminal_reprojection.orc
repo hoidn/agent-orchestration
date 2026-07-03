@@ -9,8 +9,7 @@
   (export drain)
   (defunion ParentTerminalResult
     (DONE
-      (items-processed Int)
-      (run-state StateExisting))
+      (items-processed Int))
     (BLOCKED
       (progress-report-path WorkReport)
       (blocker-class BlockerClass)))
@@ -42,12 +41,10 @@
     (match result
       ((EMPTY empty)
        (variant ParentTerminalResult DONE
-         :items-processed 0
-         :run-state empty.run-state))
+         :items-processed 0))
       ((COMPLETED completed)
        (variant ParentTerminalResult DONE
-         :items-processed completed.items-processed
-         :run-state completed.run-state))
+         :items-processed completed.items-processed))
       ((BLOCKED blocked)
        (variant ParentTerminalResult BLOCKED
          :progress-report-path blocked.progress-report-path

@@ -233,11 +233,13 @@ class FrontendTypeEnvironment:
                 type_refs[definition.name] = enum_ref
                 if module.module_name:
                     type_refs[f"{module.module_name}/{definition.name}"] = enum_ref
+                    type_refs[f"{module.module_name}::{definition.name}"] = enum_ref
             elif isinstance(definition, PathDef):
                 path_ref = PathTypeRef(name=definition.name, definition=definition)
                 type_refs[definition.name] = path_ref
                 if module.module_name:
                     type_refs[f"{module.module_name}/{definition.name}"] = path_ref
+                    type_refs[f"{module.module_name}::{definition.name}"] = path_ref
             elif isinstance(definition, RecordDef):
                 record_ref = RecordTypeRef(
                     name=definition.name,
@@ -247,6 +249,7 @@ class FrontendTypeEnvironment:
                 type_refs[definition.name] = record_ref
                 if module.module_name:
                     type_refs[f"{module.module_name}/{definition.name}"] = record_ref
+                    type_refs[f"{module.module_name}::{definition.name}"] = record_ref
             elif isinstance(definition, UnionDef):
                 union_ref = UnionTypeRef(
                     name=definition.name,
@@ -256,6 +259,7 @@ class FrontendTypeEnvironment:
                 type_refs[definition.name] = union_ref
                 if module.module_name:
                     type_refs[f"{module.module_name}/{definition.name}"] = union_ref
+                    type_refs[f"{module.module_name}::{definition.name}"] = union_ref
         if imported_type_refs:
             type_refs.update(imported_type_refs)
         schema_names = {schema.name for schema in module.schemas}
@@ -806,6 +810,18 @@ def _resolve_named_type(
             form_path=form_path,
             expansion_stack=expansion_stack,
         )
+    if name.startswith("%loop-state."):
+        from .loop_state import register_known_carrier_type
+
+        if register_known_carrier_type(
+            type_env=type("_TypeEnvProxy", (), {"_type_refs": type_refs})(),
+            type_name=name,
+            span=span,
+            form_path=form_path,
+        ):
+            rebound_ref = type_refs.get(name)
+            if rebound_ref is not None:
+                return rebound_ref
     _raise_error(
         f"unknown type `{name}`",
         code="type_unknown",
@@ -927,22 +943,63 @@ def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
 
     if expected == actual:
         return True
+    if isinstance(expected, UnionTypeRef) and isinstance(actual, VariantCaseTypeRef):
+        return _named_type_basename(expected.name) == _named_type_basename(actual.union_name)
+    if isinstance(expected, VariantCaseTypeRef) and isinstance(actual, UnionTypeRef):
+        return _named_type_basename(expected.union_name) == _named_type_basename(actual.name)
     if type(expected) is not type(actual):
         return False
     if isinstance(expected, PrimitiveTypeRef):
-        return expected.name == actual.name and expected.allowed_values == actual.allowed_values
+        return (
+            _named_type_basename(expected.name) == _named_type_basename(actual.name)
+            and expected.allowed_values == actual.allowed_values
+        )
     if isinstance(expected, PathTypeRef):
-        return expected.definition == actual.definition
+        return (
+            _named_type_basename(expected.name) == _named_type_basename(actual.name)
+            and expected.definition.kind == actual.definition.kind
+            and expected.definition.under == actual.definition.under
+            and expected.definition.must_exist == actual.definition.must_exist
+        )
     if isinstance(expected, RecordTypeRef):
         if _record_refs_are_structural_contexts(expected, actual):
             return expected.field_types.keys() == actual.field_types.keys() and all(
                 type_refs_compatible(expected.field_types[field_name], actual.field_types[field_name])
                 for field_name in expected.field_types
             )
+        if (
+            _named_type_basename(expected.name) == _named_type_basename(actual.name)
+            and expected.field_types.keys() == actual.field_types.keys()
+        ):
+            return all(
+                type_refs_compatible(expected.field_types[field_name], actual.field_types[field_name])
+                for field_name in expected.field_types
+            )
         return expected.definition == actual.definition
     if isinstance(expected, UnionTypeRef):
+        if (
+            _named_type_basename(expected.name) == _named_type_basename(actual.name)
+            and expected.variant_field_types.keys() == actual.variant_field_types.keys()
+        ):
+            return all(
+                expected.variant_field_types[variant_name].keys()
+                == actual.variant_field_types[variant_name].keys()
+                and all(
+                    type_refs_compatible(
+                        expected.variant_field_types[variant_name][field_name],
+                        actual.variant_field_types[variant_name][field_name],
+                    )
+                    for field_name in expected.variant_field_types[variant_name]
+                )
+                for variant_name in expected.variant_field_types
+            )
         return expected.definition == actual.definition
     if isinstance(expected, VariantCaseTypeRef):
+        if (
+            _named_type_basename(expected.union_name) == _named_type_basename(actual.union_name)
+            and expected.variant_name == actual.variant_name
+        ):
+            return True
         return (
             expected.union_name == actual.union_name
             and expected.variant_name == actual.variant_name
@@ -1005,6 +1062,10 @@ def _record_refs_are_structural_contexts(expected: RecordTypeRef, actual: Record
 
 def _record_type_basename(type_ref: RecordTypeRef) -> str:
     return type_ref.definition.name.rsplit("::", 1)[-1].rsplit("/", 1)[-1]
+
+
+def _named_type_basename(name: str) -> str:
+    return name.rsplit("::", 1)[-1].rsplit("/", 1)[-1]
 
 
 def substitute_type_params(type_ref: TypeRef, bindings: dict[str, TypeRef]) -> TypeRef:

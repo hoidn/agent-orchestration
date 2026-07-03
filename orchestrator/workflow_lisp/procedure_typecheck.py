@@ -48,6 +48,7 @@ from .procedures import (
     let_proc_generated_name,
     parametric_specialization_name,
     proc_ref_specialization_name,
+    procedure_type_env_for,
 )
 from .procedure_refs import (
     BoundProcArg,
@@ -133,6 +134,7 @@ def typecheck_procedure_definitions(
     procedure_name_resolver=None,
     workflow_name_resolver=None,
     proc_ref_resolution_context=None,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
     from .typecheck import typecheck_expression
     from .workflows import ExternEnvironment, ProviderExtern
@@ -141,6 +143,15 @@ def typecheck_procedure_definitions(
     externs = extern_environment or ExternEnvironment(bindings_by_name={})
     typed_procedures: list[TypedProcedureDef] = []
     for procedure_target in procedure_defs:
+        current_type_env = (
+            procedure_type_env_for(
+                procedure_target,
+                procedure_type_envs=procedure_type_envs,
+                default=type_env,
+            )
+            if isinstance(procedure_target, TypedProcedureDef)
+            else type_env
+        )
         if isinstance(procedure_target, TypedProcedureDef):
             procedure_def = procedure_target.definition
             signature = procedure_target.signature
@@ -149,7 +160,18 @@ def typecheck_procedure_definitions(
             procedure_def = procedure_target
             signature = procedure_catalog.signatures_by_name[procedure_def.name]
             specialization = None
-        provisional_match_types = _provisional_parametric_match_types(signature=signature, type_env=type_env)
+        if isinstance(procedure_target, TypedProcedureDef):
+            from .loop_state import register_all_known_carrier_types
+
+            register_all_known_carrier_types(
+                current_type_env,
+                span=procedure_def.span,
+                form_path=procedure_def.form_path,
+            )
+        provisional_match_types = _provisional_parametric_match_types(
+            signature=signature,
+            type_env=current_type_env,
+        )
         value_env = {
             name: _apply_provisional_parametric_type(type_ref, provisional_match_types)
             for name, type_ref in signature.params
@@ -157,7 +179,7 @@ def typecheck_procedure_definitions(
         proc_ref_value_env = {}
         shared_union_field_capabilities = provisional_shared_union_field_capabilities(
             where_clauses=signature.where_clauses,
-            type_env=type_env,
+            type_env=current_type_env,
         )
         value_env.update(
             {
@@ -177,18 +199,20 @@ def typecheck_procedure_definitions(
             ) or shared_union_field_capabilities
         for extern_name, binding in externs.bindings_by_name.items():
             if isinstance(binding, ProviderExtern):
-                value_env[extern_name] = type_env.resolve_type(
+                value_env[extern_name] = current_type_env.resolve_type(
                     "Provider",
                     span=procedure_def.span,
                     form_path=procedure_def.form_path,
                 )
             else:
-                value_env[extern_name] = type_env.resolve_type(
+                value_env[extern_name] = current_type_env.resolve_type(
                     "Prompt",
                     span=procedure_def.span,
                     form_path=procedure_def.form_path,
                 )
-        if isinstance(procedure_def.body, SyntaxNode):
+        if isinstance(procedure_target, TypedProcedureDef):
+            body_expr = procedure_target.typed_body.expr
+        elif isinstance(procedure_def.body, SyntaxNode):
             body_expr = elaborate_expression(
                 procedure_def.body,
                 bound_names=frozenset(value_env),
@@ -206,7 +230,7 @@ def typecheck_procedure_definitions(
             body_expr = procedure_def.body
         typed_body = typecheck_expression(
             body_expr,
-            type_env=type_env,
+            type_env=current_type_env,
             value_env=value_env,
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,

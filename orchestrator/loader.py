@@ -92,7 +92,7 @@ class WorkflowLoader:
     PRIVATE_COLLECTION_OUTPUT_TYPES = {"optional", "list", "map"}
     STRING_CONTRACT_VERSION = "2.10"
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
-    INPUT_REF_PATTERN = re.compile(r'\$\{inputs\.([A-Za-z0-9_]+)\}')
+    INPUT_REF_PATTERN = re.compile(r'\$\{inputs\.([A-Za-z0-9_-]+)\}')
     VERSION_ORDER = [
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
         "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13", "2.14",
@@ -4338,6 +4338,7 @@ class WorkflowLoader:
                             outputs[artifact_name] = self._normalize_output_contract_artifact_spec(
                                 spec,
                                 persisted=step.get('persist_artifacts_in_state', True) is not False,
+                                owner_step_name=name,
                             )
 
             output_bundle = step.get('output_bundle')
@@ -4349,6 +4350,7 @@ class WorkflowLoader:
                             outputs[artifact_name] = self._normalize_output_contract_artifact_spec(
                                 spec,
                                 persisted=step.get('persist_artifacts_in_state', True) is not False,
+                                owner_step_name=name,
                             )
 
             variant_output = step.get('variant_output')
@@ -4468,6 +4470,7 @@ class WorkflowLoader:
                         outputs[artifact_name] = self._normalize_output_contract_artifact_spec(
                             spec,
                             persisted=step.get('persist_artifacts_in_state', True) is not False,
+                            owner_step_name=name,
                         )
 
             for field_name in ('set_scalar', 'increment_scalar'):
@@ -4506,6 +4509,7 @@ class WorkflowLoader:
                         outputs[artifact_name] = self._normalize_output_contract_artifact_spec(
                             output_spec,
                             persisted=True,
+                            owner_step_name=name,
                         )
 
             artifact_map[name] = outputs
@@ -4564,7 +4568,11 @@ class WorkflowLoader:
         for output_name, spec in then_outputs.items():
             if not isinstance(output_name, str) or not isinstance(spec, dict):
                 continue
-            outputs[output_name] = self._normalize_output_contract_artifact_spec(spec, persisted=True)
+            outputs[output_name] = self._normalize_output_contract_artifact_spec(
+                spec,
+                persisted=True,
+                owner_step_name=step.get('name') if isinstance(step.get('name'), str) else None,
+            )
         return outputs
 
     def _collect_match_statement_outputs(self, step: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
@@ -4585,7 +4593,11 @@ class WorkflowLoader:
             for output_name, spec in outputs.items():
                 if not isinstance(output_name, str) or not isinstance(spec, dict):
                     continue
-                collected[output_name] = self._normalize_output_contract_artifact_spec(spec, persisted=True)
+                collected[output_name] = self._normalize_output_contract_artifact_spec(
+                    spec,
+                    persisted=True,
+                    owner_step_name=step.get('name') if isinstance(step.get('name'), str) else None,
+                )
             return collected
 
         return {}
@@ -4604,7 +4616,11 @@ class WorkflowLoader:
         for output_name, spec in outputs.items():
             if not isinstance(output_name, str) or not isinstance(spec, dict):
                 continue
-            collected[output_name] = self._normalize_output_contract_artifact_spec(spec, persisted=True)
+            collected[output_name] = self._normalize_output_contract_artifact_spec(
+                spec,
+                persisted=True,
+                owner_step_name=step.get('name') if isinstance(step.get('name'), str) else None,
+            )
         return collected
 
     def _normalize_output_contract_artifact_spec(
@@ -4612,13 +4628,38 @@ class WorkflowLoader:
         spec: Dict[str, Any],
         *,
         persisted: bool,
+        owner_step_name: str | None = None,
     ) -> Dict[str, Any]:
         """Project one output contract into structured-ref metadata."""
-        return {
+        normalized = {
             'type': spec.get('type'),
             'persisted': persisted,
             'allowed': deepcopy(spec.get('allowed')) if isinstance(spec.get('allowed'), list) else None,
         }
+        projection = spec.get('projection')
+        if (
+            owner_step_name is not None
+            and isinstance(projection, dict)
+            and projection.get('projection_class') == 'union_workflow_boundary'
+        ):
+            field_role = projection.get('field_role')
+            active_variants = projection.get('active_variants')
+            if field_role == 'discriminant':
+                normalized['variant_owner_step'] = owner_step_name
+                normalized['variant_role'] = 'discriminant'
+            elif field_role == 'shared':
+                normalized['variant_owner_step'] = owner_step_name
+                normalized['variant_role'] = 'shared'
+            elif field_role == 'variant':
+                normalized['variant_owner_step'] = owner_step_name
+                normalized['variant_role'] = 'field'
+                if (
+                    isinstance(active_variants, list)
+                    and len(active_variants) == 1
+                    and isinstance(active_variants[0], str)
+                ):
+                    normalized['variant_required'] = active_variants[0]
+        return normalized
 
     def _build_scope_non_step_result_targets(self, steps: List[Any]) -> Set[str]:
         non_step_results: Set[str] = set()

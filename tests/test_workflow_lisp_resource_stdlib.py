@@ -1368,7 +1368,7 @@ def test_lowering_finalize_selected_item_materializes_outcome_and_publishes_summ
             value["name"]
             for value in step["materialize_artifacts"]["values"]
         }
-        >= {"return__variant", "return__summary-path", "return__run-state"}
+        >= {"return__variant", "return__summary-path"}
         for step in materialize_steps
     )
     assert any(
@@ -1545,9 +1545,6 @@ def test_stdlib_finalize_selected_item_executes_promoted_route_with_runtime_nati
     backlog_item.parent.mkdir(parents=True, exist_ok=True)
     backlog_item.write_text("selected item\n", encoding="utf-8")
     (tmp_path / "docs" / "backlog" / "in_progress").mkdir(parents=True, exist_ok=True)
-    final_plan_gate_state = tmp_path / "state" / "selected" / "final-plan-gate.json"
-    final_plan_gate_state.parent.mkdir(parents=True, exist_ok=True)
-    final_plan_gate_state.write_text("{}\n", encoding="utf-8")
     ledger_path = tmp_path / "state" / "runtime" / "ledger.json"
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     ledger_path.write_text("[]\n", encoding="utf-8")
@@ -1569,14 +1566,13 @@ def test_stdlib_finalize_selected_item_executes_promoted_route_with_runtime_nati
             "selected__item-id": "item-1",
             "selected__item-path": "docs/backlog/active/item-1.md",
             "selected__is-active": True,
-            "selected__final-plan-gate-state": "state/selected/final-plan-gate.json",
         },
     )
 
     assert state["status"] == "completed"
     assert state["workflow_outputs"]["return__variant"] == "CONTINUE"
     assert state["workflow_outputs"]["return__summary-path"] == "artifacts/work/implementation-execution.md"
-    assert state["workflow_outputs"]["return__run-state"] == "state/selected/final-plan-gate.json"
+    assert "return__run-state" not in state["workflow_outputs"]
     assert (tmp_path / "artifacts" / "work" / "implementation-execution.md").is_file()
     resource_state_paths = sorted(tmp_path.rglob("*selected-item-outcome-state.json"))
     transition_audit_paths = sorted(tmp_path.rglob("*record-selected-item-outcome-audit.jsonl"))

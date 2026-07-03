@@ -234,7 +234,18 @@ def workflow_managed_write_root_inputs(workflow_or_bundle: Any) -> tuple[str, ..
     bundle = workflow_bundle(workflow_or_bundle)
     if bundle is None:
         return ()
-    allocation_inputs = tuple(
+    runtime_context_inputs = {
+        name
+        for binding in bundle.provenance.private_exec_context_bindings
+        for name in binding.generated_input_names
+        if isinstance(name, str)
+    }
+    managed_inputs = {
+        name
+        for name in bundle.provenance.managed_write_root_inputs
+        if isinstance(name, str) and name and name not in runtime_context_inputs
+    }
+    allocation_inputs = {
         allocation.generated_input_name
         for allocation in bundle.provenance.generated_path_allocations
         if allocation.semantic_role
@@ -248,11 +259,10 @@ def workflow_managed_write_root_inputs(workflow_or_bundle: Any) -> tuple[str, ..
         }
         and isinstance(allocation.generated_input_name, str)
         and allocation.generated_input_name
-    )
-    if allocation_inputs:
-        return tuple(sorted(set(allocation_inputs)))
-    if bundle.provenance.managed_write_root_inputs:
-        return bundle.provenance.managed_write_root_inputs
+    }
+    managed_inputs.update(allocation_inputs)
+    if managed_inputs:
+        return tuple(sorted(managed_inputs))
     return tuple(
         name
         for name in bundle.surface.inputs

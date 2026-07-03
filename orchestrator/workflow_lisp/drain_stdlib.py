@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class BacklogDrainSpec:
-    """Authored arguments for the `backlog-drain` stdlib form."""
+    """Authored arguments for backlog-drain callable-boundary forms."""
 
     drain_name: str
     ctx_expr: "ExprNode"
@@ -20,3 +20,4 @@ class BacklogDrainSpec:
     gap_drafter_name: str
     providers_expr: "ExprNode | None"
     max_iterations_expr: "ExprNode"
+    preserve_owner_boundary: bool

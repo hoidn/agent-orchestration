@@ -44,6 +44,7 @@ from .procedures import (
     TypedProcedureDef,
     parametric_specialization_name,
     proc_ref_specialization_name as proc_ref_call_specialization_name,
+    procedure_type_env_for,
 )
 from .spans import SourceSpan
 from .type_env import (
@@ -792,6 +793,7 @@ def specialize_typed_procedure(
     workflow_path: Path,
     type_env: FrontendTypeEnvironment,
     typed_procedures_by_name: Mapping[str, TypedProcedureDef],
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
     specialized_name: str | None = None,
     origin_span=None,
     origin_form_path: tuple[str, ...] | None = None,
@@ -925,6 +927,7 @@ def specialize_typed_procedure(
             specialized,
             typed_procedures_by_name=request.typed_procedures_by_name,
             type_env=type_env,
+            procedure_type_envs=procedure_type_envs,
         )
         requested = request.procedure.signature.requested_lowering_mode
         if requested == ProcedureLoweringMode.PRIVATE_WORKFLOW:
@@ -962,6 +965,7 @@ def bound_proc_ref_request(
     procedure_catalog: ProcedureCatalog,
     proc_ref_env: Mapping[str, ResolvedProcRefValue],
     type_env: FrontendTypeEnvironment,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
     origin_span=None,
     origin_form_path: tuple[str, ...] | None = None,
 ) -> TypedProcedureDef | None:
@@ -990,8 +994,13 @@ def bound_proc_ref_request(
         value_bindings=value_bindings,
         remaining_params=resolved.residual_params,
         workflow_path=Path(base_procedure.definition.span.start.path),
-        type_env=type_env,
+        type_env=procedure_type_env_for(
+            base_procedure,
+            procedure_type_envs=procedure_type_envs,
+            default=type_env,
+        ),
         typed_procedures_by_name=typed_procedures_by_name,
+        procedure_type_envs=procedure_type_envs,
         specialized_name=resolved.call_target_name,
         origin_span=origin_span,
         origin_form_path=origin_form_path,
@@ -1004,6 +1013,7 @@ def discover_proc_ref_specializations(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     procedure_catalog: ProcedureCatalog,
     type_env: FrontendTypeEnvironment,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
     from .expressions import LetStarExpr, ProcedureCallExpr
 
@@ -1030,6 +1040,7 @@ def discover_proc_ref_specializations(
                         procedure_catalog=procedure_catalog,
                         proc_ref_env=proc_ref_env,
                         type_env=type_env,
+                        procedure_type_envs=procedure_type_envs,
                         origin_span=node.span,
                         origin_form_path=node.form_path,
                     )
@@ -1066,8 +1077,13 @@ def discover_proc_ref_specializations(
                                         if param_name not in proc_ref_bindings
                                     ),
                                     workflow_path=Path(base_procedure.definition.span.start.path),
-                                    type_env=type_env,
+                                    type_env=procedure_type_env_for(
+                                        base_procedure,
+                                        procedure_type_envs=procedure_type_envs,
+                                        default=type_env,
+                                    ),
                                     typed_procedures_by_name=typed_procedures_by_name,
+                                    procedure_type_envs=procedure_type_envs,
                                     specialized_name=proc_ref_call_specialization_name(
                                         signature.name,
                                         proc_ref_bindings,

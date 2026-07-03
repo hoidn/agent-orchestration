@@ -4418,6 +4418,95 @@ def test_compile_stage3_entrypoint_promoted_entry_emits_hidden_context_call_bind
     }
 
 
+def test_compile_stage3_entrypoint_imported_union_call_preserves_variant_proof_artifacts(
+    tmp_path: Path,
+) -> None:
+    package_dir = tmp_path / "proof_pkg"
+    package_dir.mkdir(parents=True)
+    (package_dir / "child.orc").write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule proof_pkg/child)",
+                "  (export ChildResult make-result)",
+                "  (defunion ChildResult",
+                "    (APPROVED (summary String))",
+                "    (BLOCKED (reason String)))",
+                "  (defworkflow make-result",
+                "    ((allow Bool))",
+                "    -> ChildResult",
+                "    (if allow",
+                "      (variant ChildResult APPROVED :summary \"ok\")",
+                "      (variant ChildResult BLOCKED :reason \"no\")))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    entry_path = package_dir / "entry.orc"
+    entry_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule proof_pkg/entry)",
+                "  (import proof_pkg/child :only (ChildResult make-result))",
+                "  (export EntryResult finish-approved finish-blocked entry)",
+                "  (defrecord EntryResult",
+                "    (status String))",
+                "  (defworkflow finish-approved",
+                "    ((summary String))",
+                "    -> EntryResult",
+                "    (record EntryResult :status summary))",
+                "  (defworkflow finish-blocked",
+                "    ((reason String))",
+                "    -> EntryResult",
+                "    (record EntryResult :status reason))",
+                "  (defworkflow entry",
+                "    ((allow Bool))",
+                "    -> EntryResult",
+                "    (let* ((result",
+                "             (call make-result :allow allow)))",
+                "      (match result",
+                "        ((APPROVED approved)",
+                "         (call finish-approved :summary approved.summary))",
+                "        ((BLOCKED blocked)",
+                "         (call finish-blocked :reason blocked.reason)))))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        entry_path,
+        source_roots=(tmp_path,),
+        validate_shared=True,
+        workspace_root=tmp_path,
+        entry_workflow="proof_pkg/entry::entry",
+    ).entry_result
+
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "proof_pkg/entry::entry"
+    )
+    steps = lowered.authored_mapping["steps"]
+    call_step = next(step for step in steps if step.get("call") == "proof_pkg/child::make-result")
+    match_step = next(step for step in steps if "match" in step)
+
+    assert call_step["call"] == "proof_pkg/child::make-result"
+    assert match_step["match"]["ref"] == (
+        f"root.steps.{call_step['name']}.artifacts.return__variant"
+    )
+    assert tuple(match_step["match"]["cases"]) == ("APPROVED", "BLOCKED")
+
+
 def test_compile_stage3_entrypoint_item_ctx_child_phase_reuse_emits_derived_phase_context_call_bindings(
     tmp_path: Path,
 ) -> None:

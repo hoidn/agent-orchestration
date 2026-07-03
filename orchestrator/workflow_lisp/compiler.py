@@ -56,6 +56,7 @@ from .diagnostics import (
 from .expression_traversal import iter_child_exprs, walk_expr
 from .family_profiles import WorkflowFamilyProfileCatalog
 from .lints import LINT_PROFILE_DEFAULT, required_lint_diagnostic
+from .loop_state import reset_loop_state_metadata
 from .phase_family_boundary import (
     classify_phase_family_boundary,
     is_structural_pure_projection_effect_summary,
@@ -119,6 +120,7 @@ from .procedures import (
     build_procedure_catalog,
     elaborate_procedure_definitions,
     proc_ref_specialization_name as proc_ref_call_specialization_name,
+    procedure_type_env_for,
     validate_procedure_effects,
     with_call_graph,
 )
@@ -601,6 +603,7 @@ def compile_stage3_entrypoint(
     if normalized_lowering_route in {LoweringRoute.WCC_M2, LoweringRoute.WCC_M3}:
         _raise_wcc_module_graph_unsupported(path, normalized_lowering_route)
 
+    reset_loop_state_metadata()
     compile_result, results = _run_stage3_entrypoint_validation_pipeline(
         path,
         source_roots=_effective_source_roots(path, source_roots=source_roots),
@@ -1325,7 +1328,9 @@ def _lower_workflows_for_route(
     lowering_route: LoweringRoute,
     typed_workflows: tuple[TypedWorkflowDef, ...],
     typed_procedures: tuple[TypedProcedureDef, ...],
+    available_workflows_by_name: Mapping[str, TypedWorkflowDef] | None = None,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment],
+    workflow_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
     procedure_catalog: ProcedureCatalog,
     workflow_path: Path,
     workflow_catalog,
@@ -1339,7 +1344,9 @@ def _lower_workflows_for_route(
         return lower_wcc_m1_workflow_definitions(
             typed_workflows,
             typed_procedures=typed_procedures,
+            available_workflows_by_name=available_workflows_by_name,
             procedure_type_envs=procedure_type_envs,
+            workflow_type_envs=workflow_type_envs,
             procedure_catalog=procedure_catalog,
             workflow_path=workflow_path,
             workflow_catalog=workflow_catalog,
@@ -1353,7 +1360,9 @@ def _lower_workflows_for_route(
         return lower_wcc_m2_workflow_definitions(
             typed_workflows,
             typed_procedures=typed_procedures,
+            available_workflows_by_name=available_workflows_by_name,
             procedure_type_envs=procedure_type_envs,
+            workflow_type_envs=workflow_type_envs,
             procedure_catalog=procedure_catalog,
             workflow_path=workflow_path,
             workflow_catalog=workflow_catalog,
@@ -1367,7 +1376,9 @@ def _lower_workflows_for_route(
         return lower_wcc_m3_workflow_definitions(
             typed_workflows,
             typed_procedures=typed_procedures,
+            available_workflows_by_name=available_workflows_by_name,
             procedure_type_envs=procedure_type_envs,
+            workflow_type_envs=workflow_type_envs,
             procedure_catalog=procedure_catalog,
             workflow_path=workflow_path,
             workflow_catalog=workflow_catalog,
@@ -1385,7 +1396,9 @@ def _lower_workflows_for_route(
         return lower_wcc_m4_workflow_definitions(
             typed_workflows,
             typed_procedures=typed_procedures,
+            available_workflows_by_name=available_workflows_by_name,
             procedure_type_envs=procedure_type_envs,
+            workflow_type_envs=workflow_type_envs,
             procedure_catalog=procedure_catalog,
             workflow_path=workflow_path,
             workflow_catalog=workflow_catalog,
@@ -1586,10 +1599,12 @@ def _run_stage3_validation_pipeline(
             lowering_route=normalized_lowering_route,
             typed_workflows=state.typed_workflows,
             typed_procedures=state.typed_procedures,
+            available_workflows_by_name=None,
             procedure_type_envs={
                 procedure.definition.name: state.type_env
                 for procedure in state.typed_procedures
             },
+            workflow_type_envs=None,
             procedure_catalog=state.procedure_catalog,
             workflow_path=path,
             workflow_catalog=state.workflow_catalog,
@@ -2035,7 +2050,9 @@ def _compile_stage3_graph(
     visible_procedure_names_by_module: dict[str, frozenset[str]] = {}
     typed_functions_by_name: dict[str, TypedFunctionDef] = {}
     typed_procedures_by_name: dict[str, TypedProcedureDef] = {}
+    typed_workflows_by_name: dict[str, TypedWorkflowDef] = {}
     procedure_type_envs_by_name: dict[str, FrontendTypeEnvironment] = {}
+    workflow_type_envs_by_name: dict[str, FrontendTypeEnvironment] = {}
     procedure_effects_by_name: dict[str, EffectSummary] = {}
     workflow_effects_by_name: dict[str, EffectSummary] = {}
     exported_validated_bundles_by_name: dict[str, LoadedWorkflowBundle] = {}
@@ -2277,6 +2294,7 @@ def _compile_stage3_graph(
             procedure_name_resolver=local_procedure_resolver,
             workflow_name_resolver=local_workflow_resolver,
             visible_typed_procedures_by_name=typed_procedures_by_name,
+            visible_procedure_type_envs_by_name=procedure_type_envs_by_name,
             proc_ref_resolution_context=ProcRefResolutionContext(
                 import_scope=import_scope,
                 local_raw_names=frozenset(procedure.name for procedure in raw_procedure_defs),
@@ -2312,22 +2330,39 @@ def _compile_stage3_graph(
             typed_procedures=typed_procedures,
             workflow_catalog=workflow_catalog,
         )
+        lowering_workflow_catalog = workflow_catalog
+        if typed_workflows_by_name:
+            lowering_workflow_catalog = replace(
+                workflow_catalog,
+                signatures_by_name={
+                    **{
+                        workflow_name: workflow.signature
+                        for workflow_name, workflow in typed_workflows_by_name.items()
+                    },
+                    **dict(workflow_catalog.signatures_by_name),
+                },
+            )
         combined_typed_procedures = {
             **typed_procedures_by_name,
             **{procedure.definition.name: procedure for procedure in typed_procedures},
         }
-        combined_procedure_type_envs = {
-            **procedure_type_envs_by_name,
-            **{procedure.definition.name: type_env for procedure in typed_procedures},
-        }
+        combined_procedure_type_envs = dict(procedure_type_envs_by_name)
+        for procedure in typed_procedures:
+            combined_procedure_type_envs[procedure.definition.name] = procedure_type_env_for(
+                procedure,
+                procedure_type_envs=combined_procedure_type_envs,
+                default=type_env,
+            )
         lowered_workflows = _lower_workflows_for_route(
             lowering_route=normalized_lowering_route,
             typed_workflows=typed_workflows,
             typed_procedures=tuple(combined_typed_procedures.values()),
+            available_workflows_by_name=typed_workflows_by_name,
             procedure_type_envs=combined_procedure_type_envs,
+            workflow_type_envs=workflow_type_envs_by_name,
             procedure_catalog=procedure_catalog,
             workflow_path=module_source.path,
-            workflow_catalog=workflow_catalog,
+            workflow_catalog=lowering_workflow_catalog,
             imported_workflow_bundles=effective_imported_bundles,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
@@ -2410,10 +2445,15 @@ def _compile_stage3_graph(
                 module_name=module_name,
                 exported_type_refs_by_module=exported_type_refs_by_module,
             )
-            procedure_type_envs_by_name[procedure.definition.name] = type_env
+            procedure_type_envs_by_name[procedure.definition.name] = combined_procedure_type_envs[
+                procedure.definition.name
+            ]
             procedure_effects_by_name[procedure.definition.name] = procedure.transitive_effect_summary
         for function in typed_functions:
             typed_functions_by_name[function.definition.name] = function
+        for workflow in typed_workflows:
+            typed_workflows_by_name[workflow.definition.name] = workflow
+            workflow_type_envs_by_name[workflow.definition.name] = type_env
         for workflow in typed_workflows:
             workflow_effects_by_name[workflow.definition.name] = workflow.effect_summary
         if validated_exports:
@@ -3815,6 +3855,7 @@ def _typecheck_procedure_definitions(
     procedure_name_resolver=None,
     workflow_name_resolver=None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
     from .procedure_typecheck import typecheck_procedure_definitions
 
@@ -3832,6 +3873,7 @@ def _typecheck_procedure_definitions(
         procedure_name_resolver=procedure_name_resolver,
         workflow_name_resolver=workflow_name_resolver,
         proc_ref_resolution_context=proc_ref_resolution_context,
+        procedure_type_envs=procedure_type_envs,
     )
 
 
@@ -3872,12 +3914,14 @@ def _discover_proc_ref_specializations(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     procedure_catalog: ProcedureCatalog,
     type_env: FrontendTypeEnvironment,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
     return _discover_proc_ref_specializations_owner(
         typed_procedures=typed_procedures,
         typed_workflows=typed_workflows,
         procedure_catalog=procedure_catalog,
         type_env=type_env,
+        procedure_type_envs=procedure_type_envs,
     )
 
 
@@ -3898,6 +3942,7 @@ def _infer_stage3_effect_summaries(
     procedure_name_resolver=None,
     workflow_name_resolver=None,
     visible_typed_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
+    visible_procedure_type_envs_by_name: Mapping[str, FrontendTypeEnvironment] | None = None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     reusable_state_producer_context: Mapping[str, object] | None = None,
     selected_entry_workflow_name: str | None = None,
@@ -3916,6 +3961,7 @@ def _infer_stage3_effect_summaries(
         procedure_effects_by_name = dict(procedure_effects_by_name or {})
         workflow_effects_by_name = dict(workflow_effects_by_name or {})
         visible_typed_procedures_by_name = dict(visible_typed_procedures_by_name or {})
+        procedure_type_envs_by_name = dict(visible_procedure_type_envs_by_name or {})
         procedure_targets: dict[str, ProcedureDef | TypedProcedureDef] = {
             procedure_def.name: procedure_def for procedure_def in procedure_defs
         }
@@ -3938,11 +3984,18 @@ def _infer_stage3_effect_summaries(
                 procedure_name_resolver=procedure_name_resolver,
                 workflow_name_resolver=workflow_name_resolver,
                 proc_ref_resolution_context=proc_ref_resolution_context,
+                procedure_type_envs=procedure_type_envs_by_name,
             )
             generated_from_procedures = {
                 procedure.definition.name: procedure
                 for procedure in consume_generated_local_procedures()
             }
+            for procedure in typed_procedures:
+                procedure_type_envs_by_name[procedure.definition.name] = procedure_type_env_for(
+                    procedure,
+                    procedure_type_envs=procedure_type_envs_by_name,
+                    default=type_env,
+                )
             pending_parametric_from_procedures = consume_parametric_specialization_requests()
             if generated_from_procedures:
                 typed_procedures = typed_procedures + tuple(
@@ -3950,6 +4003,15 @@ def _infer_stage3_effect_summaries(
                     for name, procedure in generated_from_procedures.items()
                     if name not in {typed.definition.name for typed in typed_procedures}
                 )
+                for name, procedure in generated_from_procedures.items():
+                    procedure_type_envs_by_name.setdefault(
+                        name,
+                        procedure_type_env_for(
+                            procedure,
+                            procedure_type_envs=procedure_type_envs_by_name,
+                            default=type_env,
+                        ),
+                    )
             if pending_parametric_from_procedures:
                 added_specialization = False
                 for request in pending_parametric_from_procedures:
@@ -3959,10 +4021,16 @@ def _infer_stage3_effect_summaries(
                         visible_typed_procedures_by_name=visible_typed_procedures_by_name,
                         typed_procedures=typed_procedures,
                         type_env=type_env,
+                        procedure_type_envs=procedure_type_envs_by_name,
                     )
                     if specialized is None:
                         continue
                     procedure_targets[request.specialized_name] = specialized
+                    procedure_type_envs_by_name[request.specialized_name] = procedure_type_env_for(
+                        specialized,
+                        procedure_type_envs=procedure_type_envs_by_name,
+                        default=type_env,
+                    )
                     added_specialization = True
                 if added_specialization:
                     continue
@@ -3972,12 +4040,18 @@ def _infer_stage3_effect_summaries(
                 typed_workflows=(),
                 procedure_catalog=procedure_catalog,
                 type_env=type_env,
+                procedure_type_envs=procedure_type_envs_by_name,
             )
             added_specialization = False
             for specialized in discovered_from_procedures:
                 if specialized.definition.name in procedure_targets:
                     continue
                 procedure_targets[specialized.definition.name] = specialized
+                procedure_type_envs_by_name[specialized.definition.name] = procedure_type_env_for(
+                    specialized,
+                    procedure_type_envs=procedure_type_envs_by_name,
+                    default=type_env,
+                )
                 added_specialization = True
             if added_specialization:
                 continue
@@ -4019,6 +4093,15 @@ def _infer_stage3_effect_summaries(
                     for name, procedure in generated_from_workflows.items()
                     if name not in typed_procedures_by_name
                 )
+                for name, procedure in generated_from_workflows.items():
+                    procedure_type_envs_by_name.setdefault(
+                        name,
+                        procedure_type_env_for(
+                            procedure,
+                            procedure_type_envs=procedure_type_envs_by_name,
+                            default=type_env,
+                        ),
+                    )
                 procedure_catalog = _procedure_catalog_with_specializations(procedure_catalog, typed_procedures)
             if pending_parametric_from_workflows:
                 added_specialization = False
@@ -4029,10 +4112,16 @@ def _infer_stage3_effect_summaries(
                         visible_typed_procedures_by_name=visible_typed_procedures_by_name,
                         typed_procedures=typed_procedures,
                         type_env=type_env,
+                        procedure_type_envs=procedure_type_envs_by_name,
                     )
                     if specialized is None:
                         continue
                     procedure_targets[request.specialized_name] = specialized
+                    procedure_type_envs_by_name[request.specialized_name] = procedure_type_env_for(
+                        specialized,
+                        procedure_type_envs=procedure_type_envs_by_name,
+                        default=type_env,
+                    )
                     added_specialization = True
                 if added_specialization:
                     continue
@@ -4041,12 +4130,18 @@ def _infer_stage3_effect_summaries(
                 typed_workflows=typed_workflows,
                 procedure_catalog=procedure_catalog,
                 type_env=type_env,
+                procedure_type_envs=procedure_type_envs_by_name,
             )
             added_specialization = False
             for specialized in discovered_from_workflows:
                 if specialized.definition.name in procedure_targets:
                     continue
                 procedure_targets[specialized.definition.name] = specialized
+                procedure_type_envs_by_name[specialized.definition.name] = procedure_type_env_for(
+                    specialized,
+                    procedure_type_envs=procedure_type_envs_by_name,
+                    default=type_env,
+                )
                 added_specialization = True
             if added_specialization:
                 continue
@@ -4106,7 +4201,6 @@ def _infer_stage3_effect_summaries(
     finally:
         reset_generated_local_procedure_state()
         reset_parametric_specialization_requests()
-
 
 def _validate_procedure_effects_and_cycles(
     typed_procedures: tuple[TypedProcedureDef, ...],

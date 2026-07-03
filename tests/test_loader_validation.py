@@ -143,6 +143,45 @@ def _compile_nested_implementation_phase_workflow(workspace: Path) -> dict:
     return lowered.authored_mapping
 
 
+def test_analyze_reusable_write_roots_accepts_hyphenated_relpath_input_refs(tmp_path: Path) -> None:
+    loader = WorkflowLoader(tmp_path)
+    workflow = {
+        "name": "hyphenated-hidden-input",
+        "version": "2.14",
+        "inputs": {
+            "phase-ctx__state-root": {
+                "kind": "relpath",
+                "type": "relpath",
+                "under": "state",
+                "must_exist_target": False,
+            }
+        },
+        "steps": [
+            {
+                "name": "WriteBundle",
+                "command": ["python", "-c", "print('ok')"],
+                "output_bundle": {
+                    "path": "${inputs.phase-ctx__state-root}/phases/plan/state.json",
+                    "fields": [
+                        {
+                            "name": "plan_path",
+                            "json_pointer": "/plan_path",
+                            "type": "relpath",
+                            "under": "docs/plans",
+                            "must_exist_target": True,
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    managed_inputs, errors = loader._analyze_reusable_write_roots(workflow)
+
+    assert managed_inputs == {"phase-ctx__state-root"}
+    assert errors == []
+
+
 class TestLoaderValidation:
     """Test strict DSL validation in the loader."""
 

@@ -2500,8 +2500,7 @@ class WorkflowExecutor:
             if allocation.semantic_role == GeneratedPathSemanticRole.ENTRYPOINT_MANAGED_WRITE_ROOT
             and isinstance(allocation.generated_input_name, str)
         ]
-        if allocations:
-            return {
+        bindings = {
                 allocation.generated_input_name: render_generated_path_template(
                     allocation,
                     run_id=self.state_manager.run_id,
@@ -2516,11 +2515,13 @@ class WorkflowExecutor:
             / self.state_manager.run_id
             / workflow_root
         )
-        return {
+        bindings.update({
             input_name: (base / f"{input_name}.json").as_posix()
             for input_name in workflow_managed_write_root_inputs(self.loaded_bundle)
             if isinstance(input_name, str)
-        }
+            and input_name not in bindings
+        })
+        return bindings
 
     def _entry_runtime_context_bindings(self) -> Dict[str, Any]:
         """Return deterministic runtime-owned hidden context bindings for entry workflows."""
@@ -8314,10 +8315,9 @@ class WorkflowExecutor:
             return None
         step_result = steps.get(target.step_name)
         artifacts = step_result.get("artifacts") if isinstance(step_result, dict) else None
-        selected_variant = (
-            artifacts.get(discriminant_name)
-            if isinstance(artifacts, dict) and isinstance(discriminant_name, str)
-            else None
+        selected_variant = self._selected_variant_from_artifacts(
+            artifacts,
+            discriminant_name,
         )
         if selected_variant == required_variant:
             return None
@@ -8831,10 +8831,9 @@ class WorkflowExecutor:
             discriminant = variant_contract.get("discriminant") if isinstance(variant_contract, dict) else None
             discriminant_name = discriminant.get("name") if isinstance(discriminant, dict) else None
         artifacts = step_result.get("artifacts") if isinstance(step_result, dict) else None
-        selected_variant = (
-            artifacts.get(discriminant_name)
-            if isinstance(artifacts, dict) and isinstance(discriminant_name, str)
-            else None
+        selected_variant = self._selected_variant_from_artifacts(
+            artifacts,
+            discriminant_name,
         )
         if selected_variant == required_variant:
             return None
@@ -8847,6 +8846,30 @@ class WorkflowExecutor:
                 "selected_variant": selected_variant,
             },
         )
+
+    @staticmethod
+    def _selected_variant_from_artifacts(
+        artifacts: Any,
+        discriminant_name: Optional[str],
+    ) -> Optional[str]:
+        if not isinstance(artifacts, dict):
+            return None
+        if not isinstance(discriminant_name, str):
+            for fallback_name in ("return__variant", "variant"):
+                selected_variant = artifacts.get(fallback_name)
+                if isinstance(selected_variant, str):
+                    return selected_variant
+            return None
+        selected_variant = artifacts.get(discriminant_name)
+        if isinstance(selected_variant, str):
+            return selected_variant
+        if discriminant_name == "return__variant":
+            selected_variant = artifacts.get("variant")
+            return selected_variant if isinstance(selected_variant, str) else None
+        if discriminant_name == "variant":
+            selected_variant = artifacts.get("return__variant")
+            return selected_variant if isinstance(selected_variant, str) else None
+        return None
 
     def _execute_materialize_artifacts(
         self,
@@ -9561,6 +9584,16 @@ class WorkflowExecutor:
             raw_path = resolved_output_bundle.get("path")
             if isinstance(raw_path, str) and raw_path:
                 bundle_path = (self.workspace / raw_path).resolve()
+        resolved_bindings, binding_error = self._resolve_pure_projection_bindings(
+            binding_refs,
+            state,
+            scope=scope,
+        )
+        if binding_error is not None:
+            return binding_error
+        bindings_digest = (
+            f"sha256:{sha256(canonical_json_for_pure_value(resolved_bindings).encode('utf-8')).hexdigest()}"
+        )
         if bundle_path is not None:
             bundle_parent_error = self._prepare_runtime_output_bundle_parent(resolved_output_bundle)
             if bundle_parent_error is not None:
@@ -9569,6 +9602,7 @@ class WorkflowExecutor:
                 bundle_path=bundle_path,
                 payload=payload,
                 payload_digest=payload_digest,
+                bindings_digest=bindings_digest,
             )
             if reuse_error is not None:
                 return reuse_error
@@ -9590,13 +9624,6 @@ class WorkflowExecutor:
                     "artifacts": artifacts,
                     "debug": {"pure_projection": {"reused_bundle": True}},
                 }
-        resolved_bindings, binding_error = self._resolve_pure_projection_bindings(
-            binding_refs,
-            state,
-            scope=scope,
-        )
-        if binding_error is not None:
-            return binding_error
         try:
             result_value = evaluate_pure_expr(payload, resolved_bindings=resolved_bindings)
             artifacts = self._pure_projection_artifacts(
@@ -9629,6 +9656,7 @@ class WorkflowExecutor:
             bundle_record = {
                 "pure_expr_schema_version": payload.get("pure_expr_schema_version"),
                 "payload_digest": payload_digest,
+                "bindings_digest": bindings_digest,
                 "result": result_value,
             }
             self._atomic_write_text(bundle_path, canonical_json_for_pure_value(bundle_record))
@@ -10183,6 +10211,7 @@ class WorkflowExecutor:
         bundle_path: Path,
         payload: Mapping[str, Any],
         payload_digest: str,
+        bindings_digest: str,
     ) -> tuple[Any | None, Optional[Dict[str, Any]]]:
         if not bundle_path.exists():
             return None, None
@@ -10212,6 +10241,8 @@ class WorkflowExecutor:
                 "Pure projection resume bundle payload digest does not match the current payload",
                 context={"path": str(bundle_path)},
             )
+        if bundle_record.get("bindings_digest") != bindings_digest:
+            return None, None
         return bundle_record.get("result"), None
 
     def _pure_projection_artifacts(

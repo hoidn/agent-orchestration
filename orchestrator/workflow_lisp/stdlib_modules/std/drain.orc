@@ -16,6 +16,7 @@
           blocked-drain-result-proc
           completed-drain-result-proc
           finalize-drain-terminal
+          consume-drain-terminal-effects
           backlog-drain)
   (defrecord SelectionPayload
     (item-id String)
@@ -23,18 +24,15 @@
   (defrecord GapPayload
     (gap-id String))
   (defunion SelectionResult
-    (EMPTY
-      (run-state StateExisting))
+    (EMPTY)
     (GAP
       (gap GapPayload))
     (SELECTED
       (selection SelectionPayload))
     (BLOCKED
-      (reason String)
-      (run-state StateExisting)))
+      (reason String)))
   (defunion GapResult
-    (CONTINUE
-      (run-state StateExisting))
+    (CONTINUE)
     (BLOCKED
       (progress-report-path WorkReport)
       (blocker-class BlockerClass)))
@@ -78,35 +76,30 @@
   (defrecord DrainOutcomeState
     (variant String)
     (items_processed Int)
-    (run_state StateExisting)
     (progress_report_path WorkReport)
     (blocker_class BlockerClass)
     (has_blocker Bool))
   (defrecord DrainOutcomeRequest
     (variant String)
     (items_processed Int)
-    (run_state StateExisting)
     (progress_report_path WorkReport)
     (blocker_class BlockerClass)
     (has_blocker Bool))
   (defrecord DrainOutcomeResult
     (variant String)
     (items_processed Int)
-    (run_state StateExisting)
     (progress_report_path WorkReport)
     (blocker_class BlockerClass)
     (has_blocker Bool))
   (defrecord DrainOutcomeAudit
     (variant String)
     (items_processed Int)
-    (run_state StateExisting)
     (progress_report_path WorkReport)
     (blocker_class BlockerClass)
     (has_blocker Bool))
   (defrecord DrainSummaryValue
     (variant String)
     (items_processed Int)
-    (run_state StateExisting)
     (progress_report_path WorkReport)
     (blocker_class BlockerClass)
     (has_blocker Bool))
@@ -120,23 +113,20 @@
     :preconditions ((!= request.variant ""))
     :updates ((set-field variant request.variant)
               (set-field items_processed request.items_processed)
-              (set-field run_state request.run_state)
               (set-field progress_report_path request.progress_report_path)
               (set-field blocker_class request.blocker_class)
               (set-field has_blocker request.has_blocker))
-    :write-set (variant items_processed run_state progress_report_path blocker_class has_blocker)
-    :idempotency-fields (variant items_processed run_state progress_report_path blocker_class has_blocker)
+    :write-set (variant items_processed progress_report_path blocker_class has_blocker)
+    :idempotency-fields (variant items_processed progress_report_path blocker_class has_blocker)
     :result (record std/drain/DrainOutcomeResult
       :variant request.variant
       :items_processed request.items_processed
-      :run_state request.run_state
       :progress_report_path request.progress_report_path
       :blocker_class request.blocker_class
       :has_blocker request.has_blocker)
     :audit (record std/drain/DrainOutcomeAudit
       :variant request.variant
       :items_processed request.items_processed
-      :run_state request.run_state
       :progress_report_path request.progress_report_path
       :blocker_class request.blocker_class
       :has_blocker request.has_blocker)
@@ -147,239 +137,167 @@
      (run-state StateExisting)
      (summary-target WorkReport))
     -> DrainResult
-    :effects ((uses-command apply_resource_transition)
-              (writes drain-summary))
+    :effects ()
     :lowering inline
-    (let* ((outcome
-             (resource-transition
-               :transition record-drain-outcome
-               :resource drain-run-state
-               :request (record std/drain/DrainOutcomeRequest
-                          :variant "EMPTY"
-                          :items_processed items-processed
-                          :run_state run-state
-                          :progress_report_path summary-target
-                          :blocker_class std/resource/BlockerClass.missing_resource
-                          :has_blocker false)))
-           (summary-path
-             (materialize-view drain-summary
-               :value (record std/drain/DrainSummaryValue
-                        :variant outcome.variant
-                        :items_processed outcome.items_processed
-                        :run_state outcome.run_state
-                        :progress_report_path outcome.progress_report_path
-                        :blocker_class outcome.blocker_class
-                        :has_blocker outcome.has_blocker)
-               :renderer canonical-json
-               :renderer-version 1
-               :target summary-target
-               :returns WorkReport)))
-      (variant DrainResult EMPTY
-        :run-state run-state)))
+    (variant DrainResult EMPTY
+      :run-state run-state))
   (defproc blocked-drain-result-proc
     ((items-processed Int)
      (run-state StateExisting)
      (summary-target WorkReport)
      (blocker-class BlockerClass))
     -> DrainResult
-    :effects ((uses-command apply_resource_transition)
-              (writes drain-summary))
+    :effects ()
     :lowering inline
-    (let* ((outcome
-             (resource-transition
-               :transition record-drain-outcome
-               :resource drain-run-state
-               :request (record std/drain/DrainOutcomeRequest
-                          :variant "BLOCKED"
-                          :items_processed items-processed
-                          :run_state run-state
-                          :progress_report_path summary-target
-                          :blocker_class blocker-class
-                          :has_blocker true)))
-           (summary-path
-             (materialize-view drain-summary
-               :value (record std/drain/DrainSummaryValue
-                        :variant outcome.variant
-                        :items_processed outcome.items_processed
-                        :run_state outcome.run_state
-                        :progress_report_path outcome.progress_report_path
-                        :blocker_class outcome.blocker_class
-                        :has_blocker outcome.has_blocker)
-               :renderer canonical-json
-               :renderer-version 1
-               :target summary-target
-               :returns WorkReport)))
-      (variant DrainResult BLOCKED
-        :progress-report-path summary-path
-        :blocker-class blocker-class)))
+    (variant DrainResult BLOCKED
+      :progress-report-path summary-target
+      :blocker-class blocker-class))
   (defproc completed-drain-result-proc
     ((items-processed Int)
      (run-state StateExisting)
      (summary-target WorkReport))
     -> DrainResult
-    :effects ((uses-command apply_resource_transition)
-              (writes drain-summary))
+    :effects ()
     :lowering inline
-    (let* ((outcome
-             (resource-transition
-               :transition record-drain-outcome
-               :resource drain-run-state
-               :request (record std/drain/DrainOutcomeRequest
-                          :variant "COMPLETED"
-                          :items_processed items-processed
-                          :run_state run-state
-                          :progress_report_path summary-target
-                          :blocker_class std/resource/BlockerClass.missing_resource
-                          :has_blocker false)))
-           (summary-path
-             (materialize-view drain-summary
-               :value (record std/drain/DrainSummaryValue
-                        :variant outcome.variant
-                        :items_processed outcome.items_processed
-                        :run_state outcome.run_state
-                        :progress_report_path outcome.progress_report_path
-                        :blocker_class outcome.blocker_class
-                        :has_blocker outcome.has_blocker)
-               :renderer canonical-json
-               :renderer-version 1
-               :target summary-target
-               :returns WorkReport)))
-      (variant DrainResult COMPLETED
-        :items-processed items-processed
-        :run-state run-state)))
+    (variant DrainResult COMPLETED
+      :items-processed items-processed
+      :run-state run-state))
   (defproc finalize-drain-terminal
     ((terminal DrainLoopTerminal))
     -> DrainResult
+    :effects ()
+    :lowering inline
+    (match terminal
+      ((EMPTY empty)
+       (empty-drain-result-proc
+         empty.items_processed
+         empty.run_state
+         empty.progress_report_path))
+      ((COMPLETED completed)
+       (completed-drain-result-proc
+         completed.items_processed
+         completed.run_state
+         completed.progress_report_path))
+      ((BLOCKED blocked)
+       (blocked-drain-result-proc
+         blocked.items_processed
+         blocked.run_state
+         blocked.progress_report_path
+         blocked.blocker_class))
+      ((EXHAUSTED exhausted)
+       (blocked-drain-result-proc
+         exhausted.items_processed
+         exhausted.run_state
+         exhausted.progress_report_path
+         exhausted.blocker_class))))
+  (defproc consume-drain-terminal-effects
+    ((terminal DrainLoopTerminal))
+    -> WorkReport
     :effects ((uses-command apply_resource_transition)
               (writes drain-summary))
     :lowering inline
     (match terminal
       ((EMPTY empty)
-       (let* ((result
-                (empty-drain-result-proc
-                  empty.items_processed
-                  empty.run_state
-                  empty.progress_report_path)))
-         result))
+       (let* ((outcome
+                (resource-transition
+                  :transition record-drain-outcome
+                  :resource drain-run-state
+                  :request (record std/drain/DrainOutcomeRequest
+                             :variant "EMPTY"
+                             :items_processed empty.items_processed
+                             :progress_report_path empty.progress_report_path
+                             :blocker_class std/resource/BlockerClass.missing_resource
+                             :has_blocker false)))
+              (summary-path
+                (materialize-view drain-summary
+                  :value (record std/drain/DrainSummaryValue
+                           :variant outcome.variant
+                           :items_processed outcome.items_processed
+                           :progress_report_path outcome.progress_report_path
+                           :blocker_class outcome.blocker_class
+                           :has_blocker outcome.has_blocker)
+                  :renderer canonical-json
+                  :renderer-version 1
+                  :target empty.progress_report_path
+                  :returns WorkReport)))
+         summary-path))
       ((COMPLETED completed)
-       (let* ((result
-                (completed-drain-result-proc
-                  completed.items_processed
-                  completed.run_state
-                  completed.progress_report_path)))
-         result))
+       (let* ((outcome
+                (resource-transition
+                  :transition record-drain-outcome
+                  :resource drain-run-state
+                  :request (record std/drain/DrainOutcomeRequest
+                             :variant "COMPLETED"
+                             :items_processed completed.items_processed
+                             :progress_report_path completed.progress_report_path
+                             :blocker_class std/resource/BlockerClass.missing_resource
+                             :has_blocker false)))
+              (summary-path
+                (materialize-view drain-summary
+                  :value (record std/drain/DrainSummaryValue
+                           :variant outcome.variant
+                           :items_processed outcome.items_processed
+                           :progress_report_path outcome.progress_report_path
+                           :blocker_class outcome.blocker_class
+                           :has_blocker outcome.has_blocker)
+                  :renderer canonical-json
+                  :renderer-version 1
+                  :target completed.progress_report_path
+                  :returns WorkReport)))
+         summary-path))
       ((BLOCKED blocked)
-       (let* ((result
-                (blocked-drain-result-proc
-                  blocked.items_processed
-                  blocked.run_state
-                  blocked.progress_report_path
-                  blocked.blocker_class)))
-         result))
+       (let* ((outcome
+                (resource-transition
+                  :transition record-drain-outcome
+                  :resource drain-run-state
+                  :request (record std/drain/DrainOutcomeRequest
+                             :variant "BLOCKED"
+                             :items_processed blocked.items_processed
+                             :progress_report_path blocked.progress_report_path
+                             :blocker_class blocked.blocker_class
+                             :has_blocker true)))
+              (summary-path
+                (materialize-view drain-summary
+                  :value (record std/drain/DrainSummaryValue
+                           :variant outcome.variant
+                           :items_processed outcome.items_processed
+                           :progress_report_path outcome.progress_report_path
+                           :blocker_class outcome.blocker_class
+                           :has_blocker outcome.has_blocker)
+                  :renderer canonical-json
+                  :renderer-version 1
+                  :target blocked.progress_report_path
+                  :returns WorkReport)))
+         summary-path))
       ((EXHAUSTED exhausted)
-       (let* ((result
-                (blocked-drain-result-proc
-                  exhausted.items_processed
-                  exhausted.run_state
-                  exhausted.progress_report_path
-                  exhausted.blocker_class)))
-         result))))
+       (let* ((outcome
+                (resource-transition
+                  :transition record-drain-outcome
+                  :resource drain-run-state
+                  :request (record std/drain/DrainOutcomeRequest
+                             :variant "BLOCKED"
+                             :items_processed exhausted.items_processed
+                             :progress_report_path exhausted.progress_report_path
+                             :blocker_class exhausted.blocker_class
+                             :has_blocker true)))
+              (summary-path
+                (materialize-view drain-summary
+                  :value (record std/drain/DrainSummaryValue
+                           :variant outcome.variant
+                           :items_processed outcome.items_processed
+                           :progress_report_path outcome.progress_report_path
+                           :blocker_class outcome.blocker_class
+                           :has_blocker outcome.has_blocker)
+                  :renderer canonical-json
+                  :renderer-version 1
+                  :target exhausted.progress_report_path
+                  :returns WorkReport)))
+         summary-path))))
   (defmacro backlog-drain (name ctx-key ctx selector-key selector run-item-key run-item gap-drafter-key gap-drafter max-key max)
-    (let* ((progress-report-target
-             (__generated-relpath-seed__
-               std/resource/WorkReport
-               "artifacts/work/drain-progress-report.md"
-               "stdlib_drain_progress_report_seed"))
-           (initial-run-state
-             (__generated-relpath-seed__
-               std/resource/StateExisting
-               "state/drain-run-state.json"
-               "stdlib_drain_run_state_seed"))
-           (terminal
-             (loop/recur
-               :max max
-               :state (record std/drain/DrainLoopState
-                        :items-processed 0
-                        :run-state initial-run-state
-                        :progress-report-path progress-report-target)
-               :on-exhausted
-               (variant std/drain/DrainLoopTerminal EXHAUSTED
-                 :items_processed state.items-processed
-                 :run_state state.run-state
-                 :progress_report_path state.progress-report-path
-                 :blocker_class std/resource/BlockerClass.unrecoverable_after_fix_attempt)
-               (fn (state)
-                 (let* ((selection-result
-                          (call selector
-                            :ctx ctx)))
-                   (match selection-result
-                     ((EMPTY empty)
-                      (if (= state.items-processed 0)
-                        (done
-                          (variant std/drain/DrainLoopTerminal EMPTY
-                            :items_processed state.items-processed
-                            :run_state state.run-state
-                            :progress_report_path state.progress-report-path))
-                        (done
-                          (variant std/drain/DrainLoopTerminal COMPLETED
-                            :items_processed state.items-processed
-                            :run_state state.run-state
-                            :progress_report_path state.progress-report-path))))
-                     ((GAP gap_case)
-                      (let* ((gap-result
-                               (call gap-drafter
-                                 :ctx ctx
-                                 :gap gap_case.gap)))
-                        (match gap-result
-                          ((CONTINUE continued)
-                           (continue
-                             (record std/drain/DrainLoopState
-                               :items-processed state.items-processed
-                               :run-state continued.run-state
-                               :progress-report-path state.progress-report-path)))
-                          ((BLOCKED blocked)
-                           (done
-                             (variant std/drain/DrainLoopTerminal BLOCKED
-                               :items_processed state.items-processed
-                               :run_state state.run-state
-                               :progress_report_path blocked.progress-report-path
-                               :blocker_class blocked.blocker-class))))))
-                     ((SELECTED selected)
-                      (let* ((selection-payload
-                               selected.selection)
-                              (item-ctx
-                               (record std/context/ItemCtx
-                                 :run ctx.run
-                                 :item-id selected.selection.item-id
-                                 :state-root selected.selection.item-state-root
-                                 :artifact-root ctx.run.artifact-root
-                                 :ledger ctx.ledger))
-                              (selected-result
-                               (call run-item
-                                 :item-ctx item-ctx
-                                 :selection selection-payload)))
-                        (match selected-result
-                          ((CONTINUE continued)
-                           (continue
-                             (record std/drain/DrainLoopState
-                               :items-processed (+ state.items-processed 1)
-                               :run-state continued.run-state
-                               :progress-report-path continued.summary-path)))
-                          ((BLOCKED blocked)
-                           (done
-                             (variant std/drain/DrainLoopTerminal BLOCKED
-                               :items_processed state.items-processed
-                               :run_state blocked.run-state
-                               :progress_report_path blocked.summary-path
-                               :blocker_class blocked.blocker-class))))))
-                     ((BLOCKED blocked)
-                      (done
-                        (variant std/drain/DrainLoopTerminal BLOCKED
-                          :items_processed state.items-processed
-                          :run_state blocked.run-state
-                          :progress_report_path state.progress-report-path
-                          :blocker_class std/resource/BlockerClass.user_decision_required))))))))
-           (result
-             (std/drain/finalize-drain-terminal terminal)))
-      result))
+    (backlog-drain-callable-boundary name
+      :ctx ctx
+      :selector selector
+      :run-item run-item
+      :gap-drafter gap-drafter
+      :max-iterations max))
 )
