@@ -21,12 +21,6 @@ DESIGN_DELTA_MIGRATION_INPUTS = (
 TRANSITION_AUTHORING_MANIFEST_PATH = (
     DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.transition_authoring.json"
 )
-HIGH_LEVEL_TRANSITION_MODULES = frozenset(
-    {
-        "lisp_frontend_design_delta/drain",
-        "lisp_frontend_design_delta/work_item",
-    }
-)
 
 
 def _build_module():
@@ -87,6 +81,18 @@ def _design_delta_source_map_payload(tmp_path: Path) -> dict[str, object]:
 
 def _record_fields(record_def) -> dict[str, str]:
     return {field.name: field.type_name for field in record_def.fields}
+
+
+def test_design_delta_parent_drain_shared_validation_clears_direct_boundary_state_path_lints(
+    tmp_path: Path,
+) -> None:
+    compile_result = _compile_design_delta_parent_drain(tmp_path)
+
+    assert "lisp_frontend_design_delta/drain::drain" in compile_result.validated_bundles_by_name
+    assert not any(
+        diagnostic.code == "workflow_boundary_type_invalid"
+        for diagnostic in compile_result.diagnostics
+    )
 
 
 def test_design_delta_transition_contracts_use_narrowed_request_result_and_audit_types(
@@ -165,8 +171,44 @@ def test_transition_authoring_report_passes_for_checked_design_delta_family(
     assert report["schema_version"] == "workflow_lisp_transition_authoring_report.v1"
     assert report["workflow_family"] == "design_delta_parent_drain"
     assert report["status"] == "pass"
+    assert {
+        "lisp_frontend_design_delta/drain",
+        "lisp_frontend_design_delta/transitions",
+        "lisp_frontend_design_delta/work_item",
+    }.issubset({row["module_name"] for row in report["compiled_origins"]})
     assert all(
-        row["module_name"] not in HIGH_LEVEL_TRANSITION_MODULES
+        row["classification"] == "low_level_library"
+        for row in report["compiled_origins"]
+    )
+    assert any(
+        row["module_name"] == "lisp_frontend_design_delta/transitions"
+        and row["matched_row_id"] == "low_level.record_design_gap_progress"
+        for row in report["compiled_origins"]
+    )
+    assert any(
+        row["module_name"] == "lisp_frontend_design_delta/work_item"
+        and row["path"]
+        == str(
+            REPO_ROOT
+            / "orchestrator"
+            / "workflow_lisp"
+            / "stdlib_modules"
+            / "std"
+            / "resource.orc"
+        )
+        for row in report["compiled_origins"]
+    )
+    assert any(
+        row["module_name"] == "lisp_frontend_design_delta/drain"
+        and row["path"]
+        == str(
+            REPO_ROOT
+            / "orchestrator"
+            / "workflow_lisp"
+            / "stdlib_modules"
+            / "std"
+            / "drain.orc"
+        )
         for row in report["compiled_origins"]
     )
     assert report["ordinary_body_violations"] == []
@@ -408,12 +450,29 @@ def test_transition_authoring_report_records_imported_finalize_selected_item_tra
         source_map_payload=_design_delta_source_map_payload(tmp_path),
     )
 
-    assert any(
-        row["workflow_name"]
-        == "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
-        and row["module_name"] == "std/resource"
-        and row["step_kind"] == "resource_transition"
-        and "std_resource_finalize_selected_item_proc_" in row["step_id"]
-        and row["classification"] == "low_level_library"
+    finalize_rows = [
+        row
         for row in report["compiled_origins"]
+        if "std_resource_finalize_selected_item_proc_" in row["step_id"]
+    ]
+
+    assert finalize_rows
+    assert {row["workflow_name"] for row in finalize_rows} == {
+        "lisp_frontend_design_delta/work_item::finalize-selected-item-from-blocked-implementation",
+        "lisp_frontend_design_delta/work_item::finalize-selected-item-from-completed-implementation",
+    }
+    assert all(
+        row["module_name"] == "lisp_frontend_design_delta/work_item"
+        and row["step_kind"] == "resource_transition"
+        and row["classification"] == "low_level_library"
+        and row["path"]
+        == str(
+            REPO_ROOT
+            / "orchestrator"
+            / "workflow_lisp"
+            / "stdlib_modules"
+            / "std"
+            / "resource.orc"
+        )
+        for row in finalize_rows
     )
