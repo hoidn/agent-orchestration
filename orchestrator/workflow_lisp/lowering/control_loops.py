@@ -139,7 +139,11 @@ def _emit_repeat_until_from_emitter_input(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
-    from .control_match import _binding_terminal_for_inline_match, _build_match_projection_anchor_step, _match_arm_local_values
+    from .control_match import (
+        _binding_terminal_for_inline_match,
+        _build_match_projection_anchor_step,
+        _match_arm_local_values,
+    )
 
     expr = emitter_input
     source_expr = emitter_input.source_expr or emitter_input
@@ -862,26 +866,73 @@ def _lower_loop_body_expr(
 
             return lower_nested_match_as_if(tuple(expr.arms), nested_step_name=body_step_name)
 
+        hoisted_steps: list[dict[str, Any]] = []
         cases: dict[str, Any] = {}
         for arm in expr.arms:
             arm_steps, arm_terminal = lower_match_arm(
                 arm,
                 nested_body_step_name=f"{body_step_name}__{arm.variant_name.lower()}",
             )
+            use_case_local_refs = True
+            if arm_steps and _loop_case_steps_require_guarded_hoist(arm_steps):
+                self_scope_step_names = {
+                    step_name
+                    for step in arm_steps
+                    if isinstance(step_name := step.get("name"), str)
+                }
+                selector_step_name = _structured_ref_step_name(
+                    match_terminal.output_refs["return__variant"]
+                )
+                if selector_step_name is not None:
+                    self_scope_step_names.add(selector_step_name)
+                hoisted_steps.extend(
+                    _guard_hoisted_loop_case_steps(
+                        [
+                            _rewrite_hoisted_loop_case_scope_value(
+                                step,
+                                self_scope_step_names=self_scope_step_names,
+                            )
+                            for step in arm_steps
+                        ],
+                        producer_variant_ref=match_terminal.output_refs["return__variant"],
+                        required_variant=arm.variant_name,
+                    )
+                )
+                arm_steps = []
+                arm_terminal = replace(arm_terminal, step_name="")
+                use_case_local_refs = False
+            arm_outputs = {
+                name: {
+                    **dict(definition),
+                    "from": {
+                        "ref": (
+                            _loop_case_ref(arm_terminal.output_refs[name])
+                            if use_case_local_refs
+                            else _loop_parent_case_ref(arm_terminal.output_refs[name])
+                        )
+                    },
+                }
+                for name, definition in loop_output_contracts.items()
+            }
+            if not arm_steps:
+                arm_steps = [
+                    _build_match_projection_anchor_step(
+                        match_step_name=body_step_name,
+                        variant_name=arm.variant_name,
+                        case_outputs=arm_outputs,
+                        context=context,
+                        span=arm.body.span,
+                    )
+                ]
             cases[arm.variant_name] = {
                 "id": _normalize_generated_step_id(f"{body_step_name}__{arm.variant_name.lower()}"),
-                "outputs": {
-                    name: {
-                        **dict(definition),
-                        "from": {"ref": _loop_case_ref(arm_terminal.output_refs[name])},
-                    }
-                    for name, definition in loop_output_contracts.items()
-                },
+                "outputs": arm_outputs,
                 "steps": arm_steps,
             }
         step_id = _normalize_generated_step_id(body_step_name)
         _record_step_origin(context, step_name=body_step_name, step_id=step_id, source=expr)
         return [
+            *hoisted_steps,
             {
                 "name": body_step_name,
                 "id": step_id,
@@ -1326,6 +1377,99 @@ def _loop_output_contracts(
         }
     )
     return outputs
+
+
+_STRUCTURED_LOOP_CASE_STEP_KEYS = frozenset({"if", "match"})
+
+
+def _loop_case_steps_require_guarded_hoist(steps: list[dict[str, Any]]) -> bool:
+    return any(_STRUCTURED_LOOP_CASE_STEP_KEYS.intersection(step) for step in steps)
+
+
+def _guard_hoisted_loop_case_steps(
+    steps: list[dict[str, Any]],
+    *,
+    producer_variant_ref: str,
+    required_variant: str,
+) -> list[dict[str, Any]]:
+    outer_when = {
+        "compare": {
+            "left": {"ref": producer_variant_ref},
+            "op": "eq",
+            "right": required_variant,
+        }
+    }
+    guarded_steps: list[dict[str, Any]] = []
+    for step in steps:
+        guarded_step = dict(step)
+        existing_when = guarded_step.get("when")
+        if existing_when is None:
+            guarded_step["when"] = outer_when
+        else:
+            guarded_step["when"] = {
+                "all_of": [outer_when, existing_when],
+            }
+        guarded_steps.append(guarded_step)
+    return guarded_steps
+
+
+def _rewrite_hoisted_loop_case_scope_value(
+    value: Any,
+    *,
+    self_scope_step_names: set[str],
+    inside_structured_branch: bool = False,
+) -> Any:
+    if isinstance(value, str):
+        if (
+            value.startswith("parent.steps.")
+            and not inside_structured_branch
+            and _structured_ref_step_name(value) in self_scope_step_names
+        ):
+            return "self.steps." + value.removeprefix("parent.steps.")
+        return value
+    if isinstance(value, list):
+        return [
+            _rewrite_hoisted_loop_case_scope_value(
+                item,
+                self_scope_step_names=self_scope_step_names,
+                inside_structured_branch=inside_structured_branch,
+            )
+            for item in value
+        ]
+    if isinstance(value, tuple):
+        return tuple(
+            _rewrite_hoisted_loop_case_scope_value(
+                item,
+                self_scope_step_names=self_scope_step_names,
+                inside_structured_branch=inside_structured_branch,
+            )
+            for item in value
+        )
+    if isinstance(value, Mapping):
+        rewritten: dict[Any, Any] = {}
+        for key, item in value.items():
+            child_inside_structured_branch = inside_structured_branch
+            if key in {"then", "else", "cases"}:
+                child_inside_structured_branch = True
+            rewritten[key] = _rewrite_hoisted_loop_case_scope_value(
+                item,
+                self_scope_step_names=self_scope_step_names,
+                inside_structured_branch=child_inside_structured_branch,
+            )
+        return rewritten
+    return value
+
+
+def _structured_ref_step_name(value: str) -> str | None:
+    for prefix in ("parent.steps.", "self.steps.", "root.steps."):
+        if not value.startswith(prefix):
+            continue
+        remainder = value.removeprefix(prefix)
+        for separator in (".artifacts.", ".outcome."):
+            step_name, found, _ = remainder.partition(separator)
+            if found:
+                return step_name
+    return None
 
 
 def _is_loop_pure_projection_candidate(expr: Any) -> bool:
@@ -1791,6 +1935,12 @@ def _loop_case_ref(ref: str) -> str:
 def _conditional_case_ref(ref: str, *, terminal_step_name: str) -> str:
     if terminal_step_name and ref.startswith(f"root.steps.{terminal_step_name}"):
         return "self.steps." + ref.removeprefix("root.steps.")
+    return ref
+
+
+def _loop_parent_case_ref(ref: str) -> str:
+    if ref.startswith("root.steps."):
+        return "parent.steps." + ref.removeprefix("root.steps.")
     return ref
 
 

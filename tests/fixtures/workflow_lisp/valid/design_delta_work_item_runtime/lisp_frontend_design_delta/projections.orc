@@ -5,10 +5,11 @@
   (import std/drain :only (DrainResult))
   (import std/resource :only (BlockerClass))
   (import lisp_frontend_design_delta/types :only
-    (BlockedRecoveryDecision BlockedRecoveryRoute BlockedRecoveryReason DesignDeltaDrainAction
-      DrainSummaryValue DrainTerminalStatus ImplementationReviewDecision ImplementationState
-      PlanReviewDecision SelectionBundlePath SelectionStatus WorkItemBootstrapSeed
-      WorkItemSource WorkItemTerminalDecision))
+    (BlockedRecoveryDecision BlockedRecoveryRoute BlockedRecoveryReason
+      DesignDeltaDrainAction DrainSummaryValue DrainTerminalStatus
+      ImplementationReviewDecision ImplementationState PlanReviewDecision
+      SelectionBundlePath SelectionStatus WorkItemBootstrapSeed WorkItemSource
+      WorkItemTerminalDecision))
   (export
     classify-work-item-terminal
     normalize-blocked-recovery-route

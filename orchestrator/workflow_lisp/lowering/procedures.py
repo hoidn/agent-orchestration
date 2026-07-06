@@ -11,11 +11,13 @@ from typing import Any
 from orchestrator.workflow.references import MaterializeViewBindingReference
 
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from ..expression_traversal import walk_expr
 from ..expressions import (
     CallExpr,
     CommandResultExpr,
     EnumMemberExpr,
     LetStarExpr,
+    LoopRecurExpr,
     MatchExpr,
     ProcRefLiteralExpr,
     ProcedureCallExpr,
@@ -29,6 +31,7 @@ from ..procedures import (
     ProcedureLoweringMode,
     TypedProcedureDef,
     proc_ref_specialization_name as proc_ref_call_specialization_name,
+    procedure_type_env_for,
 )
 from ..spans import SourceSpan
 from ..type_env import (
@@ -81,27 +84,13 @@ def _procedure_type_env_for(
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None,
     default: FrontendTypeEnvironment,
 ) -> FrontendTypeEnvironment:
-    """Resolve the lowering/typecheck environment for one procedure body.
+    """Resolve the lowering/typecheck environment for one procedure body."""
 
-    Specializations keep the typed body of their base procedure, so they must
-    inherit the base procedure's environment when lowering or traversing that
-    body across module boundaries.
-    """
-
-    if procedure_type_envs is None:
-        return default
-
-    candidate_names = [procedure.definition.name, procedure.signature.name]
-    specialization = getattr(procedure, "specialization", None)
-    base_name = getattr(specialization, "base_name", None)
-    if isinstance(base_name, str):
-        candidate_names.append(base_name)
-
-    for candidate_name in candidate_names:
-        resolved = procedure_type_envs.get(candidate_name)
-        if resolved is not None:
-            return resolved
-    return default
+    return procedure_type_env_for(
+        procedure,
+        procedure_type_envs=procedure_type_envs,
+        default=default,
+    )
 
 
 _COMPILE_TIME_ONLY_RUNTIME_TYPES = (
@@ -560,16 +549,23 @@ def _lower_procedure_call(
         resolved_lowering_mode == ProcedureLoweringMode.INLINE
         and context.iteration_scope is not None
         and not context.workflow_name.startswith("%composition.")
+        and not any(isinstance(node, LoopRecurExpr) for node in walk_expr(procedure.typed_body.expr))
     ):
         from ..procedure_specialization import (
             _procedure_private_body_valid,
             _procedure_private_boundary_valid,
         )
 
+        procedure_type_env = _procedure_type_env_for(
+            procedure,
+            procedure_type_envs=context.procedure_type_envs,
+            default=context.type_env,
+        )
         if _procedure_private_boundary_valid(procedure) and _procedure_private_body_valid(
             procedure,
             typed_procedures_by_name=context.typed_procedures,
-            type_env=context.type_env,
+            type_env=procedure_type_env,
+            procedure_type_envs=context.procedure_type_envs,
         ):
             resolved_lowering_mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
             generated_workflow_name = procedure.generated_workflow_name or (
@@ -587,6 +583,12 @@ def _lower_procedure_call(
             mutable_workflows = context.workflows_by_name
             if isinstance(mutable_workflows, dict):
                 mutable_workflows[procedure.generated_workflow_name] = _private_workflow_from_procedure(procedure)
+            if isinstance(context.generated_private_workflow_type_envs, dict):
+                context.generated_private_workflow_type_envs[procedure.generated_workflow_name] = _procedure_type_env_for(
+                    procedure,
+                    procedure_type_envs=context.procedure_type_envs,
+                    default=context.type_env,
+                )
         callee = context.lowered_callees.get(procedure.generated_workflow_name)
         if callee is None:
             callee = context.ensure_workflow_lowered(procedure.generated_workflow_name)
@@ -672,7 +674,12 @@ def _lower_procedure_call(
         workflows_by_name=context.workflows_by_name,
         ensure_workflow_lowered=context.ensure_workflow_lowered,
         specialize_workflow=context.specialize_workflow,
-        type_env=context.type_env,
+        type_env=_procedure_type_env_for(
+            procedure,
+            procedure_type_envs=context.procedure_type_envs,
+            default=context.type_env,
+        ),
+        generated_private_workflow_type_envs=context.generated_private_workflow_type_envs,
         step_spans=context.step_spans,
         generated_input_spans=context.generated_input_spans,
         authored_generated_inputs=context.authored_generated_inputs,
@@ -697,6 +704,7 @@ def _lower_procedure_call(
         phase_scope=context.phase_scope,
         iteration_scope=context.iteration_scope,
         lowering_schema_version=context.lowering_schema_version,
+        procedure_type_envs=context.procedure_type_envs,
         active_procedure_calls=context.active_procedure_calls | {procedure.signature.name},
     )
     steps, terminal = _lower_expression(procedure.typed_body, context=child_context, local_values=child_locals)

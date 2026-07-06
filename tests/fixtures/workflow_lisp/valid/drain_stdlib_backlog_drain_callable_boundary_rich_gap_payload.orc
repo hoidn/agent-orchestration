@@ -48,14 +48,12 @@
       (progress-report-path WorkReport)
       (blocker-class BlockerClass)))
   (defunion DrainResult
-    (EMPTY
-      (run-state StateExisting))
+    (EMPTY)
     (BLOCKED
       (progress-report-path WorkReport)
       (blocker-class BlockerClass))
     (COMPLETED
-      (items-processed Int)
-      (run-state StateExisting)))
+      (items-processed Int)))
   (defworkflow selector-run
     ((ctx DrainCtx))
     -> SelectionResult

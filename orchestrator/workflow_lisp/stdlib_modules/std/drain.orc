@@ -3,7 +3,7 @@
   (:target-dsl "2.14")
   (defmodule std/drain)
   (import std/context :only (DrainCtx ItemCtx))
-  (import std/resource :only (BlockerClass WorkReport StateExisting SelectedItemResult))
+  (import std/resource :only (BlockerClass WorkReport SelectedItemResult))
   (export SelectionPayload
           GapPayload
           SelectionResult
@@ -37,14 +37,12 @@
       (progress-report-path WorkReport)
       (blocker-class BlockerClass)))
   (defunion DrainResult
-    (EMPTY
-      (run-state StateExisting))
+    (EMPTY)
     (BLOCKED
       (progress-report-path WorkReport)
       (blocker-class BlockerClass))
     (COMPLETED
-      (items-processed Int)
-      (run-state StateExisting)))
+      (items-processed Int)))
   (defenum DrainTerminalKind
     empty
     blocked
@@ -53,25 +51,20 @@
   (defunion DrainLoopTerminal
     (EMPTY
       (items_processed Int)
-      (run_state StateExisting)
       (progress_report_path WorkReport))
     (BLOCKED
       (items_processed Int)
-      (run_state StateExisting)
       (progress_report_path WorkReport)
       (blocker_class BlockerClass))
     (COMPLETED
       (items_processed Int)
-      (run_state StateExisting)
       (progress_report_path WorkReport))
     (EXHAUSTED
       (items_processed Int)
-      (run_state StateExisting)
       (progress_report_path WorkReport)
       (blocker_class BlockerClass)))
   (defrecord DrainLoopState
     (items-processed Int)
-    (run-state StateExisting)
     (progress-report-path WorkReport))
   (defrecord DrainOutcomeState
     (variant String)
@@ -134,16 +127,13 @@
     :backend runtime_native)
   (defproc empty-drain-result-proc
     ((items-processed Int)
-     (run-state StateExisting)
      (summary-target WorkReport))
     -> DrainResult
     :effects ()
     :lowering inline
-    (variant DrainResult EMPTY
-      :run-state run-state))
+    (variant DrainResult EMPTY))
   (defproc blocked-drain-result-proc
     ((items-processed Int)
-     (run-state StateExisting)
      (summary-target WorkReport)
      (blocker-class BlockerClass))
     -> DrainResult
@@ -154,14 +144,12 @@
       :blocker-class blocker-class))
   (defproc completed-drain-result-proc
     ((items-processed Int)
-     (run-state StateExisting)
      (summary-target WorkReport))
     -> DrainResult
     :effects ()
     :lowering inline
     (variant DrainResult COMPLETED
-      :items-processed items-processed
-      :run-state run-state))
+      :items-processed items-processed))
   (defproc finalize-drain-terminal
     ((terminal DrainLoopTerminal))
     -> DrainResult
@@ -171,23 +159,19 @@
       ((EMPTY empty)
        (empty-drain-result-proc
          empty.items_processed
-         empty.run_state
          empty.progress_report_path))
       ((COMPLETED completed)
        (completed-drain-result-proc
          completed.items_processed
-         completed.run_state
          completed.progress_report_path))
       ((BLOCKED blocked)
        (blocked-drain-result-proc
          blocked.items_processed
-         blocked.run_state
          blocked.progress_report_path
          blocked.blocker_class))
       ((EXHAUSTED exhausted)
        (blocked-drain-result-proc
          exhausted.items_processed
-         exhausted.run_state
          exhausted.progress_report_path
          exhausted.blocker_class))))
   (defproc consume-drain-terminal-effects

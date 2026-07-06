@@ -1990,7 +1990,17 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
     if isinstance(expr, LoopStateSeedExpr):
         from ..loop_state import carrier_metadata_for_expr
 
-        metadata = carrier_metadata_for_expr(expr)
+        field_types: list[tuple[str, TypeRef]] = []
+        for field in expr.fields:
+            field_type = _resolve_lowering_expr_type(field.value_expr, context=context)
+            if field_type is None:
+                return None
+            field_types.append((field.name, field_type))
+        metadata = carrier_metadata_for_expr(
+            expr,
+            field_signature=tuple((field_name, field_type.name) for field_name, field_type in field_types),
+            field_types=tuple(field_types),
+        )
         if metadata is None:
             return None
         return context.type_env.resolve_type(

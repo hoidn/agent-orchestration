@@ -53,7 +53,6 @@
     ProgressLedger
     RecoveryStatus
     ResolvedWorkItemInputs
-    RunStatePath
     SelectionBundlePath
     SelectionCtx
     SelectionResult
@@ -195,11 +194,6 @@
     :must-exist true)
 
   (defpath ProgressLedger
-    :kind relpath
-    :under "state"
-    :must-exist true)
-
-  (defpath RunStatePath
     :kind relpath
     :under "state"
     :must-exist true)

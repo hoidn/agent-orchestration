@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from orchestrator.workflow.state_layout import (
@@ -15,6 +16,8 @@ from orchestrator.workflow.state_layout import (
 
 from .origins import _origin_from_context_source
 
+PATH_SEGMENT_FILENAME_LIMIT = 255
+
 
 def _stable_identity(*parts: str | None) -> str:
     return "/".join(part for part in parts if isinstance(part, str) and part)
@@ -22,6 +25,42 @@ def _stable_identity(*parts: str | None) -> str:
 
 def _slug_token(value: str) -> str:
     return "".join(character if character.isalnum() else "-" for character in value).strip("-") or "generated"
+
+
+def _path_digest(*parts: str | None) -> str:
+    payload = "|".join(part for part in parts if isinstance(part, str) and part)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _bounded_path_segment(
+    value: str,
+    *,
+    digest_source: str,
+    limit: int = PATH_SEGMENT_FILENAME_LIMIT,
+) -> str:
+    if len(value) <= limit:
+        return value
+    token = _slug_token(value)
+    suffix = f"__{_path_digest(digest_source, value)}"
+    prefix_limit = max(1, limit - len(suffix))
+    prefix = token[:prefix_limit].rstrip("._-") or "generated"
+    return f"{prefix}{suffix}"
+
+
+def _bounded_json_filename(
+    value: str,
+    *,
+    digest_source: str,
+    limit: int = PATH_SEGMENT_FILENAME_LIMIT,
+) -> str:
+    filename = f"{value}.json"
+    if len(filename) <= limit:
+        return filename
+    token = _slug_token(value)
+    suffix = f"__{_path_digest(digest_source, value)}.json"
+    prefix_limit = max(1, limit - len(suffix))
+    prefix = token[:prefix_limit].rstrip("._-") or "generated"
+    return f"{prefix}{suffix}"
 
 
 def _schema_identity_part(context: Any) -> str | None:
@@ -108,15 +147,27 @@ def allocate_reusable_call_write_root(
     callee_name: str,
     managed_input_name: str,
 ) -> GeneratedPathAllocation:
-    base_segments = [
-        ".orchestrate/workflow_lisp/calls",
+    path_identity = _stable_identity(
+        _schema_identity_part(context),
         context.workflow_name,
         call_step_name,
+        context.iteration_scope,
+        callee_name,
+        managed_input_name,
+    )
+    base_segments = [
+        ".orchestrate/workflow_lisp/calls",
+        _bounded_path_segment(context.workflow_name, digest_source=f"{path_identity}/workflow"),
+        _bounded_path_segment(call_step_name, digest_source=f"{path_identity}/call"),
     ]
     if context.iteration_scope is not None:
         base_segments.append(context.iteration_scope)
-    base_segments.append(callee_name)
-    relative_path = "/".join((*base_segments, f"{managed_input_name}.json"))
+    base_segments.append(
+        _bounded_path_segment(callee_name, digest_source=f"{path_identity}/callee")
+    )
+    relative_path = "/".join(
+        (*base_segments, _bounded_json_filename(managed_input_name, digest_source=path_identity))
+    )
     return _allocate(
         context=context,
         source_expr=source_expr,
@@ -127,14 +178,7 @@ def allocate_reusable_call_write_root(
             if context.iteration_scope is not None
             else GeneratedPathResumeScope.CALL_FRAME
         ),
-        stable_identity=_stable_identity(
-            _schema_identity_part(context),
-            context.workflow_name,
-            call_step_name,
-            context.iteration_scope,
-            callee_name,
-            managed_input_name,
-        ),
+        stable_identity=path_identity,
         generated_input_name=managed_input_name,
         path_template=relative_path,
     )
@@ -147,13 +191,21 @@ def allocate_compatibility_binding_bundle(
     call_step_name: str,
     callee_name: str,
 ) -> GeneratedPathAllocation:
+    path_identity = _stable_identity(
+        _schema_identity_part(context),
+        context.workflow_name,
+        call_step_name,
+        context.iteration_scope,
+        callee_name,
+        "managed_write_roots_bundle",
+    )
     relative_path = "/".join(
         (
             ".orchestrate/workflow_lisp/call_bindings",
-            context.workflow_name,
-            call_step_name,
+            _bounded_path_segment(context.workflow_name, digest_source=f"{path_identity}/workflow"),
+            _bounded_path_segment(call_step_name, digest_source=f"{path_identity}/call"),
             context.iteration_scope or "root",
-            callee_name,
+            _bounded_path_segment(callee_name, digest_source=f"{path_identity}/callee"),
             "__managed_write_roots.json",
         )
     )
@@ -163,14 +215,7 @@ def allocate_compatibility_binding_bundle(
         semantic_role=GeneratedPathSemanticRole.COMPATIBILITY_POINTER_VIEW,
         privacy=GeneratedPathPrivacy.COMPATIBILITY_VIEW,
         resume_scope=GeneratedPathResumeScope.LOOP_ITERATION,
-        stable_identity=_stable_identity(
-            _schema_identity_part(context),
-            context.workflow_name,
-            call_step_name,
-            context.iteration_scope,
-            callee_name,
-            "managed_write_roots_bundle",
-        ),
+        stable_identity=path_identity,
         path_template=relative_path,
         projection_hints={"compatibility_class": "loop_binding_bundle"},
     )

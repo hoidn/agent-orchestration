@@ -390,24 +390,24 @@
         ]
       },
       "runtime_audit_artifacts": [
-        {
-          "artifact_id": "drain_status_transition_audit",
-          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/runtime-audits/design_delta_parent_drain_transition_audit.jsonl",
-          "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
-          "resource_kind": "drain-run-state"
-        },
+    {
+      "artifact_id": "drain_status_transition_audit",
+      "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/runtime-audits/design_delta_parent_drain_transition_audit.jsonl",
+      "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status-runtime-native",
+      "resource_kind": "drain-run-state"
+    },
         {
           "artifact_id": "terminal_work_item_transition_audit",
           "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/runtime-audits/design_delta_parent_drain_transition_audit.jsonl",
           "transition_name": "lisp_frontend_design_delta/transitions::record-terminal-work-item",
           "resource_kind": "drain-run-state"
         },
-        {
-          "artifact_id": "blocked_recovery_transition_audit",
-          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/runtime-audits/design_delta_parent_drain_transition_audit.jsonl",
-          "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome",
-          "resource_kind": "drain-run-state"
-        }
+    {
+      "artifact_id": "blocked_recovery_transition_audit",
+      "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/runtime-audits/design_delta_parent_drain_transition_audit.jsonl",
+      "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome-stdlib",
+      "resource_kind": "drain-run-state"
+    }
       ],
       "family_evidence_artifacts": [
         {

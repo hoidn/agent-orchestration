@@ -397,10 +397,7 @@ def _active_census_row_ids(census: Mapping[str, Any]) -> set[str]:
     for row in census.get("rows", []):
         if not isinstance(row, Mapping):
             continue
-        if (
-            str(row.get("consumer_lane", "")) == "retirement_candidate"
-            and str(row.get("track_c_decision", "")) == "BLOCKED"
-        ):
+        if str(row.get("consumer_lane", "")) == "retirement_candidate":
             continue
         row_id = str(row.get("row_id", ""))
         if row_id:
@@ -864,6 +861,8 @@ def build_rendering_ergonomics_report(
     body_render_lints: list[dict[str, Any]] = []
     for slot in sorted(slots, key=lambda s: str(s.get("slot_id", ""))):
         c0_row_id = str(slot.get("c0_row_id", ""))
+        if c0_row_id not in evidence["census"] and c0_row_id not in evidence["C4"]:
+            continue
         author_diag = _authoring_lint_diag(slot, c0_row_id)
         if author_diag is not None:
             diagnostics.append(author_diag)

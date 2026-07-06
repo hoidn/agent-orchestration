@@ -2059,10 +2059,11 @@ def _compile_stage3_graph(
     compiled_results_by_name: dict[str, Stage3CompileResult] = {}
     explicit_imported_bundles = dict(imported_workflow_bundles or {})
     aggregate_diagnostics: list[LispFrontendDiagnostic] = []
-    # `resume-or-start` bindings must stay installed for every module that can
-    # lower an imported resume-or-start workflow, so evidence accumulates
-    # across the graph in dependency order.
-    graph_resume_expressions: list[object] = []
+    # Certified stdlib adapter bindings (builtin command adapters and
+    # `resume-or-start` reusable-state adapters) must stay installed for every
+    # module that can lower an imported stdlib-backed workflow, so usage
+    # evidence accumulates across the graph in dependency order.
+    graph_adapter_expressions: list[object] = []
 
     for module_name in graph.topological_order:
         module_source = graph.modules_by_name[module_name]
@@ -2213,18 +2214,17 @@ def _compile_stage3_graph(
         command_boundary_environment = _augment_resource_transition_command_boundaries(
             command_boundary_environment,
         )
-        command_boundary_environment = _augment_builtin_command_boundaries(
-            command_boundary_environment,
-            expressions=tuple(workflow.body for workflow in workflow_defs)
-            + tuple(procedure.body for procedure in procedure_defs),
-        )
-        graph_resume_expressions.extend(
+        graph_adapter_expressions.extend(
             tuple(workflow.body for workflow in workflow_defs)
             + tuple(procedure.body for procedure in procedure_defs)
         )
+        command_boundary_environment = _augment_builtin_command_boundaries(
+            command_boundary_environment,
+            expressions=tuple(graph_adapter_expressions),
+        )
         command_boundary_environment = _augment_resume_command_boundaries(
             command_boundary_environment,
-            expressions=tuple(graph_resume_expressions),
+            expressions=tuple(graph_adapter_expressions),
         )
         reusable_state_producer_context = _derive_reusable_state_producer_context(
             definition_module=definition_module,

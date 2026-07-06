@@ -355,7 +355,10 @@ def build_rendering_cleanup_report(
             ),
             "",
         )
-        if manifest_decision != "KEEP_TIMED_PUBLICATION":
+        if manifest_decision not in {
+            "KEEP_TIMED_PUBLICATION",
+            "RETIRED_TO_OBSERVABILITY",
+        }:
             diagnostics.append(
                 {
                     "code": "rendering_cleanup_body_materialization_not_timed",
@@ -376,7 +379,12 @@ def build_rendering_cleanup_report(
     touched_workflows = {
         str(row.get("workflow_surface", ""))
         for row in consumer_rows.values()
-        if isinstance(row, Mapping) and row.get("workflow_surface")
+        if (
+            isinstance(row, Mapping)
+            and row.get("workflow_surface")
+            and not str(row.get("workflow_surface", "")).startswith("%")
+            and not str(row.get("workflow_surface", "")).startswith("std/")
+        )
     }
     contract_isolation = {
         "workflow_signature_unchanged": all(

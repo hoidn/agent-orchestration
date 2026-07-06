@@ -345,7 +345,7 @@ def _design_delta_parent_runtime_audit_artifacts() -> list[dict[str, str]]:
                 "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
                 "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
             ),
-            "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
+            "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status-runtime-native",
             "resource_kind": "drain-run-state",
         },
         {
@@ -363,7 +363,7 @@ def _design_delta_parent_runtime_audit_artifacts() -> list[dict[str, str]]:
                 "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
                 "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
             ),
-            "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome",
+            "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome-stdlib",
             "resource_kind": "drain-run-state",
         },
     ]
@@ -1045,7 +1045,7 @@ def test_load_parity_targets_preserves_runtime_audit_artifacts(tmp_path: Path) -
                 "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
                 "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
             ),
-            "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
+            "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status-runtime-native",
             "resource_kind": "drain-run-state",
         },
         {
@@ -1063,7 +1063,7 @@ def test_load_parity_targets_preserves_runtime_audit_artifacts(tmp_path: Path) -
                 "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
                 "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
             ),
-            "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome",
+            "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome-stdlib",
             "resource_kind": "drain-run-state",
         },
     )
@@ -3953,7 +3953,7 @@ def test_design_delta_parent_drain_target_declares_all_selected_runtime_audit_ar
                 "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
                 "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
             ),
-            "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
+            "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status-runtime-native",
             "resource_kind": "drain-run-state",
         },
         {
@@ -3971,7 +3971,7 @@ def test_design_delta_parent_drain_target_declares_all_selected_runtime_audit_ar
                 "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
                 "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
             ),
-            "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome",
+            "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome-stdlib",
             "resource_kind": "drain-run-state",
         },
     ]

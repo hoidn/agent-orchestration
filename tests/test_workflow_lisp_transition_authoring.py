@@ -143,7 +143,7 @@ def test_design_delta_transition_declarations_tighten_preconditions_and_idempote
     transitions = {transition.name: transition for transition in module.transitions}
 
     terminal = transitions["record-terminal-work-item"]
-    blocked = transitions["record-blocked-recovery-outcome"]
+    blocked = transitions["record-blocked-recovery-outcome-stdlib"]
 
     assert {"work_item_id", "terminal_route"}.issubset(terminal.idempotency_fields)
     assert {"work_item_id", "recovery_route"}.issubset(blocked.idempotency_fields)
@@ -189,13 +189,13 @@ def test_transition_authoring_report_passes_for_checked_design_delta_family(
             "workflow_name": "lisp_frontend_design_delta/drain::drain",
             "module_name": "lisp_frontend_design_delta/transitions",
             "path": str(
-                REPO_ROOT
-                / "workflows"
-                / "library"
-                / "lisp_frontend_design_delta"
-                / "transitions.orc"
-            ),
-            "line": 351,
+            REPO_ROOT
+            / "workflows"
+            / "library"
+            / "lisp_frontend_design_delta"
+            / "transitions.orc"
+        ),
+            "line": 260,
             "step_kind": "resource_transition",
             "step_id": "lisp_frontend_design_delta_drain_drain__recorded_summary__lisp_frontend_design_delta_transitions_record_drain_terminal_outcome_stdlib_1__transition_result",
             "classification": "low_level_library",

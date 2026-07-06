@@ -57,6 +57,7 @@ COMPATIBILITY_BRIDGE_TYPE_NAMES = frozenset(
 
 COMPATIBILITY_BRIDGE_PARAM_NAMES = frozenset(
     {
+        "run_state_path",
         "selection_bundle_path",
         "manifest_path",
         "architecture_bundle_path",

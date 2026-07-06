@@ -796,6 +796,11 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         json.dumps(_json_data(source_map_payload), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    validated_bundle = _reattach_bundle_semantic_ir(validated_bundle)
+    validated_bundles_by_name = {
+        **dict(validated_bundles_by_name),
+        entry_selection.canonical_name: validated_bundle,
+    }
     runtime_plan_payload = _public_runtime_plan_payload(validated_bundle.runtime_plan)
     semantic_ir_payload = workflow_semantic_ir_to_json(validated_bundle.semantic_ir)
     executable_ir_payload = workflow_executable_ir_to_json(validated_bundle.ir)
@@ -1348,6 +1353,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                     for row in candidate_rows
                     if isinstance(row, Mapping) and isinstance(row.get("workflow_surface"), str)
                 }
+                checkpoint_workflow_names.add(entry_selection.canonical_name)
                 checkpoint_points_payload = _serialize_lexical_checkpoint_points_for_retirement(
                     validated_bundles_by_name=compile_result.validated_bundles_by_name,
                     workflow_names=checkpoint_workflow_names,
@@ -1552,7 +1558,11 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                             ),
                         )
                     )
-        if boundary_authority_registry.get("workflow_family") == "design_delta_parent_drain":
+        if (
+            boundary_authority_registry.get("workflow_family")
+            == "design_delta_parent_drain"
+            and entry_selection.canonical_name == "lisp_frontend_design_delta/drain::drain"
+        ):
             g8_deletion_evidence_payload = _serialize_design_delta_g8_deletion_evidence(
                 command_boundary_manifest=command_boundary_manifest,
             )
@@ -2698,7 +2708,10 @@ def _maybe_load_design_delta_boundary_authority_registry(
     entry_workflow: str,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None,
 ) -> Mapping[str, object] | None:
-    if family_profile_catalog is None or entry_workflow != "lisp_frontend_design_delta/drain::drain":
+    if family_profile_catalog is None or not is_design_delta_parent_drain_target_workflow(
+        entry_workflow,
+        family_profile_catalog=family_profile_catalog,
+    ):
         return None
     profile = family_profile_catalog.profile_for_workflow(entry_workflow)
     if profile is None or profile.boundary_authority_registry_path is None:
@@ -2718,6 +2731,16 @@ def _maybe_load_design_delta_boundary_authority_registry(
                 ),
             )
         ) from exc
+    if entry_workflow != "lisp_frontend_design_delta/drain::drain":
+        payload = {
+            **payload,
+            "rows": [
+                row
+                for row in payload.get("rows", [])
+                if isinstance(row, Mapping)
+                and row.get("workflow_name") == entry_workflow
+            ],
+        }
     return {
         **payload,
         "__registry_path__": str(profile.boundary_authority_registry_path),
@@ -3291,6 +3314,7 @@ def _materialize_design_delta_compatibility_bridge_bundles(
         str(name): bundle for name, bundle in validated_bundles_by_name.items() if isinstance(name, str)
     }
     memo: dict[str, LoadedWorkflowBundle] = {}
+    visiting: set[str] = set()
 
     def transform_bundle(
         workflow_name: str,
@@ -3300,6 +3324,9 @@ def _materialize_design_delta_compatibility_bridge_bundles(
         if provenance_override is None and workflow_name in memo:
             return memo[workflow_name]
         bundle = original_by_name[workflow_name]
+        if workflow_name in visiting:
+            return bundle
+        visiting.add(workflow_name)
         transformed_imports = {
             alias: (
                 transform_bundle(imported.surface.name)
@@ -3326,6 +3353,7 @@ def _materialize_design_delta_compatibility_bridge_bundles(
         )
         if provenance_override is None:
             memo[workflow_name] = rebuilt
+        visiting.discard(workflow_name)
         return rebuilt
 
     selected_name = str(selected_bundle.surface.name or "")
@@ -3390,6 +3418,19 @@ def _reattach_bundle_provenance(
         ir=replace(bundle.ir, provenance=provenance),
         provenance=provenance,
     )
+
+
+def _reattach_bundle_semantic_ir(bundle: LoadedWorkflowBundle) -> LoadedWorkflowBundle:
+    semantic_ir = derive_workflow_semantic_ir(
+        core_workflow_ast=bundle.core_workflow_ast,
+        surface=bundle.surface,
+        ir=bundle.ir,
+        projection=bundle.projection,
+        runtime_plan=bundle.runtime_plan,
+        imports=bundle.imports,
+        provenance=bundle.provenance,
+    )
+    return replace(bundle, semantic_ir=semantic_ir)
 
 
 def _compatibility_bridge_surface_step(
@@ -4872,26 +4913,26 @@ def _write_build_artifacts(
     entry_selection: FrontendEntrySelection,
     diagnostics: tuple[LispFrontendDiagnostic, ...],
     emit_debug_yaml: bool,
-    executable_ir_payload: Mapping[str, object],
-    semantic_ir_payload: Mapping[str, object],
+    executable_ir_payload: Mapping[str, object] | None = None,
+    semantic_ir_payload: Mapping[str, object] | None = None,
     source_map_payload: Mapping[str, object],
     workflow_boundary_projection_payload: Mapping[str, object],
     adapter_census_payload: Mapping[str, object] | None,
     boundary_authority_report_payload: Mapping[str, object] | None,
     value_flow_census_report_payload: Mapping[str, object] | None,
-    consumer_rendering_census_report_payload: Mapping[str, object] | None,
-    typed_prompt_input_report_payload: Mapping[str, object] | None,
-    observability_summary_report_payload: Mapping[str, object] | None,
-    entry_publication_report_payload: Mapping[str, object] | None,
-    compatibility_bridge_report_payload: Mapping[str, object] | None,
-    compatibility_bridge_generated_steps: Sequence[Mapping[str, object]],
-    rendering_cleanup_report_payload: Mapping[str, object] | None,
-    rendering_ergonomics_report_payload: Mapping[str, object] | None,
-    transition_authoring_report_payload: Mapping[str, object] | None,
-    resume_plumbing_retirement_report_payload: Mapping[str, object] | None,
-    parent_drain_census_alignment_report_payload: Mapping[str, object] | None,
-    reference_family_conformance_profile_payload: Mapping[str, object] | None,
-    default_resume_report_payload: Mapping[str, object] | None,
+    consumer_rendering_census_report_payload: Mapping[str, object] | None = None,
+    typed_prompt_input_report_payload: Mapping[str, object] | None = None,
+    observability_summary_report_payload: Mapping[str, object] | None = None,
+    entry_publication_report_payload: Mapping[str, object] | None = None,
+    compatibility_bridge_report_payload: Mapping[str, object] | None = None,
+    compatibility_bridge_generated_steps: Sequence[Mapping[str, object]] = (),
+    rendering_cleanup_report_payload: Mapping[str, object] | None = None,
+    rendering_ergonomics_report_payload: Mapping[str, object] | None = None,
+    transition_authoring_report_payload: Mapping[str, object] | None = None,
+    resume_plumbing_retirement_report_payload: Mapping[str, object] | None = None,
+    parent_drain_census_alignment_report_payload: Mapping[str, object] | None = None,
+    reference_family_conformance_profile_payload: Mapping[str, object] | None = None,
+    default_resume_report_payload: Mapping[str, object] | None = None,
     g8_deletion_evidence_payload: Mapping[str, object] | None,
 ) -> Mapping[str, Path]:
     debug_yaml_path = build_root / "expanded.debug.yaml"
@@ -4911,6 +4952,10 @@ def _write_build_artifacts(
         "diagnostics": build_root / "diagnostics.json",
     }
     runtime_plan_payload = _public_runtime_plan_payload(validated_bundle.runtime_plan)
+    if executable_ir_payload is None:
+        executable_ir_payload = workflow_executable_ir_to_json(validated_bundle.ir)
+    if semantic_ir_payload is None:
+        semantic_ir_payload = workflow_semantic_ir_to_json(validated_bundle.semantic_ir)
     source_map_json = _json_data(source_map_payload)
     if adapter_census_payload is not None:
         artifact_paths["adapter_census"] = build_root / "adapter_census.json"
@@ -5808,6 +5853,8 @@ def _validate_selected_workflow_hidden_compatibility_bridge_public_boundary(
     selected_name: str,
     boundary_authority_registry: Mapping[str, object] | None,
 ) -> None:
+    if boundary_authority_registry is None:
+        return
     if isinstance(boundary_authority_registry, Mapping):
         workflow_family = boundary_authority_registry.get("workflow_family")
         if workflow_family not in (None, "design_delta_parent_drain"):

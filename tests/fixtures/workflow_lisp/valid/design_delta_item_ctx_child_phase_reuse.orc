@@ -271,15 +271,13 @@
                     :work_item_source resolved.work_item_source)))
            (match terminal
              ((IMPLEMENTATION_BLOCKED implementation_blocked)
-              (variant SelectedItemResult BLOCKED
+             (variant SelectedItemResult BLOCKED
                 :summary-path implementation.progress-report
-                :blocker-class BlockerClass.unrecoverable_after_fix_attempt
-                :run-state selected.final-plan-gate-state))
+                :blocker-class BlockerClass.unrecoverable_after_fix_attempt))
              ((PLAN_REVIEW_EXHAUSTED plan_review_exhausted)
               (variant SelectedItemResult BLOCKED
                 :summary-path implementation.progress-report
-                :blocker-class BlockerClass.unrecoverable_after_fix_attempt
-                :run-state selected.final-plan-gate-state))
+                :blocker-class BlockerClass.unrecoverable_after_fix_attempt))
              ((IMPLEMENTATION_REVIEW_EXHAUSTED implementation_review_exhausted)
               (let* ((plan-compat
                        (project-plan-approved-compat
@@ -310,12 +308,10 @@
                   :plan plan-compat
                   :implementation implementation-compat))))))
         ((BLOCKED blocked)
-         (variant SelectedItemResult BLOCKED
+        (variant SelectedItemResult BLOCKED
            :summary-path blocked.progress_report_path
-           :blocker-class BlockerClass.roadmap_conflict
-           :run-state selected.final-plan-gate-state))
+           :blocker-class BlockerClass.roadmap_conflict))
         ((EXHAUSTED exhausted)
          (variant SelectedItemResult BLOCKED
            :summary-path exhausted.progress_report_path
-           :blocker-class BlockerClass.unrecoverable_after_fix_attempt
-           :run-state selected.final-plan-gate-state))))))
+           :blocker-class BlockerClass.unrecoverable_after_fix_attempt))))))

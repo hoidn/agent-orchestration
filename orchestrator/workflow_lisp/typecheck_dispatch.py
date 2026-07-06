@@ -1883,6 +1883,56 @@ def _typecheck(
             span=expr.span,
             form_path=expr.form_path,
         )
+        blocker_class = _backlog_drain_blocker_class_type(
+            type_env,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        _require_union_variant_exact_field_names(
+            drain_result,
+            "EMPTY",
+            expected_fields=(),
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        _require_union_variant_path_field(
+            drain_result,
+            "BLOCKED",
+            "progress-report-path",
+            expected_under="artifacts/work",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        _require_union_variant_exact_type(
+            drain_result,
+            "BLOCKED",
+            "blocker-class",
+            expected_type=blocker_class,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        _require_union_variant_exact_field_names(
+            drain_result,
+            "BLOCKED",
+            expected_fields=("progress-report-path", "blocker-class"),
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        _require_union_variant_exact_type(
+            drain_result,
+            "COMPLETED",
+            "items-processed",
+            expected_type=PrimitiveTypeRef(name="Int"),
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        _require_union_variant_exact_field_names(
+            drain_result,
+            "COMPLETED",
+            expected_fields=("items-processed",),
+            span=expr.span,
+            form_path=expr.form_path,
+        )
         typed_providers = None
         if expr.spec.providers_expr is not None:
             typed_providers = _typecheck(

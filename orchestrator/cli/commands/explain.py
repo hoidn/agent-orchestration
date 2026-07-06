@@ -194,7 +194,7 @@ def _select_local_explain_workflow(
             elif display_name == requested_form:
                 display_matches.append((module_name, lowered))
 
-    matches = exact_matches or display_matches
+    matches = _dedupe_explain_workflow_matches(exact_matches or display_matches)
     if not matches:
         return None
     if len(matches) > 1:
@@ -277,6 +277,18 @@ def _select_local_explain_workflow(
             }
         },
     }
+
+
+def _dedupe_explain_workflow_matches(
+    matches: Iterable[tuple[str, object]],
+) -> list[tuple[str, object]]:
+    """Collapse imported/defining-module duplicates for the same canonical workflow."""
+
+    selected: dict[str, tuple[str, object]] = {}
+    for module_name, lowered in matches:
+        workflow_name = lowered.typed_workflow.definition.name
+        selected.setdefault(workflow_name, (module_name, lowered))
+    return [selected[name] for name in sorted(selected)]
 
 
 def _select_local_explain_procedure(

@@ -252,15 +252,14 @@ def test_checked_design_delta_rendering_cleanup_retires_summary_body_materializa
     assert decisions["c0.drain_materialized_drain_summary"] == (
         "RETIRED_TO_ENTRY_PUBLICATION"
     )
-    assert decisions["c0.drain_materialized_drain_summary_compiled_boundary"] == (
-        "RETIRED_TO_ENTRY_PUBLICATION"
-    )
+    # The compiled-boundary companion rows were reconciled away once the
+    # entry-publication and bridge-metadata retirements removed the compiled
+    # boundary surfaces they described.
+    assert "c0.drain_materialized_drain_summary_compiled_boundary" not in decisions
     assert decisions["c0.work_item_summary_summary_path"] == (
         "RETIRED_TO_BRIDGE_METADATA"
     )
-    assert decisions["c0.work_item_summary_summary_path_compiled_boundary"] == (
-        "RETIRED_TO_BRIDGE_METADATA"
-    )
+    assert "c0.work_item_summary_summary_path_compiled_boundary" not in decisions
     assert (
         decisions.get("c0.work_item_materialized_selected_item_summary")
         != "KEEP_TIMED_PUBLICATION"
@@ -287,14 +286,25 @@ def test_checked_design_delta_rendering_cleanup_keeps_live_checks_report_pair_ti
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     decisions = {row["c0_row_id"]: row["decision"] for row in payload["rows"]}
 
+    # The checks-report body materializations are retired to observability;
+    # the live timed publications are the check-commands view and the fix
+    # route's compiled checks-report boundary.
     assert (
         decisions["c0.implementation_phase_materialized_return_checks_report"]
-        == "KEEP_TIMED_PUBLICATION"
+        == "RETIRED_TO_OBSERVABILITY"
     )
     assert (
         decisions[
             "c0.implementation_phase_materialized_return_checks_report_compiled_boundary"
         ]
+        == "RETIRED_TO_OBSERVABILITY"
+    )
+    assert (
+        decisions["c0.implementation_phase_materialized_check_commands_view"]
+        == "KEEP_TIMED_PUBLICATION"
+    )
+    assert (
+        decisions["c0.implementation_phase_fix_return_checks_report_compiled_boundary"]
         == "KEEP_TIMED_PUBLICATION"
     )
 

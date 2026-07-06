@@ -411,8 +411,8 @@ substrate shape:
 The runtime or certified adapter enforces resource identity, expected version,
 declared writes, idempotency, conflict behavior, resume behavior, audit
 projection, source-map provenance, and Semantic IR effect visibility. Drain body
-code should use raw `resource-transition` only for low-level libraries,
-fixtures, or explicit adapter/transition definitions.
+code should use raw `resource-transition` only for low-level libraries or
+explicit adapter/transition definitions.
 
 Transition contracts must be meaningful, not just present:
 
@@ -606,7 +606,7 @@ Work that should wait for substrate support:
 - removal of compatibility bridges required by YAML parity;
 - defaulting all boundary publications to implicit rendering; and
 - deleting certified adapters whose runtime-native replacement has not passed
-  positive and negative fixtures.
+  positive and negative behavior checks.
 
 ### 9.1 Shared Owner-Lane Prerequisites
 
@@ -667,13 +667,17 @@ prerequisite gap.
 - Terminal records, summaries, bridges, audit entries, and resource transitions
   must name a consumer and authority class. They are invalid as hidden
   prerequisites for ordinary typed value return.
+- Test fixtures, mirrored fixture trees, checked manifests, and generated
+  evidence files are verification vehicles, not architecture. They must not be
+  promoted into completion requirements unless the changed source, runtime
+  contract, or public boundary actually depends on them.
 
 ## 11. Implementation Boundaries
 
 Implementation follows this design only if the default `.orc` authoring and
 lowering path provides the behavior. The following do not satisfy the target:
 
-- a test-only fixture that bypasses provider prompt composition;
+- a test-only path that bypasses provider prompt composition;
 - a helper script that writes the desired JSON while the `.orc` source still
   treats the file as state;
 - a source-map entry for a generated path without public/private boundary
@@ -685,7 +689,7 @@ lowering path provides the behavior. The following do not satisfy the target:
 - leaf workflow compile success without parent-callable drain execution.
 
 The reference implementation target is the Design Delta Drain `.orc` family,
-not an isolated teaching fixture.
+not an isolated teaching example.
 
 ## 12. Compatibility And Migration
 
@@ -819,9 +823,9 @@ mechanics, is out of scope for this target.
 
 ### 13.4 Design Delta Drain Acceptance
 
-Reference-family acceptance is demonstrated by the real promoted route, not by
-an isolated fixture. Use the narrowest runnable checks that exercise the
-changed behavior.
+Reference-family acceptance is demonstrated by the real promoted route. Use the
+narrowest runnable checks that exercise the changed behavior; fixture or mirror
+updates are incidental test maintenance, not independent target obligations.
 
 The target is complete only when the Design Delta Drain `.orc` family:
 
@@ -846,7 +850,7 @@ The target is complete only when the Design Delta Drain `.orc` family:
 - represents durable drain/work-item/recovery state changes as named domain
   operations that lower to typed transitions or certified transition adapters;
 - contains no body-level `materialize-view` except justified timed
-  publications or low-level compatibility fixtures;
+  publications or low-level compatibility checks;
 - keeps remaining Python helpers only as certified external or legacy adapters;
 - retires transitional compatibility surfaces from ordinary internal
   composition;

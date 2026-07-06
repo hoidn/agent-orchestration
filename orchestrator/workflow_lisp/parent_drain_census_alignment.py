@@ -20,6 +20,15 @@ _BOUNDARY_EVIDENCE_KINDS = frozenset(
 _MATERIALIZE_VIEW_CONSUMER_LANES = frozenset(
     {"timed_body_materialization", "retirement_candidate"}
 )
+_MATERIALIZE_VIEW_RETIREMENT_DECISIONS = frozenset(
+    {
+        "RETIRE_TO_PROMPT_RENDERING",
+        "RETIRE_TO_OBSERVABILITY",
+        "RETIRE_TO_ENTRY_PUBLICATION",
+        "RETIRE_TO_BRIDGE_METADATA",
+        "BLOCKED",
+    }
+)
 
 
 def build_parent_drain_census_alignment_report(
@@ -80,11 +89,17 @@ def build_parent_drain_census_alignment_report(
         for row in checked_consumer_rendering_census.get("rows", [])
         if isinstance(row, Mapping)
     ]
-    checked_materialize_rows = [
+    checked_materialize_explaining_rows = [
         row
         for row in checked_consumer_rows
         if str(row.get("source_kind", "")) == "materialized_output"
         and str(row.get("consumer_lane", "")) in _MATERIALIZE_VIEW_CONSUMER_LANES
+    ]
+    checked_materialize_rows = [
+        row
+        for row in checked_materialize_explaining_rows
+        if str(row.get("consumer_lane", "")) == "timed_body_materialization"
+        or str(row.get("track_c_decision", "")) == "KEEP_TIMED_PUBLICATION"
     ]
     scoped_materialize_view_effects = [
         effect
@@ -301,6 +316,13 @@ def build_parent_drain_census_alignment_report(
             _materialize_view_effect_matches_row(effect, row)
             for row in checked_materialize_rows
         )
+        if not matched and any(
+            _materialize_view_effect_matches_row(effect, row)
+            and str(row.get("track_c_decision", ""))
+            in _MATERIALIZE_VIEW_RETIREMENT_DECISIONS
+            for row in checked_materialize_explaining_rows
+        ):
+            continue
         if not matched:
             invalid = {
                 "code": "parent_drain_census_materialize_view_unmatched",

@@ -11,10 +11,14 @@
     (final-plan-gate-state StateExisting))
 
   (defworkflow project-selected-compat
-    ((item-id String)
-     (run_state_path StateExisting))
+    ((item-id String))
     -> BranchingSelectedCompat
-    (record BranchingSelectedCompat
-      :item-id item-id
-      :is-active false
-      :final-plan-gate-state run_state_path)))
+    (let* ((final-plan-gate-state
+             (__generated-relpath-seed__
+               StateExisting
+               "state/branching_terminal_reprojection/final_plan_gate_state.json"
+               "branching_terminal_reprojection_final_plan_gate_state")))
+      (record BranchingSelectedCompat
+        :item-id item-id
+        :is-active false
+        :final-plan-gate-state final-plan-gate-state))))

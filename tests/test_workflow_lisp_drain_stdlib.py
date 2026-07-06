@@ -640,6 +640,10 @@ def _assert_child_backlog_drain_uses_shared_terminal_lane(child) -> None:
             for value in result_step["materialize_artifacts"]["values"]
             if value["name"] == "return__progress-report-path"
         )
+        assert all(
+            value["name"] != "return__run-state"
+            for value in result_step["materialize_artifacts"]["values"]
+        )
         assert progress_field["source"] == {
             "ref": (
                 f"root.steps.{child_name}__terminal_carrier.artifacts."
@@ -649,8 +653,8 @@ def _assert_child_backlog_drain_uses_shared_terminal_lane(child) -> None:
     hidden_inputs = set(child.origin_map.internal_input_spans)
     assert any("shared_drain_result" in input_name for input_name in hidden_inputs)
     generated_paths = set(child.origin_map.generated_path_spans)
-    assert any(path.endswith("shared-drain-result-drain-run-state.json") for path in generated_paths)
     assert any(path.endswith("shared-drain-result-record-drain-outcome.jsonl") for path in generated_paths)
+    assert "state/drain-run-state.json" not in repr(authored)
 
 
 def test_elaborate_backlog_drain_expr() -> None:
@@ -939,6 +943,7 @@ def _write_custom_backlog_drain_union_fixture(
     selection_variants: list[str] | None = None,
     selected_item_variants: list[str] | None = None,
     gap_result_variants: list[str] | None = None,
+    drain_result_variants: list[str] | None = None,
 ) -> Path:
     package_dir = tmp_path / "custom_pkg"
     package_dir.mkdir(parents=True)
@@ -1002,12 +1007,14 @@ def _write_custom_backlog_drain_union_fixture(
                     "      (blocker-class BlockerClass)))",
                 ]),
                 "  (defunion DrainResult",
-                "    (EMPTY)",
-                "    (BLOCKED",
-                "      (progress-report-path WorkReport)",
-                "      (blocker-class BlockerClass))",
-                "    (COMPLETED",
-                "      (items-processed Int))))",
+                *(drain_result_variants or [
+                    "    (EMPTY)",
+                    "    (BLOCKED",
+                    "      (progress-report-path WorkReport)",
+                    "      (blocker-class BlockerClass))",
+                    "    (COMPLETED",
+                    "      (items-processed Int))))",
+                ]),
             ]
         )
         + "\n",
@@ -1081,7 +1088,12 @@ def _write_custom_backlog_drain_union_fixture(
 
 
 @pytest.mark.parametrize(
-    ("selection_variants", "selected_item_variants", "gap_result_variants"),
+    (
+        "selection_variants",
+        "selected_item_variants",
+        "gap_result_variants",
+        "drain_result_variants",
+    ),
     [
         (
             [
@@ -1094,6 +1106,7 @@ def _write_custom_backlog_drain_union_fixture(
                 "    (BLOCKED",
                 "      (reason String)))",
             ],
+            None,
             None,
             None,
         ),
@@ -1109,6 +1122,7 @@ def _write_custom_backlog_drain_union_fixture(
                 "      (run-state StateExisting)))",
             ],
             None,
+            None,
         ),
         (
             None,
@@ -1120,21 +1134,44 @@ def _write_custom_backlog_drain_union_fixture(
                 "      (progress-report-path WorkReport)",
                 "      (blocker-class BlockerClass)))",
             ],
+            None,
+        ),
+        (
+            None,
+            None,
+            None,
+            [
+                "    (EMPTY",
+                "      (run-state StateExisting))",
+                "    (BLOCKED",
+                "      (progress-report-path WorkReport)",
+                "      (blocker-class BlockerClass))",
+                "    (COMPLETED",
+                "      (items-processed Int)",
+                "      (run-state StateExisting))))",
+            ],
         ),
     ],
-    ids=("selector_empty_run_state", "selected_item_run_state", "gap_continue_run_state"),
+    ids=(
+        "selector_empty_run_state",
+        "selected_item_run_state",
+        "gap_continue_run_state",
+        "drain_result_run_state",
+    ),
 )
 def test_workflow_ref_resolution_rejects_custom_union_run_state_carriers(
     tmp_path: Path,
     selection_variants: list[str] | None,
     selected_item_variants: list[str] | None,
     gap_result_variants: list[str] | None,
+    drain_result_variants: list[str] | None,
 ) -> None:
     entry_path = _write_custom_backlog_drain_union_fixture(
         tmp_path,
         selection_variants=selection_variants,
         selected_item_variants=selected_item_variants,
         gap_result_variants=gap_result_variants,
+        drain_result_variants=drain_result_variants,
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -2277,14 +2314,12 @@ def test_callable_backlog_drain_keeps_gap_drafter_boundary_narrow(tmp_path: Path
                 "      (progress-report-path WorkReport)",
                 "      (blocker-class BlockerClass)))",
                 "  (defunion DrainResult",
-                "    (EMPTY",
-                "      (run-state StateExisting))",
+                "    (EMPTY)",
                 "    (BLOCKED",
                 "      (progress-report-path WorkReport)",
                 "      (blocker-class BlockerClass))",
                 "    (COMPLETED",
-                "      (items-processed Int)",
-                "      (run-state StateExisting)))",
+                "      (items-processed Int)))",
                 "  (defworkflow selector-run",
                 "    ((ctx DrainCtx))",
                 "    -> SelectionResult",
@@ -2540,6 +2575,30 @@ def test_backlog_drain_target_contract_routes_default_imported_surface_through_c
     assert call_step["id"] in parent.origin_map.step_spans
     assert any("repeat_until" in step for step in child.authored_mapping["steps"])
     _assert_child_backlog_drain_uses_shared_terminal_lane(child)
+
+
+def test_backlog_drain_target_contract_removes_run_state_from_public_stdlib_shapes() -> None:
+    source = (
+        REPO_ROOT / "orchestrator" / "workflow_lisp" / "stdlib_modules" / "std" / "drain.orc"
+    ).read_text(encoding="utf-8")
+    drain_result_union = source.split("(defunion DrainResult", 1)[1].split(
+        "(defenum DrainTerminalKind", 1
+    )[0]
+    drain_loop_terminal_union = source.split("(defunion DrainLoopTerminal", 1)[1].split(
+        "(defrecord DrainLoopState", 1
+    )[0]
+    drain_loop_state_record = source.split("(defrecord DrainLoopState", 1)[1].split(
+        "(defrecord DrainOutcomeState", 1
+    )[0]
+    helper_section = source.split("(defproc empty-drain-result-proc", 1)[1].split(
+        "(defproc consume-drain-terminal-effects", 1
+    )[0]
+
+    assert "(run-state StateExisting)" not in drain_result_union
+    assert "(run_state StateExisting)" not in drain_loop_terminal_union
+    assert "(run-state StateExisting)" not in drain_loop_state_record
+    assert "(run-state StateExisting)" not in helper_section
+    assert "(run_state StateExisting)" not in helper_section
 
 
 def test_legacy_backlog_drain_keeps_repeat_until_in_parent(tmp_path: Path) -> None:
@@ -2940,14 +2999,12 @@ def test_workflow_ref_provider_metadata_must_satisfy_callee_externs(tmp_path: Pa
                 "      (progress-report-path WorkReport)",
                 "      (blocker-class BlockerClass)))",
                 "  (defunion DrainResult",
-                "    (EMPTY",
-                "      (run-state StateExisting))",
+                "    (EMPTY)",
                 "    (BLOCKED",
                 "      (progress-report-path WorkReport)",
                 "      (blocker-class BlockerClass))",
                 "    (COMPLETED",
-                "      (items-processed Int)",
-                "      (run-state StateExisting)))",
+                "      (items-processed Int)))",
                 "  (defworkflow selector-run",
                 "    ((ctx DrainCtx))",
                 "    -> SelectionResult",

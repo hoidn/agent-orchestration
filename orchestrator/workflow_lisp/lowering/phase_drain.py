@@ -696,12 +696,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
         "type": "enum",
         "allowed": ["CONTINUE", "EMPTY", "COMPLETED", "BLOCKED", "EXHAUSTED"],
     }
-    accumulator_run_state_contract = {
-        "kind": "relpath",
-        "type": "relpath",
-        "under": "state",
-        "must_exist_target": False,
-    }
     accumulator_progress_contract = {
         "kind": "relpath",
         "type": "relpath",
@@ -711,7 +705,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
     accumulator_blocker_contract = dict(_return_contract("blocker-class"))
     accumulator_blocker_contract.pop("projection", None)
     selector_blocked_compatibility_blocker = "user_decision_required"
-    seed_run_state_literal = "state/drain-run-state.json"
     seed_progress_literal = "artifacts/work/drain-progress-report.md"
     placeholder_progress_ref = f"artifacts/work/.orchestrate/workflow_lisp/{step_name}/unused_progress_report.md"
     placeholder_blocker_value = accumulator_blocker_contract["allowed"][0]
@@ -729,7 +722,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
             "from": {"ref": f"self.steps.{step_name}__route_selection.artifacts.{name}"},
         }
         for name, definition in loop_output_definitions.items()
-        if name != "acc__run-state"
     }
 
     def _materialize_outputs_step(
@@ -1167,11 +1159,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
         step_id_value=_normalize_generated_step_id(loop_state_seed_step_name),
         values=[
             {
-                "name": "acc__run-state",
-                "source": {"literal": seed_run_state_literal},
-                "contract": dict(accumulator_run_state_contract),
-            },
-            {
                 "name": "acc__progress-report-path",
                 "source": {"literal": seed_progress_literal},
                 "contract": dict(accumulator_progress_contract),
@@ -1279,7 +1266,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
             ],
         },
     }
-    current_run_state_ref = f"root.steps.{loop_state_seed_step_name}.artifacts.acc__run-state"
     current_progress_ref = f"parent.steps.{current_loop_state_name}.artifacts.acc__progress-report-path"
 
     selector_prepare_steps, selector_call_step = _managed_call_step(
@@ -1812,7 +1798,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
         case_name: str,
         terminal_variant: str,
         terminal_items_ref: str,
-        terminal_run_state_ref: str,
         terminal_progress_ref: str,
         terminal_blocker_ref: str,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -1826,11 +1811,9 @@ def _phase_stdlib_lower_backlog_drain_impl(
             step_name_prefix=case_context.step_name_prefix,
             terminal_variant=terminal_variant,
             terminal_items_ref=terminal_items_ref,
-            terminal_run_state_ref=terminal_run_state_ref,
             terminal_progress_ref=terminal_progress_ref,
             terminal_blocker_ref=terminal_blocker_ref,
             result_output_contracts=result_output_definitions,
-            accumulator_run_state_contract=accumulator_run_state_contract,
             accumulator_progress_contract=accumulator_progress_contract,
             accumulator_blocker_contract=accumulator_blocker_contract,
             placeholder_blocker_value=placeholder_blocker_value,
@@ -1848,13 +1831,11 @@ def _phase_stdlib_lower_backlog_drain_impl(
     normalize_step_id = _normalize_generated_step_id(normalize_step_name)
     _record_step_origin(context, step_name=normalize_step_name, step_id=normalize_step_id, source=expr)
     accumulator_items_ref = f"root.steps.{step_name}.artifacts.acc__items-processed"
-    accumulator_run_state_ref = f"root.steps.{loop_state_seed_step_name}.artifacts.acc__run-state"
     accumulator_progress_ref = f"root.steps.{step_name}.artifacts.acc__progress-report-path"
     accumulator_blocker_ref = f"root.steps.{step_name}.artifacts.acc__blocker-class"
     terminal_carrier_step_name = f"{step_name}__terminal_carrier"
     terminal_carrier_step_id = _normalize_generated_step_id(terminal_carrier_step_name)
     terminal_items_ref = f"root.steps.{terminal_carrier_step_name}.artifacts.terminal__items-processed"
-    terminal_run_state_ref = f"root.steps.{terminal_carrier_step_name}.artifacts.terminal__run-state"
     terminal_progress_ref = f"root.steps.{terminal_carrier_step_name}.artifacts.terminal__progress-report-path"
     terminal_blocker_ref = f"root.steps.{terminal_carrier_step_name}.artifacts.terminal__blocker-class"
 
@@ -1871,10 +1852,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
             "terminal__items-processed": {
                 **dict(items_processed_contract),
                 "from": {"ref": f"self.steps.{materialize_step_name}.artifacts.terminal__items-processed"},
-            },
-            "terminal__run-state": {
-                **dict(accumulator_run_state_contract),
-                "from": {"ref": f"self.steps.{materialize_step_name}.artifacts.terminal__run-state"},
             },
             "terminal__progress-report-path": {
                 **dict(accumulator_progress_contract),
@@ -1902,11 +1879,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
                             "name": "terminal__items-processed",
                             "source": {"ref": accumulator_items_ref},
                             "contract": dict(items_processed_contract),
-                        },
-                        {
-                            "name": "terminal__run-state",
-                            "source": {"ref": accumulator_run_state_ref},
-                            "contract": dict(accumulator_run_state_contract),
                         },
                         {
                             "name": "terminal__progress-report-path",
@@ -1950,7 +1922,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
         case_name="empty",
         terminal_variant="EMPTY",
         terminal_items_ref=terminal_items_ref,
-        terminal_run_state_ref=terminal_run_state_ref,
         terminal_progress_ref=terminal_progress_ref,
         terminal_blocker_ref=terminal_blocker_ref,
     )
@@ -1958,7 +1929,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
         case_name="completed",
         terminal_variant="COMPLETED",
         terminal_items_ref=terminal_items_ref,
-        terminal_run_state_ref=terminal_run_state_ref,
         terminal_progress_ref=terminal_progress_ref,
         terminal_blocker_ref=terminal_blocker_ref,
     )
@@ -1966,7 +1936,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
         case_name="blocked",
         terminal_variant="BLOCKED",
         terminal_items_ref=terminal_items_ref,
-        terminal_run_state_ref=terminal_run_state_ref,
         terminal_progress_ref=terminal_progress_ref,
         terminal_blocker_ref=terminal_blocker_ref,
     )
@@ -1974,7 +1943,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
         case_name="exhausted",
         terminal_variant="EXHAUSTED",
         terminal_items_ref=terminal_items_ref,
-        terminal_run_state_ref=terminal_run_state_ref,
         terminal_progress_ref=terminal_progress_ref,
         terminal_blocker_ref=terminal_blocker_ref,
     )

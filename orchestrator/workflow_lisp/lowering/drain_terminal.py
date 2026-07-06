@@ -42,7 +42,6 @@ def _drain_terminal_transition_config(
     string_descriptor = {"kind": "primitive", "name": "String"}
     int_descriptor = {"kind": "primitive", "name": "Int"}
     bool_descriptor = {"kind": "primitive", "name": "Bool"}
-    run_state_descriptor = {"kind": "path", "name": "std/resource::StateExisting"}
     progress_descriptor = {"kind": "path", "name": "std/resource::WorkReport"}
     blocker_descriptor = {
         "kind": "enum",
@@ -57,7 +56,6 @@ def _drain_terminal_transition_config(
             "fields": [
                 {"name": "variant", "type": dict(string_descriptor)},
                 {"name": "items_processed", "type": dict(int_descriptor)},
-                {"name": "run_state", "type": dict(run_state_descriptor)},
                 {"name": "progress_report_path", "type": dict(progress_descriptor)},
                 {"name": "blocker_class", "type": dict(blocker_descriptor)},
                 {"name": "has_blocker", "type": dict(bool_descriptor)},
@@ -96,7 +94,6 @@ def _drain_terminal_transition_config(
                 "fields": [
                     {"name": "variant", "value": _binding_field("variant")},
                     {"name": "items_processed", "value": _binding_field("items_processed")},
-                    {"name": "run_state", "value": _binding_field("run_state")},
                     {"name": "progress_report_path", "value": _binding_field("progress_report_path")},
                     {"name": "blocker_class", "value": _binding_field("blocker_class")},
                     {"name": "has_blocker", "value": _binding_field("has_blocker")},
@@ -136,7 +133,6 @@ def _drain_terminal_transition_config(
                 "updates": [
                     {"op": "set_field", "target": "variant", "value": _pure_payload(string_descriptor, _binding_field("variant"))},
                     {"op": "set_field", "target": "items_processed", "value": _pure_payload(int_descriptor, _binding_field("items_processed"))},
-                    {"op": "set_field", "target": "run_state", "value": _pure_payload(run_state_descriptor, _binding_field("run_state"))},
                     {"op": "set_field", "target": "progress_report_path", "value": _pure_payload(progress_descriptor, _binding_field("progress_report_path"))},
                     {"op": "set_field", "target": "blocker_class", "value": _pure_payload(blocker_descriptor, _binding_field("blocker_class"))},
                     {"op": "set_field", "target": "has_blocker", "value": _pure_payload(bool_descriptor, _binding_field("has_blocker"))},
@@ -144,7 +140,6 @@ def _drain_terminal_transition_config(
                 "write_set": [
                     "variant",
                     "items_processed",
-                    "run_state",
                     "progress_report_path",
                     "blocker_class",
                     "has_blocker",
@@ -152,7 +147,6 @@ def _drain_terminal_transition_config(
                 "idempotency_fields": [
                     "variant",
                     "items_processed",
-                    "run_state",
                     "progress_report_path",
                     "blocker_class",
                     "has_blocker",
@@ -183,11 +177,9 @@ def lower_shared_drain_terminal_result(
     step_name_prefix: str,
     terminal_variant: str,
     terminal_items_ref: str,
-    terminal_run_state_ref: str,
     terminal_progress_ref: str,
     terminal_blocker_ref: str,
     result_output_contracts: Mapping[str, Mapping[str, Any]],
-    accumulator_run_state_contract: Mapping[str, Any],
     accumulator_progress_contract: Mapping[str, Any],
     accumulator_blocker_contract: Mapping[str, Any],
     placeholder_blocker_value: str,
@@ -232,11 +224,6 @@ def lower_shared_drain_terminal_result(
             "type": "integer",
         },
         {
-            "name": "run_state",
-            "json_pointer": "/result/run_state",
-            **dict(accumulator_run_state_contract),
-        },
-        {
             "name": "progress_report_path",
             "json_pointer": "/result/progress_report_path",
             **dict(accumulator_progress_contract),
@@ -262,7 +249,6 @@ def lower_shared_drain_terminal_result(
             request_bindings={
                 "variant": result_variant,
                 "items_processed": {"ref": terminal_items_ref},
-                "run_state": {"ref": terminal_run_state_ref},
                 "progress_report_path": {"ref": terminal_progress_ref},
                 "blocker_class": {"ref": terminal_blocker_ref},
                 "has_blocker": has_blocker,
@@ -284,7 +270,6 @@ def lower_shared_drain_terminal_result(
         "fields": [
             {"name": "variant", "type": {"kind": "primitive", "name": "String"}},
             {"name": "items_processed", "type": {"kind": "primitive", "name": "Int"}},
-            {"name": "run_state", "type": {"kind": "path", "name": "StateExisting"}},
             {"name": "progress_report_path", "type": {"kind": "path", "name": "WorkReport"}},
             {"name": "blocker_class", "type": {"kind": "enum", "name": "BlockerClass"}},
             {"name": "has_blocker", "type": {"kind": "primitive", "name": "Bool"}},
@@ -295,9 +280,8 @@ def lower_shared_drain_terminal_result(
         "items_processed": MaterializeViewBindingReference(
             ref=f"self.steps.{transition_step_name}.artifacts.items_processed"
         ),
-        "run_state": MaterializeViewBindingReference(ref=f"self.steps.{transition_step_name}.artifacts.run_state"),
         "progress_report_path": MaterializeViewBindingReference(
-            ref=f"self.steps.{transition_step_name}.artifacts.progress_report_path"
+            ref=terminal_progress_ref
         ),
         "blocker_class": MaterializeViewBindingReference(
             ref=f"self.steps.{transition_step_name}.artifacts.blocker_class"
@@ -340,20 +324,15 @@ def lower_shared_drain_terminal_result(
     }
     result_step_name = f"{transition_step_name}__result"
     result_step_id = _normalize_generated_step_id(result_step_name)
-    result_step = _materialize_outputs_step(
-        step_name=result_step_name,
-        step_id=result_step_id,
-        values=[
-            {
-                "name": "return__variant",
-                "source": {"literal": result_variant},
-                "contract": dict(result_output_contracts["return__variant"]),
-            },
-            {
-                "name": "return__run-state",
-                "source": {"ref": terminal_run_state_ref},
-                "contract": dict(result_output_contracts["return__run-state"]),
-            },
+    result_values = [
+        {
+            "name": "return__variant",
+            "source": {"literal": result_variant},
+            "contract": dict(result_output_contracts["return__variant"]),
+        },
+    ]
+    result_values.extend(
+        [
             {
                 "name": "return__items-processed",
                 "source": {"ref": terminal_items_ref},
@@ -361,7 +340,7 @@ def lower_shared_drain_terminal_result(
             },
             {
                 "name": "return__progress-report-path",
-                "source": {"ref": f"self.steps.{summary_step_name}.artifacts.return"},
+                "source": {"ref": terminal_progress_ref},
                 "contract": dict(result_output_contracts["return__progress-report-path"]),
             },
             {
@@ -373,12 +352,17 @@ def lower_shared_drain_terminal_result(
                 ),
                 "contract": dict(result_output_contracts["return__blocker-class"]),
             },
-        ],
+        ]
+    )
+    result_step = _materialize_outputs_step(
+        step_name=result_step_name,
+        step_id=result_step_id,
+        values=result_values,
     )
     _record_step_origin(context, step_name=transition_step_name, step_id=transition_step_id, source=source_expr)
     _record_step_origin(context, step_name=summary_step_name, step_id=summary_step_id, source=source_expr)
     _record_step_origin(context, step_name=result_step_name, step_id=result_step_id, source=source_expr)
-    return [transition_step, summary_step, result_step], _TerminalResult(
+    return [result_step, transition_step, summary_step], _TerminalResult(
         step_name=result_step_name,
         step_id=result_step_id,
         output_refs={

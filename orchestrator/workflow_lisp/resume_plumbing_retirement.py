@@ -43,20 +43,18 @@ CHECKPOINT_SHADOW_REPORT_SCHEMA_VERSION = (
     "workflow_lisp_lexical_checkpoint_shadow_report.v1"
 )
 EFFECT_RESUME_POLICY_SCHEMA_VERSION = "workflow_lisp_effect_resume_policy.v1"
-REQUIRED_TRANSITION_IDENTITIES = frozenset({"write-drain-status"})
+REQUIRED_TRANSITION_IDENTITIES = frozenset({"write-drain-status-runtime-native"})
 DRAIN_RUN_STATE_BRIDGE_ROW_ID = "transitions.resource.drain_run_state"
 DRAIN_RUN_STATE_BRIDGE_WORKFLOW_SURFACE = "lisp_frontend_design_delta/transitions"
 DRAIN_RUN_STATE_BRIDGE_SYMBOL = "drain-run-state"
 DRAIN_RUN_STATE_BRIDGE_REPLACEMENT_TARGET = (
     "Track R runtime-derived drain-run-state backing"
 )
-DRAIN_RUN_STATE_BRIDGE_ALLOWED_DECISIONS = frozenset(
-    {"KEPT_COMPATIBILITY", "BLOCKED"}
-)
+DRAIN_RUN_STATE_BRIDGE_ALLOWED_DECISIONS = frozenset({"RETIRED"})
 RETIREMENT_EVIDENCE_REQUIREMENTS: dict[str, dict[str, Any]] = {
     "drain.loop.run_state_path": {
         "requires_loop_restore": True,
-        "required_transition_identities": frozenset({"write-drain-status"}),
+        "required_transition_identities": frozenset({"write-drain-status-runtime-native"}),
     },
     "work_item.loop.run_state_path": {
         "requires_loop_restore": False,
@@ -450,31 +448,38 @@ def _required_compatibility_bridge_decisions(
         raise ValueError(
             "resume_plumbing_retirement_compatibility_unjustified: "
             f"row `{DRAIN_RUN_STATE_BRIDGE_ROW_ID}` requires a checked "
-            "KEPT_COMPATIBILITY decision while drain-run-state still uses "
+            "RETIRED decision while drain-run-state still uses "
             "run_state_path bridge backing"
         )
     decision = (
         str(manifest_decision.get("decision"))
         if isinstance(manifest_decision, Mapping)
-        else "BLOCKED"
+        else "RETIRED"
     )
     if decision not in DRAIN_RUN_STATE_BRIDGE_ALLOWED_DECISIONS:
         raise ValueError(
             "resume_plumbing_retirement_compatibility_unjustified: "
             f"row `{DRAIN_RUN_STATE_BRIDGE_ROW_ID}` must be marked "
-            "`KEPT_COMPATIBILITY` or `BLOCKED` while drain-run-state keeps "
-            "run_state_path bridge backing"
+            "`RETIRED` once the drain-run-state bridge backing is removed"
         )
     if compiled_row is None:
-        diagnostics.append(
+        return [
             {
-                "code": "resume_plumbing_retirement_row_stale",
                 "row_id": DRAIN_RUN_STATE_BRIDGE_ROW_ID,
                 "workflow_surface": DRAIN_RUN_STATE_BRIDGE_WORKFLOW_SURFACE,
                 "symbol_or_field": DRAIN_RUN_STATE_BRIDGE_SYMBOL,
+                "source_kind": "bridge_file",
+                "plumbing_class": "resume_only",
+                "track_owner": "R",
+                "boundary_authority_class": "compatibility_bridge",
+                "semantic_owner": "runtime_resume",
+                "current_consumer": None,
+                "command_boundary": None,
                 "replacement_target": DRAIN_RUN_STATE_BRIDGE_REPLACEMENT_TARGET,
+                "observed_locations": [],
+                "decision": decision,
             }
-        )
+        ]
     observed_locations = []
     if isinstance(compiled_row, Mapping):
         observed_locations = list(compiled_row.get("observed_locations", []))

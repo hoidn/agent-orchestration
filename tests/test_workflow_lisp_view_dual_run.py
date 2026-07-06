@@ -120,7 +120,10 @@ def _run_replacement_once(inputs: dict[str, Any], workspace: Path) -> dict[str, 
         for input_name, contract in workflow_runtime_input_contracts(bundle).items()
         if not input_name.startswith("__write_root__")
     }
-    bound_inputs = bind_workflow_inputs(runtime_inputs, inputs, workspace)
+    filtered_inputs = {
+        input_name: value for input_name, value in inputs.items() if input_name in runtime_inputs
+    }
+    bound_inputs = bind_workflow_inputs(runtime_inputs, filtered_inputs, workspace)
     state_manager = StateManager(
         workspace=workspace,
         run_id=f"view-dual-run-{abs(hash(json.dumps(inputs, sort_keys=True)))}",
@@ -163,8 +166,11 @@ def _assert_positive_vector_matches(
 ) -> dict[str, Any]:
     assert comparison_mapping_id == EXPECTED_COMPARISON_MAPPING
     expected_typed_value = vector["expected_typed_value"]
-    assert replacement_first["summary_payload"] == expected_typed_value
-    assert replacement_second["summary_payload"] == expected_typed_value
+    expected_replacement_typed_value = {
+        key: value for key, value in expected_typed_value.items() if key != "run_state_path"
+    }
+    assert replacement_first["summary_payload"] == expected_replacement_typed_value
+    assert replacement_second["summary_payload"] == expected_replacement_typed_value
 
     incumbent_summary = json.loads(incumbent["summary_path"].read_text(encoding="utf-8"))
     legacy_expectations = vector["legacy_state_expectations"]
@@ -177,7 +183,7 @@ def _assert_positive_vector_matches(
     assert incumbent_summary["blocked_design_gaps"] == legacy_expectations["blocked_design_gaps"]
     assert incumbent_summary["history_count"] == legacy_expectations["history_count"]
 
-    expected_summary_bytes = render_view("canonical-json", 1, expected_typed_value)
+    expected_summary_bytes = render_view("canonical-json", 1, expected_replacement_typed_value)
     assert replacement_first["summary_bytes"] == expected_summary_bytes
     assert replacement_second["summary_bytes"] == expected_summary_bytes
 
@@ -200,7 +206,7 @@ def _assert_positive_vector_matches(
         "id": vector["id"],
         "status": "pass",
         "accepted_differences": vector["accepted_differences"],
-        "expected_typed_value": expected_typed_value,
+        "expected_typed_value": expected_replacement_typed_value,
         "replacement_typed_value": replacement_first["summary_payload"],
         "legacy_shared_fields": {
             "drain_status": incumbent_summary["drain_status"],

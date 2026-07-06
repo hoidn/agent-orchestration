@@ -515,6 +515,8 @@ def build_consumer_rendering_census_report(
             continue
 
         matched_row = candidate_rows[0]
+        if not _is_active_timed_publication_row(matched_row):
+            continue
         u0_row_id = str(matched_row.get("u0_row_id", ""))
         effect_row = effect_rows_by_u0.setdefault(
             u0_row_id,
@@ -958,6 +960,15 @@ def _u0_row_requires_c0(row: Mapping[str, Any]) -> bool:
     return (
         source_kind == "command_adapter_input"
         and row.get("plumbing_class") == "compatibility_bridge"
+    )
+
+
+def _is_active_timed_publication_row(row: Mapping[str, Any]) -> bool:
+    return (
+        str(row.get("source_kind", "")) in BODY_MATERIALIZATION_SOURCE_KINDS
+        and str(row.get("consumer_lane", "")) == "timed_body_materialization"
+        and str(row.get("track_c_decision", "")) == "KEEP_TIMED_PUBLICATION"
+        and str(row.get("durability", "")) == "durable_timed_body"
     )
 
 

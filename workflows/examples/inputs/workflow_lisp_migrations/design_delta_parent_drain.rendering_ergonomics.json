@@ -1443,38 +1443,6 @@
       "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work"
     },
     {
-      "body_rendering_policy": "allow_timed",
-      "c0_row_id": "c0.std_drain_materialized_shared_drain_result_summary",
-      "consumer_lane": "timed_body_materialization",
-      "expected_track_c_lane": "C5",
-      "renderer_selection": {
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "mode": "infer",
-        "override_allowed": true
-      },
-      "slot_id": "std_drain.materialized.shared_drain_result_summary",
-      "source_form": {
-        "form_path": [
-          "std_drain",
-          "materialized",
-          "shared_drain_result_summary"
-        ],
-        "kind": "materialized_output",
-        "source_map_origin_key": "std/drain::backlog-drain"
-      },
-      "u0_row_id": "std_drain.materialized.shared_drain_result_summary",
-      "value": {
-        "authority": "typed_value",
-        "type_name": "shared_drain_result_summary"
-      },
-      "workflow_surface": "std/drain::backlog-drain"
-    },
-    {
       "body_rendering_policy": "forbid",
       "c0_row_id": "c0.work_item_bridge_architecture_bundle_path_compiled_boundary",
       "consumer_lane": "compatibility_bridge",

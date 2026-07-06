@@ -8,8 +8,8 @@
   (import std/resource :only (WorkReport))
   (import lisp_frontend_design_delta/types :only
     (ArtifactReviewTargetPath ArtifactWorkTargetPath BaselineDesignDoc PlanDoc
-      PlanDocTarget PlanReviewDecision ProgressLedger SteeringDoc
-      TargetDesignDoc WorkItemContextValue))
+      PlanDocTarget PlanReviewDecision ProgressLedger SteeringDoc TargetDesignDoc
+      WorkItemContextValue))
   (export
     DesignDeltaPlanPhaseResult
     PhaseCtx
