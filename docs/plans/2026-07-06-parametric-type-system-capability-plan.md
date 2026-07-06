@@ -420,6 +420,8 @@ git commit -m "Support type-parameter constraint field types"
   (`_provisional_parametric_match_types`, lines ~284-331)
 - Create: `tests/fixtures/workflow_lisp/valid/parametric_type_param_variant_field_match.orc`
 - Create: `tests/fixtures/workflow_lisp/invalid/parametric_type_param_variant_field_match_mismatch.orc`
+- Create: `tests/fixtures/workflow_lisp/valid/parametric_type_param_record_field.orc`
+- Create: `tests/fixtures/workflow_lisp/invalid/parametric_type_param_record_field_mismatch.orc`
 - Test: `tests/test_workflow_lisp_procedures.py`
 
 **Interfaces:**
@@ -477,6 +479,28 @@ The invalid twin passes a `ProcRef` over `OtherPayload` while the concrete
 union's `SELECTED.selection` stays `Payload` (same mismatch as Task 3's
 invalid fixture, now through the `has-union-variant` clause).
 
+Also author a second, independent fixture pair covering `has-field` with a
+`:forall`-named field type (Task 3's review found this verb's rule-3 path
+untested; nothing blocks it — no `match`, no union, no capability
+licensing). Generic core, modeled on Task 3's committed scaffold:
+
+```lisp
+(defproc read-payload
+  :forall (CtxT PayloadT)
+  ((ctx CtxT)
+   (consume ProcRef[(PayloadT) -> String]))
+  :where ((CtxT is-record)
+          (CtxT has-field payload PayloadT))
+  -> String
+  ...)
+```
+
+with a caller binding `PayloadT` through the `consume` proc-ref argument and
+a record whose `payload` field matches (valid) or mismatches (invalid twin,
+expecting `parametric_constraint_unsatisfied` naming the field). Add the
+corresponding two tests (`..._accepts_type_param_record_field` /
+`..._rejects_type_param_record_field_mismatch`) following Step 1's pattern.
+
 - [ ] **Step 3: Run and confirm the valid test fails today** with
 `type_unknown: unknown type `SelPayloadT`` raised from
 `_provisional_parametric_match_types` (the exact trace in the Task 3 report).
@@ -531,6 +555,8 @@ Expected: baseline (120 + 9 at Task 3's HEAD) plus the two new tests.
 git add orchestrator/workflow_lisp/procedure_typecheck.py \
   tests/fixtures/workflow_lisp/valid/parametric_type_param_variant_field_match.orc \
   tests/fixtures/workflow_lisp/invalid/parametric_type_param_variant_field_match_mismatch.orc \
+  tests/fixtures/workflow_lisp/valid/parametric_type_param_record_field.orc \
+  tests/fixtures/workflow_lisp/invalid/parametric_type_param_record_field_mismatch.orc \
   tests/test_workflow_lisp_procedures.py
 git commit -m "Resolve type-parameter variant field types in match provisioning"
 ```
