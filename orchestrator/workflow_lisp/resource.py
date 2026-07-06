@@ -207,20 +207,6 @@ def ensure_finalize_selected_item_inputs(
             span=span,
             form_path=form_path,
         )
-    selected_run_state = _record_field_type(
-        selected_type,
-        "final-plan-gate-state",
-        code="finalize_selected_item_contract_invalid",
-        span=span,
-        form_path=form_path,
-    )
-    if not isinstance(selected_run_state, PathTypeRef) or selected_run_state.definition.under != "state":
-        _raise_context_error(
-            code="finalize_selected_item_contract_invalid",
-            message="`finalize-selected-item :selected.final-plan-gate-state` must be a relpath under `state`",
-            span=span,
-            form_path=form_path,
-        )
     if not isinstance(roadmap_type, RecordTypeRef):
         _raise_context_error(
             code="finalize_selected_item_contract_invalid",

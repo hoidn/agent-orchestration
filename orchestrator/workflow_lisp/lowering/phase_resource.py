@@ -340,7 +340,6 @@ def _phase_stdlib_lower_finalize_selected_item_impl(
         )
     step_name = context.step_name_prefix
     step_id = _normalize_generated_step_id(step_name)
-    run_state_ref = selected_value.get("final-plan-gate-state")
     roadmap_status_ref = roadmap_value.get("status")
     plan_variant_ref = plan_value.get("variant")
     plan_summary_ref = plan_value.get("progress-report-path")
@@ -353,7 +352,6 @@ def _phase_stdlib_lower_finalize_selected_item_impl(
     if not all(
         isinstance(ref, str)
         for ref in (
-            run_state_ref,
             roadmap_status_ref,
             plan_variant_ref,
             plan_summary_ref,
@@ -367,12 +365,11 @@ def _phase_stdlib_lower_finalize_selected_item_impl(
     ):
         raise _compile_error(
             code="workflow_return_not_exportable",
-            message="`finalize-selected-item` lowering requires roadmap, plan, implementation, queue-transition, and selection refs",
+            message="`finalize-selected-item` lowering requires roadmap, plan, implementation, and queue-transition refs",
             span=expr.span,
             form_path=expr.form_path,
         )
     summary_contract = dict(_required_output_contract(context, "summary-path", expr))
-    run_state_contract = dict(_required_output_contract(context, "run-state", expr))
     variant_contract = dict(_required_output_contract(context, "variant", expr))
     blocker_contract = context.return_output_contracts.get("blocker-class")
     if blocker_contract is None:
@@ -399,7 +396,6 @@ def _phase_stdlib_lower_finalize_selected_item_impl(
     result_output_definitions = {
         "return__variant": dict(variant_contract),
         "return__summary-path": dict(summary_contract),
-        "return__run-state": dict(run_state_contract),
         "return__blocker-class": dict(blocker_contract),
     }
 
@@ -452,11 +448,6 @@ def _phase_stdlib_lower_finalize_selected_item_impl(
                 "name": "return__summary-path",
                 "source": {"ref": summary_ref},
                 "contract": dict(summary_contract),
-            },
-            {
-                "name": "return__run-state",
-                "source": {"ref": run_state_ref},
-                "contract": dict(run_state_contract),
             },
             {
                 "name": "roadmap_status",

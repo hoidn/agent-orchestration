@@ -32,16 +32,13 @@
     :must-exist true)
   (defunion SelectedItemResult
     (CONTINUE
-      (summary-path WorkReport)
-      (run-state StateExisting))
+      (summary-path WorkReport))
     (BLOCKED
       (summary-path WorkReport)
-      (blocker-class BlockerClass)
-      (run-state StateExisting)))
+      (blocker-class BlockerClass)))
   (defrecord SelectedItemOutcomeState
     (variant String)
     (summary_path WorkReport)
-    (run_state StateExisting)
     (blocker_class BlockerClass)
     (has_blocker Bool)
     (roadmap_status String)
@@ -49,7 +46,6 @@
   (defrecord SelectedItemOutcomeRequest
     (variant String)
     (summary_path WorkReport)
-    (run_state StateExisting)
     (blocker_class BlockerClass)
     (has_blocker Bool)
     (roadmap_status String)
@@ -57,7 +53,6 @@
   (defrecord SelectedItemOutcomeResult
     (variant String)
     (summary_path WorkReport)
-    (run_state StateExisting)
     (blocker_class BlockerClass)
     (has_blocker Bool)
     (roadmap_status String)
@@ -65,7 +60,6 @@
   (defrecord SelectedItemOutcomeAudit
     (variant String)
     (summary_path WorkReport)
-    (run_state StateExisting)
     (blocker_class BlockerClass)
     (has_blocker Bool)
     (roadmap_status String)
@@ -73,7 +67,6 @@
   (defrecord SelectedItemSummaryValue
     (variant String)
     (summary_path WorkReport)
-    (run_state StateExisting)
     (blocker_class BlockerClass)
     (has_blocker Bool)
     (roadmap_status String)
@@ -88,17 +81,15 @@
     :preconditions ((!= request.variant ""))
     :updates ((set-field variant request.variant)
               (set-field summary_path request.summary_path)
-              (set-field run_state request.run_state)
               (set-field blocker_class request.blocker_class)
               (set-field has_blocker request.has_blocker)
               (set-field roadmap_status request.roadmap_status)
               (set-field queue_transition_id request.queue_transition_id))
-    :write-set (variant summary_path run_state blocker_class has_blocker roadmap_status queue_transition_id)
-    :idempotency-fields (variant summary_path run_state blocker_class has_blocker roadmap_status queue_transition_id)
+    :write-set (variant summary_path blocker_class has_blocker roadmap_status queue_transition_id)
+    :idempotency-fields (variant summary_path blocker_class has_blocker roadmap_status queue_transition_id)
     :result (record std/resource/SelectedItemOutcomeResult
       :variant request.variant
       :summary_path request.summary_path
-      :run_state request.run_state
       :blocker_class request.blocker_class
       :has_blocker request.has_blocker
       :roadmap_status request.roadmap_status
@@ -106,7 +97,6 @@
     :audit (record std/resource/SelectedItemOutcomeAudit
       :variant request.variant
       :summary_path request.summary_path
-      :run_state request.run_state
       :blocker_class request.blocker_class
       :has_blocker request.has_blocker
       :roadmap_status request.roadmap_status
@@ -116,7 +106,6 @@
   (defproc finalize-selected-item-proc
     :forall (PlanT ImplT)
     ((selected-active Bool)
-     (run-state StateExisting)
      (queue-transition-id String)
      (roadmap-status String)
      (plan PlanT)
@@ -139,15 +128,13 @@
                        :request (record std/resource/SelectedItemOutcomeRequest
                                   :variant "CONTINUE"
                                   :summary_path completed.execution-report-path
-                                  :run_state run-state
                                   :blocker_class BlockerClass.missing_resource
                                   :has_blocker false
                                   :roadmap_status roadmap-status
                                   :queue_transition_id queue-transition-id)))
                    (summary-path outcome.summary_path))
               (variant SelectedItemResult CONTINUE
-                :summary-path summary-path
-                :run-state run-state)))
+                :summary-path summary-path)))
            ((BLOCKED blocked)
             (let* ((outcome
                      (resource-transition
@@ -156,7 +143,6 @@
                        :request (record std/resource/SelectedItemOutcomeRequest
                                   :variant "BLOCKED"
                                   :summary_path blocked.progress-report-path
-                                  :run_state run-state
                                   :blocker_class blocked.blocker-class
                                   :has_blocker true
                                   :roadmap_status roadmap-status
@@ -164,8 +150,7 @@
                    (summary-path outcome.summary_path))
               (variant SelectedItemResult BLOCKED
                 :summary-path summary-path
-                :blocker-class blocked.blocker-class
-                :run-state run-state)))))
+                :blocker-class blocked.blocker-class)))))
         ((BLOCKED blocked)
          (let* ((outcome
                   (resource-transition
@@ -174,7 +159,6 @@
                     :request (record std/resource/SelectedItemOutcomeRequest
                                :variant "BLOCKED"
                                :summary_path blocked.progress-report-path
-                               :run_state run-state
                                :blocker_class blocked.blocker-class
                                :has_blocker true
                                :roadmap_status roadmap-status
@@ -182,12 +166,10 @@
                 (summary-path outcome.summary_path))
            (variant SelectedItemResult BLOCKED
              :summary-path summary-path
-             :blocker-class blocked.blocker-class
-             :run-state run-state)))))
+             :blocker-class blocked.blocker-class)))))
   (defmacro finalize-selected-item (ctx-key ctx selected-key selected queue-transition-key queue-transition roadmap-key roadmap plan-key plan implementation-key implementation)
     (std/resource/finalize-selected-item-proc
       selected.is-active
-      selected.final-plan-gate-state
       (if selected.is-active queue-transition.transition-id "")
       roadmap.status
       plan
