@@ -103,8 +103,19 @@ def _slug_token(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("_") or "workflow"
 
 
-def _entrypoint_managed_write_root_filename(request: GeneratedPathAllocationRequest) -> str:
-    token = re.sub(r"[^A-Za-z0-9._-]+", "_", request.generated_input_name or "write_root") or "write_root"
+def bounded_managed_write_root_filename(
+    input_name: str,
+    *,
+    workflow_name: str,
+    stable_identity: str,
+) -> str:
+    """Render a filesystem-safe `<input>.json` filename for a managed write-root binding.
+
+    Names longer than ENTRYPOINT_MANAGED_WRITE_ROOT_FILENAME_LIMIT are truncated
+    and disambiguated with a stable digest so generated step identities of any
+    length stay below OS filename limits.
+    """
+    token = re.sub(r"[^A-Za-z0-9._-]+", "_", input_name or "write_root") or "write_root"
     filename = f"{token}.json"
     if len(filename) <= ENTRYPOINT_MANAGED_WRITE_ROOT_FILENAME_LIMIT:
         return filename
@@ -112,9 +123,9 @@ def _entrypoint_managed_write_root_filename(request: GeneratedPathAllocationRequ
         "|".join(
             (
                 STATE_LAYOUT_SCHEMA_VERSION,
-                request.workflow_name,
-                request.stable_identity,
-                request.generated_input_name or "",
+                workflow_name,
+                stable_identity,
+                input_name,
             )
         ).encode("utf-8")
     ).hexdigest()[:16]
@@ -122,6 +133,14 @@ def _entrypoint_managed_write_root_filename(request: GeneratedPathAllocationRequ
     prefix_limit = ENTRYPOINT_MANAGED_WRITE_ROOT_FILENAME_LIMIT - len(suffix)
     prefix = token[:prefix_limit].rstrip("._-") or "write_root"
     return f"{prefix}{suffix}"
+
+
+def _entrypoint_managed_write_root_filename(request: GeneratedPathAllocationRequest) -> str:
+    return bounded_managed_write_root_filename(
+        request.generated_input_name or "",
+        workflow_name=request.workflow_name,
+        stable_identity=request.stable_identity,
+    )
 
 
 def _validate_relative_path(value: str) -> str:

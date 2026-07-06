@@ -5,7 +5,7 @@
   (import lisp_frontend_design_delta/implementation_phase :only (implementation-phase))
   (import lisp_frontend_design_delta/types :only
     (ArtifactChecksTargetPath ArtifactReviewTargetPath ArtifactWorkTargetPath BaselineDesignDoc
-      CheckCommandsPath ImplementationPhaseResult PlanDoc TargetDesignDoc))
+      CheckCommandsTargetPath CheckCommandsValue ImplementationPhaseResult PlanDoc TargetDesignDoc))
   (export run-implementation-phase)
 
   (defrecord RunCtx
@@ -24,7 +24,8 @@
      (target_design TargetDesignDoc)
      (baseline_design BaselineDesignDoc)
      (plan_path PlanDoc)
-     (check_commands_path CheckCommandsPath)
+     (check_commands CheckCommandsValue)
+     (check_commands_target_path CheckCommandsTargetPath)
      (execution_report_target_path ArtifactWorkTargetPath)
      (progress_report_target_path ArtifactWorkTargetPath)
      (checks_report_target_path ArtifactChecksTargetPath)
@@ -36,7 +37,8 @@
                :target_design target_design
                :baseline_design baseline_design
                :plan_path plan_path
-               :check_commands_path check_commands_path
+               :check_commands check_commands
+               :check_commands_target_path check_commands_target_path
                :execution_report_target_path execution_report_target_path
                :progress_report_target_path progress_report_target_path
                :checks_report_target_path checks_report_target_path
@@ -44,6 +46,7 @@
       (record ImplementationPhaseResult
         :implementation-state phase-result.implementation-state
         :implementation-review-decision phase-result.implementation-review-decision
+        :blocker-class phase-result.blocker-class
         :execution-report phase-result.execution-report
         :progress-report phase-result.progress-report
         :checks-report phase-result.checks-report

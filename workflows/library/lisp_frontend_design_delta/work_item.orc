@@ -345,20 +345,13 @@
            :implementation_phase_result implementation_phase_result))
         ((GAP_DESIGN_REVISION_REQUIRED recovery)
          (let* ((durability-recorded
-                  (let* ((blocked-recovery-request
-                           (record lisp_frontend_design_delta/transitions/BlockedRecoveryOutcomeRequest
-                             :work_item_id resolved_inputs.work_item_id
-                             :work_item_source resolved_inputs.work_item_source
-                             :recovery_route BlockedRecoveryRoute.GAP_DESIGN_REVISION_REQUIRED
-                             :reason recovery.reason
-                             :summary_path implementation_phase_result.progress-report)))
-                    (record-work-item-blocked-recovery-summary
-                      blocked-recovery-request.work_item_id
-                      blocked-recovery-request.work_item_source
-                      blocked-recovery-request.recovery_route
-                      blocked-recovery-request.reason
-                      "gap_design_revision_required"
-                      implementation_phase_result.progress-report)))
+                  (record-work-item-blocked-recovery-summary
+                    resolved_inputs.work_item_id
+                    resolved_inputs.work_item_source
+                    BlockedRecoveryRoute.GAP_DESIGN_REVISION_REQUIRED
+                    recovery.reason
+                    "gap_design_revision_required"
+                    implementation_phase_result.progress-report))
                 (blocker-class
                   (project-blocker-class-from-reason recovery.reason))
                 (ignored durability-recorded))
@@ -369,20 +362,13 @@
              implementation_phase_result.progress-report)))
         ((TARGET_DESIGN_REVISION_REQUIRED recovery)
          (let* ((durability-recorded
-                  (let* ((blocked-recovery-request
-                           (record lisp_frontend_design_delta/transitions/BlockedRecoveryOutcomeRequest
-                             :work_item_id resolved_inputs.work_item_id
-                             :work_item_source resolved_inputs.work_item_source
-                             :recovery_route BlockedRecoveryRoute.TARGET_DESIGN_REVISION_REQUIRED
-                             :reason recovery.reason
-                             :summary_path implementation_phase_result.progress-report)))
-                    (record-work-item-blocked-recovery-summary
-                      blocked-recovery-request.work_item_id
-                      blocked-recovery-request.work_item_source
-                      blocked-recovery-request.recovery_route
-                      blocked-recovery-request.reason
-                      "target_design_revision_required"
-                      implementation_phase_result.progress-report)))
+                  (record-work-item-blocked-recovery-summary
+                    resolved_inputs.work_item_id
+                    resolved_inputs.work_item_source
+                    BlockedRecoveryRoute.TARGET_DESIGN_REVISION_REQUIRED
+                    recovery.reason
+                    "target_design_revision_required"
+                    implementation_phase_result.progress-report))
                 (blocker-class
                   (project-blocker-class-from-reason recovery.reason))
                 (ignored durability-recorded))
@@ -393,20 +379,13 @@
              implementation_phase_result.progress-report)))
         ((PREREQUISITE_GAP_REQUIRED recovery)
          (let* ((durability-recorded
-                  (let* ((blocked-recovery-request
-                           (record lisp_frontend_design_delta/transitions/BlockedRecoveryOutcomeRequest
-                             :work_item_id resolved_inputs.work_item_id
-                             :work_item_source resolved_inputs.work_item_source
-                             :recovery_route BlockedRecoveryRoute.PREREQUISITE_GAP_REQUIRED
-                             :reason recovery.reason
-                             :summary_path implementation_phase_result.progress-report)))
-                    (record-work-item-blocked-recovery-summary
-                      blocked-recovery-request.work_item_id
-                      blocked-recovery-request.work_item_source
-                      blocked-recovery-request.recovery_route
-                      blocked-recovery-request.reason
-                      "prerequisite_gap_required"
-                      implementation_phase_result.progress-report)))
+                  (record-work-item-blocked-recovery-summary
+                    resolved_inputs.work_item_id
+                    resolved_inputs.work_item_source
+                    BlockedRecoveryRoute.PREREQUISITE_GAP_REQUIRED
+                    recovery.reason
+                    "prerequisite_gap_required"
+                    implementation_phase_result.progress-report))
                 (blocker-class
                   (project-blocker-class-from-reason recovery.reason))
                 (ignored durability-recorded))

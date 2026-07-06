@@ -267,7 +267,8 @@ def _state_contains_failed_contract_violation(state: object, *, reason: str) -> 
                     break
                 if (
                     reason == "invalid_enum_value"
-                    and violation_type == "variant_field_type_invalid"
+                    and violation_type
+                    in {"variant_discriminant_invalid", "variant_field_type_invalid"}
                     and isinstance(violation_context, dict)
                     and isinstance(violation_context.get("allowed"), list)
                 ):
@@ -732,124 +733,11 @@ def _copy_design_delta_work_item_runtime_modules(
     for name in _design_delta_work_item_runtime_authoritative_modules():
         source = source_dir / name
         _write_module(module_dir / name, source.read_text(encoding="utf-8"))
-    if plan_review_decision_override is not None:
-        _write_module(
-            module_dir / "plan_phase.orc",
-            "\n".join(
-                [
-                    "(workflow-lisp",
-                    '  (:language "0.1")',
-                    '  (:target-dsl "2.14")',
-                    "  (defmodule lisp_frontend_design_delta/plan_phase)",
-                    "  (import std/phase :only (BlockerClass ReviewFindings ReviewReportPath))",
-                    "  (import lisp_frontend_design_delta/types :only",
-                    "    (ArtifactReviewTargetPath ArtifactWorkTargetPath BaselineDesignDoc PlanDoc",
-                    "      PlanDocTarget PlanReviewDecision ProgressLedger SteeringDoc TargetDesignDoc",
-                    "      WorkItemContextValue WorkReport))",
-                    "  (export DesignDeltaPlanPhaseResult PhaseCtx RunCtx run-plan-phase)",
-                    "  (defrecord RunCtx",
-                    "    (run-id RunId)",
-                    "    (state-root Path.state-root)",
-                    "    (artifact-root Path.artifact-root))",
-                    "  (defrecord PhaseCtx",
-                    "    (run RunCtx)",
-                    "    (phase-name Symbol)",
-                    "    (state-root Path.state-root)",
-                    "    (artifact-root Path.artifact-root))",
-                    "  (defunion DesignDeltaPlanPhaseResult",
-                    "    (APPROVED",
-                    "      (approved_plan_path PlanDoc)",
-                    "      (approved_plan_review_report_path ReviewReportPath)",
-                    "      (plan_review_decision PlanReviewDecision)",
-                    "      (findings ReviewFindings))",
-                    "    (BLOCKED",
-                    "      (blocked_plan_path PlanDoc)",
-                    "      (progress_report_path WorkReport)",
-                    "      (blocked_plan_review_report_path ReviewReportPath)",
-                    "      (blocker_class BlockerClass)",
-                    "      (findings ReviewFindings))",
-                    "    (EXHAUSTED",
-                    "      (exhausted_plan_path PlanDoc)",
-                    "      (progress_report_path WorkReport)",
-                    "      (last_plan_review_report_path ReviewReportPath)",
-                    "      (reason String)",
-                    "      (findings ReviewFindings)))",
-                    "  (defworkflow run-plan-phase",
-                    "    ((phase-ctx PhaseCtx)",
-                    "     (steering SteeringDoc)",
-                    "     (target_design TargetDesignDoc)",
-                    "     (baseline_design BaselineDesignDoc)",
-                    "     (work_item_context WorkItemContextValue)",
-                    "     (progress_ledger ProgressLedger)",
-                    "     (plan_target_path PlanDocTarget)",
-                    "     (progress_report_target_path ArtifactWorkTargetPath)",
-                    "     (plan_review_report_target_path ArtifactReviewTargetPath))",
-                    "    -> DesignDeltaPlanPhaseResult",
-                    "    (provider-result providers.plan.review",
-                    "      :prompt prompts.plan.review",
-                    "      :inputs (target_design",
-                    "               baseline_design",
-                    "               work_item_context",
-                    "               plan_target_path",
-                    "               plan_review_report_target_path)",
-                    "      :returns DesignDeltaPlanPhaseResult))",
-                    ")",
-                ]
-            )
-            + "\n",
-        )
-    if implementation_state_override is not None:
-        _write_module(
-            module_dir / "implementation_phase.orc",
-            "\n".join(
-                [
-                    "(workflow-lisp",
-                    '  (:language "0.1")',
-                    '  (:target-dsl "2.14")',
-                    "  (defmodule lisp_frontend_design_delta/implementation_phase)",
-                    "  (import lisp_frontend_design_delta/types :only",
-                    "    (ArtifactChecksTargetPath ArtifactReviewTargetPath ArtifactWorkTargetPath",
-                    "      BaselineDesignDoc CheckCommandsTargetPath CheckCommandsValue",
-                    "      ImplementationPhaseResult PlanDoc TargetDesignDoc))",
-                    "  (export PhaseCtx RunCtx implementation-phase)",
-                    "  (defrecord RunCtx",
-                    "    (run-id RunId)",
-                    "    (state-root Path.state-root)",
-                    "    (artifact-root Path.artifact-root))",
-                    "  (defrecord PhaseCtx",
-                    "    (run RunCtx)",
-                    "    (phase-name Symbol)",
-                    "    (state-root Path.state-root)",
-                    "    (artifact-root Path.artifact-root))",
-                    "  (defworkflow implementation-phase",
-                    "    ((phase-ctx PhaseCtx)",
-                    "     (target_design TargetDesignDoc)",
-                    "     (baseline_design BaselineDesignDoc)",
-                    "     (check_commands CheckCommandsValue)",
-                    "     (check_commands_target_path CheckCommandsTargetPath)",
-                    "     (plan_path PlanDoc)",
-                    "     (execution_report_target_path ArtifactWorkTargetPath)",
-                    "     (progress_report_target_path ArtifactWorkTargetPath)",
-                    "     (checks_report_target_path ArtifactChecksTargetPath)",
-                    "     (implementation_review_report_target_path ArtifactReviewTargetPath))",
-                    "    -> ImplementationPhaseResult",
-                    "    (provider-result providers.implementation.execute",
-                    "      :prompt prompts.implementation.execute",
-                    "      :inputs (target_design",
-                    "               baseline_design",
-                    "               plan_path",
-                    "               check_commands",
-                    "               check_commands_target_path",
-                    "               execution_report_target_path",
-                    "               progress_report_target_path",
-                    "               checks_report_target_path",
-                    "               implementation_review_report_target_path)",
-                    "      :returns ImplementationPhaseResult))",
-                    ")",
-                ]
-            )
-            + "\n",
-        )
+    # Negative tests inject invalid enum/state values through the fake provider
+    # outputs. Preserve the authoritative runtime modules so these checks
+    # continue to exercise provider-boundary validation instead of local test
+    # rewrites that can drift structurally.
+    _ = plan_review_decision_override, implementation_state_override
     return module_dir / "work_item.orc"
 
 
@@ -1058,8 +946,6 @@ def _run_design_delta_runtime_transition_fixture_cli(tmp_path: Path) -> subproce
                 / "design_delta_parent_drain.commands.json"
             ),
             "--input",
-            "fixture_run_state_path=state/run_state.json",
-            "--input",
             "summary_path=artifacts/work/drain_summary.json",
             "--state-dir",
             str(state_dir),
@@ -1143,7 +1029,7 @@ def _assert_design_delta_work_item_advances_past_private_workflow_ifexpr_export_
 
     lowered_names = set(lowered_by_name)
     assert "lisp_frontend_design_delta/work_item::run-work-item" in lowered_names
-    assert any("route-blocked-implementation" in name for name in lowered_names)
+    assert "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery" in lowered_names
     return result, lowered_by_name
 
 
@@ -1203,6 +1089,11 @@ def _compile_design_delta_work_item_runtime_entrypoint(
         plan_review_decision_override=plan_review_decision_override,
         implementation_state_override=implementation_state_override,
     )
+    family_profile_catalog = (
+        None
+        if plan_review_decision_override is not None or implementation_state_override is not None
+        else load_workflow_family_profile_catalog((DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,))
+    )
     result = compile_stage3_entrypoint(
         module_path,
         source_roots=(tmp_path,),
@@ -1211,9 +1102,7 @@ def _compile_design_delta_work_item_runtime_entrypoint(
         command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
         validate_shared=True,
         workspace_root=tmp_path,
-        family_profile_catalog=load_workflow_family_profile_catalog(
-            (DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,)
-        ),
+        family_profile_catalog=family_profile_catalog,
     )
     return module_path, result
 
@@ -1582,12 +1471,24 @@ def _nested_runtime_bound_inputs() -> dict[str, str]:
     }
 
 
-def _design_delta_runtime_bound_inputs(*, attempt_variant: str) -> dict[str, str]:
+def _design_delta_parent_call_phase_ctx_bound_inputs() -> dict[str, object]:
+    return {
+        "phase-ctx__run__run-id": "design-delta-smoke",
+        "phase-ctx__run__state-root": "state/run",
+        "phase-ctx__run__artifact-root": "artifacts/run",
+        "phase-ctx__phase-name": "implementation",
+        "phase-ctx__state-root": "state/implementation",
+        "phase-ctx__artifact-root": "artifacts/implementation",
+    }
+
+
+def _design_delta_runtime_bound_inputs(*, attempt_variant: str) -> dict[str, object]:
     return {
         "target_design": "docs/design/target.md",
         "baseline_design": "docs/design/baseline.md",
         "plan_path": "docs/plans/plan.md",
-        "check_commands_path": "state/check_commands.json",
+        "check_commands__commands": ["python -m pytest -q"],
+        "check_commands_target_path": "state/check_commands.json",
         "execution_report_target_path": "artifacts/work/execution_report.md",
         "progress_report_target_path": "artifacts/work/progress_report.md",
         "checks_report_target_path": "artifacts/checks/checks_report.md",
@@ -1640,6 +1541,7 @@ def _execute_compiled_design_delta_bundle(
     module_root: Path,
     attempt_variant: str,
     review_sequence: tuple[str, ...] = ("APPROVE",),
+    extra_bound_inputs: dict[str, object] | None = None,
 ):
     _write_design_delta_runtime_prompt_assets(module_root)
     _write_design_delta_runtime_run_checks_script(tmp_path)
@@ -1769,10 +1671,18 @@ def _execute_compiled_design_delta_bundle(
     state_manager.initialize(
         workflow_path.as_posix(),
         context=bundle_context_dict(bundle),
-        bound_inputs=_design_delta_runtime_bound_inputs(attempt_variant=attempt_variant),
+        bound_inputs={
+            **_design_delta_runtime_bound_inputs(attempt_variant=attempt_variant),
+            **(extra_bound_inputs or {}),
+        },
     )
 
-    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+    smoke_pythonpath = os.pathsep.join(
+        [str(REPO_ROOT), *filter(None, [os.environ.get("PYTHONPATH")])]
+    )
+    with patch.dict(os.environ, {"PYTHONPATH": smoke_pythonpath}), patch.object(
+        ProviderExecutor, "prepare_invocation", _prepare_invocation
+    ), patch.object(
         ProviderExecutor, "execute", _execute_provider
     ), patch.object(CallExecutor, "resolve_bound_inputs", _resolve_bound_inputs):
         state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
@@ -1884,7 +1794,12 @@ def _execute_nested_implementation_phase_route(
         bound_inputs=_nested_runtime_bound_inputs(),
     )
 
-    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+    smoke_pythonpath = os.pathsep.join(
+        [str(REPO_ROOT), *filter(None, [os.environ.get("PYTHONPATH")])]
+    )
+    with patch.dict(os.environ, {"PYTHONPATH": smoke_pythonpath}), patch.object(
+        ProviderExecutor, "prepare_invocation", _prepare_invocation
+    ), patch.object(
         ProviderExecutor, "execute", _execute_provider
     ), patch.object(CallExecutor, "resolve_bound_inputs", _resolve_bound_inputs):
         state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
@@ -1931,6 +1846,7 @@ def _execute_design_delta_parent_call_route(
         module_root=tmp_path / "lisp_frontend_design_delta",
         attempt_variant=attempt_variant,
         review_sequence=review_sequence,
+        extra_bound_inputs=_design_delta_parent_call_phase_ctx_bound_inputs(),
     )
 
 
@@ -2241,6 +2157,9 @@ def _write_design_delta_work_item_runtime_inputs(
         + "\n",
         "state/manifest.json": json.dumps({"items": []}) + "\n",
         "state/architecture_validation.json": json.dumps({"architecture_validation_status": "VALID"}) + "\n",
+        "state/branching_terminal_reprojection/final_plan_gate_state.json": (
+            json.dumps({"gate": "ready"}) + "\n"
+        ),
         "artifacts/work/selection_bundle.md": "# selection bundle\n",
         "artifacts/work/runtime_work_item_context.md": "# work item context\n",
         "artifacts/work/existing_architecture_index.md": "# existing architectures\n",
@@ -3006,7 +2925,6 @@ def _execute_design_delta_runtime_transition_fixture(tmp_path: Path):
 
     runtime_inputs = dict(workflow_runtime_input_contracts(bundle))
     provided_inputs: dict[str, str] = {
-        "run_state_path": "state/run_state.json",
         "summary_path": "artifacts/work/drain_summary.json",
     }
     binding_inputs = {
@@ -3028,8 +2946,9 @@ def _execute_design_delta_runtime_transition_fixture(tmp_path: Path):
     )
     state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="stop")
     step = bundle.surface.steps[0]
+    native_state_path = tmp_path / step.resource_transition["resource"]["state_path"]
     audit_path = tmp_path / step.resource_transition["resource"]["audit_path"]
-    return tmp_path, state, audit_path
+    return tmp_path, state, native_state_path, audit_path
 
 
 def _execute_design_delta_runtime_view_fixture(tmp_path: Path):
@@ -3398,14 +3317,14 @@ def test_design_delta_domain_types_import_from_two_candidate_modules(tmp_path: P
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
                 "  (defmodule lisp_frontend_design_delta_probe/selector)",
-                "  (import lisp_frontend_design_delta/types :only (RunStatePath SelectionResult))",
+                "  (import lisp_frontend_design_delta/types :only (ProgressLedger SelectionResult))",
                 "  (export select-next-work)",
                 "  (defworkflow select-next-work",
-                "    ((run-state RunStatePath))",
+                "    ((ledger ProgressLedger))",
                 "    -> SelectionResult",
                 "    (provider-result providers.selector",
                 "      :prompt prompts.selector",
-                "      :inputs (run-state)",
+                "      :inputs (ledger)",
                 "      :returns SelectionResult)))",
             ]
         )
@@ -3465,13 +3384,13 @@ def test_design_delta_domain_types_reject_invalid_drain_result_variant(tmp_path:
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
                 "  (defmodule invalid_drain_result_variant)",
-                "  (import lisp_frontend_design_delta/types :only (DrainResult RunStatePath))",
+                "  (import lisp_frontend_design_delta/types :only (DrainResult))",
                 "  (export invalid-drain)",
                 "  (defworkflow invalid-drain",
-                "    ((run-state RunStatePath))",
+                "    ((reason String))",
                 "    -> DrainResult",
                 "    (variant DrainResult FINISHED",
-                "      :run-state run-state)))",
+                "      :reason reason)))",
             ]
         )
         + "\n",
@@ -3666,28 +3585,17 @@ def test_design_delta_selector_candidate_downstream_consumes_typed_selection_sta
                 "  (defmodule selector_consumer)",
                 "  (import lisp_frontend_design_delta/selector :only (select-next-work))",
                 "  (import lisp_frontend_design_delta/types :only",
-                "    (BaselineDesignDoc ProgressLedger RunStatePath SelectionBundlePath SelectionStatus StateFileExisting",
-                "      SteeringDoc TargetDesignDoc))",
+                "    (DesignDeltaDrainCtx SelectionBundlePath SelectionStatus))",
                 "  (export consume-selection)",
                 "  (defrecord SelectionView",
                 "    (selection_status SelectionStatus)",
                 "    (selection_bundle_path SelectionBundlePath))",
                 "  (defworkflow consume-selection",
-                "    ((steering SteeringDoc)",
-                "     (target_design TargetDesignDoc)",
-                "     (baseline_design BaselineDesignDoc)",
-                "     (manifest StateFileExisting)",
-                "     (progress_ledger ProgressLedger)",
-                "     (run_state RunStatePath))",
+                "    ((ctx DesignDeltaDrainCtx))",
                 "    -> SelectionView",
                 "    (let* ((selection",
                 "             (call select-next-work",
-                "               :steering steering",
-                "               :target_design target_design",
-                "               :baseline_design baseline_design",
-                "               :manifest manifest",
-                "               :progress_ledger progress_ledger",
-                "               :run_state run_state)))",
+                "               :ctx ctx)))",
                 "      (record SelectionView",
                 "        :selection_status selection.selection_status",
                 "        :selection_bundle_path selection.selection_bundle_path)))",
@@ -4008,8 +3916,8 @@ def test_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojection
     assert "item-ctx__artifact-root" not in public_inputs
     assert "item-ctx__ledger" not in public_inputs
     assert "run_state_path" not in public_inputs
-    assert "run_state_path" in boundary.private_compatibility_bridge_inputs
-    assert "run_state_path" in run_item_boundary.private_compatibility_bridge_inputs
+    assert "progress_ledger_path" in boundary.private_compatibility_bridge_inputs
+    assert run_item_boundary.private_compatibility_bridge_inputs == ()
     assert not any(name.startswith("__write_root__") for name in public_inputs)
     assert {
         "lisp_frontend_design_delta/plan_phase::run-plan-phase",
@@ -4264,10 +4172,11 @@ def test_design_delta_work_item_library_module_stays_closure_only(
 
     assert {
         "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery",
-        "lisp_frontend_design_delta/work_item::route-blocked-implementation",
+        "lisp_frontend_design_delta/projections::classify-work-item-terminal",
+        "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
         "lisp_frontend_design_delta/work_item::run-work-item",
     }.issubset(lowered_names)
-    assert not any("classify-work-item-terminal" in name for name in lowered_names)
+    assert not any("route-blocked-implementation" in name for name in lowered_names)
     assert not any("finalize-approved-review-state" in name for name in lowered_names)
     assert not any("finalize-approved-nonblocked" in name for name in lowered_names)
 
@@ -4318,7 +4227,7 @@ def test_design_delta_work_item_candidate_rejects_invalid_implementation_state_a
     assert state["status"] == "failed"
     assert _state_contains_failed_contract_violation(
         state,
-        reason="json_pointer_not_found",
+        reason="invalid_enum_value",
     )
 
 
@@ -4398,13 +4307,18 @@ def test_design_delta_parent_drain_compiles_with_hidden_private_context(
     drain_steps = list(
         _walk_lowered_steps(lowered_by_name["lisp_frontend_design_delta/drain::drain"]["steps"])
     )
-    stdlib_drain_steps = list(
+    callable_drain_steps = list(
         _walk_lowered_steps(lowered_by_name["std/drain::backlog-drain"]["steps"])
     )
 
     assert any(step.get("call") == "std/drain::backlog-drain" for step in drain_steps)
+    assert any("repeat_until" in step for step in callable_drain_steps)
+    assert any(
+        step.get("call")
+        == "lisp_frontend_design_delta/stdlib_adapters::select-next-work-stdlib"
+        for step in callable_drain_steps
+    )
     assert "lisp_frontend_design_delta/drain::drain-runtime-owned" not in lowered_by_name
-    assert any("repeat_until" in step for step in stdlib_drain_steps)
 
 
 def test_design_delta_parent_drain_public_input_only_cli_dry_run_still_fails_without_runtime_owned_hidden_bindings(
@@ -4635,8 +4549,8 @@ def test_design_delta_runtime_transition_fixture_exposes_public_wrapper_input(
     wrapper_public_inputs = set(workflow_public_input_contracts(wrapper_bundle))
     wrapped_public_inputs = set(workflow_public_input_contracts(wrapped_bundle))
 
-    assert "fixture_run_state_path" in wrapper_public_inputs
     assert "summary_path" in wrapper_public_inputs
+    assert "fixture_run_state_path" not in wrapper_public_inputs
     assert "run_state_path" not in wrapper_public_inputs
     assert "run_state_path" not in wrapped_public_inputs
 
@@ -4647,9 +4561,6 @@ def test_design_delta_runtime_transition_fixture_runs_via_real_cli(
     result = _run_design_delta_runtime_transition_fixture_cli(tmp_path)
 
     assert result.returncode == 0, result.stderr
-    run_state = json.loads((tmp_path / "state" / "run_state.json").read_text(encoding="utf-8"))
-    assert run_state["drain_status"] == "BLOCKED"
-    assert run_state["drain_status_reason"] == "runtime_native_fixture"
 
 
 def test_design_delta_runtime_view_fixture_compiles_without_summary_writer_command(
@@ -4749,7 +4660,6 @@ def test_design_delta_runtime_view_fixture_materializes_summary_and_pointer_view
         {
             "drain_status": "BLOCKED",
             "drain_status_reason": "runtime_native_fixture",
-            "run_state_path": "state/run_state.json",
             "summary_target": "artifacts/work/drain_summary.json",
             "state_version": "lisp_frontend_autonomous_drain_run_state/v1",
         },
@@ -4830,9 +4740,19 @@ def test_design_delta_parent_drain_entrypoint_adopts_stdlib_owner_routes(
         REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc"
     ).read_text(encoding="utf-8")
     drain_lowered = lowered_by_name["lisp_frontend_design_delta/drain::drain"]
-    work_item_steps = list(
-        _walk_lowered_steps(lowered_by_name["lisp_frontend_design_delta/work_item::run-work-item"]["steps"])
+    work_item_pending_steps = list(
+        _walk_lowered_steps(
+            lowered_by_name["lisp_frontend_design_delta/work_item::run-work-item-pending"]["steps"]
+        )
     )
+    finalize_lane_steps = [
+        step
+        for workflow_name in (
+            "lisp_frontend_design_delta/work_item::finalize-selected-item-from-completed-implementation",
+            "lisp_frontend_design_delta/work_item::finalize-selected-item-from-blocked-implementation",
+        )
+        for step in _walk_lowered_steps(lowered_by_name[workflow_name]["steps"])
+    ]
 
     assert "(backlog-drain" in drain_source
     assert "finalize-selected-item" in work_item_source
@@ -4841,9 +4761,15 @@ def test_design_delta_parent_drain_entrypoint_adopts_stdlib_owner_routes(
     assert any(step.get("call") == "std/drain::backlog-drain" for step in drain_lowered["steps"])
     assert "lisp_frontend_design_delta/drain::drain-runtime-owned" not in lowered_by_name
     assert any(
+        str(step.get("call", "")).startswith(
+            "lisp_frontend_design_delta/work_item::finalize-selected-item-as-"
+        )
+        for step in work_item_pending_steps
+    )
+    assert any(
         "finalize_selected_item_proc" in str(step.get("name", ""))
         or "finalize_selected_item_proc" in str(step.get("id", ""))
-        for step in work_item_steps
+        for step in finalize_lane_steps
     )
 
 
@@ -5107,7 +5033,7 @@ def test_design_delta_parent_drain_removes_run_state_from_work_item_authored_sig
     assert "(architecture_bundle_path StateFile)" not in work_item_source
     assert "materialize_lisp_frontend_work_item_inputs" not in work_item_source
     assert "state.run-state" not in work_item_source
-    assert "run_state_path" in lowered.compatibility_bridge_inputs
+    assert lowered.compatibility_bridge_inputs == ("progress_ledger_path",)
     assert all(param.name != "run_state_path" for param in boundary.params)
 
 
@@ -5389,8 +5315,8 @@ def test_design_delta_projection_runtime_fixture_executes_runtime_path(
     assert state["workflow_outputs"] == {
         "return__selector_route": "SELECTED_ITEM",
         "return__terminal_route": "COMPLETE",
-        "return__blocked_recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
-        "return__blocked_recovery_reason": "implementation_architecture_under_scoped",
+        "return__blocked_recovery_route": "TERMINAL_BLOCKED",
+        "return__blocked_recovery_reason": "user_decision_required",
         "return__selection_bundle": "state/selection.json",
     }
 
@@ -5422,7 +5348,10 @@ def test_design_delta_parent_family_commands_use_production_adapter_interfaces(
         lowered_by_name["lisp_frontend_design_delta/work_item::run-work-item"]["steps"]
     )
     assert "materialize_view" in drain_families
-    assert "materialize_view" in work_item_families
+    # Work-item summary artifacts flow through typed artifact materialization;
+    # the family's public summary views are entry-boundary publications owned
+    # by the drain entrypoint.
+    assert "materialize_artifacts" in work_item_families
 
 def test_design_delta_selector_action_projection_rejects_inconsistent_status(
     tmp_path: Path,
@@ -5528,9 +5457,8 @@ def test_design_delta_blocked_recovery_request_renames_work_item_context_bridge_
     ).read_text(encoding="utf-8")
 
     assert "(architecture_bundle_path WorkReport)" not in transitions_source
-    assert "(work_item_context_path WorkReport)" in transitions_source
     assert ":architecture_bundle_path work-item-context-view" not in work_item_source
-    assert ":work_item_context_path work-item-context-view" in work_item_source
+    assert ":work_item_context resolved.work_item_context" in work_item_source
 
 
 def test_design_delta_work_item_candidate_advances_past_private_workflow_ifexpr_export_blocker(
@@ -5606,6 +5534,7 @@ def test_design_delta_implementation_phase_candidate_smokes_completed_and_blocke
     assert completed_state["workflow_outputs"] == {
         "return__implementation-state": "COMPLETED",
         "return__implementation-review-decision": "APPROVE",
+        "return__blocker-class": "missing_resource",
         "return__execution-report": "artifacts/work/execution_report.md",
         "return__progress-report": "artifacts/work/progress_report.md",
         "return__checks-report": "artifacts/checks/checks_report.md",
@@ -5613,13 +5542,14 @@ def test_design_delta_implementation_phase_candidate_smokes_completed_and_blocke
     }
     assert (completed_workspace / "artifacts" / "checks" / "checks_report.md").is_file()
     assert (completed_workspace / "artifacts" / "review" / "implementation_review_report.md").is_file()
-    assert not (completed_workspace / "artifacts" / "work" / "progress_report.md").exists()
+    assert (completed_workspace / "artifacts" / "work" / "progress_report.md").is_file()
 
     assert revised_state["status"] == "completed"
     assert revised_provider_calls == ["fake-execute", "fake-review", "fake-fix", "fake-review"]
     assert revised_state["workflow_outputs"] == {
         "return__implementation-state": "COMPLETED",
         "return__implementation-review-decision": "APPROVE",
+        "return__blocker-class": "missing_resource",
         "return__execution-report": "artifacts/work/execution_report.md",
         "return__progress-report": "artifacts/work/progress_report.md",
         "return__checks-report": "artifacts/checks/checks_report.md",
@@ -5633,24 +5563,26 @@ def test_design_delta_implementation_phase_candidate_smokes_completed_and_blocke
     assert (revised_workspace / "artifacts" / "work" / "execution_report_fixed.md").is_file()
     assert (revised_workspace / "artifacts" / "checks" / "checks_report.md").is_file()
     assert (revised_workspace / "artifacts" / "review" / "implementation_review_report.md").is_file()
-    assert not (revised_workspace / "artifacts" / "work" / "progress_report.md").exists()
+    assert (revised_workspace / "artifacts" / "work" / "progress_report.md").is_file()
 
     assert blocked_state["status"] == "completed"
     assert blocked_provider_calls == ["fake-execute"]
     assert blocked_state["workflow_outputs"] == {
         "return__implementation-state": "BLOCKED",
         "return__implementation-review-decision": "NOT_APPLICABLE",
-        "return__execution-report": "artifacts/work/execution_report.md",
+        "return__blocker-class": "external_dependency_outside_authority",
+        "return__execution-report": "artifacts/work/progress_report.md",
         "return__progress-report": "artifacts/work/progress_report.md",
         "return__checks-report": "artifacts/checks/checks_report.md",
         "return__implementation-review-report": "artifacts/review/implementation_review_report.md",
     }
     assert (blocked_workspace / "artifacts" / "work" / "progress_report.md").is_file()
     assert not (blocked_workspace / "artifacts" / "work" / "execution_report.md").exists()
-    assert not (blocked_workspace / "artifacts" / "checks" / "checks_report.md").exists()
-    assert not (
+    # The blocked route materializes compatibility checks/review report views.
+    assert (blocked_workspace / "artifacts" / "checks" / "checks_report.md").is_file()
+    assert (
         blocked_workspace / "artifacts" / "review" / "implementation_review_report.md"
-    ).exists()
+    ).is_file()
 
 
 def test_design_delta_parent_call_implementation_phase_smokes_completed_and_blocked_routes(
@@ -5676,6 +5608,7 @@ def test_design_delta_parent_call_implementation_phase_smokes_completed_and_bloc
     assert completed_state["workflow_outputs"] == {
         "return__implementation-state": "COMPLETED",
         "return__implementation-review-decision": "APPROVE",
+        "return__blocker-class": "missing_resource",
         "return__execution-report": "artifacts/work/execution_report.md",
         "return__progress-report": "artifacts/work/progress_report.md",
         "return__checks-report": "artifacts/checks/checks_report.md",
@@ -5683,13 +5616,14 @@ def test_design_delta_parent_call_implementation_phase_smokes_completed_and_bloc
     }
     assert (completed_workspace / "artifacts" / "checks" / "checks_report.md").is_file()
     assert (completed_workspace / "artifacts" / "review" / "implementation_review_report.md").is_file()
-    assert not (completed_workspace / "artifacts" / "work" / "progress_report.md").exists()
+    assert (completed_workspace / "artifacts" / "work" / "progress_report.md").is_file()
 
     assert revised_state["status"] == "completed"
     assert revised_provider_calls == ["fake-execute", "fake-review", "fake-fix", "fake-review"]
     assert revised_state["workflow_outputs"] == {
         "return__implementation-state": "COMPLETED",
         "return__implementation-review-decision": "APPROVE",
+        "return__blocker-class": "missing_resource",
         "return__execution-report": "artifacts/work/execution_report.md",
         "return__progress-report": "artifacts/work/progress_report.md",
         "return__checks-report": "artifacts/checks/checks_report.md",
@@ -5703,24 +5637,26 @@ def test_design_delta_parent_call_implementation_phase_smokes_completed_and_bloc
     assert (revised_workspace / "artifacts" / "work" / "execution_report_fixed.md").is_file()
     assert (revised_workspace / "artifacts" / "checks" / "checks_report.md").is_file()
     assert (revised_workspace / "artifacts" / "review" / "implementation_review_report.md").is_file()
-    assert not (revised_workspace / "artifacts" / "work" / "progress_report.md").exists()
+    assert (revised_workspace / "artifacts" / "work" / "progress_report.md").is_file()
 
     assert blocked_state["status"] == "completed"
     assert blocked_provider_calls == ["fake-execute"]
     assert blocked_state["workflow_outputs"] == {
         "return__implementation-state": "BLOCKED",
         "return__implementation-review-decision": "NOT_APPLICABLE",
-        "return__execution-report": "artifacts/work/execution_report.md",
+        "return__blocker-class": "external_dependency_outside_authority",
+        "return__execution-report": "artifacts/work/progress_report.md",
         "return__progress-report": "artifacts/work/progress_report.md",
         "return__checks-report": "artifacts/checks/checks_report.md",
         "return__implementation-review-report": "artifacts/review/implementation_review_report.md",
     }
     assert (blocked_workspace / "artifacts" / "work" / "progress_report.md").is_file()
     assert not (blocked_workspace / "artifacts" / "work" / "execution_report.md").exists()
-    assert not (blocked_workspace / "artifacts" / "checks" / "checks_report.md").exists()
-    assert not (
+    # The blocked route materializes compatibility checks/review report views.
+    assert (blocked_workspace / "artifacts" / "checks" / "checks_report.md").is_file()
+    assert (
         blocked_workspace / "artifacts" / "review" / "implementation_review_report.md"
-    ).exists()
+    ).is_file()
 
 
 def test_design_delta_work_item_candidate_smokes_complete_and_blocked_recovery_routes(
@@ -6001,7 +5937,7 @@ def test_design_delta_parent_call_work_item_smokes_terminal_blocked_route(
 def test_design_delta_parent_drain_smokes_runtime_transition_fixture_emits_audit_handoff(
     tmp_path: Path,
 ) -> None:
-    workspace, state, audit_path = _execute_design_delta_runtime_transition_fixture(
+    workspace, state, native_state_path, audit_path = _execute_design_delta_runtime_transition_fixture(
         tmp_path / "runtime-transition-fixture"
     )
 
@@ -6011,7 +5947,8 @@ def test_design_delta_parent_drain_smokes_runtime_transition_fixture_emits_audit
     assert step_state["debug"]["resource_transition"]["backend"] == "runtime_native"
     assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
 
-    run_state = json.loads((workspace / "state" / "run_state.json").read_text(encoding="utf-8"))
+    run_state = json.loads(native_state_path.read_text(encoding="utf-8"))
+    run_state = run_state["state"]
     assert run_state["drain_status"] == "BLOCKED"
     assert run_state["drain_status_reason"] == "runtime_native_fixture"
     assert run_state["drain_status_summary"] == "artifacts/work/drain_summary.json"

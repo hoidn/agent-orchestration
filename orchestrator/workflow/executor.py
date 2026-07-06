@@ -91,7 +91,11 @@ from .loaded_bundle import (
     workflow_runtime_context_inputs,
     workflow_runtime_input_contracts,
 )
-from .state_layout import GeneratedPathSemanticRole, render_generated_path_template
+from .state_layout import (
+    GeneratedPathSemanticRole,
+    bounded_managed_write_root_filename,
+    render_generated_path_template,
+)
 from .transition_executor import TransitionExecutionError, execute_transition
 from .loops import LoopExecutor
 from .outcomes import OutcomeRecorder
@@ -2516,7 +2520,14 @@ class WorkflowExecutor:
             / workflow_root
         )
         bindings.update({
-            input_name: (base / f"{input_name}.json").as_posix()
+            input_name: (
+                base
+                / bounded_managed_write_root_filename(
+                    input_name,
+                    workflow_name=workflow_root.as_posix(),
+                    stable_identity=input_name,
+                )
+            ).as_posix()
             for input_name in workflow_managed_write_root_inputs(self.loaded_bundle)
             if isinstance(input_name, str)
             and input_name not in bindings

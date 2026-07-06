@@ -3,7 +3,7 @@
   (:target-dsl "2.14")
   (defmodule lisp_frontend_design_delta/types)
   (import std/context :only (RunCtx))
-  (import std/resource :only (StateExisting))
+  (import std/resource :only (SelectedItemResult))
   (import std/phase :only (BlockerClass ReviewDecision ReviewFindings ReviewReportPath))
   (export
     ArchitectureValidationResult
@@ -53,7 +53,6 @@
     ProgressLedger
     RecoveryStatus
     ResolvedWorkItemInputs
-    RunStatePath
     SelectionBundlePath
     SelectionCtx
     SelectionResult
@@ -195,11 +194,6 @@
     :must-exist true)
 
   (defpath ProgressLedger
-    :kind relpath
-    :under "state"
-    :must-exist true)
-
-  (defpath RunStatePath
     :kind relpath
     :under "state"
     :must-exist true)
