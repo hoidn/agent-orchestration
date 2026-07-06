@@ -611,7 +611,7 @@ def test_architecture_validator_rejects_run_scoped_paths_in_durable_docs(tmp_pat
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["architecture_validation_status"] == "INVALID"
     assert "must not embed generated run-scoped path" in payload["reason"]
-    assert "work_item_bundle_path" not in payload
+    assert payload["work_item_bundle_path"] == output_path.relative_to(workspace).as_posix()
 
 
 def test_architecture_validator_requires_approved_review_when_provided(tmp_path):
@@ -645,8 +645,8 @@ def test_architecture_validator_requires_approved_review_when_provided(tmp_path)
 
     cases = [
         ("APPROVE", "VALID", True),
-        ("REVISE", "INVALID", False),
-        ("BLOCKED", "BLOCKED", False),
+        ("REVISE", "INVALID", True),
+        ("BLOCKED", "BLOCKED", True),
     ]
     for decision, expected_status, expect_bundle in cases:
         review_path = workspace / f"state/gap/review-{decision.lower()}.json"
@@ -670,6 +670,100 @@ def test_architecture_validator_requires_approved_review_when_provided(tmp_path)
         payload = json.loads(output_path.read_text(encoding="utf-8"))
         assert payload["architecture_validation_status"] == expected_status
         assert ("work_item_bundle_path" in payload) is expect_bundle
+
+
+def test_design_delta_drain_routes_invalid_design_gap_architecture_without_running_work_item():
+    workflow = yaml.safe_load((ROOT / "workflows/examples/lisp_frontend_design_delta_drain.yaml").read_text())
+    drain_step = next(step for step in workflow["steps"] if step["name"] == "DrainLispFrontendWork")
+    route_selection = next(
+        step for step in drain_step["repeat_until"]["steps"] if step["name"] == "RouteSelection"
+    )
+    design_gap_case = route_selection["match"]["cases"]["DRAFT_DESIGN_GAP"]
+
+    assert design_gap_case["outputs"]["drain_status"]["from"]["ref"] == (
+        "self.steps.ResolveDesignGapArchitectureDrainStatus.artifacts.drain_status"
+    )
+    run_step = next(step for step in design_gap_case["steps"] if step["name"] == "RunDesignGapWorkItem")
+    assert run_step["when"]["compare"]["left"]["ref"] == (
+        "self.steps.DraftDesignGapArchitecture.artifacts.architecture_validation_status"
+    )
+    assert run_step["when"]["compare"]["right"] == "VALID"
+    resolver = next(
+        step for step in design_gap_case["steps"] if step["name"] == "ResolveDesignGapArchitectureDrainStatus"
+    )
+    assert any(part.endswith("resolve_lisp_frontend_design_gap_drain_status.py") for part in resolver["command"])
+    assert resolver["output_bundle"]["fields"][0]["name"] == "drain_status"
+
+
+def test_resolve_design_gap_drain_status_blocks_invalid_architecture(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    validation = workspace / "state/gap/validation.json"
+    output = workspace / "state/gap/drain-status.json"
+    validation.parent.mkdir(parents=True)
+    validation.write_text(
+        json.dumps(
+            {
+                "architecture_validation_status": "INVALID",
+                "reason": "durable design-gap document contains generated run-scoped path",
+                "work_item_bundle_path": validation.relative_to(workspace).as_posix(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/resolve_lisp_frontend_design_gap_drain_status.py"),
+        "--architecture-validation-path",
+        validation.relative_to(workspace).as_posix(),
+        "--work-item-drain-status-path",
+        "state/work-item/drain_status.txt",
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["drain_status"] == "BLOCKED"
+    assert payload["architecture_validation_status"] == "INVALID"
+    assert "generated run-scoped path" in payload["reason"]
+
+
+def test_resolve_design_gap_drain_status_uses_valid_work_item_status(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    validation = workspace / "state/gap/validation.json"
+    status_path = workspace / "state/work-item/drain_status.txt"
+    output = workspace / "state/gap/drain-status.json"
+    validation.parent.mkdir(parents=True)
+    status_path.parent.mkdir(parents=True)
+    validation.write_text(
+        json.dumps(
+            {
+                "architecture_validation_status": "VALID",
+                "work_item_bundle_path": validation.relative_to(workspace).as_posix(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    status_path.write_text("CONTINUE\n", encoding="utf-8")
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/resolve_lisp_frontend_design_gap_drain_status.py"),
+        "--architecture-validation-path",
+        validation.relative_to(workspace).as_posix(),
+        "--work-item-drain-status-path",
+        status_path.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["drain_status"] == "CONTINUE"
+    assert payload["architecture_validation_status"] == "VALID"
 
 
 def test_architecture_validator_rejects_malformed_review_bundle(tmp_path):
@@ -717,7 +811,7 @@ def test_architecture_validator_rejects_malformed_review_bundle(tmp_path):
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["architecture_validation_status"] == "INVALID"
     assert "Unsupported review_decision" in payload["reason"]
-    assert "work_item_bundle_path" not in payload
+    assert payload["work_item_bundle_path"] == output_path.relative_to(workspace).as_posix()
 
 
 def test_recovered_design_gap_materializer_reconstructs_missing_prior_bundle(tmp_path):

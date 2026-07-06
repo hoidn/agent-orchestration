@@ -37,8 +37,26 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def _invalid(reason: str, *, output_path: Path) -> int:
-    _write_json(output_path, {"architecture_validation_status": "INVALID", "reason": reason})
+def _validation_payload(
+    status: str,
+    *,
+    output_rel: Path,
+    reason: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "architecture_validation_status": status,
+        "work_item_bundle_path": output_rel.as_posix(),
+    }
+    if reason:
+        payload["reason"] = reason
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+def _invalid(reason: str, *, output_path: Path, output_rel: Path) -> int:
+    _write_json(output_path, _validation_payload("INVALID", output_rel=output_rel, reason=reason))
     return 0
 
 
@@ -98,48 +116,59 @@ def main() -> int:
         try:
             review = _load_json(review_path)
         except json.JSONDecodeError as exc:
-            return _invalid(f"Invalid review bundle JSON: {exc}", output_path=output_path)
+            return _invalid(f"Invalid review bundle JSON: {exc}", output_path=output_path, output_rel=output_rel)
         if not isinstance(review, dict):
-            return _invalid("Review bundle must contain a JSON object", output_path=output_path)
+            return _invalid("Review bundle must contain a JSON object", output_path=output_path, output_rel=output_rel)
         decision = str(review.get("review_decision") or "").strip()
         if decision == "REVISE":
             _write_json(
                 output_path,
-                {
-                    "architecture_validation_status": "INVALID",
-                    "reason": str(
+                _validation_payload(
+                    "INVALID",
+                    output_rel=output_rel,
+                    reason=str(
                         review.get("reason")
                         or "Design-gap architecture review requested revision."
                     ),
-                },
+                ),
             )
             return 0
         if decision == "BLOCKED":
             _write_json(
                 output_path,
-                {
-                    "architecture_validation_status": "BLOCKED",
-                    "reason": str(
+                _validation_payload(
+                    "BLOCKED",
+                    output_rel=output_rel,
+                    reason=str(
                         review.get("reason")
                         or "Design-gap architecture review reported a blocker."
                     ),
-                },
+                ),
             )
             return 0
         if decision != "APPROVE":
-            return _invalid(f"Unsupported review_decision: {decision!r}", output_path=output_path)
+            return _invalid(
+                f"Unsupported review_decision: {decision!r}",
+                output_path=output_path,
+                output_rel=output_rel,
+            )
 
     if draft.get("draft_status") == "BLOCKED":
         _write_json(
             output_path,
-            {
-                "architecture_validation_status": "BLOCKED",
-                "reason": str(draft.get("reason") or "Design-gap architect reported a blocker."),
-            },
+            _validation_payload(
+                "BLOCKED",
+                output_rel=output_rel,
+                reason=str(draft.get("reason") or "Design-gap architect reported a blocker."),
+            ),
         )
         return 0
     if draft.get("draft_status") != "DRAFTED":
-        return _invalid(f"Unsupported draft_status: {draft.get('draft_status')}", output_path=output_path)
+        return _invalid(
+            f"Unsupported draft_status: {draft.get('draft_status')}",
+            output_path=output_path,
+            output_rel=output_rel,
+        )
 
     try:
         item_id = str(draft.get("design_gap_id") or "").strip()
@@ -160,21 +189,23 @@ def main() -> int:
                 raise ValueError("architecture_targets_path must contain a JSON object")
             _validate_current_target(draft, targets)
     except (ValueError, json.JSONDecodeError) as exc:
-        return _invalid(str(exc), output_path=output_path)
+        return _invalid(str(exc), output_path=output_path, output_rel=output_rel)
 
     _write_json(
         output_path,
-        {
-            "architecture_validation_status": "VALID",
-            "work_item_source": "DESIGN_GAP",
-            "work_item_id": item_id,
-            "architecture_path": architecture_path.as_posix(),
-            "work_item_context_path": context_path.as_posix(),
-            "check_commands_path": checks_path.as_posix(),
-            "plan_target_path": plan_path.as_posix(),
-            "summary": str(draft.get("summary") or "").strip(),
-            "work_item_bundle_path": output_rel.as_posix(),
-        },
+        _validation_payload(
+            "VALID",
+            output_rel=output_rel,
+            extra={
+                "work_item_source": "DESIGN_GAP",
+                "work_item_id": item_id,
+                "architecture_path": architecture_path.as_posix(),
+                "work_item_context_path": context_path.as_posix(),
+                "check_commands_path": checks_path.as_posix(),
+                "plan_target_path": plan_path.as_posix(),
+                "summary": str(draft.get("summary") or "").strip(),
+            },
+        ),
     )
     return 0
 
