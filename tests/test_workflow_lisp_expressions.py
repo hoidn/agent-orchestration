@@ -885,6 +885,7 @@ def test_expression_traversal_direct_child_classification_matches_exprnode_union
                     gap_drafter_name="drafter",
                     providers_expr=_name("providers"),
                     max_iterations_expr=_literal(5),
+                    preserve_owner_boundary=True,
                 ),
                 span=_test_span("backlog-drain"),
                 form_path=FORM_PATH,

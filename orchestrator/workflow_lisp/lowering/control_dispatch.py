@@ -149,7 +149,8 @@ def _lower_finalize_selected_item(*args, **kwargs):
 
 
 def _lower_backlog_drain(*args, **kwargs):
-    record_intrinsic_form_lowering("backlog-drain")
+    # Compatibility-lane accounting for backlog-drain is owned by
+    # lowering.phase_drain, which skips generated callable-boundary workflows.
     return lowering_core._lower_backlog_drain(*args, **kwargs)
 
 

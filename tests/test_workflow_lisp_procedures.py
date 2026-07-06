@@ -1728,6 +1728,7 @@ def _wrap_proc_ref_discovery_expr(case_name: str, nested_expr: LetStarExpr, *, s
                 gap_drafter_name="gap-draft",
                 providers_expr=nested_expr,
                 max_iterations_expr=LiteralExpr(value=4, literal_kind="int", span=span, form_path=form_path),
+                preserve_owner_boundary=True,
             ),
             span=span,
             form_path=form_path,
