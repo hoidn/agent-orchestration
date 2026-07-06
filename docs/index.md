@@ -234,15 +234,20 @@ document owns the answer.
 **Keywords:** lisp-frontend, let-proc, procref, lexical-procedure, compile-time
 **Use this when:** Reviewing local procedure authoring ergonomics without runtime closures or a second lowering path.
 
+### [Workflow Lisp Parametric Type System](design/workflow_lisp_parametric_type_system.md)
+**Description:** Single-owner design for the parametric type-system direction: generic `defproc` with `:forall`/`:where`, the structural-constraint vocabulary (including type-parameter constraint field types and subset semantics), the instantiate-then-typecheck specialization pipeline, diagnostics contract, and the permanent-primitive vs migration-destined form classification with the per-form migration test. Supersedes the two 2026-06-02 parametric drafts.
+**Keywords:** lisp-frontend, parametric, type-system, structural-constraints, specialization, generics, form-migration, backlog-drain
+**Use this when:** Designing, reviewing, or migrating generic `.orc` definitions over caller-specific records/unions, or deciding whether a compiler-known stdlib form should migrate onto the generic substrate.
+
 ### [Workflow Lisp Compile-Time Parametric Specialization](design/workflow_lisp_compile_time_parametric_specialization.md)
-**Description:** Draft future-direction design for Julia-inspired compile-time parametric `.orc` definitions that specialize into monomorphic helpers without runtime dispatch, runtime type values, or runtime procedure values.
-**Keywords:** lisp-frontend, parametric, specialization, type-parameters, procref, generic-orc
-**Use this when:** Evaluating how reusable `.orc` definitions should handle caller-specific record and union shapes without macro-generated semantic control flow.
+**Description:** Superseded 2026-06-02 draft (historical record) for compile-time parametric specialization; current contract lives in the Workflow Lisp Parametric Type System design.
+**Keywords:** lisp-frontend, parametric, specialization, superseded
+**Use this when:** Tracing the history of the parametric direction; do not use for current contracts.
 
 ### [Workflow Lisp Structural Parametric Constraints](design/workflow_lisp_structural_parametric_constraints.md)
-**Description:** Focused type-system direction for structural record/union constraints on parametric `.orc` definitions, intended to retire review-loop-specific compiler validation without runtime type values.
-**Keywords:** lisp-frontend, structural-constraints, parametric, unions, records, specialization, review-loop
-**Use this when:** Designing or reviewing generic `.orc` library definitions that need caller-specific records or unions with required fields, variants, or proof behavior.
+**Description:** Superseded 2026-06-02 draft (historical record) for structural parametric constraints; current vocabulary is owned by the Workflow Lisp Parametric Type System design.
+**Keywords:** lisp-frontend, structural-constraints, parametric, superseded
+**Use this when:** Tracing the history of the constraint vocabulary; do not use for current contracts.
 
 ### [Workflow Lisp Review/Revise Stdlib Parametric Integration](design/workflow_lisp_review_revise_stdlib_parametric_integration.md)
 **Description:** Companion target-delta history for the implemented stdlib-owned `review-revise-loop` route, including refactor prerequisites, generic `.orc` expansion, parametric constraints, loop-state prerequisites, bridge retirement rationale, and future extension questions. Current first-tranche behavior lives in the parent frontend specification.

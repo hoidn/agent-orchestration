@@ -1,6 +1,7 @@
 # Workflow Lisp Structural Parametric Constraints
 
-Status: draft design
+Status: superseded by `docs/design/workflow_lisp_parametric_type_system.md`
+(2026-07-06); retained as a historical record, do not extend
 Kind: Workflow Lisp type-system design direction
 Created: 2026-06-02
 

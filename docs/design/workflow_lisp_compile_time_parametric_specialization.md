@@ -1,6 +1,7 @@
 # Workflow Lisp Compile-Time Parametric Specialization
 
-Status: draft design
+Status: superseded by `docs/design/workflow_lisp_parametric_type_system.md`
+(2026-07-06); retained as a historical record, do not extend
 Kind: Workflow Lisp language design / implementation architecture
 Created: 2026-06-02
 
