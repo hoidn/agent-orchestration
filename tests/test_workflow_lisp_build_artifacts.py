@@ -763,6 +763,43 @@ def _resolved_reference_family_evidence_paths():
     return getattr(build, "_resolve_reference_family_evidence_paths")()
 
 
+def test_reference_family_evidence_resolver_skips_incomplete_latest_versioned_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    build = _build_module()
+    repo_root = tmp_path / "repo"
+
+    def write_versioned_root(version: int, *, complete: bool) -> tuple[Path, Path]:
+        root_name = f"LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R{version}"
+        run_state_path = repo_root / "state" / root_name / "drain" / "run_state.json"
+        run_state_path.parent.mkdir(parents=True, exist_ok=True)
+        run_state_path.write_text(
+            json.dumps({"completed_design_gaps": []}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        artifact_root = repo_root / "artifacts" / "work" / root_name
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        (artifact_root / "drain-summary.json").write_text(
+            json.dumps({"drain_status": "BLOCKED"}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        if complete:
+            (artifact_root / "design-gaps").mkdir()
+        return run_state_path, artifact_root
+
+    older_run_state_path, older_artifact_root = write_versioned_root(44, complete=True)
+    write_versioned_root(46, complete=False)
+
+    monkeypatch.setattr(build, "REPO_ROOT", repo_root)
+
+    paths = build._resolve_reference_family_evidence_paths()
+
+    assert paths.run_state_path == older_run_state_path
+    assert paths.drain_summary_path == older_artifact_root / "drain-summary.json"
+    assert paths.design_gap_summary_root == older_artifact_root / "design-gaps"
+
+
 def _aligned_reference_family_drain_summary(tmp_path: Path) -> Path:
     evidence_paths = _resolved_reference_family_evidence_paths()
     payload = json.loads(evidence_paths.drain_summary_path.read_text(encoding="utf-8"))

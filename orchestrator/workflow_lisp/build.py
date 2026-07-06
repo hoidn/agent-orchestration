@@ -356,7 +356,8 @@ def _reference_family_versioned_roots() -> list[tuple[int, str, Path, Path]]:
             continue
         artifact_root = REPO_ROOT / "artifacts" / "work" / root_name
         drain_summary_path = artifact_root / "drain-summary.json"
-        if drain_summary_path.is_file():
+        design_gap_summary_root = artifact_root / "design-gaps"
+        if drain_summary_path.is_file() and design_gap_summary_root.is_dir():
             candidates.append((version, root_name, run_state_path, artifact_root))
     return sorted(candidates)
 
