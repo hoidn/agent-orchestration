@@ -15,6 +15,9 @@ Related docs:
 - `docs/design/workflow_lisp_stdlib_lowering.md`
 - `docs/design/workflow_lisp_macro_surface_contract.md`
 - `docs/design/workflow_lisp_proc_refs_partial_application.md`
+- `docs/design/workflow_lisp_runtime_native_drain_authoring.md` (owns the
+  concrete drain hook shape contracts consumed by Tranche 2)
+- `docs/design/workflow_lisp_shared_owner_lane_prerequisites.md`
 
 ## Purpose
 
@@ -83,7 +86,10 @@ this document.
   a generic definition's requirements are exactly its declared `:where`
   clauses plus its parameter types. (Rationale: inferred requirements make
   stdlib field accesses an unstable implicit API and degrade diagnostics to
-  errors inside bodies the caller did not write.)
+  errors inside bodies the caller did not write.) This is enforced today by
+  the body-side capability discipline: a generic-body access not justified by
+  a declared constraint fails with `parametric_capability_undeclared`
+  (`typecheck_proofs.py`), with an invalid fixture covering it.
 - No weakening of effect visibility, source maps, structured result
   validation, shared validation, or migration-parity gates.
 - No monomorphic-stdlib fallback for reusable definitions: fixed stdlib
@@ -121,10 +127,28 @@ Semantic contract:
   IR, runtime state, artifact contracts, output bundles, and provider/command
   payloads.
 
-Type arguments are inferred from concrete call-site parameter types, including
-the signatures of `ProcRef` arguments. Constraints do not drive inference;
-they are checked after all type parameters are bound (see Constraint
-Vocabulary, rule 3).
+Type-argument binding rules:
+
+- **Binding sources.** Type arguments are inferred from concrete call-site
+  parameter types, including the signatures of `ProcRef` arguments.
+  Constraints do not drive inference; they are checked after all type
+  parameters are bound (see Constraint Vocabulary, rule 3). There is no
+  explicit type-application syntax (see Deferred Extensions).
+- **Exact agreement.** When a type parameter binds from more than one
+  position, every occurrence must resolve to the same semantic type
+  (refinements included); a conflict is a compile-time error
+  (`parametric_type_binding_ambiguous`). This matches the implemented
+  behavior (`procedure_typecheck.py` compares repeat bindings with
+  semantic-equality `type_refs_compatible`).
+- **Definition-site coverage.** Every `:forall` parameter must appear in at
+  least one parameter or `ProcRef`-signature position of the definition.
+  This is a property of the definition, checked when the generic definition
+  is compiled — not an inference failure surfaced at some caller's first
+  use. (Current implementation reports the violation at call sites as
+  `parametric_type_binding_unresolved`; moving it to definition time is part
+  of the Tranche 2 diagnostics prerequisite.) A consequence: return-only
+  type parameters are inexpressible by construction; see Deferred
+  Extensions (explicit type application).
 
 ## Constraint Vocabulary
 
@@ -160,15 +184,25 @@ Rules:
 
    Semantics: by constraint-check time every type parameter is already bound
    from call-site parameter types; the check compares the concrete variant
-   field type against the bound parameter for assignment compatibility. A
-   constraint referencing an unbound parameter (one that appears in no
-   parameter or `ProcRef` signature position) is a compile-time error
-   (`ambiguous type argument inference`), not an inference source. This rule
-   is how cross-parameter contracts are expressed — e.g. "the run-item hook's
-   payload parameter is the same type as the selector's `SELECTED.selection`
-   field."
-4. **Assignment compatibility** for constraint field types follows the type
-   catalog's rules, including path-refinement narrowing.
+   field type against the bound parameter for assignment compatibility
+   (rule 4). A constraint referencing a parameter that appears in no
+   parameter or `ProcRef` signature position is already illegal at
+   definition time (Core Model, definition-site coverage); constraints are
+   never an inference source. This rule is how cross-parameter contracts are
+   expressed — e.g. "the run-item hook's payload parameter is the same type
+   as the selector's `SELECTED.selection` field."
+4. **Assignment compatibility, directional.** A field-type check passes when
+   the concrete field type is assignable **to** the constraint's field type
+   (source to sink: the generic body projects the field and passes the value
+   into positions typed by the constraint type). Compatibility follows the
+   type catalog's rules, including path-refinement narrowing — a
+   caller-owned refined `defpath` satisfies a base path-family constraint
+   over the same root. Implementation status: the landed check
+   (`parametric_constraints.py`) is strict type equality, not directional
+   compatibility; the relaxation is required by Tranche 2 (consumer drain
+   contexts carry refined path fields such as `StateFileExisting` where the
+   stdlib shape declares `Path.state-root`) and is folded into Tranche 2
+   prerequisite 1.
 5. **Owned spellings only.** Consuming docs and fixtures use exactly these
    forms. `has-variant`, `has-union-variants`, `T = SomeType`,
    `T satisfies Schema`, and trait aliases are not first-tranche surface.
@@ -187,6 +221,12 @@ exactness is intentionally **not** ported:
 - exactness in the constraint language would make every caller union addition
   a breaking change against stdlib definitions that never read the new field.
 
+One exception to that growth story: under `has-shared-union-field`, adding a
+variant that lacks the shared field breaks the constraint — abruptly and
+correctly, since the granted branch-free projection would otherwise be
+unsound. Union-evolution guidance must not read subset semantics as "adding
+variants is always non-breaking."
+
 If a future migration demonstrates a concrete need for exact-shape proof, the
 extension is a new constraint form (e.g. `has-exact-union-variant`) proposed
 against this document with the demonstrating fixture attached. Exactness must
@@ -194,6 +234,25 @@ not survive as Python-side validation for any migrated form.
 
 ### Deferred Extensions (with triggers)
 
+- **Generic type definitions** (parameterized records/unions, e.g. a
+  stdlib-owned `Selection[SelPayloadT GapPayloadT]` type constructor):
+  rejected for the current tranches. Genericity is `defproc`-only; no
+  type-constructor machinery exists (`type_env.py` scopes type parameters to
+  procedure signatures only). Rationale: structural constraints let
+  pre-existing caller-owned types satisfy a generic retroactively, while
+  type constructors would force callers onto stdlib-owned nominal types and
+  add real type-constructor machinery. Cost accepted knowingly: each drain
+  caller restates its selection union structurally, and variant names
+  (`EMPTY`/`SELECTED`/`GAP`/`BLOCKED`) are by-name stdlib contract
+  vocabulary with no renaming or mapping. Trigger for revisiting: a second
+  migration-destined form whose callers must each restate a stdlib-shaped
+  union of three or more variants.
+- **Explicit type application** (and return-type-driven inference): no
+  escape hatch exists for binding a type parameter that inference cannot
+  reach; return-only type parameters are inexpressible by construction
+  (Core Model, definition-site coverage). Trigger: the first generic
+  definition whose natural signature carries a type parameter appearing
+  only in return position.
 - **Trait aliases** (`deftrait` bundling constraint sets): deferred until at
   least three generic definitions share a substantially identical constraint
   block. Trait aliases must expand to the owned forms above, not introduce a
@@ -230,12 +289,22 @@ Generated helper names are implementation details. Source maps and debug
 projection must identify the authored generic definition, the call site, the
 instantiation arguments, and generated nodes.
 
-**Checkpoint identity is independent of specialization.** Persisted checkpoint
-and resume identity keys on authored program points (lexical checkpoint
-points and the authored loop-step identity chosen by the semantic/executable
-bridge), never on generated helper names or specialization cache keys. This is
-implemented today via lexical checkpoint identity over authored positions and
-must remain true for every migrated form.
+**Checkpoint identity across migration is a proof obligation, not a given.**
+Resume lookup keys on `workflow_name` + `checkpoint_id`
+(`lexical_checkpoints.py`), and `derive_checkpoint_id` digests the program
+point id, an executable identity (`wcc_node_id`/`wcc_scope_id` plus lowered
+`step_id`), the lowering schema version, and the storage scope. The program
+point's `origin_key` is itself `workflow::step_id::<lowered step id>`. None
+of these inputs reference specialization cache keys or generated helper
+names directly — but the wcc identities and lowered step ids are products of
+the lowering route, so swapping a form's intrinsic lowerer for
+generic-inline lowering changes checkpoint ids unless the generic route
+deliberately reproduces the same generated-step identities or an explicit,
+reviewed identity-migration step remaps persisted records. Every migration
+of a form with persisted checkpoints must therefore demonstrate identity
+preservation by compiled-artifact comparison (the lexical checkpoint points
+of consuming workflows before and after the route swap), or land a reviewed
+remap. This obligation appears as an explicit Tranche 2 prerequisite.
 
 ## Union Proof
 
@@ -254,6 +323,25 @@ Structural constraints do not weaken variant proof:
 After specialization the proof model is identical to proof over ordinary
 concrete unions.
 
+## Effects of Generic Definitions
+
+A generic definition's declared effects cover its **body's direct effects
+only**. Hook effects belong to the resolved procedures the caller passes;
+they are not folded into the generic's declared or specialized summaries
+(specialization copies `direct_effect_summary`/`transitive_effect_summary`
+verbatim from the definition — `procedure_specialization.py`).
+
+The mechanism that keeps effect visibility and census truthful anyway is
+**inline lowering**: specialized procedures lower with
+`resolved_lowering_mode = INLINE`, so the resolved hooks' concrete
+provider/command calls surface structurally in the lowered artifact, and
+census, effect visibility, and parity gates see reality rather than
+summaries. This is normative, not incidental: effectful generic definitions
+are inline-lowered, and any future non-inline lowering mode for generics
+must add an explicit effect-summary join (folding resolved hook summaries
+into the specialization) before it is admissible. `std/phase.orc`
+`review-revise-loop-proc` (`:lowering inline`) is the shipped precedent.
+
 ## Interaction With Macros and ProcRef
 
 Macros remain syntax expansion and may provide ergonomic call surfaces
@@ -266,6 +354,24 @@ definitions. Generic definitions accept `ProcRef` parameters whose signatures
 mention type parameters; those signatures are ordinary parameter types checked
 after type-argument resolution, and they are the primary binding source for
 type parameters that do not appear in first-order parameter positions.
+
+**`ProcRef` signature matching is invariant.** Parameter and return positions
+both require semantic type equality (`type_refs_compatible` in
+`procedure_refs.py`); there is no contravariant-parameter/covariant-return
+subtyping. This is a decision, not an accident of implementation: `ProcRef`
+signatures are a primary inference source, and invariance keeps
+type-argument binding deterministic and order-independent.
+
+**Generic definitions calling generic definitions.** Under
+instantiate-then-typecheck, a generic body's call to another generic
+resolves while typechecking the already-monomorphic specialized helper, so
+nested instantiation needs no additional inference machinery; recursive
+specialization is rejected (`parametric_specialization_cycle`, landed in
+`compiler.py`). No shipped generic exercises nesting yet: any migration
+whose generic body calls a generic helper must extend the Tranche 2
+prerequisite-1 fixture with a nested-instantiation case first. The Tranche 2
+flagship body does not need this — it calls only monomorphic terminal
+helpers.
 
 Before runtime: all type parameters concrete; all hooks resolved to concrete
 procedures; provider/prompt externs resolved inside the selected procedures;
@@ -282,10 +388,23 @@ Constraint and specialization failures are compile-time and must name:
    that failed it;
 4. for inference failures: the type parameter that could not be bound.
 
-Diagnostic codes: unresolved type parameter; unsatisfied structural
-constraint; ambiguous type argument inference; unsupported parametric boundary
-type; specialization cycle; specialization identity collision; runtime-leaked
-type parameter; runtime-leaked `ProcRef`; variant field access without proof.
+When a call site fails multiple `:where` clauses, **all failing clauses are
+reported together**, not just the first. (Current implementation fails fast
+on the first unsatisfied constraint; the regression fixture below asserts
+report-all.)
+
+Diagnostic codes, landed (verified 2026-07-06 checkout):
+`procedure_type_param_clause_invalid`, `procedure_type_param_duplicate`,
+`procedure_type_param_unknown`, `parametric_constraint_malformed`,
+`parametric_constraint_unknown`, `parametric_constraint_unsatisfied`,
+`parametric_type_binding_unresolved`, `parametric_type_binding_ambiguous`,
+`parametric_capability_undeclared`, `parametric_specialization_cycle`,
+`loop_state_unresolved_type_parameter`.
+
+Reserved (contract obligations without dedicated codes yet): specialization
+identity collision; unsupported parametric boundary type. Runtime leakage of
+type parameters and `ProcRef` values is enforced by the existing boundary
+validation surfaces rather than parametric-specific codes.
 
 A regression fixture must assert points 1–3 on at least one failing
 constraint (not merely that compilation fails). This is the guard against
@@ -343,7 +462,7 @@ Signature shape (normative for the migration; body elided):
   :where ((CtxT is-record)
           (CtxT has-field run std/context/RunCtx)
           (CtxT has-field state-root Path.state-root)
-          (CtxT has-field manifest StateFileExisting)
+          (CtxT has-field manifest Path.state-root)
           (CtxT has-field ledger Path.state-root)
           (SelectionT is-union)
           (SelectionT has-union-variant EMPTY)
@@ -354,13 +473,32 @@ Signature shape (normative for the migration; body elided):
           (GapPayloadT is-record)
           (RunResultT has-union-variant CONTINUE (summary-path WorkReport))
           (RunResultT has-union-variant BLOCKED
-            (progress-report-path WorkReport) (blocker-class BlockerClass))
+            (summary-path WorkReport) (blocker-class BlockerClass))
           (GapResultT has-union-variant CONTINUE)
           (GapResultT has-union-variant BLOCKED
             (progress-report-path WorkReport) (blocker-class BlockerClass)))
   -> std/drain/DrainLoopTerminal
   ...)
 ```
+
+The `RunResultT` clauses match `std/resource` `SelectedItemResult`
+(`CONTINUE (summary-path)`, `BLOCKED (summary-path blocker-class)`); the
+`GapResultT` clauses match `std/drain` `GapResult` — the two field
+vocabularies differ deliberately and must not be conflated. The ctx
+path-field clauses name base path families; consumer contexts satisfy them
+through rule 4 assignment compatibility (e.g. `DesignDeltaDrainCtx.manifest`
+is the consumer-refined `StateFileExisting`, which narrows
+`Path.state-root`). The intrinsic's current ctx check
+(`ensure_drain_context_type`) is likewise refinement-tolerant ("path field
+under `state`"), so rule 4 — not strict equality — is what preserves
+"callers do not change."
+
+The `run-item` first parameter is the concrete `std/context/ItemCtx`; the
+production consumer's hook already takes exactly that type. If parity
+(prerequisite 5) surfaces a consumer whose hook takes a structurally
+conforming but distinct item-context record — which the intrinsic accepts
+today — the parameter generalizes to an `ItemCtxT` with `has-field`
+constraints rather than forcing that caller to change.
 
 The existing `backlog-drain` macro re-targets from the intrinsic to this proc;
 callers do not change. The `SELECTED (selection SelPayloadT)` clause carries
@@ -370,19 +508,29 @@ Semantics.
 
 Prerequisites, in order:
 
-1. Minimal fixture proving type-parameter constraint field types (Constraint
-   Vocabulary rule 3) end to end: constraint satisfaction, constraint failure
-   diagnostics, and specialization. This capability is currently a design
-   claim, not a proven one — it is the open feasibility gap of this design and
-   gates everything below.
-2. Diagnostics regression fixture (Diagnostics Contract).
+1. Minimal fixture proving the two unlanded constraint capabilities end to
+   end — constraint satisfaction, constraint failure diagnostics, and
+   specialization for each: (a) type-parameter constraint field types
+   (Constraint Vocabulary rule 3); (b) directional assignment compatibility
+   for constraint field types, including refined-path narrowing and
+   refinement survival through substitution (rule 4 — the landed check is
+   strict equality). These are the open feasibility gaps of this design and
+   gate everything below.
+2. Diagnostics regression fixture (Diagnostics Contract), including
+   report-all constraint failures and the definition-site coverage check.
 3. Authored loop body in `std/drain.orc` using existing terminal helpers
    (`finalize-drain-terminal`, `consume-drain-terminal-effects`).
-4. Parity: existing drain consumers (`lisp_frontend_design_delta/drain.orc`
+4. Checkpoint-identity preservation demonstrated by compiled-artifact
+   comparison: the lexical checkpoint points (checkpoint ids) of consuming
+   workflows are unchanged across the intrinsic-to-generic route swap, or an
+   explicit reviewed identity-migration step remaps persisted records (see
+   Specialization Pipeline). This is the riskiest item in the migration and
+   must not be discovered downstream of retirement.
+5. Parity: existing drain consumers (`lisp_frontend_design_delta/drain.orc`
    and fixture families) compile and pass their existing gates against the
    generic route; census/boundary/provider-metadata obligations move to
    shared validation surfaces, not into the generic body.
-5. Retirement: the phase-drain lowerer, drain-terminal helper module's
+6. Retirement: the phase-drain lowerer, drain-terminal helper module's
    intrinsic-only paths, the form-specific monomorphizer, and the
    name-keyed validators (including the dead shadowed copies in
    `typecheck_dispatch.py`, which may be deleted immediately and
@@ -398,7 +546,17 @@ through.
 - Generic definitions parse, constraint-check, specialize, and lower through
   the single pipeline with no consumer-name knowledge in the machinery.
 - Constraint field types may be `:forall` parameters, with
-  bound-parameter-comparison semantics and the unbound-parameter error.
+  bound-parameter-comparison semantics and the definition-site coverage
+  error.
+- Constraint field-type checks are directional assignment compatibility: a
+  refined-path field satisfies a base path-family constraint over the same
+  root, and refinements survive substitution into specialized bodies.
+- Repeat type-parameter bindings require exact semantic agreement;
+  conflicting bindings fail with `parametric_type_binding_ambiguous`.
+- Effectful generic definitions lower inline; census and effect-visibility
+  surfaces for a consuming workflow are equivalent to those of the
+  hand-monomorphized program (no hook effect hidden behind a copied
+  summary).
 - Subset semantics: a caller union with additional variants/fields satisfies
   the corresponding constraints; no exact-shape checking exists in Python for
   migrated forms.
@@ -425,5 +583,13 @@ through.
   nothing here redefines them.
 - `workflow_lisp_type_catalog.md` owns type-to-contract mapping and
   assignment-compatibility rules consumed by Constraint Vocabulary rule 4.
+- `workflow_lisp_runtime_native_drain_authoring.md` (with
+  `workflow_lisp_shared_owner_lane_prerequisites.md`) owns the concrete
+  selector/run-item/gap-drafter hook shape contracts and the drain's runtime
+  behavior. This document owns only the parameterized signature and
+  constraint vocabulary that Tranche 2 layers over those shapes; when
+  Tranche 2 lands, the concrete shapes remain owned there, and a conflict
+  between the concrete contracts and the flagship signature is resolved
+  against the drain-authoring doc (the signature adapts, not the shapes).
 - The frontend specification remains the parent language contract; this
   document is a scoped delta to its type-system surface.
