@@ -2,8 +2,7 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule lisp_frontend_design_delta/stdlib_adapters)
-  (import std/resource :only
-    (BlockerClass))
+  (import std/resource :only (BlockerClass))
   (import lisp_frontend_design_delta/design_gap_architect :only
     (draft-design-gap-architecture-stdlib validate-design-gap-architecture-stdlib))
   (import lisp_frontend_design_delta/selector :only (select-next-work))

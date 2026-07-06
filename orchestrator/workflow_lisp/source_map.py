@@ -1034,6 +1034,7 @@ def _step_kind_from_mapping(step: Mapping[str, Any]) -> str:
         "command",
         "provider",
         "adjudicated_provider",
+        "resource_transition",
         "wait_for",
         "assert",
         "set_scalar",

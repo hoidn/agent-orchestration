@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.diagnostics import serialize_diagnostic
@@ -35,6 +36,14 @@ IMPORTED_STDLIB_HELPER_MODULE = (
 )
 LEXICAL_CHECKPOINT_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_shadow_points.orc"
 LEXICAL_POLICY_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_effect_policies.orc"
+DESIGN_DELTA_PARENT_DRAIN_COMMANDS = (
+    REPO_ROOT
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.commands.json"
+)
 
 
 def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
@@ -174,6 +183,97 @@ def _build_design_delta_implementation_phase_source_map_document(
         workspace_root=tmp_path,
     )
     workflow_name = "lisp_frontend_design_delta/implementation_phase::implementation-phase"
+    document = source_map_module.build_source_map_document(
+        SimpleNamespace(
+            compiled_results_by_name=result.compiled_results_by_name,
+            validated_bundles_by_name=result.validated_bundles_by_name,
+        ),
+        selected_name=workflow_name,
+        display_name_resolver=lambda name: name.rsplit("::", 1)[-1],
+    )
+    return document, workflow_name
+
+
+def _design_delta_work_item_provider_externs() -> dict[str, str]:
+    return {
+        "providers.plan.draft": "fake-plan-draft",
+        "providers.plan.review": "fake-plan-review",
+        "providers.plan.fix": "fake-plan-fix",
+        "providers.architect.draft": "fake-architect-draft",
+        "providers.implementation.execute": "fake-implementation-execute",
+        "providers.implementation.review": "fake-implementation-review",
+        "providers.implementation.fix": "fake-implementation-fix",
+        "providers.selector": "fake-selector",
+        "providers.work-item.recovery-classifier": "fake-work-item-recovery",
+    }
+
+
+def _design_delta_work_item_prompt_externs() -> dict[str, object]:
+    return {
+        "prompts.plan.draft": {
+            "input_file": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md"
+        },
+        "prompts.plan.review": {
+            "input_file": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md"
+        },
+        "prompts.plan.fix": {
+            "input_file": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/revise_plan.md"
+        },
+        "prompts.implementation.execute": {
+            "input_file": (
+                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md"
+            )
+        },
+        "prompts.implementation.review": {
+            "input_file": (
+                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md"
+            )
+        },
+        "prompts.implementation.fix": {
+            "input_file": (
+                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md"
+            )
+        },
+        "prompts.work-item.classify-blocked-recovery": {
+            "input_file": (
+                "workflows/library/prompts/lisp_frontend_design_delta_work_item/"
+                "classify_blocked_implementation_recovery.md"
+            )
+        },
+        "prompts.selector.select-next-work": {
+            "input_file": (
+                "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md"
+            )
+        },
+        "prompts.architect.draft": {
+            "input_file": (
+                "workflows/library/prompts/"
+                "lisp_frontend_design_delta_design_gap_architect/"
+                "draft_implementation_architecture.md"
+            )
+        },
+    }
+
+
+def _build_design_delta_work_item_source_map_document(
+    tmp_path: Path,
+    *,
+    validate_shared: bool,
+):
+    source_map_module = importlib.import_module("orchestrator.workflow_lisp.source_map")
+    result = compile_stage3_entrypoint(
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs=_design_delta_work_item_provider_externs(),
+        prompt_externs=_design_delta_work_item_prompt_externs(),
+        command_boundaries=_parse_command_boundaries_manifest(
+            json.loads(DESIGN_DELTA_PARENT_DRAIN_COMMANDS.read_text(encoding="utf-8")),
+            manifest_path=DESIGN_DELTA_PARENT_DRAIN_COMMANDS,
+        ),
+        validate_shared=validate_shared,
+        workspace_root=tmp_path,
+    )
+    workflow_name = "lisp_frontend_design_delta/work_item::run-work-item"
     document = source_map_module.build_source_map_document(
         SimpleNamespace(
             compiled_results_by_name=result.compiled_results_by_name,
@@ -552,6 +652,63 @@ def test_source_map_records_design_delta_implementation_phase_lineage(tmp_path: 
     assert workflow.step_ids
     assert workflow.executable_nodes
     assert workflow.generated_paths
+
+
+def test_source_map_no_bundle_finalize_selected_item_resource_transition_regression(
+    tmp_path: Path,
+) -> None:
+    document, _ = _build_design_delta_work_item_source_map_document(
+        tmp_path,
+        validate_shared=False,
+    )
+    payload = _source_map_payload(document)
+    work_item_path = REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc"
+    std_resource_path = REPO_ROOT / "orchestrator" / "workflow_lisp" / "stdlib_modules" / "std" / "resource.orc"
+    matching_rows_by_workflow = {
+        workflow_name: [
+            node
+            for node in workflow["core_nodes"]
+            # Imported finalize proc lowering emits helper `match`/materialization
+            # nodes plus the transition site itself on `__outcome`.
+            if "std_resource_finalize_selected_item_proc_" in node["step_id"]
+            and node["step_id"].endswith("__outcome")
+        ]
+        for workflow_name, workflow in payload["workflows"].items()
+    }
+    matching_rows_by_workflow = {
+        workflow_name: rows
+        for workflow_name, rows in matching_rows_by_workflow.items()
+        if rows
+    }
+
+    assert set(matching_rows_by_workflow) == {
+        "lisp_frontend_design_delta/work_item::finalize-selected-item-from-blocked-implementation",
+        "lisp_frontend_design_delta/work_item::finalize-selected-item-from-completed-implementation",
+    }
+    assert all(
+        Path(payload["workflows"][workflow_name]["workflow_origin"]["path"]) == work_item_path
+        for workflow_name in matching_rows_by_workflow
+    )
+    assert any(
+        "std_resource_finalize_selected_item_proc_" in row["step_id"]
+        for rows in matching_rows_by_workflow.values()
+        for row in rows
+    )
+    assert all(
+        Path(payload["workflows"][workflow_name]["step_ids"][row["step_id"]]["path"]) == std_resource_path
+        for workflow_name, rows in matching_rows_by_workflow.items()
+        for row in rows
+    )
+    assert all(
+        row["step_kind"] == "resource_transition"
+        for rows in matching_rows_by_workflow.values()
+        for row in rows
+    )
+    assert all(
+        row["step_kind"] != "step"
+        for rows in matching_rows_by_workflow.values()
+        for row in rows
+    )
 
 
 def test_source_map_records_imported_stdlib_macro_helper_provenance_and_lineage(

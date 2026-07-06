@@ -41,7 +41,6 @@
     {
       "row_id": "low_level.imported_finalize_selected_item",
       "classification": "low_level_library",
-      "module_name": "std/resource",
       "step_kind": "resource_transition",
       "step_id_contains": "std_resource_finalize_selected_item_proc_"
     }

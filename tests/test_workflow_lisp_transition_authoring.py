@@ -171,22 +171,50 @@ def test_transition_authoring_report_passes_for_checked_design_delta_family(
     assert report["schema_version"] == "workflow_lisp_transition_authoring_report.v1"
     assert report["workflow_family"] == "design_delta_parent_drain"
     assert report["status"] == "pass"
-    assert {
-        "lisp_frontend_design_delta/drain",
+    assert {row["module_name"] for row in report["compiled_origins"]} == {
         "lisp_frontend_design_delta/transitions",
         "lisp_frontend_design_delta/work_item",
-    }.issubset({row["module_name"] for row in report["compiled_origins"]})
+    }
     assert all(
         row["classification"] == "low_level_library"
         for row in report["compiled_origins"]
     )
-    assert any(
-        row["module_name"] == "lisp_frontend_design_delta/transitions"
-        and row["matched_row_id"] == "low_level.record_design_gap_progress"
+    drain_terminal_rows = [
+        row
         for row in report["compiled_origins"]
-    )
-    assert any(
-        row["module_name"] == "lisp_frontend_design_delta/work_item"
+        if row["workflow_name"] == "lisp_frontend_design_delta/drain::drain"
+    ]
+    assert drain_terminal_rows == [
+        {
+            "workflow_name": "lisp_frontend_design_delta/drain::drain",
+            "module_name": "lisp_frontend_design_delta/transitions",
+            "path": str(
+                REPO_ROOT
+                / "workflows"
+                / "library"
+                / "lisp_frontend_design_delta"
+                / "transitions.orc"
+            ),
+            "line": 351,
+            "step_kind": "resource_transition",
+            "step_id": "lisp_frontend_design_delta_drain_drain__recorded_summary__lisp_frontend_design_delta_transitions_record_drain_terminal_outcome_stdlib_1__transition_result",
+            "classification": "low_level_library",
+            "matched_row_id": "low_level.record_drain_terminal_outcome",
+        }
+    ]
+    finalize_rows = [
+        row
+        for row in report["compiled_origins"]
+        if "std_resource_finalize_selected_item_proc_" in row["step_id"]
+    ]
+    assert finalize_rows
+    assert {row["workflow_name"] for row in finalize_rows} == {
+        "lisp_frontend_design_delta/work_item::finalize-selected-item-from-blocked-implementation",
+        "lisp_frontend_design_delta/work_item::finalize-selected-item-from-completed-implementation",
+    }
+    assert all(
+        row["matched_row_id"] == "low_level.imported_finalize_selected_item"
+        and row["module_name"] == "lisp_frontend_design_delta/work_item"
         and row["path"]
         == str(
             REPO_ROOT
@@ -196,19 +224,11 @@ def test_transition_authoring_report_passes_for_checked_design_delta_family(
             / "std"
             / "resource.orc"
         )
-        for row in report["compiled_origins"]
+        for row in finalize_rows
     )
     assert any(
-        row["module_name"] == "lisp_frontend_design_delta/drain"
-        and row["path"]
-        == str(
-            REPO_ROOT
-            / "orchestrator"
-            / "workflow_lisp"
-            / "stdlib_modules"
-            / "std"
-            / "drain.orc"
-        )
+        row["module_name"] == "lisp_frontend_design_delta/transitions"
+        and row["matched_row_id"] == "low_level.record_design_gap_progress"
         for row in report["compiled_origins"]
     )
     assert report["ordinary_body_violations"] == []

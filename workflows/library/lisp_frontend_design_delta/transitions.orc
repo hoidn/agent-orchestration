@@ -43,7 +43,7 @@
     (terminal_reason WorkItemTerminalReason)
     (terminal_summary WorkReportTarget)
     (blocked_recovery_reason BlockedRecoveryReason)
-    (blocked_recovery_summary WorkReport))
+    (blocked_recovery_summary std/resource/WorkReport))
 
   (defrecord DrainStatusRequest
     (status DrainTerminalStatus)
@@ -70,7 +70,7 @@
     (work_item_source WorkItemSource)
     (recovery_route BlockedRecoveryRoute)
     (reason BlockedRecoveryReason)
-    (summary_path WorkReport))
+    (summary_path std/resource/WorkReport))
 
   (defrecord TerminalOutcomeResult
     (reason WorkItemTerminalReason)
@@ -78,7 +78,7 @@
 
   (defrecord BlockedRecoveryOutcomeResult
     (reason BlockedRecoveryReason)
-    (summary_path WorkReport))
+    (summary_path std/resource/WorkReport))
 
   (defrecord TerminalOutcomeAudit
     (reason WorkItemTerminalReason)
@@ -86,7 +86,7 @@
 
   (defrecord BlockedRecoveryOutcomeAudit
     (reason BlockedRecoveryReason)
-    (summary_path WorkReport)
+    (summary_path std/resource/WorkReport)
     (work_item_id String))
 
   (defrecord DesignGapProgressRequest
@@ -394,7 +394,7 @@
      (recovery_route BlockedRecoveryRoute)
      (reason BlockedRecoveryReason)
      (summary_reason String)
-     (summary_path WorkReport))
+     (summary_path std/resource/WorkReport))
     -> WorkItemSummaryValue
     :effects ((uses-command apply_resource_transition))
     :lowering inline
