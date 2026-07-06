@@ -33,3 +33,12 @@
 - Proposed edit: Replace that opening sentence with: "Read the consumed steering, target design, and selector manifest before acting. Existing selectable work is limited to rows in the manifest; use target-design reasoning only to propose a genuinely new bounded gap when no manifest row is the right next task."
 - Expected behavior change: The selector should choose from `manifest.items` / `manifest.design_gaps` when existing eligible work is available, while still allowing new target-design gap discovery when the manifest lacks the right work.
 - Risk / tradeoff: This reduces the selector's ability to recover from a bad manifest by searching historical artifacts. That is intentional; manifest construction and recovery routing should be deterministic workflow mechanics, not provider improvisation.
+
+## 2026-07-06 lisp_frontend_design_delta_design_gap_architect
+
+- Prompt file: `workflows/library/prompts/lisp_frontend_design_delta_design_gap_architect/draft_implementation_architecture.md` and `workflows/library/prompts/lisp_frontend_design_delta_design_gap_architect/revise_implementation_architecture.md`
+- Observed bad behavior: Run `20260706T043621Z-6higvw` drafted an approved design-gap plan that embedded a generated run-scoped path under `state/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R40/...`; deterministic validation rejected the durable plan afterward.
+- Root cause in prompt text: The prompts provide generated target/context paths as authoritative context, but do not clearly separate durable authored docs from run-scoped artifact references.
+- Proposed edit: Replace any wording that can be read as requiring generated state paths in durable docs with: "Durable architecture and plan documents may name generated artifacts by role, but must not paste run-scoped `state/.../drain/iterations/...` or `state/workflow_lisp/calls/...` paths."
+- Expected behavior change: Draft/revise agents should still use generated context files while writing reusable durable docs that pass the existing run-scoped-path validator.
+- Risk / tradeoff: The prompt becomes stricter about copied evidence paths; if a check command truly needs a generated path, it should stay in generated `check_commands.json`, not in the durable plan body.

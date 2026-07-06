@@ -889,8 +889,8 @@ steps:
                       - workflows/library/scripts/resolve_lisp_frontend_design_gap_drain_status.py
                       - --architecture-validation-path
                       - ${self.steps.DraftDesignGapArchitecture.artifacts.work_item_bundle_path}
-                      - --work-item-drain-status
-                      - ${self.steps.RunDesignGapWorkItem.artifacts.drain_status}
+                      - --work-item-drain-status-path
+                      - ${parent.steps.PrepareIterationPaths.artifacts.design_gap_work_item_state_root}/drain_status.txt
                       - --output
                       - ${inputs.drain_state_root}/iterations/${loop.index}/design-gap-drain-status.json
                     output_bundle:

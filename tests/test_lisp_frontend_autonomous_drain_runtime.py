@@ -693,9 +693,12 @@ def test_design_delta_drain_routes_invalid_design_gap_architecture_without_runni
     )
     assert any(part.endswith("resolve_lisp_frontend_design_gap_drain_status.py") for part in resolver["command"])
     assert "${self.steps.DraftDesignGapArchitecture.artifacts.work_item_bundle_path}" in resolver["command"]
-    assert "--work-item-drain-status" in resolver["command"]
-    assert "${self.steps.RunDesignGapWorkItem.artifacts.drain_status}" in resolver["command"]
-    assert "--work-item-drain-status-path" not in resolver["command"]
+    assert "--work-item-drain-status-path" in resolver["command"]
+    assert (
+        "${parent.steps.PrepareIterationPaths.artifacts.design_gap_work_item_state_root}/drain_status.txt"
+        in resolver["command"]
+    )
+    assert "--work-item-drain-status" not in resolver["command"]
     assert resolver["output_bundle"]["fields"][0]["name"] == "drain_status"
 
 
