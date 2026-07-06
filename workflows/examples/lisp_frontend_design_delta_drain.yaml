@@ -919,6 +919,32 @@ steps:
                           json_pointer: /architecture_validation_status
                           type: enum
                           allowed: ["VALID", "INVALID", "BLOCKED"]
+                  - name: RecordInvalidDesignGapArchitecture
+                    id: record_invalid_design_gap_architecture
+                    when:
+                      compare:
+                        left:
+                          ref: self.steps.ResolveDesignGapArchitectureDrainStatus.artifacts.drain_status
+                        op: eq
+                        right: BLOCKED
+                    command:
+                      - python
+                      - workflows/library/scripts/update_lisp_frontend_run_state.py
+                      - --state-path
+                      - ${inputs.run_state_target_path}
+                      - blocked
+                      - --selection-path
+                      - ${parent.steps.SelectNextWork.artifacts.selection_bundle_path}
+                      - --source
+                      - DESIGN_GAP
+                      - --reason
+                      - implementation_blocked
+                      - --recovery-route
+                      - GAP_DESIGN_REVISION_REQUIRED
+                      - --recovery-reason
+                      - architecture_validation_invalid
+                      - --recovery-event-id
+                      - ${run.id}:${loop.index}:architecture-validation-blocked
 
               DONE:
                 id: done_path

@@ -714,6 +714,23 @@ def test_design_delta_drain_routes_invalid_design_gap_architecture_without_runni
     assert "--work-item-drain-status" not in resolver["command"]
     assert resolver["output_bundle"]["fields"][0]["name"] == "drain_status"
 
+    recorder = next(
+        step for step in design_gap_case["steps"] if step["name"] == "RecordInvalidDesignGapArchitecture"
+    )
+    assert any(part.endswith("update_lisp_frontend_run_state.py") for part in recorder["command"])
+    assert recorder["when"]["compare"]["left"]["ref"] == (
+        "self.steps.ResolveDesignGapArchitectureDrainStatus.artifacts.drain_status"
+    )
+    assert recorder["when"]["compare"]["right"] == "BLOCKED"
+    assert "--selection-path" in recorder["command"]
+    assert "${parent.steps.SelectNextWork.artifacts.selection_bundle_path}" in recorder["command"]
+    assert "--recovery-route" in recorder["command"]
+    assert "GAP_DESIGN_REVISION_REQUIRED" in recorder["command"]
+    assert "--recovery-reason" in recorder["command"]
+    assert "architecture_validation_invalid" in recorder["command"]
+    assert "--architecture-path" not in recorder["command"]
+    assert "--plan-path" not in recorder["command"]
+
 
 def test_resolve_design_gap_drain_status_blocks_invalid_architecture(tmp_path):
     workspace = tmp_path / "workspace"
