@@ -1059,6 +1059,22 @@ def test_compile_stage3_rejects_unsatisfied_shared_union_field_constraint(tmp_pa
     assert "has-shared-union-field" in excinfo.value.diagnostics[0].message
 
 
+def test_compile_stage3_accepts_refined_path_constraint_field(tmp_path: Path) -> None:
+    result = _compile(FIXTURES / "valid" / "parametric_refined_path_field.orc", tmp_path=tmp_path)
+    assert result is not None
+
+
+def test_compile_stage3_rejects_refined_path_constraint_field_wrong_root(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(
+            FIXTURES / "invalid" / "parametric_refined_path_field_wrong_root.orc",
+            tmp_path=tmp_path,
+        )
+
+    _assert_diagnostic_code(excinfo, "parametric_constraint_unsatisfied")
+    assert "instead of" in excinfo.value.diagnostics[0].message
+
+
 def test_compile_stage3_accepts_generic_shared_union_field_projection(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "generic_proc_shared_union_projection.orc",

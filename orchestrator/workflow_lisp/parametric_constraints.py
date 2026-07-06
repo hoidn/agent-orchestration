@@ -8,7 +8,15 @@ from dataclasses import dataclass
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .procedures import ProcedureConstraintFieldRequirementSyntax, ProcedureConstraintSyntax
 from .spans import SourceSpan
-from .type_env import FrontendTypeEnvironment, RecordTypeRef, TypeRef, UnionTypeRef, render_type_ref
+from .type_env import (
+    FrontendTypeEnvironment,
+    PathTypeRef,
+    RecordTypeRef,
+    TypeRef,
+    UnionTypeRef,
+    render_type_ref,
+    type_refs_compatible,
+)
 
 
 @dataclass(frozen=True)
@@ -281,6 +289,21 @@ def _check_constraint(
     )
 
 
+def constraint_field_type_satisfied(actual: TypeRef, expected: TypeRef) -> bool:
+    """Directional rule-4 check: `actual` (the caller's concrete field type)
+    is assignable to `expected` (the constraint's field type).
+    Contract: docs/design/workflow_lisp_parametric_type_system.md,
+    Constraint Vocabulary rule 4."""
+    if type_refs_compatible(expected, actual):
+        return True
+    if isinstance(expected, PathTypeRef) and isinstance(actual, PathTypeRef):
+        return (
+            actual.definition.under == expected.definition.under
+            and (actual.definition.must_exist or not expected.definition.must_exist)
+        )
+    return False
+
+
 def _check_record_field_constraint(
     *,
     procedure_name: str,
@@ -311,7 +334,7 @@ def _check_record_field_constraint(
             call_form_path=call_form_path,
             call_expansion_stack=call_expansion_stack,
         )
-    if actual_type != constraint.field_type_ref:
+    if not constraint_field_type_satisfied(actual_type, constraint.field_type_ref):
         _raise_unsatisfied_constraint(
             procedure_name=procedure_name,
             clause=constraint.syntax,
@@ -371,7 +394,7 @@ def _check_union_variant_constraint(
                 call_form_path=call_form_path,
                 call_expansion_stack=call_expansion_stack,
             )
-        if actual_type != requirement.field_type_ref:
+        if not constraint_field_type_satisfied(actual_type, requirement.field_type_ref):
             _raise_unsatisfied_constraint(
                 procedure_name=procedure_name,
                 clause=constraint.syntax,
@@ -430,7 +453,7 @@ def _check_shared_union_field_constraint(
                 call_form_path=call_form_path,
                 call_expansion_stack=call_expansion_stack,
             )
-        if actual_type != constraint.field_type_ref:
+        if not constraint_field_type_satisfied(actual_type, constraint.field_type_ref):
             _raise_unsatisfied_constraint(
                 procedure_name=procedure_name,
                 clause=constraint.syntax,
