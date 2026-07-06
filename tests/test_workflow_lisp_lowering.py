@@ -17,6 +17,9 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_boundary_projection,
     workflow_managed_write_root_inputs,
 )
+from orchestrator.workflow_lisp.family_profiles import (
+    load_workflow_family_profile_catalog,
+)
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _validate_definition_module,
@@ -80,6 +83,9 @@ WORKFLOW_REF_FIXTURE = FIXTURES / "valid" / "workflow_refs_same_file.orc"
 PROC_REF_BIND_PROC_FIXTURE = FIXTURES / "valid" / "proc_ref_bind_proc_forwarding.orc"
 LET_PROC_FIXTURE = FIXTURES / "valid" / "let_proc_proc_ref_forwarding.orc"
 TYPED_PROMPT_INPUT_FIXTURE = FIXTURES / "valid" / "typed_prompt_input_phase.orc"
+GENERIC_FAMILY_PROFILE_FIXTURE = (
+    FIXTURES / "family_profiles" / "generic_phase_family_profile.json"
+)
 LOCAL_REQUEST_TYPED_PROMPT_INPUT_FIXTURE = (
     FIXTURES / "valid" / "typed_prompt_input_local_request_record.orc"
 )
@@ -2141,6 +2147,9 @@ def test_typed_prompt_input_fixture_lowers_provider_step_with_private_typed_prom
         },
         validate_shared=True,
         workspace_root=tmp_path,
+        family_profile_catalog=load_workflow_family_profile_catalog(
+            (GENERIC_FAMILY_PROFILE_FIXTURE,)
+        ),
     )
 
     bundle = _validated_bundle_by_local_name(result, "run-typed-prompt-phase-demo")
@@ -2204,16 +2213,6 @@ def test_local_request_record_fixture_preserves_one_typed_request_binding(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    phase_scope = importlib.import_module("orchestrator.workflow_lisp.lowering.phase_scope")
-    monkeypatch.setitem(
-        phase_scope._C1_TYPED_PROMPT_INPUT_ROWS,
-        "typed_prompt_input_local_request_record::run-local-request-record-demo",
-        {
-            "c0_row_id": "c0.fixture.local_request_record",
-            "u0_row_id": "u0.fixture.local_request_record",
-        },
-    )
-
     result = compile_stage3_module(
         LOCAL_REQUEST_TYPED_PROMPT_INPUT_FIXTURE,
         provider_externs={"providers.execute": "fake-execute"},
@@ -2222,6 +2221,9 @@ def test_local_request_record_fixture_preserves_one_typed_request_binding(
         },
         validate_shared=True,
         workspace_root=tmp_path,
+        family_profile_catalog=load_workflow_family_profile_catalog(
+            (GENERIC_FAMILY_PROFILE_FIXTURE,)
+        ),
     )
 
     bundle = _validated_bundle_by_local_name(result, "run-local-request-record-demo")
@@ -2233,7 +2235,7 @@ def test_local_request_record_fixture_preserves_one_typed_request_binding(
         "ImplementationRequest"
     ]
     assert {entry["c0_row_id"] for entry in typed_prompt_inputs} == {
-        "c0.fixture.local_request_record"
+        "c0.fixture.request"
     }
 
 
