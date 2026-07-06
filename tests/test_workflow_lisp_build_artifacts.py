@@ -6811,6 +6811,7 @@ def test_design_delta_parent_drain_build_reclassifies_summary_rows_to_entry_publ
         row["row_id"] for row in entry_publication_payload["selected_c0_rows"]
     }
     assert "c0.drain_materialized_drain_summary" in selected_entry_rows
+    assert "c0.std_drain_materialized_shared_drain_result_summary" not in selected_entry_rows
     assert "c0.drain_materialized_drain_summary_compiled_boundary" not in selected_entry_rows
     assert (
         "c0.drain_output_return_drain_summary_run_state_path_compiled_boundary"
@@ -6828,6 +6829,12 @@ def test_design_delta_parent_drain_build_reclassifies_summary_rows_to_entry_publ
         row["c0_row_id"]: row for row in cleanup_payload["cleanup_decisions"]
     }
     assert cleanup_rows["c0.drain_materialized_drain_summary"]["cleanup_decision"] == "RETIRED_TO_ENTRY_PUBLICATION"
+    assert (
+        cleanup_rows["c0.std_drain_materialized_shared_drain_result_summary"][
+            "cleanup_decision"
+        ]
+        == "RETIRED_TO_OBSERVABILITY"
+    )
     assert "c0.drain_materialized_drain_summary_compiled_boundary" not in cleanup_rows
     assert "c0.drain_materialized_drain_summary" not in cleanup_payload[
         "surviving_body_materialization_row_ids"
@@ -7014,6 +7021,16 @@ def test_design_delta_parent_drain_build_emits_rendering_cleanup_report_artifact
             "diagnostics": [],
         },
     )
+    monkeypatch.setattr(
+        build,
+        "build_reference_family_conformance_profile",
+        lambda **kwargs: {
+            "schema_version": "workflow_lisp_reference_family_conformance_profile.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "profile_status": "pass",
+            "diagnostics": [],
+        },
+    )
     original_collect_effects = build._collect_materialize_view_effects
     monkeypatch.setattr(
         build,
@@ -7047,22 +7064,19 @@ def test_design_delta_parent_drain_build_emits_rendering_cleanup_report_artifact
     assert payload["schema_version"] == "workflow_lisp_rendering_cleanup_report.v1"
     assert payload["status"] == "pass"
     assert payload["blocked_compatibility_row_ids"] == []
-    assert set(payload["surviving_body_materialization_row_ids"]) == {
-        "c0.implementation_phase_materialized_return_checks_report",
-        "c0.implementation_phase_materialized_return_checks_report_compiled_boundary",
-    }
+    assert payload["surviving_body_materialization_row_ids"] == []
     cleanup_rows = {row["c0_row_id"]: row for row in payload["cleanup_decisions"]}
     assert (
         cleanup_rows["c0.implementation_phase_materialized_return_checks_report"][
             "cleanup_decision"
         ]
-        == "KEEP_TIMED_PUBLICATION"
+        == "RETIRED_TO_OBSERVABILITY"
     )
     assert (
         cleanup_rows[
             "c0.implementation_phase_materialized_return_checks_report_compiled_boundary"
         ]["cleanup_decision"]
-        == "KEEP_TIMED_PUBLICATION"
+        == "RETIRED_TO_OBSERVABILITY"
     )
 
 
@@ -8346,16 +8360,15 @@ def test_design_delta_parent_drain_build_rejects_parent_drain_census_alignment_d
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    command_boundaries_payload = json.loads(
-        (
-            DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.commands.json"
-        ).read_text(encoding="utf-8")
-    )
-    command_boundaries_payload.pop("validate_review_findings_v1")
-    command_boundaries_path = tmp_path / "design_delta_parent_drain.commands.json"
-    command_boundaries_path.write_text(
-        json.dumps(command_boundaries_payload, indent=2) + "\n",
-        encoding="utf-8",
+    resume_manifest = _aligned_design_delta_resume_plumbing_retirement_manifest()
+    resume_manifest["decisions"].append(
+        {
+            "decision": "BLOCKED",
+            "parity_constraint": "fixture drift",
+            "remaining_consumer": "fixture drift",
+            "retirement_condition": "fixture drift",
+            "row_id": "missing.checked.row",
+        }
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -8363,12 +8376,12 @@ def test_design_delta_parent_drain_build_rejects_parent_drain_census_alignment_d
             tmp_path,
             monkeypatch,
             registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
-            command_boundaries_path=command_boundaries_path,
+            resume_plumbing_retirement_manifest_payload=resume_manifest,
         )
 
     assert excinfo.value.diagnostics[0].code == "parent_drain_census_invalid"
     assert (
-        "parent_drain_census_command_boundary_missing"
+        "parent_drain_census_stale_checked_row"
         in excinfo.value.diagnostics[0].message
     )
 
@@ -8511,8 +8524,8 @@ def test_design_delta_parent_drain_resume_plumbing_retirement_report_records_dra
         if row["row_id"] == "transitions.resource.drain_run_state"
     )
 
-    assert decision["decision"] == "RETIRED"
-    assert decision["observed_locations"] == []
+    assert decision["decision"] == "BLOCKED"
+    assert decision["observed_locations"] == ["resource_bridge_backing"]
     assert payload["manifest"]["path"].endswith(
         "design_delta_parent_drain.resume_plumbing_retirement.json"
     )
@@ -9038,9 +9051,8 @@ def test_design_delta_parent_drain_default_resume_report_marks_live_run_state_br
     }
 
     assert "work_item.loop.run_state_path" not in cleanup_candidates
-    assert cleanup_candidates["transitions.resource.drain_run_state"]["cleanup_action"] == (
-        "REMOVE_COMPATIBILITY_ALLOWLIST"
-    )
+    assert "transitions.resource.drain_run_state" not in cleanup_candidates
+    assert payload["evidence"]["retirement_report"]["status"] == "pass"
 
 
 def test_design_delta_parent_drain_default_resume_report_keeps_track_c_rows_out_of_cleanup(

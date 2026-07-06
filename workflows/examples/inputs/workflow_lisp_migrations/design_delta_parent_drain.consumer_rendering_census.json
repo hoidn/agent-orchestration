@@ -165,9 +165,9 @@
       "compiled_effect_match": {
         "step_id_suffix": "__materialize_view__design_gap_architecture_targets_view"
       },
-      "consumer_lane": "timed_body_materialization",
+      "consumer_lane": "retirement_candidate",
       "durability": "durable_timed_body",
-      "notes": "Stdlib-rendered architecture-targets input stays representation-only until typed design-gap validation parity can retire file-based command input transport.",
+      "notes": "Stdlib-rendered architecture-targets input is tracked as duplicate command-input transport while the non-stdlib validation view remains the active timed publication.",
       "renderer": {
         "accepted_shape": "any_pure_value",
         "renderer_id": "canonical-json",
@@ -189,7 +189,7 @@
           "state/archive/design_gap_architecture_targets.render_b.json"
         ]
       },
-      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
       "typed_value_source": {
         "kind": "sample_value_document",
         "value_document": {
@@ -349,9 +349,9 @@
       "compiled_effect_match": {
         "step_id_suffix": "__materialize_view__blocked_implementation_checks_report"
       },
-      "consumer_lane": "timed_body_materialization",
+      "consumer_lane": "retirement_candidate",
       "durability": "durable_timed_body",
-      "notes": "Checked boundary inventory row from flattened_output / materialized_view.",
+      "notes": "Implementation checks report is observability output and no longer an active timed body publication.",
       "renderer": {
         "accepted_shape": "any_pure_value",
         "renderer_id": "canonical-json",
@@ -387,9 +387,9 @@
     {
       "bridge": null,
       "command_boundary": null,
-      "consumer_lane": "timed_body_materialization",
+      "consumer_lane": "retirement_candidate",
       "durability": "durable_timed_body",
-      "notes": "Checked boundary inventory row from flattened_output / materialized_view. Compiled boundary inventory mirror of the same consumer surface.",
+      "notes": "Compiled boundary mirror of the implementation checks report observability output.",
       "renderer": {
         "accepted_shape": "any_pure_value",
         "renderer_id": "canonical-json",
@@ -664,9 +664,9 @@
       "compiled_effect_match": {
         "step_id_suffix": "__materialize_view__blocked_implementation_review_report"
       },
-      "consumer_lane": "timed_body_materialization",
+      "consumer_lane": "retirement_candidate",
       "durability": "durable_timed_body",
-      "notes": "Checked boundary inventory row from flattened_output / materialized_view.",
+      "notes": "Implementation review report is observability output and no longer an active timed body publication.",
       "renderer": {
         "accepted_shape": "any_pure_value",
         "renderer_id": "canonical-json",
@@ -688,7 +688,7 @@
           "artifacts/work/archive/implementation_review.json"
         ]
       },
-      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
       "typed_value_source": {
         "kind": "sample_value_document",
         "value_document": {
@@ -702,9 +702,9 @@
     {
       "bridge": null,
       "command_boundary": null,
-      "consumer_lane": "timed_body_materialization",
+      "consumer_lane": "retirement_candidate",
       "durability": "durable_timed_body",
-      "notes": "Checked boundary inventory row from flattened_output / materialized_view. Compiled boundary inventory mirror of the same consumer surface.",
+      "notes": "Compiled boundary mirror of the implementation review report observability output.",
       "renderer": {
         "accepted_shape": "any_pure_value",
         "renderer_id": "canonical-json",
@@ -730,7 +730,7 @@
           "artifacts/work/archive/implementation_review.json"
         ]
       },
-      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
       "typed_value_source": {
         "kind": "sample_value_document",
         "value_document": {
@@ -747,9 +747,9 @@
       "compiled_effect_match": {
         "step_id_suffix": "__materialize_view__implementation_progress_report"
       },
-      "consumer_lane": "timed_body_materialization",
+      "consumer_lane": "retirement_candidate",
       "durability": "durable_timed_body",
-      "notes": "Checked boundary inventory row from flattened_output / materialized_view.",
+      "notes": "Implementation progress report is observability output and no longer an active timed body publication.",
       "renderer": {
         "accepted_shape": "any_pure_value",
         "renderer_id": "canonical-json",
@@ -771,7 +771,7 @@
           "artifacts/work/archive/progress_report.json"
         ]
       },
-      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
       "typed_value_source": {
         "kind": "sample_value_document",
         "value_document": {
@@ -785,9 +785,9 @@
     {
       "bridge": null,
       "command_boundary": null,
-      "consumer_lane": "timed_body_materialization",
+      "consumer_lane": "retirement_candidate",
       "durability": "durable_timed_body",
-      "notes": "Checked boundary inventory row from flattened_output / materialized_view. Compiled boundary inventory mirror of the same consumer surface.",
+      "notes": "Compiled boundary mirror of the implementation progress report observability output.",
       "renderer": {
         "accepted_shape": "any_pure_value",
         "renderer_id": "canonical-json",
@@ -813,7 +813,7 @@
           "artifacts/work/archive/progress_report.json"
         ]
       },
-      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
       "typed_value_source": {
         "kind": "sample_value_document",
         "value_document": {
@@ -1214,9 +1214,9 @@
       "compiled_effect_match": {
         "step_id_suffix": "__materialize_view__plan_progress_report"
       },
-      "consumer_lane": "timed_body_materialization",
+      "consumer_lane": "retirement_candidate",
       "durability": "durable_timed_body",
-      "notes": "Checked boundary inventory row from flattened_output / materialized_view.",
+      "notes": "Plan progress report is observability output and no longer an active timed body publication.",
       "renderer": {
         "accepted_shape": "any_pure_value",
         "renderer_id": "canonical-json",
@@ -1238,7 +1238,7 @@
           "artifacts/work/archive/plan_progress_report.json"
         ]
       },
-      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
       "typed_value_source": {
         "kind": "sample_value_document",
         "value_document": {
@@ -1252,9 +1252,9 @@
     {
       "bridge": null,
       "command_boundary": null,
-      "consumer_lane": "timed_body_materialization",
+      "consumer_lane": "retirement_candidate",
       "durability": "durable_timed_body",
-      "notes": "Checked boundary inventory row from flattened_output / materialized_view. Compiled boundary inventory mirror of the same consumer surface.",
+      "notes": "Compiled boundary mirror of the plan progress report observability output.",
       "renderer": {
         "accepted_shape": "any_pure_value",
         "renderer_id": "canonical-json",
@@ -1280,7 +1280,7 @@
           "artifacts/work/archive/plan_progress_report.json"
         ]
       },
-      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
       "typed_value_source": {
         "kind": "sample_value_document",
         "value_document": {
@@ -1829,9 +1829,9 @@
       "compiled_effect_match": {
         "step_id_suffix": "__shared_drain_result__summary"
       },
-      "consumer_lane": "timed_body_materialization",
+      "consumer_lane": "retirement_candidate",
       "durability": "durable_timed_body",
-      "notes": "Shared backlog-drain summary stays a timed view until typed drain-result consumers can replace the generic rendered summary lane.",
+      "notes": "Shared backlog-drain summary remains a non-entry body materialization and is tracked as observability-side retirement evidence while the Design Delta parent publishes the typed terminal summary at the entry boundary.",
       "renderer": {
         "accepted_shape": "any_pure_value",
         "renderer_id": "canonical-json",
@@ -1853,7 +1853,7 @@
           "artifacts/work/archive/shared_drain_result_summary.render_b.json"
         ]
       },
-      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
       "typed_value_source": {
         "kind": "sample_value_document",
         "value_document": {

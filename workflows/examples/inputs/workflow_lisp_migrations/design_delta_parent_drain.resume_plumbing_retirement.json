@@ -1,17 +1,17 @@
 {
-  "schema_version": "workflow_lisp_resume_plumbing_retirement.v1",
-  "target_family": "lisp_frontend_design_delta_parent_drain",
-  "source_census": {
-    "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json",
-    "fingerprint": "sha256:3a6a0110a7a0eaa449adbd19b8f57e06d809f330cd56f29c9e1fbfdb5b8d9cd0"
-  },
   "decisions": [
     {
-      "row_id": "transitions.resource.drain_run_state",
       "decision": "BLOCKED",
+      "parity_constraint": "do not require selected-item stdlib routes to reproduce YAML-era state/run_state.json merge mechanics",
       "remaining_consumer": "legacy drain-run-state bridge backing remains present in transitions.orc while selected-item carrier retirement is narrowed",
       "retirement_condition": "remove the bridge-backed drain-run-state resource or move any live legacy JSON write to a separate declared boundary slice",
-      "parity_constraint": "do not require selected-item stdlib routes to reproduce YAML-era state/run_state.json merge mechanics"
+      "row_id": "transitions.resource.drain_run_state"
     }
-  ]
+  ],
+  "schema_version": "workflow_lisp_resume_plumbing_retirement.v1",
+  "source_census": {
+    "fingerprint": "sha256:1f57ba5b99bff44cd63c514c0a53959aad0846aabfc0bd4ddd21cea020b1843e",
+    "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+  },
+  "target_family": "lisp_frontend_design_delta_parent_drain"
 }
