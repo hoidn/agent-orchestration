@@ -1116,7 +1116,7 @@ def test_blocked_recovery_detector_honors_generic_step_back_decision(tmp_path):
     assert payload["block_reason"] == "same-work"
 
 
-def test_blocked_recovery_detector_prefers_recoverable_gap_over_generic_step_back(tmp_path):
+def test_blocked_recovery_detector_prefers_repeated_non_progress_over_recovery(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     run_state = workspace / "state/run_state.json"
@@ -1178,9 +1178,10 @@ def test_blocked_recovery_detector_prefers_recoverable_gap_over_generic_step_bac
     )
 
     payload = json.loads(output.read_text(encoding="utf-8"))
-    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
-    assert payload["design_gap_id"] == "gap-a"
-    assert payload["recovery_route"] == "GAP_DESIGN_REVISION_REQUIRED"
+    assert payload["pre_selection_route"] == "BLOCKED"
+    assert payload["recovery_status"] == "STEP_BACK_REQUIRED"
+    assert payload["blocker_class"] == "workflow_non_progress"
+    assert payload["block_reason"] == "same-work"
 
 
 def _write_blocked_gap_run_state(run_state: Path, workspace: Path, *, history: list[dict]) -> tuple[Path, Path, Path]:

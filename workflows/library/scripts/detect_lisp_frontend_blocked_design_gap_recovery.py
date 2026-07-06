@@ -396,6 +396,9 @@ def _recovery_payload(
     if selector_mechanics is not None:
         return selector_mechanics
     selector_manifest = _selector_manifest_payload(selector_manifest_path)
+    non_progress = _non_progress_payload(non_progress_decision_path, state)
+    if non_progress is not None:
+        return non_progress
 
     blocked = state.get("blocked_design_gaps") or {}
     for design_gap_id in _blocked_recovery_order(blocked):
@@ -504,9 +507,6 @@ def _recovery_payload(
         )
         payload.update(_pointer_fields(decision))
         return payload
-    non_progress = _non_progress_payload(non_progress_decision_path, state)
-    if non_progress is not None:
-        return non_progress
     if _selector_manifest_requests_done_review(selector_manifest):
         return _none_payload(
             recovery_reason="no_selectable_manifest_work",
