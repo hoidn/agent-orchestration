@@ -1592,6 +1592,7 @@ def test_resume_rejects_pre_task6_schema_state(temp_workspace, sample_workflow, 
             "Step1": {"status": "completed", "exit_code": 0},
         },
     }, indent=2))
+    bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
 
     with patch('os.getcwd', return_value=str(temp_workspace)), patch(
         'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
@@ -1612,7 +1613,8 @@ def test_resume_rejects_pre_task6_schema_state(temp_workspace, sample_workflow, 
 def test_structured_if_else_smoke_resume_does_not_replay_completed_lowered_steps(temp_workspace):
     """Resume should not replay completed lowered branch work inside structured if/else."""
     run_id = "if-else-resume-run"
-    _seed_structured_if_else_failure(temp_workspace, run_id=run_id)
+    workflow_path, _state_manager = _seed_structured_if_else_failure(temp_workspace, run_id=run_id)
+    bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
 
     history_path = temp_workspace / "state" / "history.log"
     assert history_path.read_text(encoding="utf-8").splitlines() == [
@@ -1693,7 +1695,8 @@ def test_repeat_until_smoke_resume_restarts_unfinished_iteration_without_replayi
 ):
     """Resume should continue a failed repeat_until iteration from the first unfinished nested step."""
     run_id = "repeat-until-resume-run"
-    _seed_repeat_until_failure(temp_workspace, run_id=run_id)
+    workflow_path, _state_manager = _seed_repeat_until_failure(temp_workspace, run_id=run_id)
+    bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
 
     history_path = temp_workspace / "state" / "history.log"
     assert history_path.read_text(encoding="utf-8").splitlines() == [
@@ -1745,6 +1748,7 @@ def test_repeat_until_resume_advances_past_already_evaluated_condition_without_r
         encoding="utf-8",
     )
     workflow = WorkflowLoader(temp_workspace).load(workflow_path)
+    bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
     repeat_step = materialize_projection_body_steps(workflow)[0]
     body_steps = repeat_step["repeat_until"]["steps"]
 
@@ -1846,7 +1850,8 @@ def test_repeat_until_resume_advances_past_already_evaluated_condition_without_r
 def test_repeat_until_resume_preserves_nested_call_frames_and_lowered_match_progress(temp_workspace):
     """Resume should continue a repeat_until call body without replaying finished child-call work."""
     run_id = "repeat-until-call-resume-run"
-    _seed_repeat_until_call_failure(temp_workspace, run_id=run_id)
+    workflow_path, _state_manager = _seed_repeat_until_call_failure(temp_workspace, run_id=run_id)
+    bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
 
     history_path = temp_workspace / "state" / "review-loop" / "history.log"
     assert history_path.read_text(encoding="utf-8").splitlines() == [
