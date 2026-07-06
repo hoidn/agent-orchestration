@@ -286,6 +286,7 @@ def _provisional_parametric_match_types(
     signature: ProcedureSignature,
     type_env: FrontendTypeEnvironment,
 ) -> dict[str, UnionTypeRef]:
+    type_param_names = frozenset(type_param.name for type_param in signature.type_params)
     variants_by_type_param: dict[str, dict[str, UnionVariant]] = {}
     variant_fields_by_type_param: dict[str, dict[str, dict[str, TypeRef]]] = {}
     for clause in signature.where_clauses:
@@ -307,12 +308,22 @@ def _provisional_parametric_match_types(
             ),
             span=clause.span,
         )
+        # Constraint Vocabulary rule 3
+        # (docs/design/workflow_lisp_parametric_type_system.md): a field
+        # requirement's type may name another `:forall` parameter. The raw
+        # (definition-scoped) pass has no concrete binding yet, so it types
+        # such a field as the bare type-parameter placeholder rather than
+        # eagerly resolving it against the type environment.
         variant_fields[clause.variant_name] = {
-            requirement.field_name: type_env.resolve_type(
-                requirement.field_type_name,
-                span=requirement.span,
-                form_path=requirement.form_path,
-                expansion_stack=requirement.expansion_stack,
+            requirement.field_name: (
+                TypeParamRef(name=requirement.field_type_name)
+                if requirement.field_type_name in type_param_names
+                else type_env.resolve_type(
+                    requirement.field_type_name,
+                    span=requirement.span,
+                    form_path=requirement.form_path,
+                    expansion_stack=requirement.expansion_stack,
+                )
             )
             for requirement in clause.field_requirements
         }
