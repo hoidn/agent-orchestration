@@ -688,6 +688,19 @@ def test_design_delta_drain_routes_invalid_design_gap_architecture_without_runni
         "self.steps.DraftDesignGapArchitecture.artifacts.architecture_validation_status"
     )
     assert run_step["when"]["compare"]["right"] == "VALID"
+    materialize_status = next(
+        step for step in design_gap_case["steps"] if step["name"] == "MaterializeDesignGapWorkItemDrainStatus"
+    )
+    assert materialize_status["when"]["compare"]["left"]["ref"] == (
+        "self.steps.DraftDesignGapArchitecture.artifacts.architecture_validation_status"
+    )
+    assert materialize_status["when"]["compare"]["right"] == "VALID"
+    assert any(part.endswith("write_lisp_frontend_drain_status.py") for part in materialize_status["command"])
+    assert "${self.steps.RunDesignGapWorkItem.artifacts.drain_status}" in materialize_status["command"]
+    assert (
+        "${parent.steps.PrepareIterationPaths.artifacts.design_gap_work_item_state_root}/drain_status.txt"
+        in materialize_status["command"]
+    )
     resolver = next(
         step for step in design_gap_case["steps"] if step["name"] == "ResolveDesignGapArchitectureDrainStatus"
     )

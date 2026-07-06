@@ -882,6 +882,21 @@ steps:
                         ref: inputs.implementation_execute_provider
                       implementation_review_provider:
                         ref: inputs.implementation_review_provider
+                  - name: MaterializeDesignGapWorkItemDrainStatus
+                    id: materialize_design_gap_work_item_drain_status
+                    when:
+                      compare:
+                        left:
+                          ref: self.steps.DraftDesignGapArchitecture.artifacts.architecture_validation_status
+                        op: eq
+                        right: VALID
+                    command:
+                      - python
+                      - workflows/library/scripts/write_lisp_frontend_drain_status.py
+                      - --status
+                      - ${self.steps.RunDesignGapWorkItem.artifacts.drain_status}
+                      - --output
+                      - ${parent.steps.PrepareIterationPaths.artifacts.design_gap_work_item_state_root}/drain_status.txt
                   - name: ResolveDesignGapArchitectureDrainStatus
                     id: resolve_design_gap_architecture_drain_status
                     command:
