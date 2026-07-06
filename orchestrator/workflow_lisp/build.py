@@ -732,6 +732,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         workflow_boundary_projection_payload,
         selected_name=entry_selection.canonical_name,
         boundary_authority_registry=boundary_authority_registry,
+        family_profile_catalog=family_profile_catalog,
     )
     fingerprint = _fingerprint_build(
         request=resolved_request,
@@ -5852,9 +5853,17 @@ def _validate_selected_workflow_hidden_compatibility_bridge_public_boundary(
     *,
     selected_name: str,
     boundary_authority_registry: Mapping[str, object] | None,
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
 ) -> None:
     if boundary_authority_registry is None:
-        return
+        # A missing registry only exempts workflows outside the
+        # design-delta-parent-drain family, which has no checked
+        # boundary-authority-registry concept to begin with. A design-delta
+        # target missing its registry must still fail closed.
+        if not is_design_delta_parent_drain_target_workflow(
+            selected_name, family_profile_catalog=family_profile_catalog
+        ):
+            return
     if isinstance(boundary_authority_registry, Mapping):
         workflow_family = boundary_authority_registry.get("workflow_family")
         if workflow_family not in (None, "design_delta_parent_drain"):

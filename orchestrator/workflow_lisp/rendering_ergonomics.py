@@ -389,6 +389,19 @@ def _lane_evidence(reports: Mapping[str, Any]) -> dict[str, set[str]]:
         "C4": _c4_row_ids(c4) if isinstance(c4, Mapping) else set(),
         "C5": _c5_timed_row_ids(c5) if isinstance(c5, Mapping) else set(),
         "census": _active_census_row_ids(census) if isinstance(census, Mapping) else set(),
+        "census_retired": (
+            _retired_census_row_ids(census) if isinstance(census, Mapping) else set()
+        ),
+    }
+
+
+def _retired_census_row_ids(census: Mapping[str, Any]) -> set[str]:
+    return {
+        str(row.get("row_id", ""))
+        for row in census.get("rows", [])
+        if isinstance(row, Mapping)
+        and str(row.get("consumer_lane", "")) == "retirement_candidate"
+        and row.get("row_id")
     }
 
 
@@ -862,6 +875,24 @@ def build_rendering_ergonomics_report(
     for slot in sorted(slots, key=lambda s: str(s.get("slot_id", ""))):
         c0_row_id = str(slot.get("c0_row_id", ""))
         if c0_row_id not in evidence["census"] and c0_row_id not in evidence["C4"]:
+            if c0_row_id in evidence["census_retired"]:
+                # Explicitly-classified retirement: the reconciled census
+                # still carries the row as retirement_candidate, so the slot
+                # is a sanctioned transitional survivor. Once the census row
+                # disappears the slot becomes stale and fails below.
+                continue
+            # Fail closed in the checked->compiled direction too: a checked
+            # slot with no census or C4 evidence is a stale/zombie row.
+            diagnostics.append(
+                _diagnostic(
+                    "rendering_ergonomics_consumer_slot_stale",
+                    str(slot.get("slot_id", "")),
+                    "checked C6 consumer slot has no covering C0 census or C4 "
+                    "bridge evidence; remove the slot alongside the retired "
+                    "surface",
+                    c0_row_id=c0_row_id,
+                )
+            )
             continue
         author_diag = _authoring_lint_diag(slot, c0_row_id)
         if author_diag is not None:

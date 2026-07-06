@@ -4518,6 +4518,14 @@ def test_design_delta_runtime_transition_fixture_runs_via_real_cli(
     result = _run_design_delta_runtime_transition_fixture_cli(tmp_path)
 
     assert result.returncode == 0, result.stderr
+    native_state_paths = sorted(
+        (tmp_path / "state" / "workflow_lisp").rglob("drain-run-state-state.json")
+    )
+    assert len(native_state_paths) == 1, native_state_paths
+    run_state = json.loads(native_state_paths[0].read_text(encoding="utf-8"))["state"]
+    assert run_state["drain_status"] == "BLOCKED"
+    assert run_state["drain_status_reason"] == "runtime_native_fixture"
+    assert run_state["drain_status_summary"] == "artifacts/work/drain_summary.json"
 
 
 def test_design_delta_runtime_view_fixture_compiles_without_summary_writer_command(

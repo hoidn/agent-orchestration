@@ -5224,8 +5224,9 @@ def test_design_delta_parent_drain_imported_backlog_drain_build_artifacts_record
         value_flow_census_payload=_aligned_design_delta_value_flow_census(tmp_path),
         resume_plumbing_retirement_manifest_payload=_aligned_design_delta_resume_plumbing_retirement_manifest(),
     )
-    if "std/drain::backlog-drain" not in built.compile_result.validated_bundles_by_name:
-        pytest.skip("std/drain::backlog-drain is not materialized in this candidate build")
+    assert (
+        "std/drain::backlog-drain" in built.compile_result.validated_bundles_by_name
+    ), "std/drain::backlog-drain must be materialized in the design-delta parent drain build"
     bundle = built.compile_result.validated_bundles_by_name["std/drain::backlog-drain"]
     boundary = _workflow_boundary_projection(bundle)
     workflow_projection = next(
