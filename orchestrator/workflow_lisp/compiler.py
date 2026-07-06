@@ -2220,7 +2220,18 @@ def _compile_stage3_graph(
         )
         command_boundary_environment = _augment_builtin_command_boundaries(
             command_boundary_environment,
+            expressions=tuple(workflow.body for workflow in workflow_defs)
+            + tuple(procedure.body for procedure in procedure_defs),
+        )
+        # Cross-module lowering can specialize imported stdlib-backed
+        # workflows inside this module, so call-shaped trigger evidence from
+        # earlier graph modules also installs the certified adapters here.
+        # Definition-shaped evidence (raw `command-result` bodies) stays
+        # module-local so adapter registration remains usage-scoped.
+        command_boundary_environment = _augment_builtin_command_boundaries(
+            command_boundary_environment,
             expressions=tuple(graph_adapter_expressions),
+            call_triggers_only=True,
         )
         command_boundary_environment = _augment_resume_command_boundaries(
             command_boundary_environment,
@@ -3249,14 +3260,20 @@ def _augment_builtin_command_boundaries(
     command_boundary_environment,
     *,
     expressions,
+    call_triggers_only: bool = False,
 ):
     """Register built-in certified adapters required by elaborated command usage."""
 
+    collector = (
+        _builtin_call_trigger_binding_names_in_expr
+        if call_triggers_only
+        else _builtin_command_binding_names_in_expr
+    )
     bindings = dict(command_boundary_environment.bindings_by_name)
     required_binding_names = {
         binding_name
         for root_expr in expressions
-        for binding_name in _builtin_command_binding_names_in_expr(root_expr)
+        for binding_name in collector(root_expr)
     }
     if not required_binding_names:
         return command_boundary_environment
@@ -3323,6 +3340,30 @@ def _builtin_command_binding_names_in_expr(expr) -> frozenset[str]:
         )
     except TypeError:
         return frozenset()
+
+
+def _builtin_call_trigger_binding_names_in_expr(expr) -> frozenset[str]:
+    """Collect certified adapter names required by stdlib-form call sites only.
+
+    Unlike `_builtin_command_binding_names_in_expr`, raw `command-result`
+    definitions do not count as evidence: this collector serves cross-module
+    accumulation, where only call-shaped usage should propagate adapter
+    registration to importing modules.
+    """
+
+    if isinstance(expr, SyntaxNode):
+        return _builtin_call_trigger_binding_names_in_expr(syntax_node_datum(expr))
+    if isinstance(expr, SyntaxList):
+        binding_names = set()
+        head_name = syntax_head_name(expr)
+        if head_name in STDLIB_CERTIFIED_ADAPTER_TRIGGER_NAMES:
+            binding_names.update(STDLIB_CERTIFIED_ADAPTER_TRIGGER_NAMES[head_name])
+        for item in expr.items:
+            binding_names.update(_builtin_call_trigger_binding_names_in_expr(item))
+        return frozenset(binding_names)
+    if isinstance(expr, ProcedureCallExpr):
+        return frozenset(STDLIB_CERTIFIED_ADAPTER_TRIGGER_NAMES.get(expr.callee_name, ()))
+    return frozenset()
 
 
 def _workflow_contains_resume_or_start(expr) -> bool:
