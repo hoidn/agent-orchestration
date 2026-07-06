@@ -180,6 +180,7 @@ def typecheck_procedure_definitions(
         shared_union_field_capabilities = provisional_shared_union_field_capabilities(
             where_clauses=signature.where_clauses,
             type_env=current_type_env,
+            type_param_names=frozenset(type_param.name for type_param in signature.type_params),
         )
         value_env.update(
             {

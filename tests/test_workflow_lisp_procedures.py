@@ -1075,6 +1075,27 @@ def test_compile_stage3_rejects_refined_path_constraint_field_wrong_root(tmp_pat
     assert "instead of" in excinfo.value.diagnostics[0].message
 
 
+def test_compile_stage3_accepts_type_param_constraint_field(tmp_path: Path) -> None:
+    result = _compile_validated(
+        FIXTURES / "valid" / "parametric_type_param_constraint_field.orc",
+        tmp_path=tmp_path,
+    )
+    assert result is not None
+
+
+def test_compile_stage3_rejects_type_param_constraint_field_mismatch(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_validated(
+            FIXTURES / "invalid" / "parametric_type_param_constraint_field_mismatch.orc",
+            tmp_path=tmp_path,
+        )
+
+    _assert_diagnostic_code(excinfo, "parametric_constraint_unsatisfied")
+    diagnostic = excinfo.value.diagnostics[0]
+    assert "SELECTED" in diagnostic.message
+    assert any("constraint declared at" in note for note in diagnostic.notes)
+
+
 def test_compile_stage3_accepts_generic_shared_union_field_projection(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "generic_proc_shared_union_projection.orc",

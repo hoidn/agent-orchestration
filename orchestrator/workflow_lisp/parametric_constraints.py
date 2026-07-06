@@ -40,6 +40,7 @@ def provisional_shared_union_field_capabilities(
     *,
     where_clauses: tuple[ProcedureConstraintSyntax, ...],
     type_env: FrontendTypeEnvironment,
+    type_param_names: frozenset[str] = frozenset(),
 ) -> tuple[SharedUnionFieldCapability, ...]:
     """Return authored shared-field capabilities keyed by the type-parameter name."""
 
@@ -48,6 +49,11 @@ def provisional_shared_union_field_capabilities(
         if clause.constraint_name != "has-shared-union-field":
             continue
         if clause.field_name is None or clause.field_type_name is None:
+            continue
+        if clause.field_type_name in type_param_names:
+            # Covered by the call-site pass (`evaluate_parametric_constraints`),
+            # which resolves the field type from the bound `type_bindings` once a
+            # concrete call site is known.
             continue
         capabilities.append(
             SharedUnionFieldCapability(
@@ -112,7 +118,7 @@ def evaluate_parametric_constraints(
 
     capabilities: list[SharedUnionFieldCapability] = []
     for clause in where_clauses:
-        normalized = _normalize_constraint(clause, type_env=type_env)
+        normalized = _normalize_constraint(clause, type_env=type_env, type_bindings=type_bindings)
         concrete_type = type_bindings.get(normalized.subject_name)
         if concrete_type is None:
             _raise_constraint_error(
@@ -139,10 +145,34 @@ def evaluate_parametric_constraints(
     return ConstraintEvaluationResult(shared_union_field_capabilities=tuple(capabilities))
 
 
+def _resolve_field_type_ref(
+    field_type_name: str,
+    *,
+    type_bindings: Mapping[str, TypeRef],
+    type_env: FrontendTypeEnvironment,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    expansion_stack: tuple[object, ...],
+) -> TypeRef:
+    """Resolve a constraint field-type name, deferring to the call site's
+    bound type parameters (rule 3) before falling back to the type
+    environment. Contract: docs/design/workflow_lisp_parametric_type_system.md,
+    Constraint Vocabulary rule 3."""
+    if field_type_name in type_bindings:
+        return type_bindings[field_type_name]
+    return type_env.resolve_type(
+        field_type_name,
+        span=span,
+        form_path=form_path,
+        expansion_stack=expansion_stack,
+    )
+
+
 def _normalize_constraint(
     clause: ProcedureConstraintSyntax,
     *,
     type_env: FrontendTypeEnvironment,
+    type_bindings: Mapping[str, TypeRef],
 ) -> _NormalizedConstraint:
     if clause.constraint_name == "is-record":
         return _KindConstraint(
@@ -172,8 +202,10 @@ def _normalize_constraint(
             constraint_name=clause.constraint_name,
             syntax=clause,
             field_name=clause.field_name,
-            field_type_ref=type_env.resolve_type(
+            field_type_ref=_resolve_field_type_ref(
                 clause.field_type_name,
+                type_bindings=type_bindings,
+                type_env=type_env,
                 span=clause.span,
                 form_path=clause.form_path,
                 expansion_stack=clause.expansion_stack,
@@ -195,7 +227,12 @@ def _normalize_constraint(
             syntax=clause,
             variant_name=clause.variant_name,
             field_requirements=tuple(
-                _normalize_field_requirement(requirement, type_env=type_env, form_path=clause.form_path)
+                _normalize_field_requirement(
+                    requirement,
+                    type_env=type_env,
+                    type_bindings=type_bindings,
+                    form_path=clause.form_path,
+                )
                 for requirement in clause.field_requirements
             ),
         )
@@ -212,12 +249,15 @@ def _normalize_field_requirement(
     requirement: ProcedureConstraintFieldRequirementSyntax,
     *,
     type_env: FrontendTypeEnvironment,
+    type_bindings: Mapping[str, TypeRef],
     form_path: tuple[str, ...],
 ) -> _NormalizedFieldRequirement:
     return _NormalizedFieldRequirement(
         field_name=requirement.field_name,
-        field_type_ref=type_env.resolve_type(
+        field_type_ref=_resolve_field_type_ref(
             requirement.field_type_name,
+            type_bindings=type_bindings,
+            type_env=type_env,
             span=requirement.span,
             form_path=form_path,
             expansion_stack=requirement.expansion_stack,
