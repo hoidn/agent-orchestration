@@ -44,6 +44,7 @@ Progress ledger: `.superpowers/sdd/progress.md`.
 | Tasks 7–9 (reference-family acceptance) | Pending — after Task 5 |
 | Tasks 10–12 (parity + promotion gates) | Pending — Task 12 remains a user gate |
 | Task 13 (Tranche 9) | Pending — still gated on promotion |
+| Task 15 (verified-iteration drain → `.orc`, SC added 2026-07-06) | Pending — independent of promotion gate |
 | Task 14 (doc/status hygiene) | Pending |
 
 ## Global Constraints
@@ -390,6 +391,43 @@ python -m orchestrator migration-parity \
 - [ ] **Step 4:** Acceptance: no family shape carries `parity_constrained` without either a remaining
   justifying requirement or an open simplification work item; anything waived is recorded with owner
   and rationale.
+
+---
+
+## Phase 4A — Verified-iteration drain `.orc` translation (SC added 2026-07-06)
+
+### Task 15: Translate `verified_iteration_drain.yaml` to a `.orc` family
+
+Added per user directive 2026-07-06 together with the new Section 29 success criterion in
+`docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`. Independent of the
+Task 12 promotion gate; may run any time after Task 5. The YAML stays primary — this criterion
+requires a compiled, smoke-checked `.orc` translation, not YAML retirement.
+
+**Files:**
+- Create: `workflows/library/verified_iteration_drain/drain.orc` (family layout mirroring
+  `workflows/library/lisp_frontend_design_delta/`)
+- Create: extern inputs under `workflows/examples/inputs/workflow_lisp_migrations/`
+  (`verified_iteration_drain.providers.json`, `.prompts.json` for the two prompt files under
+  `workflows/library/prompts/verified_iteration_drain/`, `.commands.json` for the three
+  `workflows/library/scripts/{prepare,run,record}_verified_iteration*.py` command steps)
+- Reference: `workflows/examples/verified_iteration_drain.yaml` (source of truth for shape),
+  `docs/design/verified_iteration_drain.md` (normative status precedence)
+
+- [ ] **Step 1:** Express the `repeat_until` loop (max 40, terminal statuses DONE/BLOCKED_ON_USER/
+  STALLED, `on_exhausted` → STALLED), the three deterministic command steps, the two conditionally
+  gated provider steps (`ReviewIteration`: GREEN ∧ commits_landed; `ReviewDoneClaim`: worker DONE ∧
+  GREEN), and the enum verdict channels as typed `.orc` composition using the Design Delta family
+  idioms — loop-carried state decides control flow; no hidden YAML-shaped state choreography.
+- [ ] **Step 2:** Compile: `python -m orchestrator compile
+  workflows/library/verified_iteration_drain/drain.orc --entry-workflow
+  verified_iteration_drain/drain::drain` with the extern files from Step 1. Expected: clean compile.
+- [ ] **Step 3:** Smoke against the same check-commands contract as the YAML (dry-run or smoke
+  fixture exercising one CONTINUE iteration and one terminal routing); record the compile-and-smoke
+  check in the Evidence Log.
+- [ ] **Step 4:** Record boundary justifications per the family rules (Tranche 0/7 record shape);
+  any parity-only shape labeled `parity_constrained` with a simplification path.
+- [ ] **Step 5:** Commit; update `docs/design/README.md` row for
+  `verified_iteration_drain.md` if its status line changes.
 
 ---
 

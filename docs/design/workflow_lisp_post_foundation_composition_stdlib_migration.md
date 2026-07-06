@@ -2821,8 +2821,15 @@ This post-foundation target succeeds when:
   justification with parity-only shapes labeled `parity_constrained` and a
   post-promotion simplification path;
 - at least one real workflow family reaches strict, machine-computed
-  `non_regressive=true` through `.orc`; and
-- any YAML-primary replacement also passes `--require-promotable`.
+  `non_regressive=true` through `.orc`;
+- any YAML-primary replacement also passes `--require-promotable`; and
+- the verified-iteration drain
+  (`workflows/examples/verified_iteration_drain.yaml`) is translated to a
+  `.orc` workflow family: the loop, deterministic command steps, conditional
+  review gates, and enum verdict channels are expressed as typed `.orc`
+  composition under the same boundary-justification rules as the Design Delta
+  family, and the translated family has a recorded compile-and-smoke check
+  against the same check-commands contract.
 
 ## 30. Summary Recommendation
 
