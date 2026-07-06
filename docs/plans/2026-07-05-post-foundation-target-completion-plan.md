@@ -24,6 +24,28 @@ and Tranche 9 simplification.
 (`orchestrator/workflow_lisp/`), pytest, drain workflow
 `workflows/examples/lisp_frontend_design_delta_drain.yaml`, migration-parity CLI.
 
+## Execution Status (updated 2026-07-06)
+
+**Direction change:** the drain lane is retired for this plan. The user killed the drain runs
+(R42–R44) on 2026-07-06 and ordered direct subagent-driven execution, bypassing drain process
+artifacts (gap records, census/progress reports, run-state bookkeeping, verify-first ceremony).
+Real verification is unchanged: covering pytest suites per slice, fail-closed contract checks, and
+the machine-computed parity gates. Contract-input JSONs under
+`workflows/examples/inputs/workflow_lisp_migrations/` remain in scope because validations read them.
+Progress ledger: `.superpowers/sdd/progress.md`.
+
+| Item | Status |
+| --- | --- |
+| Task 1 (settle tree) | Done — commits `f86e6b8`, `fceb8f8`; review PASS |
+| Task 2 (evidence baseline) | Done — Evidence Log entry, commit `ee43656` |
+| Task 3/4 (prerequisite gaps) | Done — 4 records authored (`383b088`,`bcd42c1`,`e731a23`,`ef362e6`, review PASS); drain R44 then completed compile-smoke + registry-repair gaps before being killed |
+| Phasectx-boundary gap | Completed by drain R42 (commit `dbb9e41`); completion claim re-verified via suites in Task 5 |
+| Task 5 (direct feature completion) | In progress — finish in-flight carrier-retirement work; drive build-artifacts/feasibility/resume/stdlib suites to 0F |
+| Tasks 7–9 (reference-family acceptance) | Pending — after Task 5 |
+| Tasks 10–12 (parity + promotion gates) | Pending — Task 12 remains a user gate |
+| Task 13 (Tranche 9) | Pending — still gated on promotion |
+| Task 14 (doc/status hygiene) | Pending |
+
 ## Global Constraints
 
 Copied from the target design (Sections 19A, 25, 22) and repo rules — every task inherits these:
@@ -67,15 +89,15 @@ Copied from the target design (Sections 19A, 25, 22) and repo rules — every ta
 - Produces: a clean-or-accounted working tree and a known R41 disposition (live / crashed / complete)
   that every later task builds on.
 
-- [ ] **Step 1: Determine whether R41 is live.** Check tmux sessions (`tmux ls`; sessions `38` and
+- [x] **Step 1: Determine whether R41 is live.** Check tmux sessions (`tmux ls`; sessions `38` and
   `orchestration` exist) and the run state history. If the drain process is live, do not disturb it —
   switch to the `managing-workflows` skill and let the current iteration finish before any commits.
-- [ ] **Step 2: Classify the dirty tree.** `git diff --stat` and map each file to its gap
+- [x] **Step 2: Classify the dirty tree.** `git diff --stat` and map each file to its gap
   (`workflow-lisp-design-delta-compatibility-carrier-retirement`,
   `workflow-lisp-runtime-native-drain-parent-callable-stdlib-backlog-drain-compile-smoke-regression`,
   the two completed phasectx/owner-boundary gaps, or drain-mechanics changes). Anything not mapped to
   a gap or plan is flagged to the user before proceeding.
-- [ ] **Step 3: Run the focused suites for the dirty modules:**
+- [x] **Step 3: Run the focused suites for the dirty modules:**
 
 ```bash
 pytest tests/test_workflow_lisp_drain_stdlib.py tests/test_workflow_lisp_resource_stdlib.py \
@@ -86,7 +108,7 @@ pytest tests/test_workflow_lisp_lexical_checkpoints.py tests/test_workflow_lisp_
 ```
 
   Expected: all pass. On failure: `superpowers:systematic-debugging`; do not commit failing work.
-- [ ] **Step 4: Commit completed, evidence-backed gap work by explicit path** (only slices whose gap
+- [x] **Step 4: Commit completed, evidence-backed gap work by explicit path** (only slices whose gap
   records show completion); leave genuinely in-progress files uncommitted and note them in the plan
   checklist.
 
@@ -100,7 +122,7 @@ pytest tests/test_workflow_lisp_lexical_checkpoints.py tests/test_workflow_lisp_
 - Produces: a dated baseline (append to this plan file, `## Evidence Log`) that later parity claims
   reference.
 
-- [ ] **Step 1: Run the counted and gate suites:**
+- [x] **Step 1: Run the counted and gate suites:**
 
 ```bash
 pytest tests/test_workflow_lisp_generic_stdlib_composition.py tests/test_workflow_lisp_procedures.py \
@@ -113,17 +135,17 @@ pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py \
 ```
 
   Expected: all pass (2026-06-10 reconciliation bands: 164/27/47/437).
-- [ ] **Step 2: Record pass counts + git SHA in `## Evidence Log`** at the bottom of this file.
-- [ ] **Step 3: Commit the log update.**
+- [x] **Step 2: Record pass counts + git SHA in `## Evidence Log`** at the bottom of this file.
+- [x] **Step 3: Commit the log update.**
 
 ---
 
-## Phase 1 — Close prerequisite and owner-lane gaps **[drain lane]**
+## Phase 1 — Close prerequisite and owner-lane gaps **[drain lane — RETIRED 2026-07-06, see Execution Status]**
 
-The drain workflow executes these; gap plans live under
-`docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R21/design-gaps/<gap-id>/` (architecture +
-execution plan authored by the workflow's design-gap architect). Launch/monitor pattern for every
-drain task in this phase:
+Historical framing: the drain workflow executed these; gap plans live under
+`docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R21/design-gaps/<gap-id>/`. As of 2026-07-06
+the remaining Phase 1/2 work is executed directly by SDD implementer subagents; the gap records
+survive as design references only. Original launch/monitor pattern (no longer used):
 
 ```bash
 # inside tmux (tmux skill); from repo root
