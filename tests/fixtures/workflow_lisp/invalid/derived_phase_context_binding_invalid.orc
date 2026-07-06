@@ -87,6 +87,8 @@
                :work_item_context selection.resolved_inputs.work_item_context
                :progress_ledger selection.progress_ledger_path
                :plan_target_path selection.resolved_inputs.plan_target_path
+               :progress_report_target_path
+                 selection.resolved_inputs.progress_report_target_path
                :plan_review_report_target_path
                  selection.resolved_inputs.plan_review_report_target_path)))
       (match plan

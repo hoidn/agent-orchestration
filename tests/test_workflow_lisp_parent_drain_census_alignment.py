@@ -212,10 +212,13 @@ def test_checked_consumer_rendering_census_keeps_checks_report_pair_timed_while_
         "c0.implementation_phase_materialized_return_checks_report_compiled_boundary"
     ]
 
-    assert primary_row["consumer_lane"] == "timed_body_materialization"
+    # The reconciled census marks the checks-report body pair as retirement
+    # candidates on the observability lane while the timed durability class
+    # stays recorded for the transition window.
+    assert primary_row["consumer_lane"] == "retirement_candidate"
     assert primary_row["durability"] == "durable_timed_body"
     assert primary_row["track_c_decision"] == "RETIRE_TO_OBSERVABILITY"
-    assert mirror_row["consumer_lane"] == "timed_body_materialization"
+    assert mirror_row["consumer_lane"] == "retirement_candidate"
     assert mirror_row["durability"] == "durable_timed_body"
     assert mirror_row["track_c_decision"] == "RETIRE_TO_OBSERVABILITY"
 
@@ -230,7 +233,8 @@ def test_parent_drain_census_alignment_rejects_stale_checked_u0_row(
         next(
             row
             for row in value_flow_census_payload["rows"]
-            if row["row_id"] == "implementation_phase.input.baseline_design"
+            if row["row_id"]
+            == "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::baseline_design"
         )
     )
     stale_row["row_id"] = "stale.fake.boundary"
@@ -259,7 +263,8 @@ def test_parent_drain_census_alignment_rejects_carried_context_misclassification
     target_row = next(
         row
         for row in value_flow_census_payload["rows"]
-        if row["row_id"] == "implementation_phase.generated.phase_ctx_run_artifact_root"
+        if row["row_id"]
+        == "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::phase-ctx__artifact-root"
     )
     target_row["boundary_authority_class"] = "compatibility_bridge"
 
@@ -273,7 +278,8 @@ def test_parent_drain_census_alignment_rejects_carried_context_misclassification
         diagnostic["code"] for diagnostic in report["diagnostics"]
     } >= {"parent_drain_census_carried_context_misclassified"}
     assert any(
-        row["row_id"] == "implementation_phase.generated.phase_ctx_run_artifact_root"
+        row["row_id"]
+        == "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::phase-ctx__artifact-root"
         for row in report["carried_context_rows"]
     )
 
@@ -281,15 +287,16 @@ def test_parent_drain_census_alignment_rejects_carried_context_misclassification
 def test_parent_drain_census_alignment_rejects_hidden_bridge_misclassification(
     tmp_path: Path,
 ) -> None:
+    # The live run_state_path bridge is retired; a reintroduced carrier row
+    # that hides behind a runtime_derived classification must still fail.
     value_flow_census_payload = copy.deepcopy(
         _support_module()._load_design_delta_value_flow_census()
     )
-    target_row = next(
-        row
-        for row in value_flow_census_payload["rows"]
-        if row["row_id"] == "work_item.loop.run_state_path"
+    value_flow_census_payload["rows"].append(
+        _support_module()._reintroduced_work_item_run_state_row(
+            boundary_authority_class="runtime_derived"
+        )
     )
-    target_row["boundary_authority_class"] = "runtime_derived"
 
     report = _build_alignment_report(
         tmp_path,
@@ -358,7 +365,7 @@ def test_parent_drain_census_alignment_rejects_materialize_view_match_from_other
     target_row = next(
         row
         for row in consumer_rendering_census_payload["rows"]
-        if row["row_id"] == "c0.work_item_materialized_work_item_context_view"
+        if row["row_id"] == "c0.implementation_phase_materialized_check_commands_view"
     )
     target_workflow_surface = str(target_row["workflow_surface"])
     target_step_id_suffix = str(target_row["compiled_effect_match"]["step_id_suffix"])
@@ -385,7 +392,7 @@ def test_parent_drain_census_alignment_rejects_materialize_view_match_from_other
         diagnostic["code"] for diagnostic in report["diagnostics"]
     } >= {"parent_drain_census_materialize_view_unmatched"}
     assert any(
-        row["row_id"] == "c0.work_item_materialized_work_item_context_view"
+        row["row_id"] == "c0.implementation_phase_materialized_check_commands_view"
         for row in report["invalid_rows"]
     )
 
