@@ -8175,6 +8175,117 @@ def test_blocked_recovery_materializer_accepts_fenced_json(tmp_path):
     assert payload["reason"] == "implementation_architecture_under_scoped"
 
 
+def test_blocked_recovery_materializer_synthesizes_summary_when_missing(tmp_path):
+    source_path = tmp_path / "blocked-recovery.stdout.json"
+    output_path = tmp_path / "blocked-recovery.json"
+    source_path.write_text(
+        json.dumps(
+            {
+                "blocked_recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
+                "reason": "implementation_architecture_under_scoped",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "workflows/library/scripts/materialize_lisp_frontend_blocked_recovery_bundle.py"),
+            "--source-json-path",
+            str(source_path),
+        ],
+        cwd=ROOT,
+        env={"ORCHESTRATOR_OUTPUT_BUNDLE_PATH": str(output_path)},
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["blocked_recovery_route"] == "GAP_DESIGN_REVISION_REQUIRED"
+    assert payload["reason"] == "implementation_architecture_under_scoped"
+    assert payload["summary"] == (
+        "GAP_DESIGN_REVISION_REQUIRED selected: implementation_architecture_under_scoped."
+    )
+
+
+def test_blocked_recovery_materializer_rejects_prerequisite_route_without_structured_edge(tmp_path):
+    source_path = tmp_path / "blocked-recovery.stdout.json"
+    output_path = tmp_path / "blocked-recovery.json"
+    source_path.write_text(
+        "Wrote the blocked implementation recovery bundle to "
+        "[blocked-implementation-recovery.stdout.json](/tmp/blocked-implementation-recovery.stdout.json).\n\n"
+        "Classification: `PREREQUISITE_GAP_REQUIRED` with reason `prerequisite_gap_required`.\n\n"
+        "The proposed prerequisite is "
+        "`workflow-lisp-runtime-native-drain-design-delta-parent-transition-authoring-stale-allowed-origins`, "
+        "because the current blocker is the repo-local "
+        "`design_delta_parent_drain.transition_authoring.json` `stale_allowed_origins` failure, "
+        "not a terminal external dependency.\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "workflows/library/scripts/materialize_lisp_frontend_blocked_recovery_bundle.py"),
+            "--source-json-path",
+            str(source_path),
+        ],
+        cwd=ROOT,
+        env={"ORCHESTRATOR_OUTPUT_BUNDLE_PATH": str(output_path)},
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert "PREREQUISITE_GAP_REQUIRED requires structured recovery_dependency_edge" in result.stderr
+    assert not output_path.exists()
+
+
+def test_blocked_recovery_materializer_accepts_structured_prerequisite_route(tmp_path):
+    source_path = tmp_path / "blocked-recovery.stdout.json"
+    output_path = tmp_path / "blocked-recovery.json"
+    source_path.write_text(
+        json.dumps(
+            {
+                "blocked_recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                "reason": "prerequisite_gap_required",
+                "summary": "A child workflow union provenance gap must land first.",
+                "proposed_prerequisite": {
+                    "id": "child-union-provenance",
+                    "source": "DESIGN_GAP",
+                    "reason": "parent match cannot consume child union result",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "workflows/library/scripts/materialize_lisp_frontend_blocked_recovery_bundle.py"),
+            "--source-json-path",
+            str(source_path),
+        ],
+        cwd=ROOT,
+        env={"ORCHESTRATOR_OUTPUT_BUNDLE_PATH": str(output_path)},
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["blocked_recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
+    assert payload["proposed_prerequisite"]["id"] == "child-union-provenance"
+
+
 def _classify_blocked_recovery_terminal(workspace: Path) -> bytes:
     return _write_blocked_recovery_bundle(
         workspace,

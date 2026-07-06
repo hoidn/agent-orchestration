@@ -51,6 +51,31 @@ def _extract_payload_from_prose(text: str, source_path: Path) -> dict[str, Any] 
     }
 
 
+def _has_structured_prerequisite_authority(payload: dict[str, Any]) -> bool:
+    if isinstance(payload.get("recovery_dependency_edge"), dict):
+        return True
+    proposed = payload.get("proposed_prerequisite")
+    if isinstance(proposed, dict) and str(proposed.get("id") or "").strip():
+        return True
+    return any(
+        str(payload.get(key) or "").strip()
+        for key in (
+            "proposed_prerequisite_id",
+            "waiting_on_work_id",
+            "blocker_work_id",
+        )
+    )
+
+
+def _validate_payload(payload: dict[str, Any]) -> None:
+    route = str(payload.get("blocked_recovery_route") or "").strip()
+    if route == "PREREQUISITE_GAP_REQUIRED" and not _has_structured_prerequisite_authority(payload):
+        raise SystemExit(
+            "PREREQUISITE_GAP_REQUIRED requires structured recovery_dependency_edge "
+            "or structured prerequisite identity"
+        )
+
+
 def _load_payload(path: Path) -> dict[str, Any]:
     try:
         raw_text = path.read_text(encoding="utf-8")
@@ -65,6 +90,12 @@ def _load_payload(path: Path) -> dict[str, Any]:
             raise SystemExit(f"Blocked recovery classifier output is not valid JSON: {path}") from exc
     if not isinstance(payload, dict):
         raise SystemExit("Blocked recovery classifier output must be a JSON object")
+    route = str(payload.get("blocked_recovery_route") or "").strip()
+    reason = str(payload.get("reason") or "").strip()
+    summary = payload.get("summary")
+    if (not isinstance(summary, str) or not summary.strip()) and route and reason:
+        payload["summary"] = f"{route} selected: {reason}."
+    _validate_payload(payload)
     return payload
 
 
