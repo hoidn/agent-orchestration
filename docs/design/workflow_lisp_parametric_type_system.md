@@ -150,6 +150,32 @@ Type-argument binding rules:
   type parameters are inexpressible by construction; see Deferred
   Extensions (explicit type application).
 
+## Caller Surface
+
+Callers never write type arguments: inference binds every parameter from the
+concrete types of ordinary arguments and hook signatures, so the call site
+stays keyword-labeled and self-describing. This document is the primary
+interface for autonomous caller-authors, who work by imitating worked
+examples; the canonical minimal consumer is
+`tests/fixtures/workflow_lisp/valid/drain_stdlib_backlog_drain.orc` (98
+lines: one caller-owned selection union, three hook workflows, one call) and
+is normatively blessed as the exemplar to imitate. The call itself:
+
+```lisp
+(backlog-drain neurips
+  :ctx ctx
+  :selector selector-run
+  :run-item run-selected-item
+  :gap-drafter gap-draft
+  :max-iterations 4)
+```
+
+A caller authors three things: its concrete types (the selection union and
+payload records satisfying the definition's `:where` clauses), its hook
+procedures (ordinary `defproc`/workflow definitions whose signatures drive
+inference), and one keyword-labeled call. Nothing else — no instantiation
+syntax, no adapters, no stdlib payload round-trips.
+
 ## Constraint Vocabulary
 
 This document owns the constraint surface. The stable forms:
@@ -226,6 +252,14 @@ variant that lacks the shared field breaks the constraint — abruptly and
 correctly, since the granted branch-free projection would otherwise be
 unsound. Union-evolution guidance must not read subset semantics as "adding
 variants is always non-breaking."
+
+**Constraint-referenced names are frozen vocabulary.** Every variant and
+field name a stdlib `:where` clause mentions (`EMPTY`/`SELECTED`/`GAP`/
+`BLOCKED`, `selection`, `gap`, `reason`, `summary-path`, `blocker-class`, …)
+is public contract a caller cannot rename — even though the definitions live
+in the caller's own types. Subset semantics makes additions safe; it does
+nothing for renames. Structural matching here is by-name, with no mapping or
+renaming layer (see Deferred Extensions, generic type definitions).
 
 If a future migration demonstrates a concrete need for exact-shape proof, the
 extension is a new constraint form (e.g. `has-exact-union-variant`) proposed
@@ -380,13 +414,39 @@ parameter.
 
 ## Diagnostics Contract
 
+The landed constraint-failure path sets the bar: the caller's span
+(file:line:column), the diagnostic code, the rendered failing clause, the
+inferred concrete type, a mismatch detail ("has type A instead of B"), and a
+note carrying the definition-side declaration location
+(`parametric_constraints.py`). Every parametric failure path must meet that
+anatomy — the fix must be derivable from the message alone, without
+re-reading either source file. A representative rendered failure (message
+and note shapes verbatim from the implementation; span attaches to the
+caller's call site):
+
+```text
+parametric_constraint_unsatisfied:
+procedure `std/drain/backlog-drain-proc` requires
+`(SelectionT has-union-variant SELECTED (selection SelPayloadT))` for
+`SelectionT`, but the inferred concrete type `MySelection` does not satisfy
+it: variant `SELECTED` field `selection` has type `MyOtherPayload` instead
+of `SelPayloadT`
+note: constraint declared at .../std/drain.orc:<line>:<column>
+```
+
 Constraint and specialization failures are compile-time and must name:
 
 1. the generic definition (module-qualified) and its source span;
 2. the call site (module-qualified) and its source span;
 3. for constraint failures: the failing `:where` clause and the concrete type
    that failed it;
-4. for inference failures: the type parameter that could not be bound.
+4. for inference failures: the type parameter that could not be bound;
+5. for hook signature mismatches: the expected and actual `ProcRef`
+   signatures and the first mismatching position. (The current message
+   names only the two procedures — `procedure ref X does not match Y`,
+   `procedure_refs.py` — which forces the author to re-derive the delta
+   from source; with three hooks per drain call this is the likeliest
+   caller error, so it must meet the anatomy above.)
 
 When a call site fails multiple `:where` clauses, **all failing clauses are
 reported together**, not just the first. (Current implementation fails fast
@@ -407,9 +467,13 @@ type parameters and `ProcRef` values is enforced by the existing boundary
 validation surfaces rather than parametric-specific codes.
 
 A regression fixture must assert points 1–3 on at least one failing
-constraint (not merely that compilation fails). This is the guard against
-instantiate-then-typecheck degrading into errors that point inside substituted
-bodies.
+constraint (not merely that compilation fails), plus one hook signature
+mismatch asserting point 5, plus one typecheck failure **inside an
+instantiated body** asserting the call site survives into the rendered
+diagnostics — the specialization request threads `origin_span`
+(`specialization_typecheck.py`), but nothing currently asserts it renders.
+These are the guards against instantiate-then-typecheck degrading into
+errors that point inside substituted bodies.
 
 ## Form Classification and Migration Policy
 
@@ -501,10 +565,13 @@ today — the parameter generalizes to an `ItemCtxT` with `has-field`
 constraints rather than forcing that caller to change.
 
 The existing `backlog-drain` macro re-targets from the intrinsic to this proc;
-callers do not change. The `SELECTED (selection SelPayloadT)` clause carries
-the cross-hook payload contract that the intrinsic's Python validators enforce
-today; the exact-field checks in those validators are dropped per Subset
-Semantics.
+callers do not change. Concretely, the caller-facing compatibility contract
+is the macro keyword surface — `(backlog-drain <name> :ctx … :selector …
+:run-item … :gap-drafter … :max-iterations …)` — which is **frozen** across
+the migration: existing call sites remain byte-stable. The
+`SELECTED (selection SelPayloadT)` clause carries the cross-hook payload
+contract that the intrinsic's Python validators enforce today; the
+exact-field checks in those validators are dropped per Subset Semantics.
 
 Prerequisites, in order:
 
@@ -560,7 +627,16 @@ through.
 - Subset semantics: a caller union with additional variants/fields satisfies
   the corresponding constraints; no exact-shape checking exists in Python for
   migrated forms.
-- Diagnostics fixture asserts definition + call site + failing clause.
+- Diagnostics fixture asserts definition + call site + failing clause, one
+  hook-mismatch rendering, and call-site anchoring of one
+  instantiated-body failure.
+- Every stdlib generic definition has a minimal-caller fixture whose types
+  provide exactly the declared constraints and nothing more. This is the
+  mechanical enforcement of the Non-Goals claim that a generic's
+  requirements are exactly its declared clauses: an undeclared-capability
+  use fails at stdlib-edit time, not at the first unlucky consumer.
+  (`generic_stdlib_composition` half-plays this role today, but nothing
+  requires minimality, so drift can hide behind generous fixture types.)
 - Checkpoint/resume identity for consuming workflows is unchanged across
   intrinsic-to-generic migration of a form.
 - Form-registry taxonomy distinguishes permanent effect primitives from
