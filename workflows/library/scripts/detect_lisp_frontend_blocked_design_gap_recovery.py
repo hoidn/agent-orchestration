@@ -87,6 +87,46 @@ def _write_recovered_validation_progress_report(
     return True
 
 
+def _write_validation_stage_progress_report(
+    progress_copy_path: Path,
+    *,
+    design_gap_id: str,
+    entry: Mapping[str, Any],
+) -> bool:
+    recovery_reason = str(entry.get("recovery_reason") or "").strip()
+    if recovery_reason not in {"architecture_validation_invalid", "architecture_validation_blocked"}:
+        return False
+    detail = str(entry.get("validation_detail") or entry.get("retry_block_detail") or "").strip()
+    validation_path = str(
+        entry.get("architecture_validation_path")
+        or entry.get("recovered_architecture_validation_path")
+        or entry.get("progress_report_path")
+        or ""
+    ).strip()
+    lines = [
+        "Status: BLOCKED",
+        "",
+        "The design-gap architecture or plan failed validation before implementation ran.",
+        "",
+        f"Design gap: `{design_gap_id}`",
+        f"Recovery reason: `{recovery_reason}`",
+    ]
+    if validation_path:
+        lines.append(f"Validation bundle: `{validation_path}`")
+    if detail:
+        lines.extend(["", "Validation detail:", detail])
+    lines.extend(
+        [
+            "",
+            "The next recovery decision should revise the gap architecture or plan to satisfy this validation failure.",
+            "Do not require an implementation progress report for this pre-implementation blocker.",
+        ]
+    )
+    progress_copy_path.parent.mkdir(parents=True, exist_ok=True)
+    progress_copy_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return True
+
+
 def _revision_cycles(state: Mapping[str, Any], design_gap_id: str) -> int:
     """Count completed revise -> re-block cycles for one design gap.
 
@@ -450,6 +490,10 @@ def _recovery_payload(
         if revision_cycles >= 3 and recovery_status != "RETRY_READY":
             return _block_payload("local_recovery_exhausted")
         wrote_recovered_validation_report = _write_recovered_validation_progress_report(
+            progress_copy_path,
+            design_gap_id=design_gap_id,
+            entry=entry,
+        ) or _write_validation_stage_progress_report(
             progress_copy_path,
             design_gap_id=design_gap_id,
             entry=entry,

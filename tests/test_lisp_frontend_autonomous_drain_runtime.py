@@ -6941,6 +6941,64 @@ def test_detect_blocked_recovery_uses_recovered_architecture_validation_report_i
     assert "Stale implementation blocker" not in copied_progress
 
 
+def test_detect_blocked_recovery_synthesizes_progress_for_initial_architecture_validation_block(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state_path = workspace / "state/drain/run_state.json"
+    artifact_root = workspace / "artifacts/work"
+    architecture_root = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps"
+    architecture = architecture_root / "parser-syntax/implementation_architecture.md"
+    plan = architecture_root / "parser-syntax/execution_plan.md"
+    output = workspace / "state/drain/iterations/0/blocked-recovery.json"
+    for path in (state_path, architecture, plan):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    architecture.write_text("# Parser Syntax Architecture\n", encoding="utf-8")
+    plan.write_text("# Parser Syntax Plan\n", encoding="utf-8")
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "blocked_items": {},
+                "blocked_design_gaps": {
+                    "parser-syntax": {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
+                        "recovery_reason": "architecture_validation_invalid",
+                        "recovery_event_id": "parser-syntax-architecture-validation-blocked",
+                        "architecture_path": architecture.relative_to(workspace).as_posix(),
+                        "plan_path": plan.relative_to(workspace).as_posix(),
+                    }
+                },
+                "blocked_run": None,
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py"),
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        artifact_root.relative_to(workspace).as_posix(),
+        "--architecture-index-root",
+        architecture_root.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    copied_progress = output.with_name("blocked-progress-report.md").read_text(encoding="utf-8")
+    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
+    assert payload["blocker_class"] == "recovery_validation"
+    assert payload["progress_report_path"] == output.with_name("blocked-progress-report.md").relative_to(workspace).as_posix()
+    assert "failed validation before implementation ran" in copied_progress
+    assert "Do not require an implementation progress report" in copied_progress
+
+
 def _assert_gap_architect_review_loop(workflow: dict, *, draft_provider_routing: bool) -> None:
     step_names = [step["name"] for step in workflow["steps"]]
     expected_prefix = ["PrepareArchitectureTargets", "BuildExistingArchitectureIndex"]
