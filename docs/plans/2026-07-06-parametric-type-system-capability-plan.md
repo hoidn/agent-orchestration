@@ -561,6 +561,141 @@ git add orchestrator/workflow_lisp/procedure_typecheck.py \
 git commit -m "Resolve type-parameter variant field types in match provisioning"
 ```
 
+### Task 3c: Variant-field projection on provisional unions (flagship body end-to-end)
+
+> Added during execution (2026-07-06), after Task 3b landed. Task 3b's
+> implementer traced the next link: projecting a matched variant's field
+> (`s.selection`) in a generic body crashes in `type_env.py::record_field`'s
+> `VariantCaseTypeRef` branch (lines ~384-401) — it re-looks-up the union BY
+> NAME in the global type refs (`_lookup_type_ref(self._type_refs,
+> record_type.union_name, ...)`), which fails for a provisional union named
+> after a type parameter ("SelectionT"), then falls back to eager
+> `resolve_type(field.type_name)` with no `local_type_params` → `type_unknown`
+> on `SelPayloadT`. Trace: `.superpowers/sdd/ptcs-task-3b-report.md`. With
+> this fixed, the design's flagship `pick-and-run` body (match + projection +
+> hook invocation) should compile end to end — the Phase-2 gate's remaining
+> rule-3 link.
+
+**Files:**
+- Modify: `orchestrator/workflow_lisp/type_env.py`
+  (`VariantCaseTypeRef` dataclass ~line 115; `union_variant` ~line 410;
+  `record_field` ~line 365; check `field_exists_in_other_variant` ~line 434)
+- Create: `tests/fixtures/workflow_lisp/valid/parametric_variant_projection_match.orc`
+- Create: `tests/fixtures/workflow_lisp/invalid/parametric_variant_projection_match_mismatch.orc`
+- Test: `tests/test_workflow_lisp_procedures.py`
+
+**Interfaces:**
+- Consumes: Task 3b's type-param-aware `_provisional_parametric_match_types`
+  (provisional `UnionTypeRef.variant_field_types` now contains `TypeParamRef`
+  entries for forall-named field types).
+- Produces: `VariantCaseTypeRef.field_types: Mapping[str, TypeRef] | None`
+  (or tuple-of-pairs if instances are hashed — resolve against reality),
+  populated at the single constructor site; `record_field` prefers it over
+  the name-based union re-lookup.
+
+- [ ] **Step 1: Write the failing tests** (same helpers as Tasks 3/3b):
+
+```python
+def test_compile_stage3_accepts_variant_projection_match(tmp_path: Path) -> None:
+    bundle = _compile_validated(
+        FIXTURES / "valid" / "parametric_variant_projection_match.orc",
+        tmp_path=tmp_path,
+    )
+    assert bundle is not None
+
+
+def test_compile_stage3_rejects_variant_projection_match_mismatch(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_validated(
+            FIXTURES / "invalid" / "parametric_variant_projection_match_mismatch.orc",
+            tmp_path=tmp_path,
+        )
+    _assert_diagnostic_code(excinfo, "parametric_constraint_unsatisfied")
+    assert "SELECTED" in excinfo.value.diagnostics[0].message
+```
+
+- [ ] **Step 2: Author the fixtures.** Start from Task 3b's committed
+`parametric_type_param_variant_field_match.orc` scaffold and RESTORE the
+flagship body shape it had to drop — the generic must now `match` the
+constrained parameter, project the variant field, and invoke the hook:
+
+```lisp
+(defproc pick-and-project
+  :forall (SelectionT SelPayloadT)
+  ((choice SelectionT)
+   (run ProcRef[(SelPayloadT) -> String]))
+  :where ((SelectionT is-union)
+          (SelectionT has-union-variant SELECTED (selection SelPayloadT))
+          (SelectionT has-union-variant EMPTY))
+  -> String
+  (match choice
+    (SELECTED s (run s.selection))
+    (EMPTY e "empty")))
+```
+
+Invalid twin: hook over `OtherPayload`, concrete `SELECTED.selection` stays
+`Payload` — must fail at the call-site constraint pass with
+`parametric_constraint_unsatisfied`, not at body typecheck.
+
+- [ ] **Step 3: Run and confirm the valid test fails today** with
+`type_unknown` on the field's parameter name raised from
+`record_field`'s fallback (`type_env.py:396`), per the Task 3b trace.
+
+```bash
+pytest tests/test_workflow_lisp_procedures.py -k variant_projection_match -v
+```
+
+- [ ] **Step 4: Implement.** In `type_env.py`:
+  1. Add `field_types` to `VariantCaseTypeRef` with a `None` default so all
+     other construction/comparison behavior is preserved (check whether
+     instances are hashed anywhere; if so store `tuple[tuple[str, TypeRef], ...]`
+     and expose a lookup helper).
+  2. In `union_variant` (the sole constructor site, ~line 421), populate it:
+     `field_types=union_type.variant_field_types.get(variant_name)` (adapted
+     to the storage form chosen in 1).
+  3. In `record_field`'s `VariantCaseTypeRef` branch, resolve in this order:
+     carried `field_types` when not `None` → existing name-based union
+     re-lookup → existing `resolve_type(field.type_name, ...)` fallback.
+     Unknown fields must still raise `record_field_unknown`; concrete-union
+     behavior must be byte-for-byte identical (their carried map contains the
+     same entries the re-lookup would find).
+  4. Check `field_exists_in_other_variant` (~line 434): it also re-looks-up
+     the union by name. If the valid fixture's compile path reaches it with a
+     provisional union and misbehaves (crash or wrong diagnostic), give it
+     the same carried-data preference; if it degrades gracefully (returns
+     False), leave it and say so in the report.
+
+**STOP condition:** if after this change the raw pass rejects
+`(run s.selection)` because the ProcRef invocation will not accept a
+`TypeParamRef` argument against its declared parameter (a unification gap,
+not a projection gap), STOP and report NEEDS_CONTEXT with the exact
+diagnostic — do not extend call-compatibility machinery.
+
+- [ ] **Step 5: Run the new tests, full procedures suite, composition suite.**
+
+```bash
+pytest tests/test_workflow_lisp_procedures.py -q
+pytest tests/test_workflow_lisp_generic_stdlib_composition.py -q
+```
+Expected: Task 3b baseline (124 + 9) plus the two new tests, nothing broken.
+Because `type_env.py` is shared far beyond procedures, also run:
+
+```bash
+pytest tests/test_workflow_lisp_examples.py tests/test_workflow_lisp_expressions.py -q
+pytest tests/test_workflow_lisp_build_artifacts.py -q
+```
+Expected: identical to your recorded baseline at task start.
+
+- [ ] **Step 6: Commit.**
+
+```bash
+git add orchestrator/workflow_lisp/type_env.py \
+  tests/fixtures/workflow_lisp/valid/parametric_variant_projection_match.orc \
+  tests/fixtures/workflow_lisp/invalid/parametric_variant_projection_match_mismatch.orc \
+  tests/test_workflow_lisp_procedures.py
+git commit -m "Carry variant field types on case refs for provisional unions"
+```
+
 ### Task 4: Definition-site coverage check for `:forall` parameters
 
 **Files:**
