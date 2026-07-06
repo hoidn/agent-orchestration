@@ -1256,7 +1256,7 @@
     },
     {
       "authority_class": "generated_internal",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_selected_item_stdlib__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_stdlib_1__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__gap_design_revision_required__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__terminal_projection__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_selected_item_stdlib__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_stdlib_1__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__gap_design_revision_required__durability_recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__terminal_projection__result_bundle",
       "justification": "Checked compiled boundary projection row for current Design Delta parent drain evidence.",
       "owner": "workflow_lisp_generic_core_g0",
       "parity_constrained": true,
@@ -1267,7 +1267,7 @@
     },
     {
       "authority_class": "generated_internal",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_selected_item_stdlib__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_stdlib_1__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__gap_design_revision_required__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__transition_result__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_selected_item_stdlib__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_stdlib_1__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__gap_design_revision_required__durability_recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__transition_result__result_bundle",
       "justification": "Checked compiled boundary projection row for current Design Delta parent drain evidence.",
       "owner": "workflow_lisp_generic_core_g0",
       "parity_constrained": true,
@@ -1289,7 +1289,7 @@
     },
     {
       "authority_class": "generated_internal",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_selected_item_stdlib__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_stdlib_1__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__prerequisite_gap_required__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__terminal_projection__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_selected_item_stdlib__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_stdlib_1__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__prerequisite_gap_required__durability_recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__terminal_projection__result_bundle",
       "justification": "Checked compiled boundary projection row for current Design Delta parent drain evidence.",
       "owner": "workflow_lisp_generic_core_g0",
       "parity_constrained": true,
@@ -1300,7 +1300,7 @@
     },
     {
       "authority_class": "generated_internal",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_selected_item_stdlib__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_stdlib_1__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__prerequisite_gap_required__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__transition_result__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_selected_item_stdlib__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_stdlib_1__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__prerequisite_gap_required__durability_recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__transition_result__result_bundle",
       "justification": "Checked compiled boundary projection row for current Design Delta parent drain evidence.",
       "owner": "workflow_lisp_generic_core_g0",
       "parity_constrained": true,
@@ -1322,7 +1322,7 @@
     },
     {
       "authority_class": "generated_internal",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_selected_item_stdlib__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_stdlib_1__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__target_design_revision_required__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__terminal_projection__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_selected_item_stdlib__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_stdlib_1__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__target_design_revision_required__durability_recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__terminal_projection__result_bundle",
       "justification": "Checked compiled boundary projection row for current Design Delta parent drain evidence.",
       "owner": "workflow_lisp_generic_core_g0",
       "parity_constrained": true,
@@ -1333,7 +1333,7 @@
     },
     {
       "authority_class": "generated_internal",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_selected_item_stdlib__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_stdlib_1__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__target_design_revision_required__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__transition_result__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_selected_item_stdlib__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_stdlib_1__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__target_design_revision_required__durability_recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__transition_result__result_bundle",
       "justification": "Checked compiled boundary projection row for current Design Delta parent drain evidence.",
       "owner": "workflow_lisp_generic_core_g0",
       "parity_constrained": true,

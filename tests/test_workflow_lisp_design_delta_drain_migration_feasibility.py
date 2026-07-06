@@ -112,26 +112,10 @@ NESTED_IMPORTED_BRANCH_EFFECTS_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_nested_imported_branch_effects.orc"
 )
 WORKFLOW_LISP_IMPORT_PATTERN = re.compile(r"\(import\s+([^\s)]+)")
-ITERATION_17_SELECTION_PATH = (
-    REPO_ROOT
-    / "state"
-    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-    / "drain"
-    / "iterations"
-    / "17"
-    / "prerequisite-selector"
-    / "selection.json"
-)
-ITERATION_17_WORK_ITEM_INPUTS_PATH = (
-    REPO_ROOT
-    / "state"
-    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-    / "drain"
-    / "iterations"
-    / "17"
-    / "design-gap-work-item"
-    / "work-item-inputs.json"
-)
+# Representative design-gap identity used by the recorded-progress smokes.
+# The identity value is arbitrary; the smokes prove that the id recorded via
+# the runtime-native drain-run-state resource drives later selector decisions.
+DESIGN_GAP_SMOKE_IDENTITY = "design-gap-work-item"
 
 
 def _write_module(path: Path, source: str) -> Path:
@@ -2256,13 +2240,20 @@ def _design_delta_parent_drain_controlled_smoke_bound_inputs() -> dict[str, obje
     }
 
 
-def _iteration_17_design_gap_identity() -> str:
-    selection = json.loads(ITERATION_17_SELECTION_PATH.read_text(encoding="utf-8"))
-    work_item_inputs = json.loads(ITERATION_17_WORK_ITEM_INPUTS_PATH.read_text(encoding="utf-8"))
-    design_gap_id = selection["design_gap_id"]
-    work_item_id = work_item_inputs["work_item_id"]
-    assert design_gap_id == work_item_id
-    return design_gap_id
+def _native_drain_run_state(workspace: Path, workflow_slug: str) -> dict[str, object]:
+    """Read the state-layout-backed drain-run-state record for a lowered workflow."""
+    payload = json.loads(
+        (
+            workspace
+            / "state"
+            / "workflow_lisp"
+            / workflow_slug
+            / "drain-run-state-state.json"
+        ).read_text(encoding="utf-8")
+    )
+    state = payload["state"]
+    assert isinstance(state, dict)
+    return state
 
 
 def _execute_design_delta_work_item_route(
@@ -2447,67 +2438,33 @@ def _execute_design_delta_work_item_bundle(
 
         if invocation.provider_name == "fake-selector":
             if selector_mode == "state_driven_design_gap":
-                bound_run_state_bindings = [
-                    (key, value)
-                    for key, value in invocation.context.items()
-                    if isinstance(key, str)
-                    and "run_state" in key
-                    and isinstance(value, str)
-                ]
-                if len(bound_run_state_bindings) == 1:
-                    binding_key, bound_run_state_path = bound_run_state_bindings[0]
-                else:
-                    prompt_marker = "## Typed Prompt Input: request"
-                    if prompt_marker not in invocation.prompt:
-                        raise AssertionError(
-                            "state-driven selector mode could not prove a declared `run_state` input"
-                        )
-                    prompt_payload = invocation.prompt.split(prompt_marker, 1)[1].strip()
-                    try:
-                        request_payload, _json_end = json.JSONDecoder().raw_decode(prompt_payload)
-                    except json.JSONDecodeError as exc:
-                        raise AssertionError(
-                            "state-driven selector mode could not parse the selector request payload"
-                        ) from exc
-                    run_state_value = (
-                        request_payload.get("subject", {}).get("run_state")
-                        if isinstance(request_payload, dict)
-                        else None
-                    )
-                    if isinstance(run_state_value, dict) and isinstance(
-                        run_state_value.get("ref"),
-                        str,
-                    ):
-                        binding_key = "prompt.request.subject.run_state.ref"
-                        bound_run_state_path = run_state_value["ref"]
-                    elif isinstance(run_state_value, str):
-                        binding_key = "prompt.request.subject.run_state"
-                        bound_run_state_path = run_state_value
-                    else:
-                        raise AssertionError(
-                            "state-driven selector mode could not prove which bound `run_state` input was observed"
-                        )
-                resolved_run_state_path = tmp_path / bound_run_state_path
-                if not resolved_run_state_path.is_file():
-                    if bound_run_state_path == "inputs.run_state":
-                        bound_run_state_path = "state/run_state.json"
-                        resolved_run_state_path = tmp_path / bound_run_state_path
-                if not resolved_run_state_path.is_file():
-                    raise AssertionError(
-                        f"state-driven selector mode could not read bound run-state file: {bound_run_state_path}"
-                    )
-                run_state_payload = json.loads(
-                    resolved_run_state_path.read_text(encoding="utf-8")
+                # The legacy run-state carrier is retired: recorded design-gap
+                # progress is durable only through the state-layout-backed
+                # `drain-run-state` resource. Drive the selector decision from
+                # that typed record so convergence proves the runtime-native
+                # progress channel.
+                native_state_root = tmp_path / "state" / "workflow_lisp"
+                progress_files = (
+                    sorted(native_state_root.rglob("drain-run-state-state.json"))
+                    if native_state_root.is_dir()
+                    else []
                 )
-                completed_design_gaps = list(run_state_payload.get("completed_design_gaps", []))
+                completed_design_gaps: list[str] = []
+                observed_state_path: str | None = None
+                for progress_file in progress_files:
+                    progress_payload = json.loads(progress_file.read_text(encoding="utf-8"))
+                    recorded = progress_payload.get("state", {}).get("completed_design_gaps")
+                    if recorded:
+                        completed_design_gaps = list(recorded)
+                        observed_state_path = progress_file.relative_to(tmp_path).as_posix()
                 current_selector_status = (
                     "DONE" if work_item_id in completed_design_gaps else "DRAFT_DESIGN_GAP"
                 )
                 if selector_observations is not None:
                     selector_observations.append(
                         {
-                            "binding_key": binding_key,
-                            "bound_run_state_path": bound_run_state_path,
+                            "binding_key": "resource.drain-run-state.state_path",
+                            "bound_run_state_path": observed_state_path,
                             "completed_design_gaps": completed_design_gaps,
                             "decision": current_selector_status,
                             "forced_tuple": False,
@@ -5990,7 +5947,19 @@ def test_design_delta_parent_drain_smokes_selected_item_completed_path(
     assert "return__drain-summary__run_state_path" not in state["workflow_outputs"]
     assert "return__drain-summary__summary_target" not in state["workflow_outputs"]
     assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
-    assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
+    # Interior item_summary.json publication is retired: the selected-item
+    # outcome is durable through the state-layout-backed resource record.
+    assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
+    selected_item_outcome = json.loads(
+        (
+            workspace
+            / "state"
+            / "workflow_lisp"
+            / "lisp-frontend-design-delta-work-item--finalize-selected-item-from-completed-implementation"
+            / "selected-item-outcome-state.json"
+        ).read_text(encoding="utf-8")
+    )["state"]
+    assert selected_item_outcome["variant"] == "CONTINUE"
     plan_bound_inputs = _call_frame_bound_inputs_for_import_alias(
         state,
         "lisp_frontend_design_delta/plan_phase::run-plan-phase",
@@ -6000,9 +5969,9 @@ def test_design_delta_parent_drain_smokes_selected_item_completed_path(
         "lisp_frontend_design_delta/plan_phase::run-plan-phase",
     )
     assert plan_bound_inputs["phase-ctx__run__run-id"] == "work-item-approved"
-    assert plan_bound_inputs["phase-ctx__phase-name"] == "phase"
-    assert plan_bound_inputs["phase-ctx__state-root"] == "state/phase"
-    assert plan_bound_inputs["phase-ctx__artifact-root"] == "artifacts/phase"
+    assert plan_bound_inputs["phase-ctx__phase-name"] == "plan"
+    assert plan_bound_inputs["phase-ctx__state-root"] == "state/plan"
+    assert plan_bound_inputs["phase-ctx__artifact-root"] == "artifacts/plan"
     assert plan_frame["workflow_file"] == "lisp_frontend_design_delta/plan_phase.orc"
     assert any(name.startswith("__write_root__") for name in plan_bound_inputs)
     assert not any(
@@ -6019,9 +5988,9 @@ def test_design_delta_parent_drain_smokes_selected_item_completed_path(
         "lisp_frontend_design_delta/implementation_phase::implementation-phase",
     )
     assert implementation_bound_inputs["phase-ctx__run__run-id"] == "work-item-approved"
-    assert implementation_bound_inputs["phase-ctx__phase-name"] == "phase"
-    assert implementation_bound_inputs["phase-ctx__state-root"] == "state/phase"
-    assert implementation_bound_inputs["phase-ctx__artifact-root"] == "artifacts/phase"
+    assert implementation_bound_inputs["phase-ctx__phase-name"] == "implementation"
+    assert implementation_bound_inputs["phase-ctx__state-root"] == "state/implementation"
+    assert implementation_bound_inputs["phase-ctx__artifact-root"] == "artifacts/implementation"
     assert implementation_frame["workflow_file"] == "lisp_frontend_design_delta/implementation_phase.orc"
     assert any(name.startswith("__write_root__") for name in implementation_bound_inputs)
 
@@ -6095,7 +6064,8 @@ def test_design_delta_parent_drain_exhausts_with_typed_result_at_authored_bound(
     )
     assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
     assert (workspace / "artifacts" / "work" / "selection_bundle.md").is_file()
-    assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
+    # Interior item_summary.json publication is retired on the promoted route.
+    assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
 
 
 def test_design_delta_parent_drain_smokes_blocked_recovery_path(
@@ -6127,7 +6097,15 @@ def test_design_delta_parent_drain_smokes_blocked_recovery_path(
     )
     assert (workspace / "artifacts" / "work" / "progress_report.md").is_file()
     assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
-    assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
+    # Interior item_summary.json publication is retired: blocked-recovery
+    # durability flows through the state-layout-backed resource record.
+    assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
+    recovery_state = _native_drain_run_state(
+        workspace,
+        "lisp-frontend-design-delta-work-item--run-selected-item-stdlib",
+    )
+    assert recovery_state["blocked_recovery_reason"] == "implementation_architecture_under_scoped"
+    assert recovery_state["blocked_recovery_summary"] == "artifacts/work/progress_report.md"
 
 
 def test_design_delta_parent_drain_design_gap_retry_runs_prepared_item(
@@ -6160,7 +6138,7 @@ def test_design_delta_parent_drain_design_gap_retry_runs_prepared_item(
 def test_design_delta_parent_drain_design_gap_converges_via_recorded_run_state(
     tmp_path: Path,
 ) -> None:
-    expected_gap_id = _iteration_17_design_gap_identity()
+    expected_gap_id = DESIGN_GAP_SMOKE_IDENTITY
     selector_observations: list[dict[str, object]] = []
     workspace, state, provider_calls = _execute_design_delta_parent_drain_route(
         tmp_path / "parent-design-gap-recorded-progress",
@@ -6175,13 +6153,19 @@ def test_design_delta_parent_drain_design_gap_converges_via_recorded_run_state(
     assert state["status"] == "completed"
     assert provider_calls == ["fake-selector", "fake-architect-draft", "fake-selector"]
     assert state["workflow_outputs"]["return__variant"] == "DONE"
-    run_state = json.loads((workspace / "state" / "run_state.json").read_text(encoding="utf-8"))
-    assert run_state["completed_design_gaps"] == [expected_gap_id]
+    gap_progress = _native_drain_run_state(
+        workspace,
+        "lisp-frontend-design-delta-stdlib-adapters--draft-design-gap-stdlib",
+    )
+    assert gap_progress["completed_design_gaps"] == [expected_gap_id]
     assert [obs["decision"] for obs in selector_observations] == [
         "DRAFT_DESIGN_GAP",
         "DONE",
     ]
-    assert all(obs["bound_run_state_path"] == "state/run_state.json" for obs in selector_observations)
+    assert selector_observations[0]["bound_run_state_path"] is None
+    assert str(selector_observations[1]["bound_run_state_path"]).endswith(
+        "drain-run-state-state.json"
+    )
     assert not any(obs["forced_tuple"] for obs in selector_observations)
     assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
 
@@ -6189,7 +6173,7 @@ def test_design_delta_parent_drain_design_gap_converges_via_recorded_run_state(
 def test_design_delta_parent_drain_design_gap_exhausts_without_recorded_progress(
     tmp_path: Path,
 ) -> None:
-    expected_gap_id = _iteration_17_design_gap_identity()
+    expected_gap_id = DESIGN_GAP_SMOKE_IDENTITY
     workspace, state, provider_calls = _execute_design_delta_parent_drain_route(
         tmp_path / "parent-design-gap-without-progress",
         plan_variant="APPROVED",
@@ -6276,8 +6260,7 @@ def test_design_delta_parent_drain_smokes_selector_done_path(
     assert state["workflow_outputs"]["return__drain-summary__drain_status"] == "DONE"
     assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
     assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
-    run_state = json.loads((workspace / "state" / "run_state.json").read_text(encoding="utf-8"))
-    assert run_state["history"] == []
+    run_state = _native_drain_run_state(workspace, "lisp-frontend-design-delta-drain--drain")
     assert run_state["drain_status"] == "DONE"
     assert run_state["drain_status_reason"] == ""
     assert run_state["drain_status_summary"] == "artifacts/work/drain_summary.json"
@@ -6301,8 +6284,7 @@ def test_design_delta_parent_drain_smokes_selector_blocked_path(
     assert state["workflow_outputs"]["return__drain-summary__drain_status"] == "BLOCKED"
     assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
     assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
-    run_state = json.loads((workspace / "state" / "run_state.json").read_text(encoding="utf-8"))
-    assert run_state["history"] == []
+    run_state = _native_drain_run_state(workspace, "lisp-frontend-design-delta-drain--drain")
     assert run_state["drain_status"] == "BLOCKED"
     assert run_state["drain_status_reason"] == "selector_blocked"
     assert run_state["drain_status_summary"] == "artifacts/work/drain_summary.json"
