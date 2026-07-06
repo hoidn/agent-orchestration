@@ -401,6 +401,140 @@ git add orchestrator/workflow_lisp/parametric_constraints.py \
 git commit -m "Support type-parameter constraint field types"
 ```
 
+### Task 3b: Type-parameter field types in `has-union-variant` match provisioning
+
+> Added during execution (2026-07-06), after Task 3 landed. Task 3's
+> implementer traced a third eager-resolution site the original task scoped
+> out: `_provisional_parametric_match_types`
+> (`procedure_typecheck.py:284-331`) resolves every `has-union-variant`
+> field-requirement type via bare `type_env.resolve_type`, so the raw
+> (definition-scoped) pass crashes with `type_unknown` when a field type
+> names a `:forall` parameter — before the call-site pass Task 3 fixed ever
+> runs. The design's flagship clause
+> `(SelectionT has-union-variant SELECTED (selection SelPayloadT))` is
+> exactly this shape, so the Phase-2 gate requires closing it. Root-cause
+> trace: `.superpowers/sdd/ptcs-task-3-report.md`, "A path not taken".
+
+**Files:**
+- Modify: `orchestrator/workflow_lisp/procedure_typecheck.py`
+  (`_provisional_parametric_match_types`, lines ~284-331)
+- Create: `tests/fixtures/workflow_lisp/valid/parametric_type_param_variant_field_match.orc`
+- Create: `tests/fixtures/workflow_lisp/invalid/parametric_type_param_variant_field_match_mismatch.orc`
+- Test: `tests/test_workflow_lisp_procedures.py`
+
+**Interfaces:**
+- Consumes: Task 3's `_resolve_field_type_ref` threading in
+  `parametric_constraints.py` (the call-site comparison for
+  `has-union-variant` field requirements already handles type-param names);
+  `TypeParamRef` (`type_env.py:142`).
+- Produces: the design's flagship `pick-and-run` shape compiles —
+  `has-union-variant` clause with a `:forall`-named field type, `match` on
+  the constrained parameter, projection of the variant field, and invocation
+  of a `ProcRef` hook over the bound parameter.
+
+- [ ] **Step 1: Write the failing tests** (same helper conventions as Task 3's):
+
+```python
+def test_compile_stage3_accepts_type_param_variant_field_match(tmp_path: Path) -> None:
+    bundle = _compile_validated(
+        FIXTURES / "valid" / "parametric_type_param_variant_field_match.orc",
+        tmp_path=tmp_path,
+    )
+    assert bundle is not None
+
+
+def test_compile_stage3_rejects_type_param_variant_field_match_mismatch(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_validated(
+            FIXTURES / "invalid" / "parametric_type_param_variant_field_match_mismatch.orc",
+            tmp_path=tmp_path,
+        )
+    _assert_diagnostic_code(excinfo, "parametric_constraint_unsatisfied")
+    assert "SELECTED" in excinfo.value.diagnostics[0].message
+```
+
+- [ ] **Step 2: Author the fixtures.** Reuse Task 3's committed fixture
+(`tests/fixtures/workflow_lisp/valid/parametric_type_param_constraint_field.orc`)
+as the module scaffold (unions constructed inside the workflow body, never
+crossing the workflow boundary). The generic core is the brief-3 original
+shape, now with both matched variants declared:
+
+```lisp
+(defproc pick-and-run-match
+  :forall (SelectionT SelPayloadT)
+  ((choice SelectionT)
+   (run ProcRef[(SelPayloadT) -> String]))
+  :where ((SelectionT is-union)
+          (SelectionT has-union-variant SELECTED (selection SelPayloadT))
+          (SelectionT has-union-variant EMPTY))
+  -> String
+  (match choice
+    (SELECTED s (run s.selection))
+    (EMPTY e "empty")))
+```
+
+The invalid twin passes a `ProcRef` over `OtherPayload` while the concrete
+union's `SELECTED.selection` stays `Payload` (same mismatch as Task 3's
+invalid fixture, now through the `has-union-variant` clause).
+
+- [ ] **Step 3: Run and confirm the valid test fails today** with
+`type_unknown: unknown type `SelPayloadT`` raised from
+`_provisional_parametric_match_types` (the exact trace in the Task 3 report).
+
+```bash
+pytest tests/test_workflow_lisp_procedures.py -k type_param_variant_field_match -v
+```
+
+- [ ] **Step 4: Implement.** In `_provisional_parametric_match_types`, the
+`signature` is already in scope — no signature change. Replace the eager
+resolution of each field requirement with a type-param-aware branch:
+
+```python
+type_param_names = frozenset(type_param.name for type_param in signature.type_params)
+...
+        variant_fields[clause.variant_name] = {
+            requirement.field_name: (
+                TypeParamRef(name=requirement.field_type_name)
+                if requirement.field_type_name in type_param_names
+                else type_env.resolve_type(
+                    requirement.field_type_name,
+                    span=requirement.span,
+                    form_path=requirement.form_path,
+                    expansion_stack=requirement.expansion_stack,
+                )
+            )
+            for requirement in clause.field_requirements
+        }
+```
+
+Unknown non-parameter names must still fail via `resolve_type` exactly as
+today. The raw pass then types `s.selection` as `TypeParamRef(SelPayloadT)`,
+which the `ProcRef` hook invocation must accept against its declared
+`SelPayloadT` parameter (nominal type-param match). **STOP condition:** if
+after this change the raw pass still rejects `(run s.selection)` for a
+reason other than provisional match typing — i.e. `TypeParamRef`-vs-param
+unification in ProcRef invocation does not hold and would need new
+machinery — STOP and report NEEDS_CONTEXT with the exact diagnostic; do not
+extend unification or capability licensing.
+
+- [ ] **Step 5: Run the new tests, full procedures suite, composition suite.**
+
+```bash
+pytest tests/test_workflow_lisp_procedures.py -q
+pytest tests/test_workflow_lisp_generic_stdlib_composition.py -q
+```
+Expected: baseline (120 + 9 at Task 3's HEAD) plus the two new tests.
+
+- [ ] **Step 6: Commit.**
+
+```bash
+git add orchestrator/workflow_lisp/procedure_typecheck.py \
+  tests/fixtures/workflow_lisp/valid/parametric_type_param_variant_field_match.orc \
+  tests/fixtures/workflow_lisp/invalid/parametric_type_param_variant_field_match_mismatch.orc \
+  tests/test_workflow_lisp_procedures.py
+git commit -m "Resolve type-parameter variant field types in match provisioning"
+```
+
 ### Task 4: Definition-site coverage check for `:forall` parameters
 
 **Files:**
