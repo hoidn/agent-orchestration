@@ -692,6 +692,10 @@ def test_design_delta_drain_routes_invalid_design_gap_architecture_without_runni
         step for step in design_gap_case["steps"] if step["name"] == "ResolveDesignGapArchitectureDrainStatus"
     )
     assert any(part.endswith("resolve_lisp_frontend_design_gap_drain_status.py") for part in resolver["command"])
+    assert "${self.steps.DraftDesignGapArchitecture.artifacts.work_item_bundle_path}" in resolver["command"]
+    assert "--work-item-drain-status" in resolver["command"]
+    assert "${self.steps.RunDesignGapWorkItem.artifacts.drain_status}" in resolver["command"]
+    assert "--work-item-drain-status-path" not in resolver["command"]
     assert resolver["output_bundle"]["fields"][0]["name"] == "drain_status"
 
 
@@ -757,6 +761,39 @@ def test_resolve_design_gap_drain_status_uses_valid_work_item_status(tmp_path):
         validation.relative_to(workspace).as_posix(),
         "--work-item-drain-status-path",
         status_path.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["drain_status"] == "CONTINUE"
+    assert payload["architecture_validation_status"] == "VALID"
+
+
+def test_resolve_design_gap_drain_status_accepts_exported_work_item_status(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    validation = workspace / "state/gap/validation.json"
+    output = workspace / "state/gap/drain-status.json"
+    validation.parent.mkdir(parents=True)
+    validation.write_text(
+        json.dumps(
+            {
+                "architecture_validation_status": "VALID",
+                "work_item_bundle_path": validation.relative_to(workspace).as_posix(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/resolve_lisp_frontend_design_gap_drain_status.py"),
+        "--architecture-validation-path",
+        validation.relative_to(workspace).as_posix(),
+        "--work-item-drain-status",
+        "CONTINUE",
         "--output",
         output.relative_to(workspace).as_posix(),
     )
@@ -6044,6 +6081,43 @@ def test_resolve_drain_iteration_status_uses_recovered_child_output_value(tmp_pa
         "state/private-child-status-not-published.txt",
         "--recovered-work-item-status-value",
         "CONTINUE",
+        "--prerequisite-recovery-status-path",
+        "state/missing-prerequisite.txt",
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    assert output.read_text(encoding="utf-8").strip() == "CONTINUE"
+
+
+def test_resolve_drain_iteration_status_prefers_current_route_over_stale_bundle(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    script = str(ROOT / "workflows/library/scripts/resolve_lisp_frontend_drain_iteration_status.py")
+    root = workspace / "case"
+    root.mkdir()
+    bundle = root / "pre-selection.json"
+    normal_path = root / "normal.txt"
+    output = root / "output.txt"
+    bundle.write_text(
+        json.dumps({"pre_selection_route": "RECOVER_BLOCKED_DESIGN_GAP"}) + "\n",
+        encoding="utf-8",
+    )
+    normal_path.write_text("CONTINUE\n", encoding="utf-8")
+
+    _run_script(
+        workspace,
+        script,
+        "--pre-selection-bundle-path",
+        bundle.relative_to(workspace).as_posix(),
+        "--pre-selection-route",
+        "SELECT_NORMAL_WORK",
+        "--normal-status-path",
+        normal_path.relative_to(workspace).as_posix(),
+        "--recovery-record-status-path",
+        "state/missing-recovery.txt",
+        "--recovered-work-item-status-path",
+        "state/missing-recovered.txt",
         "--prerequisite-recovery-status-path",
         "state/missing-prerequisite.txt",
         "--output",

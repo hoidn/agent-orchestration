@@ -58,6 +58,7 @@ def _has_recorded_blocked_work(run_state_path: str) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pre-selection-bundle-path", required=True)
+    parser.add_argument("--pre-selection-route", default="")
     parser.add_argument("--normal-status-path", required=True)
     parser.add_argument("--prerequisite-recovery-status-path", required=True)
     parser.add_argument("--recovery-record-status-path", required=True)
@@ -68,7 +69,9 @@ def main() -> int:
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    route = json.loads(Path(args.pre_selection_bundle_path).read_text(encoding="utf-8")).get("pre_selection_route")
+    route = args.pre_selection_route.strip()
+    if not route:
+        route = json.loads(Path(args.pre_selection_bundle_path).read_text(encoding="utf-8")).get("pre_selection_route")
     if route in {"SELECT_NORMAL_WORK", "SELECT_DONE_REVIEW"}:
         status = _read_status(args.normal_status_path, valid=VALID_STATUS, label="normal")
     elif route == "SELECT_PREREQUISITE_WORK":

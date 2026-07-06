@@ -38,7 +38,8 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--architecture-validation-path", required=True)
-    parser.add_argument("--work-item-drain-status-path", required=True)
+    parser.add_argument("--work-item-drain-status")
+    parser.add_argument("--work-item-drain-status-path")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -49,8 +50,13 @@ def main() -> int:
     reason = str(validation.get("reason") or "").strip()
 
     if architecture_status == "VALID":
-        status_rel = _safe_relpath(args.work_item_drain_status_path, under="state", must_exist=True)
-        drain_status = (REPO_ROOT / status_rel).read_text(encoding="utf-8").strip()
+        if args.work_item_drain_status:
+            drain_status = str(args.work_item_drain_status).strip()
+        elif args.work_item_drain_status_path:
+            status_rel = _safe_relpath(args.work_item_drain_status_path, under="state", must_exist=True)
+            drain_status = (REPO_ROOT / status_rel).read_text(encoding="utf-8").strip()
+        else:
+            raise SystemExit("VALID architecture requires --work-item-drain-status or --work-item-drain-status-path")
         if drain_status not in {"CONTINUE", "DONE", "BLOCKED"}:
             raise SystemExit(f"Unsupported work-item drain status: {drain_status!r}")
     elif architecture_status in {"INVALID", "BLOCKED"}:

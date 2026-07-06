@@ -12,6 +12,41 @@ import json
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
+from orchestrator.variables.substitution import VariableSubstitutor
+from orchestrator.workflow.runtime_context import RuntimeContext
+
+
+def test_runtime_context_exposes_unique_scoped_step_suffix_for_command_templates():
+    context = RuntimeContext(
+        self_steps={
+            "RouteSelection.DRAFT_DESIGN_GAP.DraftDesignGapArchitecture": {
+                "artifacts": {"work_item_bundle_path": "state/gap/architecture-validation.json"}
+            }
+        },
+        explicit_steps=True,
+    )
+    variables = context.build_variables(VariableSubstitutor(), {"steps": {}})
+
+    assert variables["self"]["steps"]["DraftDesignGapArchitecture"]["artifacts"]["work_item_bundle_path"] == (
+        "state/gap/architecture-validation.json"
+    )
+    assert variables["steps"]["DraftDesignGapArchitecture"]["artifacts"]["work_item_bundle_path"] == (
+        "state/gap/architecture-validation.json"
+    )
+
+
+def test_runtime_context_does_not_alias_ambiguous_scoped_step_suffixes():
+    context = RuntimeContext(
+        self_steps={
+            "BranchA.WriteResult": {"artifacts": {"value": "a"}},
+            "BranchB.WriteResult": {"artifacts": {"value": "b"}},
+        },
+        explicit_steps=True,
+    )
+    variables = context.build_variables(VariableSubstitutor(), {"steps": {}})
+
+    assert "WriteResult" not in variables["self"]["steps"]
+    assert "WriteResult" not in variables["steps"]
 
 
 def test_at63_undefined_variable_in_command():

@@ -889,8 +889,8 @@ steps:
                       - workflows/library/scripts/resolve_lisp_frontend_design_gap_drain_status.py
                       - --architecture-validation-path
                       - ${self.steps.DraftDesignGapArchitecture.artifacts.work_item_bundle_path}
-                      - --work-item-drain-status-path
-                      - ${parent.steps.PrepareIterationPaths.artifacts.design_gap_work_item_state_root}/drain_status.txt
+                      - --work-item-drain-status
+                      - ${self.steps.RunDesignGapWorkItem.artifacts.drain_status}
                       - --output
                       - ${inputs.drain_state_root}/iterations/${loop.index}/design-gap-drain-status.json
                     output_bundle:
@@ -1885,6 +1885,8 @@ steps:
             - workflows/library/scripts/resolve_lisp_frontend_drain_iteration_status.py
             - --pre-selection-bundle-path
             - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery.json
+            - --pre-selection-route
+            - ${self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route}
             - --normal-status-path
             - ${inputs.drain_state_root}/iterations/${loop.index}/normal-drain-status.txt
             - --prerequisite-recovery-status-path

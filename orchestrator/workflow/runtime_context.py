@@ -9,6 +9,27 @@ from typing import Any, Dict, Mapping
 _CONTEXT_RESERVED_KEYS = frozenset({"run", "context", "steps", "loop", "item", "inputs"})
 
 
+def _with_unique_step_suffix_aliases(steps: Mapping[str, Any]) -> Dict[str, Any]:
+    """Expose short step names when one scoped step has that suffix."""
+    result = dict(steps)
+    aliases: Dict[str, Any] = {}
+    ambiguous: set[str] = set()
+    for step_name, step_result in steps.items():
+        if not isinstance(step_name, str) or "." not in step_name:
+            continue
+        alias = step_name.rsplit(".", 1)[-1]
+        if alias in result:
+            continue
+        if alias in aliases:
+            ambiguous.add(alias)
+            continue
+        aliases[alias] = step_result
+    for alias in ambiguous:
+        aliases.pop(alias, None)
+    result.update(aliases)
+    return result
+
+
 @dataclass(frozen=True)
 class RuntimeContext:
     """Normalized view over the loose context bundles used during execution."""
@@ -50,7 +71,7 @@ class RuntimeContext:
     def scoped_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
         scoped_state = state.copy()
         if self.explicit_steps:
-            scoped_state["steps"] = dict(self.self_steps)
+            scoped_state["steps"] = _with_unique_step_suffix_aliases(self.self_steps)
         return scoped_state
 
     def build_variables(self, variable_substitutor: Any, run_state: Dict[str, Any]) -> Dict[str, Any]:
@@ -60,9 +81,11 @@ class RuntimeContext:
             loop_vars=self.values.get("loop"),
             item=self.values.get("item"),
         )
-        variables["self"] = {"steps": dict(self.self_steps)}
-        variables["parent"] = {"steps": dict(self.parent_steps)}
-        variables["root"] = {"steps": dict(self.root_steps)}
+        if isinstance(variables.get("steps"), Mapping):
+            variables["steps"] = _with_unique_step_suffix_aliases(variables["steps"])
+        variables["self"] = {"steps": _with_unique_step_suffix_aliases(self.self_steps)}
+        variables["parent"] = {"steps": _with_unique_step_suffix_aliases(self.parent_steps)}
+        variables["root"] = {"steps": _with_unique_step_suffix_aliases(self.root_steps)}
         for key, value in self.values.items():
             if key not in _CONTEXT_RESERVED_KEYS:
                 variables[key] = value
