@@ -19,7 +19,9 @@ from orchestrator.workflow_lisp.compiler import (
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.source_map import build_source_map_document
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict
+from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
@@ -59,6 +61,32 @@ def _compile_module_fixture(path: Path, *, tmp_path: Path):
         prompt_externs={},
         command_boundaries={},
         validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=None,
+    )
+
+
+def _compile_module_fixture_frontend_only(path: Path, *, tmp_path: Path):
+    return compile_stage3_module(
+        path,
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={
+            "apply_resource_transition": ExternalToolBinding(
+                name="apply_resource_transition",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.apply_resource_transition",
+                ),
+            ),
+            "produce_review_decision": ExternalToolBinding(
+                name="produce_review_decision",
+                stable_command=("python", "scripts/produce_review_decision.py"),
+            ),
+            "validate_review_findings_v1": validate_review_findings_v1_binding(),
+        },
+        validate_shared=False,
         workspace_root=tmp_path,
         lowering_route=None,
     )
@@ -342,4 +370,29 @@ def test_compile_stage3_rechecks_instantiated_generic_match_exhaustiveness(tmp_p
     assert any(
         "instantiated from" in note and f"{NON_EXHAUSTIVE_FIXTURE}:{call_line}:" in note
         for note in diagnostic.notes
+    )
+
+
+def test_minimal_caller_satisfies_review_revise_loop_declared_constraints(tmp_path: Path) -> None:
+    # The shared validation pass re-validates lowered workflows through
+    # elaborate_surface_workflow, which requires a non-empty `steps` field;
+    # this fixture's trivially-bodied inline defproc hook trips
+    # `source_map_missing` under validate_shared=True. Tracked as feasibility
+    # gap G5 in docs/plans/2026-07-06-backlog-drain-generic-migration-plan.md.
+    assert (
+        _compile_module_fixture_frontend_only(
+            FIXTURES / "valid" / "minimal_caller_review_revise_loop.orc",
+            tmp_path=tmp_path,
+        )
+        is not None
+    )
+
+
+def test_minimal_caller_satisfies_finalize_selected_item_declared_constraints(tmp_path: Path) -> None:
+    assert (
+        _compile_module_fixture(
+            FIXTURES / "valid" / "minimal_caller_finalize_selected_item.orc",
+            tmp_path=tmp_path,
+        )
+        is not None
     )
