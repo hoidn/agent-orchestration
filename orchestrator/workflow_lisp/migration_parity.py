@@ -291,7 +291,7 @@ def run_parity_target(
         previous_regenerating_index = os.environ.get(
             "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_INDEX"
         )
-        if role == "artifact_parity":
+        if role in {"compile", "artifact_parity"}:
             report_path = resolved_output_root / f"{target.workflow_family}.json"
             os.environ[
                 "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_FAMILY"
@@ -314,7 +314,7 @@ def run_parity_target(
                 stderr_log=stderr_log,
             )
         finally:
-            if role == "artifact_parity":
+            if role in {"compile", "artifact_parity"}:
                 if previous_regenerating_family is None:
                     os.environ.pop(
                         "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_FAMILY",

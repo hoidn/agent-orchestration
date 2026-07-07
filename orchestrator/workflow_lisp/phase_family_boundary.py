@@ -61,6 +61,7 @@ COMPATIBILITY_BRIDGE_PARAM_NAMES = frozenset(
         "selection_bundle_path",
         "manifest_path",
         "architecture_bundle_path",
+        "progress_ledger",
         "progress_ledger_path",
     }
 )

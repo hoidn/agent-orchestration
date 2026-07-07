@@ -4214,8 +4214,18 @@ def test_design_delta_parent_drain_compiles_with_hidden_private_context(
     ).read_text(encoding="utf-8")
     public_inputs = set(workflow_public_input_contracts(bundle))
     runtime_context_inputs = set(workflow_runtime_context_inputs(bundle))
+    low_level_state_path_workflows = {
+        diagnostic.message.split("`", 2)[1]
+        for diagnostic in result.diagnostics
+        if diagnostic.code == "low_level_state_path_in_high_level_module"
+    }
 
     assert result.entry_result.lowering_schema_version == 2
+    assert {
+        "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
+        "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture-stdlib",
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+    }.isdisjoint(low_level_state_path_workflows)
     assert {
         "run__run-id",
         "run__state-root",
