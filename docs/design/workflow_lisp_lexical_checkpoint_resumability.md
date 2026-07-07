@@ -1,11 +1,17 @@
 # Workflow Lisp Lexical Checkpoint Resumability
 
-Status: draft future target design
+Status: predecessor draft; not current next-work routing
 Kind: architecture decision / runtime target
 Created: 2026-06-12
 Scope: Workflow Lisp execution resume based on lexical execution checkpoints,
 continuation identity, typed value snapshots, effect-boundary replay, and the
 separation of execution resumability from workflow-domain resource state.
+
+Routing note: use `workflow_lisp_private_runtime_state_and_consumer_value_flow.md`
+for current future-target routing and
+`workflow_lisp_lexical_execution_checkpoints.md` for the detailed private
+lexical-checkpoint source note. This document remains historical context for
+the checkpoint/resume direction.
 
 Authority:
 
