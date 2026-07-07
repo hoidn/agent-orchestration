@@ -637,7 +637,13 @@ def _select_behavior_bundle(case: CharacterizationCase, compile_result: Any) -> 
     return bundles[best_name]
 
 
-def _bundle_path_from_prompt(prompt: str) -> Path:
+def _bundle_path_from_invocation(invocation: Any) -> Path:
+    env = getattr(invocation, "env", None)
+    if isinstance(env, dict):
+        bundle_path = env.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH")
+        if isinstance(bundle_path, str) and bundle_path:
+            return Path(bundle_path)
+    prompt = getattr(invocation, "prompt", "")
     match = re.search(r"(?m)^-?\s*path: (.+)$", prompt)
     if match is None:
         raise ValueError("provider prompt did not advertise a result bundle path")
@@ -728,9 +734,16 @@ def build_behavior_observation(
 
     compiled = _compile_case(case, tmp_path, lowering_route=lowering_route)
     bundle = _select_behavior_bundle(case, compiled["compile_result"])
+    public_input_specs = workflow_public_input_contracts(bundle)
+    public_bound_input_names = set(public_input_specs)
+    public_bound_inputs = {
+        name: value
+        for name, value in case.behavior_runtime.bound_inputs.items()
+        if name in public_bound_input_names
+    }
     bound_inputs = bind_workflow_inputs(
-        workflow_public_input_contracts(bundle),
-        case.behavior_runtime.bound_inputs,
+        public_input_specs,
+        public_bound_inputs,
         tmp_path,
     )
     state_manager = StateManager(workspace=tmp_path, run_id="oracle-run")
@@ -742,7 +755,7 @@ def build_behavior_observation(
 
     provider_counts: dict[str, int] = {}
 
-    def _prepare_invocation(_self, provider_name=None, prompt_content=None, **_kwargs):
+    def _prepare_invocation(_self, provider_name=None, prompt_content=None, env=None, **_kwargs):
         return type(
             "ProviderInvocationStub",
             (),
@@ -750,6 +763,7 @@ def build_behavior_observation(
                 "input_mode": "stdin",
                 "prompt": prompt_content or "",
                 "provider_name": provider_name,
+                "env": env or {},
             },
         )(), None
 
@@ -762,7 +776,7 @@ def build_behavior_observation(
             workspace=tmp_path,
             provider_counts=provider_counts,
         )
-        bundle_path = tmp_path / _bundle_path_from_prompt(getattr(invocation, "prompt", ""))
+        bundle_path = tmp_path / _bundle_path_from_invocation(invocation)
         for relpath in _iter_relpaths(payload):
             _materialize_relpath(relpath, tmp_path)
         bundle_path.parent.mkdir(parents=True, exist_ok=True)

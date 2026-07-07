@@ -167,6 +167,7 @@ steps:
         - ${inputs.steering_path}
         - ${inputs.manifest_path}
         - ${inputs.selection_bundle_path}
+        - ${inputs.post_wcc_inventory_path}
       inject:
         mode: content
         position: prepend

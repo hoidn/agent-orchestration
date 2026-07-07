@@ -7,6 +7,8 @@ plan's file list is orientation, not a prohibition on touching other files.
 Read the consumed target design, gap architecture, approved plan, and check
 commands before editing. Preserve the target and gap architecture intent while
 implementing the plan.
+Use the baseline design as the compatibility contract when judging whether a
+change preserves existing public behavior.
 Use generated artifacts only when they are consumed inputs or required output
 targets for this task.
 Use the authoritative execution-report and progress-report target paths.

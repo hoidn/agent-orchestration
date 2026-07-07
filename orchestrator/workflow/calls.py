@@ -36,6 +36,44 @@ class CallExecutor:
         self.executor = executor
 
     @staticmethod
+    def _is_workflow_lisp_target(workflow: Any) -> bool:
+        provenance = workflow_provenance(workflow)
+        workflow_path = getattr(provenance, "workflow_path", None)
+        if isinstance(workflow_path, Path) and workflow_path.suffix == ".orc":
+            return True
+        return False
+
+    @staticmethod
+    def _retry_frame_id(frame_id: str, call_frames: Mapping[str, Any]) -> str:
+        retry_index = 1
+        while True:
+            candidate = f"{frame_id}::retry::{retry_index}"
+            if candidate not in call_frames:
+                return candidate
+            retry_index += 1
+
+    @staticmethod
+    def _retry_family_base(frame_id: str) -> str:
+        marker = "::retry::"
+        if marker not in frame_id:
+            return frame_id
+        return frame_id.split(marker, 1)[0]
+
+    @classmethod
+    def _is_failed_retry_family_frame(
+        cls,
+        *,
+        frame_id: str,
+        prior_frame_id: str,
+        prior_frame: Mapping[str, Any],
+    ) -> bool:
+        if prior_frame.get("status") != "failed":
+            return False
+        if "::retry::" not in frame_id:
+            return False
+        return cls._retry_family_base(frame_id) == cls._retry_family_base(prior_frame_id)
+
+    @staticmethod
     def _source_ref_for_address(bundle: Any, address: Any) -> Optional[str]:
         """Render a stable compatibility ref string from one bound output address."""
         projection = getattr(bundle, "projection", None)
@@ -328,6 +366,7 @@ class CallExecutor:
         self,
         *,
         step_name: str,
+        step_id: str,
         frame_id: str,
         imported_workflow: Any,
         state: Dict[str, Any],
@@ -366,6 +405,15 @@ class CallExecutor:
 
         for prior_frame_id, prior_frame in call_frames.items():
             if prior_frame_id == frame_id or not isinstance(prior_frame, dict):
+                continue
+            if (
+                prior_frame.get("call_step_id") == step_id
+                and self._is_failed_retry_family_frame(
+                    frame_id=frame_id,
+                    prior_frame_id=prior_frame_id,
+                    prior_frame=prior_frame,
+                )
+            ):
                 continue
 
             prior_alias = prior_frame.get("import_alias")
@@ -756,6 +804,20 @@ class CallExecutor:
             call_frames = {}
             state["call_frames"] = call_frames
 
+        child_resume = self.executor.resume_mode
+        child_existing_frame = existing_frame if isinstance(existing_frame, dict) else None
+        force_fresh_workflow_lisp_retry = (
+            child_resume
+            and child_existing_frame is not None
+            and child_existing_frame.get("status") == "failed"
+            and self._is_workflow_lisp_target(imported_target)
+        )
+        if force_fresh_workflow_lisp_retry:
+            frame_id = self._retry_frame_id(frame_id, call_frames)
+            existing_frame = None
+            child_existing_frame = None
+            child_resume = False
+
         bound_inputs, finalization_error = self.finalize_bound_inputs(
             step=step,
             step_name=step_name,
@@ -769,6 +831,7 @@ class CallExecutor:
 
         write_root_error = self.validate_write_root_bindings(
             step_name=step_name,
+            step_id=step_id,
             frame_id=frame_id,
             imported_workflow=imported_target,
             state=state,
@@ -806,7 +869,7 @@ class CallExecutor:
             call_step_id=step_id,
             import_alias=str(call_alias),
             bound_inputs=bound_inputs,
-            existing_frame=existing_frame if isinstance(existing_frame, dict) else None,
+            existing_frame=child_existing_frame,
             observability=self.executor.observability,
         )
         child_state_manager.update_bound_input_resume_validation(
@@ -828,7 +891,7 @@ class CallExecutor:
             observability=self.executor.observability,
             step_heartbeat_interval_sec=self.executor.step_heartbeat_interval_sec,
         )
-        child_state = child_executor.execute(resume=self.executor.resume_mode)
+        child_state = child_executor.execute(resume=child_resume)
         call_frames[frame_id] = child_state_manager._snapshot()
 
         debug_payload = self.build_debug_payload(

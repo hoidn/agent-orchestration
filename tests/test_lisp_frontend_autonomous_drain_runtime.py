@@ -110,6 +110,7 @@ def _copy_runtime_files(workspace: Path) -> Path:
         "workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py",
         "workflows/library/scripts/record_lisp_frontend_prerequisite_recovery_outcome.py",
         "workflows/library/scripts/record_workflow_step_back_outcome.py",
+        "workflows/library/scripts/resolve_lisp_frontend_design_gap_drain_status.py",
         "workflows/library/scripts/resolve_lisp_frontend_drain_iteration_status.py",
         "workflows/library/scripts/select_lisp_frontend_blocked_recovery_route.py",
         "workflows/library/scripts/record_lisp_frontend_recovered_retry_unavailable.py",
@@ -7002,6 +7003,8 @@ def test_detect_blocked_recovery_synthesizes_progress_for_initial_architecture_v
 def _assert_gap_architect_review_loop(workflow: dict, *, draft_provider_routing: bool) -> None:
     step_names = [step["name"] for step in workflow["steps"]]
     expected_prefix = ["PrepareArchitectureTargets", "BuildExistingArchitectureIndex"]
+    if any(step["name"] == "MaterializeDesignGapInputs" for step in workflow["steps"]):
+        expected_prefix.append("MaterializeDesignGapInputs")
     if draft_provider_routing:
         expected_prefix.append("ValidateDesignGapDraftProviderRouting")
     assert step_names == [
@@ -7032,12 +7035,13 @@ def _assert_gap_architect_review_loop(workflow: dict, *, draft_provider_routing:
         in review_step["depends_on"]["required"]
     )
     if draft_provider_routing:
-        assert review_step["provider"] == "${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.provider}"
-        assert review_step["provider_params"]["model"] == (
-            "${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.model}"
+        draft_step = next(step for step in workflow["steps"] if step["name"] == "DraftDesignGapArchitecture")
+        assert draft_step["provider"] == "${steps.ValidateDesignGapDraftProviderRouting.artifacts.provider}"
+        assert draft_step["provider_params"]["model"] == (
+            "${steps.ValidateDesignGapDraftProviderRouting.artifacts.model}"
         )
-        assert review_step["provider_params"]["effort"] == (
-            "${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.effort}"
+        assert draft_step["provider_params"]["effort"] == (
+            "${steps.ValidateDesignGapDraftProviderRouting.artifacts.effort}"
         )
 
     route = repeat["steps"][1]
@@ -7050,15 +7054,6 @@ def _assert_gap_architect_review_loop(workflow: dict, *, draft_provider_routing:
             f"${{parent.steps.PrepareArchitectureTargets.artifacts.{artifact_name}}}"
             in revise_step["depends_on"]["required"]
         )
-    if draft_provider_routing:
-        assert revise_step["provider"] == "${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.provider}"
-        assert revise_step["provider_params"]["model"] == (
-            "${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.model}"
-        )
-        assert revise_step["provider_params"]["effort"] == (
-            "${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.effort}"
-        )
-
     validator = next(step for step in workflow["steps"] if step["name"] == "ValidateDesignGapArchitecture")
     command = validator["command"]
     assert "--review-bundle-path" in command
@@ -7101,13 +7096,14 @@ def test_design_delta_gap_architect_uses_supported_claude_default():
     assert step_names == [
         "PrepareArchitectureTargets",
         "BuildExistingArchitectureIndex",
+        "MaterializeDesignGapInputs",
         "ValidateDesignGapDraftProviderRouting",
         "DraftDesignGapArchitecture",
         "DesignGapArchitectureReviewLoop",
         "ValidateDesignGapArchitecture",
     ]
-    assert workflow["inputs"]["design_gap_draft_provider"]["default"] == "codex"
-    assert workflow["inputs"]["design_gap_draft_model"]["default"] == "gpt-5.5"
+    assert workflow["inputs"]["design_gap_draft_provider"]["default"] == "claude"
+    assert workflow["inputs"]["design_gap_draft_model"]["default"] == "fable"
     assert workflow["providers"]["claude"]["defaults"]["model"] == "fable"
 
     validate_step = next(
@@ -7332,11 +7328,13 @@ def test_design_delta_work_item_records_blocked_implementation_for_drain_recover
     classifier = next(step for step in workflow["steps"] if step["name"] == "ClassifyWorkItemTerminal")
     assert "--implementation-bundle-path" in classifier["command"]
     assert "--work-item-source" in classifier["command"]
-    assert "${steps.RunImplementationPhase.artifacts.implementation_state}" in classifier["command"]
-    assert "${steps.RunImplementationPhase.artifacts.implementation_review_decision}" in classifier["command"]
-    assert not any(
-        "${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/" in part
-        for part in classifier["command"]
+    assert (
+        "${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/implementation_state.json"
+        in classifier["command"]
+    )
+    assert (
+        "${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/final_implementation_review_decision.txt"
+        in classifier["command"]
     )
 
     recovery_classifier = next(step for step in workflow["steps"] if step["name"] == "ClassifyBlockedImplementationRecovery")
@@ -8640,6 +8638,28 @@ def _fix_implementation(workspace: Path) -> None:
     target.write_text("# Execution Report\n\nFixed after review.\n", encoding="utf-8")
 
 
+def _fix_implementation_blocked_without_progress_report(workspace: Path) -> None:
+    roots = [
+        bundle.parent
+        for bundle in sorted(workspace.glob("state/**/implementation_state.json"))
+        if bundle.is_file()
+    ]
+    if not roots:
+        raise AssertionError("No implementation state bundle found for blocked fix")
+    bundle_path = roots[-1] / "implementation_state.json"
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "implementation_state": "BLOCKED",
+                "blocker_class": "external_dependency_outside_authority",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def _fix_implementation_noncanonical(workspace: Path) -> None:
     target = _published_execution_report_path(workspace)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -9153,7 +9173,7 @@ def test_lisp_frontend_completed_execution_requires_canonical_target_path(tmp_pa
     )
 
     assert state["status"] == "failed"
-    assert state["__provider_calls"] == 5
+    assert state["__provider_calls"] == 6
     assert not _implementation_execution_report_target(workspace).is_file()
 
 
@@ -9234,6 +9254,7 @@ def test_design_delta_target_design_recovery_revises_design_and_continues(tmp_pa
             ("DraftPlan", _write_plan),
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_blocked_roadmap_conflict),
+            ("ClassifyBlockedImplementationRecovery", _classify_blocked_recovery_target_design_required),
             ("ClassifyBlockedImplementationRecovery", _classify_blocked_recovery_target_design_required),
             ("ReviseBlockedDesignGap", _revise_blocked_target_design),
             ("ReviewBlockedTargetDesignRevision", _write_blocked_design_revision_review_approve),
@@ -9473,6 +9494,118 @@ def test_design_delta_work_item_accepts_stdout_only_blocked_recovery_classifier_
     assert state["workflow_outputs"]["drain_status"] == "CONTINUE"
 
 
+def test_design_delta_work_item_preserves_canonical_progress_report_when_fix_blocks(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    workflow_path = workspace / "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml"
+
+    manifest_path = workspace / "state/manifest.json"
+    selection_path = workspace / "state/selection.json"
+    architecture_path = (
+        workspace
+        / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
+    )
+    context_path = workspace / "state/gap/work_item_context.md"
+    checks_path = workspace / "state/gap/check_commands.json"
+    plan_target_path = (
+        workspace
+        / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/execution_plan.md"
+    )
+    architecture_bundle_path = workspace / "state/gap/architecture-validation.json"
+    run_state_path = workspace / "state/run_state.json"
+    progress_report_path = (
+        workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/parser-syntax/progress_report.md"
+    )
+
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    selection_path.parent.mkdir(parents=True, exist_ok=True)
+    architecture_path.parent.mkdir(parents=True, exist_ok=True)
+    context_path.parent.mkdir(parents=True, exist_ok=True)
+    checks_path.parent.mkdir(parents=True, exist_ok=True)
+    run_state_path.parent.mkdir(parents=True, exist_ok=True)
+
+    manifest_path.write_text(json.dumps({"items": []}) + "\n", encoding="utf-8")
+    selection_path.write_text(
+        json.dumps(
+            {
+                "selection_status": "DRAFT_DESIGN_GAP",
+                "design_gap_id": "parser-syntax",
+                "selection_rationale": "Parser syntax gap remains active.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    architecture_path.write_text("# Parser Syntax Architecture\n", encoding="utf-8")
+    context_path.write_text("# Parser Syntax Work Item\n", encoding="utf-8")
+    checks_path.write_text(json.dumps(["python -m pytest -q"]) + "\n", encoding="utf-8")
+    architecture_bundle_path.write_text(
+        json.dumps(
+            {
+                "architecture_validation_status": "VALID",
+                "work_item_source": "DESIGN_GAP",
+                "work_item_id": "parser-syntax",
+                "architecture_path": architecture_path.relative_to(workspace).as_posix(),
+                "work_item_context_path": context_path.relative_to(workspace).as_posix(),
+                "check_commands_path": checks_path.relative_to(workspace).as_posix(),
+                "plan_target_path": plan_target_path.relative_to(workspace).as_posix(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    run_state_path.write_text(
+        json.dumps(
+            {
+                "completed_design_gaps": [],
+                "blocked_design_gaps": {},
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def _write_direct_plan(_workspace: Path) -> None:
+        plan_target_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_target_path.write_text(
+            "# Lisp Work Plan\n\n## Verification\n- `python -m pytest -q`\n",
+            encoding="utf-8",
+        )
+
+    state = _run_workflow_with_providers(
+        workspace,
+        workflow_path,
+        [
+            ("DraftPlan", _write_direct_plan),
+            ("ReviewPlan", _write_plan_review),
+            ("ExecuteImplementation", _write_execution_state),
+            ("ReviewImplementation", _write_implementation_review_revise),
+            ("FixImplementation", _fix_implementation_blocked_without_progress_report),
+            ("ClassifyBlockedImplementationRecovery", _classify_blocked_recovery_gap_design_required_stdout_only),
+        ],
+        workflow_inputs={
+            "state_root": "state/design-gap-work-item",
+            "selection_bundle_path": "state/selection.json",
+            "manifest_path": "state/manifest.json",
+            "architecture_bundle_path": "state/gap/architecture-validation.json",
+            "steering_path": "docs/steering.md",
+            "target_design_path": "docs/design/workflow_lisp_frontend_specification.md",
+            "baseline_design_path": "docs/design/workflow_lisp_frontend_mvp_specification.md",
+            "progress_ledger_path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/progress_ledger.json",
+            "run_state_path": "state/run_state.json",
+        },
+    )
+
+    assert state["status"] == "completed"
+    assert state["__provider_calls"] == 6
+    assert state["workflow_outputs"]["drain_status"] == "CONTINUE"
+    assert progress_report_path.is_file()
+    assert progress_report_path.read_text(encoding="utf-8") == (
+        "# Execution Report\n\nCompleted.\n"
+    )
+
+
 def test_design_delta_prior_blocked_gap_revises_design_before_selection(tmp_path):
     workspace = tmp_path / "workspace"
     _copy_runtime_files(workspace)
@@ -9585,7 +9718,7 @@ def test_design_delta_terminal_blocker_does_not_revise_design(tmp_path):
     assert state["status"] == "completed"
     assert summary["drain_status"] == "BLOCKED"
     assert summary["blocked_design_gaps"]["parser-syntax"]["reason"] == "implementation_blocked"
-    assert state["__provider_calls"] == 6
+    assert state["__provider_calls"] == 7
     assert "Blocker Revision" not in (
         workspace / _design_delta_workflow_inputs()["target_design_path"]
     ).read_text(encoding="utf-8")

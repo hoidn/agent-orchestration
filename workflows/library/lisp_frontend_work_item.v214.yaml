@@ -218,10 +218,10 @@ steps:
       - workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py
       - --plan-review-decision
       - ${steps.RunPlanPhase.artifacts.plan_review_decision}
-      - --implementation-state
-      - ${steps.RunImplementationPhase.artifacts.implementation_state}
-      - --implementation-review-decision
-      - ${steps.RunImplementationPhase.artifacts.implementation_review_decision}
+      - --implementation-state-path
+      - ${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/implementation_state.json
+      - --implementation-review-decision-path
+      - ${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/final_implementation_review_decision.txt
       - --output
       - ${inputs.state_root}/terminal-route.json
     output_bundle:

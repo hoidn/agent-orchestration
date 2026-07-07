@@ -17,6 +17,23 @@ def _read_required(path: Path) -> str:
     return value
 
 
+def _read_json_field(path: Path, field: str) -> str | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get(field)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()
+
+
+def _read_state_value(path: Path, field: str) -> str:
+    return _read_json_field(path, field) or _read_required(path)
+
+
 def _write_output(path: Path, terminal_route: str, block_reason: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -82,13 +99,33 @@ def main() -> int:
     if args.plan_review_decision == "REVISE":
         terminal_route, block_reason = _classify(args.plan_review_decision, "", "")
     else:
+        implementation_state = (args.implementation_state or "").strip()
+        if not implementation_state and args.implementation_bundle_path:
+            implementation_state = _read_state_value(
+                Path(args.implementation_bundle_path),
+                "implementation_state",
+            )
+        if not implementation_state:
+            implementation_state = _read_state_value(
+                Path(args.implementation_state_path or ""),
+                "implementation_state",
+            )
+        implementation_review_decision = ""
+        if implementation_state == "COMPLETED":
+            implementation_review_decision = (args.implementation_review_decision or "").strip()
+            if not implementation_review_decision and args.implementation_bundle_path:
+                implementation_review_decision = (
+                    _read_json_field(Path(args.implementation_bundle_path), "implementation_review_decision")
+                    or ""
+                )
+            if not implementation_review_decision:
+                implementation_review_decision = _read_required(
+                    Path(args.implementation_review_decision_path or "")
+                ).strip()
         terminal_route, block_reason = _classify(
             args.plan_review_decision,
-            (args.implementation_state or _read_required(Path(args.implementation_state_path or ""))).strip(),
-            (
-                args.implementation_review_decision
-                or _read_required(Path(args.implementation_review_decision_path or ""))
-            ).strip(),
+            implementation_state,
+            implementation_review_decision,
         )
     _write_output(Path(args.output), terminal_route, block_reason)
     return 0

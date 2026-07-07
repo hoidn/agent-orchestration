@@ -345,6 +345,14 @@
             "kind": "relpath",
             "type": "relpath"
           },
+          "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__review_decision__call_wcc_m4_implementation_phase_full_fixture_run_review__managed_write_roots__managed_write_roots_bundle": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
+          "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__revise__fixed_completed__call_wcc_m4_implementation_phase_full_fixture_apply_fix__managed_write_roots__managed_write_roots_bundle": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
           "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__revise__state__result_bundle": {
             "kind": "relpath",
             "type": "relpath"
@@ -1293,7 +1301,7 @@
                     "python",
                     "-c",
                     "import json, pathlib, sys; out = pathlib.Path(sys.argv[1]); out.parent.mkdir(parents=True, exist_ok=True); args = sys.argv[2:]; payload = {args[i]: args[i + 1] for i in range(0, len(args), 2)}; out.write_text(json.dumps(payload, sort_keys=True) + '\\n', encoding='utf-8')",
-                    ".orchestrate/workflow_lisp/call_bindings/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__body__review-decision__call_wcc_m4_implementation_phase_full_fixture::run-review/${loop.index}/wcc_m4_implementation_phase_full_fixture::run-review/__managed_write_roots.json",
+                    "${inputs.__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__review_decision__call_wcc_m4_implementation_phase_full_fixture_run_review__managed_write_roots__managed_write_roots_bundle}",
                     "__write_root__wcc_m4_implementation_phase_full_fixture_wcc_m4_implementation_phase_full_fixture_run_review_v1__result__result_bundle",
                     ".orchestrate/workflow_lisp/calls/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__body__review-decision__call_wcc_m4_implementation_phase_full_fixture::run-review/${loop.index}/wcc_m4_implementation_phase_full_fixture::run-review/__write_root__wcc_m4_implementation_phase_full_fixture_wcc_m4_implementation_phase_full_fixture_run_review_v1__result__result_bundle.json"
                   ],
@@ -1307,7 +1315,7 @@
                         "type": "relpath"
                       }
                     ],
-                    "path": ".orchestrate/workflow_lisp/call_bindings/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__body__review-decision__call_wcc_m4_implementation_phase_full_fixture::run-review/${loop.index}/wcc_m4_implementation_phase_full_fixture::run-review/__managed_write_roots.json"
+                    "path": "${inputs.__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__review_decision__call_wcc_m4_implementation_phase_full_fixture_run_review__managed_write_roots__managed_write_roots_bundle}"
                   }
                 },
                 {
@@ -2000,7 +2008,7 @@
                               "python",
                               "-c",
                               "import json, pathlib, sys; out = pathlib.Path(sys.argv[1]); out.parent.mkdir(parents=True, exist_ok=True); args = sys.argv[2:]; payload = {args[i]: args[i + 1] for i in range(0, len(args), 2)}; out.write_text(json.dumps(payload, sort_keys=True) + '\\n', encoding='utf-8')",
-                              ".orchestrate/workflow_lisp/call_bindings/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__body__revise__fixed-completed__call_wcc_m4_implementation_phase_full_fixture::apply-fix/${loop.index}/wcc_m4_implementation_phase_full_fixture::apply-fix/__managed_write_roots.json",
+                              "${inputs.__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__revise__fixed_completed__call_wcc_m4_implementation_phase_full_fixture_apply_fix__managed_write_roots__managed_write_roots_bundle}",
                               "__write_root__wcc_m4_implementation_phase_full_fixture_wcc_m4_implementation_phase_full_fixture_apply_fix_v1__result__result_bundle",
                               ".orchestrate/workflow_lisp/calls/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__body__revise__fixed-completed__call_wcc_m4_implementation_phase_full_fixture::apply-fix/${loop.index}/wcc_m4_implementation_phase_full_fixture::apply-fix/__write_root__wcc_m4_implementation_phase_full_fixture_wcc_m4_implementation_phase_full_fixture_apply_fix_v1__result__result_bundle.json"
                             ],
@@ -2014,7 +2022,7 @@
                                   "type": "relpath"
                                 }
                               ],
-                              "path": ".orchestrate/workflow_lisp/call_bindings/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__body__revise__fixed-completed__call_wcc_m4_implementation_phase_full_fixture::apply-fix/${loop.index}/wcc_m4_implementation_phase_full_fixture::apply-fix/__managed_write_roots.json"
+                              "path": "${inputs.__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__revise__fixed_completed__call_wcc_m4_implementation_phase_full_fixture_apply_fix__managed_write_roots__managed_write_roots_bundle}"
                             }
                           },
                           {
@@ -2272,7 +2280,7 @@
                                         }
                                       ],
                                       "kind": "variant_case",
-                                      "union_name": "ReviewDecision",
+                                      "union_name": "std/phase::ReviewDecision",
                                       "variant": "REVISE"
                                     }
                                   },
@@ -2329,7 +2337,7 @@
                                           "name": "last_review_report",
                                           "type": {
                                             "kind": "path",
-                                            "name": "std/phase::ReviewReportPath"
+                                            "name": "ReviewReportPath"
                                           }
                                         },
                                         {
@@ -2468,7 +2476,7 @@
                                         "name": "last_review_report",
                                         "type": {
                                           "kind": "path",
-                                          "name": "std/phase::ReviewReportPath"
+                                          "name": "ReviewReportPath"
                                         }
                                       },
                                       {
@@ -2552,7 +2560,7 @@
                                       "name": "last_review_report",
                                       "type": {
                                         "kind": "path",
-                                        "name": "std/phase::ReviewReportPath"
+                                        "name": "ReviewReportPath"
                                       }
                                     },
                                     {
@@ -2583,7 +2591,7 @@
                                   "name": "workflow_lisp/private::loop-state-carrier"
                                 }
                               },
-                              "payload_digest": "sha256:51ea44962982a1b44e6062bdf50bea49b2fbef5a85c224872e0b52291ea80f1b"
+                              "payload_digest": "sha256:45ecb76c8ddf7764a8e1ccf9359cff4ae9f947cefd539373a206401abc7d1421"
                             }
                           },
                           {
@@ -3418,6 +3426,8 @@
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__attempt__result_bundle",
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+        "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__review_decision__call_wcc_m4_implementation_phase_full_fixture_run_review__managed_write_roots__managed_write_roots_bundle",
+        "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__revise__fixed_completed__call_wcc_m4_implementation_phase_full_fixture_apply_fix__managed_write_roots__managed_write_roots_bundle",
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__revise__state__result_bundle",
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed__checks__run_checks__result_bundle"
@@ -3601,6 +3611,8 @@
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__attempt__result_bundle",
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+        "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__review_decision__call_wcc_m4_implementation_phase_full_fixture_run_review__managed_write_roots__managed_write_roots_bundle",
+        "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__revise__fixed_completed__call_wcc_m4_implementation_phase_full_fixture_apply_fix__managed_write_roots__managed_write_roots_bundle",
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__revise__state__result_bundle",
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed__checks__run_checks__result_bundle"
@@ -3637,16 +3649,6 @@
           "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__body__review-decision__call_wcc_m4_implementation_phase_full_fixture::run-review/${loop.index}/wcc_m4_implementation_phase_full_fixture::run-review/__write_root__wcc_m4_implementation_phase_full_fixture_wcc_m4_implementation_phase_full_fixture_run_review_v1__result__result_bundle"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:compatibility_pointer_view:45e4b28e71b4b190",
-          "concrete_path_template": ".orchestrate/workflow_lisp/call_bindings/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__body__review-decision__call_wcc_m4_implementation_phase_full_fixture::run-review/${loop.index}/wcc_m4_implementation_phase_full_fixture::run-review/__managed_write_roots.json",
-          "generated_input_name": null,
-          "path_safety_policy": "workspace_relative",
-          "privacy": "compatibility_view",
-          "resume_scope": "loop_iteration",
-          "semantic_role": "compatibility_pointer_view",
-          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__body__review-decision__call_wcc_m4_implementation_phase_full_fixture::run-review/${loop.index}/wcc_m4_implementation_phase_full_fixture::run-review/managed_write_roots_bundle"
-        },
-        {
           "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:command_result_bundle:425aecdbc3146c78",
           "concrete_path_template": "${inputs.__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle}",
           "generated_input_name": "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
@@ -3675,16 +3677,6 @@
           "resume_scope": "loop_iteration",
           "semantic_role": "reusable_call_write_root",
           "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__body__revise__fixed-completed__call_wcc_m4_implementation_phase_full_fixture::apply-fix/${loop.index}/wcc_m4_implementation_phase_full_fixture::apply-fix/__write_root__wcc_m4_implementation_phase_full_fixture_wcc_m4_implementation_phase_full_fixture_apply_fix_v1__result__result_bundle"
-        },
-        {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:compatibility_pointer_view:78120b206a650ab7",
-          "concrete_path_template": ".orchestrate/workflow_lisp/call_bindings/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__body__revise__fixed-completed__call_wcc_m4_implementation_phase_full_fixture::apply-fix/${loop.index}/wcc_m4_implementation_phase_full_fixture::apply-fix/__managed_write_roots.json",
-          "generated_input_name": null,
-          "path_safety_policy": "workspace_relative",
-          "privacy": "compatibility_view",
-          "resume_scope": "loop_iteration",
-          "semantic_role": "compatibility_pointer_view",
-          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__body__revise__fixed-completed__call_wcc_m4_implementation_phase_full_fixture::apply-fix/${loop.index}/wcc_m4_implementation_phase_full_fixture::apply-fix/managed_write_roots_bundle"
         },
         {
           "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:pure_projection_bundle:eabf606a870bbe8f",
@@ -3771,6 +3763,8 @@
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__attempt__result_bundle",
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+        "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__review_decision__call_wcc_m4_implementation_phase_full_fixture_run_review__managed_write_roots__managed_write_roots_bundle",
+        "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__revise__fixed_completed__call_wcc_m4_implementation_phase_full_fixture_apply_fix__managed_write_roots__managed_write_roots_bundle",
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__revise__state__result_bundle",
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
         "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed__checks__run_checks__result_bundle",

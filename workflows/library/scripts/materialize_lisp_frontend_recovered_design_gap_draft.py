@@ -138,33 +138,18 @@ def _materialize_retry_bundle(
     ]
     if (REPO_ROOT / plan_path).exists():
         checks.insert(1, f"test -f {plan_path.as_posix()}")
-    preserved_checks = False
-    if previous is not None:
-        prev_checks_rel = str(previous.get("check_commands_path") or "")
-        prev_checks_file = REPO_ROOT / prev_checks_rel if prev_checks_rel else None
-        if prev_checks_file is not None and prev_checks_file.is_file():
-            try:
-                prev_checks = json.loads(prev_checks_file.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                prev_checks = None
-            if isinstance(prev_checks, list) and prev_checks:
-                checks = [str(item) for item in prev_checks]
-                preserved_checks = True
     _write_json(checks_path, checks)
     return {
         "work_item_context_path": _repo_relpath(context_path),
         "check_commands_path": _repo_relpath(checks_path),
         "summary": (
             "Recovered design gap retry reconstructed from durable blocked state "
-            + (
-                "with the prior architecture-validation bundle's check commands preserved."
-                if preserved_checks
-                else (
-                    "with regenerated retry artifacts because the prior bundle's check "
-                    "commands were unavailable."
-                    if previous is not None
-                    else "because the prior architecture-validation bundle was unavailable."
-                )
+            + ((
+                "with regenerated retry artifacts rather than reusing prior generated "
+                "architecture-validation paths."
+            )
+                if previous is not None
+                else "because the prior architecture-validation bundle was unavailable."
             )
         ),
     }

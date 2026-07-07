@@ -545,6 +545,8 @@ def _lower_procedure_call(
     )
     resolved_lowering_mode = procedure.resolved_lowering_mode
     generated_workflow_name = procedure.generated_workflow_name
+    # schema1_compatibility: keep loop-recur bodies on the inline route inside
+    # iteration scopes so recursive loop state remains owned by loop lowering.
     if (
         resolved_lowering_mode == ProcedureLoweringMode.INLINE
         and context.iteration_scope is not None

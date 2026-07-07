@@ -18,11 +18,43 @@ RECOVERY_ROUTES = {
     "TERMINAL_BLOCKED",
 }
 
+_REPO_SCOPE_TERMS = (
+    "repo-local",
+    "contract",
+    "import-boundary",
+    "adapter",
+    "verification",
+    "target-design",
+    "gap-design",
+    "prerequisite-design",
+)
+
+_EXTERNAL_USER_TERMS = (
+    "external human authority",
+    "credential",
+    "environment",
+    "local setup",
+    "user intervention",
+    "major unresolvable ambiguity",
+    "cannot be resolved",
+)
+
 
 def _load_optional_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _normalize_design_gap_recovery(route: str, reason: str, summary: str) -> tuple[str, str]:
+    if route != "TERMINAL_BLOCKED" or reason != "user_decision_required":
+        return route, reason
+    normalized = summary.lower()
+    if any(term in normalized for term in _EXTERNAL_USER_TERMS):
+        return route, reason
+    if any(term in normalized for term in _REPO_SCOPE_TERMS):
+        return "GAP_DESIGN_REVISION_REQUIRED", "implementation_architecture_under_scoped"
+    return route, reason
 
 
 def main() -> int:
@@ -43,6 +75,11 @@ def main() -> int:
                     raise SystemExit(f"Unexpected blocked_recovery_route: {route}")
                 if not reason:
                     raise SystemExit("Blocked recovery classifier payload missing reason")
+                route, reason = _normalize_design_gap_recovery(
+                    route,
+                    reason,
+                    str(payload.get("summary") or ""),
+                )
             else:
                 route = "TERMINAL_BLOCKED"
                 reason = "implementation_blocked"
@@ -76,6 +113,11 @@ def main() -> int:
                 raise SystemExit(f"Unexpected blocked_recovery_route: {route}")
             if not reason:
                 raise SystemExit("Blocked recovery classifier bundle missing reason")
+            route, reason = _normalize_design_gap_recovery(
+                route,
+                reason,
+                str(bundle.get("summary") or ""),
+            )
         else:
             route = "TERMINAL_BLOCKED"
             reason = "implementation_blocked"

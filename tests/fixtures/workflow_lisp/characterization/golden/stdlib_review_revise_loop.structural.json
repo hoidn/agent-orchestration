@@ -313,6 +313,14 @@
             "kind": "relpath",
             "type": "relpath"
           },
+          "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__review_decision__call_phase_stdlib_review_loop_run_review__managed_write_roots__managed_write_roots_bundle": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
+          "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__revise__fixed_completed__call_phase_stdlib_review_loop_apply_fix__managed_write_roots__managed_write_roots_bundle": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
           "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle": {
             "kind": "relpath",
             "type": "relpath"
@@ -1074,7 +1082,7 @@
                     "python",
                     "-c",
                     "import json, pathlib, sys; out = pathlib.Path(sys.argv[1]); out.parent.mkdir(parents=True, exist_ok=True); args = sys.argv[2:]; payload = {args[i]: args[i + 1] for i in range(0, len(args), 2)}; out.write_text(json.dumps(payload, sort_keys=True) + '\\n', encoding='utf-8')",
-                    ".orchestrate/workflow_lisp/call_bindings/phase_stdlib_review_loop::review-revise-loop-demo/phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__body__review-decision__call_phase_stdlib_review_loop::run-review/${loop.index}/phase_stdlib_review_loop::run-review/__managed_write_roots.json",
+                    "${inputs.__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__review_decision__call_phase_stdlib_review_loop_run_review__managed_write_roots__managed_write_roots_bundle}",
                     "__write_root__phase_stdlib_review_loop_phase_stdlib_review_loop_run_review_v1__result__result_bundle",
                     ".orchestrate/workflow_lisp/calls/phase_stdlib_review_loop::review-revise-loop-demo/phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__body__review-decision__call_phase_stdlib_review_loop::run-review/${loop.index}/phase_stdlib_review_loop::run-review/__write_root__phase_stdlib_review_loop_phase_stdlib_review_loop_run_review_v1__result__result_bundle.json"
                   ],
@@ -1088,7 +1096,7 @@
                         "type": "relpath"
                       }
                     ],
-                    "path": ".orchestrate/workflow_lisp/call_bindings/phase_stdlib_review_loop::review-revise-loop-demo/phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__body__review-decision__call_phase_stdlib_review_loop::run-review/${loop.index}/phase_stdlib_review_loop::run-review/__managed_write_roots.json"
+                    "path": "${inputs.__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__review_decision__call_phase_stdlib_review_loop_run_review__managed_write_roots__managed_write_roots_bundle}"
                   }
                 },
                 {
@@ -1751,7 +1759,7 @@
                               "python",
                               "-c",
                               "import json, pathlib, sys; out = pathlib.Path(sys.argv[1]); out.parent.mkdir(parents=True, exist_ok=True); args = sys.argv[2:]; payload = {args[i]: args[i + 1] for i in range(0, len(args), 2)}; out.write_text(json.dumps(payload, sort_keys=True) + '\\n', encoding='utf-8')",
-                              ".orchestrate/workflow_lisp/call_bindings/phase_stdlib_review_loop::review-revise-loop-demo/phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__body__revise__fixed-completed__call_phase_stdlib_review_loop::apply-fix/${loop.index}/phase_stdlib_review_loop::apply-fix/__managed_write_roots.json",
+                              "${inputs.__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__revise__fixed_completed__call_phase_stdlib_review_loop_apply_fix__managed_write_roots__managed_write_roots_bundle}",
                               "__write_root__phase_stdlib_review_loop_phase_stdlib_review_loop_apply_fix_v1__result__result_bundle",
                               ".orchestrate/workflow_lisp/calls/phase_stdlib_review_loop::review-revise-loop-demo/phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__body__revise__fixed-completed__call_phase_stdlib_review_loop::apply-fix/${loop.index}/phase_stdlib_review_loop::apply-fix/__write_root__phase_stdlib_review_loop_phase_stdlib_review_loop_apply_fix_v1__result__result_bundle.json"
                             ],
@@ -1765,7 +1773,7 @@
                                   "type": "relpath"
                                 }
                               ],
-                              "path": ".orchestrate/workflow_lisp/call_bindings/phase_stdlib_review_loop::review-revise-loop-demo/phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__body__revise__fixed-completed__call_phase_stdlib_review_loop::apply-fix/${loop.index}/phase_stdlib_review_loop::apply-fix/__managed_write_roots.json"
+                              "path": "${inputs.__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__revise__fixed_completed__call_phase_stdlib_review_loop_apply_fix__managed_write_roots__managed_write_roots_bundle}"
                             }
                           },
                           {
@@ -2177,6 +2185,8 @@
       "generated_input_names": [
         "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
         "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+        "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__review_decision__call_phase_stdlib_review_loop_run_review__managed_write_roots__managed_write_roots_bundle",
+        "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__revise__fixed_completed__call_phase_stdlib_review_loop_apply_fix__managed_write_roots__managed_write_roots_bundle",
         "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle"
       ],
       "step_labels": [
@@ -2348,6 +2358,8 @@
       "generated_input_names": [
         "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
         "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+        "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__review_decision__call_phase_stdlib_review_loop_run_review__managed_write_roots__managed_write_roots_bundle",
+        "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__revise__fixed_completed__call_phase_stdlib_review_loop_apply_fix__managed_write_roots__managed_write_roots_bundle",
         "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle"
       ],
       "generated_paths": [
@@ -2360,16 +2372,6 @@
           "resume_scope": "loop_iteration",
           "semantic_role": "reusable_call_write_root",
           "stable_identity": "phase_stdlib_review_loop::review-revise-loop-demo/phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__body__review-decision__call_phase_stdlib_review_loop::run-review/${loop.index}/phase_stdlib_review_loop::run-review/__write_root__phase_stdlib_review_loop_phase_stdlib_review_loop_run_review_v1__result__result_bundle"
-        },
-        {
-          "allocation_id": "alloc:phase_stdlib_review_loop_review-revise-loop-demo:compatibility_pointer_view:d3dd51530384c5dc",
-          "concrete_path_template": ".orchestrate/workflow_lisp/call_bindings/phase_stdlib_review_loop::review-revise-loop-demo/phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__body__review-decision__call_phase_stdlib_review_loop::run-review/${loop.index}/phase_stdlib_review_loop::run-review/__managed_write_roots.json",
-          "generated_input_name": null,
-          "path_safety_policy": "workspace_relative",
-          "privacy": "compatibility_view",
-          "resume_scope": "loop_iteration",
-          "semantic_role": "compatibility_pointer_view",
-          "stable_identity": "phase_stdlib_review_loop::review-revise-loop-demo/phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__body__review-decision__call_phase_stdlib_review_loop::run-review/${loop.index}/phase_stdlib_review_loop::run-review/managed_write_roots_bundle"
         },
         {
           "allocation_id": "alloc:phase_stdlib_review_loop_review-revise-loop-demo:command_result_bundle:6e61b815d14c1897",
@@ -2400,16 +2402,6 @@
           "resume_scope": "loop_iteration",
           "semantic_role": "reusable_call_write_root",
           "stable_identity": "phase_stdlib_review_loop::review-revise-loop-demo/phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__body__revise__fixed-completed__call_phase_stdlib_review_loop::apply-fix/${loop.index}/phase_stdlib_review_loop::apply-fix/__write_root__phase_stdlib_review_loop_phase_stdlib_review_loop_apply_fix_v1__result__result_bundle"
-        },
-        {
-          "allocation_id": "alloc:phase_stdlib_review_loop_review-revise-loop-demo:compatibility_pointer_view:3b5a5ea7a379cddc",
-          "concrete_path_template": ".orchestrate/workflow_lisp/call_bindings/phase_stdlib_review_loop::review-revise-loop-demo/phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__body__revise__fixed-completed__call_phase_stdlib_review_loop::apply-fix/${loop.index}/phase_stdlib_review_loop::apply-fix/__managed_write_roots.json",
-          "generated_input_name": null,
-          "path_safety_policy": "workspace_relative",
-          "privacy": "compatibility_view",
-          "resume_scope": "loop_iteration",
-          "semantic_role": "compatibility_pointer_view",
-          "stable_identity": "phase_stdlib_review_loop::review-revise-loop-demo/phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__body__revise__fixed-completed__call_phase_stdlib_review_loop::apply-fix/${loop.index}/phase_stdlib_review_loop::apply-fix/managed_write_roots_bundle"
         },
         {
           "allocation_id": "alloc:phase_stdlib_review_loop_review-revise-loop-demo:command_result_bundle:bcdda775835b5239",
@@ -2455,6 +2447,8 @@
       "input_keys": [
         "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
         "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+        "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__review_decision__call_phase_stdlib_review_loop_run_review__managed_write_roots__managed_write_roots_bundle",
+        "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__revise__fixed_completed__call_phase_stdlib_review_loop_apply_fix__managed_write_roots__managed_write_roots_bundle",
         "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d60f4ca6bbbe_63ad0e2b67db_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
         "completed__execution_report_path",
         "inputs__design_review_prompt",
