@@ -903,27 +903,40 @@ def build_workflow_catalog(
         definitions_by_name[workflow_def.name] = workflow_def
         signatures_by_name[workflow_def.name] = signature
 
-    hidden_context_callees_by_workflow: Mapping[str, frozenset[str]] = {}
+    derived_hidden_context_callees_by_workflow: Mapping[str, frozenset[str]] = {}
+    entry_hidden_context_callees_by_workflow: Mapping[str, frozenset[str]] = {}
     if allow_hidden_context_callers:
-        hidden_context_callees_by_workflow = _shared_proof_hidden_context_omission_callees(
+        derived_hidden_context_callees_by_workflow = _shared_proof_hidden_context_omission_callees(
             module=module,
             selected_entry_workflow_name=selected_entry_workflow_name,
             workflow_defs=workflow_defs,
             signatures_by_name=signatures_by_name,
         )
-    for workflow_name, selected_entry_callees in _selected_entry_hidden_context_omission_callees(
+    selected_entry_hidden_context_callees_by_workflow = (
+        _selected_entry_hidden_context_omission_callees(
+            module=module,
+            selected_entry_workflow_name=selected_entry_workflow_name,
+            workflow_defs=workflow_defs,
+            signatures_by_name=signatures_by_name,
+            filter_entry_bootstrap_callees=False,
+        )
+    )
+    entry_hidden_context_callees_by_workflow = _selected_entry_hidden_context_omission_callees(
         module=module,
         selected_entry_workflow_name=selected_entry_workflow_name,
         workflow_defs=workflow_defs,
         signatures_by_name=signatures_by_name,
-    ).items():
-        hidden_context_callees_by_workflow = {
-            **hidden_context_callees_by_workflow,
-            workflow_name: frozenset(
-                set(hidden_context_callees_by_workflow.get(workflow_name, frozenset()))
-                | set(selected_entry_callees)
-            ),
-        }
+        filter_entry_bootstrap_callees=True,
+    )
+    hidden_context_callees_by_workflow: Mapping[str, frozenset[str]] = {
+        workflow_name: frozenset(
+            set(derived_hidden_context_callees_by_workflow.get(workflow_name, frozenset()))
+            | set(selected_entry_hidden_context_callees_by_workflow.get(workflow_name, frozenset()))
+        )
+        for workflow_name in set(derived_hidden_context_callees_by_workflow).union(
+            selected_entry_hidden_context_callees_by_workflow
+        )
+    }
     compatibility_bridge_callees_by_workflow = (
         _shared_proof_compatibility_bridge_omission_callees(
             module=module,
@@ -976,6 +989,14 @@ def build_workflow_catalog(
             )
             or workflow_name in workflow_ref_bridge_omission_workflows,
             allowed_hidden_context_callees=hidden_context_callees,
+            derived_hidden_context_callees=derived_hidden_context_callees_by_workflow.get(
+                workflow_name,
+                frozenset(),
+            ),
+            entry_hidden_context_callees=entry_hidden_context_callees_by_workflow.get(
+                workflow_name,
+                frozenset(),
+            ),
             allowed_private_compatibility_bridge_callees=compatibility_bridge_callees,
         )
 
@@ -1069,6 +1090,7 @@ def _selected_entry_hidden_context_omission_callees(
     selected_entry_workflow_name: str | None,
     workflow_defs: tuple[WorkflowDef, ...],
     signatures_by_name: Mapping[str, WorkflowSignature],
+    filter_entry_bootstrap_callees: bool,
 ) -> Mapping[str, frozenset[str]]:
     """Return omitted hidden-context callees for promoted-entry wrappers."""
 
@@ -1082,6 +1104,36 @@ def _selected_entry_hidden_context_omission_callees(
     workflow_name_by_local_name = {
         workflow_def.name.rsplit("::", 1)[-1]: workflow_def.name for workflow_def in workflow_defs
     }
+    local_workflow_names = frozenset(workflow_name_by_local_name.values())
+    exported_workflow_names = frozenset(
+        workflow_name_by_local_name.get(exported_name, exported_name)
+        for exported_name in module.exports
+        if isinstance(exported_name, str)
+        and workflow_name_by_local_name.get(exported_name, exported_name) in signatures_by_name
+    )
+
+    def _callee_allows_entry_bootstrap(callee_name: str) -> bool:
+        callee_signature = signatures_by_name.get(callee_name)
+        if callee_signature is None:
+            return False
+        return any(
+            getattr(requirement, "allows_entry_bootstrap", False)
+            for requirement in callee_signature.hidden_context_requirements.values()
+        )
+
+    def _entry_bootstrap_callees(callees: frozenset[str] | None) -> frozenset[str]:
+        if not callees:
+            return frozenset()
+        if not filter_entry_bootstrap_callees:
+            return callees
+        return frozenset(
+            callee_name
+            for callee_name in callees
+            if callee_name not in local_workflow_names
+            or callee_name in exported_workflow_names
+            or _callee_allows_entry_bootstrap(callee_name)
+        )
+
     candidate_workflow_names: set[str] = set()
     if selected_entry_workflow_name is not None:
         selected_workflow_name = workflow_name_by_local_name.get(
@@ -1104,7 +1156,9 @@ def _selected_entry_hidden_context_omission_callees(
 
     allowed: dict[str, frozenset[str]] = {}
     for workflow_name in candidate_workflow_names:
-        selected_callees = omitted_callees_by_workflow.get(workflow_name)
+        selected_callees = _entry_bootstrap_callees(
+            omitted_callees_by_workflow.get(workflow_name)
+        )
         if selected_callees:
             allowed[workflow_name] = selected_callees
     return allowed
@@ -1768,6 +1822,8 @@ def _merge_signature_compatibility_bridge_types(
         allow_hidden_context_binding=signature.allow_hidden_context_binding,
         allow_private_compatibility_bridge_omission=signature.allow_private_compatibility_bridge_omission,
         allowed_hidden_context_callees=signature.allowed_hidden_context_callees,
+        derived_hidden_context_callees=signature.derived_hidden_context_callees,
+        entry_hidden_context_callees=signature.entry_hidden_context_callees,
         allowed_private_compatibility_bridge_callees=(
             signature.allowed_private_compatibility_bridge_callees
         ),
@@ -2176,6 +2232,8 @@ def typecheck_workflow_definitions(
                 signature.allow_private_compatibility_bridge_omission
             ),
             allowed_hidden_context_callees=signature.allowed_hidden_context_callees,
+            derived_hidden_context_callees=signature.derived_hidden_context_callees,
+            entry_hidden_context_callees=signature.entry_hidden_context_callees,
             allowed_private_compatibility_bridge_callees=(
                 signature.allowed_private_compatibility_bridge_callees
             ),

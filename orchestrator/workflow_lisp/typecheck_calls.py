@@ -40,13 +40,6 @@ from .workflow_refs import (
     workflow_ref_type_from_signature,
 )
 
-DESIGN_DELTA_CHILD_PHASE_CALLEES = frozenset(
-    {
-        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
-        "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-    }
-)
-
 def hidden_context_omission_allowed(
     *,
     session_state,
@@ -72,11 +65,7 @@ def hidden_context_omission_allowed(
     ambiguities = getattr(callee_signature, "hidden_context_ambiguities", {})
     requirements = getattr(callee_signature, "hidden_context_requirements", {})
     requirement = requirements.get(param_name) if isinstance(requirements, dict) else None
-    active_has_private_context_source = any(
-        private_exec_context_kind(type_ref) is not None
-        or classify_structural_private_exec_context(type_ref) is not None
-        for _, type_ref in active_signature.params
-    )
+    allowed_callees = getattr(active_signature, "allowed_hidden_context_callees", frozenset())
     if requirement is not None and requirement.binding_kind == "derived_private_child_context":
         if requirement.phase_name is None or param_name in ambiguities:
             compat._raise_error(
@@ -90,6 +79,11 @@ def hidden_context_omission_allowed(
             param_name=param_name,
         )
         if not eligibility.allowed:
+            if (
+                getattr(requirement, "allows_entry_bootstrap", False)
+                and callee_signature.name in allowed_callees
+            ):
+                return True
             compat._raise_error(
                 eligibility.diagnostic_message or f"invalid derived child phase context for `{param_name}`",
                 code=eligibility.diagnostic_code or "derived_phase_context_binding_invalid",
@@ -98,7 +92,6 @@ def hidden_context_omission_allowed(
             )
         return True
 
-    allowed_callees = getattr(active_signature, "allowed_hidden_context_callees", frozenset())
     if (
         requirement is not None
         and requirement.context_kind == PHASE_CONTEXT_NAME
@@ -110,27 +103,20 @@ def hidden_context_omission_allowed(
         )
         if eligibility.allowed:
             return True
-        if callee_signature.name in allowed_callees:
-            if (
-                not active_has_private_context_source
-                and callee_signature.name in DESIGN_DELTA_CHILD_PHASE_CALLEES
-                and not callee_signature.name.endswith("::resume-plan-gate-wrapper")
-            ):
-                compat._raise_error(
-                    eligibility.diagnostic_message
-                    or f"invalid derived child phase context for `{param_name}`",
-                    code=eligibility.diagnostic_code
-                    or "derived_phase_context_binding_invalid",
-                    span=span,
-                    form_path=form_path,
-                )
-            return True
+        family_profile_catalog = getattr(
+            getattr(session_state, "workflow_catalog", None),
+            "family_profile_catalog",
+            None,
+        )
+        hidden_context_rule = (
+            family_profile_catalog.hidden_context_rule(callee_signature.name)
+            if family_profile_catalog is not None
+            else None
+        )
         if (
-            not active_has_private_context_source
-            and callee_signature.name.endswith("::resume-plan-gate-wrapper")
+            hidden_context_rule is not None
+            and hidden_context_rule.parameter_name == param_name
         ):
-            return False
-        if callee_signature.name in DESIGN_DELTA_CHILD_PHASE_CALLEES:
             compat._raise_error(
                 eligibility.diagnostic_message
                 or f"invalid derived child phase context for `{param_name}`",
@@ -139,6 +125,8 @@ def hidden_context_omission_allowed(
                 span=span,
                 form_path=form_path,
             )
+        if callee_signature.name in allowed_callees:
+            return True
         if requirement.binding_kind != "derived_private_child_context":
             return False
         compat._raise_error(

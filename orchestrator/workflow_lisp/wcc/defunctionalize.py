@@ -398,6 +398,8 @@ def _lower_wcc_workflow_definitions(
                     base.signature.allow_private_compatibility_bridge_omission
                 ),
                 allowed_hidden_context_callees=base.signature.allowed_hidden_context_callees,
+                derived_hidden_context_callees=base.signature.derived_hidden_context_callees,
+                entry_hidden_context_callees=base.signature.entry_hidden_context_callees,
                 allowed_private_compatibility_bridge_callees=(
                     base.signature.allowed_private_compatibility_bridge_callees
                 ),

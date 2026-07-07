@@ -24,3 +24,4 @@ iter 15 | ACCEPTED | 374b4b9..93fb422 | Narrowed Design Delta low-level state-pa
 iter 16 | ACCEPTED | 93fb422..a82ab96 | Verified the declared broad pytest and Design Delta compile gates against the current checkout; no new code repair was needed this iteration.
 iter 17 | NO_CHANGE | a82ab96..a82ab96 | Verified the declared broad pytest and Design Delta compile gates against the current checkout; no targeted source repair was needed this iteration.
 iter 18 | CHECKS_GREEN | a82ab96..HEAD | Verified the pending runtime-native drain stdlib/private-context/parametric diagnostics slice; declared broad pytest, new-test collect-only, and Design Delta compile gates pass.
+iter 19 | CHECKS_GREEN | bd79c7b..HEAD | Replaced Design Delta child-phase hidden-context literal callee handling with generic family-profile rules; declared broad pytest and Design Delta compile gates pass.

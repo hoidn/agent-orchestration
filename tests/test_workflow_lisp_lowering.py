@@ -160,6 +160,14 @@ DESIGN_DELTA_PARENT_DRAIN_PROMPTS = (
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.prompts.json"
 )
+DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE = (
+    REPO_ROOT
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.family_profile.json"
+)
 
 
 def compile_stage3_entrypoint(*args, **kwargs):
@@ -170,6 +178,10 @@ def compile_stage3_entrypoint(*args, **kwargs):
 def compile_stage3_module(*args, **kwargs):
     kwargs.setdefault("lowering_route", "legacy")
     return _compile_stage3_module(*args, **kwargs)
+
+
+def _design_delta_parent_drain_family_profile_catalog():
+    return load_workflow_family_profile_catalog((DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,))
 
 
 def _design_delta_parent_drain_command_boundaries():
@@ -4801,6 +4813,7 @@ def test_compile_stage3_entrypoint_rejects_missing_derived_phase_context_source(
             validate_shared=False,
             lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
+            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(),
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -4829,11 +4842,96 @@ def test_compile_stage3_entrypoint_rejects_direct_entry_derived_phase_context_om
             validate_shared=True,
             lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
+            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(),
         )
 
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.code == "derived_phase_context_binding_invalid"
     assert "phase-ctx" in diagnostic.message
+
+
+def test_compile_stage3_entrypoint_rejects_generic_child_phase_context_without_item_ctx(
+    tmp_path: Path,
+) -> None:
+    fixture = tmp_path / "generic_child_phase_context_without_item_ctx.orc"
+    fixture.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule generic_child_phase_context_without_item_ctx)",
+                "  (import std/phase :only (with-phase))",
+                "  (export entry)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord Payload",
+                "    (status String))",
+                "  (defrecord Result",
+                "    (status String))",
+                "  (defworkflow child",
+                "    ((phase-ctx PhaseCtx)",
+                "     (payload Payload))",
+                "    -> Result",
+                "    (with-phase phase-ctx generic",
+                "      (record Result",
+                "        :status payload.status)))",
+                "  (defworkflow entry",
+                "    ((payload Payload))",
+                "    -> Result",
+                "    (call child",
+                "      :payload payload)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    profile_path = tmp_path / "generic_child_phase_context_without_item_ctx.profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_family_profile.v1",
+                "family_id": "generic_child_phase_context_without_item_ctx",
+                "workflow_name_prefixes": [],
+                "target_workflows": [
+                    "generic_child_phase_context_without_item_ctx::child"
+                ],
+                "boundary_authority_registry": None,
+                "checked_public_inputs": {},
+                "entry_phase_identities": {},
+                "hidden_context_rules": [
+                    {
+                        "workflow_name": "generic_child_phase_context_without_item_ctx::child",
+                        "parameter_name": "phase-ctx",
+                        "phase_identity": "generic",
+                    }
+                ],
+                "typed_prompt_input_rows": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            fixture,
+            source_roots=(tmp_path,),
+            command_boundaries={},
+            validate_shared=False,
+            lowering_route=LoweringRoute.WCC_M4.value,
+            workspace_root=tmp_path,
+            family_profile_catalog=load_workflow_family_profile_catalog((profile_path,)),
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "derived_phase_context_binding_invalid"
+    assert "item-context-first route" in diagnostic.message
 
 
 def test_compile_stage3_entrypoint_rejects_non_item_ctx_root_derived_phase_context_omission(
@@ -4857,6 +4955,7 @@ def test_compile_stage3_entrypoint_rejects_non_item_ctx_root_derived_phase_conte
             validate_shared=False,
             lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
+            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(),
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -4885,6 +4984,7 @@ def test_compile_stage3_entrypoint_rejects_ambiguous_derived_phase_context(
             validate_shared=False,
             lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
+            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(),
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -4913,6 +5013,7 @@ def test_compile_stage3_entrypoint_rejects_derived_phase_context_public_run_leav
             validate_shared=False,
             lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
+            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(),
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -4941,6 +5042,7 @@ def test_compile_stage3_entrypoint_rejects_derived_phase_context_from_compatibil
             validate_shared=False,
             lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
+            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(),
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -4969,6 +5071,7 @@ def test_compile_stage3_entrypoint_rejects_derived_phase_context_reread(
             validate_shared=False,
             lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
+            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(),
         )
 
     diagnostic = excinfo.value.diagnostics[0]

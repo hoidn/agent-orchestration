@@ -1,0 +1,1 @@
+Removed the Design Delta child-phase literal callee branch from typecheck/lowering in favor of family-profile hidden-context rules; declared broad pytest and Design Delta compile gates pass.

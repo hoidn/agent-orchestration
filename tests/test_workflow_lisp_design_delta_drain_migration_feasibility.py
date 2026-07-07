@@ -4104,6 +4104,9 @@ def test_design_delta_item_ctx_child_phase_reuse_route_rejects_non_item_ctx_root
             command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
             validate_shared=True,
             workspace_root=tmp_path,
+            family_profile_catalog=load_workflow_family_profile_catalog(
+                (DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,)
+            ),
         )
 
     assert excinfo.value.diagnostics[0].code == "derived_phase_context_binding_invalid"

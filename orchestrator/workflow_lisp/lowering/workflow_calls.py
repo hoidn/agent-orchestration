@@ -32,7 +32,6 @@ from ..phase import (
     private_exec_context_capabilities,
     private_exec_context_kind,
 )
-from ..typecheck_calls import DESIGN_DELTA_CHILD_PHASE_CALLEES
 from ..workflows import PromotedEntryHiddenContextRequirement
 from ..type_env import PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, WorkflowRefTypeRef
 from . import core as lowering_core
@@ -1085,7 +1084,25 @@ def _lower_workflow_call(
                     param_name=param_name,
                 )
                 if not eligibility.allowed:
-                    if requirement.binding_kind == "derived_private_child_context":
+                    allowed_hidden_context_callees = getattr(
+                        context.signature,
+                        "allowed_hidden_context_callees",
+                        frozenset(),
+                    )
+                    family_profile_catalog = getattr(
+                        context.workflow_catalog,
+                        "family_profile_catalog",
+                        None,
+                    )
+                    hidden_context_rule = (
+                        family_profile_catalog.hidden_context_rule(canonical_name)
+                        if family_profile_catalog is not None
+                        else None
+                    )
+                    if (
+                        hidden_context_rule is not None
+                        and hidden_context_rule.parameter_name == param_name
+                    ):
                         raise lowering_core._compile_error(
                             code=eligibility.diagnostic_code
                             or "derived_phase_context_binding_invalid",
@@ -1094,7 +1111,21 @@ def _lower_workflow_call(
                             span=expr.span,
                             form_path=expr.form_path,
                         )
-                    if canonical_name in DESIGN_DELTA_CHILD_PHASE_CALLEES:
+                    if (
+                        getattr(requirement, "allows_entry_bootstrap", False)
+                        and canonical_name in allowed_hidden_context_callees
+                    ):
+                        with_bindings.update(
+                            _declare_runtime_context_hidden_inputs(
+                                context=context,
+                                param_name=param_name,
+                                param_type=param_type,
+                                requirement=requirement,
+                                source_expr=expr,
+                            )
+                        )
+                        continue
+                    if requirement.binding_kind == "derived_private_child_context":
                         raise lowering_core._compile_error(
                             code=eligibility.diagnostic_code
                             or "derived_phase_context_binding_invalid",
@@ -1108,19 +1139,6 @@ def _lower_workflow_call(
                         "allowed_hidden_context_callees",
                         frozenset(),
                     ):
-                        if (
-                            not eligible_private_context_source_param_names(context.signature)
-                            and canonical_name in DESIGN_DELTA_CHILD_PHASE_CALLEES
-                            and not canonical_name.endswith("::resume-plan-gate-wrapper")
-                        ):
-                            raise lowering_core._compile_error(
-                                code=eligibility.diagnostic_code
-                                or "derived_phase_context_binding_invalid",
-                                message=eligibility.diagnostic_message
-                                or f"invalid derived child phase context for `{param_name}`",
-                                span=expr.span,
-                                form_path=expr.form_path,
-                            )
                         with_bindings.update(
                             _declare_runtime_context_hidden_inputs(
                                 context=context,
