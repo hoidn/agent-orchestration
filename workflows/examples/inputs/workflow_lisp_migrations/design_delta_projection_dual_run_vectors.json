@@ -10,6 +10,13 @@
           "replacement_inputs": {
             "selection_status": "SELECT_BACKLOG_ITEM",
             "selection_bundle_path": "state/selector_selected.json",
+            "work_item_bootstrap__work_item_source": "BACKLOG_ITEM",
+            "work_item_bootstrap__work_item_id": "selector-selected-backlog-item",
+            "work_item_bootstrap__plan_target_path": "docs/plans/projection-dual-run-plan.md",
+            "work_item_bootstrap__check_commands__commands": [
+              "python -m pytest tests/test_workflow_lisp_projection_dual_run.py"
+            ],
+            "work_item_bootstrap__architecture_path": "docs/plans/projection-dual-run-architecture.md",
             "blocked_reason": ""
           },
           "incumbent_inputs": {
@@ -33,6 +40,13 @@
           "replacement_inputs": {
             "selection_status": "DRAFT_DESIGN_GAP",
             "selection_bundle_path": "state/selector_gap.json",
+            "work_item_bootstrap__work_item_source": "DESIGN_GAP",
+            "work_item_bootstrap__work_item_id": "selector-design-gap",
+            "work_item_bootstrap__plan_target_path": "docs/plans/projection-dual-run-gap-plan.md",
+            "work_item_bootstrap__check_commands__commands": [
+              "python -m pytest tests/test_workflow_lisp_projection_dual_run.py"
+            ],
+            "work_item_bootstrap__architecture_path": "docs/plans/projection-dual-run-gap-architecture.md",
             "blocked_reason": ""
           },
           "incumbent_inputs": {
@@ -56,6 +70,13 @@
           "replacement_inputs": {
             "selection_status": "DONE",
             "selection_bundle_path": "state/selector_done.json",
+            "work_item_bootstrap__work_item_source": "BACKLOG_ITEM",
+            "work_item_bootstrap__work_item_id": "selector-done",
+            "work_item_bootstrap__plan_target_path": "docs/plans/projection-dual-run-done-plan.md",
+            "work_item_bootstrap__check_commands__commands": [
+              "python -m pytest tests/test_workflow_lisp_projection_dual_run.py"
+            ],
+            "work_item_bootstrap__architecture_path": "docs/plans/projection-dual-run-done-architecture.md",
             "blocked_reason": ""
           },
           "incumbent_inputs": {
@@ -79,6 +100,13 @@
           "replacement_inputs": {
             "selection_status": "BLOCKED",
             "selection_bundle_path": "state/selector_blocked_default.json",
+            "work_item_bootstrap__work_item_source": "BACKLOG_ITEM",
+            "work_item_bootstrap__work_item_id": "selector-blocked-default-reason",
+            "work_item_bootstrap__plan_target_path": "docs/plans/projection-dual-run-blocked-plan.md",
+            "work_item_bootstrap__check_commands__commands": [
+              "python -m pytest tests/test_workflow_lisp_projection_dual_run.py"
+            ],
+            "work_item_bootstrap__architecture_path": "docs/plans/projection-dual-run-blocked-architecture.md",
             "blocked_reason": ""
           },
           "incumbent_inputs": {
@@ -102,6 +130,13 @@
           "replacement_inputs": {
             "selection_status": "BLOCKED",
             "selection_bundle_path": "state/selector_blocked_reason.json",
+            "work_item_bootstrap__work_item_source": "BACKLOG_ITEM",
+            "work_item_bootstrap__work_item_id": "selector-blocked-explicit-reason",
+            "work_item_bootstrap__plan_target_path": "docs/plans/projection-dual-run-blocked-explicit-plan.md",
+            "work_item_bootstrap__check_commands__commands": [
+              "python -m pytest tests/test_workflow_lisp_projection_dual_run.py"
+            ],
+            "work_item_bootstrap__architecture_path": "docs/plans/projection-dual-run-blocked-explicit-architecture.md",
             "blocked_reason": "needs_triage"
           },
           "incumbent_inputs": {

@@ -68,7 +68,7 @@ WRAPPER_SOURCE = """(workflow-lisp
   (import lisp_frontend_design_delta/types :only
     (BlockedRecoveryDecision BlockedRecoveryReason BlockedRecoveryRoute DesignDeltaDrainAction
       ImplementationReviewDecision ImplementationState PlanReviewDecision SelectionBundlePath
-      SelectionStatus WorkItemSource WorkItemTerminalDecision))
+      SelectionStatus WorkItemBootstrapSeed WorkItemSource WorkItemTerminalDecision))
   (export run-blocked-recovery-projection run-selector-projection run-terminal-projection)
 
   (defrecord SelectorProjectionOutcome
@@ -110,9 +110,9 @@ WRAPPER_SOURCE = """(workflow-lisp
     :lowering inline
     (match decision
       ((SELECTED_ITEM selected)
-       selected.selected_item_selection_bundle)
+       fallback_bundle)
       ((DRAFT_DESIGN_GAP gap)
-       gap.design_gap_selection_bundle)
+       fallback_bundle)
       ((BLOCKED_RECOVERY blocked_recovery)
        blocked_recovery.blocked_recovery_selection_bundle)
       ((DONE done)
@@ -189,12 +189,13 @@ WRAPPER_SOURCE = """(workflow-lisp
   (defworkflow run-selector-projection
     ((selection_status SelectionStatus)
      (selection_bundle_path SelectionBundlePath)
+     (work_item_bootstrap WorkItemBootstrapSeed)
      (blocked_reason String))
     -> SelectorProjectionOutcome
       (let* ((decision
              (call project-selector-action
                :selection_status selection_status
-               :selection_bundle_path selection_bundle_path
+               :work_item_bootstrap work_item_bootstrap
                :blocked_reason blocked_reason))
            (variant_name
              (project-selector-variant decision))
@@ -230,10 +231,10 @@ WRAPPER_SOURCE = """(workflow-lisp
      (reason BlockedRecoveryReason))
     -> BlockedRecoveryProjectionOutcome
       (let* ((decision
-             (call normalize-blocked-recovery-route
-               :work_item_source work_item_source
-               :blocked_recovery_route blocked_recovery_route
-               :reason reason))
+             (normalize-blocked-recovery-route
+               work_item_source
+               blocked_recovery_route
+               reason))
            (variant_name
              (project-blocked-recovery-variant decision))
            (decision_reason
