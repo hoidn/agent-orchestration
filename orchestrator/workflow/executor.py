@@ -9692,6 +9692,27 @@ class WorkflowExecutor:
                 "Materialize view execution failed",
                 {"reason": "missing_materialize_view_config"},
             )
+        publication = config.get("publication")
+        if (
+            isinstance(publication, Mapping)
+            and publication.get("entry_boundary_only") is True
+            and isinstance(getattr(self.state_manager, "frame_id", None), str)
+        ):
+            return {
+                "status": "completed",
+                "exit_code": 0,
+                "duration_ms": 0,
+                "artifacts": {},
+                "debug": {
+                    "entry_publication": {
+                        "skipped": True,
+                        "reason": "call_frame_not_entry_boundary",
+                        "row_id": publication.get("row_id"),
+                        "role": publication.get("role"),
+                        "variant": publication.get("variant"),
+                    }
+                },
+            }
         renderer_id = config.get("renderer_id")
         renderer_version = config.get("renderer_version")
         renderer_schema_version = config.get("view_renderer_schema_version")

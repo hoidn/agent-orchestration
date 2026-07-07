@@ -939,10 +939,12 @@ def _entry_publication_materialize_step(
         else None
     )
     descriptor_path_template = role_descriptor.get("path_template")
+    use_descriptor_target = row.role in variant_field_names
     target_path_template = (
         str(descriptor_path_template)
         if isinstance(descriptor_path_template, str)
         and descriptor_path_template
+        and use_descriptor_target
         else (
             f"artifacts/work/workflow_lisp_entry_publication/"
             f"{_publication_slug(typed_workflow.definition.name)}/"
