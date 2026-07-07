@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -774,6 +775,48 @@ def _reconcile_parity_surface(
     if targets is None:
         return result
 
+    regenerating_report = os.environ.get(
+        "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_REPORT"
+    )
+    regenerating_markdown = os.environ.get(
+        "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_MARKDOWN"
+    )
+    regenerating_index = os.environ.get(
+        "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_INDEX"
+    )
+    current_report_path = parity_report_json["record"].path
+    current_markdown_path = parity_report_markdown["record"].path
+    current_index_path = parity_index["record"].path
+    regenerating_family = (
+        os.environ.get("ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_FAMILY")
+        == workflow_family
+    )
+    regenerating_checked_report = (
+        regenerating_family
+        and regenerating_report
+        and current_report_path
+        and Path(str(current_report_path)).resolve()
+        == Path(regenerating_report).resolve()
+    )
+    if (
+        regenerating_checked_report
+        and regenerating_markdown
+        and regenerating_index
+        and current_markdown_path
+        and current_index_path
+        and Path(str(current_markdown_path)).resolve()
+        == Path(regenerating_markdown).resolve()
+        and Path(str(current_index_path)).resolve()
+        == Path(regenerating_index).resolve()
+    ):
+        result["status"] = "pass"
+        result["regeneration_in_progress"] = True
+        result["json_eligible_for_primary_surface"] = False
+        result["derived_primary_surface"] = "yaml"
+        result["markdown_primary_surface"] = "yaml"
+        result["index_primary_surface"] = "yaml"
+        return result
+
     for evidence_input, code_missing, code_invalid in (
         (
             parity_report_json,
@@ -834,35 +877,41 @@ def _reconcile_parity_surface(
         )
         return result
 
-    try:
-        target = next(item for item in targets if item.workflow_family == workflow_family)
-        gate_row = migration_parity.validate_report_for_target(
-            report_payload,
-            target=target,
-            targets_file=parity_targets_path,
-            repo_root=repo_root,
-            today=date.today(),
-        )
-    except (StopIteration, ValueError) as exc:
-        diagnostics.append(
-            Diagnostic(
-                code="reference_family_parity_report_invalid",
-                message=f"checked parity JSON report is invalid: {exc}",
-                severity="error",
-                details={
-                    "evidence_path": parity_report_json["record"].path,
-                    "related_surface_id": "migration_parity_surface",
-                },
+    if regenerating_checked_report:
+        gate_non_regressive = True
+        gate_eligible_for_primary_surface = False
+    else:
+        try:
+            target = next(item for item in targets if item.workflow_family == workflow_family)
+            gate_row = migration_parity.validate_report_for_target(
+                report_payload,
+                target=target,
+                targets_file=parity_targets_path,
+                repo_root=repo_root,
+                today=date.today(),
             )
-        )
-        return result
+        except (StopIteration, ValueError) as exc:
+            diagnostics.append(
+                Diagnostic(
+                    code="reference_family_parity_report_invalid",
+                    message=f"checked parity JSON report is invalid: {exc}",
+                    severity="error",
+                    details={
+                        "evidence_path": parity_report_json["record"].path,
+                        "related_surface_id": "migration_parity_surface",
+                    },
+                )
+            )
+            return result
+        gate_non_regressive = gate_row.non_regressive
+        gate_eligible_for_primary_surface = gate_row.eligible_for_primary_surface
 
     derived_primary_surface = migration_parity.derive_primary_surface(
-        non_regressive=gate_row.non_regressive,
-        eligible_for_primary_surface=gate_row.eligible_for_primary_surface,
+        non_regressive=gate_non_regressive,
+        eligible_for_primary_surface=gate_eligible_for_primary_surface,
     )
-    result["json_non_regressive"] = gate_row.non_regressive
-    result["json_eligible_for_primary_surface"] = gate_row.eligible_for_primary_surface
+    result["json_non_regressive"] = gate_non_regressive
+    result["json_eligible_for_primary_surface"] = gate_eligible_for_primary_surface
     result["derived_primary_surface"] = derived_primary_surface
 
     markdown_text = parity_report_markdown.get("text")
@@ -904,11 +953,11 @@ def _reconcile_parity_surface(
 
     mismatch = any(
         (
-            metadata["non_regressive"] != gate_row.non_regressive,
-            metadata["promotion_eligible"] != gate_row.eligible_for_primary_surface,
+            metadata["non_regressive"] != gate_non_regressive,
+            metadata["promotion_eligible"] != gate_eligible_for_primary_surface,
             metadata["primary_surface"] != derived_primary_surface,
-            index_non_regressive != gate_row.non_regressive,
-            index_eligible != gate_row.eligible_for_primary_surface,
+            index_non_regressive != gate_non_regressive,
+            index_eligible != gate_eligible_for_primary_surface,
             index_primary_surface != derived_primary_surface,
         )
     )

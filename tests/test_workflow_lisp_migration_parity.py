@@ -4605,6 +4605,48 @@ def test_run_parity_target_fails_boundary_parity_when_g0_report_has_unclassified
     assert "public" in " ".join(evidence.get("reasons", []))
 
 
+def test_public_private_boundary_parity_allows_explicit_public_compatibility_inputs() -> None:
+    module = _parity_module()
+    workflow_boundary = {
+        "workflow_name": "lisp_frontend_design_delta/drain::drain",
+        "public_input_names": [
+            "steering_path",
+            "target_design_path",
+            "baseline_design_path",
+            "manifest_path",
+            "progress_ledger_path",
+            "architecture_bundle_path",
+        ],
+        "private_runtime_context_bindings": [],
+        "private_managed_write_root_inputs": [],
+        "private_compatibility_bridge_inputs": [],
+    }
+    boundary_authority_report = {
+        "workflows": [
+            {
+                "workflow_name": "lisp_frontend_design_delta/drain::drain",
+                "public_authored": [
+                    "steering_path",
+                    "target_design_path",
+                    "baseline_design_path",
+                    "manifest_path",
+                    "progress_ledger_path",
+                    "architecture_bundle_path",
+                ],
+                "unclassified": [],
+                "public_leaks": [],
+            }
+        ]
+    }
+
+    evidence = module._public_private_boundary_parity_evidence(
+        workflow_boundary,
+        boundary_authority_report=boundary_authority_report,
+    )
+
+    assert evidence["status"] == "pass"
+
+
 def test_design_delta_parent_drain_fails_boundary_parity_when_selected_workflow_row_is_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

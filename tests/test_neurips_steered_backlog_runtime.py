@@ -97,6 +97,17 @@ def _target_from_pointer(workspace: Path, pointer_relpath: str) -> Path:
 
 
 def _next_missing_selector_dir(workspace: Path) -> Path:
+    selector_roots = []
+    for manifest_pointer in sorted(workspace.glob("state/workflow_lisp/calls/**/manifest_path.txt")):
+        selector_root = manifest_pointer.parent
+        if (
+            (selector_root / "run_state_path.txt").is_file()
+            and (selector_root / "roadmap_path.txt").is_file()
+            and not (selector_root / "selection.json").exists()
+        ):
+            selector_roots.append(selector_root)
+    if selector_roots:
+        return selector_roots[0]
     for selector_dir in sorted(workspace.glob("state/**/selector")):
         if not (selector_dir / "selection.json").exists():
             return selector_dir
@@ -448,9 +459,7 @@ def _write_selector_blocked_after_gap(workspace: Path) -> None:
     latest = manifests[-1]
     manifest = json.loads(latest.read_text(encoding="utf-8"))
     assert any(item["item_id"] == "2026-04-28-phase2-gap" for item in manifest["items"])
-    selector_dirs = sorted(path for path in workspace.glob("state/**/selector") if not (path / "selection.json").exists())
-    assert selector_dirs, "No pending selector directory found"
-    selector_dir = selector_dirs[-1]
+    selector_dir = _next_missing_selector_dir(workspace)
     (selector_dir / "selection.json").write_text(
         json.dumps(
             {

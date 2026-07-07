@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import time
 from collections.abc import Mapping, Sequence
@@ -278,13 +279,78 @@ def run_parity_target(
         stderr_log = logs_root / f"{role}.stderr.log"
         if role == "compile":
             compile_manifest_snapshot = _snapshot_build_manifests(repo_root)
-        outcome = _run_command(
-            target.evidence_commands[role],
-            role=role,
-            repo_root=repo_root,
-            stdout_log=stdout_log,
-            stderr_log=stderr_log,
+        previous_regenerating_family = os.environ.get(
+            "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_FAMILY"
         )
+        previous_regenerating_report = os.environ.get(
+            "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_REPORT"
+        )
+        previous_regenerating_markdown = os.environ.get(
+            "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_MARKDOWN"
+        )
+        previous_regenerating_index = os.environ.get(
+            "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_INDEX"
+        )
+        if role == "artifact_parity":
+            report_path = resolved_output_root / f"{target.workflow_family}.json"
+            os.environ[
+                "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_FAMILY"
+            ] = target.workflow_family
+            os.environ[
+                "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_REPORT"
+            ] = str(report_path.resolve())
+            os.environ[
+                "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_MARKDOWN"
+            ] = str(report_path.with_suffix(".md").resolve())
+            os.environ[
+                "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_INDEX"
+            ] = str((resolved_output_root / "index.json").resolve())
+        try:
+            outcome = _run_command(
+                target.evidence_commands[role],
+                role=role,
+                repo_root=repo_root,
+                stdout_log=stdout_log,
+                stderr_log=stderr_log,
+            )
+        finally:
+            if role == "artifact_parity":
+                if previous_regenerating_family is None:
+                    os.environ.pop(
+                        "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_FAMILY",
+                        None,
+                    )
+                else:
+                    os.environ[
+                        "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_FAMILY"
+                    ] = previous_regenerating_family
+                if previous_regenerating_report is None:
+                    os.environ.pop(
+                        "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_REPORT",
+                        None,
+                    )
+                else:
+                    os.environ[
+                        "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_REPORT"
+                    ] = previous_regenerating_report
+                if previous_regenerating_markdown is None:
+                    os.environ.pop(
+                        "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_MARKDOWN",
+                        None,
+                    )
+                else:
+                    os.environ[
+                        "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_MARKDOWN"
+                    ] = previous_regenerating_markdown
+                if previous_regenerating_index is None:
+                    os.environ.pop(
+                        "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_INDEX",
+                        None,
+                    )
+                else:
+                    os.environ[
+                        "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_INDEX"
+                    ] = previous_regenerating_index
         command_logs[role] = {
             "stdout": _relative_path(stdout_log, repo_root),
             "stderr": _relative_path(stderr_log, repo_root),
@@ -2284,20 +2350,31 @@ def _public_private_boundary_parity_evidence(
             "public_leaks": list(public_leaks) if isinstance(public_leaks, list) else [],
         }
     public_inputs = set(workflow_boundary.get("public_input_names", ()))
-    forbidden_inputs = {
+    explicitly_public = {
+        name
+        for name in boundary_row.get("public_authored", ())
+        if isinstance(name, str)
+    }
+    always_forbidden_inputs = {
         "phase-ctx",
         "drain-ctx",
         "selection_bundle_path",
+        "run_state_path",
+        "state_root",
+    }
+    legacy_compatibility_inputs = {
         "manifest_path",
         "architecture_bundle_path",
         "progress_ledger_path",
-        "run_state_path",
-        "state_root",
     }
     exposed_forbidden = sorted(
         name
         for name in public_inputs
-        if name in forbidden_inputs or str(name).startswith("__write_root__")
+        if (
+            name in always_forbidden_inputs
+            or str(name).startswith("__write_root__")
+            or (name in legacy_compatibility_inputs and name not in explicitly_public)
+        )
     )
     if exposed_forbidden:
         return {

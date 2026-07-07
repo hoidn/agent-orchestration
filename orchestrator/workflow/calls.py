@@ -267,6 +267,8 @@ class CallExecutor:
             imported_workflow=imported_workflow,
         )
         for input_name in workflow_managed_write_root_inputs(imported_workflow):
+            if input_name in finalized:
+                continue
             contract = contracts.get(input_name, {})
             allocation = allocation_by_input.get(input_name)
             expected_value = self._managed_write_root_value(

@@ -919,6 +919,45 @@ def test_build_reference_family_conformance_profile_rejects_parity_report_that_f
     }
 
 
+def test_build_reference_family_conformance_profile_allows_stale_parity_during_regeneration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _reference_family_module()
+    fixture = _reference_family_fixture(tmp_path)
+    json_path = _copy_json(
+        fixture["parity_report_json_path"], tmp_path / "design_delta_parent_drain.json"
+    )
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    del payload["target_identity"]["candidate_sha256"]
+    json_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    monkeypatch.setenv(
+        "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_FAMILY",
+        "design_delta_parent_drain",
+    )
+    monkeypatch.setenv(
+        "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_REPORT",
+        str(json_path.resolve()),
+    )
+    monkeypatch.setenv(
+        "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_MARKDOWN",
+        str(Path(fixture["parity_report_markdown_path"]).resolve()),
+    )
+    monkeypatch.setenv(
+        "ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_INDEX",
+        str(Path(fixture["parity_index_path"]).resolve()),
+    )
+
+    profile = module.build_reference_family_conformance_profile(
+        **_reference_family_inputs(fixture, parity_report_json_path=json_path)
+    )
+
+    assert profile["profile_status"] == "pass"
+    assert profile["parity_surface_reconciliation"]["status"] == "pass"
+    assert profile["parity_surface_reconciliation"]["regeneration_in_progress"] is True
+    assert profile["diagnostics"] == []
+
+
 def test_build_reference_family_conformance_profile_requires_explicit_passing_owner_reports(
     tmp_path: Path,
 ) -> None:
