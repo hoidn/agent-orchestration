@@ -1,0 +1,1 @@
+Verified the current checkout satisfies the runtime-native drain target: conformance profile passed, broad pytest passed, and Design Delta compile returned diagnostic_count 0.

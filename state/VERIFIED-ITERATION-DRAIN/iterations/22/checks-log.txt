@@ -1,0 +1,9 @@
+$ python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json
+exit 0
+diagnostic_count: 0
+build_root: /home/ollie/Documents/agent-orchestration/.orchestrate/build/0758b59a065ce8e0
+reference_family_conformance_profile.profile_status: pass
+
+$ python -m pytest tests/test_workflow_lisp_*.py tests/test_lisp_frontend_autonomous_drain_runtime.py tests/test_loader_validation.py tests/test_workflow_executor_characterization.py tests/test_runtime_step_lifecycle.py -q
+exit 0
+2484 passed in 806.40s (0:13:26)
