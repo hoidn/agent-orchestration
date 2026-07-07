@@ -228,6 +228,20 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
+        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_item_ctx_child_phase_reuse_compiles",
+        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_item_ctx_child_phase_reuse_smokes_approved_and_plan_blocked_routes"
+      ],
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "path": "tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse.orc",
+      "readiness_label": "leaf_runtime_candidate",
+      "route_label": "wcc_default",
+      "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_item_ctx_child_phase_reuse",
+      "surface_kind": "test_fixture"
+    },
+    {
+      "copy_safety": "test_evidence_only",
+      "evidence": [
         "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_runtime_fixture_mirror_matches_library_module_set",
         "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_smokes_complete_and_blocked_recovery_routes"
       ],
@@ -237,6 +251,19 @@
       "readiness_label": "leaf_compile_candidate",
       "route_label": "wcc_default",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.bootstrap",
+      "surface_kind": "test_fixture"
+    },
+    {
+      "copy_safety": "test_evidence_only",
+      "evidence": [
+        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts"
+      ],
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "path": "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/design_gap_architect.orc",
+      "readiness_label": "leaf_compile_candidate",
+      "route_label": "wcc_default",
+      "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.design_gap_architect",
       "surface_kind": "test_fixture"
     },
     {
@@ -265,6 +292,32 @@
       "readiness_label": "leaf_compile_candidate",
       "route_label": "wcc_default",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.plan_phase",
+      "surface_kind": "test_fixture"
+    },
+    {
+      "copy_safety": "test_evidence_only",
+      "evidence": [
+        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts"
+      ],
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "path": "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/selector.orc",
+      "readiness_label": "leaf_compile_candidate",
+      "route_label": "wcc_default",
+      "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.selector",
+      "surface_kind": "test_fixture"
+    },
+    {
+      "copy_safety": "test_evidence_only",
+      "evidence": [
+        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts"
+      ],
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "path": "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/stdlib_adapters.orc",
+      "readiness_label": "leaf_compile_candidate",
+      "route_label": "wcc_default",
+      "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.stdlib_adapters",
       "surface_kind": "test_fixture"
     },
     {
@@ -529,6 +582,33 @@
       "surface_kind": "library_workflow"
     },
     {
+      "copy_safety": "migration_evidence_only",
+      "evidence": [
+        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_parent_drain_entrypoint_adopts_stdlib_owner_routes",
+        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_parent_drain_source_shape_finalizer_compat_retirement_removes_helpers_from_ordinary_work_item_routes"
+      ],
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "path": "workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc",
+      "readiness_label": "leaf_compile_candidate",
+      "route_label": "migration_candidate",
+      "surface_id": "workflows.library.lisp_frontend_design_delta.stdlib_adapters",
+      "surface_kind": "library_workflow"
+    },
+    {
+      "copy_safety": "migration_evidence_only",
+      "evidence": [
+        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_parent_drain_routes_design_gap_bundle_from_action"
+      ],
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "path": "workflows/library/lisp_frontend_design_delta/stdlib_payloads.orc",
+      "readiness_label": "leaf_compile_candidate",
+      "route_label": "migration_candidate",
+      "surface_id": "workflows.library.lisp_frontend_design_delta.stdlib_payloads",
+      "surface_kind": "library_workflow"
+    },
+    {
       "copy_safety": "test_evidence_only",
       "evidence": [
         "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_projection_runtime_fixture_compiles",
@@ -626,5 +706,5 @@
       "surface_kind": "library_workflow"
     }
   ],
-  "updated": "2026-06-10"
+  "updated": "2026-07-07"
 }

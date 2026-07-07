@@ -1503,14 +1503,16 @@ def _parent_loop_control_reasons(
         alias
         for node in top_level
         for alias in _core_ast_call_aliases(node)
-        if alias == "lisp_frontend_design_delta/drain::drain-loop-proof"
     }
+    if "std/drain::backlog-drain" in top_level_calls:
+        return []
     repeat_nodes = [
         node
         for node in top_level
         if isinstance(node, Mapping) and str(node.get("kind")) == "repeat_until"
     ]
-    if top_level_calls or not repeat_nodes:
+    legacy_loop_proof_alias = "lisp_frontend_design_delta/drain::drain-loop-proof"
+    if legacy_loop_proof_alias in top_level_calls or not repeat_nodes:
         return [reason]
 
     loop_aliases = {

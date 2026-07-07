@@ -1030,6 +1030,43 @@ def test_design_delta_parent_drain_resource_parity_rejects_g8_evidence_missing_d
     assert "missing deleted rows" in " ".join(evidence["reasons"])
 
 
+def test_design_delta_parent_loop_control_accepts_imported_stdlib_owner_route(
+    tmp_path: Path,
+) -> None:
+    module = _parity_module()
+    _, _, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = tmp_path / ".orchestrate" / "build" / "stdlib-owner"
+    build_root.mkdir(parents=True)
+    core_ast_path = build_root / "core_workflow_ast.json"
+    _write_json(
+        core_ast_path,
+        {
+            "schema_version": "workflow_lisp_core_workflow_ast.v1",
+            "workflow_name": "lisp_frontend_design_delta/drain::drain",
+            "body": [
+                {
+                    "kind": "call",
+                    "call_alias": "lisp_frontend_design_delta/drain::build-drain-runtime-owned",
+                },
+                {
+                    "kind": "call",
+                    "call_alias": "std/drain::backlog-drain",
+                },
+                {"kind": "match"},
+            ],
+        },
+    )
+
+    reasons = module._parent_loop_control_reasons(
+        target=target,
+        compile_payload={"build_root": str(build_root)},
+        build_manifest={"artifact_paths": {"core_workflow_ast": str(core_ast_path)}},
+        repo_root=tmp_path,
+    )
+
+    assert reasons == []
+
+
 def test_load_parity_targets_preserves_runtime_audit_artifacts(tmp_path: Path) -> None:
     module = _parity_module()
     payload = _valid_manifest_payload()

@@ -1,6 +1,9 @@
 Read the steering file, target design, compact selector manifest, and selector DONE
 bundle before acting. Use the baseline design only as a compatibility
 background when needed.
+Treat `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json`
+as the authority for post-WCC current-state inventory and DONE eligibility when
+it is provided as an input.
 
 Review whether the selector's DONE candidate is actually justified for the
 target design.
