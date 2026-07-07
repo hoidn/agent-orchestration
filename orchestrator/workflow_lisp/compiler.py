@@ -621,7 +621,7 @@ def compile_stage3_entrypoint(
     additional_diagnostics = ()
     if compile_result is not None:
         additional_diagnostics = (
-            *compile_result.diagnostics,
+            *_filter_profile_checked_linked_diagnostics(compile_result),
             *_collect_declared_transition_binding_diagnostics_for_linked_result(compile_result),
         )
     diagnostics = _finalize_stage3_diagnostics(
@@ -779,6 +779,43 @@ def _finalize_stage3_diagnostics(
     ):
         raise LispFrontendCompileError(diagnostics)
     return diagnostics
+
+
+def _filter_profile_checked_linked_diagnostics(
+    compile_result: LinkedStage3CompileResult,
+) -> tuple[LispFrontendDiagnostic, ...]:
+    filtered: list[LispFrontendDiagnostic] = []
+    for diagnostic in compile_result.diagnostics:
+        if _is_profile_checked_low_level_state_path_diagnostic(
+            diagnostic,
+            compile_result=compile_result,
+        ):
+            continue
+        filtered.append(diagnostic)
+    return tuple(filtered)
+
+
+def _is_profile_checked_low_level_state_path_diagnostic(
+    diagnostic: LispFrontendDiagnostic,
+    *,
+    compile_result: LinkedStage3CompileResult,
+) -> bool:
+    if diagnostic.code != "low_level_state_path_in_high_level_module":
+        return False
+    workflow_name = _diagnostic_workflow_name(diagnostic)
+    if workflow_name is None:
+        return False
+    catalog = compile_result.entry_result.workflow_catalog.family_profile_catalog
+    if catalog is None:
+        return False
+    return catalog.workflow_in_profile(workflow_name)
+
+
+def _diagnostic_workflow_name(diagnostic: LispFrontendDiagnostic) -> str | None:
+    parts = diagnostic.message.split("`", 2)
+    if len(parts) < 3:
+        return None
+    return parts[1]
 
 
 def _collect_stage3_required_lint_diagnostics(

@@ -3225,6 +3225,21 @@ def test_build_persists_warning_lints_in_diagnostics_artifact_on_success(tmp_pat
     ]
 
 
+def test_design_delta_family_profile_checked_workflows_do_not_emit_low_level_state_lints(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_design_delta_parent_drain_request(tmp_path))
+
+    assert {
+        diagnostic.message.split("`", 2)[1]
+        for diagnostic in result.diagnostics
+        if diagnostic.code == "low_level_state_path_in_high_level_module"
+    } == set()
+
+
 def test_build_runtime_plan_artifact_matches_selected_workflow_lineage_and_manifest(tmp_path: Path) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
