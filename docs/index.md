@@ -1,6 +1,6 @@
 # Agent-Orchestration Documentation Hub
 
-This index provides a comprehensive map of the repo documentation so you can quickly find the right contract, guide, or example.
+This index provides a routing map of the repo documentation so you can quickly find the right contract, guide, catalog, or example.
 
 Normative behavior lives in `specs/`.  
 Informative guidance and mental models live in `docs/`.
@@ -268,6 +268,11 @@ document owns the answer.
 **Description:** Refactoring backlog for reducing maintenance cost in `orchestrator/workflow_lisp/` while preserving the current compiler architecture, diagnostics, provenance, type safety, effect visibility, and lowering behavior.
 **Keywords:** lisp-frontend, refactoring, compiler, typecheck, lowering, diagnostics
 **Use this when:** Planning cleanup of the Workflow Lisp frontend implementation without mixing it with missing full-design feature work.
+
+### [Workflow Lisp Refactoring And Retirement Plan Set](plans/2026-07-07-refactoring-dead-code-and-lowering-consolidation.md)
+**Description:** Current sequenced plan set for Workflow Lisp implementation cleanup and migration retirement: Phase 1 dead-code/latent-bug/lowering-consolidation work, followed by the gated lowering-fork migration, typecheck-family completion, build module split, executor decomposition, drain G8/certification-bundle retirement, and user-facing YAML retirement plans.
+**Keywords:** lisp-frontend, refactoring, lowering, typecheck, build, executor, drain-migration, yaml-retirement
+**Use this when:** Coordinating the 2026-07-07 cleanup/retirement program or checking which follow-on plan is gated by which prerequisite artifact. Start with the Phase 1 plan; do not execute follow-on plans whose entry-gate artifacts are absent.
 
 ### [Workflow Lisp Key Migration Parity Architecture](design/workflow_lisp_key_migration_parity_architecture.md)
 **Description:** Draft architecture for closing the DSL/compiler/runtime parity gaps that block promoting key `.orc` workflow migrations over YAML primaries, including command-result bundles, review/revise loops, carried findings, reusable state, defaults, and promotion evidence.
