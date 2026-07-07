@@ -215,7 +215,14 @@ Rules:
    definition time (Core Model, definition-site coverage); constraints are
    never an inference source. This rule is how cross-parameter contracts are
    expressed — e.g. "the run-item hook's payload parameter is the same type
-   as the selector's `SELECTED.selection` field."
+   as the selector's `SELECTED.selection` field." Implementation status: a
+   type-parameter-named field type must be resolved as a type-parameter
+   placeholder, not looked up against the registered type environment, at
+   every point a generic definition's `:where` clauses are processed —
+   per-clause constraint checking, the provisional pass that types match
+   arms against a `:where`-declared union, and variant-field projection
+   typechecking inside the generic body. An eager, non-parameter-aware
+   resolution at any one of these fails closed with `type_unknown`.
 4. **Assignment compatibility, directional.** A field-type check passes when
    the concrete field type is assignable **to** the constraint's field type
    (source to sink: the generic body projects the field and passes the value
@@ -296,6 +303,9 @@ not survive as Python-side validation for any migrated form.
   revisiting: generic stdlib definitions or call-site count grows enough that
   post-instantiation diagnostics measurably degrade authoring (see
   Diagnostics Contract).
+- **`has-shared-union-field` against `:forall`-typed fields**: the
+  multi-variant shared-field resolution path is untested against
+  type-parameter-named field types.
 
 ## Specialization Pipeline
 
