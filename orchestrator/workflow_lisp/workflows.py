@@ -30,6 +30,7 @@ from .command_boundaries import (
     ExternalToolBinding,
     build_command_boundary_environment,
 )
+from .context_classification import classify_structural_private_exec_context
 from .definitions import WorkflowLispModule
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
@@ -906,6 +907,7 @@ def build_workflow_catalog(
     if allow_hidden_context_callers:
         hidden_context_callees_by_workflow = _shared_proof_hidden_context_omission_callees(
             module=module,
+            selected_entry_workflow_name=selected_entry_workflow_name,
             workflow_defs=workflow_defs,
             signatures_by_name=signatures_by_name,
         )
@@ -1013,18 +1015,22 @@ def build_workflow_catalog(
 def _shared_proof_hidden_context_omission_callees(
     *,
     module: WorkflowLispModule,
+    selected_entry_workflow_name: str | None,
     workflow_defs: tuple[WorkflowDef, ...],
     signatures_by_name: Mapping[str, WorkflowSignature],
 ) -> Mapping[str, frozenset[str]]:
     """Return the approved proof-route callees for hidden context omission."""
 
     proof_worker_names = _shared_proof_hidden_context_seed_workflow_names(
+        module=module,
+        selected_entry_workflow_name=selected_entry_workflow_name,
         workflow_defs=workflow_defs,
         signatures_by_name=signatures_by_name,
     )
     allowed_workflow_names = set(
         _shared_proof_hidden_context_workflow_names(
             module=module,
+            selected_entry_workflow_name=selected_entry_workflow_name,
             workflow_defs=workflow_defs,
             signatures_by_name=signatures_by_name,
         )
@@ -1078,12 +1084,16 @@ def _selected_entry_hidden_context_omission_callees(
     }
     candidate_workflow_names: set[str] = set()
     if selected_entry_workflow_name is not None:
-        candidate_workflow_names.add(
-            workflow_name_by_local_name.get(
-                selected_entry_workflow_name,
-                selected_entry_workflow_name,
-            )
+        selected_workflow_name = workflow_name_by_local_name.get(
+            selected_entry_workflow_name,
+            selected_entry_workflow_name,
         )
+        selected_local_name = selected_workflow_name.rsplit("::", 1)[-1]
+        if not (
+            selected_local_name in {"entry", "drain", "promoted-entry-resume-plan-gate-wrapper"}
+        ):
+            return {}
+        candidate_workflow_names.add(selected_workflow_name)
     else:
         for exported_name in module.exports:
             if not isinstance(exported_name, str):
@@ -1103,6 +1113,7 @@ def _selected_entry_hidden_context_omission_callees(
 def _shared_proof_hidden_context_workflow_names(
     *,
     module: WorkflowLispModule,
+    selected_entry_workflow_name: str | None,
     workflow_defs: tuple[WorkflowDef, ...],
     signatures_by_name: Mapping[str, WorkflowSignature],
 ) -> set[str]:
@@ -1110,6 +1121,8 @@ def _shared_proof_hidden_context_workflow_names(
 
     exported_names = {name for name in module.exports if isinstance(name, str)}
     proof_worker_names = _shared_proof_hidden_context_seed_workflow_names(
+        module=module,
+        selected_entry_workflow_name=selected_entry_workflow_name,
         workflow_defs=workflow_defs,
         signatures_by_name=signatures_by_name,
     )
@@ -1139,6 +1152,8 @@ def _shared_proof_hidden_context_workflow_names(
 
 def _shared_proof_hidden_context_seed_workflow_names(
     *,
+    module: WorkflowLispModule,
+    selected_entry_workflow_name: str | None,
     workflow_defs: tuple[WorkflowDef, ...],
     signatures_by_name: Mapping[str, WorkflowSignature],
 ) -> set[str]:
@@ -1156,21 +1171,7 @@ def _shared_proof_hidden_context_seed_workflow_names(
             signatures_by_name=signatures_by_name,
         )
     }
-    bootstrap_wrappers: set[str] = set()
-    for workflow_def in workflow_defs:
-        signature = signatures_by_name.get(workflow_def.name)
-        if signature is None:
-            continue
-        if any(isinstance(type_ref, WorkflowRefTypeRef) for _, type_ref in signature.params):
-            continue
-        if eligible_private_context_source_param_names(signature):
-            continue
-        if _workflow_omits_private_exec_context_binding(
-            workflow_def,
-            signatures_by_name=signatures_by_name,
-        ):
-            bootstrap_wrappers.add(workflow_def.name)
-    return item_ctx_workers | bootstrap_wrappers
+    return item_ctx_workers
 
 
 def _shared_proof_item_ctx_worker_workflow_names(
@@ -1229,6 +1230,13 @@ def _transitive_local_callers(
     return callers
 
 
+def _is_private_exec_context_type(type_ref) -> bool:
+    return (
+        private_exec_context_kind(type_ref) is not None
+        or classify_structural_private_exec_context(type_ref) is not None
+    )
+
+
 def _workflow_omits_private_compatibility_bridge(
     workflow_def: WorkflowDef,
     *,
@@ -1261,14 +1269,17 @@ def _workflow_omits_private_exec_context_binding(
         name.rsplit("::", 1)[-1]: name for name in signatures_by_name if "::" in name
     }
     for callee_name, bound_names in _iter_workflow_call_sites(workflow_def):
-        callee_name = workflow_name_by_local_name.get(callee_name, callee_name)
+        callee_name = _resolve_call_site_workflow_name(
+            callee_name,
+            workflow_name_by_local_name=workflow_name_by_local_name,
+        )
         callee_signature = signatures_by_name.get(callee_name)
         if callee_signature is None:
             continue
         for binding_name, binding_type in callee_signature.params:
             if binding_name in bound_names or binding_name in callee_signature.param_defaults:
                 continue
-            if private_exec_context_kind(binding_type) is not None:
+            if _is_private_exec_context_type(binding_type):
                 return True
     return False
 
@@ -1287,19 +1298,37 @@ def _omitted_private_exec_context_callees_by_workflow(
     for workflow_def in workflow_defs:
         omitted_callees: set[str] = set()
         for callee_name, bound_names in _iter_workflow_call_sites(workflow_def):
-            callee_name = workflow_name_by_local_name.get(callee_name, callee_name)
+            callee_name = _resolve_call_site_workflow_name(
+                callee_name,
+                workflow_name_by_local_name=workflow_name_by_local_name,
+            )
             callee_signature = signatures_by_name.get(callee_name)
             if callee_signature is None:
                 continue
             for binding_name, binding_type in callee_signature.params:
                 if binding_name in bound_names or binding_name in callee_signature.param_defaults:
                     continue
-                if private_exec_context_kind(binding_type) is not None:
+                if _is_private_exec_context_type(binding_type):
                     omitted_callees.add(callee_signature.name)
                     break
         if omitted_callees:
             omitted[workflow_def.name] = frozenset(omitted_callees)
     return omitted
+
+
+def _resolve_call_site_workflow_name(
+    callee_name: str,
+    *,
+    workflow_name_by_local_name: Mapping[str, str],
+) -> str:
+    resolved = workflow_name_by_local_name.get(callee_name)
+    if resolved is not None:
+        return resolved
+    if "." in callee_name:
+        resolved = workflow_name_by_local_name.get(callee_name.rsplit(".", 1)[-1])
+        if resolved is not None:
+            return resolved
+    return callee_name
 
 
 def _omitted_private_compatibility_bridge_callees_by_workflow(

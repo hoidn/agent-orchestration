@@ -3,8 +3,8 @@
   (:target-dsl "2.14")
   (defmodule lisp_frontend_design_delta/selector)
   (import lisp_frontend_design_delta/types :only
-    (BaselineDesignDoc DesignDeltaDrainCtx SelectionBundlePath SelectionStatus
-      SteeringDoc TargetDesignDoc WorkItemBootstrapSeed))
+    (BaselineDesignDoc CheckCommandsValue DesignDeltaDrainCtx SelectionBundlePath
+      SelectionStatus SteeringDoc TargetDesignDoc WorkItemBootstrapSeed))
   (export SelectorPublicResult select-next-work)
 
   (defrecord SelectorInputs
@@ -52,7 +52,13 @@
       (record SelectorPublicResult
         :selection_status decision.selection_status
         :selection_bundle_path selection-bundle-path
-        :work_item_bootstrap decision.work_item_bootstrap
+        :work_item_bootstrap (record WorkItemBootstrapSeed
+                               :work_item_source decision.work_item_bootstrap.work_item_source
+                               :work_item_id decision.work_item_bootstrap.work_item_id
+                               :plan_target_path decision.work_item_bootstrap.plan_target_path
+                               :check_commands (record CheckCommandsValue
+                                                 :commands decision.work_item_bootstrap.check_commands.commands)
+                               :architecture_path decision.work_item_bootstrap.architecture_path)
         :is_selected decision.is_selected
         :is_design_gap decision.is_design_gap
         :is_done decision.is_done

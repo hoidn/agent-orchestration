@@ -31,7 +31,7 @@ def emit_structured_result(payload: Mapping[str, object]) -> int:
         bundle_relpath = workspace_relpath(bundle_path_raw)
         bundle_path = Path(bundle_relpath)
         bundle_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = bundle_path.with_suffix(bundle_path.suffix + ".tmp")
+        temp_path = bundle_path.with_suffix(".tmp")
         temp_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
         temp_path.replace(bundle_path)
     json.dump(payload, sys.stdout)

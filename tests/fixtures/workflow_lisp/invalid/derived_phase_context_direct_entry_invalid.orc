@@ -5,8 +5,8 @@
   (import lisp_frontend_design_delta/plan_phase :only
     (DesignDeltaPlanPhaseResult run-plan-phase))
   (import lisp_frontend_design_delta/types :only
-    (ArtifactReviewTargetPath BaselineDesignDoc PlanDocTarget ProgressLedger
-      SteeringDoc TargetDesignDoc WorkItemContextValue))
+    (ArtifactReviewTargetPath ArtifactWorkTargetPath BaselineDesignDoc PlanDocTarget
+      ProgressLedger SteeringDoc TargetDesignDoc WorkItemContextValue))
   (export run-entry)
 
   (defworkflow run-entry
@@ -16,6 +16,7 @@
      (work_item_context WorkItemContextValue)
      (progress_ledger ProgressLedger)
      (plan_target_path PlanDocTarget)
+     (progress_report_target_path ArtifactWorkTargetPath)
      (plan_review_report_target_path ArtifactReviewTargetPath))
     -> DesignDeltaPlanPhaseResult
     (call run-plan-phase
@@ -25,4 +26,5 @@
       :work_item_context work_item_context
       :progress_ledger progress_ledger
       :plan_target_path plan_target_path
+      :progress_report_target_path progress_report_target_path
       :plan_review_report_target_path plan_review_report_target_path)))

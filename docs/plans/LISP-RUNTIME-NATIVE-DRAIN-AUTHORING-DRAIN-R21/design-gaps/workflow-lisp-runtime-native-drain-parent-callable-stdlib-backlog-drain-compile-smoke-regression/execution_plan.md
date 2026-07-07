@@ -1,435 +1,270 @@
-# Parent-Callable Stdlib Backlog-Drain Compile/Smoke Regression Implementation Plan
+# Parent-Callable Stdlib Backlog-Drain Compile/Smoke Closure Verification Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Do not create a git worktree; this repo's `AGENTS.md` forbids worktrees. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Restore the live `lisp_frontend_design_delta/drain::drain` parent-callable route so the Section-14 compile, the focused parent-drain feasibility slice, and the design-gap runtime smoke all pass without cross-run evidence binding or stale smoke expectations.
+**Goal:** Re-verify, with fresh command output on the current checkout, the owned Section-14 compile and Section-13.4 parent-callable smoke acceptance surface of this gap, classify the known non-parity residuals in the broad build-artifacts lane per the architecture's `Residual Failure Routing`, and close the gap as done — without editing any tracked file.
 
-**Architecture:** The causal failure is two-part and both parts are shared-contract issues, not family-local cleanup. First, `orchestrator/workflow_lisp/build.py` binds reference-family evidence by falling through to stale call-scoped `existing-architecture-index.md` artifacts and by ignoring run-state history when resolving the implementation-architecture root; that makes the compile gate fail even though the owning run root has coherent completed-gap summaries and architecture files. Second, `tests/test_lisp_frontend_autonomous_drain_runtime.py::test_lisp_frontend_drain_design_gap_runtime_smoke` asserts `__provider_calls == 7` even though the test itself requires an eight-provider route with `require_all_providers=True`. Fix the evidence binding generically in shared resolver code, retarget the inconsistent smoke to the authored eight-step route, and treat all other autonomous-drain or Design Delta failures as residual classification unless a focused proof lane says otherwise. What this makes harder later: sibling-gap failures can no longer hide behind this slice's verification ladder; they will need their own owner-lane repair or explicit routing.
+**Architecture:** The fourteenth-revision gap architecture records the causal repair as already landed on this checkout: `orchestrator/workflow_lisp/build.py::_reference_family_versioned_roots` now skips incomplete versioned roots and selects only roots that provide both `drain-summary.json` and `design-gaps/`, so the `reference_family_conformance_input_missing` failure the R49 blocker verification proved is no longer reproducible (Gate D, landed commit `3b62f1c`). The earlier shared parity-root coherence failure (Gate C) is a derived-evidence condition that is checked only after the source-side resolver repair is confirmed; if stale, it is refreshed solely through the sanctioned full-manifest `migration-parity` generator. This plan is therefore verification-and-classification only: every step either confirms a green owned surface or maps a residual failure to a routed class, and any unexpected result is a stop-and-report, not a repair. What this makes harder later: closure evidence is bound to the resolver's live root selection, so a future run that publishes a newer complete versioned root changes the compile's evidence inputs and may require re-verification by whichever lane lands it.
 
-**Tech Stack:** Python 3, Workflow Lisp build/conformance modules under `orchestrator/workflow_lisp/`, Design Delta `.orc` workflow family, checked evidence manifests under `workflows/examples/inputs/workflow_lisp_migrations/`, `pytest`, and `python -m orchestrator compile`.
+**Tech Stack:** Python 3, Workflow Lisp `.orc`, checked JSON manifests, `pytest`
 
 ---
 
-## Fixed Inputs And Authority
+## Governing Inputs
 
-Treat these as the required source bundle for execution:
+Execute against these authorities:
 
-- `docs/index.md`
-- `docs/work_definition_model.md`
-- `docs/steering.md`
-- `docs/design/README.md`
-- `docs/capability_status_matrix.md`
-- `docs/design/workflow_command_adapter_contract.md`
-- `docs/design/workflow_lisp_frontend_specification.md`
 - `docs/design/workflow_lisp_runtime_native_drain_authoring.md`
+  Focus on Sections 11, 13.4, 14, and 15.
+- `docs/design/workflow_lisp_frontend_specification.md`
 - `docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R21/design-gaps/workflow-lisp-runtime-native-drain-parent-callable-stdlib-backlog-drain-compile-smoke-regression/implementation_architecture.md`
-- `state/workflow_lisp/calls/20260701T220811Z-w1vkti/root.drain_lisp_frontend_work_0.lisp_frontend_drain_iteration.route_selection.desig_f289187df7d2/lisp-frontend-design-delta-design-gap-architect-v214/de14bca20ef59f36.json/work_item_context.md`
-- `state/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/drain/run_state.json`
-- `artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/drain-summary.json`
-
-Acceptance authority, in order:
-
-- target-design Sections 11, 13, and 14 as narrowed by the re-entry implementation architecture;
-- `implementation_architecture.md` for this gap, especially `Regression Evidence`, `Completion-Inventory Evidence Binding`, `Drain-Iteration Smoke Expectation Alignment`, `Focused Runtime Reclassification`, and `Residual Failure Routing`;
-- the focused proof lanes in this plan; and
-- fresh command output from the verification ladder below.
-
-Non-authority but still required evidence:
-
-- versioned run-root artifacts under `state/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/` and `artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/`;
-- checked manifests under `workflows/examples/inputs/workflow_lisp_migrations/`; and
-- generated per-call prompt artifacts under `state/workflow_lisp/calls/**`, which may be inspected as clues but must not become gate authority unless they are explicitly owned by the run root under validation.
-
-## Causal Failure Summary
-
-Do not treat this as a generic "Design Delta parent route is red" bug. The current work item is narrower.
-
-1. `build.py::_reference_family_implementation_root_from_run_state(...)` only reads `architecture_path` from `blocked_design_gaps`. The active R38 run records the needed architecture path in history events, so the resolver silently falls back to an unversioned docs root.
-2. `build.py::_resolve_reference_family_architecture_index(...)` falls through from versioned run-root iteration artifacts to a global `state/workflow_lisp/calls/**/existing-architecture-index.md` glob, then chooses the lexicographically last hit. That binds a stale call-scoped prompt artifact as compile-gate authority.
-3. The reference-family completion-inventory surface then fails with `reference_family_conformance_invalid / reference_family_completed_gap_artifact_missing`, specifically because `missing_from_architecture_index` names this gap while other detail lists are empty.
-4. Separately, `test_lisp_frontend_drain_design_gap_runtime_smoke` hard-codes `__provider_calls == 7` while supplying eight provider writers and requiring all of them to run. That assertion is internally inconsistent even if the workflow route is correct.
-
-Implementation must fix those causes directly. It must not hand-edit `state/**` or `artifacts/work/**` evidence, backfill stale architecture indexes, or widen this slice into selector, blocked-recovery, review, or implementation-phase repairs unless one of the focused proof lanes below fails for the same cause.
-
-## File Map
-
-Primary owner surfaces:
-
+  The fourteenth-revision acceptance conditions and `Residual Failure
+  Routing` are the closure contract this plan executes.
 - `orchestrator/workflow_lisp/build.py`
+  Read-only live resolver authority for reference-family evidence inputs,
+  including the versioned-root completeness rule (commit 3b62f1c).
 - `orchestrator/workflow_lisp/reference_family_conformance.py`
-- `tests/test_workflow_lisp_build_artifacts.py`
-- `tests/test_workflow_lisp_reference_family_conformance.py`
-- `tests/test_lisp_frontend_autonomous_drain_runtime.py`
+  Read-only live conformance-input requirement authority.
+- The recovered work-item context bundle the executing run supplies alongside
+  this plan. Context only; do not copy runtime-owned run-scoped `state/`
+  paths into durable logic or durable documents.
 
-Focused route/regression surfaces:
+## Scope Guard
 
-- `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py`
-- `tests/test_workflow_lisp_value_flow_census.py`
-- `tests/test_workflow_lisp_resume_plumbing_retirement.py`
-- `tests/test_workflow_lisp_lowering.py`
+- Do not edit any tracked file. This slice's only writes are the run-owned
+  progress/closure report and, only if Task 1 Step 2 proves staleness after
+  the causal resolver repair is confirmed,
+  untracked generator-owned parity evidence via the sanctioned
+  `python -m orchestrator migration-parity` CLI.
+- Do not edit `orchestrator/workflow_lisp/build.py`,
+  `orchestrator/workflow_lisp/reference_family_conformance.py`,
+  `orchestrator/workflow_lisp/migration_parity.py`, test suites, Workflow
+  Lisp source under `workflows/library/`, or checked manifests under
+  `workflows/examples/inputs/workflow_lisp_migrations/`.
+- Do not hand-create, copy, or backfill any `artifacts/work/LISP-*/design-gaps`
+  directory, and do not hand-edit anything under
+  `artifacts/work/review-parity-check/`.
+- Preserve the in-flight working-tree edits to `parity_targets.json` and the
+  three rebaselined checked manifests byte-for-byte.
+- Any failure that does not match a routed residual class in the
+  architecture's `Residual Failure Routing` is a stop-and-report: record the
+  fresh evidence and end the slice `BLOCKED` rather than repairing out of
+  scope.
 
-Surfaces that should stay untouched unless a focused proof lane proves otherwise:
+## Causal Failure Baseline
 
-- `workflows/library/lisp_frontend_design_delta/*.orc`
-- `orchestrator/workflow_lisp/typecheck_calls.py`
-- `orchestrator/workflow_lisp/lowering/workflow_calls.py`
-- `orchestrator/workflow_lisp/phase_family_boundary.py`
-- selector, blocked-recovery, done-review, and implementation-phase tests outside the focused selectors below
+The observed broken behavior was not "parity is stale" in isolation. The
+causal runtime/input failure was that the compile-time reference-family
+resolver admitted the newest versioned drain root on `drain-summary.json`
+presence alone, which allowed it to select an incomplete root missing the
+required `design-gaps/` directory and fail closed on
+`reference_family_conformance_input_missing` before owned acceptance checks
+could run. The live repair is the resolver-completeness rule landed in commit
+`3b62f1c`. This plan must confirm that repair first. Only after the resolver
+selects a complete root may it treat parity-root coherence as a conditional
+derived-evidence check.
 
-## Tasks
-
-### Task 1: Reproduce The Exact Failure Classes Before Editing
+### Task 1: Confirm The Causal Repair And Closure Preconditions
 
 **Files:**
 
-- Read: `orchestrator/workflow_lisp/build.py`
-- Read: `orchestrator/workflow_lisp/reference_family_conformance.py`
-- Read: `tests/test_lisp_frontend_autonomous_drain_runtime.py`
-- Read: `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py`
-- Read: `tests/test_workflow_lisp_build_artifacts.py`
+- Read: `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json`
+- Verify: `artifacts/work/review-parity-check/design_delta_parent_drain.json`
+- Verify: `artifacts/work/review-parity-check/design_plan_impl_stack.json`
+- Verify: `artifacts/work/review-parity-check/cycle_guard_demo.json`
 
-- [ ] **Step 1: Re-run the focused compile and smoke reproduction commands**
+- [ ] **Step 1: Confirm the resolver selects a complete evidence root**
 
 Run:
 
 ```bash
-python -m pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py \
-  -k 'selected_item_stdlib or parent_drain_build_and_execution_smoke or runtime_view_fixture' -q
-python -m pytest tests/test_lisp_frontend_autonomous_drain_runtime.py::test_lisp_frontend_drain_design_gap_runtime_smoke -q
-python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc \
+python - <<'PY'
+from orchestrator.workflow_lisp.build import _resolve_reference_family_evidence_paths
+
+paths = _resolve_reference_family_evidence_paths()
+print("run_state_path", paths.run_state_path)
+print("drain_summary_exists", paths.drain_summary_path.is_file())
+print("design_gap_summary_root", paths.design_gap_summary_root)
+print("design_gap_summary_root_exists", paths.design_gap_summary_root.is_dir())
+PY
+```
+
+Expected: the selected root provides both `drain-summary.json` and an
+existing `design-gaps/` directory (on the 2026-07-06 checkout the selection
+is `LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R42`; a newer *complete* root
+is equally acceptable). If the selected root is incomplete or no candidate
+exists, stop and report an evidence-route regression per the architecture's
+`Residual Failure Routing` — do not backfill or force selection.
+
+- [ ] **Step 2: Confirm the shared parity root is coherent only after Step 1 passes**
+
+Run:
+
+```bash
+python - <<'PY'
+import hashlib, json
+from pathlib import Path
+
+targets = Path("workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json")
+digest = f"sha256:{hashlib.sha256(targets.read_bytes()).hexdigest()}"
+for family in ("cycle_guard_demo", "design_plan_impl_stack", "design_delta_parent_drain"):
+    report = json.loads(Path(f"artifacts/work/review-parity-check/{family}.json").read_text())
+    print(family, report["target_identity"]["target_manifest_sha256"] == digest)
+PY
+```
+
+Expected: all three families print `True`. If any prints `False`, regenerate
+the shared parity root with one full-manifest invocation of the sanctioned
+`migration-parity` CLI (no `--target` filter) and rerun this step:
+
+```bash
+python -m orchestrator migration-parity \
+  --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json \
+  --output-root artifacts/work/review-parity-check
+```
+
+If the rerun still fails, stop and report.
+
+### Task 2: Re-Verify The Owned Acceptance Surfaces
+
+**Files:**
+
+- Verify: `workflows/library/lisp_frontend_design_delta/drain.orc`
+- Verify: `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py`
+- Verify: `tests/test_workflow_lisp_migration_parity.py`
+- Verify: `tests/test_workflow_lisp_reference_family_conformance.py`
+- Verify: `tests/test_workflow_lisp_drain_stdlib.py`
+- Verify: `tests/test_lisp_frontend_autonomous_drain_runtime.py`
+
+- [ ] **Step 1: Run the Section-14 compile entrypoint**
+
+Run:
+
+```bash
+python -m orchestrator compile \
+  workflows/library/lisp_frontend_design_delta/drain.orc \
   --entry-workflow lisp_frontend_design_delta/drain::drain \
   --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json \
   --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json \
   --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json
 ```
 
-Expected before the fix:
+Expected: exit 0 with no `reference_family_conformance_invalid` diagnostic of
+any inner code (2026-07-06 baseline: fingerprint `2524aa25a3869738`, lowering
+route `wcc_m4`). If it fails, stop and report the fresh diagnostic; do not
+repair.
 
-- the focused feasibility slice fails only on the parent-drain build/execution smoke;
-- the compile command fails with `reference_family_conformance_invalid`;
-- the diagnostic detail shows `reference_family_completed_gap_artifact_missing` and `missing_from_architecture_index` naming this gap; and
-- the runtime smoke fails on the inconsistent `__provider_calls == 7` assertion.
-
-- [ ] **Step 2: Confirm the live source still matches the causal chain**
-
-Confirm in code:
-
-- `build.py::_reference_family_implementation_root_from_run_state(...)` only consults `blocked_design_gaps`;
-- `build.py::_resolve_reference_family_architecture_index(...)` still falls back to `state/workflow_lisp/calls/**/existing-architecture-index.md`;
-- `build.py::_resolve_reference_family_evidence_paths()` still threads that result into compile-time evidence resolution; and
-- `test_lisp_frontend_drain_design_gap_runtime_smoke` still supplies eight provider writers but asserts `7`.
-
-- [ ] **Step 3: If any tests are added or renamed later, run collect-only before proceeding**
-
-Run only if test names or modules change:
-
-```bash
-python -m pytest --collect-only \
-  tests/test_workflow_lisp_build_artifacts.py \
-  tests/test_workflow_lisp_reference_family_conformance.py \
-  tests/test_lisp_frontend_autonomous_drain_runtime.py -q
-```
-
-### Task 2: Write The Failing Shared Evidence-Binding Proof First
-
-**Files:**
-
-- Modify: `tests/test_workflow_lisp_build_artifacts.py`
-- Modify: `tests/test_workflow_lisp_reference_family_conformance.py`
-
-- [ ] **Step 1: Add a failing build-artifact test for run-state-owned evidence binding**
-
-The new or updated test must prove all of these:
-
-- the implementation-architecture root can be recovered from run-state-recorded architecture paths even when `blocked_design_gaps` omits `architecture_path`;
-- the architecture-index resolver does not bind a stale per-call prompt artifact from `state/workflow_lisp/calls/**`;
-- if the owning run root has no admissible architecture index, the resolver either:
-  - degrades to direct architecture-root reconciliation, or
-  - fails closed with explicit profile metadata naming the missing run-root-owned index;
-- the fallback source is visible in the emitted profile or diagnostic rather than silently masquerading as recorded evidence.
-
-Prefer to express this through the existing `_build_design_delta_parent_drain(...)` helper and aligned reference-family fixtures instead of inventing one-off ad hoc harnesses.
-
-- [ ] **Step 2: Add or tighten the conformance-profile proof for missing run-root index coverage**
-
-Use `tests/test_workflow_lisp_reference_family_conformance.py` to prove the profile behavior directly. Required coverage:
-
-- missing architecture-index coverage still fails when the selected gap is genuinely absent from admissible evidence;
-- a run-root without an owned architecture index does not become a pass just because an unrelated call artifact exists elsewhere in the repo;
-- profile payload or diagnostics make the fallback or missing-owned-index status inspectable.
-
-- [ ] **Step 3: Run the narrow tests to verify they fail for the intended reason**
+- [ ] **Step 2: Run the Section-13.4 parent-callable smoke selector**
 
 Run:
 
 ```bash
-python -m pytest tests/test_workflow_lisp_reference_family_conformance.py -q
-python -m pytest tests/test_workflow_lisp_build_artifacts.py -k 'reference_family' -q
-```
-
-Expected before the implementation change:
-
-- at least one newly added or tightened assertion fails;
-- the failure points at stale cross-run evidence binding or missing run-state-owned architecture-path recovery, not at unrelated Design Delta route behavior.
-
-### Task 3: Implement The Generic Reference-Family Evidence Resolver Repair
-
-**Files:**
-
-- Modify: `orchestrator/workflow_lisp/build.py`
-- Modify only if the surface contract needs explicit metadata or diagnostics: `orchestrator/workflow_lisp/reference_family_conformance.py`
-
-- [ ] **Step 1: Recover implementation-architecture roots from all run-state-owned records**
-
-Update `_reference_family_implementation_root_from_run_state(...)` so it collects candidate `architecture_path` values from the run-state structures that actually own them on the live route, not just `blocked_design_gaps`.
-
-Required behavior:
-
-- inspect blocked-gap records, completed-gap records when present, and run-state history/event records that carry `architecture_path`;
-- prefer repo-relative `docs/plans/.../design-gaps/...` roots actually recorded by the run state;
-- return the first existing recorded root before any docs fallback; and
-- keep fallback behavior generic, not keyed to this gap id or to Design Delta workflow names.
-
-- [ ] **Step 2: Remove cross-call architecture-index binding**
-
-Update `_resolve_reference_family_architecture_index(...)` and the surrounding resolver path so that:
-
-- admissible architecture indexes come only from the versioned run root under validation;
-- global `state/workflow_lisp/calls/**` scanning is removed from the compile-gate authority path;
-- missing run-root-owned architecture index never resolves by incidental lexicographic ordering; and
-- the chosen fallback, if any, is deterministic and owner-scoped.
-
-- [ ] **Step 3: Make the no-index path explicit rather than accidental**
-
-Choose the smallest generic shape that makes the current R38 compile surface correct without editing run evidence.
-
-Allowed shape:
-
-- when the run root lacks an owned architecture index, rely on direct reconciliation against the resolved implementation-architecture root and emit profile-visible metadata explaining that the run-root index was absent.
-
-Also allowed:
-
-- fail closed with an explicit missing-owned-index diagnostic, but only if the focused compile acceptance can still be satisfied for the live route through another generic owner-scoped path recorded by the run.
-
-Forbidden:
-
-- backfilling or rewriting `state/**` artifacts;
-- introducing a Design Delta-specific resolver branch;
-- keeping the global call-artifact fallback in place behind a new condition; or
-- weakening `reference_family_completed_gap_artifact_missing` so real summary/root mismatches slip through.
-
-- [ ] **Step 4: Re-run the shared conformance/build proof set**
-
-Run:
-
-```bash
-python -m pytest tests/test_workflow_lisp_reference_family_conformance.py -q
-python -m pytest tests/test_workflow_lisp_build_artifacts.py -k 'reference_family' -q
-```
-
-Expected:
-
-- both commands pass;
-- the profile still rejects genuine summary/root/index mismatches; and
-- no test depends on call-scoped `existing-architecture-index.md` artifacts outside the run root under validation.
-
-- [ ] **Step 5: Re-run the compile and focused feasibility slice**
-
-Run:
-
-```bash
-python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc \
-  --entry-workflow lisp_frontend_design_delta/drain::drain \
-  --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json \
-  --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json \
-  --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json
 python -m pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py \
-  -k 'selected_item_stdlib or parent_drain_build_and_execution_smoke or runtime_view_fixture' -q
+  -k "selected_item_stdlib or parent_drain_build_and_execution_smoke" -q
 ```
 
-Expected:
+Expected: 5 passed (2026-07-06 baseline: `5 passed, 88 deselected`).
 
-- the compile command passes with the conformance gate still enforced;
-- the focused feasibility slice passes;
-- `test_design_delta_parent_drain_build_and_execution_smoke_emit_default_resume_artifact` is green; and
-- no `.orc` source or hidden-context lane needed to change just to repair evidence binding.
-
-### Task 4: Retarget The Design-Gap Smoke To The Authored Eight-Step Route
-
-**Files:**
-
-- Modify: `tests/test_lisp_frontend_autonomous_drain_runtime.py`
-
-- [ ] **Step 1: Change the failing smoke only at the inconsistent expectation**
-
-Keep the provider sequence exactly as authored:
-
-- `SelectNextWork`
-- `DraftDesignGapArchitecture`
-- `ReviewDesignGapArchitecture`
-- `DraftPlan`
-- `ReviewPlan`
-- `ExecuteImplementation`
-- `ReviewImplementation`
-- `SelectNextWork`
-
-Required change:
-
-- retarget the smoke so the provider-call count and the required provider sequence agree.
-
-Preferred shape:
-
-- assert `__provider_calls == 8`, or otherwise derive the expected count from the supplied provider list inside the test/helper.
-
-Forbidden:
-
-- lowering `require_all_providers=True`;
-- removing the terminal selector call from the provider list;
-- deleting the provider-count assertion without replacing it with an equivalent contract-level check; or
-- absorbing unrelated blocked/recovery/review behavior into this test.
-
-- [ ] **Step 2: Run the narrow smoke**
+- [ ] **Step 3: Run the guard lanes**
 
 Run:
 
 ```bash
-python -m pytest tests/test_lisp_frontend_autonomous_drain_runtime.py::test_lisp_frontend_drain_design_gap_runtime_smoke -q
+python -m pytest tests/test_workflow_lisp_migration_parity.py \
+  -k "design_delta_parent_drain or adapter_census or boundary_authority" -q
+python -m pytest tests/test_workflow_lisp_reference_family_conformance.py -q
+python -m pytest tests/test_workflow_lisp_drain_stdlib.py -q
+python -m pytest tests/test_lisp_frontend_autonomous_drain_runtime.py \
+  -k "design_gap_runtime_smoke" -q
 ```
 
-Expected:
+Expected: all green (2026-07-06 baselines: 22 passed, 17 passed, 63 passed,
+1 passed). Any red guard lane is a stop-and-report.
 
-- the smoke passes;
-- the summary still reports `drain_status == "DONE"`;
-- `completed_design_gaps == ["parser-syntax"]` still holds; and
-- the architecture file placement assertion remains intact.
-
-### Task 5: Re-run The Focused Regression Guards And Classify Residuals
+### Task 3: Classify The Broad Build-Artifacts Lane
 
 **Files:**
 
-- Verify: `tests/test_workflow_lisp_value_flow_census.py`
-- Verify: `tests/test_workflow_lisp_resume_plumbing_retirement.py`
-- Verify: `tests/test_workflow_lisp_lowering.py`
 - Verify: `tests/test_workflow_lisp_build_artifacts.py`
-- Modify only if residual classification must be recorded: `artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/workflow-lisp-runtime-native-drain-parent-callable-stdlib-backlog-drain-compile-smoke-regression/progress_report.md`
 
-- [ ] **Step 1: Run the focused final acceptance ladder**
-
-Run:
-
-```bash
-python -m pytest tests/test_workflow_lisp_value_flow_census.py tests/test_workflow_lisp_resume_plumbing_retirement.py -q
-python -m pytest tests/test_workflow_lisp_build_artifacts.py -k 'resume_plumbing_retirement or parent_drain_census_alignment or reference_family' -q
-python -m pytest tests/test_workflow_lisp_lowering.py -k 'work_item_wrapper_bootstraps_private_child_phase_binding or item_ctx_child_phase_reuse_imported_backlog_drain_carries_derived_phase_context_bindings' -q
-python -m pytest tests/test_workflow_lisp_build_artifacts.py -k 'phase_ctx__plan__phase_name or child_phase_reuse or private_runtime_context_bindings' -q
-python -m pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -k 'selected_item_stdlib or parent_drain_build_and_execution_smoke or runtime_view_fixture' -q
-python -m pytest tests/test_lisp_frontend_autonomous_drain_runtime.py::test_lisp_frontend_drain_design_gap_runtime_smoke -q
-python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc \
-  --entry-workflow lisp_frontend_design_delta/drain::drain \
-  --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json \
-  --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json \
-  --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json
-```
-
-Expected:
-
-- every command passes;
-- the compile gate remains active;
-- hidden phase-context and retirement evidence guards remain green; and
-- no public runtime-context or family-specific compiler special case is introduced.
-
-- [ ] **Step 2: Re-run the broader suites once only for classification**
+- [ ] **Step 1: Run the classification lane fresh**
 
 Run:
 
 ```bash
-python -m pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -q
-python -m pytest tests/test_lisp_frontend_autonomous_drain_runtime.py -q
+python -m pytest tests/test_workflow_lisp_build_artifacts.py \
+  -k "design_delta_parent_drain or boundary_authority or adapter_census" -q
 ```
 
-Expected:
+Expected on the 2026-07-06 checkout: `9 failed, 80 passed, 94 deselected`,
+with every failure in one of the two routed residual classes named in the
+architecture — the run-state bridge retirement status class (4 tests, routed
+to `workflow-lisp-design-delta-compatibility-carrier-retirement`) and the
+reference-family completed-gap fixture-evidence class (5 tests, routed to
+`workflow-lisp-runtime-native-drain-reference-family-parity-evidence-binding-repair`).
+The lane going fully green is not required for closure.
 
-- either suite may still be red;
-- residual failures are classification output, not automatic scope expansion for this gap.
+- [ ] **Step 2: Map every failure to a routed class**
 
-- [ ] **Step 3: Route residual failures instead of absorbing them**
+For each failing test, confirm it matches a class in the architecture's
+`Residual Failure Routing` and that the failure is not a parity-surface
+failure (`reference_family_parity_report_invalid`,
+`reference_family_parity_report_missing`,
+`reference_family_parity_surface_mismatch`,
+`reference_family_primary_surface_authored`) and not introduced by this
+slice. A failure that matches no routed class blocks this slice until it is
+diagnosed and either repaired (if in scope) or routed with fresh evidence.
 
-Use the implementation architecture's `Residual Failure Routing` exactly.
+### Task 4: Record Closure And End The Slice
 
-Keep a remaining failure in this gap only if both are true:
+**Files:**
 
-- one of the focused commands in Step 1 is still red for the same cause; or
-- the broader failure is only a directly route-linked expectation update caused by the shared evidence-binding repair or the eight-step smoke fix.
+- Write: current run progress/closure report artifact referenced by the
+  recovered work-item context
 
-Otherwise route the failure to its owner lane and do not patch it here.
+- [ ] **Step 1: Write the run-owned closure report**
 
-- [ ] **Step 4: Record residual routing if either broad suite remains red**
+Record, with the fresh command output from Tasks 1-3:
 
-If Step 2 leaves failures behind, append a short note to:
+- the parity-root coherence result and whether regeneration was needed;
+- the resolver-selected complete evidence root;
+- the compile, smoke, and guard-lane results;
+- the broad-lane residual classification, naming each failing test and its
+  routed owning lane; and
+- the closure decision under the fourteenth-revision acceptance conditions
+  (target-design Sections 11/13.4/14), noting that no tracked file was
+  modified by this slice.
 
-- `artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/workflow-lisp-runtime-native-drain-parent-callable-stdlib-backlog-drain-compile-smoke-regression/progress_report.md`
+- [ ] **Step 2: Preserve the boundedness rule**
 
-Record:
-
-- which tests remain red;
-- which owner gap or shared lane they route to;
-- whether any directly route-linked expectation update stayed in this slice; and
-- that this gap is complete once the focused acceptance ladder is green, even if the broad suites still expose sibling-lane failures.
-
-### Task 6: Hygiene And Closeout
-
-- [ ] **Step 1: Run collect-only if any test names changed**
-
-Run only if applicable:
+Before ending, run:
 
 ```bash
-python -m pytest --collect-only \
-  tests/test_workflow_lisp_build_artifacts.py \
-  tests/test_workflow_lisp_reference_family_conformance.py \
-  tests/test_lisp_frontend_autonomous_drain_runtime.py -q
+git status --short
 ```
 
-- [ ] **Step 2: Run diff hygiene**
+Confirm the output shows no tracked-file modification
+introduced by this slice and that the in-flight working-tree edits to
+`parity_targets.json` and the three rebaselined checked manifests are
+untouched. Then stop; do not widen into any routed residual class.
 
-Run:
+## Completion Criteria
 
-```bash
-git diff --check
-```
+This plan is complete when all of the following are true:
 
-Expected:
-
-- no whitespace or conflict-marker errors.
-
-- [ ] **Step 3: Confirm the diff stayed inside the approved slice**
-
-Allowed final diff:
-
-- generic evidence-resolution changes in `build.py` and, only if necessary, `reference_family_conformance.py`;
-- matching conformance/build-artifact proof updates;
-- the single design-gap runtime smoke expectation repair; and
-- an optional residual-routing note in the active progress report.
-
-Forbidden final diff:
-
-- edits to run-state or artifact evidence files under `state/**` or `artifacts/work/**` except the optional progress-report note;
-- Design Delta-specific compiler branches;
-- selector, blocked-recovery, review, or implementation-phase behavior changes with no focused proof-lane cause; or
-- weakening compile/conformance gates to make the slice pass.
-
-## Acceptance Criteria
-
-This plan is complete only when all of the following are true with fresh command output:
-
-- `python -m orchestrator compile ... drain::drain ...` succeeds with the reference-family conformance gate still enforced;
-- the compile gate no longer binds architecture-index authority from unrelated `state/workflow_lisp/calls/**` artifacts;
-- the implementation-architecture root resolver honors run-state-recorded architecture paths before any docs fallback;
-- missing run-root-owned architecture-index evidence is handled deterministically and visibly, not by incidental glob ordering;
-- `tests/test_workflow_lisp_reference_family_conformance.py -q` passes;
-- `tests/test_workflow_lisp_build_artifacts.py -k 'resume_plumbing_retirement or parent_drain_census_alignment or reference_family' -q` passes;
-- `tests/test_workflow_lisp_value_flow_census.py`, `tests/test_workflow_lisp_resume_plumbing_retirement.py`, and the focused hidden-context lowering/build-artifact selectors all pass unchanged;
-- `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -k 'selected_item_stdlib or parent_drain_build_and_execution_smoke or runtime_view_fixture' -q` passes;
-- `tests/test_lisp_frontend_autonomous_drain_runtime.py::test_lisp_frontend_drain_design_gap_runtime_smoke` passes with an internally consistent eight-provider expectation;
-- no state or artifact evidence is hand-edited to satisfy the gate;
-- no Design Delta-specific compiler or resolver branch is introduced; and
-- any remaining broader-suite failures are explicitly routed to sibling owner lanes instead of being silently absorbed into this gap.
+- the live resolver selects a versioned evidence root providing both
+  `drain-summary.json` and `design-gaps/`;
+- the shared parity root binds to the current `parity_targets.json` digest
+  (confirmed after the resolver repair is verified, or repaired then
+  re-confirmed via one sanctioned full-manifest regeneration);
+- the Section-14 compile exits 0 with no
+  `reference_family_conformance_invalid` diagnostic, and the Section-13.4
+  smoke selector and all four guard lanes pass in full, all with fresh
+  output;
+- every failure in the broad build-artifacts lane maps to a routed residual
+  class, none is a parity-surface failure, and none was introduced by this
+  slice;
+- the run-owned closure report records the evidence above; and
+- no tracked file was modified, and no validation logic, conformance-profile
+  logic, recovery route, loader rule, gate, source workflow, or test
+  expectation was edited, widened, or weakened.

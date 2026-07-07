@@ -639,8 +639,6 @@ def _elaborate_defschema(form: SyntaxNode, datum: SyntaxList) -> SchemaDef:
 def _elaborate_defrecord(form: SyntaxNode, datum: SyntaxList) -> _AuthoredRecordDef:
     name = _expect_symbol(datum, 1, "record name", form_path=form.form_path)
     raw_members = datum.items[2:]
-    if not raw_members:
-        _raise_error("`defrecord` requires at least one field", span=datum.span, form_path=form.form_path)
     return _AuthoredRecordDef(
         name=name.resolved_name,
         members=tuple(_elaborate_field_member(raw_member, form.form_path) for raw_member in raw_members),

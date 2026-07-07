@@ -875,25 +875,6 @@ def _phase_stdlib_lower_backlog_drain_impl(
                     param_name=param_name,
                 )
                 if not eligibility.allowed:
-                    if requirement.allows_entry_bootstrap and (
-                        callee_name in getattr(
-                            context.signature,
-                            "allowed_hidden_context_callees",
-                            frozenset(),
-                        )
-                        or not eligible_private_context_source_param_names(context.signature)
-                    ):
-                        step["with"].update(
-                            lowering_workflow_calls._declare_runtime_context_hidden_inputs(
-                                context=context,
-                                param_name=param_name,
-                                param_type=param_type,
-                                requirement=requirement,
-                                source_expr=expr,
-                                local_values=local_values,
-                            )
-                        )
-                        continue
                     raise lowering_core._compile_error(
                         code=eligibility.diagnostic_code or "derived_phase_context_binding_invalid",
                         message=eligibility.diagnostic_message

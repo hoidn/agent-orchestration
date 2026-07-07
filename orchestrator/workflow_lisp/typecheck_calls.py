@@ -40,6 +40,13 @@ from .workflow_refs import (
     workflow_ref_type_from_signature,
 )
 
+DESIGN_DELTA_CHILD_PHASE_CALLEES = frozenset(
+    {
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+    }
+)
+
 def hidden_context_omission_allowed(
     *,
     session_state,
@@ -83,12 +90,6 @@ def hidden_context_omission_allowed(
             param_name=param_name,
         )
         if not eligibility.allowed:
-            allowed_callees = getattr(active_signature, "allowed_hidden_context_callees", frozenset())
-            if requirement.allows_entry_bootstrap and (
-                callee_signature.name in allowed_callees
-                or not active_has_private_context_source
-            ):
-                return True
             compat._raise_error(
                 eligibility.diagnostic_message or f"invalid derived child phase context for `{param_name}`",
                 code=eligibility.diagnostic_code or "derived_phase_context_binding_invalid",
@@ -110,9 +111,36 @@ def hidden_context_omission_allowed(
         if eligibility.allowed:
             return True
         if callee_signature.name in allowed_callees:
+            if (
+                not active_has_private_context_source
+                and callee_signature.name in DESIGN_DELTA_CHILD_PHASE_CALLEES
+                and not callee_signature.name.endswith("::resume-plan-gate-wrapper")
+            ):
+                compat._raise_error(
+                    eligibility.diagnostic_message
+                    or f"invalid derived child phase context for `{param_name}`",
+                    code=eligibility.diagnostic_code
+                    or "derived_phase_context_binding_invalid",
+                    span=span,
+                    form_path=form_path,
+                )
             return True
-        if not active_has_private_context_source:
-            return True
+        if (
+            not active_has_private_context_source
+            and callee_signature.name.endswith("::resume-plan-gate-wrapper")
+        ):
+            return False
+        if callee_signature.name in DESIGN_DELTA_CHILD_PHASE_CALLEES:
+            compat._raise_error(
+                eligibility.diagnostic_message
+                or f"invalid derived child phase context for `{param_name}`",
+                code=eligibility.diagnostic_code
+                or "derived_phase_context_binding_invalid",
+                span=span,
+                form_path=form_path,
+            )
+        if requirement.binding_kind != "derived_private_child_context":
+            return False
         compat._raise_error(
             eligibility.diagnostic_message or f"invalid derived child phase context for `{param_name}`",
             code=eligibility.diagnostic_code or "derived_phase_context_binding_invalid",
@@ -815,6 +843,19 @@ def typecheck_call_expr(
             param_name=name,
         )
     ]
+    if signature is not None:
+        missing_bindings.extend(
+            name
+            for name in signature.private_compatibility_bridge_types
+            if name not in seen_bindings
+            and name not in defaulted_bindings
+            and name not in {param_name for param_name, _ in ordered_params}
+            and not compatibility_bridge_omission_allowed(
+                session_state=context.session_state,
+                callee_signature=signature,
+                param_name=name,
+            )
+        )
     if missing_bindings:
         compat._raise_error(
             f"call is missing required binding `{missing_bindings[0]}`",

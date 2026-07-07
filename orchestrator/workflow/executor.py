@@ -9595,6 +9595,10 @@ class WorkflowExecutor:
             raw_path = resolved_output_bundle.get("path")
             if isinstance(raw_path, str) and raw_path:
                 bundle_path = (self.workspace / raw_path).resolve()
+                bundle_path = self._bounded_private_runtime_bundle_path(
+                    bundle_path,
+                    namespace="pure_projection",
+                )
         resolved_bindings, binding_error = self._resolve_pure_projection_bindings(
             binding_refs,
             state,
@@ -10236,6 +10240,24 @@ class WorkflowExecutor:
 
     def _workspace_relative_path(self, path: Path) -> str:
         return path.resolve().relative_to(self.workspace.resolve()).as_posix()
+
+    def _bounded_private_runtime_bundle_path(self, bundle_path: Path, *, namespace: str) -> Path:
+        """Return a private sidecar path when generated bundle segments exceed filename limits."""
+        try:
+            relative_path = bundle_path.resolve().relative_to(self.workspace.resolve())
+        except ValueError:
+            relative_path = Path(str(bundle_path))
+        if all(len(part.encode("utf-8")) <= 240 for part in relative_path.parts):
+            return bundle_path
+        digest = sha256(relative_path.as_posix().encode("utf-8")).hexdigest()
+        return (
+            self.workspace
+            / ".orchestrate"
+            / "runtime_sidecars"
+            / namespace
+            / digest[:2]
+            / f"{digest}.json"
+        )
 
     def _reuse_pure_projection_bundle(
         self,

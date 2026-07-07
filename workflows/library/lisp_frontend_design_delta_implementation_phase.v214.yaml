@@ -649,6 +649,7 @@ steps:
                       - |
                         import pathlib
                         import json
+                        import shutil
                         import sys
 
                         decision_path = pathlib.Path(sys.argv[1])
@@ -668,9 +669,18 @@ steps:
                                 if progress_report_target.is_file():
                                     progress_path = progress_report_target
                                 elif execution_report_pointer.is_file():
-                                    progress_path = pathlib.Path(
+                                    progress_source = pathlib.Path(
                                         execution_report_pointer.read_text(encoding="utf-8").strip()
                                     )
+                                    if not progress_source.is_file():
+                                        raise SystemExit(
+                                            "FixImplementation returned BLOCKED but the prior execution report is "
+                                            f"missing: {progress_source}"
+                                        )
+                                    progress_report_target.parent.mkdir(parents=True, exist_ok=True)
+                                    if progress_source.resolve() != progress_report_target.resolve():
+                                        shutil.copyfile(progress_source, progress_report_target)
+                                    progress_path = progress_report_target
                                 else:
                                     raise SystemExit(
                                         "FixImplementation returned BLOCKED without a progress or execution report"

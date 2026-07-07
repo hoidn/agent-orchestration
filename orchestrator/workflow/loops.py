@@ -687,6 +687,35 @@ class LoopExecutor:
         artifacts.update(dict(overrides))
         return artifacts
 
+    def _exhaustion_frame_artifacts(
+        self,
+        *,
+        frame_artifacts: Mapping[str, Any],
+        iteration_state: Mapping[str, Any],
+        current_iteration: int,
+    ) -> Dict[str, Any]:
+        """Use loop/recur's current-state snapshot for authored exhaustion state reads."""
+
+        if current_iteration <= 0:
+            return dict(frame_artifacts)
+        state_keys = {
+            key
+            for key in frame_artifacts
+            if isinstance(key, str) and key.startswith("state__")
+        }
+        if not state_keys or "status" not in frame_artifacts:
+            return dict(frame_artifacts)
+        candidates: list[Mapping[str, Any]] = []
+        for step_name, result in iteration_state.items():
+            if not isinstance(step_name, str) or not step_name.endswith("__body__state"):
+                continue
+            artifacts = result.get("artifacts") if isinstance(result, Mapping) else None
+            if isinstance(artifacts, Mapping) and state_keys <= set(artifacts):
+                candidates.append(artifacts)
+        if len(candidates) != 1:
+            return dict(frame_artifacts)
+        return {**dict(frame_artifacts), **{key: candidates[0][key] for key in state_keys}}
+
     def execute_repeat_until(
         self,
         step: Dict[str, Any],
@@ -1300,13 +1329,18 @@ class LoopExecutor:
                 return state
 
             if current_iteration + 1 >= max_iterations:
+                exhaustion_frame_artifacts = self._exhaustion_frame_artifacts(
+                    frame_artifacts=frame_artifacts,
+                    iteration_state=iteration_state,
+                    current_iteration=current_iteration,
+                )
                 progress = {
                     "current_iteration": None,
                     "completed_iterations": completed_iterations,
                     "condition_evaluated_for_iteration": current_iteration,
                     "last_condition_result": False,
                 }
-                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(block, frame_artifacts)
+                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(block, exhaustion_frame_artifacts)
                 if exhausted_artifacts is not None:
                     progress["exhausted"] = True
                     completed = self.executor._attach_outcome(
@@ -1335,7 +1369,7 @@ class LoopExecutor:
                         step,
                         status="failed",
                         exit_code=3,
-                        artifacts=frame_artifacts,
+                        artifacts=exhaustion_frame_artifacts,
                         progress=progress,
                         error={
                             "type": "repeat_until_iterations_exhausted",

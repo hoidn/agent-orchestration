@@ -139,7 +139,11 @@ def resolve_workflow_outputs(
             ) from exc
 
         try:
-            resolved_outputs[name] = validate_contract_value(raw_value, validation_spec, workspace=workspace)
+            resolved_outputs[name] = validate_contract_value(
+                raw_value,
+                _workflow_output_validation_spec(validation_spec),
+                workspace=workspace,
+            )
         except OutputContractError as exc:
             raise WorkflowSignatureError(
                 "Workflow output export failed",
@@ -153,6 +157,22 @@ def resolve_workflow_outputs(
             ) from exc
 
     return resolved_outputs
+
+
+def _workflow_output_validation_spec(validation_spec: Any) -> Any:
+    if not isinstance(validation_spec, Mapping):
+        return validation_spec
+    projection = validation_spec.get("projection")
+    if (
+        not isinstance(projection, Mapping)
+        or projection.get("projection_class") != "provider_bundle_path_projection"
+    ):
+        return validation_spec
+    return {
+        key: value
+        for key, value in validation_spec.items()
+        if key not in {"under", "must_exist_target"}
+    }
 
 
 def _workflow_boundary_metadata(validation_spec: Any) -> Mapping[str, Any]:

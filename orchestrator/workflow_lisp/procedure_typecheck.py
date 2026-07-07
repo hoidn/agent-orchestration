@@ -160,6 +160,7 @@ def typecheck_procedure_definitions(
             procedure_def = procedure_target
             signature = procedure_catalog.signatures_by_name[procedure_def.name]
             specialization = None
+        _validate_type_param_binding_coverage(procedure_def, signature)
         if isinstance(procedure_target, TypedProcedureDef):
             from .loop_state import register_all_known_carrier_types
 
@@ -229,21 +230,26 @@ def typecheck_procedure_definitions(
             )
         else:
             body_expr = procedure_def.body
-        typed_body = typecheck_expression(
-            body_expr,
-            type_env=current_type_env,
-            value_env=value_env,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            function_catalog=function_catalog,
-            extern_environment=externs,
-            command_boundary_environment=command_boundary_environment,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-            proc_ref_value_env=proc_ref_value_env,
-            shared_union_field_capabilities=shared_union_field_capabilities,
-        )
+        try:
+            typed_body = typecheck_expression(
+                body_expr,
+                type_env=current_type_env,
+                value_env=value_env,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                function_catalog=function_catalog,
+                extern_environment=externs,
+                command_boundary_environment=command_boundary_environment,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
+                proc_ref_value_env=proc_ref_value_env,
+                shared_union_field_capabilities=shared_union_field_capabilities,
+            )
+        except LispFrontendCompileError as exc:
+            if specialization is None:
+                raise
+            raise _annotate_specialization_body_error(exc, origin_span=specialization.origin_span) from exc
         if not type_refs_compatible(signature.return_type_ref, typed_body.type_ref):
             raise LispFrontendCompileError(
                 (
@@ -270,6 +276,79 @@ def typecheck_procedure_definitions(
             )
         )
     return tuple(typed_procedures)
+
+
+def _validate_type_param_binding_coverage(
+    procedure_def: ProcedureDef,
+    signature: ProcedureSignature,
+) -> None:
+    if not signature.type_params:
+        return
+
+    bindable_type_params: set[str] = set()
+    for _, type_ref in signature.params:
+        bindable_type_params.update(_type_param_names_in_type_ref(type_ref))
+
+    for type_param in signature.type_params:
+        if type_param.name in bindable_type_params:
+            continue
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="procedure_type_param_unbindable",
+                    message=(
+                        f"procedure `{procedure_def.name}` declares type parameter `{type_param.name}` "
+                        "but it appears in no parameter or ProcRef signature position; "
+                        "it can never be inferred"
+                    ),
+                    span=procedure_def.span,
+                    form_path=procedure_def.form_path,
+                    expansion_stack=procedure_def.expansion_stack,
+                    phase="typecheck",
+                ),
+            )
+        )
+
+
+def _type_param_names_in_type_ref(type_ref: TypeRef) -> frozenset[str]:
+    if isinstance(type_ref, TypeParamRef):
+        return frozenset({type_ref.name})
+    if hasattr(type_ref, "item_type_ref"):
+        return _type_param_names_in_type_ref(type_ref.item_type_ref)
+    if hasattr(type_ref, "key_type_ref"):
+        return _type_param_names_in_type_ref(type_ref.key_type_ref) | _type_param_names_in_type_ref(
+            type_ref.value_type_ref
+        )
+    if isinstance(type_ref, ProcRefTypeRef):
+        names: set[str] = set()
+        for param_type in type_ref.param_type_refs:
+            names.update(_type_param_names_in_type_ref(param_type))
+        names.update(_type_param_names_in_type_ref(type_ref.return_type_ref))
+        return frozenset(names)
+    if isinstance(type_ref, WorkflowRefTypeRef):
+        names: set[str] = set()
+        for param_type in type_ref.param_type_refs:
+            names.update(_type_param_names_in_type_ref(param_type))
+        names.update(_type_param_names_in_type_ref(type_ref.return_type_ref))
+        return frozenset(names)
+    return frozenset()
+
+
+def _annotate_specialization_body_error(
+    exc: LispFrontendCompileError,
+    *,
+    origin_span,
+) -> LispFrontendCompileError:
+    origin = origin_span.start
+    note = f"instantiated from {origin.path}:{origin.line}:{origin.column}"
+    return LispFrontendCompileError(
+        tuple(
+            diagnostic
+            if note in diagnostic.notes
+            else replace(diagnostic, notes=(*diagnostic.notes, note))
+            for diagnostic in exc.diagnostics
+        )
+    )
 
 
 def _apply_provisional_parametric_type(

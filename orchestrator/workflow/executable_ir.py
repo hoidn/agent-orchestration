@@ -518,7 +518,7 @@ def workflow_executable_ir_to_json(ir: ExecutableWorkflow) -> dict[str, Any]:
         "schema_version": ir.schema_version,
         "version": ir.version,
         "name": ir.name,
-        "provenance": _json_value(ir.provenance),
+        "provenance": _provenance_json_value(ir.provenance),
         "body_region": list(ir.body_region),
         "finalization_region": list(ir.finalization_region),
         "finalization_entry_node_id": ir.finalization_entry_node_id,
@@ -964,3 +964,25 @@ def _json_value(value: Any) -> Any:
     if is_dataclass(value):
         return {field.name: _json_value(getattr(value, field.name)) for field in fields(value)}
     return value
+
+
+def _provenance_json_value(provenance: WorkflowProvenance) -> dict[str, Any]:
+    from orchestrator.workflow_lisp.lexical_checkpoint_restore import public_restore_metadata
+
+    payload = _json_value(provenance)
+    if not isinstance(payload, dict):
+        return payload
+    points = payload.get("lexical_checkpoint_points")
+    if not isinstance(points, list):
+        return payload
+    sanitized_points: list[Any] = []
+    for point in points:
+        if not isinstance(point, dict):
+            sanitized_points.append(point)
+            continue
+        sanitized = dict(point)
+        restore = sanitized.get("restore")
+        if isinstance(restore, Mapping):
+            sanitized["restore"] = public_restore_metadata(restore)
+        sanitized_points.append(sanitized)
+    return {**payload, "lexical_checkpoint_points": sanitized_points}

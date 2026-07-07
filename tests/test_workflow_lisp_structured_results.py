@@ -1,5 +1,6 @@
 import ast
 import importlib
+import json
 from pathlib import Path
 
 import pytest
@@ -796,6 +797,43 @@ def test_review_findings_certified_adapter_accepts_valid_payload(
     assert capsys.readouterr().out.strip() == (
         '{"schema_version": "ReviewFindings.v1", "items_path": "artifacts/work/review_findings.json"}'
     )
+
+
+def test_review_findings_certified_adapter_writes_max_length_bundle_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from orchestrator.workflow_lisp.adapters import validate_review_findings_v1
+
+    findings_path = tmp_path / "artifacts" / "work" / "review_findings.json"
+    findings_path.parent.mkdir(parents=True, exist_ok=True)
+    findings_path.write_text('{"items":[]}', encoding="utf-8")
+    bundle_name = f"{'a' * 247}.json"
+    bundle_path = tmp_path / ".orchestrate" / "bundles" / bundle_name
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(
+        "ORCHESTRATOR_OUTPUT_BUNDLE_PATH",
+        bundle_path.relative_to(tmp_path).as_posix(),
+    )
+
+    exit_code = validate_review_findings_v1.main(
+        [
+            "validate_review_findings_v1",
+            "ReviewFindings.v1",
+            "artifacts/work/review_findings.json",
+        ]
+    )
+
+    assert exit_code == 0
+    assert json.loads(bundle_path.read_text(encoding="utf-8")) == {
+        "schema_version": "ReviewFindings.v1",
+        "items_path": "artifacts/work/review_findings.json",
+    }
+    assert json.loads(capsys.readouterr().out) == {
+        "schema_version": "ReviewFindings.v1",
+        "items_path": "artifacts/work/review_findings.json",
+    }
 
 
 def test_review_findings_certified_adapter_rejects_pointer_authority_payload(

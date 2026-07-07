@@ -331,4 +331,15 @@ def test_compile_stage3_rechecks_instantiated_generic_match_exhaustiveness(tmp_p
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile_module_fixture(NON_EXHAUSTIVE_FIXTURE, tmp_path=tmp_path)
 
+    diagnostic = excinfo.value.diagnostics[0]
+    call_line = next(
+        line_number
+        for line_number, line in enumerate(NON_EXHAUSTIVE_FIXTURE.read_text(encoding="utf-8").splitlines(), 1)
+        if "(status-from-outcome" in line
+    )
     _assert_diagnostic_code(excinfo, "union_match_non_exhaustive")
+    assert diagnostic.span.start.path == str(NON_EXHAUSTIVE_FIXTURE)
+    assert any(
+        "instantiated from" in note and f"{NON_EXHAUSTIVE_FIXTURE}:{call_line}:" in note
+        for note in diagnostic.notes
+    )

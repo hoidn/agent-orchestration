@@ -1907,8 +1907,8 @@ def test_provider_bundle_path_projection_rejects_mismatched_bundle_identity(
     broken_outputs = dict(lowered.authored_mapping["outputs"])
     broken_selection_bundle = dict(broken_outputs["return__selection_bundle_path"])
     broken_projection = dict(broken_selection_bundle["projection"])
-    broken_selection_bundle["from"] = {"ref": "inputs.manifest"}
-    broken_projection["bundle_path_ref"] = "inputs.manifest"
+    broken_selection_bundle["from"] = {"ref": "inputs.ctx__manifest"}
+    broken_projection["bundle_path_ref"] = "inputs.ctx__manifest"
     broken_selection_bundle["projection"] = broken_projection
     broken_outputs["return__selection_bundle_path"] = broken_selection_bundle
     broken_workflow = replace(
@@ -4391,7 +4391,8 @@ def test_compile_stage3_entrypoint_promoted_entry_emits_hidden_context_call_bind
     call_step = next(step for step in lowered.authored_mapping["steps"] if step.get("call"))
 
     assert {
-        item.generated_name: item.reason for item in lowered.boundary_projection.generated_internal_inputs
+        item.generated_name: item.reason
+        for item in lowered.boundary_projection.generated_internal_inputs
     } == {
         "phase-ctx__run__run-id": "runtime_owned_context",
         "phase-ctx__run__state-root": "runtime_owned_context",
@@ -4602,6 +4603,23 @@ def test_compile_stage3_entrypoint_item_ctx_child_phase_reuse_emits_derived_phas
                 "phase-ctx__plan__run__run-id": ("item-ctx", "run", "run-id"),
                 "phase-ctx__plan__run__state-root": ("item-ctx", "run", "state-root"),
                 "phase-ctx__plan__run__artifact-root": ("item-ctx", "run", "artifact-root"),
+            },
+        },
+        "item-ctx": {
+            "context_binding_schema_version": 1,
+            "context_input_roles": {
+                "item-ctx__run__run-id": "run_anchor:run-id",
+                "item-ctx__run__state-root": "run_anchor:state-root",
+                "item-ctx__run__artifact-root": "run_anchor:artifact-root",
+            },
+            "carried_input_sources": {
+                "item-ctx__run__run-id": ("item-ctx", "run", "run-id"),
+                "item-ctx__run__state-root": ("item-ctx", "run", "state-root"),
+                "item-ctx__run__artifact-root": ("item-ctx", "run", "artifact-root"),
+                "item-ctx__item-id": ("item-ctx", "item-id"),
+                "item-ctx__state-root": ("item-ctx", "state-root"),
+                "item-ctx__artifact-root": ("item-ctx", "artifact-root"),
+                "item-ctx__ledger": ("item-ctx", "ledger"),
             },
         },
     }
@@ -5366,20 +5384,19 @@ def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_unrelated
     assert "phase-ctx" in diagnostic.message
 
 
-def test_compile_stage3_entrypoint_rejects_private_compatibility_bridge_omission_for_unrelated_exported_sibling_in_item_ctx_proof_module(
+def test_compile_stage3_entrypoint_allows_unrelated_exported_sibling_after_project_selected_compat_bridge_retirement(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_item_ctx_child_phase_reuse_leak_probe(
-            tmp_path,
-            entry_workflow="item_ctx_child_phase_reuse_leak_probe::unrelated-entry",
-            include_unrelated_hidden_context_entry=False,
-            include_unrelated_bridge_entry=True,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "workflow_signature_mismatch"
-    assert "run_state_path" in diagnostic.message
+    result = _compile_item_ctx_child_phase_reuse_leak_probe(
+        tmp_path,
+        entry_workflow="item_ctx_child_phase_reuse_leak_probe::unrelated-entry",
+        include_unrelated_hidden_context_entry=False,
+        include_unrelated_bridge_entry=True,
+    )
+    compat_bundle = result.validated_bundles_by_name[
+        "lisp_frontend_design_delta/branching_terminal_reprojection_support::project-selected-compat"
+    ]
+    assert workflow_boundary_projection(compat_bundle).private_compatibility_bridge_inputs == ()
 
 
 def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_transitive_proof_wrapper(
@@ -5399,21 +5416,20 @@ def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_transitiv
     assert "phase-ctx" in diagnostic.message
 
 
-def test_compile_stage3_entrypoint_rejects_private_compatibility_bridge_omission_for_transitive_proof_wrapper(
+def test_compile_stage3_entrypoint_allows_transitive_proof_wrapper_after_project_selected_compat_bridge_retirement(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_item_ctx_child_phase_reuse_leak_probe(
-            tmp_path,
-            entry_workflow="item_ctx_child_phase_reuse_leak_probe::proof-wrapper-bridge-entry",
-            include_unrelated_hidden_context_entry=False,
-            include_unrelated_bridge_entry=False,
-            include_wrapper_bridge_entry=True,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "workflow_signature_mismatch"
-    assert "run_state_path" in diagnostic.message
+    result = _compile_item_ctx_child_phase_reuse_leak_probe(
+        tmp_path,
+        entry_workflow="item_ctx_child_phase_reuse_leak_probe::proof-wrapper-bridge-entry",
+        include_unrelated_hidden_context_entry=False,
+        include_unrelated_bridge_entry=False,
+        include_wrapper_bridge_entry=True,
+    )
+    compat_bundle = result.validated_bundles_by_name[
+        "lisp_frontend_design_delta/branching_terminal_reprojection_support::project-selected-compat"
+    ]
+    assert workflow_boundary_projection(compat_bundle).private_compatibility_bridge_inputs == ()
 
 
 def test_compile_stage3_entrypoint_imported_selector_ctx_carried_sources(
@@ -5443,7 +5459,6 @@ def test_compile_stage3_entrypoint_imported_selector_ctx_carried_sources(
         "ctx__target_design_path",
         "ctx__baseline_design_path",
         "ctx__progress_ledger_path",
-        "ctx__run_state_path",
         "ctx__existing_architecture_index_path",
     )
     assert binding.projection_hints == {
@@ -5464,7 +5479,6 @@ def test_compile_stage3_entrypoint_imported_selector_ctx_carried_sources(
             "ctx__target_design_path": ("ctx", "target_design_path"),
             "ctx__baseline_design_path": ("ctx", "baseline_design_path"),
             "ctx__progress_ledger_path": ("ctx", "progress_ledger_path"),
-            "ctx__run_state_path": ("ctx", "run_state_path"),
             "ctx__existing_architecture_index_path": (
                 "ctx",
                 "existing_architecture_index_path",
@@ -6604,9 +6618,12 @@ def test_compile_stage3_module_labels_phase_prompt_hidden_inputs_distinct_from_w
         projection = lowered.boundary_projection
         qualified_name = lowered.typed_workflow.definition.name
         assert projection.generated_internal_inputs
-        assert {
-            item.generated_name: item.reason for item in projection.generated_internal_inputs
-        } == {
+        phase_prompt_inputs = {
+            item.generated_name: item.reason
+            for item in projection.generated_internal_inputs
+            if item.reason == "phase_prompt_transport"
+        }
+        assert phase_prompt_inputs == {
             f"__phase_prompt__{qualified_name}__attempt__execution_report_target": "phase_prompt_transport",
             f"__phase_prompt__{qualified_name}__attempt__progress_report_target": "phase_prompt_transport",
         }

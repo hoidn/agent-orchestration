@@ -43,12 +43,6 @@
       "evidence_mode": "structural_and_behavioral",
       "behavior_runtime": {
         "bound_inputs": {
-          "phase-ctx__run__run-id": "char-run-provider-phase",
-          "phase-ctx__run__state-root": "state/characterization/run-provider-phase",
-          "phase-ctx__run__artifact-root": "artifacts",
-          "phase-ctx__phase-name": "implementation",
-          "phase-ctx__state-root": "state/characterization/run-provider-phase",
-          "phase-ctx__artifact-root": "artifacts",
           "inputs__design": "docs/design/workflow_lisp_frontend_specification.md",
           "inputs__plan": "docs/plans/implementation_plan.md",
           "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__execution_report_target": "artifacts/work/execution_report.md",

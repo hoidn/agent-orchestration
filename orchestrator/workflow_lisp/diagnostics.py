@@ -215,6 +215,7 @@ _MODULE_CODES = frozenset(
         "procedure_type_param_duplicate",
         "procedure_type_param_clause_invalid",
         "procedure_type_param_unknown",
+        "procedure_type_param_unbindable",
         "procedure_where_clause_invalid",
         "procedure_where_field_requirement_invalid",
     }

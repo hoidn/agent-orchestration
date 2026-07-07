@@ -144,10 +144,9 @@ Type-argument binding rules:
   least one parameter or `ProcRef`-signature position of the definition.
   This is a property of the definition, checked when the generic definition
   is compiled — not an inference failure surfaced at some caller's first
-  use. (Current implementation reports the violation at call sites as
-  `parametric_type_binding_unresolved`; moving it to definition time is part
-  of the Tranche 2 diagnostics prerequisite.) A consequence: return-only
-  type parameters are inexpressible by construction; see Deferred
+  use. (Implemented as `procedure_type_param_unbindable` during definition
+  typechecking.) A consequence: return-only type parameters are inexpressible
+  by construction; see Deferred
   Extensions (explicit type application).
 
 ## Caller Surface
@@ -224,11 +223,8 @@ Rules:
    type catalog's rules, including path-refinement narrowing — a
    caller-owned refined `defpath` satisfies a base path-family constraint
    over the same root. Implementation status: the landed check
-   (`parametric_constraints.py`) is strict type equality, not directional
-   compatibility; the relaxation is required by Tranche 2 (consumer drain
-   contexts carry refined path fields such as `StateFileExisting` where the
-   stdlib shape declares `Path.state-root`) and is folded into Tranche 2
-   prerequisite 1.
+   (`parametric_constraints.py`) uses assignment compatibility, including
+   the refined-path case required by Tranche 2 consumer drain contexts.
 5. **Owned spellings only.** Consuming docs and fixtures use exactly these
    forms. `has-variant`, `has-union-variants`, `T = SomeType`,
    `T satisfies Schema`, and trait aliases are not first-tranche surface.
@@ -442,24 +438,21 @@ Constraint and specialization failures are compile-time and must name:
    that failed it;
 4. for inference failures: the type parameter that could not be bound;
 5. for hook signature mismatches: the expected and actual `ProcRef`
-   signatures and the first mismatching position. (The current message
-   names only the two procedures — `procedure ref X does not match Y`,
-   `procedure_refs.py` — which forces the author to re-derive the delta
-   from source; with three hooks per drain call this is the likeliest
-   caller error, so it must meet the anatomy above.)
+   signatures and the first mismatching position. (Implemented in
+   `procedure_refs.py`; messages preserve the `does not match` prefix while
+   rendering expected/actual signatures and the first mismatch.)
 
 When a call site fails multiple `:where` clauses, **all failing clauses are
-reported together**, not just the first. (Current implementation fails fast
-on the first unsatisfied constraint; the regression fixture below asserts
-report-all.)
+reported together**, not just the first. (Implemented by accumulating
+clause-scoped parametric diagnostics at the call site.)
 
 Diagnostic codes, landed (verified 2026-07-06 checkout):
 `procedure_type_param_clause_invalid`, `procedure_type_param_duplicate`,
-`procedure_type_param_unknown`, `parametric_constraint_malformed`,
-`parametric_constraint_unknown`, `parametric_constraint_unsatisfied`,
-`parametric_type_binding_unresolved`, `parametric_type_binding_ambiguous`,
-`parametric_capability_undeclared`, `parametric_specialization_cycle`,
-`loop_state_unresolved_type_parameter`.
+`procedure_type_param_unknown`, `procedure_type_param_unbindable`,
+`parametric_constraint_malformed`, `parametric_constraint_unknown`,
+`parametric_constraint_unsatisfied`, `parametric_type_binding_unresolved`,
+`parametric_type_binding_ambiguous`, `parametric_capability_undeclared`,
+`parametric_specialization_cycle`, `loop_state_unresolved_type_parameter`.
 
 Reserved (contract obligations without dedicated codes yet): specialization
 identity collision; unsupported parametric boundary type. Runtime leakage of
@@ -471,9 +464,10 @@ constraint (not merely that compilation fails), plus one hook signature
 mismatch asserting point 5, plus one typecheck failure **inside an
 instantiated body** asserting the call site survives into the rendered
 diagnostics — the specialization request threads `origin_span`
-(`specialization_typecheck.py`), but nothing currently asserts it renders.
-These are the guards against instantiate-then-typecheck degrading into
-errors that point inside substituted bodies.
+(`specialization_typecheck.py`) and specialized-body diagnostics render an
+`instantiated from ...` note. These are the guards against
+instantiate-then-typecheck degrading into errors that point inside
+substituted bodies.
 
 ## Form Classification and Migration Policy
 
@@ -575,16 +569,16 @@ exact-field checks in those validators are dropped per Subset Semantics.
 
 Prerequisites, in order:
 
-1. Minimal fixture proving the two unlanded constraint capabilities end to
-   end — constraint satisfaction, constraint failure diagnostics, and
+1. Minimal fixture proving the two landed constraint capabilities end to end
+   — constraint satisfaction, constraint failure diagnostics, and
    specialization for each: (a) type-parameter constraint field types
    (Constraint Vocabulary rule 3); (b) directional assignment compatibility
    for constraint field types, including refined-path narrowing and
-   refinement survival through substitution (rule 4 — the landed check is
-   strict equality). These are the open feasibility gaps of this design and
-   gate everything below.
+   refinement survival through substitution (rule 4). These feasibility
+   prerequisites are implemented and covered by focused fixtures.
 2. Diagnostics regression fixture (Diagnostics Contract), including
-   report-all constraint failures and the definition-site coverage check.
+   report-all constraint failures and the definition-site coverage check
+   (implemented).
 3. Authored loop body in `std/drain.orc` using existing terminal helpers
    (`finalize-drain-terminal`, `consume-drain-terminal-effects`).
 4. Checkpoint-identity preservation demonstrated by compiled-artifact

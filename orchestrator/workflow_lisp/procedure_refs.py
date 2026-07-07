@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .expressions import BindProcExpr, NameExpr, ProcRefLiteralExpr
-from .type_env import ProcRefTypeRef, TypeRef, type_refs_compatible
+from .type_env import ProcRefTypeRef, TypeRef, render_type_ref, type_refs_compatible
 
 if TYPE_CHECKING:
     from .modules import ModuleImportScope
@@ -32,6 +32,7 @@ class ResolvedProcRef:
     signature_params: tuple[tuple[str, TypeRef], ...]
     return_type_ref: TypeRef
     authority_source: ProcRefAuthoritySource
+    definition_span: object | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,7 @@ class ResolvedProcRefValue:
     return_type_ref: TypeRef
     authority_source: ProcRefAuthoritySource
     bound_args: tuple[BoundProcArg, ...] = ()
+    definition_span: object | None = None
 
     @property
     def residual_params(self) -> tuple[tuple[str, TypeRef], ...]:
@@ -154,24 +156,27 @@ def validate_proc_ref_signature(
     form_path,
     expansion_stack=(),
 ) -> None:
-    actual_params = tuple(type_ref for _, type_ref in actual_signature.params)
-    params_match = len(actual_params) == len(expected.param_type_refs) and all(
-        type_refs_compatible(expected_param, actual_param)
-        for expected_param, actual_param in zip(
-            expected.param_type_refs,
-            actual_params,
-            strict=True,
-        )
+    mismatch = _proc_ref_signature_mismatch(
+        expected,
+        actual_signature.params,
+        actual_signature.return_type_ref,
     )
-    if not params_match or not type_refs_compatible(expected.return_type_ref, actual_signature.return_type_ref):
+    if mismatch is not None:
         raise LispFrontendCompileError(
             (
                 LispFrontendDiagnostic(
                     code="proc_ref_signature_invalid",
-                    message=f"procedure ref `{actual_signature.name}` does not match `{expected.name}`",
+                    message=_proc_ref_signature_invalid_message(
+                        actual_signature.name,
+                        expected,
+                        actual_signature.params,
+                        actual_signature.return_type_ref,
+                        mismatch,
+                    ),
                     span=span,
                     form_path=form_path,
                     expansion_stack=expansion_stack,
+                    notes=(_proc_ref_target_note(actual_signature.span),),
                 ),
             )
         )
@@ -187,18 +192,84 @@ def validate_proc_ref_value(
 ) -> None:
     if expected_type is None:
         return
-    if not type_refs_compatible(expected_type, value.residual_type_ref):
+    mismatch = _proc_ref_signature_mismatch(
+        expected_type,
+        value.residual_params,
+        value.return_type_ref,
+    )
+    if mismatch is not None:
         raise LispFrontendCompileError(
             (
                 LispFrontendDiagnostic(
                     code="proc_ref_signature_invalid",
-                    message=f"procedure ref `{value.procedure_name}` does not match `{expected_type.name}`",
+                    message=_proc_ref_signature_invalid_message(
+                        value.procedure_name,
+                        expected_type,
+                        value.residual_params,
+                        value.return_type_ref,
+                        mismatch,
+                    ),
                     span=span,
                     form_path=form_path,
                     expansion_stack=expansion_stack,
+                    notes=(
+                        ()
+                        if value.definition_span is None
+                        else (_proc_ref_target_note(value.definition_span),)
+                    ),
                 ),
             )
         )
+
+
+def _proc_ref_signature_mismatch(
+    expected: ProcRefTypeRef,
+    actual_params: tuple[tuple[str, TypeRef], ...],
+    actual_return_type_ref: TypeRef,
+) -> str | None:
+    if len(actual_params) != len(expected.param_type_refs):
+        return (
+            "arity "
+            f"(expected {len(expected.param_type_refs)} parameters, got {len(actual_params)})"
+        )
+    for index, (expected_param, actual_param) in enumerate(
+        zip(expected.param_type_refs, actual_params, strict=True),
+        start=1,
+    ):
+        actual_name, actual_type_ref = actual_param
+        if not type_refs_compatible(expected_param, actual_type_ref):
+            name_detail = f" `{actual_name}`" if actual_name else ""
+            return (
+                f"parameter {index}{name_detail} "
+                f"(expected {render_type_ref(expected_param)}, got {render_type_ref(actual_type_ref)})"
+            )
+    if not type_refs_compatible(expected.return_type_ref, actual_return_type_ref):
+        return (
+            "return "
+            f"(expected {render_type_ref(expected.return_type_ref)}, "
+            f"got {render_type_ref(actual_return_type_ref)})"
+        )
+    return None
+
+
+def _proc_ref_signature_invalid_message(
+    procedure_name: str,
+    expected: ProcRefTypeRef,
+    actual_params: tuple[tuple[str, TypeRef], ...],
+    actual_return_type_ref: TypeRef,
+    mismatch: str,
+) -> str:
+    actual = proc_ref_type_from_parts(actual_params, actual_return_type_ref)
+    return (
+        f"procedure ref `{procedure_name}` does not match `{expected.name}`: "
+        f"expected `{render_type_ref(expected)}`, got `{render_type_ref(actual)}`; "
+        f"first mismatch at {mismatch}"
+    )
+
+
+def _proc_ref_target_note(span) -> str:
+    start = span.start
+    return f"procedure ref target declared at {start.path}:{start.line}:{start.column}"
 
 
 def resolve_proc_ref_name(
@@ -246,6 +317,7 @@ def resolve_proc_ref_name(
         signature_params=signature.params,
         return_type_ref=signature.return_type_ref,
         authority_source=ProcRefAuthoritySource(kind="linked_procedure", procedure_name=signature.name),
+        definition_span=signature.span,
     )
 
 
@@ -300,6 +372,7 @@ def resolve_proc_ref_value(
             signature_params=resolved.signature_params,
             return_type_ref=resolved.return_type_ref,
             authority_source=resolved.authority_source,
+            definition_span=resolved.definition_span,
         )
     elif isinstance(expr, BindProcExpr):
         base_value = resolve_proc_ref_value(
@@ -371,6 +444,7 @@ def resolve_proc_ref_value(
             return_type_ref=base_value.return_type_ref,
             authority_source=base_value.authority_source,
             bound_args=ordered_bound_args,
+            definition_span=base_value.definition_span,
         )
     else:
         return None

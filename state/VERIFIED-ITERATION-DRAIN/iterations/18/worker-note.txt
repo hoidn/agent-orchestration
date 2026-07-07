@@ -1,0 +1,1 @@
+Verified the runtime-native drain stdlib/private-context/parametric diagnostics slice; declared pytest, new-test collect-only, and Design Delta compile gates pass.

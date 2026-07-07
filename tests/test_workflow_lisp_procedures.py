@@ -787,7 +787,7 @@ def test_compile_stage3_rejects_ambiguous_type_argument_bindings(tmp_path: Path)
     _assert_diagnostic_code(excinfo, "parametric_type_binding_ambiguous")
 
 
-def test_compile_stage3_rejects_unresolved_type_parameters(tmp_path: Path) -> None:
+def test_compile_stage3_rejects_unbindable_type_parameters(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "generic_proc_binding_unresolved.orc",
         [
@@ -813,7 +813,7 @@ def test_compile_stage3_rejects_unresolved_type_parameters(tmp_path: Path) -> No
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(path, tmp_path=tmp_path)
 
-    _assert_diagnostic_code(excinfo, "parametric_type_binding_unresolved")
+    _assert_diagnostic_code(excinfo, "procedure_type_param_unbindable")
 
 
 def test_compile_stage3_accepts_is_record_and_has_field_constraints(tmp_path: Path) -> None:
@@ -979,8 +979,12 @@ def test_compile_stage3_rejects_unsatisfied_has_field_constraint(tmp_path: Path)
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(path, tmp_path=tmp_path)
 
+    diagnostic = excinfo.value.diagnostics[0]
     _assert_diagnostic_code(excinfo, "parametric_constraint_unsatisfied")
-    assert "has-field" in excinfo.value.diagnostics[0].message
+    assert diagnostic.span.start.path == str(path)
+    assert "has-field report String" in diagnostic.message
+    assert "WorkflowInput" in diagnostic.message
+    assert any("constraint declared at" in note and str(path) in note for note in diagnostic.notes)
 
 
 def test_compile_stage3_rejects_unsatisfied_has_union_variant_constraint(tmp_path: Path) -> None:
@@ -1130,6 +1134,27 @@ def test_compile_stage3_rejects_type_param_record_field_mismatch(tmp_path: Path)
         )
     _assert_diagnostic_code(excinfo, "parametric_constraint_unsatisfied")
     assert "payload" in excinfo.value.diagnostics[0].message
+
+
+def test_typecheck_rejects_unbindable_type_param_at_definition(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(
+            FIXTURES / "invalid" / "parametric_type_param_unbindable.orc",
+            tmp_path=tmp_path,
+        )
+
+    _assert_diagnostic_code(excinfo, "procedure_type_param_unbindable")
+
+
+def test_constraint_failures_report_all_clauses(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(
+            FIXTURES / "invalid" / "parametric_multiple_constraint_failures.orc",
+            tmp_path=tmp_path,
+    )
+
+    codes = [diagnostic.code for diagnostic in excinfo.value.diagnostics]
+    assert codes.count("parametric_constraint_unsatisfied") == 3
 
 
 def test_compile_stage3_accepts_generic_shared_union_field_projection(tmp_path: Path) -> None:
@@ -5204,6 +5229,12 @@ def test_compile_stage3_rejects_proc_ref_signature_mismatches(tmp_path: Path) ->
         _compile(PROC_REF_SIGNATURE_INVALID_FIXTURE, tmp_path=tmp_path)
 
     _assert_diagnostic_code(excinfo, "proc_ref_signature_invalid")
+    message = excinfo.value.diagnostics[0].message
+    assert "does not match" in message
+    assert "expected" in message
+    assert "ProcRef[" in message
+    assert "parameter 1" in message
+    assert any("procedure ref target declared at" in note for note in excinfo.value.diagnostics[0].notes)
 
 
 def test_compile_stage3_rejects_bind_proc_unknown_keywords(tmp_path: Path) -> None:

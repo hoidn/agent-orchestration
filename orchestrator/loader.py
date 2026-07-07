@@ -3394,10 +3394,16 @@ class WorkflowLoader:
             self._add_error(f"{context}.variants must be a non-empty dictionary", subject_refs=subject_refs)
             return
 
-        seen_names: Set[str] = set()
-        seen_pointers: Set[str] = set()
+        base_seen_names: Set[str] = set()
+        base_seen_pointers: Set[str] = set()
 
-        def validate_field_spec(spec: Any, field_context: str) -> None:
+        def validate_field_spec(
+            spec: Any,
+            field_context: str,
+            *,
+            seen_names: Set[str],
+            seen_pointers: Set[str],
+        ) -> None:
             if not isinstance(spec, dict):
                 self._add_error(f"{field_context} must be a dictionary", subject_refs=subject_refs)
                 return
@@ -3437,10 +3443,20 @@ class WorkflowLoader:
                 kind_label="variant_output",
             )
 
-        validate_field_spec(discriminant, f"{context}.discriminant")
+        validate_field_spec(
+            discriminant,
+            f"{context}.discriminant",
+            seen_names=base_seen_names,
+            seen_pointers=base_seen_pointers,
+        )
 
         for index, spec in enumerate(shared_fields):
-            validate_field_spec(spec, f"{context}.shared_fields[{index}]")
+            validate_field_spec(
+                spec,
+                f"{context}.shared_fields[{index}]",
+                seen_names=base_seen_names,
+                seen_pointers=base_seen_pointers,
+            )
 
         for variant_name, variant_spec in variants.items():
             variant_context = f"{context}.variants.{variant_name}"
@@ -3451,8 +3467,15 @@ class WorkflowLoader:
             if not isinstance(fields, list):
                 self._add_error(f"{variant_context}.fields must be a list", subject_refs=subject_refs)
                 continue
+            variant_seen_names = set(base_seen_names)
+            variant_seen_pointers = set(base_seen_pointers)
             for index, spec in enumerate(fields):
-                validate_field_spec(spec, f"{variant_context}.fields[{index}]")
+                validate_field_spec(
+                    spec,
+                    f"{variant_context}.fields[{index}]",
+                    seen_names=variant_seen_names,
+                    seen_pointers=variant_seen_pointers,
+                )
 
     def _validate_output_schema_spec(
         self,

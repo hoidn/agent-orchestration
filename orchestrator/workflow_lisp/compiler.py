@@ -2703,10 +2703,21 @@ def _canonicalize_nested_imported_type_ref(
         )
     if isinstance(type_ref, VariantCaseTypeRef):
         canonical_union_name = _canonical_export_type_name(module_name, type_ref.union_name, exported_names)
-        return (
-            replace(type_ref, union_name=canonical_union_name)
-            if canonical_union_name != type_ref.union_name
-            else type_ref
+        return replace(
+            type_ref,
+            union_name=canonical_union_name,
+            field_types=(
+                {
+                    field_name: _canonicalize_nested_imported_type_ref(
+                        field_type,
+                        module_name=module_name,
+                        exported_names=exported_names,
+                    )
+                    for field_name, field_type in type_ref.field_types.items()
+                }
+                if type_ref.field_types is not None
+                else None
+            ),
         )
     if isinstance(type_ref, WorkflowRefTypeRef):
         return replace(

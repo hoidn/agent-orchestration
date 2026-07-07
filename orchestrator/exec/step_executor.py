@@ -3,6 +3,7 @@ Step executor module for running commands and capturing output.
 Implements basic command execution with output capture.
 """
 
+import os
 import subprocess
 import shlex
 import time
@@ -133,6 +134,8 @@ class StepExecutor:
         else:
             raise ValueError(f"Invalid command type: {type(command)}. Expected str or list.")
 
+        self._ensure_orchestrator_module_on_pythonpath(command_argv, process_env)
+
         try:
             # Execute command using argv mode (no shell=True for security)
             result = subprocess.run(
@@ -207,6 +210,29 @@ class StepExecutor:
             duration_ms=duration_ms,
             error=error,
         )
+
+    @staticmethod
+    def _ensure_orchestrator_module_on_pythonpath(
+        command_argv: List[str],
+        process_env: Dict[str, str],
+    ) -> None:
+        if len(command_argv) < 3:
+            return
+        executable = Path(command_argv[0]).name
+        if not executable.startswith("python"):
+            return
+        if command_argv[1] != "-m" or not command_argv[2].startswith("orchestrator."):
+            return
+        repo_root = Path(__file__).resolve().parents[2]
+        existing = process_env.get("PYTHONPATH")
+        root_value = repo_root.as_posix()
+        if existing:
+            paths = existing.split(os.pathsep)
+            if root_value in paths:
+                return
+            process_env["PYTHONPATH"] = os.pathsep.join([root_value, existing])
+        else:
+            process_env["PYTHONPATH"] = root_value
 
     def execute_wait_for(
         self,

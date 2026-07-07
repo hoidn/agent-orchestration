@@ -117,31 +117,37 @@ def evaluate_parametric_constraints(
     """Validate first-tranche structural constraints for one generic call."""
 
     capabilities: list[SharedUnionFieldCapability] = []
+    collected: list[LispFrontendDiagnostic] = []
     for clause in where_clauses:
-        normalized = _normalize_constraint(clause, type_env=type_env, type_bindings=type_bindings)
-        concrete_type = type_bindings.get(normalized.subject_name)
-        if concrete_type is None:
-            _raise_constraint_error(
-                code="parametric_constraint_malformed",
-                message=(
-                    f"procedure `{procedure_name}` could not resolve a concrete type binding for "
-                    f"`{normalized.subject_name}` before checking `{_render_constraint(clause)}`"
-                ),
-                span=call_span,
-                form_path=call_form_path,
-                expansion_stack=call_expansion_stack,
-                notes=_constraint_notes(clause),
+        try:
+            normalized = _normalize_constraint(clause, type_env=type_env, type_bindings=type_bindings)
+            concrete_type = type_bindings.get(normalized.subject_name)
+            if concrete_type is None:
+                _raise_constraint_error(
+                    code="parametric_constraint_malformed",
+                    message=(
+                        f"procedure `{procedure_name}` could not resolve a concrete type binding for "
+                        f"`{normalized.subject_name}` before checking `{_render_constraint(clause)}`"
+                    ),
+                    span=call_span,
+                    form_path=call_form_path,
+                    expansion_stack=call_expansion_stack,
+                    notes=_constraint_notes(clause),
+                )
+            capabilities.extend(
+                _check_constraint(
+                    procedure_name=procedure_name,
+                    constraint=normalized,
+                    concrete_type=concrete_type,
+                    call_span=call_span,
+                    call_form_path=call_form_path,
+                    call_expansion_stack=call_expansion_stack,
+                )
             )
-        capabilities.extend(
-            _check_constraint(
-                procedure_name=procedure_name,
-                constraint=normalized,
-                concrete_type=concrete_type,
-                call_span=call_span,
-                call_form_path=call_form_path,
-                call_expansion_stack=call_expansion_stack,
-            )
-        )
+        except LispFrontendCompileError as error:
+            collected.extend(error.diagnostics)
+    if collected:
+        raise LispFrontendCompileError(tuple(collected))
     return ConstraintEvaluationResult(shared_union_field_capabilities=tuple(capabilities))
 
 

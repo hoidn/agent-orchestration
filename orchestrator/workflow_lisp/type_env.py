@@ -124,8 +124,10 @@ class VariantCaseTypeRef:
     # constructor site) so `record_field` can resolve a matched variant's
     # field types without re-looking up the union by name — a lookup that
     # fails for provisional unions synthesized for a `:forall` parameter.
-    # `None` for call sites that predate this field; falls back to the
-    # name-based union re-lookup.
+    # `None` only if a future caller constructs this without a field-types
+    # map (today `union_variant` is the sole constructor and always supplies
+    # one); `record_field` falls back to the name-based union re-lookup in
+    # that case.
     field_types: dict[str, "TypeRef"] | None = None
 
 

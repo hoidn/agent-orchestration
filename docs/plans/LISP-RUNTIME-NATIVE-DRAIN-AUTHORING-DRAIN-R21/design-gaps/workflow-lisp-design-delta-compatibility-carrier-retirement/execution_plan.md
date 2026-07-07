@@ -1,201 +1,412 @@
 # Design Delta Compatibility-Carrier Retirement Implementation Plan
 
-> **For agentic workers:** Use the repository's normal planning/execution skills.
-> Do not create a git worktree; this repo's `AGENTS.md` forbids worktrees.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Do not create a git worktree; this repo's `AGENTS.md` forbids worktrees.
 
-**Goal:** Remove `run_state_path` / `run-state` as a live internal Workflow Lisp
-compatibility carrier for the Design Delta parent-drain route.
+**Goal:** Retire the remaining `run-state` compatibility carrier from the promoted Design Delta drain route by removing dead `std/drain` carrier fields, shared lowering plumbing, and the bridge-backed family `drain-run-state` lane, while restoring the currently red runtime-proof fixtures and keeping all existing gates fail-closed.
 
-**Architecture:** This is a carrier-retirement slice, not a report-refresh
-slice. Retire executable/typecheck/lowering admission for `run_state_path` as a
-live promoted-route carrier. Reports, census files, manifests, and checked JSON
-are conditional consumers only: touch them only when a changed executable
-contract makes a current check fail.
+**Architecture:** The causal failure is already identified by the accepted gap architecture: the runtime proof fixtures call `emit-drain-status-transition-audit` in the intended carrier-free shape, but the surviving bridge wrapper still requires `run_state_path`, and that wrapper exists only because `std/drain` plus shared `backlog-drain` lowering still thread a dead `run-state` carrier. Fix the source of truth first: remove the carrier from `std/drain`, remove the generic lowering plumbing that only feeds it, collapse the family bridge/native duplication onto the surviving state-layout-backed runtime-native lane, and only then realign manifests, parity rows, fixtures, and tests to the new carrier-free contract. This preserves the generic owner split from the target design and avoids selected-case exceptions.
+
+**Tech Stack:** Workflow Lisp `.orc` modules, shared WCC/schema-2 lowering, compile/build gates, transition-authoring and parity manifests, and focused `python -m orchestrator compile` plus `pytest`
+
+---
 
 ## Governing Inputs
 
-- `docs/design/workflow_lisp_runtime_native_drain_authoring.md`
+Implement strictly against these authorities:
+
+- `docs/index.md`
+- `docs/design/README.md`
+- `docs/steering.md`
+- `docs/work_definition_model.md`
 - `docs/design/workflow_lisp_frontend_specification.md`
+- `docs/design/workflow_lisp_runtime_native_drain_authoring.md`
 - `docs/design/workflow_command_adapter_contract.md`
 - `docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R21/design-gaps/workflow-lisp-design-delta-compatibility-carrier-retirement/implementation_architecture.md`
-- current-run selector/work-item context for this gap
+- `state/workflow_lisp/calls/20260706T043621Z-6higvw/root.drain_lisp_frontend_work_4.lisp_frontend_drain_iteration.route_selection.desig_2c604e1d1c99/lisp-frontend-design-delta-design-gap-architect-v214/de14bca20ef59f36.json/work_item_context.md`
+- `state/workflow_lisp/calls/20260706T043621Z-6higvw/root.drain_lisp_frontend_work_4.lisp_frontend_drain_iteration.route_selection.desig_2c604e1d1c99/lisp-frontend-design-delta-design-gap-architect-v214/de14bca20ef59f36.json/check_commands.json`
 
-## Scope
+Target-design clauses that bind this slice:
 
-In scope:
+- `docs/design/workflow_lisp_runtime_native_drain_authoring.md:718` Section 12.1 requires compatibility bridges to be deleted, isolated at a declared public/legacy boundary, or replaced by typed composition.
+- `docs/design/workflow_lisp_runtime_native_drain_authoring.md:754` Section 12.2 requires phase/drain behavior to move into ordinary stdlib/family `.orc` ownership rather than family-specific compiler assumptions.
+- `docs/design/workflow_lisp_runtime_native_drain_authoring.md:824` Section 13.4 requires source/runtime behavior repair before incidental fixture maintenance and requires the real promoted route to stay runnable.
+- `docs/design/workflow_lisp_runtime_native_drain_authoring.md:922` Section 15 requires internal compatibility carriers to disappear from ordinary stdlib child-call composition unless a live consumer forces an isolated declared boundary.
 
-- remove or quarantine stale Design Delta `run-state` payload types used by
-  promoted/internal composition;
-- remove generic `run_state_path` bridge omission/classification from
-  typecheck/lowering/private-boundary helpers;
-- update authoritative checked fixture mirrors when a touched Design Delta
-  library module is byte-mirrored under
-  `tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/`;
-- update report/census/manifest consumers only if they fail after the live
-  executable carrier is retired;
-- preserve still-live non-`run_state_path` compatibility bridges, such as
-  `progress_ledger_path`, when they have a real current consumer;
-- prove the promoted parent-drain route still compiles and smokes without
-  reviving `run_state_path`.
+## Scope Guards
 
-Out of scope:
+- Keep the fix generic where behavior is shared: no `lisp_frontend_design_delta`, drain-family, or transition-name special cases in shared lowering/compiler code.
+- Do not weaken transition-authoring, parity, resume-plumbing, runtime-proof, or deny-guard validation to make retirement appear green.
+- Do not reintroduce surrogate `run-state` values, placeholder paths, or bridge aliases under new names.
+- Do not change `std_drain_backlog_drain__normalize_result__*` write-root identities, result-proc purity, terminal-effect ownership, backend kind, fail-closed behavior, audit projection, or idempotency on survivor transitions.
+- Do not treat fixture refresh as the fix. The fix is source/runtime behavior repair; fixture and manifest updates follow only after the real lane changes.
+- If a focused check proves a live consumer still needs one YAML-era run-state JSON write, isolate exactly that write at a declared legacy boundary per `workflow_command_adapter_contract.md`; otherwise remove the lane outright.
+- Generic runtime/frontend `bridge` support and non-family checkpoint/resume `run_state_path` uses are out of scope.
 
-- broad census, manifest, parity, or report refreshes whose only purpose is to
-  realign stale evidence, ordering, timestamps, or summaries;
-- provider request-record migration;
-- consumer-side rendering completion;
-- YAML-primary promotion;
-- rewriting unrelated stdlib drain semantics.
+## File Map
 
-## Task 1: Confirm The Live Carrier Surface
+Primary source files:
+
+- `orchestrator/workflow_lisp/stdlib_modules/std/drain.orc`
+- `orchestrator/workflow_lisp/lowering/phase_drain.py`
+- `orchestrator/workflow_lisp/lowering/drain_terminal.py`
+- `workflows/library/lisp_frontend_design_delta/transitions.orc`
+- `workflows/library/lisp_frontend_design_delta/types.orc`
+- `workflows/library/lisp_frontend_design_delta/runtime_transition_fixture.orc`
+- `workflows/library/lisp_frontend_design_delta/runtime_view_fixture.orc`
+
+Checked contract and gate files:
+
+- `workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.transition_authoring.json`
+- `workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.resume_plumbing_retirement.json`
+- `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json`
+- `orchestrator/workflow_lisp/resume_plumbing_retirement.py`
+
+Likely test and fixture files:
+
+- `tests/test_workflow_lisp_drain_stdlib.py`
+- `tests/test_workflow_lisp_transition_authoring.py`
+- `tests/test_workflow_lisp_resume_plumbing_retirement.py`
+- `tests/test_workflow_lisp_view_dual_run.py`
+- `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py`
+- `tests/test_workflow_lisp_resource_stdlib.py`
+- `tests/test_workflow_lisp_resource_transition_runtime.py`
+- `tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py`
+- `tests/test_workflow_lisp_migration_parity.py`
+- `tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/...` only if a focused failure proves mirror maintenance is required
+
+Conditional shared surfaces if carrier removal exposes a hidden generic dependency:
+
+- `orchestrator/workflow_lisp/typecheck_dispatch.py`
+- `orchestrator/workflow_lisp/wcc/elaborate.py`
+- `orchestrator/workflow_lisp/procedure_specialization.py`
+- `orchestrator/workflow_lisp/lowering/core.py`
+- `orchestrator/workflow_lisp/value_flow_census.py`
+
+## Task 1: Reproduce The Current Frontier And Pin The Causal Failure
+
+**Files:**
+- Inspect: `implementation_architecture.md`, `work_item_context.md`, `std/drain.orc`, `phase_drain.py`, `drain_terminal.py`, `transitions.orc`
+- Test: red and green commands from `check_commands.json`
+
+- [ ] **Step 1: Reproduce the real compile gate**
 
 Run:
 
 ```bash
-rg -n "run_state_path|run-state StateExisting|ctx__run_state_path|drain\\.loop\\.run_state_path|work_item\\.loop\\.run_state_path" \
-  workflows/library/lisp_frontend_design_delta \
-  orchestrator/workflow_lisp \
-  workflows/examples/inputs/workflow_lisp_migrations \
-  tests
+python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json
 ```
 
-Classify hits into:
+Expected: exit `0` on the already-landed parent-drain compile route.
 
-- live executable/typecheck/lowering admission;
-- live family type surface;
-- negative tests;
-- historical report/census mentions.
+- [ ] **Step 2: Reproduce the red runtime-proof fixtures that justify this slice**
 
-Do not promote report/census hits into implementation obligations during this
-task. Treat them as diagnostic consumers unless a focused runnable check fails
-after the live carrier is removed.
-
-## Task 2: Remove Live Admission
-
-Edit only the files that own live admission:
-
-- `workflows/library/lisp_frontend_design_delta/types.orc`, if the stale
-  `SelectionResult.DONE (run-state StateExisting)` shape is still reachable from
-  promoted/internal composition;
-- `tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/*.orc`,
-  but only when a changed authoritative library module is mirrored there and
-  the fixture must stay byte-aligned with the library module set;
-- `orchestrator/workflow_lisp/typecheck_calls.py`, to remove any
-  `run_state_path` private-omission special case;
-- `orchestrator/workflow_lisp/phase_family_boundary.py`, to remove
-  `run_state_path` from live compatibility-bridge parameter recognition;
-- `orchestrator/workflow_lisp/lowering/workflow_calls.py`, to remove live
-  managed input contracts for `run_state_path`;
-- `orchestrator/workflow_lisp/lowering/phase_scope.py`, to remove
-  `ctx.run_state_path` compatibility-bridge authority mapping.
-
-Keep `progress_ledger_path`, `manifest_path`, and other current bridges intact.
-Do not rename `run_state_path` into another carrier.
-If `types.orc` changes, inspect the authoritative mirror test before finishing
-the task and update only the mirrored module bytes required to keep the checked
-fixture synchronized.
-
-## Task 3: Repair Direct Consumers Only If They Fail
-
-After Task 2, run the focused checks below. If a report, census, manifest, or
-checked JSON consumer fails because it directly reads the retired executable
-contract, update that consumer narrowly to stop requiring the retired carrier.
-Do not edit report/census owner code or checked inputs preemptively.
-
-Allowed examples:
-
-- a boundary inspection check still reports a promoted-route `run_state_path`
-  after the executable carrier has been removed;
-- a build-artifact check fails because the compiled contract no longer contains
-  the retired field;
-- a checked fixture mirror must be updated because the source `.orc` module
-  changed.
-
-Forbidden examples:
-
-- refreshing a census or manifest solely because it mentions historical
-  `run_state_path` rows;
-- broad inventory, parity, or report realignment;
-- adding new evidence lanes that do not protect a changed executable consumer.
-
-## Task 4: Update Focused Tests
-
-Update only tests that fail because the live carrier was retired.
-
-Required coverage:
-
-- promoted Design Delta route has no public or private `run_state_path` bridge;
-- `run-state` is absent from active family composition or quarantined outside
-  the promoted route;
-- checked Design Delta fixture mirrors stay byte-aligned with the authoritative
-  library module set when any mirrored `.orc` module changes;
-- helper-level workflow-ref omission/specialization owners still agree on which
-  hidden bridge inputs are omittable versus required;
-- arbitrary callers still cannot omit real private bridge inputs;
-- one still-live bridge remains covered so generic bridge behavior is not
-  deleted wholesale;
-- direct build and runtime consumers stop treating the retired carrier as live
-  promoted-route semantics; and
-- runtime-native `drain_run_state` remains distinguishable from hidden
-  `run_state_path` carriage where those consumers are touched.
-
-Prefer narrow tests in:
-
-- `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py`
-- `tests/test_workflow_lisp_lowering.py`
-- `tests/test_workflow_lisp_typed_prompt_inputs.py`
-- `tests/test_workflow_lisp_workflows.py`
-- `tests/test_workflow_lisp_build_artifacts.py`, only when compiled-contract
-  outputs change
-
-Add report/census/resume/alignment suites only when the implementation edits
-those owners or their checked inputs.
-
-## Verification
-
-Run the narrow selectors that match the files actually touched.
-Because the current parent-family CLI dry-run is explicitly waived for this
-slice in the checked parity target metadata, minimum verification must still
-include the bounded parent-callable smoke lane that backs that waiver.
-
-Minimum verification:
+Run:
 
 ```bash
-python -m pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -k "run_state or carrier or bridge or selected_item_stdlib or drain_run_state" -q
-python -m pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -k "fixture_mirror or mirror_matches_library_module_set" -q
-python -m pytest tests/test_workflow_lisp_lowering.py -k "carries_derived_phase_context_bindings or private_compatibility_bridge_omission" -q
-python -m pytest tests/test_workflow_lisp_typed_prompt_inputs.py -k "hidden_bridge or request_field_authority" -q
-python -m pytest tests/test_workflow_lisp_workflows.py -k "bridge_omission_helpers or private_bridge_type_helper" -q
-python -m pytest tests/test_workflow_lisp_build_artifacts.py -k "derived_child_phase_binding or hidden_compatibility_bridge or parent_drain_imported_backlog_drain or boundary_authority" -q
-python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json
-python -m pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -k "design_delta_parent_drain_smokes" -q
+python -m pytest tests/test_workflow_lisp_view_dual_run.py -q
+python -m pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -k "runtime_transition_fixture or runtime_view_fixture" -q
 ```
 
-If tests were added or renamed, run `pytest --collect-only` for those modules.
+Expected: failures rooted in `workflow_signature_mismatch` because the fixtures already call `emit-drain-status-transition-audit` with only `:summary_path` while the wrapper still requires `run_state_path`.
 
-If checked inputs or report-owner code changed outside those selectors because
-a direct consumer failed, add only the direct consumer suite for that touched
-contract surface.
+- [ ] **Step 3: Reconfirm the currently green guardrails that must stay green**
+
+Run:
+
+```bash
+python -m pytest tests/test_workflow_lisp_drain_stdlib.py -q
+python -m pytest tests/test_workflow_lisp_transition_authoring.py -q
+python -m pytest tests/test_workflow_lisp_resume_plumbing_retirement.py -q
+python -m pytest tests/test_workflow_lisp_resource_stdlib.py tests/test_workflow_lisp_resource_transition_runtime.py tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py -q
+python -m pytest tests/test_workflow_lisp_migration_parity.py -q
+```
+
+Expected: all pass before edits, proving the current debt is mostly contract-shift work rather than a broadly broken runtime.
+
+- [ ] **Step 4: Prove the carrier is dead, not merely inconvenient**
+
+Run:
+
+```bash
+rg -n "run-state|run_state|RunStatePath|drain-run-state|state/drain-run-state.json" orchestrator/workflow_lisp/stdlib_modules/std/drain.orc orchestrator/workflow_lisp/lowering/phase_drain.py orchestrator/workflow_lisp/lowering/drain_terminal.py workflows/library/lisp_frontend_design_delta/transitions.orc workflows/library/lisp_frontend_design_delta/types.orc workflows/library/lisp_frontend_design_delta/projections.orc
+```
+
+Expected:
+
+- `std/drain.orc` shows the threaded carrier fields/params
+- `phase_drain.py` and `drain_terminal.py` show generic loop/terminal plumbing for that carrier
+- `transitions.orc` shows the bridge-backed wrapper lane
+- `projections.orc` and other live family consumers do not read the retired `run-state` fields
+
+- [ ] **Step 5: Record the implementation decision point**
+
+Document for the implementation session:
+
+- root cause: the live source still models a dead `run-state` compatibility carrier, and the red fixtures are the first place that now reject that stale contract
+- repair order: shared/source carrier removal first, proof fixtures and manifest/test realignment second
+
+## Task 2: Retire The `std/drain` Carrier Contract
+
+**Files:**
+- Modify: `orchestrator/workflow_lisp/stdlib_modules/std/drain.orc`
+- Test: `tests/test_workflow_lisp_drain_stdlib.py`
+
+- [ ] **Step 1: Remove carrier fields from the public stdlib type surface**
+
+Edit `std/drain.orc` to remove `run-state` / `run_state` from:
+
+- `DrainResult.EMPTY`
+- `DrainResult.COMPLETED`
+- all `DrainLoopTerminal` variants
+- `DrainLoopState`
+
+Also delete the now-unused `StateExisting` import if that is the last consumer.
+
+- [ ] **Step 2: Remove carrier parameters from constructor helpers**
+
+Edit `std/drain.orc` so these helpers no longer accept or forward `run-state`:
+
+- `empty-drain-result-proc`
+- `blocked-drain-result-proc`
+- `completed-drain-result-proc`
+- `finalize-drain-terminal`
+
+Constraint: helpers remain pure constructors with `:effects ()`; do not move terminal effects into them.
+
+- [ ] **Step 3: Tighten tests to the carrier-free contract**
+
+Update `tests/test_workflow_lisp_drain_stdlib.py` to assert:
+
+- the retired fields are absent from exported result/terminal shapes
+- custom unions or workflows that try to reintroduce `run-state` still fail
+- no characterization assertion depends on the retired seed path or carrier field names
+
+If test fixtures encode old shapes, refresh only the minimal ones needed by this module.
+
+- [ ] **Step 4: Run the narrowest stdlib check first**
+
+Run:
+
+```bash
+python -m pytest tests/test_workflow_lisp_drain_stdlib.py -q
+```
+
+Expected: pass against the new carrier-free contract before touching shared lowering or family transition wrappers.
+
+## Task 3: Remove The Shared `backlog-drain` Carrier Plumbing
+
+**Files:**
+- Modify: `orchestrator/workflow_lisp/lowering/phase_drain.py`, `orchestrator/workflow_lisp/lowering/drain_terminal.py`
+- Conditional modify: `typecheck_dispatch.py`, `wcc/elaborate.py`, `procedure_specialization.py`, `lowering/core.py`
+- Test: compile entrypoint plus `tests/test_workflow_lisp_drain_stdlib.py`
+
+- [ ] **Step 1: Delete the dead accumulator and seed literal**
+
+Remove generic lowering artifacts that exist only to satisfy the retired `std/drain` fields:
+
+- `acc__run-state`
+- `terminal__run-state`
+- `return__run-state`
+- the literal seed `state/drain-run-state.json`
+
+Do this as generic contract-driven cleanup keyed to the retired field shape, not by family name.
+
+- [ ] **Step 2: Preserve all surviving loop and terminal semantics**
+
+Verify the lowering still emits:
+
+- the same selection/gap/item/terminal control flow
+- the same terminal responsibility split
+- the same `std_drain_backlog_drain__normalize_result__*` identities
+
+Do not change artifact/write-root names or fan-in logic except to remove the dead carrier.
+
+- [ ] **Step 3: Repair any hidden shared dependency only if a focused compile proves it exists**
+
+If the carrier removal exposes a structural assumption elsewhere, patch the smallest shared owner:
+
+- type projection expecting the retired field
+- WCC elaboration expecting a loop-state slot
+- specialization/lowering code still projecting `return__run-state`
+
+Constraint: the fix must stay generic and fail-closed. If a broader shared prerequisite appears, stop and report it rather than rethreading the carrier.
+
+- [ ] **Step 4: Re-run the shared compile and stdlib gate**
+
+Run:
+
+```bash
+python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json
+python -m pytest tests/test_workflow_lisp_drain_stdlib.py -q
+```
+
+Expected:
+
+- parent-drain compile still exits `0`
+- `drain_stdlib` remains green with the carrier-free contract
+
+## Task 4: Collapse The Family Bridge Lane Onto The Survivor Transition Route
+
+**Files:**
+- Modify: `workflows/library/lisp_frontend_design_delta/transitions.orc`, `workflows/library/lisp_frontend_design_delta/types.orc`
+- Modify: `workflows/library/lisp_frontend_design_delta/runtime_transition_fixture.orc`, `workflows/library/lisp_frontend_design_delta/runtime_view_fixture.orc`
+- Test: `tests/test_workflow_lisp_view_dual_run.py`, focused feasibility selectors
+
+- [ ] **Step 1: Delete the bridge-backed resource and bridge-only transitions**
+
+In `transitions.orc`, remove:
+
+- the `drain-run-state` resource with `:backing (bridge run_state_path)`
+- bridge-only transition declarations tied to that resource
+- wrapper workflows/procs whose only purpose is carrying `RunStatePath`
+
+Do not touch the survivor state-layout-backed runtime-native lane beyond choosing its surviving public identity.
+
+- [ ] **Step 2: Remove `RunStatePath` if it no longer has a live family consumer**
+
+In `types.orc`, retire `RunStatePath` only if a repo-wide focused search shows no remaining in-scope family consumer after wrapper deletion.
+
+Run:
+
+```bash
+rg -n "RunStatePath|run_state_path" workflows/library/lisp_frontend_design_delta orchestrator/workflow_lisp tests
+```
+
+Expected: only out-of-scope resume/checkpoint uses may remain; ordinary family composition must not.
+
+- [ ] **Step 3: Repoint runtime-proof fixtures to the survivor lane**
+
+Update `runtime_transition_fixture.orc` and `runtime_view_fixture.orc` so they call the surviving state-layout-backed transition/view route directly, using the already-intended carrier-free `:summary_path` shape.
+
+Constraint: the fixture repair must preserve what they prove today: runtime-native transition execution and view rendering, not a weaker wrapper smoke check.
+
+- [ ] **Step 4: Handle the only allowed legacy fallback**
+
+If a focused check proves one live consumer still needs a YAML-era run-state JSON write, isolate exactly that one write at a declared compatibility boundary with:
+
+- owner
+- consumer
+- schema
+- authority class
+- retirement condition
+
+Do not keep the bridge wrapper in ordinary composition as the fallback.
+
+- [ ] **Step 5: Re-run the red fixtures first**
+
+Run:
+
+```bash
+python -m pytest tests/test_workflow_lisp_view_dual_run.py -q
+python -m pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -k "runtime_transition_fixture or runtime_view_fixture" -q
+```
+
+Expected: both are green, proving the causal signature mismatch is eliminated by real source repair.
+
+## Task 5: Realign Checked Manifests, Parity Rows, And Retirement Evidence
+
+**Files:**
+- Modify: `design_delta_parent_drain.transition_authoring.json`
+- Modify: `design_delta_parent_drain.resume_plumbing_retirement.json`
+- Modify: `parity_targets.json`
+- Modify: `orchestrator/workflow_lisp/resume_plumbing_retirement.py`
+- Test: `tests/test_workflow_lisp_transition_authoring.py`, `tests/test_workflow_lisp_resume_plumbing_retirement.py`, `tests/test_workflow_lisp_migration_parity.py`
+
+- [ ] **Step 1: Update transition-authoring rows to live identities only**
+
+Remove or repoint rows that name retired bridge-wrapper identities. Preserve the standing gate rule that every row must match at least one compiled origin.
+
+- [ ] **Step 2: Discharge the bridge row fail-closed**
+
+Update the resume-plumbing retirement manifest and `resume_plumbing_retirement.py` so:
+
+- `transitions.resource.drain_run_state` moves from tolerated debt to a checked discharged-retirement decision
+- validation proves the bridge symbol is absent from `transitions.orc`
+- evidence constants name only surviving transition identities
+
+Forbidden: silently deleting the row or turning the validator permissive.
+
+- [ ] **Step 3: Repoint parity rows without weakening parity**
+
+Update `parity_targets.json` and any directly coupled parity assertions so rows formerly naming `record-terminal-work-item` or sibling bridge identities point at the surviving runtime-native lane while preserving the same public-behavior comparison.
+
+- [ ] **Step 4: Add regression coverage for reintroduced carriers**
+
+Extend tests so focused failures occur if any of these reappear:
+
+- `run-state` / `run_state` fields in `std/drain`
+- shared lowering seed `state/drain-run-state.json`
+- bridge-backed family `drain-run-state` resource
+- `RunStatePath` wrapper parameters in ordinary family composition
+
+- [ ] **Step 5: Run the contract-gate suite**
+
+Run:
+
+```bash
+python -m pytest tests/test_workflow_lisp_transition_authoring.py -q
+python -m pytest tests/test_workflow_lisp_resume_plumbing_retirement.py -q
+python -m pytest tests/test_workflow_lisp_migration_parity.py -q
+```
+
+Expected: all pass with only live identities and fail-closed retirement evidence.
+
+## Task 6: Run Full Acceptance Verification And Refresh Only Necessary Mirrors
+
+**Files:**
+- Modify only if a focused failure requires it: `tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/...`
+- Verify: all commands from `check_commands.json`
+
+- [ ] **Step 1: Run the full required acceptance suite from repo root**
+
+Run:
+
+```bash
+python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json
+python -m pytest tests/test_workflow_lisp_drain_stdlib.py -q
+python -m pytest tests/test_workflow_lisp_transition_authoring.py -q
+python -m pytest tests/test_workflow_lisp_resume_plumbing_retirement.py -q
+python -m pytest tests/test_workflow_lisp_view_dual_run.py -q
+python -m pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -k "runtime_transition_fixture or runtime_view_fixture" -q
+python -m pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -k "selected_item_stdlib or parent_drain_build_and_execution_smoke" -q
+python -m pytest tests/test_workflow_lisp_resource_stdlib.py tests/test_workflow_lisp_resource_transition_runtime.py tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py -q
+python -m pytest tests/test_workflow_lisp_migration_parity.py -q
+```
+
+Expected: every command is green.
+
+- [ ] **Step 2: Refresh mirrored fixtures only if a focused acceptance check still points at stale copies**
+
+If a remaining failure comes only from a mirrored test fixture that still embeds retired carrier shapes, update the mirror after the live route is already green and rerun the narrow failing selector.
+
+Forbidden: changing mirrors before the live route is fixed, or treating mirror refresh as acceptance on its own.
+
+- [ ] **Step 3: Run `pytest --collect-only` if any test module or test name changed**
+
+Run only if tests were added or renamed:
+
+```bash
+python -m pytest tests/test_workflow_lisp_drain_stdlib.py tests/test_workflow_lisp_transition_authoring.py tests/test_workflow_lisp_resume_plumbing_retirement.py tests/test_workflow_lisp_view_dual_run.py tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py tests/test_workflow_lisp_migration_parity.py --collect-only -q
+```
+
+Expected: collection succeeds with the renamed or added tests present.
+
+- [ ] **Step 4: Capture the acceptance summary against the plan**
+
+Record:
+
+- which carrier surfaces were deleted outright
+- whether any isolated legacy boundary remained, and the proof that forced it
+- the exact verification commands run
+- any residual out-of-scope debt left untouched
 
 ## Completion Criteria
 
-- `run_state_path` is not a promoted-route public input, private bridge input,
-  workflow-ref omission, or lowering authority class.
-- `run-state` is absent from active Design Delta family composition or clearly
-  quarantined outside the promoted route.
-- direct build/runtime consumers no longer describe the retired carrier as live
-  promoted-route semantics.
-- `transitions.resource.drain_run_state` is represented as runtime-native
-  state-layout-backed behavior, not as a live `run_state_path` compatibility
-  carrier.
-- remaining compatibility bridges have current named consumers.
-- authoritative checked fixture mirrors remain byte-aligned with the Design
-  Delta library modules they mirror.
-- the parent-drain compile entrypoint succeeds.
-- the bounded parent-callable smoke lane passes via
-  `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -k "design_delta_parent_drain_smokes"`,
-  or a newly-runnable parent-family dry-run supersedes it with the waiver and
-  plan updated accordingly.
-- focused tests for touched code pass.
-- no census, manifest, report, or parity artifact was refreshed unless tied to
-  this concrete carrier-retirement contract.
+The plan is complete when implementation can prove all of the following without rediscovering scope:
+
+- no `run-state` / `run_state` carrier remains in `std/drain` drain result lanes
+- no generic `backlog-drain` lowering emits or seeds the retired carrier
+- no bridge-backed family `drain-run-state` resource or `RunStatePath` wrapper remains in ordinary Design Delta composition
+- runtime-proof fixtures and the focused feasibility lane are green again because the real source contract changed
+- transition-authoring, resume-retirement, parity, and runtime-proof gates remain fail-closed and pass on the surviving identities
+- any fixture refresh happened only as downstream maintenance after the live route was already repaired
