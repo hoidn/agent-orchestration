@@ -118,6 +118,15 @@ class VariantCaseTypeRef:
     union_name: str
     variant_name: str
     definition: UnionVariant
+    # Constraint Vocabulary rule 3
+    # (docs/design/workflow_lisp_parametric_type_system.md): carried from the
+    # union that produced this variant case (`union_variant`, the sole
+    # constructor site) so `record_field` can resolve a matched variant's
+    # field types without re-looking up the union by name — a lookup that
+    # fails for provisional unions synthesized for a `:forall` parameter.
+    # `None` for call sites that predate this field; falls back to the
+    # name-based union re-lookup.
+    field_types: dict[str, "TypeRef"] | None = None
 
 
 @dataclass(frozen=True)
@@ -380,6 +389,14 @@ class FrontendTypeEnvironment:
             if field.name == field_name:
                 if isinstance(record_type, RecordTypeRef):
                     resolved = record_type.field_types.get(field_name)
+                elif record_type.field_types is not None:
+                    # Constraint Vocabulary rule 3
+                    # (docs/design/workflow_lisp_parametric_type_system.md):
+                    # prefer the field types carried on the variant case
+                    # itself (populated at `union_variant`) over the
+                    # name-based union re-lookup below, which cannot find a
+                    # provisional union synthesized for a `:forall` parameter.
+                    resolved = record_type.field_types.get(field_name)
                 else:
                     union_type = _lookup_type_ref(
                         self._type_refs,
@@ -422,6 +439,7 @@ class FrontendTypeEnvironment:
                     union_name=union_type.name,
                     variant_name=variant_name,
                     definition=variant,
+                    field_types=union_type.variant_field_types.get(variant_name),
                 )
         _raise_error(
             f"unknown union variant `{variant_name}` for `{union_type.name}`",

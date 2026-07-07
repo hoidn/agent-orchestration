@@ -5422,3 +5422,21 @@ def test_higher_order_procedure_specializations_reuse_private_workflow_lowering(
     assert len(private_names) == 1
     assert "invoke-runner__spec__runner__echo_helper" in private_names[0]
     assert private_names[0] in result.validated_bundles
+
+
+def test_compile_stage3_accepts_variant_projection_match(tmp_path: Path) -> None:
+    bundle = _compile_validated(
+        FIXTURES / "valid" / "parametric_variant_projection_match.orc",
+        tmp_path=tmp_path,
+    )
+    assert bundle is not None
+
+
+def test_compile_stage3_rejects_variant_projection_match_mismatch(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_validated(
+            FIXTURES / "invalid" / "parametric_variant_projection_match_mismatch.orc",
+            tmp_path=tmp_path,
+        )
+    _assert_diagnostic_code(excinfo, "parametric_constraint_unsatisfied")
+    assert "SELECTED" in excinfo.value.diagnostics[0].message
