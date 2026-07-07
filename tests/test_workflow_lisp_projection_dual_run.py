@@ -435,6 +435,18 @@ def _emit_dual_run_report(workspace: Path, *, report_path: Path = REPORT_PATH) -
         "adapters": adapters_report,
     }
     report_path.parent.mkdir(parents=True, exist_ok=True)
+    # Re-emit the checked evidence artifact only when its substance changed:
+    # rewriting an identical report with a fresh `generated_at` timestamp
+    # would churn the sha256 that the checked migration-parity report pins.
+    if report_path.is_file():
+        try:
+            existing = json.loads(report_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            existing = None
+        if isinstance(existing, dict) and {
+            key: value for key, value in existing.items() if key != "generated_at"
+        } == {key: value for key, value in report.items() if key != "generated_at"}:
+            return existing
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return report
 
@@ -466,6 +478,19 @@ def test_projection_dual_run_emits_declared_report_and_passes_all_vectors(tmp_pa
     assert report["overall_status"] == "pass"
     assert report["all_passed"] is True
     assert set(report["adapters"]) == set(COMPARISON_MAPPINGS)
+
+
+def test_projection_dual_run_preserves_report_when_only_generated_at_would_change(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "projection_dual_run_report.json"
+
+    first = _emit_dual_run_report(tmp_path / "first", report_path=report_path)
+    first_bytes = report_path.read_bytes()
+    second = _emit_dual_run_report(tmp_path / "second", report_path=report_path)
+
+    assert second == first
+    assert report_path.read_bytes() == first_bytes
 
 
 def test_projection_dual_run_detects_expected_result_mismatch(tmp_path: Path) -> None:
