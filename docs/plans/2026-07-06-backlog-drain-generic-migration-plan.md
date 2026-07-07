@@ -128,6 +128,20 @@
   selector's `BLOCKED` carries only `reason String`. Task 4 mirrors whatever
   mapping `_phase_stdlib_lower_backlog_drain_impl` performs today (read it;
   record the mapping in the fixture test) rather than inventing one.
+- **G5 — inline-bodied proc hooks vs shared/loader validation.** Discovered
+  2026-07-07 during the parametric plan's Task 8 review: an inline-bodied
+  `defproc` passed as a `ProcRef` argument can fail the shared validation pass
+  (`validate_shared=True`) with `source_map_missing` — `elaborate_surface_workflow`
+  (`orchestrator/workflow/elaboration.py:123`) requires a non-empty `steps`
+  field, a rule shaped for authored YAML workflows, and a trivially-bodied
+  lowered proc can violate it (reproduced on
+  `tests/fixtures/workflow_lisp/valid/minimal_caller_review_revise_loop.orc`;
+  the sibling `minimal_caller_finalize_selected_item.orc` passes). The
+  production drain consumer compiles through the full pipeline, so proc hooks
+  must clear loader-shape validation, not just the frontend-only path. Task 2's
+  probe therefore compiles with `validate_shared=True`; production-shaped
+  effectful hooks (which lower to real steps) are expected to pass, but the
+  outcome must be recorded, and a `source_map_missing` failure is a STOP.
 
 ---
 
@@ -249,16 +263,23 @@ variants (SELECTED, GAP) than the generic matches — this is the G3 probe.
 pytest tests/test_workflow_lisp_generic_stdlib_composition.py -k hook_probe -v
 ```
 
-Three recordable outcomes: (a) compiles — G1 and G3 both clear (the compiler
-tolerates unmatched extra variants or requires and accepts a default arm —
-record which); (b) fails on exhaustiveness — G3 confirmed: the flagship
+The compile test must go through the shared-validated stage-3 entry
+(`validate_shared=True`, the composition suite's default) — a frontend-only
+compile would leave G5 unprobed.
+
+Four recordable outcomes: (a) compiles — G1, G3, and G5 all clear (the
+compiler tolerates unmatched extra variants or requires and accepts a default
+arm — record which); (b) fails on exhaustiveness — G3 confirmed: the flagship
 signature's constraint set is exact-in-practice for matched unions; record
 the diagnostic code and adjust the fixture to a four-variant union matching
 the flagship exactly, and note in this plan that extra-variant callers are
 unsupported pending a design decision; (c) fails on the effectful proc hook
 or `ProcRef` binding — **STOP (BLOCKED)**: G1 has no landed resolution and
 the human must adjudicate (extend `ProcRef` vs. a different hook contract)
-before any body authoring.
+before any body authoring; (d) fails in shared/loader validation with
+`source_map_missing` — **STOP (BLOCKED)**: G5 reproduces even for
+production-shaped effectful hooks, and the loader-shape gap must be fixed or
+design-adjudicated before the migration can proceed.
 
 - [ ] **Step 3: Add the compile test** (assert compile success for whichever
 fixture shape Step 2 validated), run the suite, and commit.
@@ -796,7 +817,7 @@ git commit -m "Record backlog-drain generic migration in design docs"
   points 1–4 → Tasks 4/7 (smaller+clearer, retirement), 6 (parity), 3+5
   (checkpoint identity); form-registry reclassification → Task 7; acceptance
   check "minimal-caller fixture per stdlib generic" → Task 4.
-- **Known unknowns are named** (G1–G4) with owning tasks and STOP protocols,
+- **Known unknowns are named** (G1–G5) with owning tasks and STOP protocols,
   because this plan is deliberately drafted against a moving tree; Task 1 is
   the drift net, Task 2 the feasibility net.
 - **Not in scope:** `with-phase`/`phase-scope` migration (the other
