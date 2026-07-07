@@ -2746,7 +2746,7 @@ def _maybe_load_design_delta_boundary_authority_registry(
         **payload,
         "__registry_path__": str(profile.boundary_authority_registry_path),
         "__registry_sha256__": _sha256_path(profile.boundary_authority_registry_path),
-        "workflow_family": "design_delta_parent_drain",
+        "workflow_family": profile.family_id,
     }
 
 
@@ -5866,10 +5866,14 @@ def _validate_selected_workflow_hidden_compatibility_bridge_public_boundary(
             selected_name, family_profile_catalog=family_profile_catalog
         ):
             return
-    if isinstance(boundary_authority_registry, Mapping):
-        workflow_family = boundary_authority_registry.get("workflow_family")
-        if workflow_family not in (None, "design_delta_parent_drain"):
-            return
+    elif (
+        boundary_authority_registry.get("workflow_family") != "design_delta_parent_drain"
+        and (
+            family_profile_catalog is None
+            or not family_profile_catalog.workflow_in_profile(selected_name)
+        )
+    ):
+        return
     workflows = {
         str(workflow["workflow_name"]): workflow
         for workflow in boundary_projection_payload.get("workflows", [])

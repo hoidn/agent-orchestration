@@ -9323,6 +9323,50 @@ def test_design_delta_parent_drain_rejects_hidden_compatibility_bridge_public_bo
     assert excinfo.value.diagnostics[0].code == "workflow_boundary_authority_unclassified"
 
 
+def test_hidden_compatibility_bridge_public_boundary_guard_is_family_id_neutral(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    serialize = getattr(build, "_serialize_workflow_boundary_projection")
+    validate = getattr(
+        build,
+        "_validate_selected_workflow_hidden_compatibility_bridge_public_boundary",
+    )
+    selected_name = (
+        "backlog_drain_hidden_compatibility_bridge_public_boundary_invalid::drain"
+    )
+    result = _compile_linked_hidden_compatibility_bridge_public_boundary_fixture(
+        tmp_path
+    )
+    payload = serialize(result, selected_name=selected_name)
+    profile_path = _write_json(
+        tmp_path / "generic.family_profile.json",
+        {
+            "schema_version": "workflow_lisp_family_profile.v1",
+            "family_id": "generic_parent_drain",
+            "workflow_name_prefixes": [],
+            "target_workflows": [selected_name],
+        },
+    )
+    family_profile_catalog = _family_profiles_module().load_workflow_family_profile_catalog(
+        (profile_path,)
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        validate(
+            payload,
+            selected_name=selected_name,
+            boundary_authority_registry={
+                "workflow_family": "generic_parent_drain",
+                "rows": [],
+                "__registry_path__": str(tmp_path / "boundary_authority.json"),
+            },
+            family_profile_catalog=family_profile_catalog,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "workflow_boundary_authority_unclassified"
+
+
 def test_design_delta_parent_drain_resume_plumbing_retirement_retained_work_item_loop_state_exposure_rejected(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -9996,6 +10040,33 @@ def test_design_delta_parent_drain_build_records_family_profile_provenance(
     assert typed_prompt_input_report["family_profile"]["path"].endswith(
         "design_delta_parent_drain.family_profile.json"
     )
+
+
+def test_boundary_authority_registry_uses_profile_family_id(tmp_path: Path) -> None:
+    profile_payload = json.loads(
+        DESIGN_DELTA_FAMILY_PROFILE_PATH.read_text(encoding="utf-8")
+    )
+    registry_payload = json.loads(
+        DESIGN_DELTA_BOUNDARY_AUTHORITY_PATH.read_text(encoding="utf-8")
+    )
+    registry_path = _write_json(
+        tmp_path / "generic.boundary_authority.json",
+        registry_payload,
+    )
+    profile_payload["family_id"] = "generic_parent_drain"
+    profile_payload["boundary_authority_registry"] = registry_path.name
+    profile_path = _write_json(tmp_path / "generic.family_profile.json", profile_payload)
+    family_profile_catalog = _family_profiles_module().load_workflow_family_profile_catalog(
+        (profile_path,)
+    )
+
+    registry = _build_module()._maybe_load_design_delta_boundary_authority_registry(
+        entry_workflow="lisp_frontend_design_delta/drain::drain",
+        family_profile_catalog=family_profile_catalog,
+    )
+
+    assert registry is not None
+    assert registry["workflow_family"] == "generic_parent_drain"
 
 
 def test_design_delta_work_item_build_auto_loads_family_profile_for_non_drain_entry(

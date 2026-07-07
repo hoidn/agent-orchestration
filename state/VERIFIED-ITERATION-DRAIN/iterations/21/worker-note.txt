@@ -1,0 +1,1 @@
+Generalized boundary authority family identity and hidden bridge public-boundary validation to profile-backed family IDs; declared broad pytest and Design Delta compile gates pass.
