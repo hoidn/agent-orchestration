@@ -1,0 +1,1 @@
+Restored WCC M1 route dispatch compatibility and aligned Stage 7 NeurIPS stdlib drain fixtures with current selector/run-item/gap/terminal contracts; focused WCC/Stage 7 checks and Design Delta compile pass, declared pytest remains red with 24 failures.

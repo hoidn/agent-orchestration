@@ -55,23 +55,21 @@
   (defrecord ExtraProviders
     (token String))
   (defunion SelectionResult
-    (EMPTY
-      (run-state StateExisting))
+    (EMPTY)
     (GAP
       (gap GapPayload))
     (SELECTED
-      (selection SelectionPayload)))
+      (selection SelectionPayload))
+    (BLOCKED
+      (reason String)))
   (defunion SelectedItemResult
     (CONTINUE
-      (summary-path WorkReport)
-      (run-state StateExisting))
+      (summary-path WorkReport))
     (BLOCKED
       (summary-path WorkReport)
-      (blocker-class BlockerClass)
-      (run-state StateExisting)))
+      (blocker-class BlockerClass)))
   (defunion GapDraftResult
-    (CONTINUE
-      (run-state StateExisting))
+    (CONTINUE)
     (BLOCKED
       (progress-report-path WorkReport)
       (blocker-class BlockerClass)))

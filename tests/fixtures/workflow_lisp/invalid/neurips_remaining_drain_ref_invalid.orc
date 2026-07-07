@@ -43,20 +43,19 @@
   (defrecord GapDraftResult
     (status String))
   (defunion SelectionResult
-    (EMPTY
-      (run-state StateExisting))
+    (EMPTY)
     (GAP
       (gap GapPayload))
     (SELECTED
-      (selection SelectionPayload)))
+      (selection SelectionPayload))
+    (BLOCKED
+      (reason String)))
   (defunion SelectedItemResult
     (CONTINUE
-      (summary-path WorkReport)
-      (run-state StateExisting))
+      (summary-path WorkReport))
     (BLOCKED
       (summary-path WorkReport)
-      (blocker-class BlockerClass)
-      (run-state StateExisting)))
+      (blocker-class BlockerClass)))
   (defunion DrainResult
     (EMPTY
       (run-state StateExisting))

@@ -79,12 +79,13 @@
     (selector SelectorProviderBindings)
     (gap-drafter GapProviderBindings))
   (defunion SelectionResult
-    (EMPTY
-      (run-state StateExisting))
+    (EMPTY)
     (GAP
       (gap GapPayload))
     (SELECTED
-      (selection SelectionPayload)))
+      (selection SelectionPayload))
+    (BLOCKED
+      (reason String)))
   (defrecord ResourceTransitionResult
     (resource-id String)
     (from Queue)
@@ -107,27 +108,22 @@
       (blocker-class BlockerClass)))
   (defunion SelectedItemResult
     (CONTINUE
-      (summary-path WorkReport)
-      (run-state StateExisting))
+      (summary-path WorkReport))
     (BLOCKED
       (summary-path WorkReport)
-      (blocker-class BlockerClass)
-      (run-state StateExisting)))
+      (blocker-class BlockerClass)))
   (defunion GapDraftResult
-    (CONTINUE
-      (run-state StateExisting))
+    (CONTINUE)
     (BLOCKED
       (progress-report-path WorkReport)
       (blocker-class BlockerClass)))
   (defunion DrainResult
-    (EMPTY
-      (run-state StateExisting))
+    (EMPTY)
     (BLOCKED
       (progress-report-path WorkReport)
       (blocker-class BlockerClass))
     (COMPLETED
-      (items-processed Int)
-      (run-state StateExisting)))
+      (items-processed Int)))
   (defworkflow selector-run
     ((ctx DrainCtx))
     -> SelectionResult

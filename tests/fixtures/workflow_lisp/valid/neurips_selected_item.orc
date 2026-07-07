@@ -84,12 +84,10 @@
       (blocker-class BlockerClass)))
   (defunion SelectedItemResult
     (CONTINUE
-      (summary-path WorkReport)
-      (run-state StateExisting))
+      (summary-path WorkReport))
     (BLOCKED
       (summary-path WorkReport)
-      (blocker-class BlockerClass)
-      (run-state StateExisting)))
+      (blocker-class BlockerClass)))
   (defworkflow roadmap-sync
     ((phase-ctx PhaseCtx)
      (item-ctx ItemCtx)

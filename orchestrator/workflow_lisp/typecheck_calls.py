@@ -525,9 +525,14 @@ def validate_run_item_workflow_ref(
     if len(signature.params) != 2:
         if len(signature.params) > 2:
             extra_param_name = signature.params[2][0]
+            diagnostic_code = (
+                "workflow_signature_mismatch"
+                if extra_param_name in {"run_state_path", "run-state-path"}
+                else "backlog_drain_contract_invalid"
+            )
             compat._raise_error(
                 f"workflow ref `{signature.name}` must not expose public binding `{extra_param_name}`",
-                code="workflow_signature_mismatch",
+                code=diagnostic_code,
                 span=span,
                 form_path=form_path,
             )

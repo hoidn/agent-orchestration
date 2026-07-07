@@ -42,7 +42,9 @@ def lower_wcc_m1_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
+    available_workflows_by_name: Mapping[str, TypedWorkflowDef] | None = None,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment],
+    workflow_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
     procedure_catalog: ProcedureCatalog,
     workflow_path: Path,
     workflow_catalog: WorkflowCatalog,
@@ -53,6 +55,7 @@ def lower_wcc_m1_workflow_definitions(
 ) -> tuple[LoweredWorkflow, ...]:
     """Lower pure-subset workflows through WCC M1, then reuse legacy lowering."""
 
+    _ = available_workflows_by_name, workflow_type_envs
     rewritten = tuple(
         _rewrite_typed_workflow_for_legacy_lowering(
             workflow,
