@@ -97,6 +97,14 @@ outputs:
       ref: root.steps.RouteWorkItemTerminal.artifacts.item_summary_path
 
 artifacts:
+  terminal_route:
+    kind: scalar
+    type: enum
+    allowed: ["COMPLETE", "PLAN_REVIEW_EXHAUSTED", "IMPLEMENTATION_BLOCKED", "IMPLEMENTATION_REVIEW_EXHAUSTED"]
+  block_reason:
+    kind: scalar
+    type: enum
+    allowed: ["none", "plan_review_exhausted", "implementation_blocked", "implementation_review_exhausted"]
   target_design:
     kind: relpath
     type: relpath
@@ -273,32 +281,79 @@ steps:
 
   - name: ClassifyWorkItemTerminal
     id: classify_work_item_terminal
-    command:
-      - python
-      - workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py
-      - --plan-review-decision
-      - ${steps.RunPlanPhase.artifacts.plan_review_decision}
-      - --implementation-state-path
-      - ${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/implementation_state.json
-      - --implementation-review-decision-path
-      - ${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/final_implementation_review_decision.txt
-      - --implementation-bundle-path
-      - ${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/implementation_state.json
-      - --work-item-source
-      - ${steps.ResolveWorkItemInputs.artifacts.work_item_source}
-      - --output
-      - ${inputs.state_root}/terminal-route.json
-    output_bundle:
-      path: ${inputs.state_root}/terminal-route.json
-      fields:
-        - name: terminal_route
-          json_pointer: /terminal_route
-          type: enum
-          allowed: ["COMPLETE", "PLAN_REVIEW_EXHAUSTED", "IMPLEMENTATION_BLOCKED", "IMPLEMENTATION_REVIEW_EXHAUSTED"]
-        - name: block_reason
-          json_pointer: /block_reason
-          type: enum
-          allowed: ["none", "plan_review_exhausted", "implementation_blocked", "implementation_review_exhausted"]
+    match:
+      ref: root.steps.RunPlanPhase.artifacts.plan_review_decision
+      cases:
+        REVISE:
+          id: plan_review_exhausted_classification
+          outputs:
+            terminal_route:
+              kind: scalar
+              type: enum
+              allowed: ["COMPLETE", "PLAN_REVIEW_EXHAUSTED", "IMPLEMENTATION_BLOCKED", "IMPLEMENTATION_REVIEW_EXHAUSTED"]
+              from:
+                ref: self.steps.WritePlanReviewExhaustedRoute.artifacts.terminal_route
+            block_reason:
+              kind: scalar
+              type: enum
+              allowed: ["none", "plan_review_exhausted", "implementation_blocked", "implementation_review_exhausted"]
+              from:
+                ref: self.steps.WritePlanReviewExhaustedReason.artifacts.block_reason
+          steps:
+            - name: WritePlanReviewExhaustedRoute
+              id: write_plan_review_exhausted_route
+              set_scalar:
+                artifact: terminal_route
+                value: PLAN_REVIEW_EXHAUSTED
+            - name: WritePlanReviewExhaustedReason
+              id: write_plan_review_exhausted_reason
+              set_scalar:
+                artifact: block_reason
+                value: plan_review_exhausted
+        APPROVE:
+          id: implementation_terminal_classification
+          outputs:
+            terminal_route:
+              kind: scalar
+              type: enum
+              allowed: ["COMPLETE", "PLAN_REVIEW_EXHAUSTED", "IMPLEMENTATION_BLOCKED", "IMPLEMENTATION_REVIEW_EXHAUSTED"]
+              from:
+                ref: self.steps.ClassifyImplementationTerminal.artifacts.terminal_route
+            block_reason:
+              kind: scalar
+              type: enum
+              allowed: ["none", "plan_review_exhausted", "implementation_blocked", "implementation_review_exhausted"]
+              from:
+                ref: self.steps.ClassifyImplementationTerminal.artifacts.block_reason
+          steps:
+            - name: ClassifyImplementationTerminal
+              id: classify_implementation_terminal
+              command:
+                - python
+                - workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py
+                - --plan-review-decision
+                - APPROVE
+                - --implementation-state
+                - ${steps.RunImplementationPhase.artifacts.implementation_state}
+                - --implementation-review-decision
+                - ${steps.RunImplementationPhase.artifacts.implementation_review_decision}
+                - --implementation-bundle-path
+                - ${steps.RunImplementationPhase.artifacts.implementation_state_bundle_path}
+                - --work-item-source
+                - ${steps.ResolveWorkItemInputs.artifacts.work_item_source}
+                - --output
+                - ${inputs.state_root}/terminal-route.json
+              output_bundle:
+                path: ${inputs.state_root}/terminal-route.json
+                fields:
+                  - name: terminal_route
+                    json_pointer: /terminal_route
+                    type: enum
+                    allowed: ["COMPLETE", "PLAN_REVIEW_EXHAUSTED", "IMPLEMENTATION_BLOCKED", "IMPLEMENTATION_REVIEW_EXHAUSTED"]
+                  - name: block_reason
+                    json_pointer: /block_reason
+                    type: enum
+                    allowed: ["none", "plan_review_exhausted", "implementation_blocked", "implementation_review_exhausted"]
 
   - name: ClassifyBlockedImplementationRecovery
     id: classify_blocked_implementation_recovery

@@ -2615,7 +2615,7 @@ def test_work_item_terminal_keeps_external_dependency_blocked_for_recovery_class
     assert payload["implementation_review_exhausted"] is False
 
 
-def test_blocked_recovery_user_decision_with_repo_scope_evidence_is_recoverable(tmp_path):
+def test_blocked_recovery_preserves_structured_terminal_decision_over_summary_terms(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     bundle_path = workspace / "state/blocked-implementation-recovery.json"
@@ -2651,8 +2651,8 @@ def test_blocked_recovery_user_decision_with_repo_scope_evidence_is_recoverable(
     )
 
     assert json.loads(output_path.read_text(encoding="utf-8")) == {
-        "blocked_recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
-        "reason": "implementation_architecture_under_scoped",
+        "blocked_recovery_route": "TERMINAL_BLOCKED",
+        "reason": "user_decision_required",
     }
 
 
@@ -7318,7 +7318,49 @@ def test_design_delta_drain_uses_design_delta_library_variants():
     assert imports["work_item"] == "../library/lisp_frontend_design_delta_work_item.v214.yaml"
 
 
-def test_design_delta_work_item_records_blocked_implementation_for_drain_recovery():
+def _implementation_terminal_command(classifier: dict[str, object]) -> list[str]:
+    assert classifier["match"]["ref"] == "root.steps.RunPlanPhase.artifacts.plan_review_decision"
+    revise_case = classifier["match"]["cases"]["REVISE"]
+    revise_steps = {step["name"]: step for step in revise_case["steps"]}
+    assert revise_steps["WritePlanReviewExhaustedRoute"]["set_scalar"] == {
+        "artifact": "terminal_route",
+        "value": "PLAN_REVIEW_EXHAUSTED",
+    }
+    assert revise_steps["WritePlanReviewExhaustedReason"]["set_scalar"] == {
+        "artifact": "block_reason",
+        "value": "plan_review_exhausted",
+    }
+    approve_steps = classifier["match"]["cases"]["APPROVE"]["steps"]
+    implementation_classifier = next(
+        step for step in approve_steps if step["name"] == "ClassifyImplementationTerminal"
+    )
+    return implementation_classifier["command"]
+
+
+def _assert_terminal_classifier_consumes_child_phase_outputs(command: list[str], *, has_bundle_path: bool) -> None:
+    assert command[command.index("--plan-review-decision") + 1] == "APPROVE"
+    state_arg = command.index("--implementation-state")
+    assert command[state_arg + 1] == "${steps.RunImplementationPhase.artifacts.implementation_state}"
+    review_arg = command.index("--implementation-review-decision")
+    assert command[review_arg + 1] == "${steps.RunImplementationPhase.artifacts.implementation_review_decision}"
+    assert not any("ResolveWorkItemInputs.artifacts.implementation_phase_state_root" in part for part in command)
+    if has_bundle_path:
+        bundle_arg = command.index("--implementation-bundle-path")
+        assert command[bundle_arg + 1] == "${steps.RunImplementationPhase.artifacts.implementation_state_bundle_path}"
+    else:
+        assert "--implementation-bundle-path" not in command
+
+
+def test_work_item_terminal_classifiers_consume_child_phase_outputs():
+    shared_workflow = yaml.safe_load((ROOT / "workflows/library/lisp_frontend_work_item.v214.yaml").read_text())
+    shared_classifier = next(
+        step for step in shared_workflow["steps"] if step["name"] == "ClassifyWorkItemTerminal"
+    )
+    _assert_terminal_classifier_consumes_child_phase_outputs(
+        _implementation_terminal_command(shared_classifier),
+        has_bundle_path=False,
+    )
+
     workflow = yaml.safe_load((ROOT / "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml").read_text())
 
     assert workflow["imports"] == {
@@ -7326,15 +7368,11 @@ def test_design_delta_work_item_records_blocked_implementation_for_drain_recover
         "implementation_phase": "./lisp_frontend_design_delta_implementation_phase.v214.yaml",
     }
     classifier = next(step for step in workflow["steps"] if step["name"] == "ClassifyWorkItemTerminal")
-    assert "--implementation-bundle-path" in classifier["command"]
-    assert "--work-item-source" in classifier["command"]
-    assert (
-        "${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/implementation_state.json"
-        in classifier["command"]
-    )
-    assert (
-        "${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/final_implementation_review_decision.txt"
-        in classifier["command"]
+    command = _implementation_terminal_command(classifier)
+    assert "--work-item-source" in command
+    _assert_terminal_classifier_consumes_child_phase_outputs(
+        command,
+        has_bundle_path=True,
     )
 
     recovery_classifier = next(step for step in workflow["steps"] if step["name"] == "ClassifyBlockedImplementationRecovery")

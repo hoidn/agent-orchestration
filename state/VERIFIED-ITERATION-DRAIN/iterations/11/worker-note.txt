@@ -1,0 +1,1 @@
+Restored structured blocked-recovery routing and made work-item terminal classification branch-local so skipped implementation children are not read during plan exhaustion.
