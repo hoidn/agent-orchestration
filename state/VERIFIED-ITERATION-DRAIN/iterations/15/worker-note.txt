@@ -1,0 +1,1 @@
+Narrowed Design Delta low-level state-path suppression to checked boundary-authority target workflows, retired internal finalizer helper workflow boundaries, refreshed evidence, and restored declared checks.

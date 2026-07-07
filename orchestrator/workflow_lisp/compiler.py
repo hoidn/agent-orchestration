@@ -61,6 +61,7 @@ from .phase_family_boundary import (
     classify_phase_family_boundary,
     is_structural_pure_projection_effect_summary,
     is_selected_phase_family_workflow,
+    load_design_delta_boundary_authority_registry,
 )
 from .effects import EffectSummary, ProcedureCallEdge, merge_effect_summaries
 from .expressions import (
@@ -808,7 +809,24 @@ def _is_profile_checked_low_level_state_path_diagnostic(
     catalog = compile_result.entry_result.workflow_catalog.family_profile_catalog
     if catalog is None:
         return False
-    return catalog.workflow_in_profile(workflow_name)
+    profile = catalog.profile_for_workflow(workflow_name)
+    if profile is None:
+        return False
+    if workflow_name not in profile.target_workflows:
+        return False
+    if profile.boundary_authority_registry_path is None:
+        return False
+    try:
+        registry = load_design_delta_boundary_authority_registry(
+            profile.boundary_authority_registry_path,
+            target_workflows=profile.target_workflows,
+        )
+    except (OSError, ValueError):
+        return False
+    return any(
+        isinstance(row, Mapping) and row.get("workflow_name") == workflow_name
+        for row in registry.get("rows", ())
+    )
 
 
 def _diagnostic_workflow_name(diagnostic: LispFrontendDiagnostic) -> str | None:

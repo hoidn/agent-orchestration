@@ -4735,12 +4735,15 @@ def test_design_delta_parent_drain_entrypoint_adopts_stdlib_owner_routes(
     assert "(call project-selector-action" not in drain_source
     assert any(step.get("call") == "std/drain::backlog-drain" for step in drain_lowered["steps"])
     assert "lisp_frontend_design_delta/drain::drain-runtime-owned" not in lowered_by_name
-    assert any(
-        str(step.get("call", "")).startswith(
-            "lisp_frontend_design_delta/work_item::finalize-selected-item-as-"
-        )
+    pending_calls = {
+        str(step.get("call", ""))
         for step in work_item_pending_steps
-    )
+        if step.get("call")
+    }
+    assert {
+        "lisp_frontend_design_delta/work_item::finalize-selected-item-from-blocked-implementation",
+        "lisp_frontend_design_delta/work_item::finalize-selected-item-from-completed-implementation",
+    }.issubset(pending_calls)
     assert any(
         "finalize_selected_item_proc" in str(step.get("name", ""))
         or "finalize_selected_item_proc" in str(step.get("id", ""))

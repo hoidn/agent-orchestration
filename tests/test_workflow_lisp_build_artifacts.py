@@ -10,6 +10,7 @@ from datetime import date
 from dataclasses import asdict, is_dataclass, replace
 from enum import Enum
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -3238,6 +3239,46 @@ def test_design_delta_family_profile_checked_workflows_do_not_emit_low_level_sta
         for diagnostic in result.diagnostics
         if diagnostic.code == "low_level_state_path_in_high_level_module"
     } == set()
+
+
+def test_profile_checked_low_level_state_filter_requires_checked_boundary_authority_evidence() -> None:
+    diagnostic_span = SourceSpan(
+        SourcePosition("fixture.orc", 1, 1, 0),
+        SourcePosition("fixture.orc", 1, 1, 0),
+    )
+
+    diagnostics = tuple(
+        LispFrontendDiagnostic(
+            code="low_level_state_path_in_high_level_module",
+            message=f"workflow `{workflow_name}` exposes low-level state paths at its boundary",
+            span=diagnostic_span,
+        )
+        for workflow_name in (
+            "lisp_frontend_design_delta/drain::drain",
+            "lisp_frontend_design_delta/work_item::route-blocked-implementation",
+            "lisp_frontend_design_delta/work_item::finalize-selected-item-as-completed",
+        )
+    )
+    compile_result = SimpleNamespace(
+        diagnostics=diagnostics,
+        entry_result=SimpleNamespace(
+            workflow_catalog=SimpleNamespace(
+                family_profile_catalog=_design_delta_family_profile_catalog(),
+            ),
+        ),
+    )
+
+    retained = workflow_lisp_compiler._filter_profile_checked_linked_diagnostics(
+        compile_result
+    )
+
+    assert {
+        diagnostic.message.split("`", 2)[1]
+        for diagnostic in retained
+    } == {
+        "lisp_frontend_design_delta/work_item::route-blocked-implementation",
+        "lisp_frontend_design_delta/work_item::finalize-selected-item-as-completed",
+    }
 
 
 def test_build_runtime_plan_artifact_matches_selected_workflow_lineage_and_manifest(tmp_path: Path) -> None:

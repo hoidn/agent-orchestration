@@ -280,33 +280,6 @@
                     :reason blocked_recovery.summary.reason)
          :blocker-class blocked_recovery.blocker-class))))
 
-  (defworkflow finalize-selected-item-as-completed
-    ((resolved_inputs ResolvedWorkItemInputs)
-     (implementation_phase_result ImplementationPhaseResult)
-     (public_summary_path WorkReport))
-    -> PendingWorkItemResult
-    (let* ((finalized
-             (call finalize-selected-item-from-completed-implementation
-               :implementation_phase_result implementation_phase_result)))
-      (project-completed-family-result resolved_inputs public_summary_path)))
-
-  (defworkflow finalize-selected-item-as-terminal-blocked
-    ((resolved_inputs ResolvedWorkItemInputs)
-     (reason String)
-     (blocker-class BlockerClass)
-     (public_summary_path WorkReport)
-     (implementation_phase_result ImplementationPhaseResult))
-    -> PendingWorkItemResult
-    (let* ((finalized
-             (call finalize-selected-item-from-blocked-implementation
-               :implementation_phase_result implementation_phase_result
-               :blocker-class blocker-class)))
-      (project-terminal-blocked-family-result
-        resolved_inputs
-        reason
-        blocker-class
-        public_summary_path)))
-
   (defproc route-blocked-implementation
     ((target_design_path TargetDesignDoc)
      (baseline_design_path BaselineDesignDoc)
@@ -315,7 +288,6 @@
      (implementation_phase_result ImplementationPhaseResult))
     -> PendingWorkItemResult
     :effects ((calls-workflow lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery)
-              (calls-workflow lisp_frontend_design_delta/work_item::finalize-selected-item-as-terminal-blocked)
               (calls-workflow lisp_frontend_design_delta/work_item::finalize-selected-item-from-blocked-implementation)
               (calls-workflow lisp_frontend_design_delta/work_item::project-selected-item-finalizer-approved-plan)
               (calls-workflow lisp_frontend_design_delta/work_item::project-selected-item-finalizer-blocked-implementation)
@@ -337,12 +309,15 @@
                classification.reason)))
       (match decision
         ((TERMINAL_BLOCKED terminal)
-         (call finalize-selected-item-as-terminal-blocked
-           :resolved_inputs resolved_inputs
-           :reason "implementation_blocked"
-           :blocker-class BlockerClass.roadmap_conflict
-           :public_summary_path implementation_phase_result.progress-report
-           :implementation_phase_result implementation_phase_result))
+         (let* ((finalized
+                  (call finalize-selected-item-from-blocked-implementation
+                    :implementation_phase_result implementation_phase_result
+                    :blocker-class BlockerClass.roadmap_conflict)))
+           (project-terminal-blocked-family-result
+             resolved_inputs
+             "implementation_blocked"
+             BlockerClass.roadmap_conflict
+             implementation_phase_result.progress-report)))
         ((GAP_DESIGN_REVISION_REQUIRED recovery)
          (let* ((durability-recorded
                   (record-work-item-blocked-recovery-summary
@@ -403,7 +378,6 @@
      (implementation_phase_result ImplementationPhaseResult))
     -> SelectedItemResult
     :effects ((calls-workflow lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery)
-              (calls-workflow lisp_frontend_design_delta/work_item::finalize-selected-item-as-terminal-blocked)
               (calls-workflow lisp_frontend_design_delta/work_item::finalize-selected-item-from-blocked-implementation)
               (calls-workflow lisp_frontend_design_delta/work_item::project-selected-item-finalizer-approved-plan)
               (calls-workflow lisp_frontend_design_delta/work_item::project-selected-item-finalizer-blocked-implementation)
@@ -599,24 +573,32 @@
                        approved.approved_plan_path
                        implementation))
                     ((PLAN_REVIEW_EXHAUSTED plan_review_exhausted)
-                     (call finalize-selected-item-as-terminal-blocked
-                       :resolved_inputs resolved
-                       :reason "plan_review_exhausted"
-                       :blocker-class BlockerClass.unrecoverable_after_fix_attempt
-                       :public_summary_path implementation.progress-report
-                       :implementation_phase_result implementation))
+                     (let* ((finalized
+                              (call finalize-selected-item-from-blocked-implementation
+                                :implementation_phase_result implementation
+                                :blocker-class BlockerClass.unrecoverable_after_fix_attempt)))
+                       (project-terminal-blocked-family-result
+                         resolved
+                         "plan_review_exhausted"
+                         BlockerClass.unrecoverable_after_fix_attempt
+                         implementation.progress-report)))
                     ((IMPLEMENTATION_REVIEW_EXHAUSTED implementation_review_exhausted)
-                     (call finalize-selected-item-as-terminal-blocked
-                       :resolved_inputs resolved
-                       :reason "implementation_review_exhausted"
-                       :blocker-class BlockerClass.unrecoverable_after_fix_attempt
-                       :public_summary_path implementation.progress-report
-                       :implementation_phase_result implementation))
+                     (let* ((finalized
+                              (call finalize-selected-item-from-blocked-implementation
+                                :implementation_phase_result implementation
+                                :blocker-class BlockerClass.unrecoverable_after_fix_attempt)))
+                       (project-terminal-blocked-family-result
+                         resolved
+                         "implementation_review_exhausted"
+                         BlockerClass.unrecoverable_after_fix_attempt
+                         implementation.progress-report)))
                     ((COMPLETE complete)
-                     (call finalize-selected-item-as-completed
-                       :resolved_inputs resolved
-                       :implementation_phase_result implementation
-                       :public_summary_path implementation.execution-report)))))
+                     (let* ((finalized
+                              (call finalize-selected-item-from-completed-implementation
+                                :implementation_phase_result implementation)))
+                       (project-completed-family-result
+                         resolved
+                         implementation.execution-report))))))
            pending))
         ((BLOCKED blocked)
          (project-terminal-blocked-family-result
