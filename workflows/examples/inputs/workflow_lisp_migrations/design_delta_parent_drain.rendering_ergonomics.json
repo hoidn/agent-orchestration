@@ -402,6 +402,70 @@
     },
     {
       "body_rendering_policy": "forbid",
+      "c0_row_id": "c0.design_gap_architect_bridge_progress_ledger_compiled_boundary",
+      "consumer_lane": "compatibility_bridge",
+      "expected_track_c_lane": "C4",
+      "renderer_selection": {
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "mode": "infer",
+        "override_allowed": true
+      },
+      "slot_id": "design_gap_architect.bridge.progress_ledger.compiled_boundary",
+      "source_form": {
+        "form_path": [
+          "design_gap_architect",
+          "bridge",
+          "progress_ledger"
+        ],
+        "kind": "bridge_file",
+        "source_map_origin_key": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture"
+      },
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture::progress_ledger",
+      "value": {
+        "authority": "typed_value",
+        "type_name": "progress_ledger"
+      },
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture"
+    },
+    {
+      "body_rendering_policy": "forbid",
+      "c0_row_id": "c0.plan_phase_bridge_progress_ledger_compiled_boundary",
+      "consumer_lane": "compatibility_bridge",
+      "expected_track_c_lane": "C4",
+      "renderer_selection": {
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "mode": "infer",
+        "override_allowed": true
+      },
+      "slot_id": "plan_phase.bridge.progress_ledger.compiled_boundary",
+      "source_form": {
+        "form_path": [
+          "plan_phase",
+          "bridge",
+          "progress_ledger"
+        ],
+        "kind": "bridge_file",
+        "source_map_origin_key": "lisp_frontend_design_delta/plan_phase::run-plan-phase"
+      },
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::progress_ledger",
+      "value": {
+        "authority": "typed_value",
+        "type_name": "progress_ledger"
+      },
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase"
+    },
+    {
+      "body_rendering_policy": "forbid",
       "c0_row_id": "c0.drain_summary_report_target_final_summary_view",
       "consumer_lane": "observability",
       "expected_track_c_lane": "C2",

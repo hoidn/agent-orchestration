@@ -59,6 +59,14 @@
       "decision": "RETIRED_TO_BRIDGE_METADATA"
     },
     {
+      "c0_row_id": "c0.design_gap_architect_bridge_progress_ledger_compiled_boundary",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_bridge_progress_ledger_compiled_boundary",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
       "c0_row_id": "c0.drain_summary_report_target_final_summary_view",
       "decision": "RETIRED_TO_OBSERVABILITY"
     },

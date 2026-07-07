@@ -487,13 +487,13 @@
       "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture"
     },
     {
-      "boundary_authority_class": "public_authored",
+      "boundary_authority_class": "compatibility_bridge",
       "bridge": null,
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
       "path_or_contract": "progress_ledger",
-      "plumbing_class": "public_authored",
+      "plumbing_class": "generated_internal",
       "replacement_target": null,
       "row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture::progress_ledger",
       "semantic_owner": "compiled_boundary",
@@ -507,7 +507,7 @@
           "path": "design_delta_parent_drain.boundary_authority.json"
         }
       ],
-      "source_kind": "public_input",
+      "source_kind": "bridge_file",
       "symbol_or_field": "progress_ledger",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture"
@@ -2187,13 +2187,13 @@
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase"
     },
     {
-      "boundary_authority_class": "public_authored",
+      "boundary_authority_class": "compatibility_bridge",
       "bridge": null,
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
       "path_or_contract": "progress_ledger",
-      "plumbing_class": "public_authored",
+      "plumbing_class": "generated_internal",
       "replacement_target": null,
       "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::progress_ledger",
       "semantic_owner": "compiled_boundary",
@@ -2207,7 +2207,7 @@
           "path": "design_delta_parent_drain.boundary_authority.json"
         }
       ],
-      "source_kind": "public_input",
+      "source_kind": "bridge_file",
       "symbol_or_field": "progress_ledger",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase"

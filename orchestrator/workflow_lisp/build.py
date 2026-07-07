@@ -3552,6 +3552,8 @@ def _compatibility_bridge_value_document(
             "drain.architecture_bundle": "inputs.architecture_bundle_path",
             "drain.manifest_bundle": "inputs.manifest_path",
             "drain.progress_ledger_path": "inputs.progress_ledger_path",
+            "design_gap_architect.progress_ledger": "inputs.progress_ledger",
+            "plan_phase.progress_ledger": "inputs.progress_ledger",
             "work_item.architecture_bundle": "inputs.architecture_bundle_path",
             "work_item.manifest_bundle": "inputs.manifest_path",
             "work_item.progress_ledger_path": "inputs.progress_ledger_path",

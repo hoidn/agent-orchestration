@@ -7,7 +7,7 @@
   ],
   "schema_version": "workflow_lisp_resume_plumbing_retirement.v1",
   "source_census": {
-    "fingerprint": "sha256:69c6a35fb6a30bdb5a4eb90144cdb4efcb5d48767746477b9cecdc386d294c7d",
+    "fingerprint": "sha256:e40d7c8c50687f89ebbecabb1be45025acdc95db138988781ed268ad22916424",
     "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
   },
   "target_family": "lisp_frontend_design_delta_parent_drain"

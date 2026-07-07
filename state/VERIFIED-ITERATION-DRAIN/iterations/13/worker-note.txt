@@ -1,0 +1,1 @@
+Reclassified Design Delta architect and plan-phase progress_ledger boundaries as private compatibility bridges, aligned dependent evidence manifests, and restored declared checks to green.

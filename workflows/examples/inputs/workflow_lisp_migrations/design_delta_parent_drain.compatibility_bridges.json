@@ -173,6 +173,60 @@
       }
     },
     {
+      "bridge_id": "bridge.design_gap_architect.progress_ledger.compiled_boundary",
+      "c0_row_id": "c0.design_gap_architect_bridge_progress_ledger_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture::progress_ledger",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
+      "bridge_owner": "lisp_frontend_design_delta/design_gap_architect",
+      "consumer": "legacy_bootstrap",
+      "file_shape": "report_path",
+      "typed_value_source": {
+        "kind": "compatibility_value_ref",
+        "ref": "design_gap_architect.progress_ledger"
+      },
+      "renderer": {
+        "renderer_id": "posix-path-line",
+        "renderer_version": 1,
+        "accepted_shape": "path_value"
+      },
+      "target": {
+        "kind": "generated_materialized_view",
+        "durability": "durable_bridge",
+        "authority_class": "compatibility_bridge"
+      },
+      "retirement": {
+        "allowed_when": "private typed transport removes progress-ledger bridge",
+        "replacement_target": "Track R/C private bootstrap revision"
+      }
+    },
+    {
+      "bridge_id": "bridge.plan_phase.progress_ledger.compiled_boundary",
+      "c0_row_id": "c0.plan_phase_bridge_progress_ledger_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::progress_ledger",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "bridge_owner": "lisp_frontend_design_delta/plan_phase",
+      "consumer": "legacy_bootstrap",
+      "file_shape": "report_path",
+      "typed_value_source": {
+        "kind": "compatibility_value_ref",
+        "ref": "plan_phase.progress_ledger"
+      },
+      "renderer": {
+        "renderer_id": "posix-path-line",
+        "renderer_version": 1,
+        "accepted_shape": "path_value"
+      },
+      "target": {
+        "kind": "generated_materialized_view",
+        "durability": "durable_bridge",
+        "authority_class": "compatibility_bridge"
+      },
+      "retirement": {
+        "allowed_when": "private typed transport removes progress-ledger bridge",
+        "replacement_target": "Track R/C private bootstrap revision"
+      }
+    },
+    {
       "bridge_id": "bridge.work_item.architecture_bundle.compiled_boundary",
       "c0_row_id": "c0.work_item_bridge_architecture_bundle_path_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::work_item_bootstrap__architecture_path",

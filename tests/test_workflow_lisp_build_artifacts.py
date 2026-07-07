@@ -6692,6 +6692,37 @@ def test_design_delta_parent_drain_boundary_authority_expected_rows_exclude_scal
     assert progress_ledger_row["surface_kind"] == "compatibility_bridge_input"
 
 
+def test_design_delta_parent_drain_checked_registry_keeps_progress_ledger_bridges_private(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(tmp_path, monkeypatch)
+    payload = json.loads(
+        result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
+    )
+
+    rows_by_name = {
+        row["workflow_name"]: row
+        for row in payload["workflows"]
+        if row["workflow_name"]
+        in {
+            "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
+            "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture-stdlib",
+            "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        }
+    }
+
+    assert set(rows_by_name) == {
+        "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
+        "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture-stdlib",
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+    }
+    for workflow_name, row in rows_by_name.items():
+        boundary = row["boundary"]
+        assert "progress_ledger" not in boundary["public_input_names"], workflow_name
+        assert "progress_ledger" in boundary["private_compatibility_bridge_inputs"]
+
+
 def test_design_delta_parent_drain_build_rejects_unclassified_path_like_boundary_value(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

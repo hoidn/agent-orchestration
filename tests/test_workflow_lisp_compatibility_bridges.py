@@ -169,6 +169,8 @@ def test_select_compatibility_bridge_rows_uses_checked_c0_inventory() -> None:
         "c0.drain_bridge_manifest_path_compiled_boundary",
         "c0.drain_bridge_progress_ledger_path",
         "c0.drain_bridge_progress_ledger_path_compiled_boundary",
+        "c0.design_gap_architect_bridge_progress_ledger_compiled_boundary",
+        "c0.plan_phase_bridge_progress_ledger_compiled_boundary",
         "c0.work_item_bridge_architecture_bundle_path_compiled_boundary",
         "c0.work_item_bridge_manifest_path_compiled_boundary",
         "c0.work_item_bridge_progress_ledger_path",
@@ -538,6 +540,26 @@ def test_build_compatibility_bridge_report_fails_closed_when_manifest_omits_sele
                 },
                 {
                     "workflow_name": (
+                        "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture"
+                    ),
+                    "boundary": {
+                        "public_input_names": [],
+                        "private_compatibility_bridge_inputs": [
+                            "progress_ledger"
+                        ],
+                    },
+                },
+                {
+                    "workflow_name": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+                    "boundary": {
+                        "public_input_names": [],
+                        "private_compatibility_bridge_inputs": [
+                            "progress_ledger"
+                        ],
+                    },
+                },
+                {
+                    "workflow_name": (
                         "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
                     ),
                     "boundary": {
@@ -583,6 +605,40 @@ def test_build_compatibility_bridge_report_fails_closed_when_manifest_omits_sele
                         }
                     ],
                 },
+                "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture": {
+                    "generated_semantic_effects": [
+                        {
+                            "effect_kind": "materialize_view",
+                            "details": {
+                                "authority_class": "compatibility_bridge",
+                                "allocation_id": "bridge-design-gap-architect",
+                            },
+                        }
+                    ],
+                    "generated_path_allocations": [
+                        {
+                            "allocation_id": "bridge-design-gap-architect",
+                            "semantic_role": "materialized_value_view",
+                        }
+                    ],
+                },
+                "lisp_frontend_design_delta/plan_phase::run-plan-phase": {
+                    "generated_semantic_effects": [
+                        {
+                            "effect_kind": "materialize_view",
+                            "details": {
+                                "authority_class": "compatibility_bridge",
+                                "allocation_id": "bridge-plan-phase",
+                            },
+                        }
+                    ],
+                    "generated_path_allocations": [
+                        {
+                            "allocation_id": "bridge-plan-phase",
+                            "semantic_role": "materialized_value_view",
+                        }
+                    ],
+                },
                 "lisp_frontend_design_delta/work_item::run-selected-item-stdlib": {
                     "generated_semantic_effects": [
                         {
@@ -615,6 +671,8 @@ def test_build_compatibility_bridge_report_fails_closed_when_manifest_omits_sele
         "c0.drain_bridge_manifest_path_compiled_boundary",
         "c0.drain_bridge_progress_ledger_path",
         "c0.drain_bridge_progress_ledger_path_compiled_boundary",
+        "c0.design_gap_architect_bridge_progress_ledger_compiled_boundary",
+        "c0.plan_phase_bridge_progress_ledger_compiled_boundary",
         "c0.work_item_bridge_architecture_bundle_path_compiled_boundary",
         "c0.work_item_bridge_manifest_path_compiled_boundary",
         "c0.work_item_bridge_progress_ledger_path",

@@ -177,14 +177,14 @@
       "workflow_name": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture"
     },
     {
-      "authority_class": "public_authored",
+      "authority_class": "compatibility_bridge",
       "field_name": "progress_ledger",
-      "justification": "Checked authored path-like boundary value.",
+      "justification": "Checked private compatibility bridge for current Design Delta parent drain evidence.",
       "owner": "workflow_lisp_generic_core_g0",
       "parity_constrained": true,
       "path_like": true,
       "replacement_tranche": "G0",
-      "surface_kind": "public_input",
+      "surface_kind": "compatibility_bridge_input",
       "workflow_name": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture"
     },
     {
@@ -903,14 +903,14 @@
       "workflow_name": "lisp_frontend_design_delta/plan_phase::run-plan-phase"
     },
     {
-      "authority_class": "public_authored",
+      "authority_class": "compatibility_bridge",
       "field_name": "progress_ledger",
-      "justification": "Checked compiled boundary projection row for current Design Delta parent drain evidence.",
+      "justification": "Checked private compatibility bridge for current Design Delta parent drain evidence.",
       "owner": "workflow_lisp_generic_core_g0",
       "parity_constrained": true,
       "path_like": true,
       "replacement_tranche": "G0",
-      "surface_kind": "public_input",
+      "surface_kind": "compatibility_bridge_input",
       "workflow_name": "lisp_frontend_design_delta/plan_phase::run-plan-phase"
     },
     {
