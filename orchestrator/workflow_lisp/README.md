@@ -245,11 +245,9 @@ core (`RunCtx`, `Resource<TState>`, `Transition<TRequest, TResult>`), stdlib
 domain contexts, typed projections, materialized views, and certified adapters
 as described in the target design.
 
-Runtime closures remain deferred. `runtime_closure_design_fixtures.py` is a
-test-only rejection harness for disabled/design-fixture closure cases; it must
-not participate in ordinary compilation, and normal Workflow Lisp artifacts
-must not emit runtime-closure payloads, registries, or invocation nodes.
-`let-proc` remains compile-time-only.
+Runtime closures remain deferred. Normal Workflow Lisp artifacts must not emit
+runtime-closure payloads, registries, or invocation nodes. `let-proc` remains
+compile-time-only.
 
 Future structural-constraint, imported-`.orc`, and review-loop follow-on work
 should target the dedicated typecheck owner files above instead of adding more
