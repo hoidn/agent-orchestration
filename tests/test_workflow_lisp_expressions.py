@@ -178,6 +178,9 @@ def test_typecheck_facade_reexports_public_entrypoints_after_owner_split() -> No
     assert "if isinstance(expr, ResumeOrStartExpr):" in dispatch_source
     assert "typecheck_resume_or_start_expr(" in dispatch_source
     assert "def _require_resume_binding(" not in dispatch_source
+    assert (package_dir / "typecheck_drain_phase.py").is_file()
+    assert "typecheck_backlog_drain_expr(" in dispatch_source
+    assert "def _require_union_variant_field(" not in dispatch_source
 
 
 def test_frontend_type_environment_resolves_stage1_definitions() -> None:
