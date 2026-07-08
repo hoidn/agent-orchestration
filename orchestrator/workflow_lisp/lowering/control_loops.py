@@ -6,7 +6,8 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
-from ..conditionals import PureExprCondition
+from ..conditionals import PureExprCondition, classify_condition_expr, render_condition_predicate
+from ..contracts import derive_workflow_boundary_fields
 from ..expressions import (
     ContinueExpr,
     DoneExpr,
@@ -35,7 +36,6 @@ from ..loops import (
 from ..procedures import TypedProcedureDef
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
-from . import core as lowering_core
 from .context import (
     _compile_error,
     _context_with_local_type_binding,
@@ -56,18 +56,7 @@ from .values import (
     _resolve_inline_field_value,
     _union_variant_expr_value_at_path,
 )
-
-
-def _normalize_generated_step_id(*args, **kwargs):
-    return lowering_core._normalize_generated_step_id(*args, **kwargs)
-
-
-def _render_repeat_until_max_iterations(*args, **kwargs):
-    return lowering_core._render_repeat_until_max_iterations(*args, **kwargs)
-
-
-def _resolve_lowering_expr_type(*args, **kwargs):
-    return lowering_core._resolve_lowering_expr_type(*args, **kwargs)
+from .workflow_calls import _render_repeat_until_max_iterations
 
 
 def _materialize_values_step(
@@ -137,6 +126,7 @@ def _emit_repeat_until_from_emitter_input(
         _binding_terminal_for_inline_match,
         _build_match_projection_anchor_step,
     )
+    from .core import _resolve_lowering_expr_type
 
     expr = emitter_input
     source_expr = emitter_input.source_expr or emitter_input
@@ -164,9 +154,9 @@ def _emit_repeat_until_from_emitter_input(
         span=expr.span,
         form_path=expr.form_path,
     )
-    seed_step_id = _normalize_generated_step_id(plan.seed_step_name)
-    repeat_step_id = _normalize_generated_step_id(plan.repeat_step_name)
-    result_step_id = _normalize_generated_step_id(plan.result_normalization_step_name)
+    seed_step_id = context.normalize_generated_step_id(plan.seed_step_name)
+    repeat_step_id = context.normalize_generated_step_id(plan.repeat_step_name)
+    result_step_id = context.normalize_generated_step_id(plan.result_normalization_step_name)
     initial_state_value = _resolve_inline_expr_value(expr.initial_state_expr, local_values=local_values)
     state_optional_relpath_fields = _loop_state_optional_relpath_fields(
         expr.initial_state_expr,
@@ -194,7 +184,7 @@ def _emit_repeat_until_from_emitter_input(
     )
     _record_step_origin(context, step_name=plan.seed_step_name, step_id=seed_step_id, source=source_expr)
     current_state_step_name = f"{plan.body_projection_step_name}__state"
-    current_state_step_id = _normalize_generated_step_id(current_state_step_name)
+    current_state_step_id = context.normalize_generated_step_id(current_state_step_name)
     current_state_steps = _build_loop_current_state_steps(
         current_state_step_name=current_state_step_name,
         current_state_step_id=current_state_step_id,
@@ -319,7 +309,7 @@ def _emit_repeat_until_from_emitter_input(
         }
     _record_step_origin(context, step_name=plan.repeat_step_name, step_id=repeat_step_id, source=source_expr)
 
-    normalized_result_fields = lowering_core.derive_workflow_boundary_fields(
+    normalized_result_fields = derive_workflow_boundary_fields(
         result_type,
         generated_name="return",
         source_path=("return",),
@@ -381,7 +371,7 @@ def _emit_repeat_until_from_emitter_input(
                 for field in normalized_result_fields
             }
             union_cases[variant.name] = {
-                "id": _normalize_generated_step_id(
+                "id": context.normalize_generated_step_id(
                     f"{plan.result_normalization_step_name}__{variant.name.lower()}"
                 ),
                 "outputs": case_outputs,
@@ -448,11 +438,11 @@ def _build_loop_current_state_steps(
     context: _LoweringContext,
 ) -> list[dict[str, Any]]:
     seed_marker_name = f"{current_state_step_name}__seed_marker"
-    seed_marker_id = _normalize_generated_step_id(seed_marker_name)
+    seed_marker_id = context.normalize_generated_step_id(seed_marker_name)
     carried_copy_name = f"{current_state_step_name}__use_carried_state"
     seed_copy_name = f"{current_state_step_name}__use_seed_state"
-    carried_copy_id = _normalize_generated_step_id(f"{current_state_step_name}__carry")
-    seed_copy_id = _normalize_generated_step_id(f"{current_state_step_name}__seed")
+    carried_copy_id = context.normalize_generated_step_id(f"{current_state_step_name}__carry")
+    seed_copy_id = context.normalize_generated_step_id(f"{current_state_step_name}__seed")
     _record_step_origin(context, step_name=seed_marker_name, step_id=seed_marker_id, source=expr)
     _record_step_origin(context, step_name=carried_copy_name, step_id=carried_copy_id, source=expr)
     _record_step_origin(context, step_name=seed_copy_name, step_id=seed_copy_id, source=expr)
@@ -576,10 +566,10 @@ def _build_loop_seed_step(
     cases: dict[str, Any] = {}
     for variant in state_type.definition.variants:
         materialize_name = f"{step_name}__materialize_{variant.name.lower()}"
-        materialize_step_id = _normalize_generated_step_id(f"{step_name}__{variant.name.lower()}__materialize")
+        materialize_step_id = context.normalize_generated_step_id(f"{step_name}__{variant.name.lower()}__materialize")
         _record_step_origin(context, step_name=materialize_name, step_id=materialize_step_id, source=expr)
         cases[variant.name] = {
-            "id": _normalize_generated_step_id(f"{step_name}__{variant.name.lower()}"),
+            "id": context.normalize_generated_step_id(f"{step_name}__{variant.name.lower()}"),
             "outputs": _loop_case_outputs_from_projection(
                 state_projection,
                 source_step_name=materialize_name,
@@ -822,7 +812,7 @@ def _lower_loop_body_expr(
                             span=arm.body.span,
                         )
                     ]
-                nested_step_id = _normalize_generated_step_id(nested_step_name)
+                nested_step_id = context.normalize_generated_step_id(nested_step_name)
                 _record_step_origin(context, step_name=nested_step_name, step_id=nested_step_id, source=expr)
                 return [
                     {
@@ -836,12 +826,12 @@ def _lower_loop_body_expr(
                             }
                         },
                         "then": {
-                            "id": _normalize_generated_step_id(f"{nested_step_name}__then"),
+                            "id": context.normalize_generated_step_id(f"{nested_step_name}__then"),
                             "outputs": then_outputs,
                             "steps": then_steps,
                         },
                         "else": {
-                            "id": _normalize_generated_step_id(f"{nested_step_name}__else"),
+                            "id": context.normalize_generated_step_id(f"{nested_step_name}__else"),
                             "outputs": else_outputs,
                             "steps": else_steps,
                         },
@@ -918,11 +908,11 @@ def _lower_loop_body_expr(
                     )
                 ]
             cases[arm.variant_name] = {
-                "id": _normalize_generated_step_id(f"{body_step_name}__{arm.variant_name.lower()}"),
+                "id": context.normalize_generated_step_id(f"{body_step_name}__{arm.variant_name.lower()}"),
                 "outputs": arm_outputs,
                 "steps": arm_steps,
             }
-        step_id = _normalize_generated_step_id(body_step_name)
+        step_id = context.normalize_generated_step_id(body_step_name)
         _record_step_origin(context, step_name=body_step_name, step_id=step_id, source=expr)
         return [
             *hoisted_steps,
@@ -952,7 +942,7 @@ def _lower_loop_body_expr(
             expr.condition_expr,
             local_values=local_values,
         )
-        condition_shape = lowering_core.classify_condition_expr(
+        condition_shape = classify_condition_expr(
             expr.condition_expr,
             type_ref=PrimitiveTypeRef(name="Bool"),
         )
@@ -981,7 +971,7 @@ def _lower_loop_body_expr(
                 }
             else:
                 condition_step_name = f"{body_step_name}__condition"
-                condition_step_id = _normalize_generated_step_id(condition_step_name)
+                condition_step_id = context.normalize_generated_step_id(condition_step_name)
                 lowered_condition = lower_pure_projection_step(
                     pure_condition_expr,
                     result_type=PrimitiveTypeRef(name="Bool"),
@@ -1006,7 +996,7 @@ def _lower_loop_body_expr(
                     }
                 }
         else:
-            condition = lowering_core.render_condition_predicate(
+            condition = render_condition_predicate(
                 condition_shape,
                 local_values=local_values,
             )
@@ -1080,7 +1070,7 @@ def _lower_loop_body_expr(
                     span=expr.else_expr.span,
                 )
             ]
-        step_id = _normalize_generated_step_id(body_step_name)
+        step_id = context.normalize_generated_step_id(body_step_name)
         _record_step_origin(context, step_name=body_step_name, step_id=step_id, source=expr)
         return [
             *condition_steps,
@@ -1089,12 +1079,12 @@ def _lower_loop_body_expr(
                 "id": step_id,
                 "if": condition,
                 "then": {
-                    "id": _normalize_generated_step_id(f"{body_step_name}__then"),
+                    "id": context.normalize_generated_step_id(f"{body_step_name}__then"),
                     "outputs": then_outputs,
                     "steps": then_steps,
                 },
                 "else": {
-                    "id": _normalize_generated_step_id(f"{body_step_name}__else"),
+                    "id": context.normalize_generated_step_id(f"{body_step_name}__else"),
                     "outputs": else_outputs,
                     "steps": else_steps,
                 },
@@ -1170,7 +1160,9 @@ def _lower_loop_terminal_expr(
     local_values: Mapping[str, Any],
     active_variant_name: str | None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
-    step_id = _normalize_generated_step_id(body_step_name)
+    from .core import _resolve_lowering_expr_type
+
+    step_id = context.normalize_generated_step_id(body_step_name)
     emitted_steps: list[dict[str, Any]] = []
     resolved_state_expr = _resolve_loop_pure_projection_expr(state_expr, local_values=local_values)
     projected_values = [
@@ -1183,7 +1175,7 @@ def _lower_loop_terminal_expr(
     state_projection_output_refs: dict[str, str] = {}
     if resolved_state_expr is not None:
         state_step_name = f"{body_step_name}__state"
-        state_step_id = _normalize_generated_step_id(state_step_name)
+        state_step_id = context.normalize_generated_step_id(state_step_name)
         lowered_state = lower_pure_projection_step(
             resolved_state_expr,
             result_type=_resolve_lowering_expr_type(resolved_state_expr, context=context),
@@ -1257,7 +1249,7 @@ def _lower_loop_terminal_expr(
         resolved_result_expr = _resolve_loop_pure_projection_expr(result_expr, local_values=local_values)
         if resolved_result_expr is not None and result_projection.union_projection is None:
             result_step_name = f"{body_step_name}__result"
-            result_step_id = _normalize_generated_step_id(result_step_name)
+            result_step_id = context.normalize_generated_step_id(result_step_name)
             lowered_result = lower_pure_projection_step(
                 resolved_result_expr,
                 result_type=result_type,
