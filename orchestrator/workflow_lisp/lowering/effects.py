@@ -12,13 +12,20 @@ from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 from ..expressions import CommandResultExpr, LiteralExpr, ProviderResultExpr
 from ..phase import IMPLEMENTATION_ATTEMPT_ARTIFACT_ROOT
 from ..type_env import TypeRef
-from . import core as lowering_core
+from ..workflows import PromptExtern, ProviderExtern
 from .context import _compile_error, _TerminalResult
 from .generated_paths import allocate_generated_result_bundle
+from .origins import _origin_from_context_source, _record_step_origin
 from .phase_scope import (
+    _build_phase_prompt_input_prelude,
+    _build_phase_stdlib_prompt_input_prelude,
     _build_typed_prompt_inputs_for_prompt_specs,
+    _phase_prompt_inputs_are_direct,
     _typed_prompt_input_row_metadata,
+    _uses_legacy_phase_prompt_input_prelude,
 )
+from .values import _record_output_refs, _resolve_inline_expr_value
+from .workflow_calls import _render_argv_tail
 
 
 _PROVIDER_BUNDLE_NEGATIVE_VALIDATION_CASES = (
@@ -99,7 +106,7 @@ def _lower_command_result_operation(
             form_path=command_result.form_path,
         )
     step_name = f"{context.step_name_prefix}__{command_result.step_name}"
-    step_id = lowering_core._normalize_generated_step_id(step_name)
+    step_id = context.normalize_generated_step_id(step_name)
     bundle_contract = derive_structured_result_contract(
         result_type,
         workflow_name=context.workflow_name,
@@ -116,7 +123,7 @@ def _lower_command_result_operation(
     )
     authored_contract = dict(bundle_contract.payload)
     authored_contract["path"] = allocation.concrete_path_template
-    lowering_core._record_step_origin(
+    _record_step_origin(
         context,
         step_name=step_name,
         step_id=step_id,
@@ -141,7 +148,7 @@ def _lower_command_result_operation(
     else:
         command = [
             *binding.stable_command,
-            *lowering_core._render_argv_tail(
+            *_render_argv_tail(
                 command_result.argv[len(binding.stable_command) :],
                 local_values=local_values,
             ),
@@ -155,10 +162,10 @@ def _lower_command_result_operation(
     return [step], _TerminalResult(
         step_name=step_name,
         step_id=step_id,
-        output_refs=lowering_core._record_output_refs(step_name, result_type),
+        output_refs=_record_output_refs(step_name, result_type),
         output_kind="step",
         hidden_inputs={
-            allocation.generated_input_name: lowering_core._origin_from_context_source(context, command_result)
+            allocation.generated_input_name: _origin_from_context_source(context, command_result)
         },
     )
 
@@ -196,19 +203,21 @@ def _render_adapter_payload_value(
     local_values: Mapping[str, Any],
 ) -> str:
     _ = declared_type_name
-    resolved_value = lowering_core._resolve_inline_expr_value(expr, local_values=local_values)
+    resolved_value = _resolve_inline_expr_value(expr, local_values=local_values)
     if isinstance(resolved_value, LiteralExpr):
         return json.dumps(resolved_value.value, separators=(",", ":"), ensure_ascii=False)
     if isinstance(resolved_value, str):
         return _json_template_for_ref(resolved_value)
-    rendered_scalar = lowering_core._render_argv_tail([expr], local_values=local_values)[0]
+    rendered_scalar = _render_argv_tail([expr], local_values=local_values)[0]
     if rendered_scalar.startswith("${") and rendered_scalar.endswith("}"):
         return _json_template_for_template(rendered_scalar)
     return json.dumps(rendered_scalar, separators=(",", ":"), ensure_ascii=False)
 
 
 def _json_template_for_ref(ref: str) -> str:
-    return _json_template_for_template(lowering_core._template_for_ref(ref))
+    from .core import _template_for_ref
+
+    return _json_template_for_template(_template_for_ref(ref))
 
 
 def _json_template_for_template(template: str) -> str:
@@ -271,13 +280,14 @@ def _lower_provider_result_operation(
     step_name: str | None = None,
 ) -> tuple[list[dict[str, Any]], Any]:
     from ..contracts import derive_structured_result_contract
+    from .core import _prompt_source_step_fields, _template_for_ref
 
     provider_step_name = step_name or f"{context.step_name_prefix}__result"
-    provider_step_id = lowering_core._normalize_generated_step_id(provider_step_name)
+    provider_step_id = context.normalize_generated_step_id(provider_step_name)
     provider_binding = context.extern_environment.bindings_by_name.get(provider_result.provider_name)
     prompt_binding = context.extern_environment.bindings_by_name.get(provider_result.prompt_name)
-    if not isinstance(provider_binding, lowering_core.ProviderExtern) or not isinstance(
-        prompt_binding, lowering_core.PromptExtern
+    if not isinstance(provider_binding, ProviderExtern) or not isinstance(
+        prompt_binding, PromptExtern
     ):
         raise _compile_error(
             code="provider_result_provider_invalid",
@@ -307,16 +317,16 @@ def _lower_provider_result_operation(
         "inject_output_contract": True,
         bundle_contract.contract_kind: authored_contract,
     }
-    provider_step.update(lowering_core._prompt_source_step_fields(prompt_binding))
+    provider_step.update(_prompt_source_step_fields(prompt_binding))
     if context.phase_scope is not None:
         use_active_phase_bundle = False
         if not context.is_generated_private_workflow:
-            use_active_phase_bundle = lowering_core._phase_prompt_inputs_are_direct(
+            use_active_phase_bundle = _phase_prompt_inputs_are_direct(
                 (("inputs", provider_result.inputs),),
                 context=context,
                 local_values=local_values,
             )
-            if lowering_core._uses_legacy_phase_prompt_input_prelude(
+            if _uses_legacy_phase_prompt_input_prelude(
                 provider_result,
                 local_values=local_values,
             ):
@@ -338,7 +348,7 @@ def _lower_provider_result_operation(
                 step_name=provider_step_name,
                 step_id=provider_step_id,
                 semantic_role=GeneratedPathSemanticRole.PROVIDER_RESULT_BUNDLE,
-                path_template=lowering_core._template_for_ref(context.phase_scope.bundle_path_ref),
+                path_template=_template_for_ref(context.phase_scope.bundle_path_ref),
             )
             authored_contract["path"] = allocation.concrete_path_template
         else:
@@ -350,13 +360,13 @@ def _lower_provider_result_operation(
                 semantic_role=GeneratedPathSemanticRole.PROVIDER_RESULT_BUNDLE,
             )
             authored_contract["path"] = allocation.concrete_path_template
-            hidden_inputs[allocation.generated_input_name] = lowering_core._origin_from_context_source(context, provider_result)
-        if lowering_core._uses_legacy_phase_prompt_input_prelude(
+            hidden_inputs[allocation.generated_input_name] = _origin_from_context_source(context, provider_result)
+        if _uses_legacy_phase_prompt_input_prelude(
             provider_result,
             local_values=local_values,
         ):
             generated_steps.extend(
-                lowering_core._build_phase_prompt_input_prelude(
+                _build_phase_prompt_input_prelude(
                     provider_result,
                     context=context,
                     local_values=local_values,
@@ -376,7 +386,7 @@ def _lower_provider_result_operation(
             ]
         elif not preserve_request_record:
             phase_steps, consumes, prompt_consumes, phase_hidden_inputs = (
-                lowering_core._build_phase_stdlib_prompt_input_prelude(
+                _build_phase_stdlib_prompt_input_prelude(
                     (("inputs", provider_result.inputs),),
                     context=context,
                     local_values=local_values,
@@ -428,8 +438,8 @@ def _lower_provider_result_operation(
         )
         if typed_prompt_inputs:
             provider_step["typed_prompt_inputs"] = typed_prompt_inputs
-        hidden_inputs[allocation.generated_input_name] = lowering_core._origin_from_context_source(context, provider_result)
-    lowering_core._record_step_origin(
+        hidden_inputs[allocation.generated_input_name] = _origin_from_context_source(context, provider_result)
+    _record_step_origin(
         context,
         step_name=provider_step_name,
         step_id=provider_step_id,
@@ -439,7 +449,7 @@ def _lower_provider_result_operation(
     return generated_steps, _TerminalResult(
         step_name=provider_step_name,
         step_id=provider_step_id,
-        output_refs=lowering_core._record_output_refs(provider_step_name, result_type),
+        output_refs=_record_output_refs(provider_step_name, result_type),
         output_kind="step",
         hidden_inputs=hidden_inputs,
         provider_bundle_identity={
