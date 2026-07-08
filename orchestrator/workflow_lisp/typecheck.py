@@ -28,7 +28,6 @@ from .typecheck_dispatch import (
 )
 from .typecheck_effects import (
     is_macro_introduced_effect as _is_macro_introduced_effect,
-    typecheck_expected_extern_operand as _typecheck_expected_extern_operand,
     validate_command_argv as _validate_command_argv,
     validate_semantic_command_adapter_usage as _validate_semantic_command_adapter_usage,
 )

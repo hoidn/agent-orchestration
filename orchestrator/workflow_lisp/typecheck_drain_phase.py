@@ -12,6 +12,7 @@ from .effects import (
 from .expressions import (
     BacklogDrainExpr,
     LiteralExpr,
+    NameExpr,
     PhaseTargetExpr,
     ProduceOneOfExpr,
     RunProviderPhaseExpr,
@@ -33,7 +34,6 @@ from .typecheck_context import (
     _require_normative_phase_ctx_type,
     _require_phase_scope_name_match,
 )
-from .typecheck_effects import typecheck_expected_extern_operand
 
 
 def typecheck_backlog_drain_expr(
@@ -236,14 +236,14 @@ def typecheck_run_provider_phase_expr(
         form_path=expr.form_path,
     )
     typed_inputs = recurse(expr.inputs_expr)
-    typed_provider = typecheck_expected_extern_operand(
+    typed_provider = _expected_extern_operand(
         expr.provider,
         expected_primitive="Provider",
         context=context,
         recurse=recurse,
         typed_factory=typed_factory,
     )
-    typed_prompt = typecheck_expected_extern_operand(
+    typed_prompt = _expected_extern_operand(
         expr.prompt,
         expected_primitive="Prompt",
         context=context,
@@ -322,14 +322,14 @@ def typecheck_produce_one_of_expr(
             span=expr.span,
             form_path=expr.form_path,
         )
-    typed_provider = typecheck_expected_extern_operand(
+    typed_provider = _expected_extern_operand(
         expr.producer.provider_expr,
         expected_primitive="Provider",
         context=context,
         recurse=recurse,
         typed_factory=typed_factory,
     )
-    typed_prompt = typecheck_expected_extern_operand(
+    typed_prompt = _expected_extern_operand(
         expr.producer.prompt_expr,
         expected_primitive="Prompt",
         context=context,
@@ -383,6 +383,16 @@ def typecheck_produce_one_of_expr(
         type_ref=return_type,
         effect=merge_effect_summaries(*input_summaries),
     )
+
+
+def _expected_extern_operand(expr, *, expected_primitive, context, recurse, typed_factory):
+    if isinstance(expr, NameExpr) and expr.name not in context.value_env:
+        return typed_factory(
+            expr=expr,
+            type_ref=PrimitiveTypeRef(name=expected_primitive),
+            effect=EMPTY_EFFECT_SUMMARY,
+        )
+    return recurse(expr)
 
 
 def _require_union_variant_field(
