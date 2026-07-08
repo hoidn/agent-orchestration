@@ -12,6 +12,12 @@ from .expressions import ExprNode, LiteralExpr
 from .lints import required_lint_diagnostic
 from .loops import LoopControlTypeRef
 from .parametric_constraints import SharedUnionFieldCapability
+from .phase import (
+    IMPLEMENTATION_ATTEMPT_PHASE_CONTEXT_NAME,
+    PHASE_CONTEXT_NAME,
+    PhaseScope,
+    is_record_definition_named,
+)
 from .procedure_refs import ResolvedProcRefValue
 from .procedures import TypedProcedureDef
 from .spans import SourceSpan
@@ -197,6 +203,46 @@ def raise_error(
                 phase="typecheck",
             ),
         )
+    )
+
+
+def _require_normative_phase_ctx_type(
+    type_ref: TypeRef,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> None:
+    if is_record_definition_named(type_ref, IMPLEMENTATION_ATTEMPT_PHASE_CONTEXT_NAME):
+        raise_error(
+            "generic phase stdlib forms require `PhaseCtx`; the legacy bridge is reserved for the Stage 4 implementation-attempt regression",
+            code="phase_ctx_legacy_bridge_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    if not is_record_definition_named(type_ref, PHASE_CONTEXT_NAME):
+        raise_error(
+            "generic phase stdlib forms require `PhaseCtx`",
+            code="phase_context_invalid",
+            span=span,
+            form_path=form_path,
+        )
+
+
+def _require_phase_scope_name_match(
+    active_phase_scope: PhaseScope | None,
+    *,
+    authored_name: str,
+    form_name: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> None:
+    if active_phase_scope is None or active_phase_scope.phase_name == authored_name:
+        return
+    raise_error(
+        f"`{form_name}` name `{authored_name}` must match the active `with-phase` scope `{active_phase_scope.phase_name}`",
+        code="phase_scope_name_mismatch",
+        span=span,
+        form_path=form_path,
     )
 
 

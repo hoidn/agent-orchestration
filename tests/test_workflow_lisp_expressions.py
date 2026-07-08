@@ -174,6 +174,10 @@ def test_typecheck_facade_reexports_public_entrypoints_after_owner_split() -> No
     assert "_ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY" not in dispatch_source
     assert "snapshot_session_state" in dispatch_source
     assert "restore_session_state" in dispatch_source
+    assert (package_dir / "typecheck_resume.py").is_file()
+    assert "if isinstance(expr, ResumeOrStartExpr):" in dispatch_source
+    assert "typecheck_resume_or_start_expr(" in dispatch_source
+    assert "def _require_resume_binding(" not in dispatch_source
 
 
 def test_frontend_type_environment_resolves_stage1_definitions() -> None:

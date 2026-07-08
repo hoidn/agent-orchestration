@@ -81,15 +81,11 @@ from .procedure_refs import (
 )
 from .phase import (
     PhaseScope,
-    PHASE_CONTEXT_NAME,
     RUN_CONTEXT_NAME,
     build_phase_scope,
-    IMPLEMENTATION_ATTEMPT_PHASE_CONTEXT_NAME,
     is_implementation_attempt_result_type,
-    is_record_definition_named,
     resolve_phase_target_type,
 )
-from .phase_stdlib import ReusableStateValidationSpec
 from .parametric_constraints import SharedUnionFieldCapability
 from .resource import (
     ensure_drain_context_type,
@@ -119,6 +115,8 @@ from .typecheck_context import (
     restore_session_state,
     snapshot_session_state,
     _literal_type_name,
+    _require_normative_phase_ctx_type,
+    _require_phase_scope_name_match,
     _type_label,
     _type_refs_compatible,
     _typed,
@@ -132,6 +130,7 @@ from .typecheck_effects import (
     typecheck_provider_result_expr as _typecheck_provider_result_expr,
 )
 from .typecheck_pure_ops import typecheck_pure_expr as _typecheck_pure_expr
+from .typecheck_resume import typecheck_resume_or_start_expr
 from .typecheck_proofs import (
     ProofFact,
     ProofScope,
@@ -2238,203 +2237,11 @@ def _typecheck(
             effect=merge_effect_summaries(*input_summaries),
         )
     if isinstance(expr, ResumeOrStartExpr):
-        return_type = type_env.resolve_type(
-            expr.returns_type_name,
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-        if not isinstance(return_type, (RecordTypeRef, UnionTypeRef)):
-            _raise_error(
-                "`resume-or-start :returns` must resolve to a record or union",
-                code="resume_or_start_contract_invalid",
-                span=expr.span,
-                form_path=expr.form_path,
-            )
-        typed_ctx = _typecheck(
-            expr.ctx_expr,
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=proof_scope,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            active_phase_scope=active_phase_scope,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-        )
-        _require_normative_phase_ctx_type(
-            typed_ctx.type_ref,
-            span=expr.ctx_expr.span,
-            form_path=expr.ctx_expr.form_path,
-        )
-        _require_phase_scope_name_match(
-            active_phase_scope,
-            authored_name=expr.resume_name,
-            form_name="resume-or-start",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-        typed_resume_from = _typecheck(
-            expr.resume_from_expr,
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=proof_scope,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            active_phase_scope=active_phase_scope,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-        )
-        if not isinstance(typed_resume_from.type_ref, PathTypeRef) or typed_resume_from.type_ref.definition.under != "state":
-            _raise_error(
-                "`resume-or-start :resume-from` must be a canonical state relpath",
-                code="resume_or_start_resume_path_invalid",
-                span=expr.resume_from_expr.span,
-                form_path=expr.resume_from_expr.form_path,
-            )
-        if isinstance(expr.start_expr, CallExpr):
-            start_signature = workflow_catalog.signatures_by_name.get(expr.start_expr.callee_name) if workflow_catalog is not None else None
-            if start_signature is not None and isinstance(start_signature.return_type_ref, UnionTypeRef):
-                if start_signature.return_type_ref != return_type:
-                    _raise_error(
-                        "`resume-or-start :start` workflow call must return the declared union `:returns` type",
-                        code="resume_or_start_contract_invalid",
-                        span=expr.start_expr.span,
-                        form_path=expr.start_expr.form_path,
-                    )
-        typed_start = _typecheck(
-            expr.start_expr,
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=proof_scope,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            active_phase_scope=active_phase_scope,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-        )
-        if typed_start.type_ref != return_type:
-            _raise_error(
-                "`resume-or-start :start` must typecheck to the declared `:returns` type",
-                code="resume_or_start_contract_invalid",
-                span=expr.start_expr.span,
-                form_path=expr.start_expr.form_path,
-            )
-        valid_variants = expr.valid_when
-        if isinstance(return_type, UnionTypeRef):
-            if not valid_variants:
-                _raise_error(
-                    "`resume-or-start` union returns require non-empty `:valid-when`",
-                    code="resume_or_start_contract_invalid",
-                    span=expr.span,
-                    form_path=expr.form_path,
-                )
-            declared_variants = {variant.name for variant in return_type.definition.variants}
-            for variant_name in valid_variants:
-                if variant_name not in declared_variants:
-                    _raise_error(
-                        f"`resume-or-start :valid-when` includes unknown variant `{variant_name}`",
-                        code="resume_or_start_reusable_variant_invalid",
-                        span=expr.span,
-                        form_path=expr.form_path,
-                    )
-        elif valid_variants:
-            _raise_error(
-                "`resume-or-start :valid-when` is valid only for union return types",
-                code="resume_or_start_record_valid_when_invalid",
-                span=expr.span,
-                form_path=expr.form_path,
-            )
-        validator_binding_name = "validate_reusable_phase_state"
-        writer_binding_name = "write_reusable_phase_state_v1"
-        loader_binding_name = f"load_canonical_phase_result__{expr.returns_type_name}"
-        _require_resume_binding(
-            command_boundary_environment=command_boundary_environment,
-            binding_name=validator_binding_name,
-            expected_output_type_name="ResumeReuseDecision",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-        _require_resume_binding(
-            command_boundary_environment=command_boundary_environment,
-            binding_name=writer_binding_name,
-            expected_output_type_name="ReusablePhaseStateWriteAck",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-        _require_resume_binding(
-            command_boundary_environment=command_boundary_environment,
-            binding_name=loader_binding_name,
-            expected_output_type_name=expr.returns_type_name,
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-        if isinstance(expr.start_expr, CommandResultExpr) and expr.start_expr.step_name.startswith("load_canonical_phase_result__"):
-            _raise_error(
-                "`resume-or-start` may not author loader adapter calls directly",
-                code="resume_or_start_contract_invalid",
-                span=expr.start_expr.span,
-                form_path=expr.start_expr.form_path,
-            )
-        (
-            structured_contract_kind,
-            expected_contract_fingerprint,
-            artifact_requirements,
-            _,
-        ) = _derive_resume_metadata(
-            return_type,
-            target_dsl_version="2.14",
-            workflow_name="resume_or_start",
-            step_id=expr.resume_name,
-            reusable_variants=valid_variants,
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-        public_input_hash_basis = _derive_resume_public_input_hash_basis()
-        producer_fingerprint_basis = _derive_resume_producer_fingerprint_basis(
-            return_type_name=expr.returns_type_name,
-            structured_contract_kind=structured_contract_kind,
-            expected_contract_fingerprint=expected_contract_fingerprint,
-            target_dsl_version="2.14",
-            reusable_variants=valid_variants,
-        )
-        validation_spec = ReusableStateValidationSpec(
-            resume_from_expr=expr.resume_from_expr,
-            return_type_ref=return_type,
-            summary_schema="ReusablePhaseState.v1",
-            summary_version="v1",
-            sidecar_suffix=".reusable_state.json",
-            structured_contract_kind=structured_contract_kind,
-            expected_contract_fingerprint=expected_contract_fingerprint,
-            reusable_variants=valid_variants,
-            public_input_hash_basis=public_input_hash_basis,
-            producer_fingerprint_basis=producer_fingerprint_basis,
-            artifact_requirements=artifact_requirements,
-            canonical_bundle_digest_field="canonical_bundle_sha256",
-            validator_binding_name=validator_binding_name,
-            writer_binding_name=writer_binding_name,
-            loader_binding_name=loader_binding_name,
-            source_map_behavior="step",
-        )
-        return _typed(
-            expr=replace(expr, validation_spec=validation_spec),
-            type_ref=return_type,
-            effect=merge_effect_summaries(
-                typed_ctx.effect_summary,
-                typed_resume_from.effect_summary,
-                typed_start.effect_summary,
-                effect_summary_from_direct(
-                    direct_effects=(UsesCommandEffect(subject=(validator_binding_name,)),),
-                ),
-            ),
+        return typecheck_resume_or_start_expr(
+            expr,
+            context=context,
+            recurse=recurse,
+            typed_factory=_typed,
         )
     if type(expr) is ProviderResultExpr:
         return _typecheck_provider_result_expr(
@@ -2458,48 +2265,6 @@ def _typecheck(
             typed_factory=_typed,
         )
     raise TypeError(f"unsupported expression node: {type(expr)!r}")
-
-
-def _require_normative_phase_ctx_type(
-    type_ref: TypeRef,
-    *,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-) -> None:
-    if is_record_definition_named(type_ref, IMPLEMENTATION_ATTEMPT_PHASE_CONTEXT_NAME):
-        _raise_error(
-            "generic phase stdlib forms require `PhaseCtx`; the legacy bridge is reserved for the Stage 4 implementation-attempt regression",
-            code="phase_ctx_legacy_bridge_invalid",
-            span=span,
-            form_path=form_path,
-        )
-    if not is_record_definition_named(type_ref, PHASE_CONTEXT_NAME):
-        _raise_error(
-            "generic phase stdlib forms require `PhaseCtx`",
-            code="phase_context_invalid",
-            span=span,
-            form_path=form_path,
-        )
-
-
-def _require_phase_scope_name_match(
-    active_phase_scope: PhaseScope | None,
-    *,
-    authored_name: str,
-    form_name: str,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-) -> None:
-    if active_phase_scope is None or active_phase_scope.phase_name == authored_name:
-        return
-    _raise_error(
-        f"`{form_name}` name `{authored_name}` must match the active `with-phase` scope `{active_phase_scope.phase_name}`",
-        code="phase_scope_name_mismatch",
-        span=span,
-        form_path=form_path,
-    )
-
-
 
 
 
@@ -2683,100 +2448,6 @@ def _register_generated_union_type(
             variant_name: {field_name: field_type for field_name, field_type in fields}
             for variant_name, fields in variants
         },
-    )
-
-
-def _require_resume_binding(
-    *,
-    command_boundary_environment,
-    binding_name: str,
-    expected_output_type_name: str,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-) -> None:
-    from .workflows import CertifiedAdapterBinding
-
-    binding = None
-    if command_boundary_environment is not None:
-        binding = command_boundary_environment.bindings_by_name.get(binding_name)
-    if not isinstance(binding, CertifiedAdapterBinding) or binding.output_type_name != expected_output_type_name:
-        _raise_error(
-            f"`resume-or-start` requires certified adapter binding `{binding_name}`",
-            code="resume_or_start_uncertified_backend",
-            span=span,
-            form_path=form_path,
-        )
-
-
-def _derive_resume_metadata(
-    return_type: RecordTypeRef | UnionTypeRef,
-    *,
-    target_dsl_version: str,
-    workflow_name: str,
-    step_id: str,
-    reusable_variants: tuple[str, ...] = (),
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-):
-    from .contracts import derive_reusable_state_contract_metadata
-
-    return derive_reusable_state_contract_metadata(
-        return_type,
-        target_dsl_version=target_dsl_version,
-        workflow_name=workflow_name,
-        step_id=step_id,
-        reusable_variants=reusable_variants,
-        span=span,
-        form_path=form_path,
-    )
-
-
-def _derive_resume_public_input_hash_basis() -> tuple[str, ...]:
-    from .contracts import derive_reusable_state_public_input_hash_basis
-
-    session_state = get_session_state()
-    if session_state.workflow_signature is None:
-        return ()
-    return derive_reusable_state_public_input_hash_basis(session_state.workflow_signature)
-
-
-def _derive_resume_producer_fingerprint_basis(
-    *,
-    return_type_name: str,
-    structured_contract_kind: str,
-    expected_contract_fingerprint: str,
-    target_dsl_version: str,
-    reusable_variants: tuple[str, ...],
-):
-    from .contracts import derive_reusable_state_producer_fingerprint_basis
-
-    session_state = get_session_state()
-    if session_state.workflow_signature is None:
-        return {
-            "workflow_name": "<unknown>",
-            "return_type_name": return_type_name,
-            "structured_contract_kind": structured_contract_kind,
-            "expected_contract_fingerprint": expected_contract_fingerprint,
-            "target_dsl_version": target_dsl_version,
-            "compiler_version": "0.1.0",
-            "reusable_variants": list(reusable_variants),
-            "public_input_hash_basis": [],
-            "source_file_digests": {},
-            "provider_extern_bindings": {},
-            "prompt_extern_bindings": {},
-            "prompt_extern_source_bindings": {},
-            "command_boundary_bindings": {},
-            "imported_workflow_fingerprints": {},
-            "compile_inputs_fingerprint": "<unknown>",
-        }
-    return derive_reusable_state_producer_fingerprint_basis(
-        signature=session_state.workflow_signature,
-        return_type_name=return_type_name,
-        structured_contract_kind=structured_contract_kind,
-        expected_contract_fingerprint=expected_contract_fingerprint,
-        target_dsl_version=target_dsl_version,
-        reusable_variants=reusable_variants,
-        producer_context=session_state.reusable_state_producer_context,
     )
 
 
