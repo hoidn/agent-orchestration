@@ -22,7 +22,6 @@ from .typecheck_context import (
     _require_phase_scope_name_match,
 )
 from .typecheck_dispatch import (
-    _effect_subject,
     _generated_relpath_seed_expr,
     typecheck_expression,
 )

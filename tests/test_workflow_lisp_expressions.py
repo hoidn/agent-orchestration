@@ -181,6 +181,10 @@ def test_typecheck_facade_reexports_public_entrypoints_after_owner_split() -> No
     assert (package_dir / "typecheck_drain_phase.py").is_file()
     assert "typecheck_backlog_drain_expr(" in dispatch_source
     assert "def _require_union_variant_field(" not in dispatch_source
+    assert (package_dir / "typecheck_resource_view.py").is_file()
+    assert "typecheck_resource_transition_expr(" in dispatch_source
+    assert "typecheck_materialize_view_expr(" in dispatch_source
+    assert "def _materialize_view_path_contracts_compatible(" not in dispatch_source
 
 
 def test_frontend_type_environment_resolves_stage1_definitions() -> None:
