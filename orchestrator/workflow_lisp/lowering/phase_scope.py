@@ -100,10 +100,6 @@ def _conditional_case_ref(*args, **kwargs):
     return lowering_core._conditional_case_ref(*args, **kwargs)
 
 
-def _render_boolean_predicate(*args, **kwargs):
-    return lowering_core._render_boolean_predicate(*args, **kwargs)
-
-
 def _template_for_ref(ref: str) -> str:
     if ref.startswith("${"):
         return ref
@@ -118,12 +114,6 @@ def _lower_call_expr(*args, **kwargs):
     return lowering_core._lower_call_expr(*args, **kwargs)
 
 
-def _render_call_binding_ref(*args, **kwargs):
-    return lowering_core._render_call_binding_ref(*args, **kwargs)
-
-
-def _render_record_call_bindings(*args, **kwargs):
-    return lowering_core._render_record_call_bindings(*args, **kwargs)
 
 
 def _flatten_boundary_leaf_paths(*args, **kwargs):
@@ -144,10 +134,6 @@ def _union_variant_expr_value_at_path(*args, **kwargs):
 
 def _phase_target_inline_ref(*args, **kwargs):
     return lowering_core._phase_target_inline_ref(*args, **kwargs)
-
-
-def _join_ref_path(*args, **kwargs):
-    return lowering_core._join_ref_path(*args, **kwargs)
 
 
 def _resolve_nested_local_value(*args, **kwargs):
