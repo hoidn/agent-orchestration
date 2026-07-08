@@ -27,9 +27,9 @@ build (not just design-delta) uses them.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from orchestrator.workflow.lowering import build_loaded_workflow_bundle
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
@@ -86,6 +86,10 @@ from .rendering_ergonomics import load_rendering_ergonomics_policy
 from .transition_authoring import load_transition_authoring_manifest
 from .value_flow_census import load_value_flow_census
 
+if TYPE_CHECKING:
+    from .build import FrontendBuildRequest, FrontendEntrySelection
+    from .compiler import LinkedStage3CompileResult
+
 
 DESIGN_DELTA_G8_REMOVED_MANIFEST_ROWS = (
     "classify_lisp_frontend_work_item_terminal",
@@ -135,6 +139,155 @@ DESIGN_DELTA_G8_VERIFICATION_COMMANDS = (
     "python -m pytest tests/test_workflow_lisp_command_adapters.py -k \"design_delta_parent_drain or retirement\" -q",
     "python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json",
 )
+
+
+@dataclass(frozen=True)
+class DesignDeltaEvidence:
+    """Design-delta certification evidence loaded once, before build_root exists.
+
+    Carries only the *early* loader outputs that build_frontend_bundle threads into
+    _fingerprint_build / _build_manifest / serialize_design_delta_reports. The late
+    loaders (view dual-run vectors/report, transition authoring manifest) stay inside
+    serialize_design_delta_reports so their evaluation order relative to the
+    certification raises is preserved. All fields are None for non-design-delta
+    builds. Retiring the certification lane removes this bundle from
+    build_frontend_bundle.
+    """
+
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None
+    family_profile_metadata: Mapping[str, object] | None
+    boundary_authority_registry: Mapping[str, object] | None
+    value_flow_census: Mapping[str, object] | None
+    consumer_rendering_census: Mapping[str, object] | None
+    observability_old_writer_pair_manifest: Mapping[str, object] | None
+    compatibility_bridge_manifest: Mapping[str, object] | None
+    resume_plumbing_retirement_manifest: Mapping[str, object] | None
+
+
+@dataclass(frozen=True)
+class DesignDeltaReportPayloads:
+    """Optional design-delta report artifacts, replacing the loose kwargs of
+    _write_build_artifacts.
+
+    Every field defaults to None / empty. Each populated report maps 1:1 to an
+    emitted ``<name>.json`` artifact except ``compatibility_bridge_generated_steps``
+    (folded into ``lowered_workflows``) and the two ``checkpoint_*_for_retirement``
+    fields (retirement-serializer outputs consumed to build the resume reports; not
+    emitted as their own artifacts). For non-design-delta builds all fields are None
+    and no design-delta artifact is written.
+    """
+
+    adapter_census: Mapping[str, object] | None = None
+    boundary_authority_report: Mapping[str, object] | None = None
+    value_flow_census_report: Mapping[str, object] | None = None
+    consumer_rendering_census_report: Mapping[str, object] | None = None
+    typed_prompt_input_report: Mapping[str, object] | None = None
+    observability_summary_report: Mapping[str, object] | None = None
+    entry_publication_report: Mapping[str, object] | None = None
+    compatibility_bridge_report: Mapping[str, object] | None = None
+    compatibility_bridge_generated_steps: Sequence[Mapping[str, object]] = ()
+    rendering_cleanup_report: Mapping[str, object] | None = None
+    rendering_ergonomics_report: Mapping[str, object] | None = None
+    transition_authoring_report: Mapping[str, object] | None = None
+    resume_plumbing_retirement_report: Mapping[str, object] | None = None
+    parent_drain_census_alignment_report: Mapping[str, object] | None = None
+    reference_family_conformance_profile: Mapping[str, object] | None = None
+    default_resume_report: Mapping[str, object] | None = None
+    g8_deletion_evidence: Mapping[str, object] | None = None
+    checkpoint_points_for_retirement: Mapping[str, object] | None = None
+    checkpoint_shadow_report_for_retirement: Mapping[str, object] | None = None
+
+
+def load_design_delta_family_catalog(
+    *,
+    entry_workflow: str | None,
+    source_path: Path,
+) -> WorkflowFamilyProfileCatalog | None:
+    """Load the design-delta family-profile catalog (phase one of the two-phase load).
+
+    Runs before compile_stage3_entrypoint, which consumes the catalog. Resolves the
+    loader through ``build.<name>`` so the documented monkeypatch surface stays
+    observable.
+    """
+
+    from .build import _maybe_load_design_delta_family_profile_catalog
+
+    return _maybe_load_design_delta_family_profile_catalog(
+        entry_workflow=entry_workflow,
+        source_path=source_path,
+    )
+
+
+def load_design_delta_evidence(
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None,
+    *,
+    entry_workflow: str | None,
+    canonical_entry_name: str,
+    source_path: Path,
+    command_boundary_manifest: Mapping[str, object],
+) -> DesignDeltaEvidence:
+    """Load the early design-delta certification evidence in build order.
+
+    Mirrors the pre-split build_frontend_bundle loader block verbatim (same order,
+    same gating guards). Loaders resolve through ``build.<name>`` (deferred import)
+    so ``build.<loader>`` monkeypatches stay observable.
+    """
+
+    from .build import (
+        _maybe_load_design_delta_boundary_authority_registry,
+        _maybe_load_design_delta_compatibility_bridge_manifest,
+        _maybe_load_design_delta_consumer_rendering_census,
+        _maybe_load_design_delta_observability_old_writer_pair_manifest,
+        _maybe_load_design_delta_resume_plumbing_retirement_manifest,
+        _maybe_load_design_delta_value_flow_census,
+    )
+
+    boundary_authority_registry = _maybe_load_design_delta_boundary_authority_registry(
+        entry_workflow=canonical_entry_name,
+        family_profile_catalog=family_profile_catalog,
+    )
+    value_flow_census = _maybe_load_design_delta_value_flow_census(
+        entry_workflow=canonical_entry_name,
+    )
+    consumer_rendering_census = _maybe_load_design_delta_consumer_rendering_census(
+        entry_workflow=canonical_entry_name,
+        value_flow_census=value_flow_census,
+    )
+    observability_old_writer_pair_manifest = (
+        _maybe_load_design_delta_observability_old_writer_pair_manifest(
+            entry_workflow=canonical_entry_name,
+            consumer_rendering_census=consumer_rendering_census,
+        )
+    )
+    compatibility_bridge_manifest = None
+    if consumer_rendering_census is not None and value_flow_census is not None:
+        compatibility_bridge_manifest = (
+            _maybe_load_design_delta_compatibility_bridge_manifest(
+                entry_workflow=canonical_entry_name,
+                value_flow_census=value_flow_census,
+                consumer_rendering_census=consumer_rendering_census,
+                command_boundary_manifest=command_boundary_manifest,
+            )
+        )
+    resume_plumbing_retirement_manifest = (
+        _maybe_load_design_delta_resume_plumbing_retirement_manifest(
+            entry_workflow=canonical_entry_name,
+        )
+    )
+    family_profile_metadata = _family_profile_metadata_for_entry(
+        family_profile_catalog,
+        canonical_entry_name,
+    )
+    return DesignDeltaEvidence(
+        family_profile_catalog=family_profile_catalog,
+        family_profile_metadata=family_profile_metadata,
+        boundary_authority_registry=boundary_authority_registry,
+        value_flow_census=value_flow_census,
+        consumer_rendering_census=consumer_rendering_census,
+        observability_old_writer_pair_manifest=observability_old_writer_pair_manifest,
+        compatibility_bridge_manifest=compatibility_bridge_manifest,
+        resume_plumbing_retirement_manifest=resume_plumbing_retirement_manifest,
+    )
 
 
 def _maybe_load_design_delta_family_profile_catalog(
@@ -1875,3 +2028,960 @@ def _serialize_lexical_checkpoint_shadow_reports_for_retirement(
         "diagnostics": diagnostics,
         "workflow_reports": workflow_reports,
     }
+
+
+def serialize_design_delta_reports(
+    evidence: DesignDeltaEvidence,
+    *,
+    compile_result: "LinkedStage3CompileResult",
+    entry_selection: "FrontendEntrySelection",
+    validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle],
+    workflow_boundary_projection_payload: Mapping[str, object],
+    source_map_payload: Mapping[str, object],
+    command_boundaries: Sequence[object],
+    command_boundary_manifest: Mapping[str, object],
+    provider_externs: Mapping[str, str],
+    prompt_externs: Mapping[str, object],
+    resolved_request: "FrontendBuildRequest",
+    build_root: Path,
+) -> DesignDeltaReportPayloads:
+    """Run the design-delta certification region and return its report payloads.
+
+    Moved verbatim from build_frontend_bundle: every certification raise, gate, and
+    report serializer keeps its exact code/message/path and evaluation order,
+    including the late loaders (view dual-run vectors/report, transition-authoring
+    manifest, rendering cleanup/ergonomics manifests). Evidence fields are unpacked
+    into locals so the region body below is byte-identical to the pre-split source.
+    Build-owned constants/helpers resolve through ``build.<name>`` (deferred import)
+    to preserve monkeypatch observability (notably ``build.REPO_ROOT``).
+    """
+
+    from .build import (
+        DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH,
+        DESIGN_DELTA_PARENT_DRAIN_COMMAND_BOUNDARIES_PATH,
+        DESIGN_DELTA_PARENT_DRAIN_COMPATIBILITY_BRIDGES_PATH,
+        DESIGN_DELTA_PARENT_DRAIN_CONSUMER_RENDERING_CENSUS_PATH,
+        DESIGN_DELTA_PARENT_DRAIN_OBSERVABILITY_OLD_WRITER_COMPARISONS_PATH,
+        DESIGN_DELTA_PARENT_DRAIN_RENDERING_CLEANUP_PATH,
+        DESIGN_DELTA_PARENT_DRAIN_RENDERING_ERGONOMICS_PATH,
+        DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH,
+        DESIGN_DELTA_PARENT_DRAIN_TRANSITION_AUTHORING_PATH,
+        DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH,
+        DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_REPORT_PATH,
+        DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_VECTORS_PATH,
+        REPO_ROOT,
+        _augment_design_delta_compatibility_bridge_lineage,
+        _build_design_delta_observability_summary_prerequisite_report,
+        _build_entry_publication_report,
+        _collect_materialize_view_effects,
+        _collect_provider_input_shape_observations,
+        _design_delta_prerequisite_report_paths,
+        _maybe_load_design_delta_rendering_cleanup_manifest,
+        _maybe_load_design_delta_rendering_ergonomics_manifest,
+        _maybe_load_design_delta_transition_authoring_manifest,
+        _maybe_load_design_delta_view_dual_run_report,
+        _maybe_load_design_delta_view_dual_run_vectors,
+        _resolve_reference_family_evidence_paths,
+        _resume_plumbing_retirement_source_texts,
+        _serialize_design_delta_adapter_census,
+        _serialize_design_delta_boundary_authority_report,
+        _serialize_design_delta_g8_deletion_evidence,
+        _serialize_lexical_checkpoint_points_for_retirement,
+        _serialize_lexical_checkpoint_shadow_reports_for_retirement,
+        _with_report_path,
+        build_compatibility_bridge_report,
+        build_consumer_rendering_census_report,
+        build_parent_drain_census_alignment_report,
+        build_reference_family_conformance_profile,
+        build_rendering_cleanup_report,
+        build_rendering_ergonomics_report,
+        build_transition_authoring_report,
+        build_typed_prompt_input_report,
+        lexical_checkpoint_default_resume,
+        reconcile_value_flow_census,
+    )
+
+    boundary_authority_registry = evidence.boundary_authority_registry
+    value_flow_census = evidence.value_flow_census
+    consumer_rendering_census = evidence.consumer_rendering_census
+    observability_old_writer_pair_manifest = (
+        evidence.observability_old_writer_pair_manifest
+    )
+    compatibility_bridge_manifest = evidence.compatibility_bridge_manifest
+    resume_plumbing_retirement_manifest = evidence.resume_plumbing_retirement_manifest
+    family_profile_catalog = evidence.family_profile_catalog
+    family_profile_metadata = evidence.family_profile_metadata
+
+    adapter_census_payload = None
+    boundary_authority_report_payload = None
+    value_flow_census_report_payload = None
+    consumer_rendering_census_report_payload = None
+    typed_prompt_input_report_payload = None
+    observability_summary_report_payload = None
+    entry_publication_report_payload = None
+    compatibility_bridge_report_payload = None
+    compatibility_bridge_generated_steps: list[dict[str, Any]] = []
+    rendering_cleanup_report_payload = None
+    rendering_ergonomics_report_payload = None
+    transition_authoring_report_payload = None
+    resume_plumbing_retirement_report_payload = None
+    parent_drain_census_alignment_report_payload = None
+    reference_family_conformance_profile_payload = None
+    default_resume_report_payload = None
+    checkpoint_points_payload = None
+    checkpoint_shadow_report_payload = None
+    g8_deletion_evidence_payload = None
+    materialize_view_effects: list[dict[str, Any]] = []
+    view_dual_run_vectors = None
+    view_dual_run_report = None
+    reference_family_evidence_paths = _resolve_reference_family_evidence_paths()
+    if boundary_authority_registry is not None:
+        view_dual_run_vectors = _maybe_load_design_delta_view_dual_run_vectors(
+            entry_workflow=entry_selection.canonical_name,
+        )
+        view_dual_run_report = _maybe_load_design_delta_view_dual_run_report(
+            entry_workflow=entry_selection.canonical_name,
+        )
+        adapter_census_payload = _serialize_design_delta_adapter_census(
+            command_boundaries=command_boundaries,
+            command_boundary_manifest=command_boundary_manifest,
+            source_map_payload=source_map_payload,
+        )
+        transition_authoring_manifest = _maybe_load_design_delta_transition_authoring_manifest(
+            entry_workflow=entry_selection.canonical_name,
+        )
+        if transition_authoring_manifest is not None:
+            transition_authoring_report_payload = build_transition_authoring_report(
+                workflow_family="design_delta_parent_drain",
+                checked_manifest=transition_authoring_manifest,
+                source_map_payload=source_map_payload,
+            )
+            if transition_authoring_report_payload.get("status") != "pass":
+                reasons: list[str] = []
+                for bucket_name in (
+                    "ordinary_body_violations",
+                    "extra_origins",
+                    "stale_allowed_origins",
+                    "invalid_allowed_origins",
+                    "source_shape_violations",
+                ):
+                    bucket = transition_authoring_report_payload.get(bucket_name)
+                    if isinstance(bucket, list) and bucket:
+                        reasons.append(bucket_name)
+                raise LispFrontendCompileError(
+                    (
+                        _cli_request_diagnostic(
+                            code="transition_authoring_invalid",
+                            message=(
+                                "design-delta transition authoring report failed: "
+                                + ", ".join(reasons or ("unknown_failure",))
+                            ),
+                            path=DESIGN_DELTA_PARENT_DRAIN_TRANSITION_AUTHORING_PATH,
+                        ),
+                    )
+                )
+            transition_authoring_report_payload = _with_report_path(
+                transition_authoring_report_payload,
+                str(build_root / "transition_authoring_report.json"),
+            )
+        boundary_authority_report_payload = _serialize_design_delta_boundary_authority_report(
+            boundary_projection_payload=workflow_boundary_projection_payload,
+            boundary_authority_registry=boundary_authority_registry,
+            source_map_payload=source_map_payload,
+            value_flow_census=value_flow_census,
+            family_profile_catalog=family_profile_catalog,
+        )
+        if value_flow_census is not None:
+            materialize_view_effects = _collect_materialize_view_effects(
+                validated_bundles_by_name
+            )
+            value_flow_census_report_payload = reconcile_value_flow_census(
+                census=value_flow_census,
+                checked_census_path=Path(str(value_flow_census.get("__census_path__", ""))),
+                checked_census_sha256=str(value_flow_census.get("__census_sha256__", "")),
+                boundary_authority_report=boundary_authority_report_payload,
+                boundary_authority_registry=boundary_authority_registry,
+                source_map_payload=source_map_payload,
+                prompt_externs=prompt_externs,
+                provider_externs=provider_externs,
+                command_boundary_manifest=command_boundary_manifest,
+            )
+            failure_reasons: list[str] = []
+            for bucket_name in (
+                "missing_rows",
+                "stale_rows",
+                "invalid_rows",
+                "extra_compiled_rows",
+            ):
+                bucket = value_flow_census_report_payload.get(bucket_name)
+                if isinstance(bucket, list) and bucket:
+                    first = bucket[0]
+                    if isinstance(first, Mapping) and isinstance(first.get("row_id"), str):
+                        reason_label = {
+                            "missing_rows": "missing checked row",
+                            "stale_rows": "stale checked row",
+                            "invalid_rows": "invalid row",
+                            "extra_compiled_rows": "unclassified compiled row",
+                        }.get(bucket_name, bucket_name)
+                        failure_reasons.append(
+                            f"{reason_label}: {first['row_id']}"
+                        )
+                    else:
+                        failure_reasons.append(bucket_name)
+            if failure_reasons:
+                raise LispFrontendCompileError(
+                    (
+                        _cli_request_diagnostic(
+                            code="value_flow_census_invalid",
+                            message=(
+                                "design-delta value-flow census does not match compiled evidence: "
+                                + "; ".join(failure_reasons)
+                            ),
+                            path=Path(str(value_flow_census.get("__census_path__", ""))),
+                        ),
+                    )
+                )
+            if consumer_rendering_census is not None:
+                consumer_rendering_census_report_payload = (
+                    build_consumer_rendering_census_report(
+                        manifest=consumer_rendering_census,
+                        value_flow_census=value_flow_census,
+                        materialize_view_effects=materialize_view_effects,
+                        command_boundary_manifest=command_boundary_manifest,
+                        boundary_authority_report=boundary_authority_report_payload,
+                        boundary_authority_report_path=str(
+                            build_root / "boundary_authority_report.json"
+                        ),
+                        prompt_externs=prompt_externs,
+                        prompt_externs_path=(
+                            str(resolved_request.prompt_externs_path)
+                            if resolved_request.prompt_externs_path
+                            else None
+                        ),
+                        provider_externs=provider_externs,
+                        provider_externs_path=(
+                            str(resolved_request.provider_externs_path)
+                            if resolved_request.provider_externs_path
+                            else None
+                        ),
+                        command_boundaries_path=(
+                            str(resolved_request.command_boundaries_path)
+                            if resolved_request.command_boundaries_path
+                            else None
+                        ),
+                        view_dual_run_vectors=view_dual_run_vectors,
+                        view_dual_run_vectors_path=str(
+                            DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_VECTORS_PATH
+                        ),
+                        view_dual_run_report=view_dual_run_report,
+                        view_dual_run_report_path=str(
+                            DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_REPORT_PATH
+                        ),
+                    )
+                )
+                if consumer_rendering_census_report_payload.get("status") != "pass":
+                    first = {}
+                    diagnostics_bucket = consumer_rendering_census_report_payload.get(
+                        "diagnostics", []
+                    )
+                    if isinstance(diagnostics_bucket, list) and diagnostics_bucket:
+                        first = diagnostics_bucket[0]
+                    first_code = (
+                        str(first.get("code"))
+                        if isinstance(first, Mapping) and first.get("code")
+                        else "consumer_rendering_census_invalid"
+                    )
+                    first_row_id = (
+                        str(first.get("row_id"))
+                        if isinstance(first, Mapping) and first.get("row_id")
+                        else "unknown_row"
+                    )
+                    raise LispFrontendCompileError(
+                        (
+                            _cli_request_diagnostic(
+                                code="consumer_rendering_census_invalid",
+                                message=(
+                                    "design-delta consumer rendering census report failed: "
+                                    f"{first_code}: {first_row_id}"
+                                ),
+                                path=Path(
+                                    str(
+                                        consumer_rendering_census.get(
+                                            "__manifest_path__", ""
+                                        )
+                                    )
+                                ),
+                            ),
+                        )
+                    )
+                typed_prompt_input_report_payload = build_typed_prompt_input_report(
+                    workflow_family="design_delta_parent_drain",
+                    checked_manifest=consumer_rendering_census,
+                    checked_manifest_path=str(
+                        consumer_rendering_census.get("__manifest_path__", "")
+                    ),
+                    checked_manifest_sha256=str(
+                        consumer_rendering_census.get("__manifest_sha256__", "")
+                    ),
+                    validated_bundles_by_name=validated_bundles_by_name,
+                )
+                if typed_prompt_input_report_payload.get("status") != "pass":
+                    diagnostics_bucket: list[dict[str, Any]] = []
+                    for bucket_name in ("missing_rows", "stale_rows", "invalid_rows"):
+                        bucket = typed_prompt_input_report_payload.get(bucket_name)
+                        if isinstance(bucket, list):
+                            diagnostics_bucket.extend(
+                                item for item in bucket if isinstance(item, Mapping)
+                            )
+                    first = diagnostics_bucket[0] if diagnostics_bucket else {}
+                    first_code = (
+                        str(first.get("code"))
+                        if isinstance(first, Mapping) and first.get("code")
+                        else "typed_prompt_input_row_missing"
+                    )
+                    first_row_id = (
+                        str(first.get("c0_row_id"))
+                        if isinstance(first, Mapping) and first.get("c0_row_id")
+                        else "unknown_row"
+                    )
+                    raise LispFrontendCompileError(
+                        (
+                            _cli_request_diagnostic(
+                                code="typed_prompt_input_invalid",
+                                message=(
+                                    "design-delta typed prompt-input report failed: "
+                                    f"{first_code}: {first_row_id}"
+                                ),
+                                path=Path(
+                                    str(
+                                        consumer_rendering_census.get(
+                                            "__manifest_path__", ""
+                                        )
+                                    )
+                                ),
+                            ),
+                        )
+                    )
+                observability_summary_report_payload = (
+                    _build_design_delta_observability_summary_prerequisite_report(
+                        consumer_rendering_census=consumer_rendering_census,
+                        old_writer_pair_manifest=observability_old_writer_pair_manifest,
+                        materialize_view_effects=materialize_view_effects,
+                    )
+                )
+                if observability_summary_report_payload.get("status") != "pass":
+                    diagnostics_bucket = observability_summary_report_payload.get(
+                        "diagnostics", {}
+                    )
+                    errors = (
+                        diagnostics_bucket.get("errors", [])
+                        if isinstance(diagnostics_bucket, Mapping)
+                        else []
+                    )
+                    first = (
+                        errors[0]
+                        if isinstance(errors, list) and errors
+                        else {}
+                    )
+                    first_code = (
+                        str(first.get("code"))
+                        if isinstance(first, Mapping) and first.get("code")
+                        else "observability_summary_c0_row_missing"
+                    )
+                    first_row_id = (
+                        str(first.get("c0_row_id"))
+                        if isinstance(first, Mapping) and first.get("c0_row_id")
+                        else "unknown_row"
+                    )
+                    raise LispFrontendCompileError(
+                        (
+                            _cli_request_diagnostic(
+                                code=first_code,
+                                message=(
+                                    "design-delta observability summary evidence failed: "
+                                    f"{first_code}: {first_row_id}"
+                                ),
+                                path=Path(
+                                    str(
+                                        consumer_rendering_census.get(
+                                            "__manifest_path__", ""
+                                        )
+                                    )
+                                ),
+                            ),
+                        )
+                    )
+                entry_publication_report_payload = _build_entry_publication_report(
+                    compile_result=compile_result,
+                    entry_workflow_name=entry_selection.canonical_name,
+                    workflow_boundary_projection_payload=workflow_boundary_projection_payload,
+                    source_map_payload=source_map_payload,
+                    consumer_rendering_census=consumer_rendering_census,
+                )
+                if entry_publication_report_payload.get("status") != "pass":
+                    diagnostics_bucket = entry_publication_report_payload.get(
+                        "diagnostics", []
+                    )
+                    first = (
+                        diagnostics_bucket[0]
+                        if isinstance(diagnostics_bucket, list) and diagnostics_bucket
+                        else {}
+                    )
+                    first_code = (
+                        str(first.get("code"))
+                        if isinstance(first, Mapping) and first.get("code")
+                        else "entry_publication_c0_row_missing"
+                    )
+                    first_row_id = (
+                        str(first.get("row_id"))
+                        if isinstance(first, Mapping) and first.get("row_id")
+                        else "unknown_row"
+                    )
+                    raise LispFrontendCompileError(
+                        (
+                            _cli_request_diagnostic(
+                                code=first_code,
+                                message=(
+                                    "design-delta entry publication report failed: "
+                                    f"{first_code}: {first_row_id}"
+                                ),
+                                path=Path(
+                                    str(
+                                        consumer_rendering_census.get(
+                                            "__manifest_path__", ""
+                                        )
+                                    )
+                                ),
+                            ),
+                        )
+                    )
+                if compatibility_bridge_manifest is not None:
+                    compatibility_bridge_generated_steps = (
+                        _augment_design_delta_compatibility_bridge_lineage(
+                            source_map_payload=source_map_payload,
+                            selected_workflow_name=entry_selection.canonical_name,
+                            compatibility_bridge_manifest=compatibility_bridge_manifest,
+                            validated_bundles_by_name=validated_bundles_by_name,
+                        )
+                    )
+                    compatibility_bridge_report_payload = (
+                        build_compatibility_bridge_report(
+                            workflow_family="design_delta_parent_drain",
+                            manifest=compatibility_bridge_manifest,
+                            consumer_rendering_census=consumer_rendering_census,
+                            command_boundary_manifest=command_boundary_manifest,
+                            workflow_boundary_projection=workflow_boundary_projection_payload,
+                            source_map_payload=source_map_payload,
+                            materialize_view_effects=materialize_view_effects,
+                        )
+                    )
+                    if compatibility_bridge_report_payload.get("status") != "pass":
+                        diagnostics_bucket = compatibility_bridge_report_payload.get(
+                            "diagnostics", []
+                        )
+                        first = (
+                            diagnostics_bucket[0]
+                            if isinstance(diagnostics_bucket, list) and diagnostics_bucket
+                            else {}
+                        )
+                        first_code = (
+                            str(first.get("code"))
+                            if isinstance(first, Mapping) and first.get("code")
+                            else "compatibility_bridge_metadata_invalid"
+                        )
+                        first_row_id = (
+                            str(first.get("c0_row_id"))
+                            if isinstance(first, Mapping) and first.get("c0_row_id")
+                            else "unknown_row"
+                        )
+                        raise LispFrontendCompileError(
+                            (
+                                _cli_request_diagnostic(
+                                    code=first_code,
+                                    message=(
+                                        "design-delta compatibility bridge report failed: "
+                                        f"{first_code}: {first_row_id}"
+                                    ),
+                                    path=Path(
+                                        str(
+                                            compatibility_bridge_manifest.get(
+                                                "__manifest_path__", ""
+                                            )
+                                        )
+                                    ),
+                            ),
+                        )
+                    )
+                report_paths = _design_delta_prerequisite_report_paths(
+                    build_root=build_root,
+                    workspace_root=resolved_request.workspace_root,
+                )
+                typed_prompt_input_report_payload = _with_report_path(
+                    typed_prompt_input_report_payload,
+                    report_paths["typed_prompt_input_report"],
+                )
+                observability_summary_report_payload = _with_report_path(
+                    observability_summary_report_payload,
+                    report_paths["observability_summary_report"],
+                )
+                entry_publication_report_payload = _with_report_path(
+                    entry_publication_report_payload,
+                    report_paths["entry_publication_report"],
+                )
+                compatibility_bridge_report_payload = _with_report_path(
+                    compatibility_bridge_report_payload,
+                    report_paths["compatibility_bridge_report"],
+                )
+                rendering_cleanup_manifest = (
+                    _maybe_load_design_delta_rendering_cleanup_manifest(
+                        entry_workflow=entry_selection.canonical_name,
+                        consumer_rendering_census=consumer_rendering_census,
+                    )
+                )
+                if rendering_cleanup_manifest is not None:
+                    rendering_cleanup_report_payload = (
+                        build_rendering_cleanup_report(
+                            workflow_family="design_delta_parent_drain",
+                            manifest=rendering_cleanup_manifest,
+                            consumer_rendering_census=consumer_rendering_census,
+                            typed_prompt_input_report=typed_prompt_input_report_payload,
+                            observability_summary_report=observability_summary_report_payload,
+                            entry_publication_report=entry_publication_report_payload,
+                            compatibility_bridge_report=compatibility_bridge_report_payload,
+                            materialize_view_effects=materialize_view_effects,
+                            workflow_boundary_projection=workflow_boundary_projection_payload,
+                            source_map_payload=source_map_payload,
+                        )
+                    )
+                    if rendering_cleanup_report_payload.get("status") != "pass":
+                        diagnostics_bucket = rendering_cleanup_report_payload.get(
+                            "diagnostics", []
+                        )
+                        first = (
+                            diagnostics_bucket[0]
+                            if isinstance(diagnostics_bucket, list) and diagnostics_bucket
+                            else {}
+                        )
+                        first_code = (
+                            str(first.get("code"))
+                            if isinstance(first, Mapping) and first.get("code")
+                            else "rendering_cleanup_manifest_invalid"
+                        )
+                        first_row_id = (
+                            str(first.get("c0_row_id"))
+                            if isinstance(first, Mapping) and first.get("c0_row_id")
+                            else "unknown_row"
+                        )
+                        raise LispFrontendCompileError(
+                            (
+                                _cli_request_diagnostic(
+                                    code=first_code,
+                                    message=(
+                                        "design-delta rendering cleanup report failed: "
+                                        f"{first_code}: {first_row_id}"
+                                    ),
+                                    path=Path(
+                                        str(
+                                            rendering_cleanup_manifest.get(
+                                                "__manifest_path__", ""
+                                            )
+                                        )
+                                    ),
+                                ),
+                            )
+                        )
+                rendering_ergonomics_policy = (
+                    _maybe_load_design_delta_rendering_ergonomics_manifest(
+                        entry_workflow=entry_selection.canonical_name,
+                    )
+                )
+                if rendering_ergonomics_policy is not None:
+                    provider_input_observations = (
+                        _collect_provider_input_shape_observations(
+                            validated_bundles_by_name=compile_result.validated_bundles_by_name,
+                            rendering_ergonomics_policy=rendering_ergonomics_policy,
+                        )
+                    )
+                    rendering_ergonomics_report_payload = (
+                        build_rendering_ergonomics_report(
+                            policy=rendering_ergonomics_policy,
+                            prerequisite_reports={
+                                "consumer_rendering_census_report": consumer_rendering_census_report_payload,
+                                "typed_prompt_input_report": typed_prompt_input_report_payload,
+                                "observability_summary_report": observability_summary_report_payload,
+                                "entry_publication_report": entry_publication_report_payload,
+                                "compatibility_bridge_report": compatibility_bridge_report_payload,
+                                "rendering_cleanup_report": rendering_cleanup_report_payload,
+                            },
+                            provider_input_observations=provider_input_observations,
+                        )
+                    )
+                    if rendering_ergonomics_report_payload.get("status") != "pass":
+                        diagnostics_bucket = rendering_ergonomics_report_payload.get(
+                            "diagnostics", []
+                        )
+                        first = (
+                            diagnostics_bucket[0]
+                            if isinstance(diagnostics_bucket, list) and diagnostics_bucket
+                            else {}
+                        )
+                        first_code = (
+                            str(first.get("code"))
+                            if isinstance(first, Mapping) and first.get("code")
+                            else "rendering_ergonomics_report_invalid"
+                        )
+                        first_slot = (
+                            str(
+                                first.get("slot_id")
+                                or first.get("c0_row_id")
+                                or first.get("report")
+                                or "unknown_slot"
+                            )
+                            if isinstance(first, Mapping)
+                            else "unknown_slot"
+                        )
+                        raise LispFrontendCompileError(
+                            (
+                                _cli_request_diagnostic(
+                                    code=first_code,
+                                    message=(
+                                        "design-delta rendering ergonomics report failed: "
+                                        f"{first_code}: {first_slot}"
+                                    ),
+                                    path=DESIGN_DELTA_PARENT_DRAIN_RENDERING_ERGONOMICS_PATH,
+                                ),
+                            )
+                        )
+            candidate_rows = resume_plumbing_retirement.select_resume_plumbing_retirement_candidates(
+                value_flow_census
+            )
+            try:
+                checkpoint_workflow_names = {
+                    str(row.get("workflow_surface"))
+                    for row in candidate_rows
+                    if isinstance(row, Mapping) and isinstance(row.get("workflow_surface"), str)
+                }
+                checkpoint_workflow_names.add(entry_selection.canonical_name)
+                checkpoint_points_payload = _serialize_lexical_checkpoint_points_for_retirement(
+                    validated_bundles_by_name=compile_result.validated_bundles_by_name,
+                    workflow_names=checkpoint_workflow_names,
+                    selected_workflow_name=entry_selection.canonical_name,
+                )
+                checkpoint_shadow_report_payload = _serialize_lexical_checkpoint_shadow_reports_for_retirement(
+                    validated_bundles_by_name=compile_result.validated_bundles_by_name,
+                    workflow_names=checkpoint_workflow_names,
+                    selected_workflow_name=entry_selection.canonical_name,
+                    source_map_payload=source_map_payload,
+                )
+                compiled_retirement_rows = (
+                    resume_plumbing_retirement.normalize_resume_plumbing_retirement_compiled_rows(
+                        candidate_rows,
+                        boundary_authority_report=boundary_authority_report_payload,
+                        source_text_by_surface=_resume_plumbing_retirement_source_texts(),
+                    )
+                )
+                resume_plumbing_retirement_report_payload = (
+                    resume_plumbing_retirement.build_resume_plumbing_retirement_report(
+                        workflow_family="design_delta_parent_drain",
+                        census=value_flow_census,
+                        census_fingerprint=(
+                            f"sha256:{value_flow_census.get('__census_sha256__', '')}"
+                        ),
+                        compiled_rows=compiled_retirement_rows,
+                        manifest=resume_plumbing_retirement_manifest,
+                        manifest_fingerprint=(
+                            f"sha256:{resume_plumbing_retirement_manifest.get('__manifest_sha256__', '')}"
+                            if resume_plumbing_retirement_manifest is not None
+                            else None
+                        ),
+                        checkpoint_points_payload=checkpoint_points_payload,
+                        checkpoint_shadow_report_payload=checkpoint_shadow_report_payload,
+                    )
+                )
+                default_resume_report_payload = (
+                    lexical_checkpoint_default_resume.build_default_resume_report(
+                        workflow_family="design_delta_parent_drain",
+                        workflow_name=entry_selection.canonical_name,
+                        lowering_schema_version=compile_result.entry_result.lowering_schema_version,
+                        checkpoint_points_payload=checkpoint_points_payload,
+                        checkpoint_shadow_report_payload=checkpoint_shadow_report_payload,
+                        resume_plumbing_retirement_report_payload=resume_plumbing_retirement_report_payload,
+                    )
+                )
+            except ValueError as exc:
+                raise LispFrontendCompileError(
+                    (
+                        _cli_request_diagnostic(
+                            code="resume_plumbing_retirement_invalid",
+                            message=str(exc),
+                            path=Path(str(value_flow_census.get("__census_path__", ""))),
+                        ),
+                    )
+                ) from exc
+            default_resume_diagnostics = default_resume_report_payload.get(
+                "diagnostics", []
+            )
+            if default_resume_report_payload.get("status") == "fail":
+                first = {}
+                if isinstance(default_resume_diagnostics, list) and default_resume_diagnostics:
+                    prioritized = next(
+                        (
+                            item
+                            for item in default_resume_diagnostics
+                            if isinstance(item, Mapping)
+                            and item.get("code")
+                            == "lexical_default_resume_step_granular_bypass"
+                        ),
+                        None,
+                    )
+                    first = (
+                        prioritized
+                        if prioritized is not None
+                        else default_resume_diagnostics[0]
+                    )
+                first_code = (
+                    str(first.get("code"))
+                    if isinstance(first, Mapping) and first.get("code")
+                    else "lexical_default_resume_invalid"
+                )
+                first_row_id = (
+                    str(first.get("row_id"))
+                    if isinstance(first, Mapping) and first.get("row_id")
+                    else "unknown_row"
+                )
+                raise LispFrontendCompileError(
+                    (
+                        _cli_request_diagnostic(
+                            code="lexical_default_resume_invalid",
+                            message=(
+                                "design-delta default resume report failed: "
+                                f"{first_code}: {first_row_id}"
+                            ),
+                            path=Path(str(value_flow_census.get("__census_path__", ""))),
+                        ),
+                    )
+                )
+            diagnostics_bucket = resume_plumbing_retirement_report_payload.get(
+                "diagnostics", []
+            )
+            if isinstance(diagnostics_bucket, list) and diagnostics_bucket:
+                first = diagnostics_bucket[0]
+                first_code = (
+                    str(first.get("code"))
+                    if isinstance(first, Mapping) and first.get("code")
+                    else "resume_plumbing_retirement_invalid"
+                )
+                first_row_id = (
+                    str(first.get("row_id"))
+                    if isinstance(first, Mapping) and first.get("row_id")
+                    else "unknown_row"
+                )
+                raise LispFrontendCompileError(
+                    (
+                        _cli_request_diagnostic(
+                            code="resume_plumbing_retirement_invalid",
+                            message=(
+                                "design-delta resume plumbing retirement report failed: "
+                                f"{first_code}: {first_row_id}"
+                            ),
+                            path=Path(str(value_flow_census.get("__census_path__", ""))),
+                        ),
+                    )
+                )
+            if (
+                boundary_authority_registry.get("workflow_family")
+                == "design_delta_parent_drain"
+                and consumer_rendering_census is not None
+                and value_flow_census_report_payload is not None
+                and consumer_rendering_census_report_payload is not None
+                and compatibility_bridge_report_payload is not None
+            ):
+                parent_drain_census_alignment_report_payload = (
+                    build_parent_drain_census_alignment_report(
+                        workflow_family="design_delta_parent_drain",
+                        checked_boundary_authority_registry=boundary_authority_registry,
+                        checked_value_flow_census=value_flow_census,
+                        checked_consumer_rendering_census=consumer_rendering_census,
+                        checked_compatibility_bridge_manifest=compatibility_bridge_manifest,
+                        checked_command_boundary_manifest=command_boundary_manifest,
+                        checked_resume_plumbing_manifest=resume_plumbing_retirement_manifest,
+                        boundary_authority_report=boundary_authority_report_payload,
+                        source_map_payload=source_map_payload,
+                        materialize_view_effects=materialize_view_effects,
+                        prompt_externs=prompt_externs,
+                        provider_externs=provider_externs,
+                        value_flow_census_report=value_flow_census_report_payload,
+                        consumer_rendering_census_report=consumer_rendering_census_report_payload,
+                        compatibility_bridge_report=compatibility_bridge_report_payload,
+                        resume_plumbing_retirement_report=resume_plumbing_retirement_report_payload,
+                    )
+                )
+                parent_drain_census_alignment_report_payload = _with_report_path(
+                    parent_drain_census_alignment_report_payload,
+                    report_paths["parent_drain_census_alignment_report"],
+                )
+                if (
+                    parent_drain_census_alignment_report_payload.get("status")
+                    != "pass"
+                ):
+                    diagnostics_bucket = (
+                        parent_drain_census_alignment_report_payload.get(
+                            "diagnostics", []
+                        )
+                    )
+                    first = (
+                        diagnostics_bucket[0]
+                        if isinstance(diagnostics_bucket, list) and diagnostics_bucket
+                        else {}
+                    )
+                    first_code = (
+                        str(first.get("code"))
+                        if isinstance(first, Mapping) and first.get("code")
+                        else "parent_drain_census_invalid"
+                    )
+                    first_ref = "unknown_row"
+                    if isinstance(first, Mapping):
+                        for key in (
+                            "row_id",
+                            "bridge_id",
+                            "binding_name",
+                            "workflow_surface",
+                            "step_id",
+                        ):
+                            value = first.get(key)
+                            if isinstance(value, str) and value:
+                                first_ref = value
+                                break
+                    raise LispFrontendCompileError(
+                        (
+                            _cli_request_diagnostic(
+                                code="parent_drain_census_invalid",
+                                message=(
+                                    "design-delta parent-drain census alignment report failed: "
+                                    f"{first_code}: {first_ref}"
+                                ),
+                                path=Path(
+                                    str(value_flow_census.get("__census_path__", ""))
+                                ),
+                            ),
+                        )
+                    )
+        if (
+            boundary_authority_registry.get("workflow_family")
+            == "design_delta_parent_drain"
+            and entry_selection.canonical_name == "lisp_frontend_design_delta/drain::drain"
+        ):
+            g8_deletion_evidence_payload = _serialize_design_delta_g8_deletion_evidence(
+                command_boundary_manifest=command_boundary_manifest,
+            )
+            reference_family_conformance_profile_payload = (
+                build_reference_family_conformance_profile(
+                    workflow_family="design_delta_parent_drain",
+                    run_state_path=reference_family_evidence_paths.run_state_path,
+                    drain_summary_path=reference_family_evidence_paths.drain_summary_path,
+                    design_gap_summary_root=reference_family_evidence_paths.design_gap_summary_root,
+                    implementation_architecture_root=reference_family_evidence_paths.implementation_architecture_root,
+                    architecture_index_path=reference_family_evidence_paths.architecture_index_path,
+                    target_design_path=reference_family_evidence_paths.target_design_path,
+                    baseline_design_path=reference_family_evidence_paths.baseline_design_path,
+                    command_adapter_contract_path=reference_family_evidence_paths.command_adapter_contract_path,
+                    parity_targets_path=reference_family_evidence_paths.parity_targets_path,
+                    parity_report_json_path=reference_family_evidence_paths.parity_report_json_path,
+                    parity_report_markdown_path=reference_family_evidence_paths.parity_report_markdown_path,
+                    parity_index_path=reference_family_evidence_paths.parity_index_path,
+                    checked_manifest_paths={
+                        "boundary_authority_manifest": DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH,
+                        "command_boundaries_manifest": DESIGN_DELTA_PARENT_DRAIN_COMMAND_BOUNDARIES_PATH,
+                        "value_flow_census": DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH,
+                        "consumer_rendering_census": DESIGN_DELTA_PARENT_DRAIN_CONSUMER_RENDERING_CENSUS_PATH,
+                        "compatibility_bridges_manifest": DESIGN_DELTA_PARENT_DRAIN_COMPATIBILITY_BRIDGES_PATH,
+                        "rendering_cleanup_manifest": DESIGN_DELTA_PARENT_DRAIN_RENDERING_CLEANUP_PATH,
+                        "rendering_ergonomics_manifest": DESIGN_DELTA_PARENT_DRAIN_RENDERING_ERGONOMICS_PATH,
+                        "transition_authoring_manifest": DESIGN_DELTA_PARENT_DRAIN_TRANSITION_AUTHORING_PATH,
+                        "resume_plumbing_retirement_manifest": DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH,
+                        "observability_old_writer_comparisons": DESIGN_DELTA_PARENT_DRAIN_OBSERVABILITY_OLD_WRITER_COMPARISONS_PATH,
+                    },
+                    owner_reports={
+                        "boundary_authority_report": dict(boundary_authority_report_payload or {}),
+                        "compatibility_bridge_report": dict(compatibility_bridge_report_payload or {}),
+                        "typed_prompt_input_report": dict(typed_prompt_input_report_payload or {}),
+                        "rendering_cleanup_report": dict(rendering_cleanup_report_payload or {}),
+                        "rendering_ergonomics_report": dict(rendering_ergonomics_report_payload or {}),
+                        "transition_authoring_report": dict(transition_authoring_report_payload or {}),
+                        "resume_plumbing_retirement_report": dict(resume_plumbing_retirement_report_payload or {}),
+                        "observability_summary_report": dict(observability_summary_report_payload or {}),
+                        "parent_drain_census_alignment_report": dict(parent_drain_census_alignment_report_payload or {}),
+                    },
+                    repo_root=REPO_ROOT,
+                )
+            )
+            reference_family_conformance_profile_payload = _with_report_path(
+                reference_family_conformance_profile_payload,
+                report_paths["reference_family_conformance_profile"],
+            )
+            if (
+                reference_family_conformance_profile_payload.get("profile_status")
+                != "pass"
+            ):
+                diagnostics_bucket = reference_family_conformance_profile_payload.get(
+                    "diagnostics", []
+                )
+                first = (
+                    diagnostics_bucket[0]
+                    if isinstance(diagnostics_bucket, list) and diagnostics_bucket
+                    else {}
+                )
+                first_code = (
+                    str(first.get("code"))
+                    if isinstance(first, Mapping) and first.get("code")
+                    else "reference_family_conformance_failed"
+                )
+                raise LispFrontendCompileError(
+                    (
+                        _cli_request_diagnostic(
+                            code="reference_family_conformance_invalid",
+                                message=(
+                                    "design-delta reference-family conformance profile failed: "
+                                    f"{first_code}"
+                                ),
+                                path=reference_family_evidence_paths.drain_summary_path,
+                            ),
+                        )
+                    )
+    if family_profile_metadata is not None:
+        if boundary_authority_report_payload is not None:
+            boundary_authority_report_payload = {
+                **dict(boundary_authority_report_payload),
+                "family_profile": dict(family_profile_metadata),
+            }
+        if typed_prompt_input_report_payload is not None:
+            typed_prompt_input_report_payload = {
+                **dict(typed_prompt_input_report_payload),
+                "family_profile": dict(family_profile_metadata),
+            }
+        if reference_family_conformance_profile_payload is not None:
+            reference_family_conformance_profile_payload = {
+                **dict(reference_family_conformance_profile_payload),
+                "family_profile": dict(family_profile_metadata),
+            }
+    return DesignDeltaReportPayloads(
+        adapter_census=adapter_census_payload,
+        boundary_authority_report=boundary_authority_report_payload,
+        value_flow_census_report=value_flow_census_report_payload,
+        consumer_rendering_census_report=consumer_rendering_census_report_payload,
+        typed_prompt_input_report=typed_prompt_input_report_payload,
+        observability_summary_report=observability_summary_report_payload,
+        entry_publication_report=entry_publication_report_payload,
+        compatibility_bridge_report=compatibility_bridge_report_payload,
+        compatibility_bridge_generated_steps=compatibility_bridge_generated_steps,
+        rendering_cleanup_report=rendering_cleanup_report_payload,
+        rendering_ergonomics_report=rendering_ergonomics_report_payload,
+        transition_authoring_report=transition_authoring_report_payload,
+        resume_plumbing_retirement_report=resume_plumbing_retirement_report_payload,
+        parent_drain_census_alignment_report=parent_drain_census_alignment_report_payload,
+        reference_family_conformance_profile=reference_family_conformance_profile_payload,
+        default_resume_report=default_resume_report_payload,
+        g8_deletion_evidence=g8_deletion_evidence_payload,
+        checkpoint_points_for_retirement=checkpoint_points_payload,
+        checkpoint_shadow_report_for_retirement=checkpoint_shadow_report_payload,
+    )

@@ -3171,10 +3171,6 @@ def test_build_artifacts_persist_diagnostic_validation_metadata(tmp_path: Path) 
         workflow_boundary_projection_payload=json.loads(
             result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
         ),
-        adapter_census_payload=None,
-        boundary_authority_report_payload=None,
-        g8_deletion_evidence_payload=None,
-        value_flow_census_report_payload=None,
     )
     payload = json.loads(artifact_paths["diagnostics"].read_text(encoding="utf-8"))
 

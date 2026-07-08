@@ -28,6 +28,7 @@ from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 
 from .build_manifest_io import _cli_request_diagnostic, _json_data, _sha256_path
 from .build_design_delta import (
+    DesignDeltaReportPayloads,
     _boundary_authority_registry_provenance,
     _consumer_rendering_census_provenance,
     _family_profile_metadata_for_entry,
@@ -420,18 +421,6 @@ def _entry_publication_source_map_step_ids(
     return step_ids
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 def _fingerprint_build(
     *,
     request: FrontendBuildRequest,
@@ -500,6 +489,101 @@ def _fingerprint_build(
     return hashlib.sha256(encoded).hexdigest()[:16]
 
 
+def _add_design_delta_artifacts(
+    artifact_paths: dict[str, Path],
+    payloads: dict[str, object],
+    build_root: Path,
+    reports: DesignDeltaReportPayloads,
+) -> None:
+    """Register the populated design-delta report artifacts (path + payload).
+
+    Isolated so a future retirement of the certification lane deletes it (and the
+    single call site) cleanly. Each entry mirrors a pre-split
+    ``if <payload> is not None:`` block; the emit order matches the pre-split source.
+    ``compatibility_bridge_generated_steps`` (folded into ``lowered_workflows``) and
+    the ``checkpoint_*_for_retirement`` fields are deliberately not emitted here.
+    """
+
+    design_delta_artifacts: tuple[tuple[str, str, Mapping[str, object] | None], ...] = (
+        ("adapter_census", "adapter_census.json", reports.adapter_census),
+        (
+            "boundary_authority_report",
+            "boundary_authority_report.json",
+            reports.boundary_authority_report,
+        ),
+        (
+            "value_flow_census_report",
+            "value_flow_census_report.json",
+            reports.value_flow_census_report,
+        ),
+        (
+            "consumer_rendering_census_report",
+            "consumer_rendering_census_report.json",
+            reports.consumer_rendering_census_report,
+        ),
+        (
+            "typed_prompt_input_report",
+            "typed_prompt_input_report.json",
+            reports.typed_prompt_input_report,
+        ),
+        (
+            "observability_summary_report",
+            "observability_summary_report.json",
+            reports.observability_summary_report,
+        ),
+        (
+            "entry_publication_report",
+            "entry_publication_report.json",
+            reports.entry_publication_report,
+        ),
+        (
+            "compatibility_bridge_report",
+            "compatibility_bridge_report.json",
+            reports.compatibility_bridge_report,
+        ),
+        (
+            "rendering_cleanup_report",
+            "rendering_cleanup_report.json",
+            reports.rendering_cleanup_report,
+        ),
+        (
+            "rendering_ergonomics_report",
+            "rendering_ergonomics_report.json",
+            reports.rendering_ergonomics_report,
+        ),
+        (
+            "transition_authoring_report",
+            "transition_authoring_report.json",
+            reports.transition_authoring_report,
+        ),
+        (
+            "resume_plumbing_retirement_report",
+            "resume_plumbing_retirement_report.json",
+            reports.resume_plumbing_retirement_report,
+        ),
+        (
+            "parent_drain_census_alignment_report",
+            "parent_drain_census_alignment_report.json",
+            reports.parent_drain_census_alignment_report,
+        ),
+        (
+            "reference_family_conformance_profile",
+            "reference_family_conformance_profile.json",
+            reports.reference_family_conformance_profile,
+        ),
+        (
+            "lexical_checkpoint_default_resume_report",
+            "lexical_checkpoint_default_resume_report.json",
+            reports.default_resume_report,
+        ),
+        ("g8_deletion_evidence", "g8_deletion_evidence.json", reports.g8_deletion_evidence),
+    )
+    for artifact_key, filename, payload in design_delta_artifacts:
+        if payload is not None:
+            artifact_paths[artifact_key] = build_root / filename
+            payloads[artifact_key] = _json_data(payload)
+
+
 def _write_build_artifacts(
     *,
     build_root: Path,
@@ -512,24 +596,9 @@ def _write_build_artifacts(
     semantic_ir_payload: Mapping[str, object] | None = None,
     source_map_payload: Mapping[str, object],
     workflow_boundary_projection_payload: Mapping[str, object],
-    adapter_census_payload: Mapping[str, object] | None,
-    boundary_authority_report_payload: Mapping[str, object] | None,
-    value_flow_census_report_payload: Mapping[str, object] | None,
-    consumer_rendering_census_report_payload: Mapping[str, object] | None = None,
-    typed_prompt_input_report_payload: Mapping[str, object] | None = None,
-    observability_summary_report_payload: Mapping[str, object] | None = None,
-    entry_publication_report_payload: Mapping[str, object] | None = None,
-    compatibility_bridge_report_payload: Mapping[str, object] | None = None,
-    compatibility_bridge_generated_steps: Sequence[Mapping[str, object]] = (),
-    rendering_cleanup_report_payload: Mapping[str, object] | None = None,
-    rendering_ergonomics_report_payload: Mapping[str, object] | None = None,
-    transition_authoring_report_payload: Mapping[str, object] | None = None,
-    resume_plumbing_retirement_report_payload: Mapping[str, object] | None = None,
-    parent_drain_census_alignment_report_payload: Mapping[str, object] | None = None,
-    reference_family_conformance_profile_payload: Mapping[str, object] | None = None,
-    default_resume_report_payload: Mapping[str, object] | None = None,
-    g8_deletion_evidence_payload: Mapping[str, object] | None,
+    design_delta_reports: DesignDeltaReportPayloads | None = None,
 ) -> Mapping[str, Path]:
+    reports = design_delta_reports or DesignDeltaReportPayloads()
     debug_yaml_path = build_root / "expanded.debug.yaml"
     artifact_paths = {
         "frontend_ast": build_root / "frontend_ast.json",
@@ -552,69 +621,13 @@ def _write_build_artifacts(
     if semantic_ir_payload is None:
         semantic_ir_payload = workflow_semantic_ir_to_json(validated_bundle.semantic_ir)
     source_map_json = _json_data(source_map_payload)
-    if adapter_census_payload is not None:
-        artifact_paths["adapter_census"] = build_root / "adapter_census.json"
-    if boundary_authority_report_payload is not None:
-        artifact_paths["boundary_authority_report"] = build_root / "boundary_authority_report.json"
-    if value_flow_census_report_payload is not None:
-        artifact_paths["value_flow_census_report"] = build_root / "value_flow_census_report.json"
-    if consumer_rendering_census_report_payload is not None:
-        artifact_paths["consumer_rendering_census_report"] = (
-            build_root / "consumer_rendering_census_report.json"
-        )
-    if typed_prompt_input_report_payload is not None:
-        artifact_paths["typed_prompt_input_report"] = (
-            build_root / "typed_prompt_input_report.json"
-        )
-    if observability_summary_report_payload is not None:
-        artifact_paths["observability_summary_report"] = (
-            build_root / "observability_summary_report.json"
-        )
-    if entry_publication_report_payload is not None:
-        artifact_paths["entry_publication_report"] = (
-            build_root / "entry_publication_report.json"
-        )
-    if compatibility_bridge_report_payload is not None:
-        artifact_paths["compatibility_bridge_report"] = (
-            build_root / "compatibility_bridge_report.json"
-        )
-    if rendering_cleanup_report_payload is not None:
-        artifact_paths["rendering_cleanup_report"] = (
-            build_root / "rendering_cleanup_report.json"
-        )
-    if rendering_ergonomics_report_payload is not None:
-        artifact_paths["rendering_ergonomics_report"] = (
-            build_root / "rendering_ergonomics_report.json"
-        )
-    if transition_authoring_report_payload is not None:
-        artifact_paths["transition_authoring_report"] = (
-            build_root / "transition_authoring_report.json"
-        )
-    if resume_plumbing_retirement_report_payload is not None:
-        artifact_paths["resume_plumbing_retirement_report"] = (
-            build_root / "resume_plumbing_retirement_report.json"
-        )
-    if parent_drain_census_alignment_report_payload is not None:
-        artifact_paths["parent_drain_census_alignment_report"] = (
-            build_root / "parent_drain_census_alignment_report.json"
-        )
-    if reference_family_conformance_profile_payload is not None:
-        artifact_paths["reference_family_conformance_profile"] = (
-            build_root / "reference_family_conformance_profile.json"
-        )
-    if default_resume_report_payload is not None:
-        artifact_paths["lexical_checkpoint_default_resume_report"] = (
-            build_root / "lexical_checkpoint_default_resume_report.json"
-        )
-    if g8_deletion_evidence_payload is not None:
-        artifact_paths["g8_deletion_evidence"] = build_root / "g8_deletion_evidence.json"
     payloads = {
         "frontend_ast": _serialize_frontend_ast(compile_result),
         "expanded_frontend_ast": _serialize_expanded_frontend_ast(compile_result),
         "typed_frontend_ast": _serialize_typed_frontend_ast(compile_result),
         "lowered_workflows": _serialize_lowered_workflows(
             compile_result,
-            extra_compatibility_bridge_steps=compatibility_bridge_generated_steps,
+            extra_compatibility_bridge_steps=reports.compatibility_bridge_generated_steps,
         ),
         "executable_ir": executable_ir_payload,
         "core_workflow_ast": workflow_core_ast_to_json(validated_bundle.core_workflow_ast),
@@ -635,62 +648,7 @@ def _write_build_artifacts(
         "workflow_boundary_projection": _json_data(workflow_boundary_projection_payload),
         "diagnostics": serialize_diagnostics(diagnostics),
     }
-    if adapter_census_payload is not None:
-        payloads["adapter_census"] = _json_data(adapter_census_payload)
-    if boundary_authority_report_payload is not None:
-        payloads["boundary_authority_report"] = _json_data(boundary_authority_report_payload)
-    if value_flow_census_report_payload is not None:
-        payloads["value_flow_census_report"] = _json_data(value_flow_census_report_payload)
-    if consumer_rendering_census_report_payload is not None:
-        payloads["consumer_rendering_census_report"] = _json_data(
-            consumer_rendering_census_report_payload
-        )
-    if typed_prompt_input_report_payload is not None:
-        payloads["typed_prompt_input_report"] = _json_data(
-            typed_prompt_input_report_payload
-        )
-    if observability_summary_report_payload is not None:
-        payloads["observability_summary_report"] = _json_data(
-            observability_summary_report_payload
-        )
-    if entry_publication_report_payload is not None:
-        payloads["entry_publication_report"] = _json_data(
-            entry_publication_report_payload
-        )
-    if compatibility_bridge_report_payload is not None:
-        payloads["compatibility_bridge_report"] = _json_data(
-            compatibility_bridge_report_payload
-        )
-    if rendering_cleanup_report_payload is not None:
-        payloads["rendering_cleanup_report"] = _json_data(
-            rendering_cleanup_report_payload
-        )
-    if rendering_ergonomics_report_payload is not None:
-        payloads["rendering_ergonomics_report"] = _json_data(
-            rendering_ergonomics_report_payload
-        )
-    if transition_authoring_report_payload is not None:
-        payloads["transition_authoring_report"] = _json_data(
-            transition_authoring_report_payload
-        )
-    if resume_plumbing_retirement_report_payload is not None:
-        payloads["resume_plumbing_retirement_report"] = _json_data(
-            resume_plumbing_retirement_report_payload
-        )
-    if parent_drain_census_alignment_report_payload is not None:
-        payloads["parent_drain_census_alignment_report"] = _json_data(
-            parent_drain_census_alignment_report_payload
-        )
-    if reference_family_conformance_profile_payload is not None:
-        payloads["reference_family_conformance_profile"] = _json_data(
-            reference_family_conformance_profile_payload
-        )
-    if default_resume_report_payload is not None:
-        payloads["lexical_checkpoint_default_resume_report"] = _json_data(
-            default_resume_report_payload
-        )
-    if g8_deletion_evidence_payload is not None:
-        payloads["g8_deletion_evidence"] = _json_data(g8_deletion_evidence_payload)
+    _add_design_delta_artifacts(artifact_paths, payloads, build_root, reports)
     for name, path in artifact_paths.items():
         path.write_text(json.dumps(payloads[name], indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if emit_debug_yaml:
@@ -893,8 +851,6 @@ def _build_manifest(
     )
 
 
-
-
 def _collect_origin_keys(value: Any) -> set[str]:
     keys: set[str] = set()
     if isinstance(value, Mapping):
@@ -965,8 +921,6 @@ def _serialize_lexical_checkpoint_points(
         ),
         "points": points,
     }
-
-
 
 
 def _validate_lexical_checkpoint_artifacts(
@@ -1049,8 +1003,6 @@ def _serialize_lexical_checkpoint_shadow_report(
         "stale_records": [],
         "diagnostics": [],
     }
-
-
 
 
 def _serialize_frontend_ast(compile_result: LinkedStage3CompileResult) -> dict[str, object]:
