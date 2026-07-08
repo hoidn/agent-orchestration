@@ -85,12 +85,20 @@ from .context import (
     _LoweringContext,
     _TerminalResult,
 )
+from .control_loops import _conditional_case_ref, _materialize_values_step
 from .effects import _lower_provider_result
 from .drain_terminal import lower_shared_drain_terminal_result
-from .origins import LoweringOrigin, _rekey_origin_map
+from .origins import (
+    LoweringOrigin,
+    _origin_from_context_source,
+    _record_missing_step_origins,
+    _record_step_origin,
+    _rekey_origin_map,
+)
 from .phase_flow import _build_match_projection_anchor_step, _provider_metadata_names
 from .phase_scope import (
     _build_call_bindings_from_record_value,
+    _join_ref_path,
     _managed_write_root_bindings,
     _managed_write_root_requirements_for_callable,
     _render_repeat_until_max_iterations,
@@ -99,8 +107,21 @@ from .phase_scope import (
 from .values import (
     _assign_nested_local_value,
     _build_output_step_local_value,
+    _flatten_boundary_leaf_paths,
+    _normalize_union_field_path,
+    _phase_target_inline_ref,
+    _record_expr_value_at_path,
+    _record_output_refs,
     _render_existing_output_ref,
     _resolve_inline_expr_value,
+    _resolve_nested_local_value,
+    _union_variant_expr_value_at_path,
+)
+from .workflow_calls import (
+    _lower_call_expr,
+    _render_boolean_predicate,
+    _render_call_binding_ref,
+    _render_record_call_bindings,
 )
 
 
@@ -108,82 +129,10 @@ def _normalize_generated_step_id(*args, **kwargs):
     return lowering_core._normalize_generated_step_id(*args, **kwargs)
 
 
-def _record_step_origin(*args, **kwargs):
-    return lowering_core._record_step_origin(*args, **kwargs)
-
-
-def _origin_from_context_source(*args, **kwargs):
-    return lowering_core._origin_from_context_source(*args, **kwargs)
-
-
-def _record_output_refs(*args, **kwargs):
-    return lowering_core._record_output_refs(*args, **kwargs)
-
-
-def _record_missing_step_origins(*args, **kwargs):
-    return lowering_core._record_missing_step_origins(*args, **kwargs)
-
-
-def _materialize_values_step(*args, **kwargs):
-    return lowering_core._materialize_values_step(*args, **kwargs)
-
-
-def _conditional_case_ref(*args, **kwargs):
-    return lowering_core._conditional_case_ref(*args, **kwargs)
-
-
-def _render_boolean_predicate(*args, **kwargs):
-    return lowering_core._render_boolean_predicate(*args, **kwargs)
-
-
 def _template_for_ref(ref: str) -> str:
     if ref.startswith("${"):
         return ref
     return "${" + ref + "}"
-
-
-def _lower_expression(*args, **kwargs):
-    return lowering_core._lower_expression(*args, **kwargs)
-
-
-def _lower_call_expr(*args, **kwargs):
-    return lowering_core._lower_call_expr(*args, **kwargs)
-
-
-def _render_call_binding_ref(*args, **kwargs):
-    return lowering_core._render_call_binding_ref(*args, **kwargs)
-
-
-def _render_record_call_bindings(*args, **kwargs):
-    return lowering_core._render_record_call_bindings(*args, **kwargs)
-
-
-def _flatten_boundary_leaf_paths(*args, **kwargs):
-    return lowering_core._flatten_boundary_leaf_paths(*args, **kwargs)
-
-
-def _record_expr_value_at_path(*args, **kwargs):
-    return lowering_core._record_expr_value_at_path(*args, **kwargs)
-
-
-def _normalize_union_field_path(*args, **kwargs):
-    return lowering_core._normalize_union_field_path(*args, **kwargs)
-
-
-def _union_variant_expr_value_at_path(*args, **kwargs):
-    return lowering_core._union_variant_expr_value_at_path(*args, **kwargs)
-
-
-def _phase_target_inline_ref(*args, **kwargs):
-    return lowering_core._phase_target_inline_ref(*args, **kwargs)
-
-
-def _join_ref_path(*args, **kwargs):
-    return lowering_core._join_ref_path(*args, **kwargs)
-
-
-def _resolve_nested_local_value(*args, **kwargs):
-    return lowering_core._resolve_nested_local_value(*args, **kwargs)
 
 
 def _runtime_proof_generated_source(source: object) -> object:
