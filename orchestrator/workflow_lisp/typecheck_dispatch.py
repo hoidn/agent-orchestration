@@ -118,7 +118,6 @@ from .typecheck_context import (
     raise_required_lint as _raise_required_lint,
     restore_session_state,
     snapshot_session_state,
-    _literal_string,
     _literal_type_name,
     _span_contains,
     _type_label,
@@ -171,7 +170,6 @@ if TYPE_CHECKING:
         CertifiedAdapterBinding,
         CommandBoundaryEnvironment,
         ExternEnvironment,
-        ExternalToolBinding,
         WorkflowCatalog,
     )
 from .procedures import (
@@ -2918,90 +2916,6 @@ def _resolve_field_access_impl(
         span=span,
         form_path=form_path,
     )
-
-
-def _validate_command_argv(
-    expr: CommandResultExpr,
-    binding: "ExternalToolBinding | CertifiedAdapterBinding | None",
-) -> None:
-    argv = list(expr.argv)
-    first = _literal_string(argv[0]) if argv else None
-    if first:
-        packed_head = first.split()
-        if len(packed_head) >= 2:
-            head = packed_head[0]
-            flag = packed_head[1]
-            if head.startswith("python") and flag in {"-c", "-"}:
-                _raise_error(
-                    "inline Python command glue is not allowed in `command-result`",
-                    code="inline_python_command_in_workflow",
-                    span=expr.span,
-                    form_path=expr.form_path,
-                )
-            if head in {"bash", "sh"} and flag in {"-c", "-lc"}:
-                _raise_error(
-                    "one-string shell wrappers are not allowed in `command-result`",
-                    code="command_result_argv_invalid",
-                    span=expr.span,
-                    form_path=expr.form_path,
-                )
-    if len(argv) >= 2:
-        second = _literal_string(argv[1])
-        if first and first.startswith("python") and second in {"-c", "-"}:
-            _raise_error(
-                "inline Python command glue is not allowed in `command-result`",
-                code="inline_python_command_in_workflow",
-                span=expr.span,
-                form_path=expr.form_path,
-                expansion_stack=expr.expansion_stack,
-            )
-        if first in {"bash", "sh"} and second in {"-c", "-lc"}:
-            _raise_error(
-                "inline shell command glue is not allowed in `command-result`",
-                code="inline_shell_command_in_workflow",
-                span=expr.span,
-                form_path=expr.form_path,
-                expansion_stack=expr.expansion_stack,
-            )
-    if not argv:
-        _raise_error(
-            "`command-result` requires a non-empty argv list",
-            code="command_result_argv_invalid",
-            span=expr.span,
-            form_path=expr.form_path,
-            expansion_stack=expr.expansion_stack,
-        )
-    if binding is None:
-        return
-    stable_prefix = list(binding.stable_command)
-    if len(argv) < len(stable_prefix):
-        _raise_error(
-            f"`command-result` `{expr.step_name}` must start with the stable command {' '.join(stable_prefix)!r}",
-            code="command_result_argv_invalid",
-            span=expr.span,
-            form_path=expr.form_path,
-            expansion_stack=expr.expansion_stack,
-        )
-    for index, token in enumerate(stable_prefix):
-        actual = _literal_string(argv[index])
-        if actual != token:
-            _raise_error(
-                f"`command-result` `{expr.step_name}` must start with the stable command {' '.join(stable_prefix)!r}",
-                code="command_result_argv_invalid",
-                span=expr.argv[index].span,
-                form_path=expr.argv[index].form_path,
-                expansion_stack=expr.argv[index].expansion_stack,
-            )
-    if len(argv) == 1:
-        only = _literal_string(argv[0])
-        if only and (" " in only or ";" in only or "|" in only):
-            _raise_error(
-                "one-string shell wrappers are not allowed in `command-result`",
-                code="command_result_argv_invalid",
-                span=expr.span,
-                form_path=expr.form_path,
-                expansion_stack=expr.expansion_stack,
-            )
 
 
 def _validate_semantic_command_adapter_usage(
