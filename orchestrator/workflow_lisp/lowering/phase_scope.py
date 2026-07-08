@@ -70,7 +70,11 @@ from .values import _assign_nested_local_value, _flatten_boundary_leaf_paths, _r
 from .workflow_calls import (
     _managed_inputs_from_mapping,
     _record_call_binding_label,
+    _render_argv_tail,
+    _render_boolean_predicate,
     _render_call_binding_leaf_ref,
+    _render_call_binding_ref,
+    _render_record_call_bindings,
     _render_repeat_until_max_iterations,
     _render_scalar_expr,
 )
@@ -651,97 +655,6 @@ def _build_union_local_value(type_ref: UnionTypeRef, *, generated_name: str) -> 
     for leaf_name, field_path in _flatten_boundary_leaf_paths(type_ref, generated_name=generated_name):
         _assign_nested_local_value(local_value, field_path, f"inputs.{leaf_name}")
     return local_value
-
-
-def _render_argv_tail(argv: list[Any], *, local_values: Mapping[str, Any]) -> list[str]:
-    """Render frontend command arguments after a stable command prefix."""
-
-    rendered: list[str] = []
-    for expr in argv:
-        rendered.append(_render_scalar_expr(expr, local_values=local_values))
-    return rendered
-
-
-def _render_boolean_predicate(expr: Any | None, *, local_values: Mapping[str, Any]) -> dict[str, Any] | None:
-    """Render an optional boolean frontend expression as a shared predicate."""
-
-    if expr is None:
-        return None
-    value = _resolve_inline_expr_value(expr, local_values=local_values)
-    if isinstance(value, LiteralExpr) and value.literal_kind == "bool":
-        return render_condition_predicate(
-            classify_condition_expr(value, type_ref=PrimitiveTypeRef(name="Bool")),
-            local_values=local_values,
-        )
-    if isinstance(value, str):
-        return {"artifact_bool": {"ref": value}}
-    if isinstance(expr, (NameExpr, FieldAccessExpr)):
-        return render_condition_predicate(
-            classify_condition_expr(expr, type_ref=PrimitiveTypeRef(name="Bool")),
-            local_values=local_values,
-        )
-    if isinstance(expr, LiteralExpr) and expr.literal_kind == "bool":
-        return render_condition_predicate(
-            classify_condition_expr(expr, type_ref=PrimitiveTypeRef(name="Bool")),
-            local_values=local_values,
-        )
-    else:
-        raise _compile_error(
-            code="workflow_return_not_exportable",
-            message="boolean guards must lower from literals or workflow inputs/refs",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-
-
-def _render_call_binding_ref(
-    expr: Any,
-    *,
-    local_values: Mapping[str, Any],
-    field_path: tuple[str, ...] = (),
-) -> Any:
-    """Render one frontend expression as a `call.with` binding value.
-
-    Structured records are flattened at workflow boundaries, so `field_path`
-    selects the specific leaf needed for one generated `with` entry.
-    """
-
-    value = _resolve_expr_local_value(expr, local_values=local_values)
-    if field_path:
-        value = _resolve_nested_local_value(value, field_path)
-    return _render_call_binding_leaf_ref(value, source_expr=expr)
-
-
-def _render_record_call_bindings(
-    param_name: str,
-    param_type: RecordTypeRef,
-    value_expr: Any,
-    *,
-    local_values: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Lower one record-typed call argument into flattened `call.with` refs."""
-
-    bindings: dict[str, Any] = {}
-    resolved_value = _resolve_inline_expr_value(value_expr, local_values=local_values)
-    for generated_name, field_path in _flatten_boundary_leaf_paths(param_type, generated_name=param_name):
-        leaf_source_expr = value_expr
-        if isinstance(resolved_value, Mapping):
-            leaf_value = _resolve_nested_local_value(resolved_value, field_path)
-        elif isinstance(resolved_value, RecordExpr):
-            leaf_source_expr = _record_expr_value_at_path(resolved_value, field_path)
-            leaf_value = _resolve_inline_expr_value(leaf_source_expr, local_values=local_values)
-        else:
-            leaf_value = _inline_expr_field_value(
-                value_expr,
-                field_path=field_path,
-                local_values=local_values,
-            )
-        bindings[generated_name] = _render_call_binding_leaf_ref(
-            leaf_value,
-            source_expr=leaf_source_expr,
-            binding_label=_record_call_binding_label(param_name, field_path),
-        )
-    return bindings
 
 
 def _build_call_bindings_from_record_value(
