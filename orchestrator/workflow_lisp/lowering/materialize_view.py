@@ -13,7 +13,6 @@ from ..contracts import derive_workflow_boundary_fields
 from ..expressions import GeneratedRelpathSeedExpr, LiteralExpr, MaterializeViewExpr
 from ..type_env import PathTypeRef
 from ..typecheck import TypedExpr
-from . import core as lowering_core
 from .context import _compile_error, _LoweringContext, _TerminalResult
 from .generated_paths import allocate_materialized_value_view
 from .origins import GeneratedSemanticEffectBinding, _record_step_origin
@@ -22,10 +21,6 @@ from .values import ProjectedPathRef, _resolve_inline_expr_value
 
 
 MATERIALIZE_VIEW_EFFECT_KIND = "materialize_view"
-
-
-def _normalize_generated_step_id(*args, **kwargs):
-    return lowering_core._normalize_generated_step_id(*args, **kwargs)
 
 
 def lower_materialize_view_step(
@@ -39,7 +34,7 @@ def lower_materialize_view_step(
     assert isinstance(typed_expr.type_ref, PathTypeRef)
 
     step_name = f"{context.step_name_prefix}__materialize-view__{_workflow_slug(expr.view_name)}"
-    step_id = _normalize_generated_step_id(step_name)
+    step_id = context.normalize_generated_step_id(step_name)
     renderer = resolve_view_renderer(expr.renderer_id, expr.renderer_version)
     value_type = _infer_expr_type(
         expr.value_expr,
