@@ -169,7 +169,7 @@ def _compatibility_bridge_bindings_for_lowered_callee(
                 ),
             )
             local_values[input_name] = f"inputs.{input_name}"
-        bindings[input_name] = lowering_core._render_call_binding_leaf_ref(
+        bindings[input_name] = _render_call_binding_leaf_ref(
             local_values[input_name],
             source_expr=source_expr,
         )
@@ -356,7 +356,7 @@ def _declare_runtime_context_hidden_inputs(
                     local_values[source_param_name],
                     field_path,
                 )
-                with_bindings[callee_field.generated_name] = lowering_core._render_call_binding_leaf_ref(
+                with_bindings[callee_field.generated_name] = _render_call_binding_leaf_ref(
                     carried_value,
                     source_expr=source_expr,
                 )
@@ -1195,7 +1195,7 @@ def _lower_workflow_call(
                     )
                 if requirement is not None:
                     with_bindings.update(
-                        lowering_core._declare_runtime_context_hidden_inputs(
+                        _declare_runtime_context_hidden_inputs(
                             context=context,
                             param_name=param_name,
                             param_type=param_type,
@@ -1217,7 +1217,7 @@ def _lower_workflow_call(
                 )
             ):
                 with_bindings.update(
-                    lowering_core._declare_runtime_context_hidden_inputs(
+                    _declare_runtime_context_hidden_inputs(
                         context=context,
                         param_name=param_name,
                         param_type=param_type,
@@ -1519,7 +1519,7 @@ def _render_call_binding_ref(
     value = lowering_core._resolve_expr_local_value(expr, local_values=local_values)
     if field_path:
         value = _resolve_nested_local_value(value, field_path)
-    return lowering_core._render_call_binding_leaf_ref(value, source_expr=expr)
+    return _render_call_binding_leaf_ref(value, source_expr=expr)
 
 
 def _render_record_call_bindings(
