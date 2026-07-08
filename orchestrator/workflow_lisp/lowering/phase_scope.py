@@ -66,6 +66,10 @@ from .context import (
 from .generated_paths import allocate_materialized_value_view
 from .origins import LoweringOrigin, _rekey_origin_map
 from .values import _assign_nested_local_value, _flatten_boundary_leaf_paths, _render_existing_output_ref, _resolve_inline_expr_value
+from .workflow_calls import (
+    _managed_inputs_from_mapping,
+    _record_call_binding_label,
+)
 
 
 def _compile_error(*args, **kwargs):
@@ -453,17 +457,6 @@ def _lower_workflow_outputs(
             )
     return lowered_outputs
 
-def _managed_inputs_from_mapping(authored_mapping: Mapping[str, object]) -> tuple[str, ...]:
-    """Return generated write-root inputs declared by a lowered mapping."""
-
-    inputs = authored_mapping.get("inputs")
-    if not isinstance(inputs, Mapping):
-        return ()
-    return tuple(
-        name for name in inputs if isinstance(name, str) and name.startswith("__write_root__")
-    )
-
-
 def _runtime_context_default_value(
     *,
     requirement: PromotedEntryHiddenContextRequirement,
@@ -781,14 +774,6 @@ def _render_record_call_bindings(
             binding_label=_record_call_binding_label(param_name, field_path),
         )
     return bindings
-
-
-def _record_call_binding_label(param_name: str, field_path: tuple[str, ...]) -> str:
-    """Render an authored record leaf path for diagnostics."""
-
-    if not field_path:
-        return param_name
-    return f"{param_name}.{'.'.join(field_path)}"
 
 
 def _render_call_binding_leaf_ref(
