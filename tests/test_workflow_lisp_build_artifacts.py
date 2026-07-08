@@ -10082,3 +10082,87 @@ def test_design_delta_work_item_build_auto_loads_family_profile_for_non_drain_en
     )
     assert family_profile["digest"]
     assert "workflow_boundary_projection" in result.artifact_paths
+
+
+def test_iter_surface_steps_traverses_repeat_until_and_match_children():
+    from orchestrator.workflow.surface_ast import (
+        SurfaceMatchCaseBlock,
+        SurfaceRepeatUntilBlock,
+        SurfaceStep,
+        SurfaceStepKind,
+    )
+    from orchestrator.workflow_lisp.build import _iter_surface_steps
+
+    nested_provider = SurfaceStep(
+        name="inner-provider", step_id="inner-provider", kind=SurfaceStepKind.PROVIDER
+    )
+    loop_step = SurfaceStep(
+        name="loop-step",
+        step_id="loop-step",
+        kind=SurfaceStepKind.REPEAT_UNTIL,
+        repeat_until=SurfaceRepeatUntilBlock(
+            token="loop-1",
+            step_id="loop-1",
+            steps=(nested_provider,),
+            outputs={},
+            condition=None,
+            max_iterations=3,
+        ),
+    )
+    case_child = SurfaceStep(
+        name="case-child", step_id="case-child", kind=SurfaceStepKind.COMMAND
+    )
+    match_step = SurfaceStep(
+        name="match-step",
+        step_id="match-step",
+        kind=SurfaceStepKind.MATCH,
+        match_cases={
+            "DONE": SurfaceMatchCaseBlock(
+                case_name="DONE", token="m-1", step_id="m-1", steps=(case_child,)
+            )
+        },
+    )
+    names = [step.name for step in _iter_surface_steps((loop_step, match_step))]
+    assert names == ["loop-step", "inner-provider", "match-step", "case-child"]
+
+
+def test_collect_entry_publication_lowerings_normalizes_nested_step_ids():
+    from types import SimpleNamespace
+
+    from orchestrator.workflow.surface_ast import (
+        SurfaceMatchCaseBlock,
+        SurfaceStep,
+        SurfaceStepKind,
+    )
+    from orchestrator.workflow_lisp.build import _collect_entry_publication_lowerings
+
+    nested = SurfaceStep(
+        name="drain-summary",
+        step_id="root.publish_boundary.publish__done.publish__done__drain_summary",
+        kind=SurfaceStepKind.MATERIALIZE_VIEW,
+        materialize_view={
+            "publication": {"row_id": "row-1", "role": "summary", "variant": "Done"},
+            "renderer_id": "r1",
+            "renderer_version": 1,
+            "target_path": "out.md",
+        },
+    )
+    match_step = SurfaceStep(
+        name="publish-boundary",
+        step_id="publish_boundary",
+        kind=SurfaceStepKind.MATCH,
+        match_cases={
+            "DONE": SurfaceMatchCaseBlock(
+                case_name="DONE", token="m-1", step_id="m-1", steps=(nested,)
+            )
+        },
+    )
+    compile_result = SimpleNamespace(
+        validated_bundles_by_name={
+            "wf": SimpleNamespace(surface=SimpleNamespace(steps=(match_step,)))
+        }
+    )
+    rows = _collect_entry_publication_lowerings(compile_result, source_map_payload=None)
+    assert [row["step_id"] for row in rows if row["row_id"] == "row-1"] == [
+        "publish__done__drain_summary"
+    ]

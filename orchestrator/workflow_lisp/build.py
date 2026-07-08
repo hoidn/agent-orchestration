@@ -4122,10 +4122,13 @@ def _collect_entry_publication_lowerings(
             publication = materialize_view.get("publication")
             if not isinstance(publication, Mapping):
                 continue
+            step_id = step.step_id
+            if step_id.startswith("root."):
+                step_id = step_id.rsplit(".", 1)[-1]
             collected.append(
                 {
                     "workflow_name": workflow_name,
-                    "step_id": step.step_id,
+                    "step_id": step_id,
                     "step_name": step.name,
                     "row_id": str(publication.get("row_id", "")),
                     "role": str(publication.get("role", "")),
@@ -4222,27 +4225,6 @@ def _entry_publication_source_map_step_ids(
         if isinstance(step_id, str) and step_id:
             step_ids.add(step_id)
     return step_ids
-
-
-def _iter_surface_steps(steps: Any) -> tuple[Any, ...]:
-    collected: list[Any] = []
-    if not isinstance(steps, tuple):
-        steps = tuple(steps)
-    for step in steps:
-        collected.append(step)
-        match_block = getattr(step, "match", None)
-        if isinstance(match_block, Mapping):
-            cases = match_block.get("cases", {})
-            if isinstance(cases, Mapping):
-                for case in cases.values():
-                    nested_steps = getattr(case, "steps", None)
-                    if nested_steps:
-                        collected.extend(_iter_surface_steps(nested_steps))
-        for attr_name in ("then_steps", "else_steps", "repeat_until_steps", "for_each_steps"):
-            nested_steps = getattr(step, attr_name, None)
-            if nested_steps:
-                collected.extend(_iter_surface_steps(nested_steps))
-    return tuple(collected)
 
 
 def _serialize_design_delta_adapter_census(
