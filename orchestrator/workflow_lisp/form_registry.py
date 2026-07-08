@@ -666,10 +666,3 @@ def admitted_top_level_heads() -> frozenset[str]:
     """Return the exact set of compiler-admitted top-level definition heads."""
 
     return _ADMITTED_TOP_LEVEL_HEADS
-
-
-def head_has_feature_tag(name: str, tag: str) -> bool:
-    """Return whether one compiler-known head advertises a feature tag."""
-
-    spec = get_form_spec(name)
-    return spec is not None and tag in spec.feature_tags

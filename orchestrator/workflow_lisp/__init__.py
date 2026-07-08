@@ -5,14 +5,9 @@ For the package map and links to the design diagrams/specs, see
 """
 
 from .compiler import PRELUDE_TYPE_NAMES, compile_stage1_module, compile_stage3_entrypoint, compile_stage3_module
-from .command_boundaries import (
-    CertifiedAdapterInputField,
-    CertifiedAdapterInvocationProtocol,
-)
+from .command_boundaries import CertifiedAdapterInputField
 from .conditionals import (
-    BoolRefCondition,
     ConditionShape,
-    LiteralBoolCondition,
     classify_condition_expr,
 )
 from .definitions import (
@@ -115,13 +110,11 @@ __all__ = [
     "CallExpr",
     "CertifiedAdapterBinding",
     "CertifiedAdapterInputField",
-    "CertifiedAdapterInvocationProtocol",
     "CommandBoundaryEnvironment",
     "CommandResultExpr",
     "ConditionShape",
     "ContinueExpr",
     "BoolAtom",
-    "BoolRefCondition",
     "BacklogDrainExpr",
     "CallsWorkflowEffect",
     "DefinitionNode",
@@ -142,7 +135,6 @@ __all__ = [
     "LispFrontendDiagnostic",
     "ListExpr",
     "LiteralExpr",
-    "LiteralBoolCondition",
     "LoopRecurExpr",
     "LoweredWorkflow",
     "LoweringOriginMap",
