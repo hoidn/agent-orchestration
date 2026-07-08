@@ -19,7 +19,6 @@ from .types import (
     ProviderSessionMetadataMode,
     ProviderSessionMode,
     ProviderSessionRequest,
-    ProviderTemplate,
     escape_provider_command_token,
     restore_provider_command_token,
 )
