@@ -53,7 +53,6 @@ from ..type_env import PathTypeRef, PrimitiveTypeRef, ProcRefTypeRef, RecordType
 from ..typecheck import TypedExpr
 from ..workflow_refs import ResolvedWorkflowRef, resolve_workflow_ref_literal, resolve_workflow_ref_name, workflow_ref_target_name
 from ..workflows import CertifiedAdapterBinding, PromptExtern, ProviderExtern, analyze_workflow_boundary_type
-from . import core as lowering_core
 from .context import (
     _ActivePhaseScope,
     _compile_error,
@@ -62,9 +61,16 @@ from .context import (
     _LoweringContext,
     _TerminalResult,
 )
+from .control_loops import _conditional_case_ref, _materialize_values_step
 from .effects import _lower_provider_result
 from .generated_paths import allocate_generated_result_bundle
-from .origins import LoweringOrigin, _rekey_origin_map
+from .origins import (
+    LoweringOrigin,
+    _origin_from_context_source,
+    _record_missing_step_origins,
+    _record_step_origin,
+    _rekey_origin_map,
+)
 from .phase_scope import (
     _build_phase_stdlib_prompt_input_prelude,
     _build_typed_prompt_inputs_for_prompt_specs,
@@ -76,39 +82,19 @@ from .phase_scope import (
     _surface_contract_from_structured_field,
     _union_output_contracts,
 )
-from .values import _render_existing_output_ref, _resolve_inline_expr_value
-
-
-def _normalize_generated_step_id(*args, **kwargs):
-    return lowering_core._normalize_generated_step_id(*args, **kwargs)
-
-
-def _record_step_origin(*args, **kwargs):
-    return lowering_core._record_step_origin(*args, **kwargs)
-
-
-def _origin_from_context_source(*args, **kwargs):
-    return lowering_core._origin_from_context_source(*args, **kwargs)
-
-
-def _record_output_refs(*args, **kwargs):
-    return lowering_core._record_output_refs(*args, **kwargs)
-
-
-def _record_missing_step_origins(*args, **kwargs):
-    return lowering_core._record_missing_step_origins(*args, **kwargs)
-
-
-def _materialize_values_step(*args, **kwargs):
-    return lowering_core._materialize_values_step(*args, **kwargs)
-
-
-def _conditional_case_ref(*args, **kwargs):
-    return lowering_core._conditional_case_ref(*args, **kwargs)
-
-
-def _render_boolean_predicate(*args, **kwargs):
-    return lowering_core._render_boolean_predicate(*args, **kwargs)
+from .values import (
+    _assign_nested_local_value,
+    _flatten_boundary_leaf_paths,
+    _normalize_union_field_path,
+    _phase_target_inline_ref,
+    _record_expr_value_at_path,
+    _record_output_refs,
+    _render_existing_output_ref,
+    _resolve_inline_expr_value,
+    _resolve_nested_local_value,
+    _union_variant_expr_value_at_path,
+)
+from .workflow_calls import _render_boolean_predicate, _render_call_binding_ref, _render_record_call_bindings
 
 
 def _template_for_ref(ref: str) -> str:
@@ -122,49 +108,7 @@ def _lower_expression(*args, **kwargs):
     lowerer = getattr(context, "wcc_effect_lowerer", None)
     if callable(lowerer):
         return lowerer(*args, **kwargs)
-    return lowering_core._lower_expression(*args, **kwargs)
-
-
-def _lower_call_expr(*args, **kwargs):
-    return lowering_core._lower_call_expr(*args, **kwargs)
-
-
-def _render_call_binding_ref(*args, **kwargs):
-    return lowering_core._render_call_binding_ref(*args, **kwargs)
-
-
-def _render_record_call_bindings(*args, **kwargs):
-    return lowering_core._render_record_call_bindings(*args, **kwargs)
-
-
-def _flatten_boundary_leaf_paths(*args, **kwargs):
-    return lowering_core._flatten_boundary_leaf_paths(*args, **kwargs)
-
-
-def _record_expr_value_at_path(*args, **kwargs):
-    return lowering_core._record_expr_value_at_path(*args, **kwargs)
-
-
-def _normalize_union_field_path(*args, **kwargs):
-    return lowering_core._normalize_union_field_path(*args, **kwargs)
-
-
-def _union_variant_expr_value_at_path(*args, **kwargs):
-    return lowering_core._union_variant_expr_value_at_path(*args, **kwargs)
-
-
-def _phase_target_inline_ref(*args, **kwargs):
-    return lowering_core._phase_target_inline_ref(*args, **kwargs)
-
-
-def _join_ref_path(*args, **kwargs):
-    return lowering_core._join_ref_path(*args, **kwargs)
-
-
-def _resolve_nested_local_value(*args, **kwargs):
-    return lowering_core._resolve_nested_local_value(*args, **kwargs)
-
-
+    return context.lower_expression(*args, **kwargs)
 
 
 def _lower_run_provider_phase(*args, **kwargs):
@@ -221,7 +165,7 @@ def _build_match_projection_anchor_step(
             form_path=context.signature.form_path,
         )
     step_name = f"{match_step_name}__{variant_name.lower()}__projection_anchor"
-    step_id = _normalize_generated_step_id(step_name)
+    step_id = context.normalize_generated_step_id(step_name)
     _record_step_origin(
         context,
         step_name=step_name,
@@ -253,10 +197,6 @@ def _first_case_output_ref(case_outputs: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _assign_nested_local_value(*args, **kwargs):
-    return lowering_core._assign_nested_local_value(*args, **kwargs)
-
-
 def _phase_stdlib_lower_run_provider_phase_impl(
     typed_expr: TypedExpr,
     *,
@@ -270,6 +210,8 @@ def _phase_stdlib_lower_run_provider_phase_impl(
     materializations, consumed-artifact metadata, and the phase result JSON path
     from that context instead of making the `.orc` author spell those paths.
     """
+
+    from .core import _prompt_source_step_fields
 
     expr = typed_expr.expr
     if context.phase_scope is None:
@@ -296,7 +238,7 @@ def _phase_stdlib_lower_run_provider_phase_impl(
             form_path=expr.form_path,
         )
     step_name = context.step_name_prefix
-    step_id = _normalize_generated_step_id(step_name)
+    step_id = context.normalize_generated_step_id(step_name)
     bundle_contract = derive_structured_result_contract(
         typed_expr.type_ref,
         workflow_name=context.workflow_name,
@@ -378,7 +320,7 @@ def _phase_stdlib_lower_run_provider_phase_impl(
     else:
         step["consumes"] = consumes
         step["prompt_consumes"] = prompt_consumes
-    step.update(lowering_core._prompt_source_step_fields(prompt_binding))
+    step.update(_prompt_source_step_fields(prompt_binding))
     generated_steps.append(step)
     _record_missing_step_origins(context, generated_steps, source=expr)
     return generated_steps, _TerminalResult(
@@ -405,6 +347,8 @@ def _phase_stdlib_lower_produce_one_of_impl(
     only the fields for the selected variant.
     """
 
+    from .core import _prompt_source_step_fields
+
     expr = typed_expr.expr
     if context.phase_scope is None or context.phase_scope.snapshot_root_ref is None:
         raise _compile_error(
@@ -424,11 +368,11 @@ def _phase_stdlib_lower_produce_one_of_impl(
         )
     step_prefix = context.step_name_prefix
     execute_step_name = f"{step_prefix}__produce"
-    execute_step_id = _normalize_generated_step_id(execute_step_name)
+    execute_step_id = context.normalize_generated_step_id(execute_step_name)
     select_step_name = f"{step_prefix}__select_variant"
-    select_step_id = _normalize_generated_step_id(select_step_name)
+    select_step_id = context.normalize_generated_step_id(select_step_name)
     result_step_name = step_prefix
-    result_step_id = _normalize_generated_step_id(result_step_name)
+    result_step_id = context.normalize_generated_step_id(result_step_name)
     _record_step_origin(context, step_name=execute_step_name, step_id=execute_step_id, source=expr)
     _record_step_origin(context, step_name=select_step_name, step_id=select_step_id, source=expr)
     select_contract = derive_structured_result_contract(
@@ -605,7 +549,7 @@ def _phase_stdlib_lower_produce_one_of_impl(
             )
         )
         return {
-            "id": _normalize_generated_step_id(f"{result_step_name}__{variant_name.lower()}"),
+            "id": context.normalize_generated_step_id(f"{result_step_name}__{variant_name.lower()}"),
             "outputs": case_outputs,
             "steps": case_steps,
         }
@@ -623,7 +567,7 @@ def _phase_stdlib_lower_produce_one_of_impl(
                 "provider": provider_binding.provider_id,
                 "consumes": consumes,
                 "prompt_consumes": prompt_consumes,
-                **lowering_core._prompt_source_step_fields(prompt_binding),
+                **_prompt_source_step_fields(prompt_binding),
             },
             {
                 "name": select_step_name,
@@ -727,11 +671,11 @@ def _phase_stdlib_lower_resume_or_start_impl(
         form_path=expr.form_path,
     )
     validator_step_name = f"{context.step_name_prefix}__resume_decision"
-    validator_step_id = _normalize_generated_step_id(validator_step_name)
+    validator_step_id = context.normalize_generated_step_id(validator_step_name)
     result_step_name = context.step_name_prefix
-    result_step_id = _normalize_generated_step_id(result_step_name)
+    result_step_id = context.normalize_generated_step_id(result_step_name)
     reuse_loader_step_name = f"{context.step_name_prefix}__reuse_load"
-    reuse_loader_step_id = _normalize_generated_step_id(reuse_loader_step_name)
+    reuse_loader_step_id = context.normalize_generated_step_id(reuse_loader_step_name)
     _record_step_origin(context, step_name=validator_step_name, step_id=validator_step_id, source=expr)
     _record_step_origin(context, step_name=result_step_name, step_id=result_step_id, source=expr)
     _record_step_origin(context, step_name=reuse_loader_step_name, step_id=reuse_loader_step_id, source=expr)
@@ -859,7 +803,7 @@ def _phase_stdlib_lower_resume_or_start_impl(
             local_values=local_values,
         )
         case_writer_step_name = f"{case_prefix}__write_reusable_state"
-        case_writer_step_id = _normalize_generated_step_id(case_writer_step_name)
+        case_writer_step_id = context.normalize_generated_step_id(case_writer_step_name)
         _record_step_origin(context, step_name=case_writer_step_name, step_id=case_writer_step_id, source=expr)
         case_bundle_ref = _resume_start_bundle_ref(
             expr.start_expr,
@@ -1023,7 +967,7 @@ def _phase_stdlib_lower_resume_or_start_impl(
             "ref": f"root.steps.{validator_step_name}.artifacts.variant",
             "cases": {
                 "REUSABLE": {
-                    "id": _normalize_generated_step_id(f"{context.step_name_prefix}__reuse"),
+                    "id": context.normalize_generated_step_id(f"{context.step_name_prefix}__reuse"),
                     "outputs": reuse_case_outputs,
                     "steps": [
                         loader_step,
@@ -1038,7 +982,7 @@ def _phase_stdlib_lower_resume_or_start_impl(
                 },
                 **{
                     variant_name: {
-                        "id": _normalize_generated_step_id(f"{context.step_name_prefix}__{variant_name.lower()}"),
+                        "id": context.normalize_generated_step_id(f"{context.step_name_prefix}__{variant_name.lower()}"),
                         "outputs": _case_outputs(fresh_case_data[variant_name][1]),
                         "steps": [
                             *fresh_case_data[variant_name][0],
