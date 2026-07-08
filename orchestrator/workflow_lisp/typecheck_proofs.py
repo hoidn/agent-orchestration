@@ -18,6 +18,7 @@ from .type_env import (
     VariantCaseTypeRef,
     type_refs_compatible,
 )
+from .typecheck_context import raise_error, raise_required_lint
 
 
 @dataclass(frozen=True)
@@ -70,13 +71,13 @@ def resolve_field_access(
         if _variant_has_field(base_type, field_name):
             return type_env.record_field(base_type, field_name, span=span, form_path=form_path)
         if type_env.field_exists_in_other_variant(base_type, field_name):
-            compat._raise_error(
+            raise_error(
                 f"field `{field_name}` is not available under proven variant `{base_type.variant_name}`",
                 code="variant_ref_wrong_variant",
                 span=span,
                 form_path=form_path,
             )
-        compat._raise_error(
+        raise_error(
             f"unknown field `{field_name}`",
             code="record_field_unknown",
             span=span,
@@ -86,13 +87,13 @@ def resolve_field_access(
         proof_fact = proof_scope.facts.get(base_name)
         if proof_fact is None:
             if _union_has_any_field(base_type, field_name):
-                compat._raise_error(
+                raise_error(
                     f"field `{field_name}` requires variant proof for `{base_type.name}`",
                     code="variant_ref_unproved",
                     span=span,
                     form_path=form_path,
                 )
-            compat._raise_error(
+            raise_error(
                 f"unknown field `{field_name}`",
                 code="record_field_unknown",
                 span=span,
@@ -106,19 +107,19 @@ def resolve_field_access(
                 form_path=form_path,
             )
         if type_env.field_exists_in_other_variant(proof_fact.variant_type, field_name):
-            compat._raise_error(
+            raise_error(
                 f"field `{field_name}` is not available under proven variant `{proof_fact.variant_name}`",
                 code="variant_ref_wrong_variant",
                 span=span,
                 form_path=form_path,
             )
-        compat._raise_error(
+        raise_error(
             f"unknown field `{field_name}`",
             code="record_field_unknown",
             span=span,
             form_path=form_path,
         )
-    compat._raise_error(
+    raise_error(
         f"type `{compat._type_label(base_type)}` does not support field access",
         code="record_field_unknown",
         span=span,
@@ -179,14 +180,14 @@ def typecheck_match_expr(
 
     typed_subject = recurse(expr.subject)
     if isinstance(typed_subject.type_ref, TypeParamRef):
-        compat._raise_error(
+        raise_error(
             f"match on type parameter `{typed_subject.type_ref.name}` requires declared `has-union-variant` capabilities",
             code="parametric_capability_undeclared",
             span=expr.subject.span,
             form_path=expr.subject.form_path,
         )
     if not isinstance(typed_subject.type_ref, UnionTypeRef):
-        compat._raise_error(
+        raise_error(
             "match subject must have a union type",
             code="match_subject_not_union",
             span=expr.subject.span,
@@ -200,7 +201,7 @@ def typecheck_match_expr(
     rewritten_arms = []
     for arm in expr.arms:
         if arm.variant_name in seen_variants:
-            compat._raise_error(
+            raise_error(
                 f"duplicate match arm `{arm.variant_name}`",
                 code="union_match_non_exhaustive",
                 span=arm.span,
@@ -237,14 +238,14 @@ def typecheck_match_expr(
             arm_result_type = unified_loop_control
             continue
         if isinstance(arm_result_type, LoopControlTypeRef) and isinstance(typed_body.type_ref, LoopControlTypeRef):
-            compat._raise_error(
+            raise_error(
                 f"`done` expected `{compat._type_label(arm_result_type.result_type_ref)}` but got `{compat._type_label(typed_body.type_ref.result_type_ref)}`",
                 code="loop_recur_done_type_mismatch",
                 span=arm.body.span,
                 form_path=arm.body.form_path,
             )
         if not type_refs_compatible(arm_result_type, typed_body.type_ref):
-            compat._raise_error(
+            raise_error(
                 f"match arm for `{arm.variant_name}` returned `{compat._type_label(typed_body.type_ref)}`"
                 f" but expected `{compat._type_label(arm_result_type)}`",
                 code="type_mismatch",
@@ -253,14 +254,14 @@ def typecheck_match_expr(
             )
     if seen_variants != expected_variants:
         missing = sorted(expected_variants - seen_variants)
-        compat._raise_error(
+        raise_error(
             f"match must cover every variant of `{union_type.name}`; missing `{missing[0]}`",
             code="union_match_non_exhaustive",
             span=expr.span,
             form_path=expr.form_path,
         )
     if arm_result_type is None:
-        compat._raise_error(
+        raise_error(
             "match requires at least one arm",
             code="union_match_non_exhaustive",
             span=expr.span,

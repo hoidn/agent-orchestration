@@ -34,6 +34,7 @@ from .type_env import (
     WorkflowRefTypeRef,
     type_refs_compatible,
 )
+from .typecheck_context import raise_error, raise_required_lint
 from .workflow_refs import (
     resolve_workflow_ref_name,
     workflow_ref_target_name,
@@ -68,7 +69,7 @@ def hidden_context_omission_allowed(
     allowed_callees = getattr(active_signature, "allowed_hidden_context_callees", frozenset())
     if requirement is not None and requirement.binding_kind == "derived_private_child_context":
         if requirement.phase_name is None or param_name in ambiguities:
-            compat._raise_error(
+            raise_error(
                 f"derived child phase context for `{param_name}` is ambiguous in this callee",
                 code="derived_phase_context_ambiguous",
                 span=span,
@@ -84,7 +85,7 @@ def hidden_context_omission_allowed(
                 and callee_signature.name in allowed_callees
             ):
                 return True
-            compat._raise_error(
+            raise_error(
                 eligibility.diagnostic_message or f"invalid derived child phase context for `{param_name}`",
                 code=eligibility.diagnostic_code or "derived_phase_context_binding_invalid",
                 span=span,
@@ -117,7 +118,7 @@ def hidden_context_omission_allowed(
             hidden_context_rule is not None
             and hidden_context_rule.parameter_name == param_name
         ):
-            compat._raise_error(
+            raise_error(
                 eligibility.diagnostic_message
                 or f"invalid derived child phase context for `{param_name}`",
                 code=eligibility.diagnostic_code
@@ -129,7 +130,7 @@ def hidden_context_omission_allowed(
             return True
         if requirement.binding_kind != "derived_private_child_context":
             return False
-        compat._raise_error(
+        raise_error(
             eligibility.diagnostic_message or f"invalid derived child phase context for `{param_name}`",
             code=eligibility.diagnostic_code or "derived_phase_context_binding_invalid",
             span=span,
@@ -141,7 +142,7 @@ def hidden_context_omission_allowed(
 
     if param_name in ambiguities:
         phase_names = ambiguities[param_name]
-        compat._raise_error(
+        raise_error(
             (
                 f"promoted-entry hidden `{param_name}` binding is ambiguous across phases "
                 f"`{phase_names[0]}` and `{phase_names[-1]}`"
@@ -152,7 +153,7 @@ def hidden_context_omission_allowed(
         )
 
     if requirement is None:
-        compat._raise_error(
+        raise_error(
             f"promoted-entry hidden binding for `{param_name}` is unavailable in this callee",
             code="promoted_entry_hidden_context_binding_invalid",
             span=span,
@@ -202,7 +203,7 @@ def typecheck_workflow_ref_argument(
         if isinstance(bound_type, WorkflowRefTypeRef):
             return typed_factory(expr=expr, type_ref=bound_type, effect=EMPTY_EFFECT_SUMMARY)
         if bound_type is not None:
-            compat._raise_error(
+            raise_error(
                 "workflow-ref arguments must be literals or forwarded workflow-ref bindings",
                 code="workflow_ref_literal_required",
                 span=expr.span,
@@ -232,7 +233,7 @@ def typecheck_workflow_ref_argument(
             ),
             effect=EMPTY_EFFECT_SUMMARY,
         )
-    compat._raise_error(
+    raise_error(
         "workflow-ref arguments must be literals or forwarded workflow-ref bindings",
         code="workflow_ref_literal_required",
         span=expr.span,
@@ -269,7 +270,7 @@ def typecheck_proc_ref_argument(
         bound_type = value_env.get(expr.name)
         if isinstance(bound_type, ProcRefTypeRef):
             return typed_factory(expr=expr, type_ref=bound_type, effect=EMPTY_EFFECT_SUMMARY), None
-    compat._raise_error(
+    raise_error(
         "proc-ref arguments must be literals or forwarded proc-ref bindings",
         code="proc_ref_literal_required",
         span=expr.span,
@@ -298,7 +299,7 @@ def workflow_ref_signature(
         )
     except LispFrontendCompileError as exc:
         diagnostic = exc.diagnostics[0]
-        compat._raise_required_lint(
+        raise_required_lint(
             diagnostic.message,
             code=diagnostic.code,
             span=span,
@@ -327,7 +328,7 @@ def require_union_variant_field(
 
     variant_fields = union_type.variant_field_types.get(variant_name)
     if variant_fields is None or field_name not in variant_fields:
-        compat._raise_required_lint(
+        raise_required_lint(
             f"workflow ref return union `{union_type.name}` must expose `{variant_name}.{field_name}`",
             code="workflow_call_signature_erased",
             span=span,
@@ -355,7 +356,7 @@ def require_union_variant_path_field(
         form_path=form_path,
     )
     if not isinstance(field_type, PathTypeRef) or field_type.definition.under != expected_under:
-        compat._raise_required_lint(
+        raise_required_lint(
             (
                 f"workflow ref return union `{union_type.name}` must expose `{variant_name}.{field_name}` "
                 f"as a relpath under `{expected_under}`"
@@ -386,7 +387,7 @@ def require_union_variant_exact_type(
         form_path=form_path,
     )
     if field_type != expected_type:
-        compat._raise_required_lint(
+        raise_required_lint(
             (
                 f"workflow ref return union `{union_type.name}` must expose `{variant_name}.{field_name}` "
                 f"as `{getattr(expected_type, 'name', type(expected_type).__name__)}`"
@@ -411,7 +412,7 @@ def require_union_variant_exact_field_names(
     variant_fields = union_type.variant_field_types.get(variant_name)
     actual_fields = tuple(sorted(variant_fields)) if variant_fields is not None else ()
     if actual_fields != tuple(sorted(expected_fields)):
-        compat._raise_required_lint(
+        raise_required_lint(
             (
                 f"workflow ref return union `{union_type.name}` must expose `{variant_name}` "
                 f"with exactly {expected_fields}"
@@ -440,7 +441,7 @@ def require_union_variant_record_field(
         form_path=form_path,
     )
     if not isinstance(field_type, RecordTypeRef):
-        compat._raise_required_lint(
+        raise_required_lint(
             f"workflow ref return union `{union_type.name}` must expose record field `{variant_name}.{field_name}`",
             code="workflow_call_signature_erased",
             span=span,
@@ -460,7 +461,7 @@ def validate_selector_workflow_ref(
     from .resource import ensure_drain_context_type
 
     if len(signature.params) != 1:
-        compat._raise_error(
+        raise_error(
             f"workflow ref `{signature.name}` must accept exactly one `DrainCtx` parameter for `selector`",
             code="backlog_drain_contract_invalid",
             span=span,
@@ -468,7 +469,7 @@ def validate_selector_workflow_ref(
         )
     ensure_drain_context_type(signature.params[0][1], span=span, form_path=form_path)
     if not isinstance(signature.return_type_ref, UnionTypeRef):
-        compat._raise_required_lint(
+        raise_required_lint(
             f"workflow ref `{signature.name}` must return `SelectionResult`-shaped union output",
             code="workflow_call_signature_erased",
             span=span,
@@ -546,13 +547,13 @@ def validate_run_item_workflow_ref(
                 if extra_param_name in {"run_state_path", "run-state-path"}
                 else "backlog_drain_contract_invalid"
             )
-            compat._raise_error(
+            raise_error(
                 f"workflow ref `{signature.name}` must not expose public binding `{extra_param_name}`",
                 code=diagnostic_code,
                 span=span,
                 form_path=form_path,
             )
-        compat._raise_error(
+        raise_error(
             f"workflow ref `{signature.name}` must accept `ItemCtx` and the selector payload for `run-item`",
             code="backlog_drain_contract_invalid",
             span=span,
@@ -560,14 +561,14 @@ def validate_run_item_workflow_ref(
         )
     ensure_item_context_type(signature.params[0][1], span=span, form_path=form_path)
     if signature.params[1][1] != selected_payload_type:
-        compat._raise_required_lint(
+        raise_required_lint(
             f"workflow ref `{signature.name}` second parameter must match the selector `SELECTED.selection` payload",
             code="workflow_call_signature_erased",
             span=span,
             form_path=form_path,
         )
     if not isinstance(signature.return_type_ref, UnionTypeRef):
-        compat._raise_required_lint(
+        raise_required_lint(
             f"workflow ref `{signature.name}` must return a union for `run-item`",
             code="workflow_call_signature_erased",
             span=span,
@@ -630,7 +631,7 @@ def validate_gap_drafter_workflow_ref(
     from .resource import ensure_drain_context_type
 
     if len(signature.params) != 2:
-        compat._raise_error(
+        raise_error(
             f"workflow ref `{signature.name}` must accept `DrainCtx` and the selector gap payload for `gap-drafter`",
             code="backlog_drain_contract_invalid",
             span=span,
@@ -638,7 +639,7 @@ def validate_gap_drafter_workflow_ref(
         )
     ensure_drain_context_type(signature.params[0][1], span=span, form_path=form_path)
     if signature.params[1][1] != gap_payload_type:
-        compat._raise_required_lint(
+        raise_required_lint(
             f"workflow ref `{signature.name}` second parameter must match the selector `GAP.gap` payload",
             code="workflow_call_signature_erased",
             span=span,
@@ -647,7 +648,7 @@ def validate_gap_drafter_workflow_ref(
     if isinstance(signature.return_type_ref, RecordTypeRef):
         return
     if not isinstance(signature.return_type_ref, UnionTypeRef):
-        compat._raise_required_lint(
+        raise_required_lint(
             f"workflow ref `{signature.name}` must return a record or union for `gap-drafter`",
             code="workflow_call_signature_erased",
             span=span,
@@ -705,7 +706,7 @@ def typecheck_call_expr(
     signature = None
     if isinstance(workflow_ref_type, WorkflowRefTypeRef):
         if len(expr.bindings) != len(workflow_ref_type.param_type_refs):
-            compat._raise_error(
+            raise_error(
                 f"call is missing required binding for workflow ref `{expr.callee_name}`",
                 code="workflow_signature_mismatch",
                 span=expr.span,
@@ -724,7 +725,7 @@ def typecheck_call_expr(
     else:
         signature = context.workflow_catalog.signatures_by_name.get(expr.callee_name)
         if signature is None:
-            compat._raise_error(
+            raise_error(
                 f"unknown workflow callee `{expr.callee_name}`",
                 code="workflow_call_unknown",
                 span=expr.span,
@@ -744,7 +745,7 @@ def typecheck_call_expr(
     binding_summaries = []
     for binding_name, binding_expr in expr.bindings:
         if binding_name in seen_bindings:
-            compat._raise_error(
+            raise_error(
                 f"duplicate call binding `{binding_name}`",
                 code="workflow_signature_mismatch",
                 span=binding_expr.span,
@@ -753,7 +754,7 @@ def typecheck_call_expr(
         seen_bindings.add(binding_name)
         expected_type = expected_bindings.get(binding_name)
         if expected_type is None:
-            compat._raise_error(
+            raise_error(
                 f"call binding `{binding_name}` does not match the callee signature",
                 code="workflow_signature_mismatch",
                 span=binding_expr.span,
@@ -769,14 +770,14 @@ def typecheck_call_expr(
             )
             binding_summaries.append(typed_binding.effect_summary)
             if not isinstance(binding_expr, (WorkflowRefLiteralExpr, NameExpr, EnumMemberExpr)):
-                compat._raise_error(
+                raise_error(
                     "workflow-ref arguments must be literals or forwarded workflow-ref bindings",
                     code="workflow_ref_literal_required",
                     span=binding_expr.span,
                     form_path=binding_expr.form_path,
                 )
             if not type_refs_compatible(expected_type, typed_binding.type_ref):
-                compat._raise_error(
+                raise_error(
                     f"workflow ref argument `{binding_name}` does not match `{expected_type.name}`",
                     code="workflow_ref_signature_invalid",
                     span=binding_expr.span,
@@ -795,7 +796,7 @@ def typecheck_call_expr(
             )
             binding_summaries.append(typed_binding.effect_summary)
             if not type_refs_compatible(expected_type, typed_binding.type_ref):
-                compat._raise_error(
+                raise_error(
                     f"procedure ref argument `{binding_name}` does not match `{expected_type.name}`",
                     code="proc_ref_signature_invalid",
                     span=binding_expr.span,
@@ -805,7 +806,7 @@ def typecheck_call_expr(
         typed_binding = recurse(binding_expr)
         binding_summaries.append(typed_binding.effect_summary)
         if not type_refs_compatible(expected_type, typed_binding.type_ref):
-            compat._raise_error(
+            raise_error(
                 f"call binding `{binding_name}` expected `{compat._type_label(expected_type)}`"
                 f" but got `{compat._type_label(typed_binding.type_ref)}`",
                 code="type_mismatch",
@@ -845,7 +846,7 @@ def typecheck_call_expr(
             )
         )
     if missing_bindings:
-        compat._raise_error(
+        raise_error(
             f"call is missing required binding `{missing_bindings[0]}`",
             code="workflow_signature_mismatch",
             span=expr.span,
@@ -878,14 +879,14 @@ def typecheck_function_call_expr(
         raise TypeError("function_catalog is required for FunctionCallExpr typechecking")
     signature = context.session_state.function_catalog.signatures_by_name.get(expr.callee_name)
     if signature is None:
-        compat._raise_error(
+        raise_error(
             f"unknown function callee `{expr.callee_name}`",
             code="function_call_unknown",
             span=expr.span,
             form_path=expr.form_path,
         )
     if len(expr.args) != len(signature.params):
-        compat._raise_error(
+        raise_error(
             f"function `{expr.callee_name}` expected {len(signature.params)} positional arguments but got {len(expr.args)}",
             code="function_arity_mismatch",
             span=expr.span,
@@ -896,7 +897,7 @@ def typecheck_function_call_expr(
         typed_arg = recurse(arg_expr)
         arg_summaries.append(typed_arg.effect_summary)
         if not type_refs_compatible(expected_type, typed_arg.type_ref):
-            compat._raise_error(
+            raise_error(
                 f"function argument `{param_name}` expected `{compat._type_label(expected_type)}`"
                 f" but got `{compat._type_label(typed_arg.type_ref)}`",
                 code="type_mismatch",

@@ -8,6 +8,7 @@ from .effects import EMPTY_EFFECT_SUMMARY, merge_effect_summaries
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
 from .expressions import PureOpExpr, RecordUpdateExpr
 from .type_env import OptionalTypeRef, PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef
+from .typecheck_context import raise_error, raise_required_lint
 
 
 def typecheck_pure_expr(
@@ -22,7 +23,7 @@ def typecheck_pure_expr(
     if isinstance(expr, PureOpExpr):
         spec = PURE_EXPR_OPERATOR_CATALOG.get(expr.operator)
         if spec is None:
-            compat._raise_error(
+            raise_error(
                 f"unsupported pure operator `{expr.operator}`",
                 code="pure_expr_operator_unsupported",
                 span=expr.span,
@@ -48,7 +49,7 @@ def typecheck_pure_expr(
         if operator in {"=", "!="}:
             left, right = arg_types
             if _is_union_like(left) or _is_union_like(right):
-                compat._raise_error(
+                raise_error(
                     "union equality is forbidden in the pure expression core",
                     code="pure_expr_union_equality_forbidden",
                     span=expr.span,
@@ -56,7 +57,7 @@ def typecheck_pure_expr(
                     expansion_stack=expr.expansion_stack,
                 )
             if _is_primitive(left, "Float") or _is_primitive(right, "Float"):
-                compat._raise_error(
+                raise_error(
                     "float equality is forbidden in the pure expression core",
                     code="pure_expr_float_equality_forbidden",
                     span=expr.span,
@@ -135,7 +136,7 @@ def typecheck_pure_expr(
 
         if operator == "string/concat":
             if any(isinstance(arg_type, PathTypeRef) for arg_type in arg_types):
-                compat._raise_error(
+                raise_error(
                     "path string concatenation is forbidden in the pure expression core",
                     code="pure_expr_path_string_concat_forbidden",
                     span=expr.span,
@@ -232,7 +233,7 @@ def typecheck_pure_expr(
     rewritten_overrides: list[tuple[str, object]] = []
     for field_name, field_expr in expr.overrides:
         if field_name in seen_fields:
-            compat._raise_error(
+            raise_error(
                 f"duplicate field `{field_name}` in record-update expression",
                 code="record_field_duplicate",
                 span=field_expr.span,
@@ -242,7 +243,7 @@ def typecheck_pure_expr(
         seen_fields.add(field_name)
         expected_field = expected_fields.get(field_name)
         if expected_field is None:
-            compat._raise_error(
+            raise_error(
                 f"unknown field `{field_name}` for record `{typed_base.type_ref.name}`",
                 code="record_field_unknown",
                 span=field_expr.span,
@@ -308,7 +309,7 @@ def _require_primitive(*, compat, expr, type_ref: TypeRef, name: str, operator: 
 
 
 def _raise_operand_mismatch(*, compat, expr, message: str) -> None:
-    compat._raise_error(
+    raise_error(
         message,
         code="pure_expr_operand_type_mismatch",
         span=expr.span,
