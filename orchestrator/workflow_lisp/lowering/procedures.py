@@ -129,7 +129,7 @@ def _resolve_procedure_lowering(
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> Mapping[str, TypedProcedureDef]:
     from ..procedure_specialization import _procedure_private_body_valid, _procedure_private_boundary_valid
-    from .core import _compile_error
+    from .context import _compile_error
 
     call_counts, lowerable_call_sites = _procedure_private_call_site_analysis(
         typed_procedures,

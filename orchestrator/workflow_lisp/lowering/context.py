@@ -12,8 +12,10 @@ from orchestrator.workflow.state_layout import GeneratedPathAllocation
 from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 
 from ..contracts import WorkflowBoundaryProjection
+from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..phase import PhaseScope
 from ..procedures import TypedProcedureDef
+from ..spans import SourceSpan
 from ..type_env import FrontendTypeEnvironment, TypeRef
 from ..workflows import (
     CommandBoundaryEnvironment,
@@ -173,4 +175,20 @@ def _copy_context_with_composition_scope(
         parent_composition_scope_id=parent_scope_id,
         composition_scope_kind=scope_kind,
         composition_scope_owner_step_name=owner_step_name,
+    )
+
+
+def _compile_error(*, code: str, message: str, span: SourceSpan, form_path: tuple[str, ...]) -> LispFrontendCompileError:
+    """Create a single lowering-phase frontend compile error."""
+
+    return LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code=code,
+                message=message,
+                span=span,
+                form_path=form_path,
+                phase="lowering",
+            ),
+        )
     )

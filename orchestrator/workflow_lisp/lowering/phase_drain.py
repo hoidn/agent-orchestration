@@ -79,6 +79,7 @@ from . import core as lowering_core
 from . import workflow_calls as lowering_workflow_calls
 from .context import (
     _ActivePhaseScope,
+    _compile_error,
     _copy_context_with_phase_scope,
     _copy_context_with_step_prefix,
     _LoweringContext,
@@ -101,10 +102,6 @@ from .values import (
     _render_existing_output_ref,
     _resolve_inline_expr_value,
 )
-
-
-def _compile_error(*args, **kwargs):
-    return lowering_core._compile_error(*args, **kwargs)
 
 
 def _normalize_generated_step_id(*args, **kwargs):

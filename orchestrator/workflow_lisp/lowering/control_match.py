@@ -20,6 +20,7 @@ from ..workflows import TypedWorkflowDef, WorkflowDef, WorkflowParam, WorkflowSi
 from . import core as lowering_core
 from .composition_graph import CompositionScope, build_fragment, fragment_requires_helper_boundary
 from .context import (
+    _compile_error,
     _copy_context_with_composition_scope,
     _copy_context_with_step_prefix,
     _context_with_local_type_binding,
@@ -34,10 +35,6 @@ from .values import (
     _normalize_union_field_path,
     _resolve_inline_expr_value,
 )
-
-
-def _compile_error(*args, **kwargs):
-    return lowering_core._compile_error(*args, **kwargs)
 
 
 def _normalize_generated_step_id(*args, **kwargs):

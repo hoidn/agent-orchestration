@@ -32,7 +32,7 @@ from ..procedures import TypedProcedureDef
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
 from . import core as lowering_core
-from .context import _LoweringContext, _TerminalResult
+from .context import _compile_error, _LoweringContext, _TerminalResult
 from .generated_paths import allocate_generated_result_bundle
 from .origins import LoweringOrigin, _origin_from_context_source, _record_step_origin
 
@@ -84,10 +84,6 @@ def _value_compile_error(*, code: str, message: str, span, form_path: tuple[str,
             ),
         )
     )
-
-
-def _compile_error(*args, **kwargs):
-    return lowering_core._compile_error(*args, **kwargs)
 
 
 def _normalize_generated_step_id(*args, **kwargs):

@@ -175,6 +175,7 @@ from ..workflows import (
 )
 from .context import (
     _ActivePhaseScope,
+    _compile_error,
     _copy_context_with_iteration_scope,
     _copy_context_with_phase_scope,
     _copy_context_with_step_prefix,
@@ -2453,22 +2454,6 @@ def _require_phase_scope_name_match(
         message=f"`{form_name}` name `{authored_name}` must match the active `with-phase` scope `{phase_scope.scope.phase_name}`",
         span=span,
         form_path=form_path,
-    )
-
-
-def _compile_error(*, code: str, message: str, span: SourceSpan, form_path: tuple[str, ...]) -> LispFrontendCompileError:
-    """Create a single lowering-phase frontend compile error."""
-
-    return LispFrontendCompileError(
-        (
-            LispFrontendDiagnostic(
-                code=code,
-                message=message,
-                span=span,
-                form_path=form_path,
-                phase="lowering",
-            ),
-        )
     )
 
 

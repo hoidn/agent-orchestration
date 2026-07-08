@@ -37,6 +37,7 @@ from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, Un
 from ..typecheck import TypedExpr
 from . import core as lowering_core
 from .context import (
+    _compile_error,
     _context_with_local_type_binding,
     _copy_context_with_composition_scope,
     _copy_context_with_iteration_scope,
@@ -55,10 +56,6 @@ from .values import (
     _resolve_inline_field_value,
     _union_variant_expr_value_at_path,
 )
-
-
-def _compile_error(*args, **kwargs):
-    return lowering_core._compile_error(*args, **kwargs)
 
 
 def _normalize_generated_step_id(*args, **kwargs):

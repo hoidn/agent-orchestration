@@ -13,7 +13,7 @@ from ..expressions import CommandResultExpr, LiteralExpr, ProviderResultExpr
 from ..phase import IMPLEMENTATION_ATTEMPT_ARTIFACT_ROOT
 from ..type_env import TypeRef
 from . import core as lowering_core
-from .context import _TerminalResult
+from .context import _compile_error, _TerminalResult
 from .generated_paths import allocate_generated_result_bundle
 from .phase_scope import (
     _build_typed_prompt_inputs_for_prompt_specs,
@@ -92,7 +92,7 @@ def _lower_command_result_operation(
     binding_name = command_result.adapter_name or command_result.step_name
     binding = context.command_boundary_environment.bindings_by_name.get(binding_name)
     if binding is None:
-        raise lowering_core._compile_error(
+        raise _compile_error(
             code="command_result_tool_invalid",
             message=f"unknown command boundary `{binding_name}` during lowering",
             span=command_result.span,
@@ -124,7 +124,7 @@ def _lower_command_result_operation(
     )
     if command_result.adapter_name is not None:
         if not isinstance(binding, CertifiedAdapterBinding):
-            raise lowering_core._compile_error(
+            raise _compile_error(
                 code="command_result_tool_invalid",
                 message=f"`command-result` adapter `{command_result.adapter_name}` is not a certified adapter during lowering",
                 span=command_result.span,
@@ -279,7 +279,7 @@ def _lower_provider_result_operation(
     if not isinstance(provider_binding, lowering_core.ProviderExtern) or not isinstance(
         prompt_binding, lowering_core.PromptExtern
     ):
-        raise lowering_core._compile_error(
+        raise _compile_error(
             code="provider_result_provider_invalid",
             message="provider-result lowering requires validated provider/prompt externs",
             span=provider_result.span,

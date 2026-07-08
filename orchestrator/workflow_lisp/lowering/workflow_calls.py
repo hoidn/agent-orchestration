@@ -35,7 +35,7 @@ from ..phase import (
 from ..workflows import PromotedEntryHiddenContextRequirement
 from ..type_env import PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, WorkflowRefTypeRef
 from . import core as lowering_core
-from .context import _TerminalResult
+from .context import _compile_error, _TerminalResult
 from .generated_paths import allocate_reusable_call_write_root
 from .origins import LoweringOrigin
 from .pure_projection import (
@@ -145,7 +145,7 @@ def _compatibility_bridge_bindings_for_lowered_callee(
         if input_name not in local_values:
             contract_definition = _COMPATIBILITY_BRIDGE_INPUT_CONTRACTS.get(input_name)
             if contract_definition is None:
-                raise lowering_core._compile_error(
+                raise _compile_error(
                     code="workflow_call_unknown_compatibility_bridge",
                     message=f"unknown compatibility bridge input `{input_name}`",
                     span=source_expr.span,
@@ -249,7 +249,7 @@ def _declare_runtime_context_hidden_inputs(
     prepared_fields: list[tuple[FlattenedContractField, FlattenedContractField]] = []
     for callee_field, generated_field in zip(callee_fields, generated_fields, strict=True):
         if callee_field.source_path != generated_field.source_path:
-            raise lowering_core._compile_error(
+            raise _compile_error(
                 code="workflow_boundary_type_invalid",
                 message=(
                     f"generated hidden binding for `{binding_id}` changed source-path ordering "
@@ -307,7 +307,7 @@ def _declare_runtime_context_hidden_inputs(
             iter(missing_non_bootstrapable_fields),
             None,
         )
-        raise lowering_core._compile_error(
+        raise _compile_error(
             code="private_exec_context_bootstrap_unsupported",
             message=(
                 f"promoted-entry hidden binding for `{param_name}` requires unsupported "
@@ -419,7 +419,7 @@ def _render_scalar_expr(expr: Any, *, local_values: Mapping[str, Any]) -> str:
         return str(value.value)
     if isinstance(value, str):
         return "${" + value + "}"
-    raise lowering_core._compile_error(
+    raise _compile_error(
         code="workflow_return_not_exportable",
         message="Stage 3 lowering requires command argv values to resolve to literals or workflow inputs",
         span=expr.span,
@@ -439,7 +439,7 @@ def _render_repeat_until_max_iterations(expr: Any, *, local_values: Mapping[str,
     value = _resolve_inline_expr_value(expr, local_values=local_values)
     if isinstance(value, LiteralExpr):
         return int(value.value)
-    raise lowering_core._compile_error(
+    raise _compile_error(
         code="workflow_return_not_exportable",
         message="`backlog-drain :max-iterations` must lower from a literal integer",
         span=expr.span,
@@ -470,7 +470,7 @@ def _render_boolean_predicate(expr: Any | None, *, local_values: Mapping[str, An
             classify_condition_expr(expr, type_ref=PrimitiveTypeRef(name="Bool")),
             local_values=local_values,
         )
-    raise lowering_core._compile_error(
+    raise _compile_error(
         code="workflow_return_not_exportable",
         message="boolean guards must lower from literals or workflow inputs/refs",
         span=expr.span,
@@ -616,7 +616,7 @@ def _carry_callee_private_exec_context_bindings(
         for generated_input_name in missing_generated_inputs:
             contract_definition = callee_input_contracts.get(generated_input_name)
             if not isinstance(contract_definition, Mapping):
-                raise lowering_core._compile_error(
+                raise _compile_error(
                     code="workflow_boundary_type_invalid",
                     message=(
                         "private executable context binding metadata is missing a runtime "
@@ -712,7 +712,7 @@ def _carry_callee_runtime_context_inputs(
             continue
         contract_definition = callee_input_contracts.get(input_name)
         if not isinstance(contract_definition, Mapping):
-            raise lowering_core._compile_error(
+            raise _compile_error(
                 code="workflow_boundary_type_invalid",
                 message=(
                     "runtime-owned context metadata is missing a runtime contract "
@@ -787,7 +787,7 @@ def _render_call_binding_leaf_ref(
         message = "Stage 3 lowering requires same-file call bindings to resolve to workflow inputs"
     else:
         message = f"record call binding `{binding_label}` must lower from workflow inputs or prior outputs"
-    raise lowering_core._compile_error(
+    raise _compile_error(
         code="workflow_signature_mismatch",
         message=message,
         span=source_expr.span,
@@ -813,7 +813,7 @@ def _managed_write_root_requirements_for_callable(
         return tuple(sorted(_managed_inputs_from_mapping(lowered_callee.authored_mapping)))
     if imported_bundle is not None:
         return tuple(sorted(_managed_inputs_from_bundle(imported_bundle)))
-    raise lowering_core._compile_error(
+    raise _compile_error(
         code="workflow_call_unknown",
         message="managed write-root discovery requires a lowered callee or imported bundle",
         span=span,
@@ -1007,7 +1007,7 @@ def _lower_workflow_call(
                 continue
             binding_expr = binding_by_name.get(param_name)
             if binding_expr is None:
-                raise lowering_core._compile_error(
+                raise _compile_error(
                     code="workflow_signature_mismatch",
                     message=f"call is missing required binding `{param_name}`",
                     span=expr.span,
@@ -1024,7 +1024,7 @@ def _lower_workflow_call(
                 expected_type=param_type,
             )
             if resolved_binding is None:
-                raise lowering_core._compile_error(
+                raise _compile_error(
                     code="workflow_ref_literal_required",
                     message="workflow-ref arguments must be literals or forwarded workflow-ref bindings",
                     span=binding_expr.span,
@@ -1049,7 +1049,7 @@ def _lower_workflow_call(
         if callee is None and imported_bundle is None and canonical_name in context.workflows_by_name:
             callee = context.ensure_workflow_lowered(canonical_name)
     if callee is None and imported_bundle is None:
-        raise lowering_core._compile_error(
+        raise _compile_error(
             code="workflow_call_unknown",
             message=f"unknown workflow callee `{expr.callee_name}` during lowering",
             span=expr.span,
@@ -1073,7 +1073,7 @@ def _lower_workflow_call(
             ):
                 ambiguities = getattr(callee_signature, "hidden_context_ambiguities", {})
                 if requirement.phase_name is None or param_name in ambiguities:
-                    raise lowering_core._compile_error(
+                    raise _compile_error(
                         code="derived_phase_context_ambiguous",
                         message=f"derived child phase context for `{param_name}` is ambiguous in this callee",
                         span=expr.span,
@@ -1103,7 +1103,7 @@ def _lower_workflow_call(
                         hidden_context_rule is not None
                         and hidden_context_rule.parameter_name == param_name
                     ):
-                        raise lowering_core._compile_error(
+                        raise _compile_error(
                             code=eligibility.diagnostic_code
                             or "derived_phase_context_binding_invalid",
                             message=eligibility.diagnostic_message
@@ -1126,7 +1126,7 @@ def _lower_workflow_call(
                         )
                         continue
                     if requirement.binding_kind == "derived_private_child_context":
-                        raise lowering_core._compile_error(
+                        raise _compile_error(
                             code=eligibility.diagnostic_code
                             or "derived_phase_context_binding_invalid",
                             message=eligibility.diagnostic_message
@@ -1149,7 +1149,7 @@ def _lower_workflow_call(
                             )
                         )
                         continue
-                    raise lowering_core._compile_error(
+                    raise _compile_error(
                         code="workflow_signature_mismatch",
                         message=f"call is missing required binding `{param_name}`",
                         span=expr.span,
@@ -1187,7 +1187,7 @@ def _lower_workflow_call(
                     ambiguities = getattr(callee_signature, "hidden_context_ambiguities", {})
                     if param_name in ambiguities:
                         code = "promoted_entry_hidden_phase_ctx_ambiguous"
-                    raise lowering_core._compile_error(
+                    raise _compile_error(
                         code=code,
                         message=f"promoted-entry hidden binding metadata is unavailable for `{param_name}`",
                         span=expr.span,
@@ -1234,7 +1234,7 @@ def _lower_workflow_call(
                 param_name=param_name,
             ):
                 continue
-            raise lowering_core._compile_error(
+            raise _compile_error(
                 code="workflow_signature_mismatch",
                 message=f"call is missing required binding `{param_name}`",
                 span=expr.span,

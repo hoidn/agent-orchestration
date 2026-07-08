@@ -56,6 +56,7 @@ from ..workflows import CertifiedAdapterBinding, PromptExtern, ProviderExtern, a
 from . import core as lowering_core
 from .context import (
     _ActivePhaseScope,
+    _compile_error,
     _copy_context_with_phase_scope,
     _copy_context_with_step_prefix,
     _LoweringContext,
@@ -76,10 +77,6 @@ from .phase_scope import (
     _union_output_contracts,
 )
 from .values import _render_existing_output_ref, _resolve_inline_expr_value
-
-
-def _compile_error(*args, **kwargs):
-    return lowering_core._compile_error(*args, **kwargs)
 
 
 def _normalize_generated_step_id(*args, **kwargs):

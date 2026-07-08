@@ -14,7 +14,7 @@ from ..expressions import GeneratedRelpathSeedExpr, LiteralExpr, MaterializeView
 from ..type_env import PathTypeRef
 from ..typecheck import TypedExpr
 from . import core as lowering_core
-from .context import _LoweringContext, _TerminalResult
+from .context import _compile_error, _LoweringContext, _TerminalResult
 from .generated_paths import allocate_materialized_value_view
 from .origins import GeneratedSemanticEffectBinding, _record_step_origin
 from .pure_projection import _infer_expr_type, _type_descriptor
@@ -22,10 +22,6 @@ from .values import ProjectedPathRef, _resolve_inline_expr_value
 
 
 MATERIALIZE_VIEW_EFFECT_KIND = "materialize_view"
-
-
-def _compile_error(*args, **kwargs):
-    return lowering_core._compile_error(*args, **kwargs)
 
 
 def _normalize_generated_step_id(*args, **kwargs):

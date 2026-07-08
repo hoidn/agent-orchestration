@@ -41,6 +41,7 @@ from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, Un
 from ..typecheck import TypedExpr
 from . import core as lowering_core
 from .context import (
+    _compile_error,
     _context_with_local_type_binding,
     _copy_context_with_step_prefix,
     _LoweringContext,
@@ -80,10 +81,6 @@ def reset_intrinsic_form_lowering_counts() -> None:
     """Clear intrinsic compatibility-lane lowering counts."""
 
     _INTRINSIC_FORM_LOWERING_COUNTS.clear()
-
-
-def _compile_error(*args, **kwargs):
-    return lowering_core._compile_error(*args, **kwargs)
 
 
 def _normalize_generated_step_id(*args, **kwargs):

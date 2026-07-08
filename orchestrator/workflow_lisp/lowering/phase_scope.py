@@ -58,6 +58,7 @@ from ..workflows import CertifiedAdapterBinding, PromptExtern, ProviderExtern, a
 from . import core as lowering_core
 from .context import (
     _ActivePhaseScope,
+    _compile_error,
     _copy_context_with_phase_scope,
     _copy_context_with_step_prefix,
     _LoweringContext,
@@ -69,11 +70,10 @@ from .values import _assign_nested_local_value, _flatten_boundary_leaf_paths, _r
 from .workflow_calls import (
     _managed_inputs_from_mapping,
     _record_call_binding_label,
+    _render_call_binding_leaf_ref,
+    _render_repeat_until_max_iterations,
+    _render_scalar_expr,
 )
-
-
-def _compile_error(*args, **kwargs):
-    return lowering_core._compile_error(*args, **kwargs)
 
 
 def _normalize_generated_step_id(*args, **kwargs):
@@ -662,38 +662,6 @@ def _render_argv_tail(argv: list[Any], *, local_values: Mapping[str, Any]) -> li
     return rendered
 
 
-def _render_scalar_expr(expr: Any, *, local_values: Mapping[str, Any]) -> str:
-    """Render a scalar expression as a literal or workflow substitution."""
-
-    if isinstance(expr, LiteralExpr):
-        return str(expr.value)
-    value = _resolve_inline_expr_value(expr, local_values=local_values)
-    if isinstance(value, LiteralExpr):
-        return str(value.value)
-    if isinstance(value, str):
-        return "${" + value + "}"
-    raise _compile_error(
-        code="workflow_return_not_exportable",
-        message="Stage 3 lowering requires command argv values to resolve to literals or workflow inputs",
-        span=expr.span,
-        form_path=expr.form_path,
-    )
-
-
-def _render_repeat_until_max_iterations(expr: Any, *, local_values: Mapping[str, Any]) -> int:
-    """Render a repeat limit expression; currently this must be a literal int."""
-
-    value = _resolve_inline_expr_value(expr, local_values=local_values)
-    if isinstance(value, LiteralExpr):
-        return int(value.value)
-    raise _compile_error(
-        code="workflow_return_not_exportable",
-        message="`backlog-drain :max-iterations` must lower from a literal integer",
-        span=expr.span,
-        form_path=expr.form_path,
-    )
-
-
 def _render_boolean_predicate(expr: Any | None, *, local_values: Mapping[str, Any]) -> dict[str, Any] | None:
     """Render an optional boolean frontend expression as a shared predicate."""
 
@@ -774,28 +742,6 @@ def _render_record_call_bindings(
             binding_label=_record_call_binding_label(param_name, field_path),
         )
     return bindings
-
-
-def _render_call_binding_leaf_ref(
-    value: Any,
-    *,
-    source_expr: Any,
-    binding_label: str | None = None,
-) -> dict[str, str]:
-    """Apply the shared ref-only authority rule for runtime call bindings."""
-
-    if isinstance(value, str):
-        return {"ref": value}
-    if binding_label is None:
-        message = "Stage 3 lowering requires same-file call bindings to resolve to workflow inputs"
-    else:
-        message = f"record call binding `{binding_label}` must lower from workflow inputs or prior outputs"
-    raise _compile_error(
-        code="workflow_signature_mismatch",
-        message=message,
-        span=source_expr.span,
-        form_path=source_expr.form_path,
-    )
 
 
 def _build_call_bindings_from_record_value(
