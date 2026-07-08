@@ -119,7 +119,6 @@ from .typecheck_context import (
     restore_session_state,
     snapshot_session_state,
     _literal_type_name,
-    _span_contains,
     _type_label,
     _type_refs_compatible,
     _typed,
@@ -3085,32 +3084,3 @@ def _temporary_procedure_catalog(
         definitions_by_name=definitions_by_name,
         call_graph=procedure_catalog.call_graph,
     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def _is_macro_introduced_effect(
-    span: SourceSpan,
-    expansion_stack: tuple[object, ...],
-) -> bool:
-    for frame in expansion_stack:
-        definition_span = getattr(frame, "definition_span", None)
-        if _span_contains(definition_span, span):
-            return True
-    return False

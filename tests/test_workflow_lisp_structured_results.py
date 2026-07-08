@@ -106,6 +106,7 @@ def test_effect_owner_split_moves_command_and_provider_typecheck_out_of_facade()
     assert "typecheck_provider_result_expr(" in dispatch_source
     assert "typecheck_command_result_expr(" in dispatch_source
     assert "def _validate_command_argv(" not in dispatch_source
+    assert "def _is_macro_introduced_effect(" not in dispatch_source
 
 
 def _typecheck_fixture(path: Path, *, types_path: Path = TYPE_FIXTURE, **typecheck_kwargs):
