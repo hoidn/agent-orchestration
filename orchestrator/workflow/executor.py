@@ -47,7 +47,6 @@ from .view_renderer import (
     view_bytes_digest,
     view_evidence_key,
 )
-from .pointers import PointerResolver
 from .conditions import ConditionEvaluator
 from .conditions import EqualsConditionNode, ExistsConditionNode, NotExistsConditionNode
 from ..security.secrets import SecretsManager
@@ -71,14 +70,12 @@ from .executable_ir import (
     LoopOutputAddress,
     MatchCaseMarkerNode,
     MatchJoinNode,
-    MaterializeViewStepConfig,
     NodeResultAddress,
-    PureProjectionStepConfig,
     RepeatUntilFrameNode,
     WorkflowInputAddress,
 )
 from .finalization import FinalizationController
-from .identity import iteration_step_id, runtime_step_id
+from .identity import runtime_step_id
 from .loaded_bundle import (
     workflow_boundary_projection,
     workflow_bundle,
