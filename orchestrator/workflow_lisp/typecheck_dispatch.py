@@ -120,13 +120,9 @@ from .typecheck_context import (
     snapshot_session_state,
 )
 from .typecheck_effects import (
-    is_macro_introduced_effect as _is_macro_introduced_effect,
     typecheck_command_result_expr as _typecheck_command_result_expr,
-    typecheck_expected_extern_operand as _typecheck_expected_extern_operand,
     typecheck_provider_bundle_path_expr as _typecheck_provider_bundle_path_expr,
     typecheck_provider_result_expr as _typecheck_provider_result_expr,
-    validate_command_argv as _validate_command_argv,
-    validate_semantic_command_adapter_usage as _validate_semantic_command_adapter_usage,
 )
 from .typecheck_pure_ops import typecheck_pure_expr as _typecheck_pure_expr
 from .typecheck_proofs import (
@@ -3233,33 +3229,6 @@ def _require_union_variant_exact_field_names(
         )
 
 
-def _require_union_variant_record_field(
-    union_type: UnionTypeRef,
-    variant_name: str,
-    field_name: str,
-    *,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-) -> RecordTypeRef:
-    field_type = _require_union_variant_field(
-        union_type,
-        variant_name,
-        field_name,
-        span=span,
-        form_path=form_path,
-    )
-    if not isinstance(field_type, RecordTypeRef):
-        _raise_required_lint(
-            f"workflow ref return union `{union_type.name}` must expose record field `{variant_name}.{field_name}`",
-            code="workflow_call_signature_erased",
-            span=span,
-            form_path=form_path,
-    )
-    return field_type
-
-
-
-
 def _temporary_procedure_catalog(
     procedure_catalog: ProcedureCatalog,
     *,
@@ -3312,46 +3281,3 @@ def _span_contains(outer: SourceSpan | None, inner: SourceSpan) -> bool:
     if outer.start.path != inner.start.path or outer.end.path != inner.end.path:
         return False
     return outer.start.offset <= inner.start.offset and inner.end.offset <= outer.end.offset
-
-
-def _raise_required_lint(
-    message: str,
-    *,
-    code: str,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-    expansion_stack: tuple[object, ...] = (),
-) -> None:
-    raise LispFrontendCompileError(
-        (
-            required_lint_diagnostic(
-                code,
-                message=message,
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            ),
-        )
-    )
-
-
-def _raise_error(
-    message: str,
-    *,
-    code: str,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-    expansion_stack: tuple[object, ...] = (),
-) -> None:
-    raise LispFrontendCompileError(
-        (
-            LispFrontendDiagnostic(
-                code=code,
-                message=message,
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-                phase="typecheck",
-            ),
-        )
-    )
