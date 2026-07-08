@@ -22,7 +22,7 @@ from ..context_classification import (
 )
 from ..contracts import FlattenedContractField, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError
-from ..expressions import EnumMemberExpr, FieldAccessExpr, LiteralExpr, NameExpr
+from ..expressions import EnumMemberExpr, FieldAccessExpr, LiteralExpr, NameExpr, RecordExpr
 from ..phase import (
     PHASE_CONTEXT_NAME,
     RUN_CONTEXT_NAME,
@@ -34,10 +34,9 @@ from ..phase import (
 )
 from ..workflows import PromotedEntryHiddenContextRequirement
 from ..type_env import PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, WorkflowRefTypeRef
-from . import core as lowering_core
 from .context import _compile_error, _TerminalResult
 from .generated_paths import allocate_reusable_call_write_root
-from .origins import LoweringOrigin
+from .origins import LoweringOrigin, _origin_from_context_source, _record_step_origin
 from .pure_projection import (
     is_pure_projection_expr,
     lower_pure_projection_step,
@@ -45,7 +44,9 @@ from .pure_projection import (
 )
 from .values import (
     _flatten_boundary_leaf_paths,
+    _inline_expr_field_value,
     _record_expr_value_at_path,
+    _resolve_expr_local_value,
     _resolve_inline_expr_value,
     _resolve_nested_local_value,
 )
@@ -225,7 +226,7 @@ def _declare_runtime_context_hidden_inputs(
     """Declare runtime-owned hidden inputs for one omitted promoted-entry context param."""
 
     structural_classification = classify_structural_private_exec_context(param_type)
-    origin = lowering_core._origin_from_context_source(context, source_expr)
+    origin = _origin_from_context_source(context, source_expr)
     binding_id = binding_id or param_name
     generated_name = generated_name or param_name
     callee_fields = tuple(
@@ -597,7 +598,7 @@ def _carry_callee_private_exec_context_bindings(
     if not private_exec_context_bindings:
         return {}
 
-    origin = lowering_core._origin_from_context_source(context, source_expr)
+    origin = _origin_from_context_source(context, source_expr)
     source_provenance = {
         "workflow_name": context.workflow_name,
         "path": str(origin.span.start.path),
@@ -705,7 +706,7 @@ def _carry_callee_runtime_context_inputs(
     if not runtime_context_input_names:
         return {}
 
-    origin = lowering_core._origin_from_context_source(context, source_expr)
+    origin = _origin_from_context_source(context, source_expr)
     carried_bindings: dict[str, Any] = {}
     for input_name in runtime_context_input_names:
         if input_name in already_bound or input_name in carried_bindings:
@@ -881,7 +882,7 @@ def _managed_write_root_binding_step(
         return [], bindings
 
     prepare_step_name = f"{call_step_name}__managed_write_roots"
-    prepare_step_id = lowering_core._normalize_generated_step_id(prepare_step_name)
+    prepare_step_id = context.normalize_generated_step_id(prepare_step_name)
     bundle_input_name = f"__write_root__{prepare_step_id}__managed_write_roots_bundle"
     context.internal_generated_input_contracts.setdefault(
         bundle_input_name,
@@ -935,7 +936,7 @@ def _managed_write_root_binding_step(
             ],
         },
     }
-    lowering_core._record_step_origin(
+    _record_step_origin(
         context,
         step_name=prepare_step_name,
         step_id=prepare_step_id,
@@ -975,8 +976,10 @@ def _lower_workflow_call(
     context: Any,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], Any]:
+    from .phase_scope import _resolved_workflow_ref_value
+
     signature = context.workflow_catalog.signatures_by_name.get(expr.callee_name)
-    resolved_ref = lowering_core._resolved_workflow_ref_value(
+    resolved_ref = _resolved_workflow_ref_value(
         local_values.get(expr.callee_name),
         context=context,
         expected_type=None,
@@ -1018,7 +1021,7 @@ def _lower_workflow_call(
                 if isinstance(binding_expr, EnumMemberExpr)
                 else _resolve_inline_expr_value(binding_expr, local_values=local_values) or binding_expr
             )
-            resolved_binding = lowering_core._resolved_workflow_ref_value(
+            resolved_binding = _resolved_workflow_ref_value(
                 candidate_expr,
                 context=context,
                 expected_type=param_type,
@@ -1056,7 +1059,7 @@ def _lower_workflow_call(
             form_path=expr.form_path,
         )
     step_name = f"{context.step_name_prefix}__call_{canonical_name}"
-    step_id = lowering_core._normalize_generated_step_id(step_name)
+    step_id = context.normalize_generated_step_id(step_name)
     with_bindings: dict[str, Any] = {}
     projection_binding_steps: list[dict[str, Any]] = []
     assert callee_signature is not None
@@ -1423,7 +1426,7 @@ def _lower_workflow_call(
                 allowed_inputs=omitted_compatibility_bridge_inputs,
             )
         )
-    lowering_core._record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
     step = {
         "name": step_name,
         "id": step_id,
@@ -1459,7 +1462,7 @@ def _lower_pure_call_binding_if_eligible(
     if candidate_expr is None:
         return None
     binding_step_name = f"{call_step_name}__bind_{binding_name}"
-    binding_step_id = lowering_core._normalize_generated_step_id(binding_step_name)
+    binding_step_id = context.normalize_generated_step_id(binding_step_name)
     projection_expr = candidate_expr
     projection_result_type = binding_type
     if isinstance(candidate_expr, EnumMemberExpr) and isinstance(binding_type, PrimitiveTypeRef):
@@ -1516,7 +1519,7 @@ def _render_call_binding_ref(
 ) -> Any:
     """Render one frontend expression as a `call.with` binding value."""
 
-    value = lowering_core._resolve_expr_local_value(expr, local_values=local_values)
+    value = _resolve_expr_local_value(expr, local_values=local_values)
     if field_path:
         value = _resolve_nested_local_value(value, field_path)
     return _render_call_binding_leaf_ref(value, source_expr=expr)
@@ -1537,11 +1540,11 @@ def _render_record_call_bindings(
         leaf_source_expr = value_expr
         if isinstance(resolved_value, Mapping):
             leaf_value = _resolve_nested_local_value(resolved_value, field_path)
-        elif isinstance(resolved_value, lowering_core.RecordExpr):
+        elif isinstance(resolved_value, RecordExpr):
             leaf_source_expr = _record_expr_value_at_path(resolved_value, field_path)
             leaf_value = _resolve_inline_expr_value(leaf_source_expr, local_values=local_values)
         else:
-            leaf_value = lowering_core._inline_expr_field_value(
+            leaf_value = _inline_expr_field_value(
                 value_expr,
                 field_path=field_path,
                 local_values=local_values,
