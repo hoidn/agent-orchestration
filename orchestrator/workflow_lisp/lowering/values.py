@@ -31,7 +31,6 @@ from ..expressions import (
 from ..procedures import TypedProcedureDef
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
-from . import core as lowering_core
 from .context import _compile_error, _LoweringContext, _TerminalResult
 from .generated_paths import allocate_generated_result_bundle
 from .origins import LoweringOrigin, _origin_from_context_source, _record_step_origin
@@ -84,18 +83,6 @@ def _value_compile_error(*, code: str, message: str, span, form_path: tuple[str,
             ),
         )
     )
-
-
-def _normalize_generated_step_id(*args, **kwargs):
-    return lowering_core._normalize_generated_step_id(*args, **kwargs)
-
-
-def _materialize_values_step(*args, **kwargs):
-    return lowering_core._materialize_values_step(*args, **kwargs)
-
-
-def _surface_contract_from_structured_field(*args, **kwargs):
-    return lowering_core._surface_contract_from_structured_field(*args, **kwargs)
 
 
 def _boundary_placeholder_literals(
@@ -714,10 +701,12 @@ def _lower_record_expr(
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     """Project a record return expression from existing step-backed refs."""
 
+    from .control_loops import _materialize_values_step
+
     record_expr = typed_expr.expr
     assert isinstance(record_expr, RecordExpr)
     step_name = context.step_name_prefix
-    step_id = _normalize_generated_step_id(step_name)
+    step_id = context.normalize_generated_step_id(step_name)
     direct_output_refs: dict[str, str] = {}
     values: list[dict[str, Any]] = []
     for field_name in context.return_output_contracts:
@@ -795,11 +784,14 @@ def _lower_union_variant_expr(
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     """Materialize one compiler-generated union variant through workflow outputs."""
 
+    from .control_loops import _materialize_values_step
+    from .phase_scope import _surface_contract_from_structured_field
+
     union_expr = typed_expr.expr
     assert isinstance(union_expr, UnionVariantExpr)
     assert isinstance(typed_expr.type_ref, UnionTypeRef)
     step_name = context.step_name_prefix
-    step_id = _normalize_generated_step_id(step_name)
+    step_id = context.normalize_generated_step_id(step_name)
     if step_name != context.workflow_name:
         values: list[dict[str, Any]] = []
         placeholders = _boundary_placeholder_literals(
