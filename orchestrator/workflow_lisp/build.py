@@ -30,6 +30,8 @@ from .build_manifest_io import (
     _sha256_path,
 )
 from .build_design_delta import (
+    DesignDeltaEvidence,
+    DesignDeltaReportPayloads,
     _allowed_resume_plumbing_retirement_registry_rows,
     _augment_design_delta_compatibility_bridge_lineage,
     _build_design_delta_observability_summary_prerequisite_report,
@@ -95,6 +97,7 @@ from .build_artifacts import (
     _write_build_artifacts,
 )
 
+from .command_boundaries import CertifiedAdapterBinding, ExternalToolBinding
 from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
 from .consumer_rendering_census import (
     build_consumer_rendering_census_report,
@@ -102,6 +105,7 @@ from .consumer_rendering_census import (
 )
 from .compatibility_bridges import build_compatibility_bridge_report
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .family_profiles import WorkflowFamilyProfileCatalog
 from .form_registry import get_form_spec
 from .lints import LINT_PROFILE_DEFAULT
 from .parent_drain_census_alignment import (
@@ -657,6 +661,12 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     requested exported workflow, reattaches source-map data to the validated
     bundle, and writes the manifest/source-map/debug artifacts under
     `.orchestrate/build`.
+
+    Stage pipeline (each stage is a private helper defined immediately below):
+    `_compile_entry` (manifest-fed compile + entry selection) ->
+    `_select_and_reattach` (bridge materialization, provenance/semantic-IR
+    reattach, fingerprint, build_root) -> `serialize_design_delta_reports` ->
+    `_emit` (artifact/manifest writes + `FrontendBuildResult` construction).
     """
 
     resolved_request = _resolve_request(request)
@@ -690,6 +700,83 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         source_path=resolved_request.source_path,
     )
 
+    compile_result, entry_selection = _compile_entry(
+        resolved_request,
+        family_catalog=family_profile_catalog,
+        provider_externs=provider_externs,
+        prompt_externs=prompt_externs,
+        imported_workflow_bundles=imported_workflow_bundles,
+        command_boundaries=command_boundaries,
+    )
+    design_delta = load_design_delta_evidence(
+        family_profile_catalog,
+        entry_workflow=resolved_request.entry_workflow,
+        canonical_entry_name=entry_selection.canonical_name,
+        source_path=resolved_request.source_path,
+        command_boundary_manifest=command_boundary_manifest,
+    )
+
+    reattached = _select_and_reattach(
+        compile_result,
+        entry_selection,
+        resolved_request=resolved_request,
+        design_delta=design_delta,
+        imported_bindings=imported_bindings,
+        provider_externs=provider_externs,
+        prompt_externs=prompt_externs,
+        command_boundary_manifest=command_boundary_manifest,
+        family_profile_catalog=family_profile_catalog,
+    )
+    semantic_ir_payload = workflow_semantic_ir_to_json(reattached.validated_bundle.semantic_ir)
+    executable_ir_payload = workflow_executable_ir_to_json(reattached.validated_bundle.ir)
+
+    report_payloads = serialize_design_delta_reports(
+        design_delta,
+        compile_result=compile_result,
+        entry_selection=entry_selection,
+        validated_bundles_by_name=reattached.validated_bundles_by_name,
+        workflow_boundary_projection_payload=reattached.workflow_boundary_projection_payload,
+        source_map_payload=reattached.source_map_payload,
+        command_boundaries=command_boundaries,
+        command_boundary_manifest=command_boundary_manifest,
+        provider_externs=provider_externs,
+        prompt_externs=prompt_externs,
+        resolved_request=resolved_request,
+        build_root=reattached.build_root,
+    )
+
+    return _emit(
+        reattached.validated_bundle,
+        report_payloads,
+        build_root=reattached.build_root,
+        compile_result=compile_result,
+        entry_selection=entry_selection,
+        resolved_request=resolved_request,
+        imported_bindings=imported_bindings,
+        fingerprint=reattached.fingerprint,
+        semantic_ir_payload=semantic_ir_payload,
+        executable_ir_payload=executable_ir_payload,
+        source_map_payload=reattached.source_map_payload,
+        workflow_boundary_projection_payload=reattached.workflow_boundary_projection_payload,
+        design_delta=design_delta,
+    )
+
+
+def _compile_entry(
+    resolved_request: FrontendBuildRequest,
+    *,
+    family_catalog: WorkflowFamilyProfileCatalog | None,
+    provider_externs: Mapping[str, str],
+    prompt_externs: Mapping[str, object],
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
+    command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding],
+) -> tuple[LinkedStage3CompileResult, FrontendEntrySelection]:
+    """Compile the entry module graph and select the requested export.
+
+    Stage 1 of `build_frontend_bundle` (see its docstring for the full
+    pipeline): `compile_stage3_entrypoint` + `_select_entry_workflow`.
+    """
+
     compile_result = compile_stage3_entrypoint(
         resolved_request.source_path,
         source_roots=resolved_request.source_roots,
@@ -702,7 +789,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         workspace_root=resolved_request.workspace_root,
         lint_profile=resolved_request.lint_profile,
         lowering_route=resolved_request.lowering_route,
-        family_profile_catalog=family_profile_catalog,
+        family_profile_catalog=family_catalog,
     )
 
     entry_selection = _select_entry_workflow(
@@ -710,13 +797,48 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         requested_name=resolved_request.entry_workflow,
         source_path=resolved_request.source_path,
     )
-    design_delta = load_design_delta_evidence(
-        family_profile_catalog,
-        entry_workflow=resolved_request.entry_workflow,
-        canonical_entry_name=entry_selection.canonical_name,
-        source_path=resolved_request.source_path,
-        command_boundary_manifest=command_boundary_manifest,
-    )
+    return compile_result, entry_selection
+
+
+@dataclass(frozen=True)
+class _SelectAndReattachResult:
+    """Return bundle for `_select_and_reattach`.
+
+    A plain tuple would exceed the ~5-element readability threshold (7 fields),
+    so this groups them; see `build_frontend_bundle`'s stage-pipeline docstring.
+    """
+
+    validated_bundle: LoadedWorkflowBundle
+    validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle]
+    source_map_payload: Mapping[str, object]
+    workflow_boundary_projection_payload: Mapping[str, object]
+    build_root: Path
+    fingerprint: str
+    provenance: WorkflowProvenance
+
+
+def _select_and_reattach(
+    compile_result: LinkedStage3CompileResult,
+    entry_selection: FrontendEntrySelection,
+    *,
+    resolved_request: FrontendBuildRequest,
+    design_delta: DesignDeltaEvidence,
+    imported_bindings: tuple[ImportedWorkflowBundleBinding, ...],
+    provider_externs: Mapping[str, str],
+    prompt_externs: Mapping[str, object],
+    command_boundary_manifest: Mapping[str, object],
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None,
+) -> _SelectAndReattachResult:
+    """Materialize compatibility-bridge bundles and reattach provenance/semantic IR.
+
+    Stage 2 of `build_frontend_bundle` (see its docstring for the full
+    pipeline): selects the validated bundle for the entry workflow, serializes
+    the source map and workflow-boundary projection, validates the
+    hidden-bridge public boundary, computes the content-addressed fingerprint
+    and build_root, materializes compatibility-bridge bundles, and reattaches
+    provenance/runtime-plan/semantic-IR to the validated bundle.
+    """
+
     selected_bundle = compile_result.validated_bundles_by_name[
         entry_selection.canonical_name
     ]
@@ -753,7 +875,6 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     build_root = resolved_request.workspace_root / ".orchestrate" / "build" / fingerprint
     build_root.mkdir(parents=True, exist_ok=True)
 
-    diagnostics = compile_result.diagnostics
     source_map_path = build_root / "source_map.json"
     provenance = replace(
         selected_bundle.provenance,
@@ -800,22 +921,42 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         entry_selection.canonical_name: validated_bundle,
     }
     runtime_plan_payload = _public_runtime_plan_payload(validated_bundle.runtime_plan)
-    semantic_ir_payload = workflow_semantic_ir_to_json(validated_bundle.semantic_ir)
-    executable_ir_payload = workflow_executable_ir_to_json(validated_bundle.ir)
-    report_payloads = serialize_design_delta_reports(
-        design_delta,
-        compile_result=compile_result,
-        entry_selection=entry_selection,
+
+    return _SelectAndReattachResult(
+        validated_bundle=validated_bundle,
         validated_bundles_by_name=validated_bundles_by_name,
-        workflow_boundary_projection_payload=workflow_boundary_projection_payload,
         source_map_payload=source_map_payload,
-        command_boundaries=command_boundaries,
-        command_boundary_manifest=command_boundary_manifest,
-        provider_externs=provider_externs,
-        prompt_externs=prompt_externs,
-        resolved_request=resolved_request,
+        workflow_boundary_projection_payload=workflow_boundary_projection_payload,
         build_root=build_root,
+        fingerprint=fingerprint,
+        provenance=provenance,
     )
+
+
+def _emit(
+    validated_bundle: LoadedWorkflowBundle,
+    report_payloads: DesignDeltaReportPayloads,
+    *,
+    build_root: Path,
+    compile_result: LinkedStage3CompileResult,
+    entry_selection: FrontendEntrySelection,
+    resolved_request: FrontendBuildRequest,
+    imported_bindings: tuple[ImportedWorkflowBundleBinding, ...],
+    fingerprint: str,
+    semantic_ir_payload: Mapping[str, object],
+    executable_ir_payload: Mapping[str, object],
+    source_map_payload: Mapping[str, object],
+    workflow_boundary_projection_payload: Mapping[str, object],
+    design_delta: DesignDeltaEvidence,
+) -> FrontendBuildResult:
+    """Write build artifacts and the manifest, and assemble the build result.
+
+    Stage 4 of `build_frontend_bundle` (see its docstring for the full
+    pipeline): `_write_build_artifacts` + `_build_manifest` + manifest write +
+    `FrontendBuildResult` construction.
+    """
+
+    diagnostics = compile_result.diagnostics
     artifact_paths = _write_build_artifacts(
         build_root=build_root,
         compile_result=compile_result,
