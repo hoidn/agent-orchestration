@@ -18,7 +18,7 @@ from .type_env import (
     VariantCaseTypeRef,
     type_refs_compatible,
 )
-from .typecheck_context import raise_error, raise_required_lint
+from .typecheck_context import raise_error, _type_label, _unify_loop_control_types
 
 
 @dataclass(frozen=True)
@@ -56,8 +56,6 @@ def resolve_field_access(
     proof_scope: ProofScope,
     shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...] = (),
 ) -> TypeRef:
-    from . import typecheck as compat
-
     capability_type = _shared_union_field_type(
         base_type=base_type,
         field_name=field_name,
@@ -120,7 +118,7 @@ def resolve_field_access(
             form_path=form_path,
         )
     raise_error(
-        f"type `{compat._type_label(base_type)}` does not support field access",
+        f"type `{_type_label(base_type)}` does not support field access",
         code="record_field_unknown",
         span=span,
         form_path=form_path,
@@ -175,8 +173,6 @@ def typecheck_match_expr(
     typed_factory,
 ):
     from dataclasses import replace
-
-    from . import typecheck as compat
 
     typed_subject = recurse(expr.subject)
     if isinstance(typed_subject.type_ref, TypeParamRef):
@@ -233,21 +229,21 @@ def typecheck_match_expr(
         if arm_result_type is None:
             arm_result_type = typed_body.type_ref
             continue
-        unified_loop_control = compat._unify_loop_control_types(arm_result_type, typed_body.type_ref)
+        unified_loop_control = _unify_loop_control_types(arm_result_type, typed_body.type_ref)
         if unified_loop_control is not None:
             arm_result_type = unified_loop_control
             continue
         if isinstance(arm_result_type, LoopControlTypeRef) and isinstance(typed_body.type_ref, LoopControlTypeRef):
             raise_error(
-                f"`done` expected `{compat._type_label(arm_result_type.result_type_ref)}` but got `{compat._type_label(typed_body.type_ref.result_type_ref)}`",
+                f"`done` expected `{_type_label(arm_result_type.result_type_ref)}` but got `{_type_label(typed_body.type_ref.result_type_ref)}`",
                 code="loop_recur_done_type_mismatch",
                 span=arm.body.span,
                 form_path=arm.body.form_path,
             )
         if not type_refs_compatible(arm_result_type, typed_body.type_ref):
             raise_error(
-                f"match arm for `{arm.variant_name}` returned `{compat._type_label(typed_body.type_ref)}`"
-                f" but expected `{compat._type_label(arm_result_type)}`",
+                f"match arm for `{arm.variant_name}` returned `{_type_label(typed_body.type_ref)}`"
+                f" but expected `{_type_label(arm_result_type)}`",
                 code="type_mismatch",
                 span=arm.body.span,
                 form_path=arm.body.form_path,

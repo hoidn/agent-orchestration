@@ -25,14 +25,9 @@ from .typecheck_dispatch import (
     _derive_resume_public_input_hash_basis,
     _effect_subject,
     _generated_relpath_seed_expr,
-    _literal_type_name,
     _require_normative_phase_ctx_type,
     _require_phase_scope_name_match,
     _require_resume_binding,
-    _type_label,
-    _type_refs_compatible,
-    _typed,
-    _unify_loop_control_types,
     typecheck_expression,
 )
 from .typecheck_effects import (

@@ -8,7 +8,7 @@ from .effects import EMPTY_EFFECT_SUMMARY, merge_effect_summaries
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
 from .expressions import PureOpExpr, RecordUpdateExpr
 from .type_env import OptionalTypeRef, PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef
-from .typecheck_context import raise_error, raise_required_lint
+from .typecheck_context import raise_error, _type_label
 
 
 def typecheck_pure_expr(
@@ -18,8 +18,6 @@ def typecheck_pure_expr(
     recurse,
     typed_factory,
 ):
-    from . import typecheck as compat
-
     if isinstance(expr, PureOpExpr):
         spec = PURE_EXPR_OPERATOR_CATALOG.get(expr.operator)
         if spec is None:
@@ -33,7 +31,6 @@ def typecheck_pure_expr(
         arity = len(expr.args)
         if arity < spec.min_arity or (spec.max_arity is not None and arity > spec.max_arity):
             _raise_operand_mismatch(
-                compat=compat,
                 expr=expr,
                 message=(
                     f"operator `{expr.operator}` requires between {spec.min_arity} and "
@@ -66,7 +63,6 @@ def typecheck_pure_expr(
                 )
             if left != right or not _supports_equality(left):
                 _raise_operand_mismatch(
-                    compat=compat,
                     expr=expr,
                     message=f"operator `{operator}` requires equal comparable operand types",
                 )
@@ -80,7 +76,6 @@ def typecheck_pure_expr(
             left, right = arg_types
             if left != right or not (_is_primitive(left, "Int") or _is_primitive(left, "Float")):
                 _raise_operand_mismatch(
-                    compat=compat,
                     expr=expr,
                     message=f"operator `{operator}` requires matching Int or Float operands",
                 )
@@ -93,7 +88,6 @@ def typecheck_pure_expr(
         if operator in {"and", "or"}:
             for arg_type in arg_types:
                 _require_primitive(
-                    compat=compat,
                     expr=expr,
                     type_ref=arg_type,
                     name="Bool",
@@ -107,7 +101,6 @@ def typecheck_pure_expr(
 
         if operator == "not":
             _require_primitive(
-                compat=compat,
                 expr=expr,
                 type_ref=arg_types[0],
                 name="Bool",
@@ -122,7 +115,6 @@ def typecheck_pure_expr(
         if operator in {"+", "-", "*", "min", "max"}:
             for arg_type in arg_types:
                 _require_primitive(
-                    compat=compat,
                     expr=expr,
                     type_ref=arg_type,
                     name="Int",
@@ -145,7 +137,6 @@ def typecheck_pure_expr(
                 )
             for arg_type in arg_types:
                 _require_primitive(
-                    compat=compat,
                     expr=expr,
                     type_ref=arg_type,
                     name="String",
@@ -159,7 +150,6 @@ def typecheck_pure_expr(
 
         if operator == "string/empty?":
             _require_primitive(
-                compat=compat,
                 expr=expr,
                 type_ref=arg_types[0],
                 name="String",
@@ -173,7 +163,6 @@ def typecheck_pure_expr(
 
         if operator == "symbol/name":
             _require_primitive(
-                compat=compat,
                 expr=expr,
                 type_ref=arg_types[0],
                 name="Symbol",
@@ -188,7 +177,6 @@ def typecheck_pure_expr(
         if operator == "some?":
             if not isinstance(arg_types[0], OptionalTypeRef):
                 _raise_operand_mismatch(
-                    compat=compat,
                     expr=expr,
                     message="`some?` requires an Optional operand",
                 )
@@ -202,13 +190,11 @@ def typecheck_pure_expr(
             optional_type = arg_types[0]
             if not isinstance(optional_type, OptionalTypeRef):
                 _raise_operand_mismatch(
-                    compat=compat,
                     expr=expr,
                     message="`or-else` requires an Optional first operand",
                 )
             if optional_type.item_type_ref != arg_types[1]:
                 _raise_operand_mismatch(
-                    compat=compat,
                     expr=expr,
                     message="`or-else` fallback type must match the Optional item type",
                 )
@@ -223,7 +209,6 @@ def typecheck_pure_expr(
     typed_base = recurse(expr.base_expr)
     if not isinstance(typed_base.type_ref, RecordTypeRef):
         _raise_operand_mismatch(
-            compat=compat,
             expr=expr,
             message="`record-update` requires a record base expression",
         )
@@ -262,11 +247,10 @@ def typecheck_pure_expr(
             )
         if expected_type != typed_value.type_ref:
             _raise_operand_mismatch(
-                compat=compat,
                 expr=field_expr,
                 message=(
-                    f"record-update field `{field_name}` expected `{compat._type_label(expected_type)}` "
-                    f"but got `{compat._type_label(typed_value.type_ref)}`"
+                    f"record-update field `{field_name}` expected `{_type_label(expected_type)}` "
+                    f"but got `{_type_label(typed_value.type_ref)}`"
                 ),
             )
         rewritten_overrides.append((field_name, typed_value.expr))
@@ -299,16 +283,15 @@ def _is_union_like(type_ref: TypeRef) -> bool:
     return type(type_ref).__name__ in {"UnionTypeRef", "VariantCaseTypeRef"}
 
 
-def _require_primitive(*, compat, expr, type_ref: TypeRef, name: str, operator: str) -> None:
+def _require_primitive(*, expr, type_ref: TypeRef, name: str, operator: str) -> None:
     if not _is_primitive(type_ref, name):
         _raise_operand_mismatch(
-            compat=compat,
             expr=expr,
             message=f"operator `{operator}` requires {name} operands",
         )
 
 
-def _raise_operand_mismatch(*, compat, expr, message: str) -> None:
+def _raise_operand_mismatch(*, expr, message: str) -> None:
     raise_error(
         message,
         code="pure_expr_operand_type_mismatch",

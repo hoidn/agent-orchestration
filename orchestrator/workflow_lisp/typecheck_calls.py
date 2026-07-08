@@ -34,7 +34,7 @@ from .type_env import (
     WorkflowRefTypeRef,
     type_refs_compatible,
 )
-from .typecheck_context import raise_error, raise_required_lint
+from .typecheck_context import raise_error, raise_required_lint, _type_label
 from .workflow_refs import (
     resolve_workflow_ref_name,
     workflow_ref_target_name,
@@ -50,8 +50,6 @@ def hidden_context_omission_allowed(
     span,
     form_path: tuple[str, ...],
 ) -> bool:
-    from . import typecheck as compat
-
     active_signature = session_state.workflow_signature
     if callee_signature is None or active_signature is None:
         return False
@@ -194,8 +192,6 @@ def typecheck_workflow_ref_argument(
     workflow_catalog,
     typed_factory,
 ) :
-    from . import typecheck as compat
-
     if workflow_catalog is None:
         raise TypeError("workflow_catalog is required for workflow-ref arguments")
     if isinstance(expr, NameExpr):
@@ -251,8 +247,6 @@ def typecheck_proc_ref_argument(
     active_proc_ref_value_env,
     typed_factory,
 ) -> tuple[object, ResolvedProcRefValue | None]:
-    from . import typecheck as compat
-
     if procedure_catalog is None:
         raise TypeError("procedure_catalog is required for proc-ref arguments")
     resolved = resolve_proc_ref_value(
@@ -285,8 +279,6 @@ def workflow_ref_signature(
     span,
     form_path: tuple[str, ...],
 ):
-    from . import typecheck as compat
-
     if workflow_catalog is None:
         raise TypeError("workflow_catalog is required for workflow ref validation")
     try:
@@ -324,8 +316,6 @@ def require_union_variant_field(
     span,
     form_path: tuple[str, ...],
 ) -> TypeRef:
-    from . import typecheck as compat
-
     variant_fields = union_type.variant_field_types.get(variant_name)
     if variant_fields is None or field_name not in variant_fields:
         raise_required_lint(
@@ -346,8 +336,6 @@ def require_union_variant_path_field(
     span,
     form_path: tuple[str, ...],
 ) -> PathTypeRef:
-    from . import typecheck as compat
-
     field_type = require_union_variant_field(
         union_type,
         variant_name,
@@ -377,8 +365,6 @@ def require_union_variant_exact_type(
     span,
     form_path: tuple[str, ...],
 ) -> TypeRef:
-    from . import typecheck as compat
-
     field_type = require_union_variant_field(
         union_type,
         variant_name,
@@ -407,8 +393,6 @@ def require_union_variant_exact_field_names(
     span,
     form_path: tuple[str, ...],
 ) -> None:
-    from . import typecheck as compat
-
     variant_fields = union_type.variant_field_types.get(variant_name)
     actual_fields = tuple(sorted(variant_fields)) if variant_fields is not None else ()
     if actual_fields != tuple(sorted(expected_fields)):
@@ -431,8 +415,6 @@ def require_union_variant_record_field(
     span,
     form_path: tuple[str, ...],
 ) -> RecordTypeRef:
-    from . import typecheck as compat
-
     field_type = require_union_variant_field(
         union_type,
         variant_name,
@@ -457,7 +439,6 @@ def validate_selector_workflow_ref(
     span,
     form_path: tuple[str, ...],
 ) -> tuple[RecordTypeRef, RecordTypeRef]:
-    from . import typecheck as compat
     from .resource import ensure_drain_context_type
 
     if len(signature.params) != 1:
@@ -536,7 +517,6 @@ def validate_run_item_workflow_ref(
     span,
     form_path: tuple[str, ...],
 ) -> None:
-    from . import typecheck as compat
     from .resource import ensure_item_context_type
 
     if len(signature.params) != 2:
@@ -627,7 +607,6 @@ def validate_gap_drafter_workflow_ref(
     span,
     form_path: tuple[str, ...],
 ) -> None:
-    from . import typecheck as compat
     from .resource import ensure_drain_context_type
 
     if len(signature.params) != 2:
@@ -698,8 +677,6 @@ def typecheck_call_expr(
     recurse,
     typed_factory,
 ):
-    from . import typecheck as compat
-
     if context.workflow_catalog is None:
         raise TypeError("workflow_catalog is required for CallExpr typechecking")
     workflow_ref_type = context.value_env.get(expr.callee_name)
@@ -807,8 +784,8 @@ def typecheck_call_expr(
         binding_summaries.append(typed_binding.effect_summary)
         if not type_refs_compatible(expected_type, typed_binding.type_ref):
             raise_error(
-                f"call binding `{binding_name}` expected `{compat._type_label(expected_type)}`"
-                f" but got `{compat._type_label(typed_binding.type_ref)}`",
+                f"call binding `{binding_name}` expected `{_type_label(expected_type)}`"
+                f" but got `{_type_label(typed_binding.type_ref)}`",
                 code="type_mismatch",
                 span=binding_expr.span,
                 form_path=binding_expr.form_path,
@@ -873,8 +850,6 @@ def typecheck_function_call_expr(
     recurse,
     typed_factory,
 ):
-    from . import typecheck as compat
-
     if context.session_state.function_catalog is None:
         raise TypeError("function_catalog is required for FunctionCallExpr typechecking")
     signature = context.session_state.function_catalog.signatures_by_name.get(expr.callee_name)
@@ -898,8 +873,8 @@ def typecheck_function_call_expr(
         arg_summaries.append(typed_arg.effect_summary)
         if not type_refs_compatible(expected_type, typed_arg.type_ref):
             raise_error(
-                f"function argument `{param_name}` expected `{compat._type_label(expected_type)}`"
-                f" but got `{compat._type_label(typed_arg.type_ref)}`",
+                f"function argument `{param_name}` expected `{_type_label(expected_type)}`"
+                f" but got `{_type_label(typed_arg.type_ref)}`",
                 code="type_mismatch",
                 span=arg_expr.span,
                 form_path=arg_expr.form_path,

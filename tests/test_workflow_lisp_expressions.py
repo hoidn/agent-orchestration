@@ -164,6 +164,9 @@ def test_typecheck_facade_reexports_public_entrypoints_after_owner_split() -> No
     assert context_path.is_file()
     assert dispatch_path.is_file()
     assert inspect.getsourcefile(typecheck_module.TypedExpr) == str(context_path)
+    from orchestrator.workflow_lisp import typecheck_context as _ctx
+    assert inspect.getsourcefile(_ctx._type_label) == str(context_path)
+    assert inspect.getsourcefile(_ctx._typed) == str(context_path)
     assert "_typecheck" not in _typecheck_top_level_names()
     assert "_ACTIVE_FUNCTION_CATALOG" not in dispatch_source
     assert "_ACTIVE_PROC_REF_VALUE_ENV" not in dispatch_source

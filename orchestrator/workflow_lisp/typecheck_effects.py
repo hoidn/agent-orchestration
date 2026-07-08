@@ -57,8 +57,6 @@ def validate_command_argv(
     expr: CommandResultExpr,
     binding,
 ) -> None:
-    from . import typecheck as compat
-
     argv = list(expr.argv)
     first = _literal_string(argv[0]) if argv else None
     if first:
@@ -143,8 +141,6 @@ def validate_semantic_command_adapter_usage(
     expr: CommandResultExpr,
     binding,
 ) -> None:
-    from . import typecheck as compat
-
     effects = set(binding.effects)
     transition_binding = getattr(binding, "transition_binding", None)
     allow_migration_backend_call = (
@@ -202,7 +198,6 @@ def typecheck_provider_result_expr(
     recurse,
     typed_factory,
 ):
-    from . import typecheck as compat
     from .workflows import PromptExtern, ProviderExtern
 
     if is_macro_introduced_effect(expr.span, expr.expansion_stack):
@@ -331,8 +326,6 @@ def typecheck_provider_bundle_path_expr(
     recurse,
     typed_factory,
 ):
-    from . import typecheck as compat
-
     typed_source = recurse(expr.source_expr)
     target_type = context.type_env.resolve_type(
         expr.target_type_name,
@@ -385,7 +378,6 @@ def typecheck_command_result_expr(
     recurse,
     typed_factory,
 ):
-    from . import typecheck as compat
     from .command_boundaries import (
         CertifiedAdapterBinding,
         certified_adapter_supports_promoted_calls,
@@ -521,8 +513,6 @@ def typecheck_command_result_expr(
 
 
 def _validate_adapter_input_projectable(*, field_name: str, typed_input) -> None:
-    from . import typecheck as compat
-
     if isinstance(typed_input.type_ref, PathTypeRef):
         return
     if isinstance(typed_input.type_ref, PrimitiveTypeRef) and typed_input.type_ref.name not in {

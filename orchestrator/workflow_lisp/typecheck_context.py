@@ -8,14 +8,14 @@ from typing import TYPE_CHECKING
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
-from .expressions import ExprNode
+from .expressions import ExprNode, LiteralExpr
 from .lints import required_lint_diagnostic
 from .loops import LoopControlTypeRef
 from .parametric_constraints import SharedUnionFieldCapability
 from .procedure_refs import ResolvedProcRefValue
 from .procedures import TypedProcedureDef
 from .spans import SourceSpan
-from .type_env import TypeRef
+from .type_env import TypeRef, UnionTypeRef, VariantCaseTypeRef, type_refs_compatible
 
 if TYPE_CHECKING:
     from .functions import FunctionCatalog
@@ -198,3 +198,90 @@ def raise_error(
             ),
         )
     )
+
+
+def _typed(*, expr: ExprNode, type_ref: TypeRef, effect: EffectSummary) -> TypedExpr:
+    return TypedExpr(
+        expr=expr,
+        type_ref=type_ref,
+        effect_summary=effect,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+
+def _literal_type_name(literal_kind: str) -> str:
+    if literal_kind == "string":
+        return "String"
+    if literal_kind == "int":
+        return "Int"
+    if literal_kind == "bool":
+        return "Bool"
+    raise ValueError(f"unsupported literal kind: {literal_kind}")
+
+
+def _type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
+    return type_refs_compatible(expected, actual)
+
+
+def _unify_loop_control_types(
+    left: TypeRef | LoopControlTypeRef,
+    right: TypeRef | LoopControlTypeRef,
+) -> LoopControlTypeRef | None:
+    """Unify loop-control payloads across match arms when possible."""
+
+    if not isinstance(left, LoopControlTypeRef) or not isinstance(right, LoopControlTypeRef):
+        return None
+    if left.state_type_ref != right.state_type_ref:
+        return None
+    if left.result_type_ref is None:
+        return LoopControlTypeRef(
+            state_type_ref=left.state_type_ref,
+            result_type_ref=right.result_type_ref,
+        )
+    if right.result_type_ref is None:
+        return LoopControlTypeRef(
+            state_type_ref=left.state_type_ref,
+            result_type_ref=left.result_type_ref,
+        )
+    if left.result_type_ref != right.result_type_ref:
+        return None
+    return LoopControlTypeRef(
+        state_type_ref=left.state_type_ref,
+        result_type_ref=left.result_type_ref,
+    )
+
+
+def _type_label(type_ref: TypeRef | LoopControlTypeRef) -> str:
+    if isinstance(type_ref, LoopControlTypeRef):
+        result_label = (
+            "?"
+            if type_ref.result_type_ref is None
+            else _type_label(type_ref.result_type_ref)
+        )
+        return f"LoopControl[{_type_label(type_ref.state_type_ref)} -> {result_label}]"
+    if isinstance(type_ref, VariantCaseTypeRef):
+        return f"{type_ref.union_name}.{type_ref.variant_name}"
+    return type_ref.name
+
+
+def _literal_string(expr: ExprNode) -> str | None:
+    if isinstance(expr, LiteralExpr) and expr.literal_kind == "string" and isinstance(expr.value, str):
+        return expr.value
+    return None
+
+
+def _variant_has_field(variant_type: VariantCaseTypeRef, field_name: str) -> bool:
+    return any(field.name == field_name for field in variant_type.definition.fields)
+
+
+def _union_has_any_field(union_type: UnionTypeRef, field_name: str) -> bool:
+    return any(field.name == field_name for variant in union_type.definition.variants for field in variant.fields)
+
+
+def _span_contains(outer: SourceSpan | None, inner: SourceSpan) -> bool:
+    if outer is None:
+        return False
+    if outer.start.path != inner.start.path or outer.end.path != inner.end.path:
+        return False
+    return outer.start.offset <= inner.start.offset and inner.end.offset <= outer.end.offset
