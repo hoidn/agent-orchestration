@@ -17,7 +17,6 @@ from ..spans import SourceSpan
 from ..type_env import RecordTypeRef, TypeRef, UnionTypeRef, VariantCaseTypeRef, render_type_ref
 from ..typecheck import TypedExpr
 from ..workflows import TypedWorkflowDef, WorkflowDef, WorkflowParam, WorkflowSignature
-from . import core as lowering_core
 from .composition_graph import CompositionScope, build_fragment, fragment_requires_helper_boundary
 from .context import (
     _compile_error,
@@ -37,36 +36,24 @@ from .values import (
 )
 
 
-def _normalize_generated_step_id(*args, **kwargs):
-    return lowering_core._normalize_generated_step_id(*args, **kwargs)
-
-
-def _output_contracts_for_type(*args, **kwargs):
-    return lowering_core._output_contracts_for_type(*args, **kwargs)
-
-
-def _lower_conditional_branch_expr(*args, **kwargs):
-    return lowering_core._lower_conditional_branch_expr(*args, **kwargs)
-
-
-def _surface_contract_from_structured_field(*args, **kwargs):
-    return lowering_core._surface_contract_from_structured_field(*args, **kwargs)
-
-
-def _union_output_contracts(*args, **kwargs):
-    return lowering_core._union_output_contracts(*args, **kwargs)
-
-
-def _boundary_placeholder_literals(*args, **kwargs):
-    return lowering_core._boundary_placeholder_literals(*args, **kwargs)
-
-
 def _conditional_case_outputs(*args, **kwargs):
-    return lowering_core._conditional_case_outputs(*args, **kwargs)
+    """Re-export of `core._conditional_case_outputs` for `wcc.defunctionalize`.
+
+    Deferred import avoids the `control_match -> core -> control -> control_match`
+    load-time cycle (`core.py` imports `.control`, which imports this module).
+    """
+
+    from .core import _conditional_case_outputs as _impl
+
+    return _impl(*args, **kwargs)
 
 
 def _conditional_output_refs(*args, **kwargs):
-    return lowering_core._conditional_output_refs(*args, **kwargs)
+    """Re-export of `core._conditional_output_refs`; see `_conditional_case_outputs`."""
+
+    from .core import _conditional_output_refs as _impl
+
+    return _impl(*args, **kwargs)
 
 
 def _build_match_projection_anchor_step(
@@ -86,7 +73,7 @@ def _build_match_projection_anchor_step(
             form_path=context.signature.form_path,
         )
     step_name = f"{match_step_name}__{variant_name.lower()}__projection_anchor"
-    step_id = _normalize_generated_step_id(step_name)
+    step_id = context.normalize_generated_step_id(step_name)
     _record_step_origin(
         context,
         step_name=step_name,
@@ -253,9 +240,10 @@ def _control_lower_match_expr_impl(
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     from .control_loops import _conditional_case_ref
+    from .core import _lower_conditional_branch_expr, _output_contracts_for_type
 
     match_step_name = f"{context.step_name_prefix}__match_{binding_name}"
-    match_step_id = _normalize_generated_step_id(match_step_name)
+    match_step_id = context.normalize_generated_step_id(match_step_name)
     output_contracts = _output_contracts_for_type(
         result_type,
         context=context,
@@ -379,7 +367,7 @@ def _control_lower_match_expr_impl(
         _rewrite_nested_case_sibling_refs(case_steps)
         hidden_inputs.update(case_terminal.hidden_inputs)
         cases[arm.variant_name] = {
-            "id": _normalize_generated_step_id(case_name),
+            "id": context.normalize_generated_step_id(case_name),
             "outputs": case_outputs,
             "steps": case_steps,
         }
@@ -439,6 +427,8 @@ def _normalize_union_match_case_terminal(
     form_path: tuple[str, ...],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     from .control_loops import _conditional_case_ref, _materialize_values_step
+    from .phase_scope import _surface_contract_from_structured_field, _union_output_contracts
+    from .values import _boundary_placeholder_literals
 
     resolved_variant_name = _resolve_match_return_union_variant(
         case_terminal=case_terminal,
@@ -449,7 +439,7 @@ def _normalize_union_match_case_terminal(
         form_path=form_path,
     )
     step_name = f"{case_name}__result_bundle"
-    step_id = _normalize_generated_step_id(step_name)
+    step_id = context.normalize_generated_step_id(step_name)
     bundle_contract = derive_structured_result_contract(
         result_type,
         workflow_name=context.workflow_name,
@@ -798,7 +788,7 @@ def _hoist_match_case_fragment_to_helper(
         )
 
     step_name = f"{case_name}__helper_call"
-    step_id = _normalize_generated_step_id(step_name)
+    step_id = context.normalize_generated_step_id(step_name)
     with_bindings: dict[str, Any] = {}
     for param_name, param_type in helper_workflow.signature.params:
         capture_expr = NameExpr(
