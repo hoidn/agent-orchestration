@@ -700,6 +700,7 @@ class WorkflowExecutor:
         self.step_heartbeat_interval_sec = step_heartbeat_interval_sec
         self._active_provider_sessions: Dict[str, Dict[str, Any]] = {}
         self._lexical_restore_overlay: Optional[Dict[str, Any]] = None
+        self.resume_mode = False
 
     def _load_compiled_frontend_source_trace_payload(
         self,
