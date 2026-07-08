@@ -429,3 +429,119 @@ Consolidation direction: workflow_calls owns (facade + fix-stream evidence).
          return None
 ```
 
+
+---
+
+# Appendix: Task 5 — `lowering_core.<name>` classification table (regenerated 2026-07-07)
+
+Regenerated at Task 5 execution time per the plan's Step 1 script (`re.findall(r'lowering_core\.(\w+)', src)`
+over every `orchestrator/workflow_lisp/lowering/*.py`). The Task 5 brief's inventory header (12 modules,
+~120 forwarders, per-module forwarder counts) was captured before Tasks 1-4 landed; this table supersedes
+it. Ownership below traces through the package's re-export facades (`control.py` re-exports
+`control_dispatch`/`control_loops`/`control_match`; `phase_impl.py` re-exports `phase_scope`; `phase_stdlib.py`
+wraps `phase_drain`/`phase_flow`/`phase_resource`/`phase_scope`) rather than stopping at the first `def` grep
+hit, since several of those hits are themselves `*args, **kwargs` forwarder stubs.
+
+## Raw regenerated inventory (module -> distinct `lowering_core.<name>` uses)
+
+```json
+{
+ "control_dispatch.py": ["_binding_type_for_expr", "_conditional_case_outputs", "_conditional_output_refs", "_infer_inline_binding_type", "_inline_output_refs_for_expr", "_lower_backlog_drain", "_lower_call_expr", "_lower_command_result", "_lower_composed_with_phase", "_lower_conditional_branch_expr", "_lower_finalize_selected_item", "_lower_produce_one_of", "_lower_record_expr", "_lower_resource_transition", "_lower_resume_or_start", "_lower_run_provider_phase", "_lower_union_variant_expr", "_lower_with_phase", "_normalize_generated_step_id", "_output_contracts_for_type", "_resolved_proc_ref_value"],
+ "control_loops.py": ["_normalize_generated_step_id", "_render_repeat_until_max_iterations", "_resolve_lowering_expr_type", "classify_condition_expr", "derive_workflow_boundary_fields", "render_condition_predicate"],
+ "control_match.py": ["_boundary_placeholder_literals", "_conditional_case_outputs", "_conditional_output_refs", "_lower_conditional_branch_expr", "_normalize_generated_step_id", "_output_contracts_for_type", "_surface_contract_from_structured_field", "_union_output_contracts"],
+ "drain_terminal.py": ["_materialize_values_step", "_normalize_generated_step_id", "_origin_from_context_source", "_record_step_origin"],
+ "effects.py": ["PromptExtern", "ProviderExtern", "_build_phase_prompt_input_prelude", "_build_phase_stdlib_prompt_input_prelude", "_normalize_generated_step_id", "_origin_from_context_source", "_phase_prompt_inputs_are_direct", "_prompt_source_step_fields", "_record_output_refs", "_record_step_origin", "_render_argv_tail", "_resolve_inline_expr_value", "_template_for_ref", "_uses_legacy_phase_prompt_input_prelude"],
+ "materialize_view.py": ["_normalize_generated_step_id"],
+ "phase_drain.py": ["_compile_error", "_conditional_case_ref", "_declare_runtime_context_hidden_inputs", "_flatten_boundary_leaf_paths", "_join_ref_path", "_lower_call_expr", "_lower_expression", "_materialize_values_step", "_normalize_generated_step_id", "_normalize_union_field_path", "_origin_from_context_source", "_phase_target_inline_ref", "_prompt_source_replace_kwargs", "_record_expr_value_at_path", "_record_missing_step_origins", "_record_output_refs", "_record_step_origin", "_render_boolean_predicate", "_render_call_binding_leaf_ref", "_render_call_binding_ref", "_render_record_call_bindings", "_resolve_nested_local_value", "_rewrite_prompt_source_mapping", "_union_variant_expr_value_at_path"],
+ "phase_flow.py": ["_assign_nested_local_value", "_conditional_case_ref", "_flatten_boundary_leaf_paths", "_join_ref_path", "_lower_call_expr", "_lower_expression", "_materialize_values_step", "_normalize_generated_step_id", "_normalize_union_field_path", "_origin_from_context_source", "_phase_target_inline_ref", "_prompt_source_step_fields", "_record_expr_value_at_path", "_record_missing_step_origins", "_record_output_refs", "_record_step_origin", "_render_boolean_predicate", "_render_call_binding_ref", "_render_record_call_bindings", "_resolve_nested_local_value", "_union_variant_expr_value_at_path"],
+ "phase_resource.py": ["_conditional_case_ref", "_flatten_boundary_leaf_paths", "_join_ref_path", "_lower_call_expr", "_lower_expression", "_materialize_values_step", "_normalize_generated_step_id", "_normalize_union_field_path", "_origin_from_context_source", "_phase_target_inline_ref", "_record_expr_value_at_path", "_record_missing_step_origins", "_record_output_refs", "_record_step_origin", "_render_boolean_predicate", "_render_call_binding_ref", "_render_record_call_bindings", "_resolve_nested_local_value", "_union_variant_expr_value_at_path"],
+ "phase_scope.py": ["_conditional_case_ref", "_flatten_boundary_leaf_paths", "_lower_call_expr", "_lower_expression", "_materialize_values_step", "_normalize_generated_step_id", "_normalize_union_field_path", "_origin_from_context_source", "_phase_target_inline_ref", "_record_expr_value_at_path", "_record_missing_step_origins", "_record_output_refs", "_record_step_origin", "_resolve_nested_local_value", "_union_variant_expr_value_at_path"],
+ "values.py": ["_materialize_values_step", "_normalize_generated_step_id", "_surface_contract_from_structured_field"],
+ "workflow_calls.py": ["RecordExpr", "_inline_expr_field_value", "_normalize_generated_step_id", "_origin_from_context_source", "_record_step_origin", "_resolve_expr_local_value", "_resolved_workflow_ref_value"]
+}
+```
+
+Note: `workflow_calls.py` has zero self-round-trips (no `lowering_core.<name>` use where `<name>` is also
+defined by `workflow_calls.py` itself), confirming Task 4's five self-round-trip removals held.
+
+## Bucket 1 — owner-import (replace `lowering_core.<name>` with a direct `from .<owner> import <name>`)
+
+True owner traced past facade modules (`control.py`, `phase_impl.py`, `phase_stdlib.py` are pure
+re-export/thin-wrapper shims, not owners):
+
+| Name | True owner module | Notes |
+| --- | --- | --- |
+| `_lower_expression` | `control_dispatch.py` (`_control_lower_expression_impl`) | dispatcher body; see Bucket 2 re: why it is *also* a context-callable |
+| `_lower_if_expr`, `_lower_let_star`, `_is_inline_let_binding_expr` | `control_dispatch.py` | |
+| `_conditional_case_ref`, `_materialize_values_step`, `_inline_procedure_step_prefix`, `_lower_loop_recur` | `control_loops.py` | `_materialize_values_step` real body at `control_loops.py:73`; all other same-name defs elsewhere are stub forwarders |
+| `_resolve_lowering_expr_type` | `core.py` (real body, `core.py:1935`) — `control_loops.py`'s copy is a stub | stays core-owned; not a leaf owner-import |
+| `_binding_terminal_for_inline_match`, `_binding_terminal_for_match_subject`, `_build_match_projection_anchor_step`, `_lower_binding_match_expr`, `_match_arm_local_values` | `control_match.py` | reached via `.control` facade in core.py's import list; not directly in the regenerated `lowering_core.` grep output but relevant to Task 6-8 since core re-exports them |
+| `_lower_call_expr` | `workflow_calls.py:950` | see Bucket 2 — also a context-callable |
+| `_render_argv_tail`, `_render_boolean_predicate`, `_render_call_binding_ref`, `_render_call_binding_leaf_ref`, `_render_record_call_bindings`, `_render_repeat_until_max_iterations`, `_declare_runtime_context_hidden_inputs` | `workflow_calls.py` | |
+| `_lower_with_phase`, `_lower_composed_with_phase`, `_resolved_workflow_ref_value`, `_resolved_proc_ref_value`, `_build_phase_prompt_input_prelude`, `_build_phase_stdlib_prompt_input_prelude`, `_phase_prompt_inputs_are_direct`, `_uses_legacy_phase_prompt_input_prelude`, `_union_output_contracts` | `phase_scope.py` | reached via `phase_impl.py`/`phase_stdlib.py` facades |
+| `_join_ref_path` | `phase_scope.py:2052` (also duplicated verbatim at `phase_flow.py:1569`) | two independent real bodies, same text — dedupe candidate for Tasks 6-8, not just a forwarder swap |
+| `_template_for_ref` | duplicated real bodies in `core.py:1762`, `phase_scope.py:114`, `phase_drain.py:139`, `phase_flow.py:114`, `phase_resource.py:114` | core's copy is what `lowering_core._template_for_ref` resolves to; the other four are dead/duplicate real bodies, not forwarders — flag for Tasks 6-8 cleanup, not a clean single-owner swap |
+| `_surface_contract_from_structured_field` | dual owners: `phase_scope.py:1968` and `phase_stdlib.py:29` (independent real bodies, same text) | site-dependent: `control_match.py`'s forwarder and `values.py`'s forwarder both point at `lowering_core.` which resolves to whichever core imports (core imports the `phase_stdlib` copy per `phase_stdlib import ... review_loop_result_*` block) |
+| `_lower_run_provider_phase`, `_lower_produce_one_of`, `_lower_resume_or_start` | `phase_flow.py` | reached via `phase_stdlib.py` wrapper |
+| `_lower_resource_transition`, `_lower_finalize_selected_item` | `phase_resource.py` | reached via `phase_stdlib.py` wrapper |
+| `_lower_backlog_drain` | `phase_drain.py` | reached via `phase_stdlib.py` wrapper |
+| `_record_step_origin`, `_record_missing_step_origins`, `_origin_from_context_source` | `origins.py` | most modules (`values.py`, `control_dispatch.py`, `control_match.py`, `control_loops.py`, `materialize_view.py`, `pure_projection.py`) already import these directly from `.origins`; only `phase_drain.py`, `phase_flow.py`, `phase_resource.py`, `phase_scope.py`, `effects.py`, `workflow_calls.py`, `drain_terminal.py` still route them through `lowering_core.` (drain_terminal.py's sites are frozen — see Bucket 3) |
+| `_flatten_boundary_leaf_paths`, `_normalize_union_field_path`, `_record_expr_value_at_path`, `_union_variant_expr_value_at_path`, `_resolve_nested_local_value`, `_record_output_refs`, `_boundary_placeholder_literals`, `_phase_target_inline_ref`, `_assign_nested_local_value`, `_lower_record_expr`, `_lower_union_variant_expr`, `_inline_expr_field_value` | `values.py` | |
+| `_resolve_expr_local_value`, `_resolve_inline_expr_value` | dual owners: `values.py` and `phase_scope.py` (independent real bodies, same signature) | site-dependent — `effects.py`'s and `workflow_calls.py`'s forwarders resolve through whichever `values.py` copy core imports; `phase_scope.py`'s own internal calls use its local copy directly (not via `lowering_core.`) |
+| `_output_contracts_for_type` | dual owners: `core.py:1584` and `pure_projection.py:788` (independent real bodies) | `lowering_core._output_contracts_for_type` (used by `control_dispatch.py`, `control_match.py`) resolves to core's own copy — core-owned, not a leaf owner-import; `pure_projection.py`'s copy is currently unreferenced via `lowering_core.` |
+| `_prompt_source_step_fields` | `core.py:292` (real body) | despite living in core.py, this has no mutual-recursion need — it is a pure data-shaping helper; classified owner-import-from-core, not context-callable, since nothing calls back into it recursively |
+| `PromptExtern`, `ProviderExtern` | `orchestrator/workflow_lisp/workflows.py` (outside `lowering/`) | types merely re-exported by core; `effects.py` uses `lowering_core.ProviderExtern`/`lowering_core.PromptExtern` only for `isinstance` checks |
+| `RecordExpr` | `orchestrator/workflow_lisp/expressions.py` (outside `lowering/`) | type only, re-exported by core |
+| `derive_workflow_boundary_fields` | `orchestrator/workflow_lisp/contracts.py` (outside `lowering/`) | re-exported by core; `control_loops.py` is the only lowering-package module still reaching it via `lowering_core.` |
+| `classify_condition_expr`, `render_condition_predicate` | `orchestrator/workflow_lisp/conditionals.py` (outside `lowering/`) | re-exported by core; same pattern |
+
+## Bucket 2 — context-callable (route through the new `_LoweringContext` fields added this task)
+
+Per the brief's naming, the four names below are mutually recursive across the leaf/core boundary — every
+leaf module that needs to recurse back into general expression lowering or call-expression lowering
+currently must `import core as lowering_core` to reach them, which is exactly the fork/cycle Tasks 6-8 will
+retire. These are the only names populated into `_LoweringContext` this task (fields added, left unused):
+
+| Name | Real body location | Why context-callable, not a plain owner-import |
+| --- | --- | --- |
+| `_lower_expression` | `control_dispatch.py` (`_control_lower_expression_impl`) | general recursive expression dispatcher; every phase/*.py owner needs to call back into it for nested sub-expressions, which would otherwise require importing `control_dispatch` (or `core`) from every leaf, recreating the cycle |
+| `_lower_call_expr` | `workflow_calls.py:950` | reached recursively from `_lower_expression`'s dispatch table and from every phase owner's inline-call handling; same cross-cycle shape |
+| `_record_step_origin` | `origins.py:386` | brief names this explicitly; in practice most callers already import it directly from `.origins` (a dependency-free leaf), so after Tasks 6-8 most call sites should probably resolve as owner-import-from-origins rather than context-callable — the field exists per the brief's fixed pattern, but only `phase_drain.py`/`phase_flow.py`/`phase_resource.py`/`phase_scope.py`/`effects.py`/`workflow_calls.py`'s current `lowering_core.` sites are real candidates for routing through `context.record_step_origin`, and even those could equally take the plain owner-import fix since `origins.py` has no core dependency |
+| `_normalize_generated_step_id` | `core.py:1387` (genuine core-owned body) | this is the one name of the four that is unambiguously core-owned (not a facade indirection) and used pervasively by every leaf module; core.py itself calls it internally after this task's edit via the same local name, and now also exposes it on the context for leaf callers that hold a `context` but not a `core` import |
+
+Constructor site populated: `core.py`'s single `_LoweringContext(` call (`_lower_one_workflow`, core.py:1028)
+now passes `lower_expression=_lower_expression`, `lower_call_expr=_lower_call_expr`,
+`record_step_origin=_record_step_origin`, `normalize_generated_step_id=_normalize_generated_step_id`, using
+the same names core.py already had in scope from its existing imports (`.control`, `.workflow_calls`,
+`.origins`) and its own local definition. No call sites were converted to use `context.lower_expression(...)`
+etc. this task — the fields are populated but unused, per Step 3's "fields unused so far" expectation.
+
+## Bucket 3 — frozen (leave untouched; do not convert in Tasks 6-8)
+
+- **`drain_terminal.py`** (all 4 names, unconditionally, per hard constraint): `_normalize_generated_step_id`,
+  `_record_step_origin`, `_origin_from_context_source`, `_materialize_values_step`. All four sites are the
+  module's top-of-file forwarder-stub block (`drain_terminal.py:19-32`).
+- **`phase_drain.py`**, uses inside the frozen region (real lowering-logic body, not the module's own
+  top-of-file forwarder-stub block at lines 108-186): `_compile_error` (lines 864, 875, 921),
+  `_declare_runtime_context_hidden_inputs` (line 907), `_render_call_binding_leaf_ref` (line 955),
+  `_prompt_source_replace_kwargs` (lines 2235, 2283), `_rewrite_prompt_source_mapping` (line 2320). These
+  same names (`_declare_runtime_context_hidden_inputs`, etc.) are NOT frozen when they appear in other
+  modules (e.g. `workflow_calls.py` owns `_declare_runtime_context_hidden_inputs` outright) — the frozen
+  classification is site-specific to phase_drain.py's body, not name-wide.
+  `phase_drain.py`'s own forwarder-stub block (lines 108-186, 19 stubs) is ordinary owner-import material
+  for Tasks 6-8, same as any other leaf module's stub block — only the body uses (lines 592-2452,
+  approximating the brief's "~592-1979" estimate) are frozen.
+
+## Bucket counts
+
+- Owner-import (leaf-owned, safe for a direct-import swap in Tasks 6-8, including duplicate/site-dependent
+  names flagged above): 47 distinct names across `control_dispatch.py`, `control_loops.py`, `control_match.py`,
+  `workflow_calls.py`, `phase_scope.py`, `phase_flow.py`, `phase_resource.py`, `phase_drain.py`, `origins.py`,
+  `values.py`, `pure_projection.py`, plus 5 outside-`lowering/` re-exports (`PromptExtern`, `ProviderExtern`,
+  `RecordExpr`, `derive_workflow_boundary_fields`, `classify_condition_expr`/`render_condition_predicate` —
+  6 including both conditionals names).
+- Context-callable (routed through new `_LoweringContext` fields this task): 4
+  (`_lower_expression`, `_lower_call_expr`, `_record_step_origin`, `_normalize_generated_step_id`).
+- Frozen (drain_terminal.py wholesale + phase_drain.py body-region sites): `drain_terminal.py` 4 names x 4
+  sites (all uses); `phase_drain.py` 5 distinct names across 8 body-region sites (864, 875, 907, 921, 955,
+  2235, 2283, 2320).

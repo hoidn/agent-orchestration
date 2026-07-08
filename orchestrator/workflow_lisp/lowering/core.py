@@ -1064,6 +1064,10 @@ def _lower_one_workflow(
         ),
         local_type_bindings={name: type_ref for name, type_ref in typed_workflow.signature.params},
         is_generated_private_workflow=is_generated_private_workflow,
+        lower_expression=_lower_expression,
+        lower_call_expr=_lower_call_expr,
+        record_step_origin=_record_step_origin,
+        normalize_generated_step_id=_normalize_generated_step_id,
     )
     local_values = _signature_local_values(typed_workflow)
     steps, terminal = _lower_expression(typed_workflow.typed_body, context=context, local_values=local_values)

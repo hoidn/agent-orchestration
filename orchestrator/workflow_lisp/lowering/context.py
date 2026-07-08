@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -99,6 +99,12 @@ class _LoweringContext:
     composition_scope_kind: str | None = None
     composition_scope_owner_step_name: str | None = None
     requires_guarded_case_step_hoist: bool = False
+    # recursion entry points, set by core at construction; break the
+    # leaf -> core back-import cycle for mutual recursion only
+    lower_expression: Callable[..., Any] | None = None
+    lower_call_expr: Callable[..., Any] | None = None
+    record_step_origin: Callable[..., Any] | None = None
+    normalize_generated_step_id: Callable[..., Any] | None = None
 
 
 @dataclass(frozen=True)
