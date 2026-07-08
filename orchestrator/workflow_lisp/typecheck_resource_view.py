@@ -113,6 +113,7 @@ def typecheck_resource_transition_expr(
             code="transition_declaration_invalid",
             span=expr.span,
             form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
         )
         if declared_resource != resource_def:
             raise_error(
