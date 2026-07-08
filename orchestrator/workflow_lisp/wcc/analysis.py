@@ -10,7 +10,6 @@ from ..type_env import TypeRef
 from .model import (
     WccBody,
     WccCase,
-    WccCaseArm,
     WccHalt,
     WccIf,
     WccJoin,

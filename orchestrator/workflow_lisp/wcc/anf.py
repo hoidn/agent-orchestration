@@ -12,7 +12,6 @@ from .model import (
     WccCaseArm,
     WccCall,
     WccFieldAccessAtom,
-    WccHalt,
     WccIdentityFactory,
     WccIf,
     WccInject,

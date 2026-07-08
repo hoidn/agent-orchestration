@@ -19,8 +19,6 @@ from ..expressions import (
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
-    PureOpExpr,
-    RecordUpdateExpr,
     RecordExpr,
     UnionVariantExpr,
 )
@@ -49,7 +47,6 @@ from .origins import LoweringOrigin, _origin_from_context_source, _record_step_o
 from .pure_projection import is_pure_projection_expr, lower_pure_projection_step, try_evaluate_static_pure_expr
 from .values import (
     _assign_nested_local_value,
-    _build_record_step_local_value,
     _inline_expr_field_value,
     _normalize_union_field_path,
     _phase_target_inline_ref,
@@ -142,7 +139,6 @@ def _emit_repeat_until_from_emitter_input(
     from .control_match import (
         _binding_terminal_for_inline_match,
         _build_match_projection_anchor_step,
-        _match_arm_local_values,
     )
 
     expr = emitter_input

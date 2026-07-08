@@ -9,14 +9,13 @@ from typing import TYPE_CHECKING, Any
 from orchestrator.exceptions import ValidationSubjectRef
 from orchestrator.workflow.core_ast import CoreForEach, CoreIf, CoreMatch, CoreRepeatUntil, CoreWorkflowAST
 from orchestrator.workflow.executable_ir import ExecutableNodeBase
-from orchestrator.workflow.state_layout import GeneratedPathAllocation
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourcePosition, SourceSpan
 
 if TYPE_CHECKING:
     from .compiler import LinkedStage3CompileResult
-    from .lowering import LoweringOrigin, LoweringOriginMap, LoweredWorkflow
+    from .lowering import LoweringOrigin, LoweredWorkflow
     from .workflows import CertifiedAdapterBinding, ExternalToolBinding
 
 

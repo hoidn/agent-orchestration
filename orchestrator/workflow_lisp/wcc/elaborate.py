@@ -7,7 +7,7 @@ from dataclasses import replace
 
 from ..conditionals import classify_condition_expr
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
+from ..effects import EffectSummary
 from ..expressions import (
     BacklogDrainExpr,
     BindProcExpr,
