@@ -708,6 +708,10 @@ def _lower_procedure_call(
         lowering_schema_version=context.lowering_schema_version,
         procedure_type_envs=context.procedure_type_envs,
         active_procedure_calls=context.active_procedure_calls | {procedure.signature.name},
+        lower_expression=context.lower_expression,
+        lower_call_expr=context.lower_call_expr,
+        record_step_origin=context.record_step_origin,
+        normalize_generated_step_id=context.normalize_generated_step_id,
     )
     steps, terminal = _lower_expression(procedure.typed_body, context=child_context, local_values=child_locals)
     _rewrite_nested_sibling_step_refs(steps)

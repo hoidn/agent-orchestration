@@ -571,6 +571,10 @@ def _lower_one_wcc_workflow(
         requires_guarded_case_step_hoist=bool(
             pre_lowering_phase_family_classification.compatibility_bridge_inputs
         ),
+        lower_expression=lowering_core._lower_expression,
+        lower_call_expr=lowering_core._lower_call_expr,
+        record_step_origin=lowering_core._record_step_origin,
+        normalize_generated_step_id=lowering_core._normalize_generated_step_id,
     )
     workflow_return_types = {
         name: workflow.signature.return_type_ref
