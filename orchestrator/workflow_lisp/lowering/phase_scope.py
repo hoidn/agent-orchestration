@@ -9,7 +9,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_managed_write_root_inputs
 from orchestrator.workflow.references import StructuredStepReference
 from orchestrator.workflow.surface_ast import SurfaceStep
 from orchestrator.workflow_lisp.typed_prompt_inputs import normalize_typed_prompt_input_entry
@@ -68,7 +67,9 @@ from .generated_paths import allocate_materialized_value_view
 from .origins import LoweringOrigin, _rekey_origin_map
 from .values import _assign_nested_local_value, _flatten_boundary_leaf_paths, _render_existing_output_ref, _resolve_inline_expr_value
 from .workflow_calls import (
+    _managed_inputs_from_bundle,
     _managed_inputs_from_mapping,
+    _managed_write_root_requirements_for_callable,
     _record_call_binding_label,
     _render_argv_tail,
     _render_boolean_predicate,
@@ -77,6 +78,7 @@ from .workflow_calls import (
     _render_record_call_bindings,
     _render_repeat_until_max_iterations,
     _render_scalar_expr,
+    _runtime_context_default_value,
 )
 
 
@@ -461,29 +463,6 @@ def _lower_workflow_outputs(
             )
     return lowered_outputs
 
-def _runtime_context_default_value(
-    *,
-    requirement: PromotedEntryHiddenContextRequirement,
-    source_path: tuple[str, ...],
-) -> str | None:
-    param_name = requirement.param_name
-    phase_name = requirement.phase_name
-    if source_path == (param_name, "run", "run-id") or source_path == (param_name, "run-id"):
-        return None
-    if source_path == (param_name, "run", "state-root") or source_path == (param_name, "state-root"):
-        return "state/run"
-    if source_path == (param_name, "run", "artifact-root") or source_path == (param_name, "artifact-root"):
-        return "artifacts/run"
-    if requirement.context_kind != PHASE_CONTEXT_NAME or phase_name is None:
-        return None
-    if source_path == (param_name, "phase-name"):
-        return phase_name
-    if source_path == (param_name, "state-root"):
-        return f"state/{phase_name}"
-    if source_path == (param_name, "artifact-root"):
-        return f"artifacts/{phase_name}"
-    return None
-
 
 def _declare_runtime_context_hidden_inputs(
     *,
@@ -524,42 +503,6 @@ def _declare_runtime_context_hidden_inputs(
             "ref": f"inputs.{flattened_field.generated_name}",
         }
     return with_bindings
-
-
-def _managed_inputs_from_bundle(bundle: LoadedWorkflowBundle | None) -> tuple[str, ...]:
-    """Return generated write-root inputs declared by an imported bundle."""
-
-    if bundle is None:
-        return ()
-    return workflow_managed_write_root_inputs(bundle)
-
-
-def _managed_write_root_requirements_for_callable(
-    *,
-    lowered_callee: LoweredWorkflow | None,
-    imported_bundle: LoadedWorkflowBundle | None,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-) -> tuple[str, ...]:
-    """Return deterministic managed write-root inputs for one callable boundary."""
-
-    if lowered_callee is not None:
-        managed_projection_inputs = tuple(
-            field.generated_name
-            for field in lowered_callee.boundary_projection.generated_internal_inputs
-            if field.reason == "managed_write_root" and isinstance(field.generated_name, str)
-        )
-        if managed_projection_inputs:
-            return tuple(sorted(managed_projection_inputs))
-        return tuple(sorted(_managed_inputs_from_mapping(lowered_callee.authored_mapping)))
-    if imported_bundle is not None:
-        return tuple(sorted(_managed_inputs_from_bundle(imported_bundle)))
-    raise _compile_error(
-        code="workflow_call_unknown",
-        message="managed write-root discovery requires a lowered callee or imported bundle",
-        span=span,
-        form_path=form_path,
-    )
 
 
 def _managed_write_root_bindings(
