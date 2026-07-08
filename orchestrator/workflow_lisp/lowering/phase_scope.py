@@ -54,7 +54,6 @@ from ..type_env import PathTypeRef, PrimitiveTypeRef, ProcRefTypeRef, RecordType
 from ..typecheck import TypedExpr
 from ..workflow_refs import ResolvedWorkflowRef, resolve_workflow_ref_literal, resolve_workflow_ref_name, workflow_ref_target_name
 from ..workflows import CertifiedAdapterBinding, PromptExtern, ProviderExtern, analyze_workflow_boundary_type
-from . import core as lowering_core
 from .context import (
     _ActivePhaseScope,
     _compile_error,
@@ -63,9 +62,27 @@ from .context import (
     _LoweringContext,
     _TerminalResult,
 )
+from .control_loops import _conditional_case_ref, _materialize_values_step
 from .generated_paths import allocate_materialized_value_view
-from .origins import LoweringOrigin, _rekey_origin_map
-from .values import _assign_nested_local_value, _flatten_boundary_leaf_paths, _render_existing_output_ref, _resolve_inline_expr_value
+from .origins import (
+    LoweringOrigin,
+    _origin_from_context_source,
+    _record_missing_step_origins,
+    _record_step_origin,
+    _rekey_origin_map,
+)
+from .values import (
+    _assign_nested_local_value,
+    _flatten_boundary_leaf_paths,
+    _normalize_union_field_path,
+    _phase_target_inline_ref,
+    _record_expr_value_at_path,
+    _record_output_refs,
+    _render_existing_output_ref,
+    _resolve_inline_expr_value,
+    _resolve_nested_local_value,
+    _union_variant_expr_value_at_path,
+)
 from .workflow_calls import (
     _declare_runtime_context_hidden_inputs,
     _managed_inputs_from_bundle,
@@ -83,74 +100,10 @@ from .workflow_calls import (
 )
 
 
-def _normalize_generated_step_id(*args, **kwargs):
-    return lowering_core._normalize_generated_step_id(*args, **kwargs)
-
-
-def _record_step_origin(*args, **kwargs):
-    return lowering_core._record_step_origin(*args, **kwargs)
-
-
-def _origin_from_context_source(*args, **kwargs):
-    return lowering_core._origin_from_context_source(*args, **kwargs)
-
-
-def _record_output_refs(*args, **kwargs):
-    return lowering_core._record_output_refs(*args, **kwargs)
-
-
-def _record_missing_step_origins(*args, **kwargs):
-    return lowering_core._record_missing_step_origins(*args, **kwargs)
-
-
-def _materialize_values_step(*args, **kwargs):
-    return lowering_core._materialize_values_step(*args, **kwargs)
-
-
-def _conditional_case_ref(*args, **kwargs):
-    return lowering_core._conditional_case_ref(*args, **kwargs)
-
-
 def _template_for_ref(ref: str) -> str:
     if ref.startswith("${"):
         return ref
     return "${" + ref + "}"
-
-
-def _lower_expression(*args, **kwargs):
-    return lowering_core._lower_expression(*args, **kwargs)
-
-
-def _lower_call_expr(*args, **kwargs):
-    return lowering_core._lower_call_expr(*args, **kwargs)
-
-
-
-
-def _flatten_boundary_leaf_paths(*args, **kwargs):
-    return lowering_core._flatten_boundary_leaf_paths(*args, **kwargs)
-
-
-def _record_expr_value_at_path(*args, **kwargs):
-    return lowering_core._record_expr_value_at_path(*args, **kwargs)
-
-
-def _normalize_union_field_path(*args, **kwargs):
-    return lowering_core._normalize_union_field_path(*args, **kwargs)
-
-
-def _union_variant_expr_value_at_path(*args, **kwargs):
-    return lowering_core._union_variant_expr_value_at_path(*args, **kwargs)
-
-
-def _phase_target_inline_ref(*args, **kwargs):
-    return lowering_core._phase_target_inline_ref(*args, **kwargs)
-
-
-def _resolve_nested_local_value(*args, **kwargs):
-    return lowering_core._resolve_nested_local_value(*args, **kwargs)
-
-
 
 
 def _lower_with_phase(*args, **kwargs):
@@ -422,7 +375,7 @@ def _lower_composed_with_phase(
             scoped_context,
             step_name_prefix=step_name_prefix,
         )
-    return _lower_expression(
+    return scoped_context.lower_expression(
         TypedExpr(
             expr=expr.body,
             type_ref=result_type,
@@ -928,7 +881,7 @@ def _build_phase_prompt_input_prelude(
         publishes.append({"artifact": artifact_name, "from": artifact_name})
 
     step_name = "MaterializeImplementationAttemptPromptInputs"
-    step_id = _normalize_generated_step_id(step_name)
+    step_id = context.normalize_generated_step_id(step_name)
     _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
     return [
         {
@@ -1616,7 +1569,7 @@ def _build_phase_stdlib_prompt_input_prelude(
         artifact_names.append(artifact_name)
 
     step_name = f"{context.step_name_prefix}__prompt_inputs"
-    step_id = _normalize_generated_step_id(step_name)
+    step_id = context.normalize_generated_step_id(step_name)
     _record_step_origin(context, step_name=step_name, step_id=step_id, source=source_expr)
     return (
         [
