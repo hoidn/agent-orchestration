@@ -67,8 +67,10 @@ from .generated_paths import allocate_materialized_value_view
 from .origins import LoweringOrigin, _rekey_origin_map
 from .values import _assign_nested_local_value, _flatten_boundary_leaf_paths, _render_existing_output_ref, _resolve_inline_expr_value
 from .workflow_calls import (
+    _declare_runtime_context_hidden_inputs,
     _managed_inputs_from_bundle,
     _managed_inputs_from_mapping,
+    _managed_write_root_bindings,
     _managed_write_root_requirements_for_callable,
     _record_call_binding_label,
     _render_argv_tail,
@@ -78,7 +80,6 @@ from .workflow_calls import (
     _render_record_call_bindings,
     _render_repeat_until_max_iterations,
     _render_scalar_expr,
-    _runtime_context_default_value,
 )
 
 
@@ -462,72 +463,6 @@ def _lower_workflow_outputs(
                 context.output_projection_metadata[output_name]
             )
     return lowered_outputs
-
-
-def _declare_runtime_context_hidden_inputs(
-    *,
-    context: _LoweringContext,
-    param_name: str,
-    param_type: RecordTypeRef,
-    requirement: PromotedEntryHiddenContextRequirement,
-    source_expr: Any,
-) -> dict[str, Any]:
-    """Declare runtime-owned hidden inputs for one omitted promoted-entry context param."""
-
-    origin = _origin_from_context_source(context, source_expr)
-    with_bindings: dict[str, Any] = {}
-    for flattened_field in derive_workflow_boundary_fields(
-        param_type,
-        generated_name=param_name,
-        source_path=(param_name,),
-        span=origin.span,
-        form_path=origin.form_path,
-    ):
-        contract_definition = dict(flattened_field.contract_definition)
-        default_value = _runtime_context_default_value(
-            requirement=requirement,
-            source_path=flattened_field.source_path,
-        )
-        if default_value is not None:
-            contract_definition["default"] = default_value
-        context.internal_generated_input_contracts.setdefault(
-            flattened_field.generated_name,
-            contract_definition,
-        )
-        context.generated_input_spans.setdefault(flattened_field.generated_name, origin)
-        context.internal_generated_input_reasons.setdefault(
-            flattened_field.generated_name,
-            "runtime_owned_context",
-        )
-        with_bindings[flattened_field.generated_name] = {
-            "ref": f"inputs.{flattened_field.generated_name}",
-        }
-    return with_bindings
-
-
-def _managed_write_root_bindings(
-    *,
-    caller_workflow_name: str,
-    call_step_name: str,
-    callee_name: str,
-    managed_inputs: tuple[str, ...],
-    iteration_scope: str | None = None,
-) -> dict[str, str]:
-    """Allocate deterministic caller-owned write-root bindings for one call site."""
-
-    base_segments = [
-        ".orchestrate/workflow_lisp/calls",
-        caller_workflow_name,
-        call_step_name,
-    ]
-    if iteration_scope is not None:
-        base_segments.append(iteration_scope)
-    base_segments.append(callee_name)
-    base_path = "/".join(base_segments)
-    return {
-        managed_input: f"{base_path}/{managed_input}.json"
-        for managed_input in sorted(managed_inputs)
-    }
 
 
 def _signature_local_values(typed_workflow: TypedWorkflowDef | _LoweringContext) -> dict[str, Any]:
