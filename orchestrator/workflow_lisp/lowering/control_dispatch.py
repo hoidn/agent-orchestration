@@ -39,7 +39,6 @@ from ..expressions import (
 from ..procedure_refs import ResolvedProcRefValue
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
-from . import core as lowering_core
 from .context import (
     _compile_error,
     _context_with_local_type_binding,
@@ -48,8 +47,17 @@ from .context import (
     _NormalizedBindingResult,
     _TerminalResult,
 )
-from .effects import _lower_provider_result
+from .effects import _lower_command_result, _lower_provider_result
 from .origins import LoweringOrigin, _record_step_origin
+from .phase_flow import _lower_produce_one_of, _lower_resume_or_start, _lower_run_provider_phase
+from .phase_resource import _lower_finalize_selected_item as _phase_resource_lower_finalize_selected_item
+from .phase_resource import _lower_resource_transition
+from .phase_scope import (
+    _lower_composed_with_phase,
+    _lower_with_phase as _phase_scope_lower_with_phase,
+    _resolved_proc_ref_value,
+)
+from .phase_drain import _lower_backlog_drain
 from .pure_projection import (
     is_pure_projection_expr,
     lower_pure_projection_step,
@@ -57,6 +65,8 @@ from .pure_projection import (
 )
 from .values import (
     _build_output_step_local_value,
+    _lower_record_expr,
+    _lower_union_variant_expr,
     _resolve_inline_expr_value,
     attach_provider_bundle_identity,
 )
@@ -83,84 +93,14 @@ def reset_intrinsic_form_lowering_counts() -> None:
     _INTRINSIC_FORM_LOWERING_COUNTS.clear()
 
 
-def _normalize_generated_step_id(*args, **kwargs):
-    return lowering_core._normalize_generated_step_id(*args, **kwargs)
-
-
-def _lower_composed_with_phase(*args, **kwargs):
-    return lowering_core._lower_composed_with_phase(*args, **kwargs)
-
-
-def _output_contracts_for_type(*args, **kwargs):
-    return lowering_core._output_contracts_for_type(*args, **kwargs)
-
-
-def _lower_conditional_branch_expr(*args, **kwargs):
-    return lowering_core._lower_conditional_branch_expr(*args, **kwargs)
-
-
-def _binding_type_for_expr(*args, **kwargs):
-    return lowering_core._binding_type_for_expr(*args, **kwargs)
-
-
-def _infer_inline_binding_type(*args, **kwargs):
-    return lowering_core._infer_inline_binding_type(*args, **kwargs)
-
-
-def _resolved_proc_ref_value(*args, **kwargs):
-    return lowering_core._resolved_proc_ref_value(*args, **kwargs)
-
-
-def _inline_output_refs_for_expr(*args, **kwargs):
-    return lowering_core._inline_output_refs_for_expr(*args, **kwargs)
-
-
-def _lower_command_result(*args, **kwargs):
-    return lowering_core._lower_command_result(*args, **kwargs)
-
-
 def _lower_with_phase(*args, **kwargs):
     record_intrinsic_form_lowering("with-phase")
-    return lowering_core._lower_with_phase(*args, **kwargs)
-
-
-def _lower_run_provider_phase(*args, **kwargs):
-    return lowering_core._lower_run_provider_phase(*args, **kwargs)
-
-
-def _lower_produce_one_of(*args, **kwargs):
-    return lowering_core._lower_produce_one_of(*args, **kwargs)
-
-
-def _lower_resume_or_start(*args, **kwargs):
-    return lowering_core._lower_resume_or_start(*args, **kwargs)
-
-
-def _lower_resource_transition(*args, **kwargs):
-    return lowering_core._lower_resource_transition(*args, **kwargs)
+    return _phase_scope_lower_with_phase(*args, **kwargs)
 
 
 def _lower_finalize_selected_item(*args, **kwargs):
     record_intrinsic_form_lowering("finalize-selected-item")
-    return lowering_core._lower_finalize_selected_item(*args, **kwargs)
-
-
-def _lower_backlog_drain(*args, **kwargs):
-    # Compatibility-lane accounting for backlog-drain is owned by
-    # lowering.phase_drain, which skips generated callable-boundary workflows.
-    return lowering_core._lower_backlog_drain(*args, **kwargs)
-
-
-def _lower_call_expr(*args, **kwargs):
-    return lowering_core._lower_call_expr(*args, **kwargs)
-
-
-def _lower_record_expr(*args, **kwargs):
-    return lowering_core._lower_record_expr(*args, **kwargs)
-
-
-def _lower_union_variant_expr(*args, **kwargs):
-    return lowering_core._lower_union_variant_expr(*args, **kwargs)
+    return _phase_resource_lower_finalize_selected_item(*args, **kwargs)
 
 
 def _lower_expression(*args, **kwargs):
@@ -215,7 +155,7 @@ def _control_lower_expression_impl(
 
         return _lower_loop_recur(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, CallExpr):
-        return _lower_call_expr(typed_expr, context=context, local_values=local_values)
+        return context.lower_call_expr(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, ProcedureCallExpr):
         from .procedures import _lower_procedure_call_expr
 
@@ -255,6 +195,8 @@ def _control_lower_let_star_impl(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    from .core import _inline_output_refs_for_expr
+
     expr = typed_expr.expr
     assert isinstance(expr, LetStarExpr)
     binding_name, binding_expr = expr.bindings[0]
@@ -297,7 +239,7 @@ def _control_lower_let_star_impl(
         )
         lowered_steps, terminal = [], _TerminalResult(
             step_name=context.step_name_prefix,
-            step_id=_normalize_generated_step_id(context.step_name_prefix),
+            step_id=context.normalize_generated_step_id(context.step_name_prefix),
             output_refs=output_refs,
             output_kind="projection",
             hidden_inputs={},
@@ -358,6 +300,8 @@ def _normalize_let_binding(
     local_values: Mapping[str, Any],
     step_name_prefix: str,
 ) -> _NormalizedBindingResult:
+    from .core import _binding_type_for_expr, _infer_inline_binding_type
+
     if _is_inline_let_binding_expr(binding_expr):
         resolved_binding = _resolve_inline_expr_value(
             binding_expr,
@@ -498,7 +442,7 @@ def _lower_pure_projection_binding_expr(
         context=context,
         local_values=local_values,
         step_name=step_name_prefix,
-        step_id=_normalize_generated_step_id(step_name_prefix),
+        step_id=context.normalize_generated_step_id(step_name_prefix),
         source_expr=source_expr,
         stable_target="binding_projection",
         output_contracts=output_contracts_for_boundary_type(
@@ -510,7 +454,7 @@ def _lower_pure_projection_binding_expr(
     )
     return [lowered.step], _TerminalResult(
         step_name=step_name_prefix,
-        step_id=_normalize_generated_step_id(step_name_prefix),
+        step_id=context.normalize_generated_step_id(step_name_prefix),
         output_refs=lowered.output_refs,
         output_kind="projection",
         hidden_inputs={},
@@ -557,11 +501,17 @@ def _control_lower_if_expr_impl(
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     from .control_match import _build_match_projection_anchor_step
+    from .core import (
+        _conditional_case_outputs,
+        _conditional_output_refs,
+        _lower_conditional_branch_expr,
+        _output_contracts_for_type,
+    )
 
     expr = typed_expr.expr
     assert isinstance(expr, IfExpr)
     step_name = context.step_name_prefix
-    step_id = _normalize_generated_step_id(step_name)
+    step_id = context.normalize_generated_step_id(step_name)
     condition = render_condition_predicate(
         classify_condition_expr(expr.condition_expr, type_ref=PrimitiveTypeRef(name="Bool")),
         local_values=local_values,
@@ -586,13 +536,13 @@ def _control_lower_if_expr_impl(
         context=context,
         local_values=local_values,
     )
-    then_outputs = lowering_core._conditional_case_outputs(
+    then_outputs = _conditional_case_outputs(
         then_terminal,
         output_contracts=output_contracts,
         span=expr.then_expr.span,
         form_path=expr.then_expr.form_path,
     )
-    else_outputs = lowering_core._conditional_case_outputs(
+    else_outputs = _conditional_case_outputs(
         else_terminal,
         output_contracts=output_contracts,
         span=expr.else_expr.span,
@@ -625,12 +575,12 @@ def _control_lower_if_expr_impl(
             "id": step_id,
             "if": condition,
             "then": {
-                "id": _normalize_generated_step_id(f"{step_name}__then"),
+                "id": context.normalize_generated_step_id(f"{step_name}__then"),
                 "outputs": then_outputs,
                 "steps": then_steps,
             },
             "else": {
-                "id": _normalize_generated_step_id(f"{step_name}__else"),
+                "id": context.normalize_generated_step_id(f"{step_name}__else"),
                 "outputs": else_outputs,
                 "steps": else_steps,
             },
@@ -638,7 +588,7 @@ def _control_lower_if_expr_impl(
     ], _TerminalResult(
         step_name=step_name,
         step_id=step_id,
-        output_refs=lowering_core._conditional_output_refs(
+        output_refs=_conditional_output_refs(
             step_name=step_name,
             output_contracts=output_contracts,
             result_type=typed_expr.type_ref,
