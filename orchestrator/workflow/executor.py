@@ -14,7 +14,7 @@ from copy import deepcopy
 from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, NamedTuple, Optional
 
 from ..state import StateManager, StepResult
 from ..exec.step_executor import StepExecutor
@@ -126,6 +126,11 @@ from .adjudication_runner import AdjudicationBindings, AdjudicationRunner
 logger = logging.getLogger(__name__)
 RESTORE_REPORT_SCHEMA_VERSION = "workflow_lisp_lexical_restore_report.v1"
 _RESTORE_REF_MISSING = object()
+
+
+class _ExecuteStepLoopResult(NamedTuple):
+    terminal_status: str
+    early_result: Optional[Dict[str, Any]] = None
 
 
 class WorkflowExecutor:
@@ -2491,35 +2496,13 @@ class WorkflowExecutor:
             self._persist_bound_inputs(state)
         return None
 
-    def execute(self, run_id: Optional[str] = None, on_error: str = 'stop',
-                max_retries: Optional[int] = None, retry_delay_ms: Optional[int] = None,
-                resume: bool = False) -> Dict[str, Any]:
-        """
-        Execute the workflow.
-
-        Args:
-            run_id: Run identifier
-            on_error: Error handling mode ('stop' or 'continue')
-            max_retries: Maximum retry attempts (overrides constructor value)
-            retry_delay_ms: Retry delay in milliseconds (overrides constructor value)
-            resume: If True, skip already completed steps
-
-        Returns:
-            Final execution state
-        """
-        # Override retry config if provided
-        if max_retries is not None:
-            self.max_retries = max_retries
-        if retry_delay_ms is not None:
-            self.retry_delay_ms = retry_delay_ms
-
-        # Store resume flag for nested methods
+    def _execute_prologue(
+        self,
+        state: Dict[str, Any],
+        *,
+        resume: bool,
+    ) -> Optional[Dict[str, Any]]:
         self.resume_mode = resume
-        # Load current state
-        run_state = self.state_manager.load()
-
-        # Convert to dict format for internal processing
-        state = run_state.to_dict()
         state.setdefault('artifact_versions', {})
         state.setdefault('artifact_consumes', {})
         state.setdefault('private_artifact_versions', {})
@@ -2577,7 +2560,54 @@ class WorkflowExecutor:
         if state.get('status') != 'running':
             self.state_manager.update_status('running')
             state['status'] = 'running'
-        terminal_status = 'completed'
+        return None
+
+    def execute(self, run_id: Optional[str] = None, on_error: str = 'stop',
+                max_retries: Optional[int] = None, retry_delay_ms: Optional[int] = None,
+                resume: bool = False) -> Dict[str, Any]:
+        """
+        Execute the workflow.
+
+        Args:
+            run_id: Run identifier
+            on_error: Error handling mode ('stop' or 'continue')
+            max_retries: Maximum retry attempts (overrides constructor value)
+            retry_delay_ms: Retry delay in milliseconds (overrides constructor value)
+            resume: If True, skip already completed steps
+
+        Returns:
+            Final execution state
+        """
+        # Override retry config if provided
+        if max_retries is not None:
+            self.max_retries = max_retries
+        if retry_delay_ms is not None:
+            self.retry_delay_ms = retry_delay_ms
+
+        run_state = self.state_manager.load()
+        state = run_state.to_dict()
+        early_result = self._execute_prologue(state, resume=resume)
+        if early_result is not None:
+            return early_result
+
+        loop_result = self._execute_step_loop(
+            state,
+            resume=resume,
+            on_error=on_error,
+            terminal_status='completed',
+        )
+        if loop_result.early_result is not None:
+            return loop_result.early_result
+        return self._execute_epilogue(state, loop_result.terminal_status)
+
+    def _execute_step_loop(
+        self,
+        state: Dict[str, Any],
+        *,
+        resume: bool,
+        on_error: str,
+        terminal_status: str,
+    ) -> _ExecuteStepLoopResult:
 
         try:
             active_step_context: Dict[str, Any] = {}
@@ -2585,10 +2615,13 @@ class WorkflowExecutor:
             try:
                 resume_restart_node_id = self._determine_resume_restart_node_id(state) if resume else None
             except ResumeStateIntegrityError as exc:
-                return self._fail_resume_state_integrity(
-                    "resume_state_integrity_error",
-                    str(exc),
-                    dict(exc.context),
+                return _ExecuteStepLoopResult(
+                    terminal_status,
+                    self._fail_resume_state_integrity(
+                        "resume_state_integrity_error",
+                        str(exc),
+                        dict(exc.context),
+                    ),
                 )
             if resume:
                 default_resume_decision = self._determine_resume_default_resume_decision(state)
@@ -2612,16 +2645,19 @@ class WorkflowExecutor:
                     if restore_kind == "INVALID":
                         error_type = "lexical_restore_invalid"
                         error_message = "Lexical checkpoint restore candidate is invalid."
-                    return self._fail_resume_state_integrity(
-                        error_type,
-                        error_message,
-                        {
-                            "restart_node_id": resume_restart_node_id,
-                            "checkpoint_id": default_resume_decision.get("checkpoint_id"),
-                            "record_id": default_resume_decision.get("record_id"),
-                            "diagnostics": list(default_resume_decision.get("diagnostics", ()) or ()),
-                            "mode": default_resume_decision.get("mode"),
-                        },
+                    return _ExecuteStepLoopResult(
+                        terminal_status,
+                        self._fail_resume_state_integrity(
+                            error_type,
+                            error_message,
+                            {
+                                "restart_node_id": resume_restart_node_id,
+                                "checkpoint_id": default_resume_decision.get("checkpoint_id"),
+                                "record_id": default_resume_decision.get("record_id"),
+                                "diagnostics": list(default_resume_decision.get("diagnostics", ()) or ()),
+                                "mode": default_resume_decision.get("mode"),
+                            },
+                        ),
                     )
                 if (
                     default_resume_decision.get("mode") == "LEXICAL_CHECKPOINT_DEFAULT"
@@ -3088,6 +3124,13 @@ class WorkflowExecutor:
             )
             raise
 
+        return _ExecuteStepLoopResult(terminal_status)
+
+    def _execute_epilogue(
+        self,
+        state: Dict[str, Any],
+        terminal_status: str,
+    ) -> Dict[str, Any]:
         finalization = self._ensure_finalization_state(state)
 
         if terminal_status == 'completed':
