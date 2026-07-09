@@ -266,7 +266,7 @@ class CallExecutor:
         contract: Mapping[str, Any] | None,
         allocation: Any | None,
     ) -> str:
-        from .executor import _path_safe_frame_scope_token
+        from .call_frame_state import _path_safe_frame_scope_token
 
         frame_token = _path_safe_frame_scope_token(frame_id)
         workflow_name = getattr(getattr(imported_workflow, "surface", None), "name", None)
@@ -465,7 +465,7 @@ class CallExecutor:
         child_state: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Build observability metadata for one executed call frame."""
-        from .executor import _display_workflow_path
+        from .call_frame_state import _display_workflow_path
 
         provenance = workflow_provenance(imported_workflow)
         workflow_path = provenance.workflow_path if provenance is not None else None
@@ -690,7 +690,7 @@ class CallExecutor:
         existing_frame: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         """Reject resumed call frames when the imported workflow checksum changed."""
-        from .executor import _display_workflow_path
+        from .call_frame_state import _display_workflow_path
 
         if not getattr(self.executor, "resume_mode", False) or not isinstance(existing_frame, dict):
             return None
@@ -764,7 +764,8 @@ class CallExecutor:
         step_name_override: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute an imported workflow inline and persist call-frame state."""
-        from .executor import WorkflowExecutor, _CallFrameStateManager
+        from .call_frame_state import _CallFrameStateManager
+        from .executor import WorkflowExecutor
 
         call_alias = step.get("call")
         imported_bundle = workflow_import_bundle(self.executor.loaded_bundle, call_alias)
