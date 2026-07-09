@@ -79,6 +79,7 @@ from .executable_ir import (
     WorkflowInputAddress,
 )
 from .finalization import FinalizationController
+from .frontend_origins import CompiledFrontendIndex
 from .identity import runtime_step_id
 from .loaded_bundle import (
     workflow_boundary_projection,
@@ -260,10 +261,7 @@ class WorkflowExecutor:
         self.live_agent_note_observer = self._create_live_agent_note_observer()
         provenance = workflow_provenance(workflow)
         workflow_path = provenance.workflow_path if provenance is not None else None
-        self._compiled_frontend_kind = provenance.frontend_kind if provenance is not None else None
-        self._compiled_frontend_node_origins = self._load_compiled_frontend_node_origins(provenance)
-        self._compiled_frontend_step_origins = self._load_compiled_frontend_step_origins(provenance)
-        self._compiled_frontend_command_boundaries = self._load_compiled_frontend_command_boundaries(provenance)
+        self._frontend_index = CompiledFrontendIndex(provenance)
         self.asset_resolver = (
             WorkflowAssetResolver(Path(workflow_path))
             if workflow_path is not None
@@ -343,125 +341,65 @@ class WorkflowExecutor:
         self._lexical_restore_overlay: Optional[Dict[str, Any]] = None
         self.resume_mode = False
 
-    def _load_compiled_frontend_source_trace_payload(
-        self,
-        provenance: Any,
-    ) -> Mapping[str, Any]:
-        """Load the persisted compiled-frontend source-trace payload once."""
-        source_trace_path = (
-            provenance.frontend_source_trace_path
-            if provenance is not None
-            else None
-        )
-        if not isinstance(source_trace_path, Path) or not source_trace_path.exists():
-            return {}
-        cache_key = str(source_trace_path.resolve())
-        payload_cache = getattr(self, "_compiled_frontend_source_trace_payload_cache", None)
-        if isinstance(payload_cache, dict) and cache_key in payload_cache:
-            return payload_cache[cache_key]
-        try:
-            payload = json.loads(source_trace_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            logger.debug("Failed to read compiled frontend source trace %s: %s", source_trace_path, exc)
-            return {}
-        normalized = payload if isinstance(payload, Mapping) else {}
-        if not isinstance(payload_cache, dict):
-            payload_cache = {}
-            self._compiled_frontend_source_trace_payload_cache = payload_cache
-        payload_cache[cache_key] = normalized
-        return normalized
+    def _legacy_frontend_index(self) -> CompiledFrontendIndex:
+        index = getattr(self, "_frontend_index", None)
+        if not isinstance(index, CompiledFrontendIndex):
+            index = CompiledFrontendIndex(None)
+            self._frontend_index = index
+        return index
+
+    @property
+    def _compiled_frontend_kind(self):
+        return self._legacy_frontend_index().frontend_kind
+
+    @_compiled_frontend_kind.setter
+    def _compiled_frontend_kind(self, value) -> None:
+        self._legacy_frontend_index().frontend_kind = value
+
+    @property
+    def _compiled_frontend_node_origins(self):
+        return self._legacy_frontend_index().node_origins
+
+    @_compiled_frontend_node_origins.setter
+    def _compiled_frontend_node_origins(self, value) -> None:
+        self._legacy_frontend_index().node_origins = value
+
+    @property
+    def _compiled_frontend_step_origins(self):
+        return self._legacy_frontend_index().step_origins
+
+    @_compiled_frontend_step_origins.setter
+    def _compiled_frontend_step_origins(self, value) -> None:
+        self._legacy_frontend_index().step_origins = value
+
+    @property
+    def _compiled_frontend_command_boundaries(self):
+        return self._legacy_frontend_index().command_boundaries
+
+    @_compiled_frontend_command_boundaries.setter
+    def _compiled_frontend_command_boundaries(self, value) -> None:
+        self._legacy_frontend_index().command_boundaries = value
 
     def _load_compiled_frontend_step_origins(
         self,
         provenance: Any,
     ) -> Dict[str, Mapping[str, Any]]:
-        """Load persisted frontend source-trace entries keyed by step identity."""
-        payload = self._load_compiled_frontend_source_trace_payload(provenance)
-
-        indexed: Dict[str, Mapping[str, Any]] = {}
-        workflows = payload.get("workflows")
-        if not isinstance(workflows, Mapping):
-            return indexed
-        for workflow_payload in workflows.values():
-            if not isinstance(workflow_payload, Mapping):
-                continue
-            step_ids = workflow_payload.get("step_ids")
-            if not isinstance(step_ids, Mapping):
-                continue
-            for key, origin in step_ids.items():
-                if isinstance(key, str) and isinstance(origin, Mapping):
-                    indexed.setdefault(key, origin)
-        return indexed
+        """Compatibility delegator for tests that bind the legacy loader."""
+        return self._legacy_frontend_index()._load_step_origins(provenance)
 
     def _load_compiled_frontend_node_origins(
         self,
         provenance: Any,
     ) -> Dict[str, Mapping[str, Any]]:
-        """Load persisted frontend source-trace entries keyed by executable node id."""
-        payload = self._load_compiled_frontend_source_trace_payload(provenance)
-
-        indexed: Dict[str, Mapping[str, Any]] = {}
-        workflows = payload.get("workflows")
-        if not isinstance(workflows, Mapping):
-            return indexed
-        for workflow_payload in workflows.values():
-            if not isinstance(workflow_payload, Mapping):
-                continue
-            origins_by_key: Dict[str, Mapping[str, Any]] = {}
-            for section in (
-                "step_ids",
-                "generated_inputs",
-                "generated_outputs",
-                "generated_paths",
-                "generated_internal_inputs",
-            ):
-                entries = workflow_payload.get(section)
-                if not isinstance(entries, Mapping):
-                    continue
-                for origin in entries.values():
-                    if not isinstance(origin, Mapping):
-                        continue
-                    origin_key = origin.get("origin_key")
-                    if isinstance(origin_key, str) and origin_key:
-                        origins_by_key.setdefault(origin_key, origin)
-            workflow_origin = workflow_payload.get("workflow_origin")
-            if isinstance(workflow_origin, Mapping):
-                origin_key = workflow_origin.get("origin_key")
-                if isinstance(origin_key, str) and origin_key:
-                    origins_by_key.setdefault(origin_key, workflow_origin)
-            for node in workflow_payload.get("executable_nodes", ()):
-                if not isinstance(node, Mapping):
-                    continue
-                node_id = node.get("node_id")
-                origin_key = node.get("origin_key")
-                if not isinstance(node_id, str) or not isinstance(origin_key, str):
-                    continue
-                origin = origins_by_key.get(origin_key)
-                if origin is not None:
-                    indexed.setdefault(node_id, origin)
-        return indexed
+        """Compatibility delegator for tests that bind the legacy loader."""
+        return self._legacy_frontend_index()._load_node_origins(provenance)
 
     def _load_compiled_frontend_command_boundaries(
         self,
         provenance: Any,
     ) -> Dict[str, Mapping[str, Any]]:
-        """Load persisted command-boundary lineage keyed by step id."""
-        payload = self._load_compiled_frontend_source_trace_payload(provenance)
-
-        indexed: Dict[str, Mapping[str, Any]] = {}
-        workflows = payload.get("workflows")
-        if not isinstance(workflows, Mapping):
-            return indexed
-        for workflow_payload in workflows.values():
-            if not isinstance(workflow_payload, Mapping):
-                continue
-            for boundary in workflow_payload.get("command_boundaries", ()):
-                if not isinstance(boundary, Mapping):
-                    continue
-                step_id = boundary.get("step_id")
-                if isinstance(step_id, str) and step_id:
-                    indexed.setdefault(step_id, boundary)
-        return indexed
+        """Compatibility delegator for tests that bind the legacy loader."""
+        return self._legacy_frontend_index()._load_command_boundaries(provenance)
 
     def _compiled_frontend_origin_for_step(
         self,
@@ -470,21 +408,10 @@ class WorkflowExecutor:
         *,
         node_id: str | None = None,
     ) -> Mapping[str, Any] | None:
-        """Resolve one runtime step back to compiled frontend source metadata."""
-        if isinstance(node_id, str) and node_id:
-            origin = self._compiled_frontend_node_origins.get(node_id)
-            if origin is not None:
-                return origin
-        candidate_keys = [step_name, step_id]
-        if step_id.startswith("root."):
-            candidate_keys.append(step_id[len("root."):])
-        for candidate in candidate_keys:
-            if not isinstance(candidate, str) or not candidate:
-                continue
-            origin = self._compiled_frontend_step_origins.get(candidate)
-            if origin is not None:
-                return origin
-        return None
+        """Compatibility delegator for legacy source-origin lookup."""
+        return self._legacy_frontend_index().origin_for_step(
+            step_name, step_id, node_id=node_id
+        )
 
     def _compiled_frontend_command_boundary_for_step(
         self,
@@ -493,12 +420,11 @@ class WorkflowExecutor:
         *,
         node_id: str | None = None,
     ) -> Mapping[str, Any] | None:
-        for candidate in (step_id, step_name):
-            if not isinstance(candidate, str) or not candidate:
-                continue
-            boundary = self._compiled_frontend_command_boundaries.get(candidate)
-            if boundary is not None:
-                return boundary
+        boundary = self._legacy_frontend_index().command_boundary_for_step(
+            step_name, step_id, node_id=node_id
+        )
+        if boundary is not None:
+            return boundary
         runtime_plan_node = self._runtime_plan_node_for_step(
             step_name,
             step_id,
@@ -525,38 +451,25 @@ class WorkflowExecutor:
         *,
         node_id: str | None = None,
     ) -> None:
-        """Emit source-aware observability lines for compiled frontend steps."""
-        if self._compiled_frontend_kind != "workflow_lisp":
+        """Delegate display while preserving runtime-plan boundary fallback."""
+        index = self._legacy_frontend_index()
+        if index.frontend_kind != "workflow_lisp":
             return
-        logger.info("Running step %s", step_name)
-        origin = self._compiled_frontend_origin_for_step(step_name, step_id, node_id=node_id)
-        if not isinstance(origin, Mapping):
-            return
-        path = origin.get("path")
-        line = origin.get("line")
-        column = origin.get("column")
-        if isinstance(path, str) and isinstance(line, int):
-            if isinstance(column, int):
-                logger.info("  source: %s:%s:%s", path, line, column)
-            else:
-                logger.info("  source: %s:%s", path, line)
-        form_path = origin.get("form_path")
-        if isinstance(form_path, list) and form_path:
-            logger.info("  form: %s", " > ".join(str(part) for part in form_path))
-        boundary = self._compiled_frontend_command_boundary_for_step(
+        boundary = None
+        if isinstance(index.origin_for_step(step_name, step_id, node_id=node_id), Mapping):
+            boundary = self._compiled_frontend_command_boundary_for_step(
+                step_name,
+                step_id,
+                node_id=node_id,
+            )
+        index._emit_step_display_with_boundary(
             step_name,
             step_id,
             node_id=node_id,
+            boundary=boundary,
+            stream_output=getattr(self, "stream_output", False),
+            debug=getattr(self, "debug", False),
         )
-        if not isinstance(boundary, Mapping):
-            return
-        if boundary.get("boundary_kind") == "certified_adapter":
-            adapter_name = boundary.get("adapter_name")
-            if isinstance(adapter_name, str) and adapter_name:
-                logger.info("  certified adapter: %s", adapter_name)
-            source_map_behavior = boundary.get("source_map_behavior")
-            if isinstance(source_map_behavior, str) and source_map_behavior:
-                logger.info("  source-map behavior: %s", source_map_behavior)
 
     def _step_id(self, step: Dict[str, Any], fallback_index: Optional[int] = None) -> str:
         """Return the durable identity for a top-level step."""
