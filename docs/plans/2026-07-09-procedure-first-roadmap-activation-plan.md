@@ -464,14 +464,25 @@ Tested committed boundary:
 `1600fd7ed6c920c1bd9f3a6890ff10f6d7ee25b0`
 (`Slice executor run method into prologue and epilogue helpers`). All four
 commands ran sequentially from the repository root in a private tmux session.
-For every command, `HEAD` remained at that commit, the relevant source/test
-content fingerprint remained
-`fbcedec80761386e764d620a0b37513f745b78ac854611ec08941f1064a0f6c0`,
-and the relevant status fingerprint remained
-`947c3086117e3cb76ea789d1ca54ae99b4e336d5947d41f4cacedab9b78a1616`.
-The latter includes the same pre-existing unrelated modification to
-`tests/test_workflow_non_progress_step_back_demo.py` before and after every
-suite. No pre-existing test failure was accepted.
+Before and after every command, the following exact checks ran from the
+repository root:
+
+```bash
+git rev-parse HEAD
+git status --porcelain=v1 --untracked-files=all -- orchestrator tests
+find orchestrator tests -type f \
+  \( -name '*.py' -o -name '*.orc' -o -name '*.yaml' -o -name '*.yml' -o -name '*.json' \) \
+  -print0 | sort -z | xargs -0 sha256sum | sha256sum
+```
+
+Both `git rev-parse HEAD` calls printed
+`1600fd7ed6c920c1bd9f3a6890ff10f6d7ee25b0` for every suite. Both status
+checks printed only the same pre-existing unrelated modification to
+`tests/test_workflow_non_progress_step_back_demo.py`. The content command,
+whose path set is exactly the matching `*.py`, `*.orc`, `*.yaml`, `*.yml`, and
+`*.json` files below `orchestrator/` and `tests/`, printed
+`fbcedec80761386e764d620a0b37513f745b78ac854611ec08941f1064a0f6c0  -`
+before and after every suite. No pre-existing test failure was accepted.
 
 1. `pytest tests/test_workflow_lisp_lowering.py tests/test_workflow_lisp_phase_stdlib.py tests/test_workflow_lisp_drain_stdlib.py -q`
    — exit `0`; `320 passed`, `0 failed`, `0 skipped` in `26.26s`.

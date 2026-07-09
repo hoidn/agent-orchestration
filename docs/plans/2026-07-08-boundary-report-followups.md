@@ -140,6 +140,25 @@ Map each of the six audit cases to existing behavioral coverage; the deliverable
 **Files:**
 - Modify: `docs/reports/2026-06-19-workflow-lisp-type-runtime-boundary-issues.md` (append the table under the recommendation 8 amendment)
 
+- [ ] **Step 0: Fail closed on report ownership overlap**
+
+Before reading the report as a publication target, run:
+
+```bash
+report=docs/reports/2026-06-19-workflow-lisp-type-runtime-boundary-issues.md
+git status --porcelain -- "$report"
+```
+
+If this prints anything, the report contains another owner's work. Do not edit,
+stage, or commit it, and do not proceed to Tasks 5–6. Audit discovery may be
+captured temporarily in
+`/tmp/workflow-lisp-boundary-negative-coverage-audit-$(git rev-parse --short HEAD).md`,
+headed `EVIDENCE ONLY — NOT PUBLISHED`, but that note is not report authority.
+Pause report publication until the existing owner commits or explicitly
+reconciles the overlapping work. Once the report is clean, re-read its current
+contents before applying the audit; do not replay a patch prepared against the
+older version.
+
 - [ ] **Step 1: Run the per-case discovery**
 
 | # | Case | Where to look |
@@ -157,20 +176,40 @@ For each case record: covered (test id) / gap / owned-elsewhere (pointer).
 
 For `if_variant_proof_missing.orc` (case 1), `review_loop_result_contract_invalid.orc` (contract case; classify against 3/4), and `backlog_drain_hidden_compatibility_bridge_reread_invalid.orc` (bridge case; classify against case 6 using the live drain-plan evidence gathered in Step 1), check the current path first. If a fixture exists, read it and confirm that it still compiles into the intended failure. If it is absent, inspect its tracked history with `git log -- <path>` and `git show <deletion-commit>^:<path>` only to understand the intended case; do not restore it for the audit. If the case is covered, record "deletion landed — case covered by <test id>". If the case is a genuine gap, pass the case and current contract to Task 5 for a minimal reproduction rather than assuming the deleted fixture remains reusable.
 
-- [ ] **Step 3: Append the completed table to the report** under the recommendation 8 amendment, headed `Audit result (2026-07-08):`, one row per case with status and evidence.
+- [ ] **Step 3: Publish the completed table only onto a clean report**
+
+Re-run the Step-0 status command immediately before editing. Append the table
+under the recommendation 8 amendment, headed `Audit result (2026-07-08):`, one
+row per case with status and evidence. Then review and stage only the report:
+
+```bash
+report=docs/reports/2026-06-19-workflow-lisp-type-runtime-boundary-issues.md
+git diff --check -- "$report"
+git diff -- "$report"
+git add -- "$report"
+git diff --cached --check -- "$report"
+git diff --cached -- "$report"
+```
+
+Inspect the complete report diff before staging and the complete cached report
+diff afterward. If unrelated paths were already staged, preserve them and use
+an explicit-path commit for the report; never clear or absorb another owner's
+staging.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/reports/2026-06-19-workflow-lisp-type-runtime-boundary-issues.md
-git commit -m "Record negative coverage audit for boundary report cases"
+git commit --only docs/reports/2026-06-19-workflow-lisp-type-runtime-boundary-issues.md \
+  -m "Record negative coverage audit for boundary report cases"
 ```
 
 ---
 
 ### Task 5: Wire the genuine gaps (one commit per case)
 
-Only for cases the audit marked **gap**. Skip entirely if there are none.
+Only for cases the cleanly published Task-4 audit marked **gap**. Skip entirely
+if there are none. If Task 4 paused because the report was dirty, do not start
+this task from an evidence-only temporary note.
 
 **Files (per gap):**
 - Test: the owning suite from the Task 4 table (e.g. `tests/test_workflow_lisp_variant_proofs.py` for case 1)
@@ -180,11 +219,11 @@ Wiring recipe (the suite-standard pattern — mirror the surrounding tests' help
 
 ```python
 def test_variant_field_access_outside_match_arm_is_rejected():
-    fixture = FIXTURES_ROOT / "invalid" / "if_variant_proof_missing.orc"
+    fixture = FIXTURES_ROOT / "invalid" / "variant_field_outside_match_arm_current_contract.orc"
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(fixture)  # use the suite's existing compile helper and route default
     codes = {d.code for d in excinfo.value.diagnostics}
-    assert "variant_field_without_proof" in codes  # use the REAL code observed in Step 2
+    assert "variant_field_without_proof" in codes  # use the REAL code observed in Step 1
 ```
 
 - [ ] **Step 1:** Build the smallest current-contract reproduction and confirm the real diagnostic code by compiling it once (`python -m orchestrator compile <new-fixture> ...` or a throwaway pytest run using the owning suite's helper) — never guess the code string.
@@ -200,7 +239,11 @@ def test_variant_field_access_outside_match_arm_is_rejected():
 - Modify: none
 
 - [ ] **Step 1:** Verify the landed deletion commit and current path status. Reconcile each fixture-related Task 4 audit and Task 5 wiring outcome as either existing coverage with the historical deletion left intact, or a new minimal current-contract fixture created after that deletion.
-- [ ] **Step 2:** Record that status in the final execution handoff. Do not edit the historical Phase-1 deletion list, rerun its `git rm`, or create a standalone reconciliation commit.
+- [ ] **Step 2:** Record that status in the final execution handoff only after
+  the Task-4 report publication and every applicable Task-5 gap commit are
+  complete. If report publication is paused by Step 0, this reconciliation is
+  paused too. Do not edit the historical Phase-1 deletion list, rerun its
+  `git rm`, or create a standalone reconciliation commit.
 
 ---
 
