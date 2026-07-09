@@ -1,6 +1,6 @@
 # Procedure-First Roadmap Execution Sequence
 
-Status: proposed work instructions
+Status: active work instructions
 Created: 2026-07-09
 
 ## Objective
@@ -73,7 +73,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-07-lowering-fork-migration.md` | Treat as implementation-complete only after its final grep and named tests pass; expected remaining `lowering_core` use is drain-frozen residue. |
 | `2026-07-07-typecheck-family-completion.md` | Treat as implementation-complete only after its final structural and behavioral gates pass; expected owner modules already exist. |
 | `2026-07-07-build-module-split.md` | Tasks 1-5 appear landed; execute/re-run the final verification and module-boundary audit. Do not redo mechanical moves. |
-| `2026-07-07-executor-decomposition.md` | Tasks 2-4 appear landed; execute Tasks 5-9 sequentially after re-anchoring. |
+| `2026-07-07-executor-decomposition.md` | Tasks 2-8 are landed; use the executor plan's execution-status note for commit and verification evidence. Task 9, the final executor gate, is next. |
 | `2026-07-08-boundary-report-followups.md` | Execute before the semantic freeze; it supplies terminology and negative-coverage evidence consumed by later design work. |
 | `2026-07-07-drain-migration-g8-retirement.md` | Governs the parametric flagship migration and cleanup after re-anchoring to the refactored modules. |
 | `2026-07-07-yaml-retirement-program.md` | Task 1 may inform later design. Its Design Delta family promotion is coordinated between drain Phases 2 and 3; other code-changing and promotion tasks wait until the procedure-first pilot is accepted. |
@@ -82,7 +82,8 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 
 ### Stage 0: Make The Roadmap Durable And Re-anchor It
 
-1. Review and commit the untracked component plans using explicit paths.
+1. Audit the component plans' tracked status and review any pending plan changes
+   using explicit paths.
 2. Record which tasks are already represented by commits; do not mark them
    complete from inspection alone.
 3. Replace stale file anchors in active plans with the current owning modules.
@@ -115,10 +116,9 @@ Execute in this order:
    checks, compatibility re-export checks, and module-size report. Large
    `build_design_delta.py` size is accepted temporarily because Stage 3 deletes
    the family-specific certification unit; do not start a second split first.
-4. **Executor decomposition Tasks 5-9.** Extract the step-kind families,
-   adjudication runner, runtime protocol, and `execute()` phase helpers in the
-   plan's order, preserving delegators and running the named checks after every
-   commit.
+4. **Executor decomposition Task 9 closeout.** Run the plan's final
+   executor-surface suite, full suite, and orchestrator smoke, then record the
+   closeout report. Tasks 5-8 are landed; do not replay them.
 5. **Boundary-report follow-ups.** Land the terminology and negative-coverage
    work. Recommendation 11 remains design-gated; this stage must not implement
    the broad transition.
