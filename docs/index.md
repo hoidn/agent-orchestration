@@ -150,6 +150,8 @@ document owns the answer.
 **Keywords:** workflow-lisp, roadmap, sequencing, parametric-types, procedure-first, refactoring, yaml-retirement
 **Use this when:** Choosing which remaining refactor or Workflow Lisp migration plan to execute next, or checking the required handoff gates between them.
 
+**Component-plan routing:** Close out the [lowering-fork migration](plans/2026-07-07-lowering-fork-migration.md), [typecheck-family completion](plans/2026-07-07-typecheck-family-completion.md), and [build-module split](plans/2026-07-07-build-module-split.md). The active next plan is [executor decomposition](plans/2026-07-07-executor-decomposition.md), whose current execution-status note routes to Task 9, the first unlanded task and final executor gate; staged work is not counted as landed. Then use the [drain migration / G8 retirement plan](plans/2026-07-07-drain-migration-g8-retirement.md) for the semantic migration and [boundary-report follow-ups](plans/2026-07-08-boundary-report-followups.md) for prerequisite evidence. The [Stage-0 activation plan](plans/2026-07-09-procedure-first-roadmap-activation-plan.md) owns activation evidence and plan-set tracking.
+
 ### [Workflow Lisp Autonomous Drain Work Instructions](plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/work_instructions.md)
 **Description:** Procedural prescriptions for the active Workflow Lisp autonomous drain body of work, including objective, source material, work order, constraints, documentation expectations, completion target, and out-of-scope boundaries.
 **Keywords:** lisp-frontend, autonomous-drain, work-instructions, full-design, procedural-prescriptions
