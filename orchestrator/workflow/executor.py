@@ -9336,20 +9336,14 @@ class WorkflowExecutor:
         artifact_name: Any,
         candidate_value: Any,
     ) -> Dict[str, Any]:
-        registry = self.workflow_artifacts
-        artifact_spec = registry.get(artifact_name, {}) if isinstance(registry, dict) else {}
-        validated_value = self._validate_scalar_value(artifact_name, artifact_spec, candidate_value)
-        if isinstance(validated_value, dict) and validated_value.get('status') == 'failed':
-            return validated_value
+        from .steps.scalars import execute_scalar_step
 
-        return {
-            'status': 'completed',
-            'exit_code': 0,
-            'duration_ms': 0,
-            'artifacts': {
-                artifact_name: validated_value,
-            },
-        }
+        return execute_scalar_step(
+            self,
+            step=step,
+            artifact_name=artifact_name,
+            candidate_value=candidate_value,
+        )
 
     def _resolve_pure_projection_bindings(
         self,
