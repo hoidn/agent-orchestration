@@ -11,6 +11,7 @@ from .pointers import PointerResolver
 from .runtime_context import RuntimeContext
 from .identity import iteration_step_id
 from .state_projection import IterationStepKeyProjection
+from . import step_results
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ class LoopExecutor:
             loop_name,
             index,
             nested_name,
-            self.executor._to_step_result(result, nested_name),
+            step_results.to_step_result(result, nested_name),
         )
 
     def _typed_loop_body_context(
@@ -1257,7 +1258,7 @@ class LoopExecutor:
                                 "type": "predicate_evaluation_failed",
                                 "message": f"repeat_until condition evaluation failed: {exc}",
                                 "context": {
-                                    "condition": self.executor._json_safe_runtime_value(condition),
+                                    "condition": step_results.json_safe_runtime_value(condition),
                                     "iteration": current_iteration,
                                 },
                             },
@@ -1596,7 +1597,7 @@ class LoopExecutor:
                                     "type": "predicate_evaluation_failed",
                                     "message": f"Condition evaluation failed: {exc}",
                                     "context": {
-                                        "condition": self.executor._json_safe_runtime_value(
+                                        "condition": step_results.json_safe_runtime_value(
                                             condition
                                         ),
                                     },
@@ -1943,7 +1944,7 @@ class LoopExecutor:
                         "type": "predicate_evaluation_failed",
                         "message": f"Condition evaluation failed: {exc}",
                         "context": {
-                            "condition": self.executor._json_safe_runtime_value(condition),
+                            "condition": step_results.json_safe_runtime_value(condition),
                         },
                     },
                 },

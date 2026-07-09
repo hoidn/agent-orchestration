@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, Optional
 
 from ..state import StateManager, StepResult
+from . import step_results
 from .runtime_types import NormalizedStepOutcome
 
 
@@ -147,27 +148,4 @@ class OutcomeRecorder:
     @staticmethod
     def to_step_result(result: Dict[str, Any], fallback_name: str) -> StepResult:
         """Convert a persisted result payload into the runtime StepResult model."""
-        return StepResult(
-            status=result.get("status", "completed" if result.get("exit_code", 0) == 0 else "failed"),
-            name=result.get("name", fallback_name),
-            step_id=result.get("step_id"),
-            exit_code=result.get("exit_code", 0),
-            duration_ms=result.get("duration_ms", 0),
-            output=result.get("output"),
-            lines=result.get("lines"),
-            json=result.get("json"),
-            error=result.get("error"),
-            debug=result.get("debug"),
-            truncated=result.get("truncated") if "truncated" in result or result.get("adjudication") else False,
-            artifacts=result.get("artifacts"),
-            snapshots=result.get("snapshots"),
-            adjudication=result.get("adjudication"),
-            managed_jobs=result.get("managed_jobs"),
-            skipped=result.get("skipped", False),
-            files=result.get("files"),
-            wait_duration_ms=result.get("wait_duration_ms"),
-            poll_count=result.get("poll_count"),
-            timed_out=result.get("timed_out"),
-            outcome=result.get("outcome"),
-            visit_count=result.get("visit_count"),
-        )
+        return step_results.to_step_result(result, fallback_name)

@@ -12,7 +12,6 @@ import time
 import traceback
 from copy import deepcopy
 from contextlib import contextmanager
-from dataclasses import is_dataclass
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
@@ -97,6 +96,7 @@ from .state_layout import (
     bounded_managed_write_root_filename,
     render_generated_path_template,
 )
+from . import step_results
 from .transition_executor import TransitionExecutionError, execute_transition
 from .loops import LoopExecutor
 from .outcomes import OutcomeRecorder
@@ -1298,21 +1298,7 @@ class WorkflowExecutor:
 
     def _json_safe_runtime_value(self, value: Any) -> Any:
         """Convert bound runtime metadata into a JSON-safe error/debug payload."""
-        if value is None or isinstance(value, (str, int, float, bool)):
-            return value
-        if isinstance(value, Mapping):
-            return {
-                str(key): self._json_safe_runtime_value(item)
-                for key, item in value.items()
-            }
-        if isinstance(value, (list, tuple)):
-            return [self._json_safe_runtime_value(item) for item in value]
-        if is_dataclass(value):
-            return {
-                key: self._json_safe_runtime_value(item)
-                for key, item in vars(value).items()
-            }
-        return str(value)
+        return step_results.json_safe_runtime_value(value)
 
     def _runtime_context(
         self,
@@ -3584,17 +3570,7 @@ class WorkflowExecutor:
 
     def _contract_violation_result(self, message: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Build a standardized contract_violation failure result."""
-        return {
-            'status': 'failed',
-            'exit_code': 2,
-            'duration_ms': 0,
-            'output': '',
-            'error': {
-                'type': 'contract_violation',
-                'message': message,
-                'context': context or {},
-            },
-        }
+        return step_results.contract_violation_result(message, context)
 
     def _persist_dataflow_state(self, state: Dict[str, Any]) -> None:
         """Persist artifact dataflow fields to state.json."""
@@ -4733,7 +4709,7 @@ class WorkflowExecutor:
     @staticmethod
     def _to_step_result(result: Dict[str, Any], fallback_name: str) -> StepResult:
         """Convert a persisted result payload into the runtime StepResult model."""
-        return OutcomeRecorder.to_step_result(result, fallback_name)
+        return step_results.to_step_result(result, fallback_name)
 
     def _build_loop_parent_scope_steps(
         self,

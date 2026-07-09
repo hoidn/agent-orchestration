@@ -27,6 +27,7 @@ from .loaded_bundle import (
 )
 from .predicates import PredicateEvaluationError
 from .references import ReferenceResolutionError
+from . import step_results
 
 
 class CallExecutor:
@@ -173,7 +174,7 @@ class CallExecutor:
         if bindings is None:
             bindings = {}
         if not isinstance(bindings, Mapping):
-            return None, self.executor._contract_violation_result(
+            return None, step_results.contract_violation_result(
                 "Call input binding failed",
                 {
                     "step": step.get("name", f"step_{self.executor.current_step}"),
@@ -193,13 +194,13 @@ class CallExecutor:
                 try:
                     raw_value = self.executor._resolve_runtime_value(raw_value, state, scope=scope)
                 except (PredicateEvaluationError, ReferenceResolutionError) as exc:
-                    return None, self.executor._contract_violation_result(
+                    return None, step_results.contract_violation_result(
                         "Call input binding failed",
                         {
                             "step": step_name_override or step.get("name", f"step_{self.executor.current_step}"),
                             "input": input_name,
                             "reason": "unresolved_ref",
-                            "ref": self.executor._json_safe_runtime_value(raw_value),
+                            "ref": step_results.json_safe_runtime_value(raw_value),
                             "error": str(exc),
                         },
                     )
@@ -210,7 +211,7 @@ class CallExecutor:
                         workspace=self.executor.workspace,
                     )
                 except OutputContractError as exc:
-                    return None, self.executor._contract_violation_result(
+                    return None, step_results.contract_violation_result(
                         "Call input binding failed",
                         {
                             "step": step_name_override or step.get("name", f"step_{self.executor.current_step}"),
@@ -225,7 +226,7 @@ class CallExecutor:
                 bound_inputs[input_name] = input_spec["default"]
                 continue
             if input_spec.get("required", True):
-                return None, self.executor._contract_violation_result(
+                return None, step_results.contract_violation_result(
                     "Call input binding failed",
                     {
                         "step": step_name_override or step.get("name", f"step_{self.executor.current_step}"),
@@ -335,7 +336,7 @@ class CallExecutor:
                     expected_value = contract.get("default")
                 if expected_value is None:
                     if input_name not in finalized:
-                        return None, self.executor._contract_violation_result(
+                        return None, step_results.contract_violation_result(
                             "Call input binding failed",
                             {
                                 "step": step_name,
@@ -350,7 +351,7 @@ class CallExecutor:
         for input_name in workflow_runtime_context_inputs(imported_workflow):
             if input_name in finalized:
                 continue
-            return None, self.executor._contract_violation_result(
+            return None, step_results.contract_violation_result(
                 "Call input binding failed",
                 {
                     "step": step_name,
@@ -384,7 +385,7 @@ class CallExecutor:
                 continue
             prior_input = current_roots.get(value)
             if prior_input is not None:
-                return self.executor._contract_violation_result(
+                return step_results.contract_violation_result(
                     "Call input binding failed",
                     {
                         "step": step_name,
@@ -439,7 +440,7 @@ class CallExecutor:
                 if current_input is None:
                     continue
 
-                return self.executor._contract_violation_result(
+                return step_results.contract_violation_result(
                     "Call input binding failed",
                     {
                         "step": step_name,
@@ -538,8 +539,8 @@ class CallExecutor:
                     "call": call_alias,
                     "call_frame_id": frame_id,
                     "input": input_name,
-                    "persisted": self.executor._json_safe_runtime_value(persisted_value),
-                    "expected": self.executor._json_safe_runtime_value(expected_value),
+                    "persisted": step_results.json_safe_runtime_value(persisted_value),
+                    "expected": step_results.json_safe_runtime_value(expected_value),
                     "detail": detail,
                 },
             },
@@ -773,7 +774,7 @@ class CallExecutor:
         step_name = step_name_override or step.get("name", f"step_{self.executor.current_step}")
         step_id = runtime_step_id or self.executor._step_id(step)
         if imported_target is None:
-            return self.executor._contract_violation_result(
+            return step_results.contract_violation_result(
                 "Call execution failed",
                 {
                     "step": step_name,
