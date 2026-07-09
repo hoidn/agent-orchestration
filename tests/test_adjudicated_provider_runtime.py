@@ -1746,6 +1746,64 @@ def test_resume_after_baseline_snapshot_reuses_baseline_and_runs_candidates(
     assert json.loads(visit.baseline_manifest_path.read_text(encoding="utf-8"))["baseline_digest"] == baseline_manifest["baseline_digest"]
 
 
+def test_resume_does_not_reuse_previous_visit_sidecars_for_string_visit_count(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    original_prepare_workspace = executor_module.prepare_candidate_workspace_from_baseline
+
+    def interrupt_after_baseline(**_: object) -> None:
+        raise SystemExit("interrupted after baseline")
+
+    monkeypatch.setattr(
+        executor_module,
+        "prepare_candidate_workspace_from_baseline",
+        interrupt_after_baseline,
+    )
+    with pytest.raises(SystemExit):
+        _run(tmp_path, workflow)
+
+    visit_one = adjudication_visit_paths(
+        tmp_path / ".orchestrate/runs/run-1",
+        "root",
+        "root.draft",
+        1,
+    )
+    assert visit_one.baseline_manifest_path.exists()
+
+    monkeypatch.setattr(
+        executor_module,
+        "prepare_candidate_workspace_from_baseline",
+        original_prepare_workspace,
+    )
+    loaded = WorkflowLoader(tmp_path).load(tmp_path / "workflow.yaml")
+    state_manager = StateManager(workspace=tmp_path, run_id="run-1")
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager, retry_delay_ms=0)
+    executor.resume_mode = True
+    state = state_manager.load().to_dict()
+    state["step_visits"]["Draft"] = "2"
+
+    result = executor._execute_adjudicated_provider_with_context(
+        workflow["steps"][0],
+        {},
+        state,
+    )
+
+    visit_two = adjudication_visit_paths(
+        tmp_path / ".orchestrate/runs/run-1",
+        "root",
+        "root.draft",
+        2,
+    )
+    assert result["status"] == "completed"
+    assert visit_two.baseline_manifest_path.exists()
+    assert state["step_visits"]["Draft"] == "2"
+
+
 def test_resume_after_partial_candidate_generation_runs_remaining_candidates(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
