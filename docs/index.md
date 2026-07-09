@@ -145,6 +145,11 @@ document owns the answer.
 **Keywords:** work-definition, semantics, work-instructions, workflow-mechanics, evidence
 **Use this when:** Deciding whether content belongs in specs/design docs, body-of-work instructions, work items, workflow YAML, or run artifacts.
 
+### [Procedure-First Roadmap Execution Sequence](plans/2026-07-09-procedure-first-roadmap-execution-sequence.md)
+**Description:** Governing cross-plan work order for closing the active refactors, executing the parametric drain migration and retirement gates, designing and implementing broader procedure-first reuse, and then resuming YAML authoring-surface retirement.
+**Keywords:** workflow-lisp, roadmap, sequencing, parametric-types, procedure-first, refactoring, yaml-retirement
+**Use this when:** Choosing which remaining refactor or Workflow Lisp migration plan to execute next, or checking the required handoff gates between them.
+
 ### [Workflow Lisp Autonomous Drain Work Instructions](plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/work_instructions.md)
 **Description:** Procedural prescriptions for the active Workflow Lisp autonomous drain body of work, including objective, source material, work order, constraints, documentation expectations, completion target, and out-of-scope boundaries.
 **Keywords:** lisp-frontend, autonomous-drain, work-instructions, full-design, procedural-prescriptions

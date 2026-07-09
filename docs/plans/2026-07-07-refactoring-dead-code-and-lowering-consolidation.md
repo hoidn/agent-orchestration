@@ -885,6 +885,13 @@ Summarize: lines deleted per task, test counts before/after, any expectation upd
 
 ## Roadmap (follow-on plans, in recommended order — NOT part of this plan)
 
+Current cross-plan execution order is governed by
+`docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`. The
+numbered list below is the original follow-on decomposition and remains useful
+for scope ownership; use the newer sequence for gates, closeout-versus-replay
+decisions, the Design Delta promotion handoff, and the broader procedure-first
+initiative.
+
 1. **Diverged-pair migration** — consumes `docs/plans/2026-07-07-lowering-fork-dossier.md`; migrates the nine forks onto workflow_calls one function per commit, phase-consumers first (`phase_flow.py:67`, `phase_drain.py:91` import the stale `_managed_write_root_*` copies today); drain/phase test diffs there are stranded fixes landing, not noise. Then thread recursion entry points through `_LoweringContext` and delete the ~115 remaining forwarder shims + 13 `lowering_core` back-imports.
 2. **typecheck_dispatch family completion** — replace `compat._raise_*` with module-scope `typecheck_context` imports (~58 sites); move `_typed`/`_type_label`/`_type_refs_compatible` into `typecheck_context`; per-pair semantic diffs of the four legacy/owner duplicates (:2821, :2986, :3070, :3298); extract resume → drain/phase → resource/view family modules. Structure-lock tests need one assertion edit per move.
 3. **build.py split** — isolate the design-delta cluster (:2646-4844) behind `load_design_delta_evidence`/`serialize_design_delta_reports` so its retirement becomes a file deletion; then manifest-io and artifact-writer siblings.
