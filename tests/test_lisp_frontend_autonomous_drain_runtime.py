@@ -5,6 +5,7 @@ import sys
 from dataclasses import is_dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -15,6 +16,7 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.calls import CallExecutor
+from orchestrator.workflow.executor_runtime import CallRuntime
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_context, workflow_input_contracts
 from orchestrator.workflow.signatures import bind_workflow_inputs
@@ -7195,7 +7197,7 @@ def test_imported_workflow_call_binding_uses_callee_default_when_binding_is_omit
         def _json_safe_runtime_value(self, value):
             return value
 
-    call_executor = CallExecutor(_FakeExecutor(tmp_path))
+    call_executor = CallExecutor(cast(CallRuntime, _FakeExecutor(tmp_path)))
     state = {"inputs": {"required_path": "required.md", "override_report": "override.md"}}
 
     omitted_inputs, omitted_error = call_executor.resolve_bound_inputs(

@@ -16,6 +16,7 @@ from ..contracts.prompt_contract import (
     stringify_consumed_value,
 )
 from .assets import AssetResolutionError, WorkflowAssetResolver
+from .executor_runtime import RuntimeStepInput
 
 
 class PromptComposer:
@@ -32,7 +33,7 @@ class PromptComposer:
 
     def read_prompt_source(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         *,
         step_name: str,
         contract_violation_result: Callable[[str, Dict[str, Any]], Dict[str, Any]],
@@ -69,7 +70,7 @@ class PromptComposer:
 
     def apply_asset_depends_on_prompt_injection(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         prompt: str,
         *,
         step_name: str,
@@ -107,7 +108,7 @@ class PromptComposer:
             return assets_block, None
         return f"{assets_block}\n\n{prompt}", None
 
-    def apply_output_contract_prompt_suffix(self, step: Dict[str, Any], prompt: str) -> str:
+    def apply_output_contract_prompt_suffix(self, step: RuntimeStepInput, prompt: str) -> str:
         """Append deterministic output contract instructions to provider prompts."""
         if step.get("inject_output_contract", True) is False:
             return prompt
@@ -132,7 +133,7 @@ class PromptComposer:
 
     def apply_consumes_prompt_injection(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         prompt: str,
         *,
         resolved_consumes: Dict[str, Any],
@@ -199,7 +200,7 @@ class PromptComposer:
 
     def apply_typed_prompt_input_injection(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         prompt: str,
         *,
         typed_prompt_inputs: list[dict[str, Any]] | tuple[dict[str, Any], ...],

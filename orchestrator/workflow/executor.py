@@ -68,6 +68,7 @@ from .executable_ir import (
     RepeatUntilFrameNode,
     WorkflowInputAddress,
 )
+from .executor_runtime import RuntimeStepInput
 from .finalization import FinalizationController
 from .frontend_origins import CompiledFrontendIndex
 from .identity import runtime_step_id
@@ -503,7 +504,7 @@ class WorkflowExecutor:
             debug=getattr(self, "debug", False),
         )
 
-    def _step_id(self, step: Dict[str, Any], fallback_index: Optional[int] = None) -> str:
+    def _step_id(self, step: RuntimeStepInput, fallback_index: Optional[int] = None) -> str:
         """Return the durable identity for a top-level step."""
         if isinstance(step, RuntimeStep) and fallback_index is None:
             return step.step_id
@@ -517,7 +518,7 @@ class WorkflowExecutor:
 
     def _step_identity(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         *,
         step_index: Optional[int] = None,
         step_name: Optional[str] = None,
@@ -794,7 +795,7 @@ class WorkflowExecutor:
 
     def _projection_entry_for_step(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         step_index: Optional[int] = None,
     ) -> Optional[Any]:
         """Return projection metadata for one top-level step when a bundle is present."""
@@ -824,7 +825,7 @@ class WorkflowExecutor:
             if isinstance(entry.compatibility_index, int)
         }
 
-    def _executable_node_for_step(self, step: Dict[str, Any]) -> Any:
+    def _executable_node_for_step(self, step: RuntimeStepInput) -> Any:
         """Return the typed executable node backing one legacy compatibility step."""
         if isinstance(step, RuntimeStep):
             return step.node
@@ -835,7 +836,7 @@ class WorkflowExecutor:
             return None
         return self.executable_ir.nodes.get(step_id)
 
-    def _execution_kind_for_step(self, step: Dict[str, Any]) -> Optional[ExecutableNodeKind]:
+    def _execution_kind_for_step(self, step: RuntimeStepInput) -> Optional[ExecutableNodeKind]:
         """Return the typed execution kind for one step when bundle-backed IR is available."""
         node = self._executable_node_for_step(step)
         if isinstance(node, FinalizationStepNode):
@@ -844,7 +845,7 @@ class WorkflowExecutor:
             return None
         return node.kind
 
-    def _typed_execution_step(self, step: Dict[str, Any]) -> Dict[str, Any]:
+    def _typed_execution_step(self, step: RuntimeStepInput) -> RuntimeStepInput:
         """Return an IR-backed runtime step view for one executable step mapping."""
         if isinstance(step, RuntimeStep):
             return step
@@ -1193,7 +1194,7 @@ class WorkflowExecutor:
             f"Typed runtime does not accept raw condition payloads; got '{type(condition).__name__}'"
         )
 
-    def _structured_if_branches(self, step: Dict[str, Any]) -> Mapping[str, Any]:
+    def _structured_if_branches(self, step: RuntimeStepInput) -> Mapping[str, Any]:
         """Return structured-if branch metadata sourced from typed IR when available."""
         node = self._executable_node_for_step(step)
         if isinstance(node, IfJoinNode) and self.projection is not None:
@@ -1211,7 +1212,7 @@ class WorkflowExecutor:
             }
         return {}
 
-    def _structured_match_cases(self, step: Dict[str, Any]) -> Mapping[str, Any]:
+    def _structured_match_cases(self, step: RuntimeStepInput) -> Mapping[str, Any]:
         """Return structured-match case metadata sourced from typed IR when available."""
         node = self._executable_node_for_step(step)
         if isinstance(node, MatchJoinNode) and self.projection is not None:
@@ -1229,7 +1230,7 @@ class WorkflowExecutor:
             }
         return {}
 
-    def _structured_guard_condition(self, step: Dict[str, Any]) -> tuple[Any, bool]:
+    def _structured_guard_condition(self, step: RuntimeStepInput) -> tuple[Any, bool]:
         """Return one structured guard condition, preferring the typed IR node."""
         node = self._executable_node_for_step(step)
         if isinstance(node, IfBranchMarkerNode):
@@ -1257,13 +1258,13 @@ class WorkflowExecutor:
             return AllOfPredicateNode(items=(node.bound_when_predicate, case_predicate)), False
         return None, False
 
-    def _when_condition(self, step: Dict[str, Any]) -> Any:
+    def _when_condition(self, step: RuntimeStepInput) -> Any:
         """Return one step-level when condition, preferring the typed IR node."""
         node = self._executable_node_for_step(step)
         bound = getattr(node, "bound_when_predicate", None) if node is not None else None
         return bound if bound is not None else step.get("when")
 
-    def _assert_condition(self, step: Dict[str, Any]) -> Any:
+    def _assert_condition(self, step: RuntimeStepInput) -> Any:
         """Return one step-level assert condition, preferring the typed IR node."""
         node = self._executable_node_for_step(step)
         bound = getattr(node, "bound_assert_predicate", None) if node is not None else None
@@ -1271,7 +1272,7 @@ class WorkflowExecutor:
 
     def _structured_output_contracts(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         selection_value: str,
     ) -> Mapping[str, Any]:
         """Return one structured statement's output contracts for the selected path."""
@@ -1282,21 +1283,21 @@ class WorkflowExecutor:
             return node.case_outputs.get(selection_value, {})
         return {}
 
-    def _repeat_until_condition(self, step: Dict[str, Any]) -> Any:
+    def _repeat_until_condition(self, step: RuntimeStepInput) -> Any:
         """Return one repeat_until stop condition, preferring the typed IR node."""
         node = self._executable_node_for_step(step)
         if isinstance(node, RepeatUntilFrameNode):
             return node.condition
         return None
 
-    def _repeat_until_output_contracts(self, step: Dict[str, Any]) -> Mapping[str, Any]:
+    def _repeat_until_output_contracts(self, step: RuntimeStepInput) -> Mapping[str, Any]:
         """Return one repeat_until output contract map, preferring the typed IR node."""
         node = self._executable_node_for_step(step)
         if isinstance(node, RepeatUntilFrameNode):
             return node.output_contracts
         return {}
 
-    def _call_input_bindings(self, step: Dict[str, Any]) -> Mapping[str, Any]:
+    def _call_input_bindings(self, step: RuntimeStepInput) -> Mapping[str, Any]:
         """Return one call step's bound input bindings, preferring the typed IR node."""
         node = self._executable_node_for_step(step)
         if isinstance(node, CallBoundaryNode):
@@ -1742,14 +1743,14 @@ class WorkflowExecutor:
         return self.resume_planner.repeat_until_has_pending_work(state, step_name)
 
     @staticmethod
-    def _provider_session_config(step: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _provider_session_config(step: RuntimeStepInput) -> Optional[Dict[str, Any]]:
         """Return the authored provider_session block when present."""
         provider_session = step.get("provider_session")
         return provider_session if isinstance(provider_session, dict) else None
 
     def _prepare_provider_session_visit(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         *,
         step_name: str,
         step_id: str,
@@ -3127,7 +3128,7 @@ class WorkflowExecutor:
         state['status'] = terminal_status
         return state
 
-    def _resolve_step_type(self, step: Dict[str, Any]) -> str:
+    def _resolve_step_type(self, step: RuntimeStepInput) -> str:
         """Return canonical step type label for runtime lifecycle state."""
         execution_kind = self._execution_kind_for_step(step)
         if execution_kind is ExecutableNodeKind.IF_BRANCH_MARKER:
@@ -3306,7 +3307,7 @@ class WorkflowExecutor:
     def _live_agent_note_watch(
         self,
         step_name: str,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         session_runtime: Optional[Dict[str, Any]],
     ):
         """Best-effort live-note watch for one active provider session."""
@@ -3344,7 +3345,12 @@ class WorkflowExecutor:
         ):
             yield
 
-    def _emit_step_summary(self, step_name: str, step: Dict[str, Any], result: Dict[str, Any]) -> None:
+    def _emit_step_summary(
+        self,
+        step_name: str,
+        step: RuntimeStepInput,
+        result: Dict[str, Any],
+    ) -> None:
         """Emit observability summary for a completed step."""
         if self.summary_observer is None:
             return
@@ -3491,7 +3497,7 @@ class WorkflowExecutor:
         profile = str(summaries_cfg.get('profile', 'basic'))
         return profile if profile in {'basic', 'phase-performance'} else 'basic'
 
-    def _summary_kind_for_step(self, step: Dict[str, Any]) -> Optional[str]:
+    def _summary_kind_for_step(self, step: RuntimeStepInput) -> Optional[str]:
         profile = self._summary_profile()
         if profile == 'basic':
             return 'step'
@@ -3504,7 +3510,7 @@ class WorkflowExecutor:
     def _build_step_summary_snapshot(
         self,
         step_name: str,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         result: Dict[str, Any],
         *,
         summary_kind: str = "step",
@@ -3787,7 +3793,7 @@ class WorkflowExecutor:
     def _persist_repeat_until_progress(
         self,
         state: Dict[str, Any],
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         loop_name: str,
         progress: Dict[str, Any],
         frame_result: Dict[str, Any],
@@ -3827,7 +3833,7 @@ class WorkflowExecutor:
 
     def _record_published_artifacts(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         step_name: str,
         result: Dict[str, Any],
         state: Dict[str, Any],
@@ -3848,7 +3854,7 @@ class WorkflowExecutor:
 
     def _enforce_consumes_contract(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         step_name: str,
         state: Dict[str, Any],
         runtime_step_id: Optional[str] = None,
@@ -3863,7 +3869,7 @@ class WorkflowExecutor:
 
     def _finalize_consumes(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         step_name: str,
         state: Dict[str, Any],
         *,
@@ -4023,7 +4029,7 @@ class WorkflowExecutor:
 
     def _handle_control_flow(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         step_name: str,
         current_index: int,
@@ -4133,7 +4139,7 @@ class WorkflowExecutor:
 
     def _build_repeat_until_frame_result(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         *,
         status: str,
         exit_code: int,
@@ -4153,14 +4159,19 @@ class WorkflowExecutor:
 
     def _execute_repeat_until(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         resume: bool = False,
     ) -> Dict[str, Any]:
         """Execute a post-test repeat_until loop with durable resume bookkeeping."""
         return self.loop_executor.execute_repeat_until(step, state, resume=resume)
 
-    def _execute_for_each(self, step: Dict[str, Any], state: Dict[str, Any], resume: bool = False) -> Dict[str, Any]:
+    def _execute_for_each(
+        self,
+        step: RuntimeStepInput,
+        state: Dict[str, Any],
+        resume: bool = False,
+    ) -> Dict[str, Any]:
         """
         Execute a for_each loop step.
         Implements AT-3: Dynamic for-each with items_from.
@@ -4178,7 +4189,7 @@ class WorkflowExecutor:
 
     def _run_top_level_step(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         step_name: str,
@@ -4349,13 +4360,13 @@ class WorkflowExecutor:
 
     def _execute_nested_loop_step(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         context: Dict[str, Any],
         state: Dict[str, Any],
         iteration_state: Dict[str, Any],
         parent_scope_steps: Dict[str, Any],
         *,
-        loop_step: Optional[Dict[str, Any]] = None,
+        loop_step: Optional[RuntimeStepInput] = None,
         parent_scope_node_results: Optional[Dict[str, Any]] = None,
         runtime_step_id: Optional[str] = None,
         loop_name: Optional[str] = None,
@@ -4506,7 +4517,7 @@ class WorkflowExecutor:
 
     def _execute_top_level_publish_and_persist(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         step_name: str,
         state: Dict[str, Any],
         result: Dict[str, Any],
@@ -4670,7 +4681,7 @@ class WorkflowExecutor:
 
     def _mark_managed_jobs_recovery_if_outstanding(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         step_name: str,
         state: Dict[str, Any],
         finalized: Dict[str, Any],
@@ -4732,7 +4743,7 @@ class WorkflowExecutor:
         iteration_state: Dict[str, Any],
         parent_scope_steps: Dict[str, Any],
         *,
-        loop_step: Optional[Dict[str, Any]] = None,
+        loop_step: Optional[RuntimeStepInput] = None,
         parent_scope_node_results: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """Build structured-ref scope maps for one nested loop step."""
@@ -4746,7 +4757,7 @@ class WorkflowExecutor:
 
     def _evaluate_loop_body_condition(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         condition: Dict[str, Any],
         state: Dict[str, Any],
         *,
@@ -4768,7 +4779,7 @@ class WorkflowExecutor:
 
     def _execute_command_with_context(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         context: Dict[str, Any],
         state: Dict[str, Any],
         *,
@@ -4947,7 +4958,7 @@ class WorkflowExecutor:
 
     def _execute_provider_with_context(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         context: Dict[str, Any],
         state: Dict[str, Any],
         runtime_step_id: Optional[str] = None,
@@ -5453,7 +5464,7 @@ class WorkflowExecutor:
 
     def _resolve_provider_name_for_step(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         provider_context: Dict[str, Any],
     ) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
         """Resolve one provider step's provider alias before template lookup."""
@@ -5494,7 +5505,7 @@ class WorkflowExecutor:
 
     def _compose_provider_prompt_for_step(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         context: Dict[str, Any],
         state: Dict[str, Any],
         *,
@@ -5571,7 +5582,7 @@ class WorkflowExecutor:
 
     def _execute_adjudicated_provider_with_context(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         context: Dict[str, Any],
         state: Dict[str, Any],
         runtime_step_id: Optional[str] = None,
@@ -5586,7 +5597,7 @@ class WorkflowExecutor:
 
     def _adjudication_consumed_artifacts_for_prompt(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         step_name: str,
@@ -5607,7 +5618,7 @@ class WorkflowExecutor:
 
     def _build_provider_session_request(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         step_name: str,
@@ -5664,7 +5675,7 @@ class WorkflowExecutor:
 
     def _execute_call(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -5742,7 +5753,7 @@ class WorkflowExecutor:
 
     def _resolve_output_contract_paths(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
     ) -> tuple[Optional[List[Dict[str, Any]]], Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
@@ -5816,7 +5827,7 @@ class WorkflowExecutor:
 
     def _provider_env_with_runtime_output_bundle_path(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         resolved_output_bundle: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, str]]:
         """Return provider env with runtime-owned structured bundle path binding."""
@@ -5824,7 +5835,7 @@ class WorkflowExecutor:
 
     def _apply_expected_outputs_contract(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         result: Dict[str, Any],
         state: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
@@ -6408,7 +6419,7 @@ class WorkflowExecutor:
             "mtime_ns": stat_result.st_mtime_ns,
         }, None
 
-    def _step_snapshot_dir(self, step: Dict[str, Any]) -> Path:
+    def _step_snapshot_dir(self, step: RuntimeStepInput) -> Path:
         safe_step_id = "".join(
             char if char.isalnum() or char in "._-" else "_"
             for char in self._step_id(step)
@@ -6417,7 +6428,7 @@ class WorkflowExecutor:
 
     def _project_snapshot_record(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         snapshot_name: str,
         snapshot_record: Dict[str, Any],
     ) -> Dict[str, Any]:
@@ -6497,7 +6508,11 @@ class WorkflowExecutor:
             )
         return dict(snapshot_record), None
 
-    def _capture_pre_snapshot(self, step: Dict[str, Any], state: Dict[str, Any]) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    def _capture_pre_snapshot(
+        self,
+        step: RuntimeStepInput,
+        state: Dict[str, Any],
+    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         snapshot_config = step.get("pre_snapshot")
         if not isinstance(snapshot_config, dict) or not snapshot_config:
             return None, None
@@ -6624,7 +6639,7 @@ class WorkflowExecutor:
 
     def _execute_materialize_artifacts(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -6761,7 +6776,7 @@ class WorkflowExecutor:
 
     def _execute_select_variant_output(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
     ) -> Dict[str, Any]:
         config = step.get("select_variant_output")
@@ -7006,7 +7021,7 @@ class WorkflowExecutor:
 
     def _create_loop_context(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         loop_context: Dict[str, Any],
         iteration_state: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -7140,7 +7155,7 @@ class WorkflowExecutor:
 
     def _execute_assert(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -7189,7 +7204,7 @@ class WorkflowExecutor:
             },
         }
 
-    def _execute_set_scalar(self, step: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_set_scalar(self, step: RuntimeStepInput) -> Dict[str, Any]:
         return self._execute_scalar_step(
             step=step,
             artifact_name=step['set_scalar'].get('artifact'),
@@ -7198,7 +7213,7 @@ class WorkflowExecutor:
 
     def _execute_resource_transition(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -7209,7 +7224,7 @@ class WorkflowExecutor:
 
     def _execute_pure_projection(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -7220,7 +7235,7 @@ class WorkflowExecutor:
 
     def _execute_materialize_view(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -7307,7 +7322,7 @@ class WorkflowExecutor:
 
     def _resource_transition_artifacts(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         *,
         transition_result: Mapping[str, Any],
     ) -> Dict[str, Any]:
@@ -7363,7 +7378,11 @@ class WorkflowExecutor:
             return False, None
         return True, current
 
-    def _execute_increment_scalar(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_increment_scalar(
+        self,
+        step: RuntimeStepInput,
+        state: Dict[str, Any],
+    ) -> Dict[str, Any]:
         node = step['increment_scalar']
         artifact_name = node.get('artifact')
         current_value, error = self._latest_published_scalar_value(artifact_name, state)
@@ -7387,7 +7406,7 @@ class WorkflowExecutor:
 
     def _execute_scalar_step(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         artifact_name: Any,
         candidate_value: Any,
     ) -> Dict[str, Any]:
@@ -7971,7 +7990,7 @@ class WorkflowExecutor:
         allowed_variants = {variant for variant in active_variants if isinstance(variant, str)}
         return active_variant not in allowed_variants
 
-    def _execute_structured_if_branch(self, step: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_structured_if_branch(self, step: RuntimeStepInput) -> Dict[str, Any]:
         """Record one lowered branch marker for a structured if/else statement."""
         node = self._executable_node_for_step(step)
         branch_name = node.branch_name if isinstance(node, IfBranchMarkerNode) else None
@@ -7991,7 +8010,7 @@ class WorkflowExecutor:
 
     def _execute_structured_if_join(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -8071,7 +8090,7 @@ class WorkflowExecutor:
             },
         }
 
-    def _execute_structured_match_case(self, step: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_structured_match_case(self, step: RuntimeStepInput) -> Dict[str, Any]:
         """Record one lowered case marker for a structured match statement."""
         node = self._executable_node_for_step(step)
         case_name = node.case_name if isinstance(node, MatchCaseMarkerNode) else None
@@ -8091,7 +8110,7 @@ class WorkflowExecutor:
 
     def _execute_structured_match_join(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -8179,7 +8198,7 @@ class WorkflowExecutor:
         self,
         state: Dict[str, Any],
         step_name: str,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         result: Dict[str, Any],
         phase_hint: Optional[str] = None,
         class_hint: Optional[str] = None,
@@ -8199,7 +8218,7 @@ class WorkflowExecutor:
         self,
         state: Dict[str, Any],
         step_name: str,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         finalized: Dict[str, Any],
     ) -> None:
         del state
@@ -8235,7 +8254,7 @@ class WorkflowExecutor:
 
     def _emit_lexical_checkpoint_shadow_after_repeat_until_commit(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         progress: Dict[str, Any],
     ) -> None:
         if not isinstance(progress, dict):
@@ -8268,7 +8287,7 @@ class WorkflowExecutor:
 
     def _attach_outcome(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         result: Dict[str, Any],
         phase_hint: Optional[str] = None,
         class_hint: Optional[str] = None,
@@ -8283,7 +8302,7 @@ class WorkflowExecutor:
         )
 
     # Stub implementations for other step types
-    def _execute_wait_for(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_wait_for(self, step: RuntimeStepInput, state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute wait_for step and record results in state (AT-60)."""
         step_name = step['name']
         step_result = self._execute_wait_for_result(step)
@@ -8307,7 +8326,7 @@ class WorkflowExecutor:
 
         return state
 
-    def _execute_wait_for_result(self, step: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_wait_for_result(self, step: RuntimeStepInput) -> Dict[str, Any]:
         step_name = step['name']
         wait_config = step.get('wait_for', {})
         result = self.step_executor.execute_wait_for(step_name, wait_config)
@@ -8315,13 +8334,13 @@ class WorkflowExecutor:
         step_result['status'] = 'completed' if result.exit_code == 0 else 'failed'
         return step_result
 
-    def _execute_provider(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_provider(self, step: RuntimeStepInput, state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute provider step without loop context."""
         state_context = state.get('context')
         context = {'context': state_context} if isinstance(state_context, dict) and state_context else {}
         return self._execute_provider_with_context(step, context, state)
 
-    def _execute_command(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_command(self, step: RuntimeStepInput, state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute command step without loop context."""
         state_context = state.get('context')
         context = {'context': state_context} if isinstance(state_context, dict) and state_context else {}

@@ -6,6 +6,7 @@ from hashlib import sha256
 from typing import Any, Dict, Optional
 
 from ...contracts.output_contract import OutputContractError
+from ..executor_runtime import RuntimeStepInput
 from ..pure_expr import (
     PureExprEvaluationError,
     canonical_json_for_pure_value,
@@ -16,7 +17,7 @@ from .runtime import StepRuntime
 
 def execute_pure_projection(
     runtime: StepRuntime,
-    step: Dict[str, Any],
+    step: RuntimeStepInput,
     state: Dict[str, Any],
     *,
     scope: Optional[Dict[str, Dict[str, Any]]] = None,

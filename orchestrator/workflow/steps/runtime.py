@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Protocol
 
+from ..executor_runtime import RuntimeStepInput
+
 
 class StepRuntime(Protocol):
     """Structural executor surface used by step-kind interpreters.
@@ -83,7 +85,7 @@ class StepRuntime(Protocol):
 
     def _resolve_output_contract_paths(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
     ) -> tuple[
@@ -112,7 +114,7 @@ class StepRuntime(Protocol):
 
     def _resource_transition_artifacts(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         *,
         transition_result: Mapping[str, Any],
     ) -> Dict[str, Any]: ...

@@ -16,6 +16,7 @@ from .adjudication_bindings import (
     AdjudicationSelection,
     AdjudicationStateManager,
 )
+from .executor_runtime import RuntimeStepInput
 from .prompting import PromptComposer
 
 
@@ -71,13 +72,13 @@ class AdjudicationRuntime(Protocol):
 
     def _step_id(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         fallback_index: Optional[int] = None,
     ) -> str: ...
 
     def _compose_provider_prompt_for_step(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         context: Dict[str, Any],
         state: Dict[str, Any],
         *,
@@ -132,13 +133,13 @@ class AdjudicationRuntime(Protocol):
 
     def _provider_env_with_runtime_output_bundle_path(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         resolved_output_bundle: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, str]]: ...
 
     def _resolve_output_contract_paths(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
     ) -> tuple[
@@ -177,12 +178,12 @@ class AdjudicationRuntime(Protocol):
 
     def _adjudication_required_path_surfaces(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
     ) -> list[PathSurface]: ...
 
     def _adjudication_optional_path_surfaces(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
     ) -> list[PathSurface]: ...
 
     def _resolve_adjudication_score_ledger_path(
@@ -197,7 +198,7 @@ class AdjudicationRuntime(Protocol):
 
     def _candidate_step_from_adjudicated_step(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         candidate_config: Mapping[str, Any],
     ) -> Dict[str, Any]: ...
 
@@ -216,15 +217,15 @@ class AdjudicationRuntime(Protocol):
         candidates: list[dict[str, Any]],
     ) -> None: ...
 
-    def _output_paths_from_contract(self, step: Dict[str, Any]) -> dict[str, str]: ...
+    def _output_paths_from_contract(self, step: RuntimeStepInput) -> dict[str, str]: ...
 
     def _promotion_destination_paths(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         artifacts: Mapping[str, Any],
     ) -> set[Path]: ...
 
-    def _workflow_secret_values(self, step: Dict[str, Any]) -> list[str]: ...
+    def _workflow_secret_values(self, step: RuntimeStepInput) -> list[str]: ...
 
     def _provider_model(self, params: Any) -> Optional[str]: ...
 
@@ -283,7 +284,7 @@ class AdjudicationRuntime(Protocol):
         scorer: dict[str, Any],
         evaluator_prompt: str,
         evaluator_config: Mapping[str, Any],
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         output_contract_step: Dict[str, Any],
         run_root: Path,
         frame_scope: str,
@@ -305,7 +306,7 @@ class AdjudicationRuntime(Protocol):
 
     def _adjudication_consumed_artifacts_for_prompt(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         step_name: str,

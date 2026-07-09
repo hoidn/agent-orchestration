@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, Optional
 
 from ..state import StateManager, StepResult
 from . import step_results
+from .executor_runtime import RuntimeStepInput
 from .runtime_types import NormalizedStepOutcome
 
 
@@ -16,10 +17,12 @@ class OutcomeRecorder:
         self,
         *,
         state_manager: StateManager,
-        step_id_resolver: Callable[[Dict[str, Any]], str],
-        step_type_resolver: Callable[[Dict[str, Any]], str],
-        summary_emitter: Callable[[str, Dict[str, Any], Dict[str, Any]], None],
-        post_persist_hook: Optional[Callable[[Dict[str, Any], str, Dict[str, Any], Dict[str, Any]], None]] = None,
+        step_id_resolver: Callable[[RuntimeStepInput], str],
+        step_type_resolver: Callable[[RuntimeStepInput], str],
+        summary_emitter: Callable[[str, RuntimeStepInput, Dict[str, Any]], None],
+        post_persist_hook: Optional[
+            Callable[[Dict[str, Any], str, RuntimeStepInput, Dict[str, Any]], None]
+        ] = None,
     ) -> None:
         self.state_manager = state_manager
         self.step_id_resolver = step_id_resolver
@@ -31,7 +34,7 @@ class OutcomeRecorder:
         self,
         state: Dict[str, Any],
         step_name: str,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         result: Dict[str, Any],
         *,
         phase_hint: Optional[str] = None,
@@ -58,7 +61,7 @@ class OutcomeRecorder:
 
     def attach_outcome(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         result: Dict[str, Any],
         phase_hint: Optional[str] = None,
         class_hint: Optional[str] = None,

@@ -18,6 +18,7 @@ from .adjudication import (
 )
 from .call_frame_state import _path_safe_frame_scope_token
 from .adjudication_runtime import AdjudicationFrameContext, AdjudicationRuntime
+from .executor_runtime import RuntimeStepInput
 
 
 class AdjudicationHelpersMixin:
@@ -77,7 +78,10 @@ class AdjudicationHelpersMixin:
             remaining = deadline.remaining_timeout_sec()
             return remaining is not None and remaining <= 0
 
-    def _adjudication_required_path_surfaces(self: AdjudicationRuntime, step: Dict[str, Any]) -> list[PathSurface]:
+    def _adjudication_required_path_surfaces(
+        self: AdjudicationRuntime,
+        step: RuntimeStepInput,
+    ) -> list[PathSurface]:
             surfaces: list[PathSurface] = []
             input_file = step.get("input_file")
             if isinstance(input_file, str):
@@ -101,7 +105,10 @@ class AdjudicationHelpersMixin:
                 surfaces.append(PathSurface("output_bundle.path", Path(output_bundle["path"])))
             return surfaces
 
-    def _adjudication_optional_path_surfaces(self: AdjudicationRuntime, step: Dict[str, Any]) -> list[PathSurface]:
+    def _adjudication_optional_path_surfaces(
+        self: AdjudicationRuntime,
+        step: RuntimeStepInput,
+    ) -> list[PathSurface]:
             surfaces: list[PathSurface] = []
             depends_on = step.get("depends_on")
             if isinstance(depends_on, dict):
@@ -168,7 +175,7 @@ class AdjudicationHelpersMixin:
 
     def _candidate_step_from_adjudicated_step(
             self: AdjudicationRuntime,
-            step: Dict[str, Any],
+            step: RuntimeStepInput,
             candidate_config: Mapping[str, Any],
         ) -> Dict[str, Any]:
             candidate_step = dict(step)
@@ -225,7 +232,10 @@ class AdjudicationHelpersMixin:
                 paths = candidate_paths(run_root, frame_scope, step_id, visit_count, candidate_id)
                 persist_candidate_metadata(candidate, paths)
 
-    def _output_paths_from_contract(self: AdjudicationRuntime, step: Dict[str, Any]) -> dict[str, str]:
+    def _output_paths_from_contract(
+        self: AdjudicationRuntime,
+        step: RuntimeStepInput,
+    ) -> dict[str, str]:
             paths: dict[str, str] = {}
             for spec in step.get("expected_outputs", []) if isinstance(step.get("expected_outputs"), list) else []:
                 if isinstance(spec, dict) and isinstance(spec.get("name"), str) and isinstance(spec.get("path"), str):
@@ -235,7 +245,11 @@ class AdjudicationHelpersMixin:
                 paths["output_bundle"] = output_bundle["path"]
             return paths
 
-    def _promotion_destination_paths(self: AdjudicationRuntime, step: Dict[str, Any], artifacts: Mapping[str, Any]) -> set[Path]:
+    def _promotion_destination_paths(
+        self: AdjudicationRuntime,
+        step: RuntimeStepInput,
+        artifacts: Mapping[str, Any],
+    ) -> set[Path]:
             paths: set[Path] = set()
             for spec in step.get("expected_outputs", []) if isinstance(step.get("expected_outputs"), list) else []:
                 if not isinstance(spec, dict):
@@ -260,7 +274,10 @@ class AdjudicationHelpersMixin:
                                 paths.add((self.workspace / value).resolve())
             return paths
 
-    def _workflow_secret_values(self: AdjudicationRuntime, step: Dict[str, Any]) -> list[str]:
+    def _workflow_secret_values(
+        self: AdjudicationRuntime,
+        step: RuntimeStepInput,
+    ) -> list[str]:
             secret_names = []
             secret_names.extend(self.global_secrets)
             step_secrets = step.get("secrets")

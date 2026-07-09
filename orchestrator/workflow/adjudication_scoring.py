@@ -25,6 +25,7 @@ from .adjudication import (
 from .adjudication_bindings import AdjudicationExecution
 from .adjudication_prompt_evidence import adjudication_consumed_artifacts_for_prompt
 from .adjudication_runtime import AdjudicationRuntime
+from .executor_runtime import RuntimeStepInput
 
 
 
@@ -123,7 +124,7 @@ class AdjudicationScoringMixin:
 
     def _adjudication_consumed_artifacts_for_prompt(
         self: AdjudicationRuntime,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         step_name: str,
@@ -298,7 +299,7 @@ class AdjudicationScoringMixin:
             scorer: dict[str, Any],
             evaluator_prompt: str,
             evaluator_config: Mapping[str, Any],
-            step: Dict[str, Any],
+            step: RuntimeStepInput,
             output_contract_step: Dict[str, Any],
             run_root: Path,
             frame_scope: str,

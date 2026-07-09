@@ -8,6 +8,8 @@ from typing import Any, Callable, Dict, Literal, Mapping, Optional
 
 from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
 
+from .executor_runtime import RuntimeStepInput
+
 
 class DataflowManager:
     """Maintain publish/consume lineage without owning executor control flow."""
@@ -21,7 +23,7 @@ class DataflowManager:
         workflow_version: Optional[str],
         uses_qualified_identities: Callable[[], bool],
         workflow_version_at_least: Callable[[str], bool],
-        step_id_resolver: Callable[[Dict[str, Any]], str],
+        step_id_resolver: Callable[[RuntimeStepInput], str],
         contract_violation_result: Callable[[str, Dict[str, Any]], Dict[str, Any]],
         persist_state: Callable[[Dict[str, Any]], None],
         substitute_path_template: Callable[..., tuple[Optional[str], Optional[Dict[str, Any]]]],
@@ -77,7 +79,7 @@ class DataflowManager:
 
     def record_published_artifacts(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         step_name: str,
         result: Dict[str, Any],
         state: Dict[str, Any],
@@ -307,7 +309,7 @@ class DataflowManager:
 
     def enforce_consumes_contract(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         step_name: str,
         state: Dict[str, Any],
         *,
@@ -544,7 +546,7 @@ class DataflowManager:
 
     def finalize_consumes(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         step_name: str,
         state: Dict[str, Any],
         *,

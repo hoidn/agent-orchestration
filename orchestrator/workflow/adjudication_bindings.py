@@ -19,6 +19,7 @@ from .adjudication import (
     PromotionResult,
     SelectionResult,
 )
+from .executor_runtime import RuntimeStepInput
 from .prompting import PromptComposer
 
 
@@ -59,7 +60,7 @@ Result = Dict[str, Any]
 class StepIdCallback(Protocol):
     def __call__(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         fallback_index: Optional[int] = None,
     ) -> str: ...
 
@@ -67,7 +68,7 @@ class StepIdCallback(Protocol):
 class ComposeProviderPromptCallback(Protocol):
     def __call__(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         context: Dict[str, Any],
         state: Dict[str, Any],
         *,
@@ -110,7 +111,7 @@ class ExecuteProviderInvocationCallback(Protocol):
 class ProviderEnvCallback(Protocol):
     def __call__(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         resolved_output_bundle: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, str]]: ...
 
@@ -118,7 +119,7 @@ class ProviderEnvCallback(Protocol):
 class ResolveOutputPathsCallback(Protocol):
     def __call__(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
     ) -> tuple[
@@ -208,7 +209,7 @@ class AdjudicationExecution:
 
     started: float
     deadline: AdjudicationDeadline
-    step: Dict[str, Any]
+    step: RuntimeStepInput
     context: Dict[str, Any]
     state: Dict[str, Any]
     step_name: str
@@ -351,14 +352,14 @@ class AdjudicationRunnerBase:
 
     def _step_id(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         fallback_index: Optional[int] = None,
     ) -> str:
         return self._bindings.step_id(step, fallback_index)
 
     def _compose_provider_prompt_for_step(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         context: Dict[str, Any],
         state: Dict[str, Any],
         *,
@@ -446,7 +447,7 @@ class AdjudicationRunnerBase:
 
     def _provider_env_with_runtime_output_bundle_path(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         resolved_output_bundle: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, str]]:
         return self._bindings.provider_env_with_runtime_output_bundle_path(
@@ -456,7 +457,7 @@ class AdjudicationRunnerBase:
 
     def _resolve_output_contract_paths(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
     ) -> tuple[Optional[List[Dict[str, Any]]], Optional[Dict[str, Any]], Optional[Result]]:

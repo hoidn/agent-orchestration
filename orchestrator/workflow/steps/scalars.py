@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from ..executor_runtime import RuntimeStepInput
 from .runtime import StepRuntime
 
 
 def execute_scalar_step(
     runtime: StepRuntime,
-    step: Dict[str, Any],
+    step: RuntimeStepInput,
     artifact_name: Any,
     candidate_value: Any,
 ) -> Dict[str, Any]:

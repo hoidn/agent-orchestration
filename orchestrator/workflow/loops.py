@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 from ..state import ForEachState, StepResult
 from .executable_ir import ExecutableNodeKind
+from .executor_runtime import LoopRuntime, RuntimeStepInput
 from .pointers import PointerResolver
 from .runtime_context import RuntimeContext
 from .identity import iteration_step_id
@@ -23,7 +24,7 @@ class LoopStateIntegrityError(RuntimeError):
 class LoopExecutor:
     """Extract for_each and repeat_until orchestration from WorkflowExecutor."""
 
-    def __init__(self, executor: Any) -> None:
+    def __init__(self, executor: LoopRuntime) -> None:
         self.executor = executor
 
     def collect_persisted_iteration_state(
@@ -88,12 +89,12 @@ class LoopExecutor:
 
     def _typed_loop_body_context(
         self,
-        loop_step: Dict[str, Any],
+        loop_step: RuntimeStepInput,
         *,
         loop_kind: str,
     ) -> Optional[tuple[str, tuple[str, ...], IterationStepKeyProjection]]:
         """Return typed loop-body metadata when this loop is backed by executable IR."""
-        projection = getattr(self.executor, "projection", None)
+        projection = self.executor.projection
         loop_node = self.executor._executable_node_for_step(loop_step)
         if projection is None or loop_node is None:
             return None
@@ -190,7 +191,7 @@ class LoopExecutor:
         self,
         *,
         state: Dict[str, Any],
-        loop_step: Dict[str, Any],
+        loop_step: RuntimeStepInput,
         loop_name: str,
         iteration_index: int,
         iteration_state: Dict[str, Any],
@@ -367,7 +368,7 @@ class LoopExecutor:
         typed_body_context: tuple[str, tuple[str, ...], IterationStepKeyProjection],
     ) -> str:
         """Resolve the canonical projection-owned frame key for one typed repeat_until node."""
-        projection = getattr(self.executor, "projection", None)
+        projection = self.executor.projection
         if projection is None:
             raise LoopStateIntegrityError(
                 f"Typed repeat_until step '{step_name}' is missing a workflow state projection"
@@ -423,7 +424,7 @@ class LoopExecutor:
     def persist_repeat_until_progress(
         self,
         state: Dict[str, Any],
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         loop_name: str,
         progress: Dict[str, Any],
         frame_result: Dict[str, Any],
@@ -638,7 +639,7 @@ class LoopExecutor:
 
     def build_repeat_until_frame_result(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         *,
         status: str,
         exit_code: int,
@@ -719,7 +720,7 @@ class LoopExecutor:
 
     def execute_repeat_until(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         resume: bool = False,
@@ -1403,7 +1404,7 @@ class LoopExecutor:
 
     def execute_for_each(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         resume: bool = False,
@@ -1745,7 +1746,7 @@ class LoopExecutor:
 
     def build_loop_parent_scope_steps(
         self,
-        loop_step: Dict[str, Any],
+        loop_step: RuntimeStepInput,
         state: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Build the lexical parent scope for structured refs inside one loop body."""
@@ -1764,7 +1765,7 @@ class LoopExecutor:
         if isinstance(loop_name, str) and "." in loop_name:
             name_prefix = loop_name.rsplit(".", 1)[0]
 
-        projection = getattr(self.executor, "projection", None)
+        projection = self.executor.projection
         if projection is None:
             return {}
 
@@ -1795,7 +1796,7 @@ class LoopExecutor:
 
     def build_loop_parent_scope_node_results(
         self,
-        loop_step: Dict[str, Any],
+        loop_step: RuntimeStepInput,
         state: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Build a deterministic node-id index for one loop body's lexical parent scope."""
@@ -1809,7 +1810,7 @@ class LoopExecutor:
         else:
             parent_step_id = "root"
 
-        projection = getattr(self.executor, "projection", None)
+        projection = self.executor.projection
         if projection is None:
             return {}
 
@@ -1834,11 +1835,11 @@ class LoopExecutor:
 
     def build_loop_self_node_results(
         self,
-        loop_step: Dict[str, Any],
+        loop_step: RuntimeStepInput,
         iteration_state: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Build a deterministic node-id index for one active loop iteration."""
-        projection = getattr(self.executor, "projection", None)
+        projection = self.executor.projection
         if projection is None or not isinstance(iteration_state, dict):
             return {}
 
@@ -1855,9 +1856,9 @@ class LoopExecutor:
             if presentation_key in iteration_state and isinstance(iteration_state[presentation_key], dict)
         }
 
-    def build_loop_self_node_ids(self, loop_step: Dict[str, Any]) -> tuple[str, ...]:
+    def build_loop_self_node_ids(self, loop_step: RuntimeStepInput) -> tuple[str, ...]:
         """Return node ids that belong to the active loop body scope."""
-        projection = getattr(self.executor, "projection", None)
+        projection = self.executor.projection
         if projection is None:
             return ()
 
@@ -1876,7 +1877,7 @@ class LoopExecutor:
         iteration_state: Dict[str, Any],
         parent_scope_steps: Dict[str, Any],
         *,
-        loop_step: Optional[Dict[str, Any]] = None,
+        loop_step: Optional[RuntimeStepInput] = None,
         parent_scope_node_results: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """Build structured-ref scope maps for one nested loop step."""
@@ -1898,7 +1899,7 @@ class LoopExecutor:
 
     def evaluate_loop_body_condition(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         condition: Dict[str, Any],
         state: Dict[str, Any],
         *,
@@ -1969,7 +1970,7 @@ class LoopExecutor:
 
     def create_loop_context(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         loop_context: Dict[str, Any],
         iteration_state: Dict[str, Any],
     ) -> Dict[str, Any]:

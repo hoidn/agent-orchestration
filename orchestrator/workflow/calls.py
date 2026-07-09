@@ -14,6 +14,7 @@ from .executable_ir import (
     LoopOutputAddress,
     WorkflowInputAddress,
 )
+from .executor_runtime import CallFrameStateManager, CallRuntime, RuntimeStepInput
 from .loaded_bundle import (
     workflow_boundary_projection,
     workflow_bundle,
@@ -33,7 +34,7 @@ from . import step_results
 class CallExecutor:
     """Extract nested workflow call orchestration from WorkflowExecutor."""
 
-    def __init__(self, executor: Any) -> None:
+    def __init__(self, executor: CallRuntime) -> None:
         self.executor = executor
 
     @staticmethod
@@ -124,13 +125,13 @@ class CallExecutor:
                 provenance["source_step_id"] = projection_entry.step_id
         return provenance
 
-    def frame_id(self, step: Dict[str, Any], state: Dict[str, Any]) -> str:
+    def frame_id(self, step: RuntimeStepInput, state: Dict[str, Any]) -> str:
         """Derive a durable call-frame id from the authored call step and visit count."""
         return self.frame_id_with_overrides(step, state)
 
     def frame_id_with_overrides(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         step_name: Optional[str] = None,
@@ -155,14 +156,19 @@ class CallExecutor:
         visit_count = step_visits.get(effective_step_name, 1) if isinstance(step_visits, dict) else 1
         effective_step_id = step_id or self.executor._step_id(step)
         frame_id = f"{effective_step_id}::visit::{visit_count}"
-        parent_frame_id = getattr(self.executor.state_manager, "frame_id", None)
+        state_manager = self.executor.state_manager
+        parent_frame_id = (
+            state_manager.frame_id
+            if isinstance(state_manager, CallFrameStateManager)
+            else None
+        )
         if isinstance(parent_frame_id, str) and parent_frame_id:
             return f"{parent_frame_id}.{frame_id}"
         return frame_id
 
     def resolve_bound_inputs(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         imported_workflow: Any,
         state: Dict[str, Any],
         *,
@@ -240,7 +246,7 @@ class CallExecutor:
     def _managed_write_root_allocations(
         self,
         *,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         imported_workflow: Any,
     ) -> Dict[str, Any]:
         allocations: Dict[str, Any] = {}
@@ -293,7 +299,7 @@ class CallExecutor:
     def finalize_bound_inputs(
         self,
         *,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         step_name: str,
         frame_id: str,
         imported_workflow: Any,
@@ -461,7 +467,7 @@ class CallExecutor:
         self,
         *,
         frame_id: str,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         imported_workflow: Any,
         child_state: Dict[str, Any],
     ) -> Dict[str, Any]:
@@ -757,7 +763,7 @@ class CallExecutor:
 
     def execute_call(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         state: Dict[str, Any],
         *,
         scope: Optional[Dict[str, Dict[str, Any]]] = None,

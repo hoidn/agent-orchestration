@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Dict, Iterable, Mapping, Tuple
 
 from .statements import (
     branch_token,
@@ -106,7 +106,7 @@ def assign_finalization_step_ids(finally_block: Any) -> Dict[str, Any] | None:
     return normalized
 
 
-def runtime_step_id(step: Dict[str, Any], fallback_index: int = 0) -> str:
+def runtime_step_id(step: Mapping[str, Any], fallback_index: int = 0) -> str:
     """Return the durable step id for a loaded step, deriving a fallback when missing."""
     configured = step.get("step_id")
     if isinstance(configured, str) and configured:
@@ -118,7 +118,7 @@ def runtime_step_id(step: Dict[str, Any], fallback_index: int = 0) -> str:
     return f"root.{_compiler_token(step, fallback_index)}"
 
 
-def iteration_step_id(base_step_id: str, index: int, nested_step: Dict[str, Any], nested_index: int) -> str:
+def iteration_step_id(base_step_id: str, index: int, nested_step: Mapping[str, Any], nested_index: int) -> str:
     """Return the qualified identity for a loop iteration step."""
     nested_base = runtime_step_id(nested_step, nested_index)
     prefix = f"{base_step_id}."
@@ -136,7 +136,7 @@ def step_scope_tuple(step_id: str) -> Tuple[str, ...]:
     return tuple(token for token in step_id.split(".") if token)
 
 
-def _compiler_token(step: Dict[str, Any], index: int) -> str:
+def _compiler_token(step: Mapping[str, Any], index: int) -> str:
     name = step.get("name")
     if isinstance(name, str) and name:
         token = _NON_ALNUM_RE.sub("_", name).strip("_")

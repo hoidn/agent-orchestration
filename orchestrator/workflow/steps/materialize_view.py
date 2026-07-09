@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, Mapping, Optional
 
 from ...contracts.output_contract import OutputContractError
+from ..executor_runtime import RuntimeStepInput
 from ..pure_expr import canonical_json_for_pure_value
 from ..references import MaterializeViewBindingReference
 from ..view_renderer import (
@@ -17,7 +18,7 @@ from .runtime import StepRuntime
 
 def execute_materialize_view(
     runtime: StepRuntime,
-    step: Dict[str, Any],
+    step: RuntimeStepInput,
     state: Dict[str, Any],
     *,
     scope: Optional[Dict[str, Dict[str, Any]]] = None,

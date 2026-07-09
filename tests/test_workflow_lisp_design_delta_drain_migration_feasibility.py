@@ -10,6 +10,7 @@ import sys
 from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -19,6 +20,7 @@ from orchestrator.exec.step_executor import ExecutionResult
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.calls import CallExecutor
+from orchestrator.workflow.executor_runtime import CallRuntime
 from orchestrator.workflow.executable_ir import validate_executable_workflow
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
@@ -4474,7 +4476,9 @@ def test_design_delta_parent_drain_resume_rejects_persisted_extra_public_child_i
         def _json_safe_runtime_value(self, value):
             return value
 
-    error, validation = CallExecutor(_FakeExecutor(tmp_path)).validate_resume_bound_inputs(
+    error, validation = CallExecutor(
+        cast(CallRuntime, _FakeExecutor(tmp_path))
+    ).validate_resume_bound_inputs(
         step_name="CallPlan",
         call_alias="plan_phase",
         frame_id="frame-1",

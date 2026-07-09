@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 from ..state import ForEachState, RunState, StateManager, StepResult
 from .executable_ir import ManagedJobsConfig, ManagedJobsRoutes
+from .executor_runtime import ParentCallStateManager
 from .loaded_bundle import (
     workflow_context,
     workflow_output_contracts,
@@ -86,7 +87,7 @@ class _CallFrameStateManager:
     def __init__(
         self,
         *,
-        parent_manager: StateManager,
+        parent_manager: ParentCallStateManager,
         workflow: Any,
         frame_id: str,
         call_step_name: str,

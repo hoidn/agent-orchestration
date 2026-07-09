@@ -17,6 +17,7 @@ from .adjudication_helpers import AdjudicationHelpersMixin
 from .adjudication_ledger import AdjudicationLedgerMixin
 from .adjudication_resume import AdjudicationResumeMixin
 from .adjudication_scoring import AdjudicationScoringMixin
+from .executor_runtime import RuntimeStepInput
 
 
 class AdjudicationRunner(
@@ -32,7 +33,7 @@ class AdjudicationRunner(
 
     def execute_adjudicated_provider_with_context(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         context: Dict[str, Any],
         state: Dict[str, Any],
         runtime_step_id: Optional[str] = None,
@@ -68,7 +69,7 @@ class AdjudicationRunner(
 
     def _prepare_adjudication_execution(
         self,
-        step: Dict[str, Any],
+        step: RuntimeStepInput,
         context: Dict[str, Any],
         state: Dict[str, Any],
         *,

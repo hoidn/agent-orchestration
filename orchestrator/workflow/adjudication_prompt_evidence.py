@@ -5,10 +5,11 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, Mapping
 
 from ..contracts.prompt_contract import selected_consumed_artifacts_for_prompt
+from .executor_runtime import RuntimeStepInput
 
 
 def adjudication_consumed_artifacts_for_prompt(
-    step: Dict[str, Any],
+    step: RuntimeStepInput,
     state: Dict[str, Any],
     *,
     step_name: str,
