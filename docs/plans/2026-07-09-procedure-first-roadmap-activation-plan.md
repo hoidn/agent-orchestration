@@ -4,7 +4,7 @@
 
 **Goal:** Make the approved procedure-first roadmap executable by reconciling the existing component plans with landed commits, tracking and routing the governing plan set, re-anchoring stale ownership paths, and establishing a verified component-plan handoff.
 
-**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff has now completed; current routing advances to lowering-fork closeout.
+**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff and the later lowering-fork closeout are historical; current routing is paused at the boundary-report Task 5 case 5 production design gate.
 
 **Tech Stack:** Markdown, Git, `rg`, pytest, pyflakes.
 
@@ -514,5 +514,7 @@ Executor handoff (superseded by the 2026-07-09 Task 9 closeout): the committed e
 `_execute_prologue`, `_execute_step_loop`, and `_execute_epilogue` helpers are
 committed. Task 9 subsequently passed its corrected executor-surface and
 orchestrator smoke gates; its six full-suite failure identities were also
-present on the pre-Task-2 revision. The active handoff is now lowering-fork
-closeout, as routed by `docs/index.md` and the governing execution sequence.
+present on the pre-Task-2 revision. That lowering-fork handoff is now
+historical. Current routing is paused at the boundary-report Task 5 case 5
+production design gate, as recorded by `docs/index.md` and the governing
+execution sequence; drain migration must not begin until that gate clears.

@@ -1,6 +1,12 @@
 # Type/Runtime Boundary Report Follow-ups Plan
 
-> **Execution status (active at Task 5, 2026-07-09):** Tasks 1-3 are completed in `81b1b935` (report routing), `1833d59b` (frontend terminology anchor), and `b22103f5` (live-design-doc terminology sweep). Task 4 is completed in `e1822cf4` plus the date correction `ab4668b0`; its fail-closed report ownership check is cleared. The published audit selects cases 2, 3, and 5 for Task 5, owned respectively by `tests/test_workflow_lisp_structured_results.py`, `tests/test_output_contract.py`, and `tests/test_workflow_lisp_source_map.py`. Task 5 is next; Task 6 follows as historical reconciliation/status.
+> **Execution status (paused at Task 5 case 5 design gate, 2026-07-09):**
+> Tasks 1-4 are complete. Task 5 case 2 landed in `be6596ae` and case 3
+> landed in `02f38549`. The case 5 feasibility reproduction confirmed a
+> production capability gap that cannot be closed under this plan's
+> no-production architecture. Task 6 and the final gate are paused. The drain
+> migration must not begin until a separate accepted design and implementation
+> close the case 5 lineage gap and this plan resumes.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -16,7 +22,22 @@
 - **Original ordering constraint:** Tasks 4–6 were intended to complete **before** `docs/plans/2026-07-07-refactoring-dead-code-and-lowering-consolidation.md` Task 3 (orphaned-fixture deletion) executed.
 - Tasks 1–3 are documentation-only, independent, and can land any time.
 
-**Execution coordination (verified 2026-07-09):** The Phase-1 fixture deletion has landed, and the three candidate fixtures named below are absent from the current checkout. The Tasks 4–5 audit remains valid: prefer existing behavioral coverage over recreating old fixtures, and have Task 5 create a minimal fixture only for a genuine uncovered case without assuming an absent fixture can be reused. Task 6 is now historical reconciliation/status, not a replay of the deletion.
+**Execution coordination (verified 2026-07-09):** The Phase-1 fixture deletion
+has landed, and the three candidate fixtures named below are absent from the
+current checkout. The Tasks 4–5 audit remains valid: prefer existing behavioral
+coverage over recreating old fixtures, and create a minimal current-contract
+fixture only when an uncovered case is expressible under this plan's
+no-production boundary. The case 5 reproduction proved that it is not. Task 6
+is historical reconciliation/status, not a replay of the deletion.
+
+**Case 5 design gate (confirmed 2026-07-09):** A real compile/build/runtime
+reproduction reaches `variant_required_field_missing` with structured
+`variant`, `name`, and `json_pointer` context, but the violation carries no
+source-map subject. `CompiledFrontendIndex` supports only step/node origin
+lookup, and the persisted source map does not retain authored `defunion`
+variant-field spans or form identity. Adding the requested source-map test
+therefore requires production lineage design and implementation outside this
+plan. Do not weaken the test to generated-step attribution.
 
 ## Global Constraints
 
@@ -211,14 +232,14 @@ git commit --only docs/reports/2026-06-19-workflow-lisp-type-runtime-boundary-is
 
 The cleanly published Task-4 audit selects exactly three gaps for this task:
 
-| Case | Owning suite | Required coverage |
-|---|---|---|
-| 2. Same-name fields across union variants | `tests/test_workflow_lisp_structured_results.py` | Prove valid same-name fields remain variant-scoped and collision-free through lowering; do not reject them merely for sharing a name across distinct variants. |
-| 3. Missing active-variant required field at runtime | `tests/test_output_contract.py` | Exercise `variant_required_field_missing` through runtime output-bundle validation. |
-| 5. Runtime failure source-map attribution | `tests/test_workflow_lisp_source_map.py` | Map a runtime output failure back to the authored union field. |
+| Case | Owning suite | Required coverage | Status |
+|---|---|---|---|
+| 2. Same-name fields across union variants | `tests/test_workflow_lisp_structured_results.py` | Prove valid same-name fields remain variant-scoped and collision-free through lowering; do not reject them merely for sharing a name across distinct variants. | **Landed** in `be6596ae`. |
+| 3. Missing active-variant required field at runtime | `tests/test_output_contract.py` | Exercise `variant_required_field_missing` through runtime output-bundle validation. | **Landed** in `02f38549`. |
+| 5. Runtime failure source-map attribution | `tests/test_workflow_lisp_source_map.py` | Map a runtime output failure back to the authored union field. | **Blocked — production design gate.** The confirmed missing links are recorded above. |
 
-Implement one case and one commit at a time. Cases 1 and 4 are already covered;
-case 6 remains owned by the drain-migration plan.
+For coverable gaps, implement one case and one commit at a time. Cases 1 and 4
+are already covered; case 6 remains owned by the drain-migration plan.
 
 **Files (per gap):**
 - Test: the owning suite from the selected-gap table above.
@@ -236,16 +257,36 @@ Coverage recipe (mirror each owning suite's surrounding helper usage):
   assert attribution to the authored union field using stable source-map
   structure, not literal diagnostic wording.
 
-- [ ] **Step 1:** Build the smallest current-contract reproduction. For case 2,
-  confirm the valid authoring and lowering path succeeds. For cases 3 and 5,
-  run the failure path once and confirm the real violation/origin structure —
-  never guess a diagnostic or violation code.
-- [ ] **Step 2:** Add the test using the suite's existing helpers; `pytest <suite> --collect-only -q` then run the new test → PASS.
-- [ ] **Step 3:** Commit: `git add <suite> <fixture-if-new>` / `git commit -m "Cover <case> at typed runtime boundary"`.
+**Per-case execution checklist:**
+
+Case 2:
+
+- [x] **Step 1:** Confirm the valid authoring/lowering path and observe the
+  variant-scoped contract identities.
+- [x] **Step 2:** Add and verify the owning-suite behavioral test.
+- [x] **Step 3:** Commit `be6596ae` (`Cover repeated union fields through lowering`).
+
+Case 3:
+
+- [x] **Step 1:** Reproduce the active-variant omission and observe
+  `variant_required_field_missing` plus its structured field identity.
+- [x] **Step 2:** Add and verify the owning-suite behavioral test.
+- [x] **Step 3:** Commit `02f38549` (`Cover missing active variant output field`).
+
+Case 5:
+
+- [x] **Step 1:** Run the real compile/build/runtime reproduction and identify
+  the missing runtime-violation-to-authored-field lineage links.
+- [ ] **Step 2 — BLOCKED:** Add the owning-suite integration test only after a
+  separate accepted production design makes authored union-field attribution
+  available through the runtime remapping path.
+- [ ] **Step 3 — BLOCKED:** No case 5 test commit exists under this plan.
 
 ---
 
 ### Task 6: Record historical reconciliation/status for the Phase-1 fixture deletion
+
+> **Status:** Paused behind the Task 5 case 5 production design gate.
 
 **Files:**
 - Inspect: `docs/plans/2026-07-07-refactoring-dead-code-and-lowering-consolidation.md` (Task 3 fixture list)
@@ -260,6 +301,9 @@ Coverage recipe (mirror each owning suite's surrounding helper usage):
 ---
 
 ### Final gate
+
+> **Status:** Paused. Do not treat the landed case 2 and case 3 tests as closure
+> of the still-blocked case 5 lineage obligation.
 
 - [ ] `grep -rn "proof-gated" docs/design/*.md` → hits only in the superseded constraints doc and internal-mechanics sentences.
 - [ ] `pytest tests/test_workflow_lisp_variant_proofs.py tests/test_workflow_lisp_structured_results.py tests/test_output_contract.py tests/test_workflow_lisp_source_map.py -q` → PASS.
