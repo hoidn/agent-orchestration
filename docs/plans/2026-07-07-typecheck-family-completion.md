@@ -1,6 +1,6 @@
 # Typecheck Dispatch Owner-Family Migration Completion (Phase 2)
 
-> **Execution status (verified 2026-07-09):** Verified at `36aafed448892b2f773b27c8c507db31bccd15fd` (`Extract materialize view step interpreter behind a permanent delegator`). Execution has landed through Tasks 1-6: `bbc22fd1a819b009338b2801d47f55faeae771c1` (`Import typecheck raise helpers directly in family modules`), `6f01104face629a730e0a420162b97bda163ccc5` (`Move shared typecheck helpers into context leaf and drop compat back-imports`), `a124a7b4ec72722ebac8686f0c27714d92723461` (`Retire dispatch-local command argv validation for owner version`), `85556eab1c6298c986dc7705aa3dbb7befaec0cb` (`Retire dispatch-local macro-introduced effect check for owner version`), `6b99ca317503b02a0fda2ad213cb06fcd136539c` (`Extract resume-or-start typecheck into owner module`), `481cd284acff352b7c40aba8131ff031021d855b` (`Extract drain and phase typecheck cluster into owner module`), and `a4d9a3bb8ebfda957f4b4c6f02b72c2b49cbf657` (`Extract resource and view typecheck cluster into owner module`). The three owner modules exist and the legacy `compat` back-import grep is clean. Task 3's plan-authorized STOP path remains visible for the dispatch-local semantic-command-adapter validator because it differs from the owner implementation; the end-of-plan full gate remains and must report that intentional distinction. Unrelated user work exists in the checkout and must be preserved.
+> **Execution status (active closeout amendment, verified 2026-07-09):** Execution has landed through Tasks 1-6: `bbc22fd1a819b009338b2801d47f55faeae771c1` (`Import typecheck raise helpers directly in family modules`), `6f01104face629a730e0a420162b97bda163ccc5` (`Move shared typecheck helpers into context leaf and drop compat back-imports`), `a124a7b4ec72722ebac8686f0c27714d92723461` (`Retire dispatch-local command argv validation for owner version`), `85556eab1c6298c986dc7705aa3dbb7befaec0cb` (`Retire dispatch-local macro-introduced effect check for owner version`), `6b99ca317503b02a0fda2ad213cb06fcd136539c` (`Extract resume-or-start typecheck into owner module`), `481cd284acff352b7c40aba8131ff031021d855b` (`Extract drain and phase typecheck cluster into owner module`), and `a4d9a3bb8ebfda957f4b4c6f02b72c2b49cbf657` (`Extract resource and view typecheck cluster into owner module`), with follow-up fix `69cce99f` included in the verified code boundary. The three owner modules exist and the legacy `compat` back-import grep is clean. The first closeout attempt passed 398 behavioral tests and the 19-test Design Delta smoke, but exposed a planning gap: the explicit Tasks 1-6 left `typecheck_dispatch.py` at 1,541 lines with dead tail helpers, two live deferred-import ownership residues, and 29 pre-plan pyflakes findings. Task 7 below is the bounded amendment required before the end-of-plan gate can close. Unrelated user work exists in the checkout and must be preserved.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -498,6 +498,75 @@ git add orchestrator/workflow_lisp/typecheck_resource_view.py orchestrator/workf
         tests/test_workflow_lisp_expressions.py
 git commit -m "Extract resource and view typecheck cluster into owner module"
 ```
+
+---
+
+## Task 7 (2026-07-09 closeout amendment): Retire omitted dispatch-tail ownership residue
+
+The first end-of-plan closeout found that Tasks 1-6 achieved their named
+family extractions but could not achieve the plan's own dispatcher-size and
+static-cleanliness goals. All 29 pyflakes findings reproduce at the pre-plan
+revision, so they are baseline debt rather than regressions; nevertheless the
+plan explicitly requires a silent pyflakes gate. The tail also contains two
+live deferred-import round trips and eight helpers with zero repository
+callers. This task closes only that measured gap; it does not redesign typing
+semantics or move the retained `_typecheck` core-control-flow dispatcher.
+
+**Files:**
+- Modify: `orchestrator/workflow_lisp/typecheck_dispatch.py`
+- Modify: `orchestrator/workflow_lisp/loop_state.py`
+- Modify: `orchestrator/workflow_lisp/procedure_typecheck.py`
+- Modify: `orchestrator/workflow_lisp/typecheck.py`
+- Modify: `orchestrator/workflow_lisp/typecheck_calls.py`
+- Modify: `orchestrator/workflow_lisp/typecheck_proofs.py`
+- Modify: `tests/test_workflow_lisp_expressions.py`
+
+- [ ] **Step 1: Add and run a failing ownership structure test.** Extend the
+  existing typecheck owner-split structure test to require: no dispatch-local
+  definitions for `_generated_procedure_signature`,
+  `_generated_procedure_definition`, `_typecheck_generated_procedure`,
+  `_register_generated_record_type`, `_register_generated_union_type`,
+  `_generated_relpath_seed_expr`, `_resolve_field_access_impl`,
+  `_validate_semantic_command_adapter_usage`, or
+  `_temporary_procedure_catalog`; no deferred import of generated-record
+  registration from `loop_state.py`; no deferred import of the temporary
+  catalog from `procedure_typecheck.py`; and a dispatcher size of at most 1,250
+  lines. Run collection, then the focused test and confirm it fails for the
+  omitted ownership residue before changing production code.
+
+- [ ] **Step 2: Move the two live helpers to their owners.** Move
+  `_register_generated_record_type` (and its tiny `_type_name` helper) into
+  `loop_state.py`, remove the deferred dispatch import, and call the local owner
+  directly. Move `_temporary_procedure_catalog` into
+  `procedure_typecheck.py`, remove `_temporary_procedure_catalog_owner`, and
+  call the owner directly. Preserve signatures and bodies; add no compatibility
+  re-export because repository-wide grep shows only the two owner call paths.
+
+- [ ] **Step 3: Delete only proven-dead tail helpers.** Delete the seven
+  zero-caller generated/union/field-access helpers named in Step 1 plus the
+  dispatch-local semantic-command-adapter validator. The validator was retained
+  by Task 3's semantic-difference STOP rule, but the closeout audit proves it
+  has no caller; deleting dead code avoids choosing between the differing
+  behaviors. Remove the dead `_generated_relpath_seed_expr` facade import.
+  Re-run repository-wide greps before deletion; any newly discovered caller is
+  a STOP-and-report condition.
+
+- [ ] **Step 4: Clear the measured static residue.** Remove only the imports
+  and duplicate binding reported by pyflakes in `typecheck_dispatch.py`,
+  `typecheck_calls.py`, and `typecheck_proofs.py`. Do not make opportunistic
+  formatting or ownership changes. `pyflakes` on the nine modules named by the
+  end gate must be silent.
+
+- [ ] **Step 5: Verify green before committing.** Run the focused ownership
+  test, `pytest --collect-only tests/test_workflow_lisp_expressions.py`, import
+  checks, pyflakes, the exact seven-module typecheck selector, and the Design
+  Delta smoke. Confirm `typecheck_dispatch.py` is at most 1,250 lines.
+
+- [ ] **Step 6: Commit.** Stage only the seven files listed above and commit
+  with `Retire omitted typecheck dispatch tail residue`.
+
+After Task 7, rerun the full suite in tmux. Compare its failure identities to
+the six pre-plan failures recorded by the 2026-07-09 closeout audit.
 
 ---
 
