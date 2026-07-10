@@ -1014,6 +1014,77 @@ def test_derive_structured_result_contract_builds_variant_output_for_union_resul
     }
 
 
+def test_derive_structured_result_contract_keeps_repeated_union_fields_variant_scoped(
+    tmp_path: Path,
+) -> None:
+    types_path = _write_module(
+        tmp_path / "repeated_union_fields.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath AcceptedReport",
+                "    :kind relpath",
+                '    :under "artifacts/accepted"',
+                "    :must-exist true)",
+                "  (defpath RejectedReport",
+                "    :kind relpath",
+                '    :under "artifacts/rejected"',
+                "    :must-exist true)",
+                "  (defunion ReviewResult",
+                "    (ACCEPTED",
+                "      (report AcceptedReport))",
+                "    (REJECTED",
+                "      (report RejectedReport))))",
+            ]
+        ),
+    )
+    syntax_module = _build_syntax_module(types_path)
+    type_env = FrontendTypeEnvironment.from_module(compile_stage1_module(types_path))
+    review_result = type_env.resolve_type(
+        "ReviewResult",
+        span=syntax_module.span,
+        form_path=("workflow-lisp", "defunion", "ReviewResult"),
+    )
+
+    assert isinstance(review_result, UnionTypeRef)
+    contract = derive_structured_result_contract(
+        review_result,
+        workflow_name="review",
+        step_id="review__result",
+        span=syntax_module.span,
+        form_path=("workflow-lisp", "defunion", "ReviewResult"),
+    )
+
+    assert contract.contract_kind == "variant_output"
+    assert contract.payload["shared_fields"] == []
+    assert contract.payload["variants"] == {
+        "ACCEPTED": {
+            "fields": [
+                {
+                    "name": "report",
+                    "json_pointer": "/report",
+                    "type": "relpath",
+                    "under": "artifacts/accepted",
+                    "must_exist_target": True,
+                }
+            ]
+        },
+        "REJECTED": {
+            "fields": [
+                {
+                    "name": "report",
+                    "json_pointer": "/report",
+                    "type": "relpath",
+                    "under": "artifacts/rejected",
+                    "must_exist_target": True,
+                }
+            ]
+        },
+    }
+
+
 def test_generated_bundle_paths_are_deterministic() -> None:
     type_env = _build_type_env()
     implementation_state = type_env.resolve_type(
