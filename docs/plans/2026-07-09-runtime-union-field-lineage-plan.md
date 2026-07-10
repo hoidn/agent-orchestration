@@ -486,12 +486,18 @@ Expected: PASS.
 
 ### Task 5: Enrich real executor violations through the production build path
 
+> **Status (completed 2026-07-09):** Landed in `194ad866`, with the exact
+> selected-field subject identity pinned in `962daa2d`. Specification and
+> code-quality reviews approved the final range; the five production-path and
+> compatibility tests pass, and the known output-bundle baseline failure is
+> unchanged.
+
 **Files:**
 - Modify: `orchestrator/workflow/executor.py`
 - Create: `tests/test_workflow_lisp_runtime_source_map.py`
 - Modify only if a shared helper is necessary: `tests/test_workflow_lisp_source_map.py`
 
-- [ ] **Step 1: Write the RED declarative acceptance test**
+- [x] **Step 1: Write the RED declarative acceptance test**
 
 Create a real `.orc` module with `ACCEPTED.report` and `REJECTED.report` on
 different lines and a command-result or provider-result returning that union.
@@ -526,7 +532,7 @@ pytest tests/test_workflow_lisp_runtime_source_map.py -q
 Expected: collect succeeds; test FAILS because executor violations have no
 `source_origins`.
 
-- [ ] **Step 2: Enrich each violation in the executor**
+- [x] **Step 2: Enrich each violation in the executor**
 
 In `_apply_expected_outputs_contract`, copy each serialized violation and call
 the frontend index with its `subject_refs` plus the current step name/id as
@@ -535,7 +541,7 @@ the original code, message, context, subject order, failure status, and exit
 code. A malformed optional subject or source-map sidecar must not replace the
 contract failure with an executor exception.
 
-- [ ] **Step 3: Add fallback and multiple-violation assertions**
+- [x] **Step 3: Add fallback and multiple-violation assertions**
 
 Add tests proving:
 
@@ -545,7 +551,7 @@ Add tests proving:
   not gain an invented origin;
 - two field violations receive independent origin arrays.
 
-- [ ] **Step 4: Run Task 5 checks and commit**
+- [x] **Step 4: Run Task 5 checks and commit**
 
 ```bash
 pytest --collect-only tests/test_workflow_lisp_runtime_source_map.py -q
