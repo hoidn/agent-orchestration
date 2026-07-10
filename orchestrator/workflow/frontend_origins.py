@@ -27,10 +27,21 @@ class CompiledFrontendIndex:
         self.frontend_kind = (
             provenance.frontend_kind if provenance is not None else None
         )
+        entry_workflow = (
+            getattr(provenance, "frontend_entry_workflow", None)
+            if provenance is not None
+            else None
+        )
+        self.entry_workflow = (
+            entry_workflow
+            if isinstance(entry_workflow, str) and entry_workflow
+            else None
+        )
         self._source_trace_payload_cache: Dict[str, Mapping[str, Any]] = {}
         self.origins_by_key = self._load_origins_by_key()
         self.subject_origins = self._load_subject_origins()
         self.node_origins = self._load_node_origins()
+        self.step_origins_by_workflow = self._load_step_origins_by_workflow()
         self.step_origins = self._load_step_origins()
         self.command_boundaries = self._load_command_boundaries()
 
@@ -62,7 +73,8 @@ class CompiledFrontendIndex:
                 source_trace_path,
                 exc,
             )
-            return {}
+            self._source_trace_payload_cache[cache_key] = {}
+            return self._source_trace_payload_cache[cache_key]
         normalized = payload if isinstance(payload, Mapping) else {}
         self._source_trace_payload_cache[cache_key] = normalized
         return normalized
@@ -114,8 +126,16 @@ class CompiledFrontendIndex:
         workflows = payload.get("workflows")
         if not isinstance(workflows, Mapping):
             return indexed
-        for workflow_payload in workflows.values():
-            if not isinstance(workflow_payload, Mapping):
+        for workflow_name, workflow_payload in workflows.items():
+            if not isinstance(workflow_name, str) or not isinstance(
+                workflow_payload, Mapping
+            ):
+                continue
+            declared_workflow_name = workflow_payload.get("workflow_name")
+            if (
+                isinstance(declared_workflow_name, str)
+                and declared_workflow_name != workflow_name
+            ):
                 continue
             validation_subjects = workflow_payload.get("validation_subjects")
             if not isinstance(validation_subjects, list):
@@ -128,8 +148,25 @@ class CompiledFrontendIndex:
                 if subject_ref is None or not isinstance(origin_key, str):
                     continue
                 origin = self.origins_by_key.get(origin_key)
-                if origin is None or subject_ref.workflow_name is None:
+                if (
+                    origin is None
+                    or subject_ref.workflow_name != workflow_name
+                    or origin.get("workflow_name") != workflow_name
+                ):
                     continue
+                if subject_ref.subject_kind == "variant_output_field":
+                    contract_fields = workflow_payload.get("contract_fields")
+                    field_origin = (
+                        contract_fields.get(subject_ref.subject_name)
+                        if isinstance(contract_fields, Mapping)
+                        else None
+                    )
+                    if (
+                        origin.get("entity_kind") != "variant_output_field"
+                        or not isinstance(field_origin, Mapping)
+                        or field_origin.get("origin_key") != origin_key
+                    ):
+                        continue
                 subject_key = (
                     subject_ref.subject_kind,
                     subject_ref.subject_name,
@@ -158,6 +195,31 @@ class CompiledFrontendIndex:
             for key, origin in step_ids.items():
                 if isinstance(key, str) and isinstance(origin, Mapping):
                     indexed.setdefault(key, origin)
+        return indexed
+
+    def _load_step_origins_by_workflow(
+        self,
+        provenance: Any = _DEFAULT_PROVENANCE,
+    ) -> Dict[str, Dict[str, Mapping[str, Any]]]:
+        """Load step origins without discarding their enclosing workflow."""
+        payload = self._load_source_trace_payload(provenance)
+        indexed: Dict[str, Dict[str, Mapping[str, Any]]] = {}
+        workflows = payload.get("workflows")
+        if not isinstance(workflows, Mapping):
+            return indexed
+        for workflow_name, workflow_payload in workflows.items():
+            if not isinstance(workflow_name, str) or not isinstance(
+                workflow_payload, Mapping
+            ):
+                continue
+            step_ids = workflow_payload.get("step_ids")
+            if not isinstance(step_ids, Mapping):
+                continue
+            workflow_steps: Dict[str, Mapping[str, Any]] = {}
+            for key, origin in step_ids.items():
+                if isinstance(key, str) and isinstance(origin, Mapping):
+                    workflow_steps.setdefault(key, origin)
+            indexed[workflow_name] = workflow_steps
         return indexed
 
     def _load_node_origins(
@@ -245,6 +307,28 @@ class CompiledFrontendIndex:
         candidate_keys = [step_name, step_id]
         if step_id.startswith("root."):
             candidate_keys.append(step_id[len("root."):])
+        if self.step_origins_by_workflow:
+            if self.entry_workflow is not None:
+                workflow_steps = self.step_origins_by_workflow.get(self.entry_workflow)
+                candidate_workflows = (
+                    [workflow_steps] if workflow_steps is not None else []
+                )
+            else:
+                candidate_workflows = list(self.step_origins_by_workflow.values())
+            for candidate in candidate_keys:
+                if not isinstance(candidate, str) or not candidate:
+                    continue
+                candidate_origins: Dict[str, Mapping[str, Any]] = {}
+                for workflow_steps in candidate_workflows:
+                    origin = workflow_steps.get(candidate)
+                    if origin is None:
+                        continue
+                    origin_key = origin.get("origin_key")
+                    if isinstance(origin_key, str) and origin_key:
+                        candidate_origins.setdefault(origin_key, origin)
+                if len(candidate_origins) == 1:
+                    return next(iter(candidate_origins.values()))
+            return None
         for candidate in candidate_keys:
             if not isinstance(candidate, str) or not candidate:
                 continue

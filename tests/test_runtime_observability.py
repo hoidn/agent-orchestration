@@ -347,6 +347,149 @@ def test_compiled_frontend_subject_ref_resolution_falls_back_only_when_none_reso
     ) == [step_origin]
 
 
+def test_compiled_frontend_subject_fallback_prefers_entry_workflow_step(tmp_path: Path):
+    source_map = tmp_path / "source_map.json"
+    first_workflow = "demo/module::helper"
+    entry_workflow = "demo/module::entry"
+    helper_origin = {
+        "origin_key": f"{first_workflow}::step_id::run",
+        "entity_kind": "step_id",
+        "workflow_name": first_workflow,
+        "path": "helper.orc",
+        "line": 4,
+    }
+    entry_origin = {
+        "origin_key": f"{entry_workflow}::step_id::run",
+        "entity_kind": "step_id",
+        "workflow_name": entry_workflow,
+        "path": "entry.orc",
+        "line": 8,
+    }
+    source_map.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_source_map.v1",
+                "workflows": {
+                    first_workflow: {"step_ids": {"run": helper_origin}},
+                    entry_workflow: {"step_ids": {"run": entry_origin}},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    unknown_ref = {
+        "subject_kind": "variant_output_field",
+        "subject_name": "unknown",
+        "workflow_name": entry_workflow,
+    }
+    provenance = WorkflowProvenance(
+        workflow_path=tmp_path / "workflow.orc",
+        source_root=tmp_path,
+        frontend_kind="workflow_lisp",
+        frontend_build_root=tmp_path,
+        frontend_source_trace_path=source_map,
+        frontend_entry_workflow=entry_workflow,
+    )
+
+    assert CompiledFrontendIndex(provenance).origins_for_subject_refs(
+        [unknown_ref],
+        fallback_step=("Run", "run"),
+    ) == [entry_origin]
+
+    provenance_without_entry = WorkflowProvenance(
+        workflow_path=tmp_path / "workflow.orc",
+        source_root=tmp_path,
+        frontend_kind="workflow_lisp",
+        frontend_build_root=tmp_path,
+        frontend_source_trace_path=source_map,
+        frontend_entry_workflow=None,
+    )
+    assert CompiledFrontendIndex(provenance_without_entry).origins_for_subject_refs(
+        [unknown_ref],
+        fallback_step=("Run", "run"),
+    ) == []
+
+
+def test_compiled_frontend_inconsistent_subject_bindings_use_step_fallback(tmp_path: Path):
+    source_map = tmp_path / "source_map.json"
+    workflow_a = "demo/module::entry"
+    workflow_b = "demo/module::helper"
+    cross_workflow_ref = {
+        "subject_kind": "variant_output_field",
+        "subject_name": "execute::Decision::COMPLETED::report",
+        "workflow_name": workflow_a,
+    }
+    wrong_kind_ref = {
+        "subject_kind": "variant_output_field",
+        "subject_name": "execute::Decision::COMPLETED::summary",
+        "workflow_name": workflow_a,
+    }
+    step_origin = {
+        "origin_key": f"{workflow_a}::step_id::run",
+        "entity_kind": "step_id",
+        "workflow_name": workflow_a,
+        "path": "entry.orc",
+        "line": 20,
+    }
+    other_field_origin = {
+        "origin_key": f"{workflow_b}::variant_output_field::report",
+        "entity_kind": "variant_output_field",
+        "workflow_name": workflow_b,
+        "path": "helper.orc",
+        "line": 7,
+    }
+    source_map.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_source_map.v1",
+                "workflows": {
+                    workflow_a: {
+                        "step_ids": {"run": step_origin},
+                        "contract_fields": {
+                            cross_workflow_ref["subject_name"]: other_field_origin,
+                            wrong_kind_ref["subject_name"]: step_origin,
+                        },
+                        "validation_subjects": [
+                            {
+                                "subject_ref": cross_workflow_ref,
+                                "origin_key": other_field_origin["origin_key"],
+                            },
+                            {
+                                "subject_ref": wrong_kind_ref,
+                                "origin_key": step_origin["origin_key"],
+                            },
+                        ],
+                    },
+                    workflow_b: {
+                        "step_ids": {},
+                        "contract_fields": {
+                            cross_workflow_ref["subject_name"]: other_field_origin,
+                        },
+                        "validation_subjects": [],
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    provenance = WorkflowProvenance(
+        workflow_path=tmp_path / "workflow.orc",
+        source_root=tmp_path,
+        frontend_kind="workflow_lisp",
+        frontend_build_root=tmp_path,
+        frontend_source_trace_path=source_map,
+        frontend_entry_workflow=workflow_a,
+    )
+    index = CompiledFrontendIndex(provenance)
+
+    assert index.origins_for_subject_refs(
+        [cross_workflow_ref], fallback_step=("Run", "run")
+    ) == [step_origin]
+    assert index.origins_for_subject_refs(
+        [wrong_kind_ref], fallback_step=("Run", "run")
+    ) == [step_origin]
+
+
 def test_compiled_frontend_old_v1_subject_ref_index_preserves_step_lookup(tmp_path: Path):
     source_map = tmp_path / "source_map.json"
     step_origin = {
@@ -839,6 +982,36 @@ def test_compiled_frontend_source_trace_payload_reads_sidecar_once(tmp_path: Pat
     executor._load_compiled_frontend_step_origins(provenance)
     executor._load_compiled_frontend_node_origins(provenance)
     executor._load_compiled_frontend_command_boundaries(provenance)
+
+    assert read_count == 1
+
+
+def test_compiled_frontend_malformed_source_trace_payload_reads_sidecar_once(
+    tmp_path: Path,
+    monkeypatch,
+):
+    source_map = tmp_path / "source_map.json"
+    source_map.write_text("{malformed", encoding="utf-8")
+    original_read_text = Path.read_text
+    read_count = 0
+
+    def counting_read_text(path: Path, *args, **kwargs):
+        nonlocal read_count
+        if path == source_map:
+            read_count += 1
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counting_read_text)
+    provenance = WorkflowProvenance(
+        workflow_path=tmp_path / "workflow.orc",
+        source_root=tmp_path,
+        frontend_kind="workflow_lisp",
+        frontend_build_root=tmp_path,
+        frontend_source_trace_path=source_map,
+        frontend_entry_workflow="demo/module::entry",
+    )
+
+    CompiledFrontendIndex(provenance)
 
     assert read_count == 1
 
