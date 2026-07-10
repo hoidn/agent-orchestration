@@ -503,6 +503,115 @@ compiler-only metadata. That version adds:
 - ordered `guidance_context` for flattened nested-field ancestry; and
 - optional bundle-level `guidance` for overall record/union return guidance.
 
+### Guidance wire schema
+
+The v2.15 guidance containers use one closed `GuidancePayload` vocabulary:
+
+```yaml
+description: string       # optional, non-empty
+format_hint: string       # optional, non-empty
+example: <JSON value>     # optional
+guidance_context:         # optional, field payloads only
+  - json_pointer: /parent # required RFC 6901 pointer
+    description: string   # optional, non-empty
+    format_hint: string   # optional, non-empty
+    example: <JSON value> # optional
+```
+
+A payload must contain at least one of `description`, `format_hint`, `example`,
+or a non-empty `guidance_context`. Unknown keys are invalid. Every context row
+must contain at least one guidance value in addition to `json_pointer`.
+
+Overall record/union return guidance appears at bundle level:
+
+```yaml
+output_bundle:
+  path: ...
+  guidance:
+    description: Complete review result.
+    example:
+      approved: true
+      score: 0.91
+  fields: ...
+```
+
+`variant_output.guidance` has the same shape. Bundle-level `guidance_context`
+is forbidden because the bundle guidance already describes the root.
+
+An ordinary fixed/root field places guidance keys directly on its field spec:
+
+```yaml
+fields:
+  - name: __result__
+    json_pointer: ""
+    type: bool
+    description: True only when no blocking findings remain.
+    example: true
+```
+
+Nested ancestry remains a separate ordered list:
+
+```yaml
+fields:
+  - name: blocker__class
+    json_pointer: /blocker/class
+    type: enum
+    allowed: [MISSING_RESOURCE, EXTERNAL_DEPENDENCY]
+    guidance_context:
+      - json_pointer: /blocker
+        description: The blocker preventing completion.
+    description: Stable blocker classification.
+```
+
+Context `json_pointer` values use decoded authored field paths encoded as
+ordinary RFC 6901 pointers. Each must be a unique proper prefix of the field's
+own pointer. Rows are ordered from the shallowest prefix to the deepest; the
+loader rejects duplicates, non-prefixes, equal-to-leaf pointers, and
+out-of-order depths. A root field (`json_pointer: ""`) cannot declare
+`guidance_context`.
+
+When a structurally shared union field has different complete guidance payloads
+across variants, the field uses `guidance_by_variant`:
+
+```yaml
+shared_fields:
+  - name: score
+    json_pointer: /score
+    type: float
+    guidance_by_variant:
+      APPROVED:
+        description: Confidence in the approval decision.
+        example: 0.95
+      REVISE:
+        description: Confidence that revision is necessary.
+        example: 0.80
+```
+
+Each key must be one of the discriminant's declared variants. Keys are emitted
+in discriminant `allowed` order. Omitted variants have no guidance. Every
+variant payload follows the field `GuidancePayload` schema, including optional
+`guidance_context`, and each `example` is checked against the shared field
+schema.
+
+`guidance_by_variant` is mutually exclusive with direct `description`,
+`format_hint`, `example`, and `guidance_context` on the same shared field.
+Compiler canonicalization compares complete normalized payloads using deep JSON
+equality with absent optional keys omitted:
+
+- if every variant has the same non-empty payload, emit it once as direct field
+  guidance and omit `guidance_by_variant`;
+- otherwise emit `guidance_by_variant` for exactly the variants with non-empty
+  payloads and omit all direct field guidance; and
+- if no variant has guidance, emit neither form.
+
+For field and variant payloads, the loader validates `example` through that
+field's declared schema. For bundle-level guidance, the loader validates only
+that `example` is JSON-compatible because the public DSL does not carry one
+unflattened record/union schema; Workflow Lisp compilation additionally checks
+the example against the authored return type before lowering. Context examples
+receive the same two-layer treatment: JSON compatibility in the loader and
+typed ancestor-field validation in the Workflow Lisp compiler.
+
 The loader validates this metadata and rejects it on older authored DSL
 versions. Prompt composition renders it; output-contract value validation
 ignores it. Compiler-generated and authored mappings therefore share one
