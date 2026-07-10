@@ -603,3 +603,191 @@ Anchor drift noted: the task brief described the module as "currently 12 tests" 
 at baseline (`test_checkpoint_identity_stable_across_recompiles`, parametric plan Task 9); all
 pre-existing tests still pass. Task 1.3 has no checkbox line in this plan; this record is its
 completion evidence.
+
+### Task 1.4 authoring record — gap chain, adjudications, gap-C fix, generic drain body (2026-07-10)
+
+Commits (chronological): `49fbad78` (G2 design amendment), `fd79b2e0` (G6 has-field typecheck
+extension), `c0610bf6` (gap-C specialized-lowering fix + committed reproducers), `49f221f1`
+(generic body + minimal-caller fixture + composition test), plus this ledger commit.
+
+#### The gap chain (G6 → A → B → C → D)
+
+Authoring the flagship body surfaced five pre-existing gaps, each reachable only after the
+previous one cleared. Literal diagnostics (fresh reproductions recorded in the Task 1.4/1.4a/1.4b
+reports, `.superpowers/sdd/`):
+
+1. **G6 — `has-field` granted no body capability.** The five irreducible type-param projections
+   (`ctx.run`, `ctx.ledger`, `ctx.run.artifact-root`, `selected.selection.item-id`,
+   `selected.selection.item-state-root` — exactly the intrinsic's `item_ctx_value` construction)
+   all rejected in the definition-scoped pass:
+   `std/drain.orc:351:36: [record_field_unknown] type `CtxT` does not support field access`.
+   **FIXED** (`fd79b2e0`, reviewed/approved): `provisional_shared_union_field_capabilities`
+   (`parametric_constraints.py`) now admits declared `has-field` clauses alongside
+   `has-shared-union-field`, producing the same definition-scoped capability the existing
+   `resolve_field_access` consumer already honors. Adjudicated by analogy to the user's G1
+   decision (extend the typechecker — `cab7741e` precedent). Undeclared fields still reject
+   (negative test pins code + categorical message); call-site `has-field` checking and
+   specialization passes untouched. Unit tests in `tests/test_workflow_lisp_procedures.py`
+   (130 → 132).
+2. **Gap A — a nested generic call loses its specialization rewrite.** The originally specified
+   direct shape `(settle-drain-terminal (backlog-drain-proc …))` fails:
+   `[proc_ref_signature_invalid] procedure ref `minimal_caller_backlog_drain::select-minimal`
+   does not match `ProcRef[(CtxT) -> SelectionT]`: expected `ProcRef[CtxT -> SelectionT]`, got
+   `ProcRef[MinimalDrainCtx -> MinimalSelection]`; first mismatch at parameter 1 `ctx``.
+   Root cause (instrumented, Task 1.4a/1.4b): `_typecheck_parametric_procedure_call` succeeds and
+   returns a rewritten call node, but every return path of the enclosing
+   `typecheck_procedure_call_expr` keeps the ORIGINAL expr, so `discover_proc_ref_specializations`
+   re-walks the raw inner call and validates the proc-ref argument against the raw parametric
+   param type. A verified, scoped typed-call handoff fix exists (preserved diff; Task 1.4b report
+   §3) but is **necessary-not-sufficient** — it unmasks gap D. **NOT LANDED** (user adjudication
+   2026-07-10, below).
+3. **Gap B — `done` cannot wrap an `if` in loop lowering.** The mirrored EMPTY-vs-COMPLETED split
+   authored as `(done (if …))` fails:
+   `[workflow_return_not_exportable] `loop/recur` could not project `result__items_processed`
+   from `IfExpr` in this Stage 3 slice` (minimal fail/pass probe pair preserved).
+   **Controller-sanctioned recorded body delta**: push `done` into the `if` branches —
+   `(if (= state.items-processed 0) (done (variant … EMPTY …)) (done (variant … COMPLETED …)))`.
+   Semantics identical; consistent with the `review-revise-loop-proc` precedent.
+4. **Gap C — cross-module specialized generic loop lowering resolved caller unions by bare
+   name.** With A worked around and B recorded, the compile failed in specialized lowering:
+   `[type_unknown] unknown type `MinimalRunResult`` (span: the caller fixture's own `defunion`).
+   Instrumented path: `control_loops.py:1179` (`_lower_loop_terminal_expr`) →
+   `pure_projection.lower_pure_projection_step` → `_type_descriptor` (`pure_projection.py:767`)
+   → `type_env.resolve_type(<bare caller union name>)` in the generic's defining-module
+   environment; second surface `_field_type` (`pure_projection.py:704`). The same shape compiles
+   same-module. **User adjudicated: fix in the machinery** — landed `c0610bf6` (record below).
+5. **Gap D — procedure calls in argument position are unsupported by WCC elaboration at all**
+   (monomorphic or generic): `TypeError: unsupported WCC elaboration node: ProcedureCallExpr` —
+   a compiler crash, not a diagnostic — on a 24-line monomorphic single-module reproducer
+   (`(wrap-status (status-mono ctx))`); the let*-bound control compiles. Root cause:
+   `wcc/elaborate.py` supports effect calls at exactly three positions (workflow body/tail, let*
+   binding, match subject); `_prebind_effect_argument_matches.replace_arg` pre-binds only
+   `MatchExpr`/`LetStarExpr` arguments. **NOT FIXED** (user adjudication 2026-07-10, below).
+
+#### Adjudications (all 2026-07-10)
+
+- **G6** — extend the typechecker, by analogy to the user's G1 adjudication (`cab7741e`
+  precedent); landed `fd79b2e0`, reviewed/approved.
+- **Gaps A + D (user decision)** — sanction the **let*-bound composition shape**
+  (`(let* ((terminal (backlog-drain-proc …))) (settle-drain-terminal terminal))`) for the
+  minimal-caller fixture AND for Task 1.5's macro expansion; record A and D as documented
+  language limitations; DEFER both machinery fixes to the post-S3 queue. Neither the preserved
+  gap-A handoff diff nor any `wcc/elaborate.py` hoist was landed.
+- **Gap B (controller-sanctioned)** — recorded body delta, no machinery change.
+- **Gap C (user decision)** — fix in the machinery, scoped to specialized-procedure lowering.
+
+#### Gap-C fix record (`c0610bf6`)
+
+Chosen option: **construct descriptors from already-resolved type refs instead of bare names**
+(the sanctioned minimal option; the alternative — composing the caller module's type environment
+into the specialized lowering env — was rejected as a wider surface that risks caller/definer
+name shadowing and touches every env consumer instead of the two failing sites).
+`VariantCaseTypeRef` already carries `field_types`, the resolved per-variant field map installed
+by its sole constructor `type_env.union_variant` (originally added for provisional `:forall`
+unions — `type_env.py`). The two failing surfaces in `lowering/pure_projection.py` —
+`_field_type` (VariantCaseTypeRef branch) and `_type_descriptor` (variant-case branch) — now
+prefer that carried mapping and fall back to the name-based union re-lookup when it is absent or
+incomplete. Same-module refs carry the identical mapping object the name lookup would return, so
+descriptors are byte-identical wherever the old path succeeded; behavior changes only where the
+bare-name lookup failed (exactly the cross-module specialized shape). Non-specialized paths are
+behaviorally unchanged (canary evidence below).
+
+TDD: committed cross-module reproducer
+`tests/fixtures/workflow_lisp/modules/valid/generic_loop_union_cross_module/` (caller +
+imported-module pair mirroring the `generic_stdlib_composition` multi-module compile) — RED at
+`c0610bf6^` with `[type_unknown] unknown type `Selection`` at the caller's own `defunion`,
+traceback frame-identical to the drain failure. A smaller pair proved practical, so the drain
+fixture was not needed as the RED vehicle (choice recorded per brief). Reproduction detail worth
+keeping: the failure requires a `continue` arm whose `loop-state` update projects a caller-union
+binder field (`:note p.note`) — `done`-payload union construction alone lowers through the
+materialize path and never reaches `lower_pure_projection_step`, which is why earlier
+done-only probes passed. Same-module control committed as
+`tests/fixtures/workflow_lisp/valid/generic_loop_union_same_module.orc` + regression test.
+Canaries after the fix, before commit: identity suite **3 passed** (zero row
+changes/appearances/disappearances) AND production compile exit 0, `diagnostic_count: 0`,
+fingerprint **`0758b59a065ce8e0` unchanged**, freshest `g8_deletion_evidence.json` `pass` — the
+machinery fix is invisible to the production closure.
+
+#### Post-S3 deferred queue (user-adjudicated deferrals — do not land inside Phase 1)
+
+1. **General ANF hoist for argument-position procedure calls** (gap D): extend
+   `wcc/elaborate.py`'s `_prebind_effect_argument_matches.replace_arg` to pre-bind
+   `ProcedureCallExpr` arguments the way match subjects already are. Blast radius: effect
+   ordering and checkpoint identity for every shape that starts using it, plus
+   provider/command/produce-one-of argument positions that share `replace_arg`; requires the
+   identity + fingerprint canaries and a deliberate decision.
+2. **Gap-A typed-call handoff fix**: rebuild `expr.args` with rewritten child nodes in
+   `typecheck_procedure_call_expr` (verified experiment diff preserved and referenced in the
+   Task 1.4b report, §3). Without the hoist it converts gap A's misleading diagnostic into
+   gap D's crash, so it lands together with (1) or not at all.
+
+#### Documented language limitation
+
+**Procedure calls in argument position are unsupported; bind the result with `let*` and pass the
+binding.** Today the nested shape crashes as a raw `TypeError` (gap D) or — for generic callees —
+mis-reports as `proc_ref_signature_invalid` (gap A). Consequences recorded now:
+- **Task 1.5**: the macro re-target MUST emit the let*-bound terminal shape, not the nested
+  `(settle-drain-terminal (backlog-drain-proc …))` sketched earlier in this plan's Task 1.5
+  description — this is the user-sanctioned amendment of the expansion shape.
+- **Task 1.7**: the doc sync should surface the limitation in the drafting guidance
+  (`docs/lisp_workflow_drafting_guide.md`).
+
+#### Reality anchors mirrored from the intrinsic (read from the frozen
+`_phase_stdlib_lower_backlog_drain_impl`, `lowering/phase_drain.py`; none invented)
+
+| Anchor | Value | Intrinsic evidence |
+| --- | --- | --- |
+| G2 item-context projection | `run ← ctx.run`, `item-id ← selection.item-id`, `state-root ← selection.item-state-root`, `artifact-root ← ctx.run.artifact-root`, `ledger ← ctx.ledger` | `item_ctx_value`, phase_drain.py:602-608 |
+| G2 clause types (design amendment `49fbad78`) | `(SelPayloadT has-field item-id String)`, `(SelPayloadT has-field item-state-root Path.state-root)` | std/drain `SelectionPayload` (drain.orc:21-23) + `ItemCtx.state-root` (context.orc:18) |
+| G4 selector-BLOCKED mapping | constant `user_decision_required`; the selector's `reason` string is dropped; progress/items stay at loop state | `selector_blocked_compatibility_blocker`, phase_drain.py:653, applied at 1496-1518 |
+| `:on-exhausted` class | `unrecoverable_after_fix_attempt`; items/progress retained from accumulator state | `on_exhausted.outputs`, phase_drain.py:1704-1709 |
+| Progress-report seeding | literal `artifacts/work/drain-progress-report.md`, supplied by the caller as the trailing `(initial-progress-report WorkReport)` parameter via `__generated-relpath-seed__` (fixture now; Task 1.5's macro next) | `seed_progress_literal` phase_drain.py:654; `loop_state_seed_step` 1083-1099 |
+| EMPTY vs COMPLETED | EMPTY selection with `items-processed = 0` → terminal EMPTY, else → COMPLETED | `empty_route_step` if/else, phase_drain.py:1256-1306 |
+| run-item CONTINUE / BLOCKED | items +1 + progress ← `summary-path`; items unchanged + progress ← `summary-path` + blocker ← `blocker-class` | phase_drain.py:1428-1448 / 1450-1465 |
+| gap CONTINUE / BLOCKED | no-op state carry; progress ← `progress-report-path` + blocker ← `blocker-class` (GapResult vocabulary) | phase_drain.py:1375-1389 / 1390-1405 |
+
+#### Recorded deviations (authored body/fixture vs the component-plan Task 4 skeleton)
+
+1. COMPLETED arm added to the EMPTY route — the skeleton omits it; the terminal union and
+   `finalize-drain-terminal` carry it and parity would break without it (intrinsic 1256-1306).
+2. `:state-root selected.selection.item-state-root` in the ItemCtx construction — the skeleton
+   wrote `ctx.state-root`, contradicting the intrinsic (`selection_value.get("item-state-root")`,
+   phase_drain.py:605).
+3. Gap-CONTINUE arm uses a no-op `:items-processed state.items-processed` override — the parser
+   rejects `(loop-state :like state)` with zero overrides (expressions.py:1234).
+4. `settle-drain-terminal` declares `(writes drain-summary)` in addition to the skeleton's
+   `uses-command` atom — declared effects must equal transitive inferred effects and
+   `consume-drain-terminal-effects` declares `(writes drain-summary)`.
+5. **Gap-B body delta**: EMPTY arm authored `(if … (done …) (done …))` instead of the skeleton's
+   `(done (if …))` (controller-sanctioned; semantics identical).
+6. **let*-bound fixture delta (gaps A/D)**: `minimal_caller_backlog_drain.orc` let*-binds the
+   terminal instead of the originally specified direct nested call; the macro is still not
+   exercised (Task 1.5).
+
+#### Fresh verification (2026-07-10, tree at `49f221f1`, baselines compared by identity)
+
+| Suite | Result | Baseline |
+| --- | --- | --- |
+| `test_workflow_lisp_generic_stdlib_composition.py` | collect-only **15**; **15 passed** | 12 + exactly the three added tests (two gap-C regression tests, one flagship composition test) |
+| `test_workflow_lisp_drain_stdlib.py` | **63 passed** | 63 — identical |
+| `test_workflow_lisp_procedures.py` | **132 passed** | 132 (post-`fd79b2e0`) — identical |
+| `test_workflow_lisp_build_artifacts.py` | **190 passed** in 443.11s | 190 — identical |
+| `test_workflow_lisp_design_delta_drain_migration_feasibility.py` | **93 passed** in 232.83s | 93 — identical |
+| expressions + variant_proofs + phase_stdlib | **161 passed** | with composition = 176 vs the 173 four-module combined 1.4a baseline; delta exactly the three added tests |
+| `test_workflow_lisp_checkpoint_identity_comparison.py -v` | **3 passed** — run twice: after the gap-C fix (pre-`c0610bf6`) and after the drain.orc authoring (pre-`49f221f1`) | 3 — **no row change/appearance/disappearance**; the dormant procs lower into no validated bundle |
+| `defmacro backlog-drain` region | byte-identical (content-anchored extraction, HEAD vs authored tree; 295 bytes → 295 bytes) | required |
+
+Production compile (P2 command), two runs:
+- At `c0610bf6` (machinery fix only): exit 0, `diagnostic_count: 0`, fingerprint
+  **`0758b59a065ce8e0`** unchanged, `g8_deletion_evidence.json` `pass`.
+- At `49f221f1` (dormant procs in `std/drain.orc`): exit 0, `diagnostic_count: 0`,
+  `lowering_route: wcc_m4`, `g8_deletion_evidence.json` `pass`, fingerprint
+  **`24798cac21228fe6`**. The fingerprint change is mechanical and expected: `_fingerprint_build`
+  content-addresses every module source in the compile closure (`_sha256_path` over
+  `modules_by_name`), and `std/drain.orc` gained the dormant definitions — any completion of
+  Task 1.4 changes it by construction. The behavioral pre-swap evidence — the intrinsic-route
+  checkpoint-identity maps — is unchanged (identity suite green, zero rows), which is the gate
+  Task 1.5 depends on.
+
+Task 1.4 has no checkbox line in this plan; this record is its completion evidence. Task 1.5 is
+unblocked, with its expansion shape amended to the let*-bound terminal per the A+D adjudication.
