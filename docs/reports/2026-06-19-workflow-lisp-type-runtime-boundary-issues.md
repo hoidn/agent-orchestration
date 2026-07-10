@@ -480,7 +480,7 @@ type definitions and refined WCC bindings
    - make a stdlib drain projection pass only through name-specific compiler
      handling and confirm the generic route catches it.
 
-   **Audit result (2026-07-09):**
+   **Audit result (2026-07-08):**
 
    | Case | Status | Evidence |
    |---|---|---|
