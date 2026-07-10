@@ -41,6 +41,11 @@
 
 ### Task 1: Derive stable field subjects without changing semantic fingerprints
 
+> **Status (completed 2026-07-09):** Landed in `aa5d8943`, with reusable-state
+> consumer compatibility in `9a129272` and strict subject serialization in
+> `53e86816`. Specification and code-quality reviews approved the final range;
+> 148 affected-module tests and 28 output-contract tests pass.
+
 **Files:**
 - Modify: `orchestrator/exceptions.py`
 - Modify: `orchestrator/workflow_lisp/contracts.py`
@@ -48,7 +53,7 @@
 - Test: `tests/test_workflow_lisp_structured_results.py`
 - Test: `tests/test_workflow_lisp_phase_stdlib.py`
 
-- [ ] **Step 1: Add RED contract-derivation coverage**
+- [x] **Step 1: Add RED contract-derivation coverage**
 
 Add a test that obtains the `ImplementationAttempt` union type from a compiled
 real source or the suite's existing type-environment helper, then calls
@@ -89,7 +94,7 @@ pytest tests/test_workflow_lisp_structured_results.py -q -k 'field_subject or sh
 Expected: FAIL because `GeneratedBundleContract` has no `field_origins` and
 field specs have no source-map subject metadata.
 
-- [ ] **Step 2: Add RED tests for the frontend-neutral subject wire format**
+- [x] **Step 2: Add RED tests for the frontend-neutral subject wire format**
 
 Create `tests/test_exceptions.py` with focused tests that import the planned
 shared functions, round-trip a `ValidationSubjectRef` through the exact
@@ -109,7 +114,7 @@ pytest tests/test_exceptions.py -q -k 'validation_subject_ref'
 Expected: collection or the behavioral selector FAILS at import because the
 helpers do not exist yet. This is the required RED result.
 
-- [ ] **Step 3: Implement the frontend-neutral subject wire format**
+- [x] **Step 3: Implement the frontend-neutral subject wire format**
 
 In `orchestrator/exceptions.py`, add the shared serializer and defensive parser
 specified by Step 2. The parser returns `None` for malformed optional metadata;
@@ -127,7 +132,7 @@ pytest tests/test_exceptions.py -q -k 'validation_subject_ref'
 
 Expected: PASS.
 
-- [ ] **Step 4: Implement the contract-owned lineage model**
+- [x] **Step 4: Implement the contract-owned lineage model**
 
 In `contracts.py`:
 
@@ -149,7 +154,7 @@ In `contracts.py`:
 - preserve deterministic variant and field order and de-duplicate identical
   bindings by the full `(kind, name, workflow)` identity.
 
-- [ ] **Step 5: Prove provenance does not alter reusable-state fingerprints**
+- [x] **Step 5: Prove provenance does not alter reusable-state fingerprints**
 
 In `tests/test_workflow_lisp_phase_stdlib.py`, derive reusable-state metadata
 for the same union twice: once through the new contract result and once from a
@@ -167,14 +172,14 @@ pytest tests/test_workflow_lisp_phase_stdlib.py -q -k 'fingerprint and provenanc
 Expected before the normalization change: FAIL because the new keys affect the
 digest.
 
-- [ ] **Step 6: Normalize only the fingerprint input**
+- [x] **Step 6: Normalize only the fingerprint input**
 
 Add a recursive helper that removes the two provenance-only keys when
 constructing the JSON value hashed by
 `derive_reusable_state_contract_metadata`. Do not remove them from the returned
 structured contract and do not ignore any semantic contract key.
 
-- [ ] **Step 7: Run Task 1 checks and commit**
+- [x] **Step 7: Run Task 1 checks and commit**
 
 ```bash
 pytest --collect-only tests/test_exceptions.py -q
