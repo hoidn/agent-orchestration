@@ -1,5 +1,7 @@
 # Type/Runtime Boundary Report Follow-ups Plan
 
+> **Execution status (paused at ownership gate 2026-07-09):** Tasks 1-3 are completed in `81b1b935` (report routing), `1833d59b` (frontend terminology anchor), and `b22103f5` (live-design-doc terminology sweep). Task 4 Step 0 currently finds another owner's uncommitted changes in `docs/reports/2026-06-19-workflow-lisp-type-runtime-boundary-issues.md`; report publication is therefore paused by the plan's fail-closed rule. Read-only discovery for the six cases is complete, but it is not report authority and cannot authorize Task 5. Tasks 5-6 have not started.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Execute the actionable items from the dispositioned report `docs/reports/2026-06-19-workflow-lisp-type-runtime-boundary-issues.md` (2026-07-08 disposition): route the report, run the recommendations 1–2 terminology sweep, and run the recommendation 8 negative-coverage audit with its Phase-1-plan reconciliation.
@@ -37,7 +39,7 @@ The report is referenced by zero documents today; `docs/index.md` routes no `doc
 - Modify: `docs/design/README.md`
 - Modify: `docs/index.md` (only if Step 1 finds a fitting section)
 
-- [ ] **Step 1: Find the routing style**
+- [x] **Step 1: Find the routing style**
 
 ```bash
 grep -n "workflow_lisp_parametric_type_system" docs/design/README.md docs/index.md
@@ -45,7 +47,7 @@ grep -n "diagnostic\|report" docs/design/README.md | head -5
 ```
 Identify the entry style used for the parametric type system doc (one-line link + when-to-read hook).
 
-- [ ] **Step 2: Add the routing line(s)**
+- [x] **Step 2: Add the routing line(s)**
 
 In `docs/design/README.md`, next to (or in the same grouping as) the parametric type system entry, add one line in matching style:
 
@@ -55,7 +57,7 @@ In `docs/design/README.md`, next to (or in the same grouping as) the parametric 
 
 If `docs/index.md` has a section where design-adjacent reports fit (per Step 1), add the equivalent one-liner there too; if it has none, skip it — do not invent a new section for one entry.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/design/README.md docs/index.md
@@ -77,26 +79,26 @@ The frontend spec is the normative authority; it gets the canonical definition, 
 - First internal use in the doc gets the pairing note, once: "proof metadata (the compiler-internal representation of refined match binders)".
 - Ambiguous → treat as internal (keep), and record it in the commit message.
 
-- [ ] **Step 1: List the occurrences with context**
+- [x] **Step 1: List the occurrences with context**
 
 ```bash
 grep -n -B1 -A1 "proof-gated" docs/design/workflow_lisp_frontend_specification.md
 ```
 
-- [ ] **Step 2: Add the canonical definition**
+- [x] **Step 2: Add the canonical definition**
 
 In the spec section that introduces `match` / variant access (locate with `grep -n "match" docs/design/workflow_lisp_frontend_specification.md | head`), add a short definition paragraph establishing: author-facing term = *refined match binders*; internal term = *proof metadata*; the wording model to copy is `docs/design/workflow_lisp_shared_owner_lane_prerequisites.md` (the one doc already using it).
 
-- [ ] **Step 3: Apply the decision rule to the 4 occurrences.**
+- [x] **Step 3: Apply the decision rule to the 4 occurrences.**
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -n "proof-gated" docs/design/workflow_lisp_frontend_specification.md
 ```
 Expected: every remaining occurrence (possibly zero) sits in an internal-mechanics sentence; record the residual count and classification in the commit message.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/design/workflow_lisp_frontend_specification.md
@@ -114,9 +116,9 @@ git commit -m "Adopt refined match binder terminology in frontend specification"
 - Modify: `docs/design/workflow_lisp_review_revise_stdlib_parametric_integration.md` (6)
 - Do NOT modify: `docs/design/workflow_lisp_structural_parametric_constraints.md` (superseded historical record; its 3 occurrences stay)
 
-- [ ] **Step 1:** For each of the four docs, list occurrences (`grep -n -B1 -A1 "proof-gated" <doc>`) and apply the Task 2 decision rule. Where a doc needs the internal-pairing note, point it at the frontend spec's definition rather than restating it.
+- [x] **Step 1:** For each of the four docs, list occurrences (`grep -n -B1 -A1 "proof-gated" <doc>`) and apply the Task 2 decision rule. Where a doc needs the internal-pairing note, point it at the frontend spec's definition rather than restating it.
 
-- [ ] **Step 2: Verify the sweep result repo-wide**
+- [x] **Step 2: Verify the sweep result repo-wide**
 
 ```bash
 grep -rn "proof-gated" docs/design/*.md
@@ -124,7 +126,7 @@ grep -rc "proof-gated" orchestrator/ --include="*.py" | grep -v ":0" | head
 ```
 Expected: design-doc hits only in the superseded constraints doc and in internal-mechanics sentences; Python-source hits (comments/docstrings) are internal by definition — leave them, record the count.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/design/workflow_lisp_parametric_type_system.md docs/design/workflow_lisp_compile_time_parametric_specialization.md docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md docs/design/workflow_lisp_review_revise_stdlib_parametric_integration.md

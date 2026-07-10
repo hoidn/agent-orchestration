@@ -121,9 +121,12 @@ Execute in this order:
    are recorded in the component plan. Large
    `build_design_delta.py` size is accepted temporarily because Stage 3 deletes
    the family-specific certification unit; do not start a second split first.
-5. **Boundary-report follow-ups — active next.** Land the terminology and negative-coverage
-   work. Recommendation 11 remains design-gated; this stage must not implement
-   the broad transition.
+5. **Boundary-report follow-ups — active next, ownership-gated.** Tasks 1-3 are
+   complete. Task 4 publication is paused while the report has uncommitted
+   owner changes; do not start Task 5 from provisional discovery. Once the
+   ownership gate clears, land the audit and applicable negative coverage.
+   Recommendation 11 remains design-gated; this stage must not implement the
+   broad transition.
 6. Run the combined compiler/runtime baseline and one orchestrator smoke.
 
 Gate S1:
