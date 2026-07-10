@@ -480,6 +480,25 @@ type definitions and refined WCC bindings
    - make a stdlib drain projection pass only through name-specific compiler
      handling and confirm the generic route catches it.
 
+   **Audit result (2026-07-09):**
+
+   | Case | Status | Evidence |
+   |---|---|---|
+   | 1. Variant-specific field access outside its match arm | **Covered** | `tests/test_workflow_lisp_variant_proofs.py::test_typecheck_variant_field_access_requires_proof_context` and `tests/test_workflow_lisp_expressions.py::test_shared_union_field_capability_does_not_allow_variant_specific_field_without_match` cover the behavior with `variant_ref_unproved` / `variant_ref_wrong_variant` diagnostics. |
+   | 2. Repeated union-field names colliding after lowering | **Gap** | The nearest collision coverage, `tests/test_workflow_lisp_structured_results.py::test_workflow_signature_contract_flattening_rejects_projection_name_collisions`, is a nested-record projection collision, not a union-lowering collision. Duplicate field names across variants are allowed. |
+   | 3. Active variant missing a required output field | **Gap** | Runtime diagnostic `variant_required_field_missing` has no test. Compile-time `record_field_missing` coverage is not equivalent to a runtime output-bundle omission. |
+   | 4. Inactive variant field handling | **Covered** | `tests/test_output_contract.py::test_validate_variant_output_bundle_rejects_forbidden_variant_fields` covers rejection through `variant_forbidden_field_present`; `tests/test_workflow_lisp_pure_projection_runtime.py::test_pure_projection_runtime_skips_inactive_union_variant_outputs` covers skipping inactive projections. |
+   | 5. Runtime output failure attribution to an authored union field | **Gap** | No test maps a runtime output failure through source-map attribution to the authored union field. |
+   | 6. Generic stdlib drain projection without name-specific handling | **Owned elsewhere** | `docs/plans/2026-07-07-drain-migration-g8-retirement.md` owns this through Phase 1 Task 1.6 / Gate P2 and the Phase 2 name-blindness check. |
+
+   Fixture reconciliation: commit `ce1170d1` deleted all three fixtures named
+   in the amendment. The deletion of
+   `if_variant_proof_missing.orc` stands because case 1 is covered elsewhere.
+   `review_loop_result_contract_invalid.orc` is not reusable for the runtime
+   omission in case 3, while case 4 is covered. The hidden bridge fixture
+   `backlog_drain_hidden_compatibility_bridge_reread_invalid.orc` remains
+   historical, is owned by the drain migration plan, and must not be restored.
+
 9. Keep typed return semantics common across pure helpers, procedures, and
    workflows.
 
