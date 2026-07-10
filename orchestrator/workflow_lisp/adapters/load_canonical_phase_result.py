@@ -12,6 +12,7 @@ from orchestrator.contracts.output_contract import (
     validate_output_bundle,
     validate_variant_output_bundle,
 )
+from orchestrator.workflow_lisp.contracts import structured_contract_semantic_digest
 from orchestrator.workflow_lisp.adapters.reusable_phase_state_common import (
     emit_structured_result,
 )
@@ -68,13 +69,7 @@ def _validate_contract_fingerprint(
         or parts[2] != structured_contract_kind
     ):
         return False
-    digest = hashlib.sha256(
-        json.dumps(
-            structured_contract,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
+    digest = structured_contract_semantic_digest(structured_contract)
     return parts[3] == digest
 
 

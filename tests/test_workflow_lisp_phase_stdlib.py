@@ -13,6 +13,7 @@ import pytest
 import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
 from orchestrator.workflow_lisp.adapters import (
     load_canonical_phase_result,
+    reusable_phase_state_common,
     validate_reusable_phase_state,
     write_reusable_phase_state_v1,
 )
@@ -268,6 +269,26 @@ def test_reusable_state_fingerprint_excludes_runtime_provenance(tmp_path: Path) 
     ).hexdigest()
     assert contract_kind == "union"
     assert fingerprint == f"2.14:Decision:union:{expected_digest}"
+
+    common_error: ValueError | None = None
+    try:
+        reusable_phase_state_common.validate_contract_fingerprint(
+            target_dsl_version="2.14",
+            return_type_name="Decision",
+            structured_contract_kind=contract_kind,
+            structured_contract=dict(structured_contract),
+            expected_contract_fingerprint=fingerprint,
+        )
+    except ValueError as error:
+        common_error = error
+    loader_accepts = load_canonical_phase_result._validate_contract_fingerprint(
+        target_dsl_version="2.14",
+        return_type_name="Decision",
+        structured_contract_kind=contract_kind,
+        structured_contract=dict(structured_contract),
+        expected_contract_fingerprint=fingerprint,
+    )
+    assert (common_error, loader_accepts) == (None, True)
 
 
 def _checks_structured_contract() -> dict[str, object]:

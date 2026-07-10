@@ -580,13 +580,7 @@ def derive_reusable_state_contract_metadata(
         if key != "path"
     }
     structured_contract_kind = "record" if isinstance(type_ref, RecordTypeRef) else "union"
-    digest = hashlib.sha256(
-        json.dumps(
-            _strip_contract_provenance_for_fingerprint(structured_contract),
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
+    digest = structured_contract_semantic_digest(structured_contract)
     fingerprint = f"{target_dsl_version}:{type_ref.name}:{structured_contract_kind}:{digest}"
     artifact_requirements = _derive_reusable_artifact_requirements(
         type_ref,
@@ -595,6 +589,18 @@ def derive_reusable_state_contract_metadata(
         form_path=form_path,
     )
     return structured_contract_kind, fingerprint, artifact_requirements, structured_contract
+
+
+def structured_contract_semantic_digest(structured_contract: Mapping[str, Any]) -> str:
+    """Hash structured contract semantics while retaining runtime provenance."""
+
+    return hashlib.sha256(
+        json.dumps(
+            _strip_contract_provenance_for_fingerprint(structured_contract),
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _strip_contract_provenance_for_fingerprint(value: Any) -> Any:
