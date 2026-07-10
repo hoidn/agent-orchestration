@@ -21,10 +21,7 @@ from .typecheck_context import (
     _require_normative_phase_ctx_type,
     _require_phase_scope_name_match,
 )
-from .typecheck_dispatch import (
-    _generated_relpath_seed_expr,
-    typecheck_expression,
-)
+from .typecheck_dispatch import typecheck_expression
 from .typecheck_effects import (
     is_macro_introduced_effect as _is_macro_introduced_effect,
     validate_command_argv as _validate_command_argv,

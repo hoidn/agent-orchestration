@@ -7,22 +7,18 @@ See `../../docs/design/workflow_lisp_type_catalog.md` for the type model and
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, fields, is_dataclass, replace
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from .conditionals import classify_condition_expr
-from .definitions import RecordDef, RecordField, UnionDef, UnionVariant
-from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .diagnostics import LispFrontendCompileError
 from .effects import (
     EMPTY_EFFECT_SUMMARY,
-    CallsWorkflowEffect,
     EffectSummary,
-    ProcedureCallEdge,
     merge_effect_summaries,
 )
 from .expressions import (
     BacklogDrainExpr,
-    BindProcBinding,
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
@@ -42,7 +38,6 @@ from .expressions import (
     LoopStateUpdateExpr,
     LoopRecurExpr,
     MaterializeViewExpr,
-    MatchArm,
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
@@ -59,26 +54,18 @@ from .expressions import (
     RunProviderPhaseExpr,
     UnionVariantExpr,
     WorkflowRefLiteralExpr,
-    elaborate_expression,
     WithPhaseExpr,
 )
 from .loops import LoopControlTypeRef, ensure_loop_projectable_type
 from .loop_state import typecheck_loop_state_expr as typecheck_loop_state_expr_owner
 from .procedure_refs import (
-    BoundProcArg,
-    ProcRefAuthoritySource,
     ProcRefResolutionContext,
     ResolvedProcRefValue,
     proc_ref_type_from_signature,
     resolve_proc_ref_value,
     resolve_proc_ref_name,
 )
-from .phase import (
-    PhaseScope,
-    RUN_CONTEXT_NAME,
-    build_phase_scope,
-    is_implementation_attempt_result_type,
-)
+from .phase import PhaseScope, build_phase_scope
 from .parametric_constraints import SharedUnionFieldCapability
 from .typecheck_calls import (
     typecheck_call_expr as _typecheck_call_expr,
@@ -99,9 +86,7 @@ from .typecheck_context import (
     _type_label,
     _type_refs_compatible,
     _typed,
-    _union_has_any_field,
     _unify_loop_control_types,
-    _variant_has_field,
 )
 from .typecheck_drain_phase import (
     typecheck_backlog_drain_expr,
@@ -122,15 +107,10 @@ from .typecheck_resource_view import (
 )
 from .typecheck_resume import typecheck_resume_or_start_expr
 from .typecheck_proofs import (
-    ProofFact,
     ProofScope,
-    resolve_field_access as _resolve_field_access_owner,
     typecheck_field_access_expr as _typecheck_field_access_expr,
     typecheck_match_expr as _typecheck_match_expr,
 )
-from .lints import required_lint_diagnostic
-from .spans import SourceSpan
-from .syntax import SyntaxNode
 from .type_env import (
     FrontendTypeEnvironment,
     OptionalTypeRef,
@@ -140,11 +120,9 @@ from .type_env import (
     RecordTypeRef,
     TypeRef,
     UnionTypeRef,
-    VariantCaseTypeRef,
 )
 from .workflow_refs import (
     resolve_workflow_ref_name,
-    workflow_ref_target_name,
     workflow_ref_type_from_signature,
 )
 
@@ -152,23 +130,10 @@ if TYPE_CHECKING:
     from .functions import FunctionCatalog
     from .procedures import ProcedureCatalog
     from .workflows import (
-        CertifiedAdapterBinding,
         CommandBoundaryEnvironment,
         ExternEnvironment,
         WorkflowCatalog,
     )
-from .procedures import (
-    GeneratedLocalProcedure,
-    ProcedureCatalog,
-    ProcedureCallableSpecialization,
-    ProcedureDef,
-    ProcedureLoweringMode,
-    ProcedureParam,
-    ProcedureSignature,
-    TypedProcedureDef,
-    let_proc_generated_name,
-    proc_ref_specialization_name as proc_ref_call_specialization_name,
-)
 
 
 def typecheck_expression(
@@ -1204,338 +1169,3 @@ def _typecheck(
             typed_factory=_typed,
         )
     raise TypeError(f"unsupported expression node: {type(expr)!r}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def _generated_procedure_signature(
-    *,
-    name: str,
-    params: tuple[tuple[str, TypeRef], ...],
-    return_type: TypeRef,
-    requested_lowering_mode: ProcedureLoweringMode,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-) -> ProcedureSignature:
-    return ProcedureSignature(
-        name=name,
-        params=params,
-        return_type_ref=return_type,
-        declared_effects=frozenset(),
-        requested_lowering_mode=requested_lowering_mode,
-        span=span,
-        form_path=form_path,
-        type_params=(),
-        where_clauses=(),
-    )
-
-
-def _type_name(type_ref: TypeRef) -> str:
-    return type_ref.name
-
-
-def _generated_procedure_definition(
-    *,
-    name: str,
-    signature: ProcedureSignature,
-    body: ExprNode,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-    expansion_stack,
-) -> ProcedureDef:
-    return ProcedureDef(
-        name=name,
-        params=tuple(
-            ProcedureParam(
-                name=param_name,
-                type_name=_type_name(param_type),
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            )
-            for param_name, param_type in signature.params
-        ),
-        return_type_name=_type_name(signature.return_type_ref),
-        declared_effects=frozenset(),
-        requested_lowering_mode=signature.requested_lowering_mode,
-        body=body,
-        span=span,
-        form_path=form_path,
-        expansion_stack=expansion_stack,
-        type_params=(),
-        where_clauses=(),
-    )
-
-
-def _typecheck_generated_procedure(
-    definition: ProcedureDef,
-    signature: ProcedureSignature,
-    *,
-    type_env: FrontendTypeEnvironment,
-    workflow_catalog: "WorkflowCatalog | None",
-    procedure_catalog: ProcedureCatalog,
-    extern_environment: "ExternEnvironment | None",
-    command_boundary_environment: "CommandBoundaryEnvironment | None",
-    procedure_effects_by_name: Mapping[str, EffectSummary],
-    workflow_effects_by_name: Mapping[str, EffectSummary],
-    proc_ref_resolution_context: ProcRefResolutionContext | None,
-) -> TypedProcedureDef:
-    from .procedure_typecheck import ProcedureTypecheckContext, typecheck_generated_procedure
-
-    return typecheck_generated_procedure(
-        definition,
-        signature,
-        type_env=type_env,
-        context=ProcedureTypecheckContext(
-            type_env=type_env,
-            value_env={},
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-            active_proc_ref_value_env=get_session_state().proc_ref_value_env,
-            generated_local_procedure_state=get_session_state().let_proc_rewrite_results,
-            session_state=get_session_state(),
-        ),
-    )
-
-
-def _register_generated_record_type(
-    type_env: FrontendTypeEnvironment,
-    *,
-    name: str,
-    fields: tuple[tuple[str, TypeRef], ...],
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-) -> None:
-    if type_env._type_refs.get(name) is not None:
-        return
-    definition = RecordDef(
-        name=name,
-        fields=tuple(
-            RecordField(
-                name=field_name,
-                type_name=_type_name(field_type),
-                span=span,
-            )
-            for field_name, field_type in fields
-        ),
-        span=span,
-    )
-    type_env._type_refs[name] = RecordTypeRef(
-        name=name,
-        definition=definition,
-        field_types={field_name: field_type for field_name, field_type in fields},
-    )
-
-
-def _register_generated_union_type(
-    type_env: FrontendTypeEnvironment,
-    *,
-    name: str,
-    variants: tuple[tuple[str, tuple[tuple[str, TypeRef], ...]], ...],
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-) -> None:
-    if type_env._type_refs.get(name) is not None:
-        return
-    definition = UnionDef(
-        name=name,
-        variants=tuple(
-            UnionVariant(
-                name=variant_name,
-                fields=tuple(
-                    RecordField(
-                        name=field_name,
-                        type_name=_type_name(field_type),
-                        span=span,
-                    )
-                    for field_name, field_type in fields
-                ),
-                span=span,
-            )
-            for variant_name, fields in variants
-        ),
-        span=span,
-    )
-    type_env._type_refs[name] = UnionTypeRef(
-        name=name,
-        definition=definition,
-        variant_field_types={
-            variant_name: {field_name: field_type for field_name, field_type in fields}
-            for variant_name, fields in variants
-        },
-    )
-
-
-def _generated_relpath_seed_expr(
-    *,
-    type_ref: TypeRef,
-    literal_path: str,
-    seed_role: str,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-    expansion_stack,
-) -> GeneratedRelpathSeedExpr:
-    if not isinstance(type_ref, PathTypeRef) or type_ref.definition.kind != "relpath":
-        _raise_error(
-            f"generated relpath seed `{seed_role}` requires a relpath type, got `{_type_label(type_ref)}`",
-            code="type_mismatch",
-            span=span,
-            form_path=form_path,
-            expansion_stack=expansion_stack,
-        )
-    return GeneratedRelpathSeedExpr(
-        target_type_ref=type_ref,
-        literal_path=literal_path,
-        seed_role=seed_role,
-        span=span,
-        form_path=form_path,
-        expansion_stack=expansion_stack,
-    )
-
-
-def _resolve_field_access_impl(
-    base_type: TypeRef,
-    *,
-    base_name: str,
-    field_name: str,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-    type_env: FrontendTypeEnvironment,
-    proof_scope: ProofScope,
-) -> TypeRef:
-    if isinstance(base_type, RecordTypeRef):
-        return type_env.record_field(base_type, field_name, span=span, form_path=form_path)
-    if isinstance(base_type, VariantCaseTypeRef):
-        if _variant_has_field(base_type, field_name):
-            return type_env.record_field(base_type, field_name, span=span, form_path=form_path)
-        if type_env.field_exists_in_other_variant(base_type, field_name):
-            _raise_error(
-                f"field `{field_name}` is not available under proven variant `{base_type.variant_name}`",
-                code="variant_ref_wrong_variant",
-                span=span,
-                form_path=form_path,
-            )
-        _raise_error(
-            f"unknown field `{field_name}`",
-            code="record_field_unknown",
-            span=span,
-            form_path=form_path,
-        )
-    if isinstance(base_type, UnionTypeRef):
-        proof_fact = proof_scope.facts.get(base_name)
-        if proof_fact is None:
-            if _union_has_any_field(base_type, field_name):
-                _raise_error(
-                    f"field `{field_name}` requires variant proof for `{base_type.name}`",
-                    code="variant_ref_unproved",
-                    span=span,
-                    form_path=form_path,
-                )
-            _raise_error(
-                f"unknown field `{field_name}`",
-                code="record_field_unknown",
-                span=span,
-                form_path=form_path,
-            )
-        if _variant_has_field(proof_fact.variant_type, field_name):
-            return type_env.record_field(
-                proof_fact.variant_type,
-                field_name,
-                span=span,
-                form_path=form_path,
-            )
-        if type_env.field_exists_in_other_variant(proof_fact.variant_type, field_name):
-            _raise_error(
-                f"field `{field_name}` is not available under proven variant `{proof_fact.variant_name}`",
-                code="variant_ref_wrong_variant",
-                span=span,
-                form_path=form_path,
-            )
-        _raise_error(
-            f"unknown field `{field_name}`",
-            code="record_field_unknown",
-            span=span,
-            form_path=form_path,
-        )
-    _raise_error(
-        f"type `{_type_label(base_type)}` does not support field access",
-        code="record_field_unknown",
-        span=span,
-        form_path=form_path,
-    )
-
-
-def _validate_semantic_command_adapter_usage(
-    expr: CommandResultExpr,
-    binding: "CertifiedAdapterBinding",
-) -> None:
-    effects = set(binding.effects)
-    transition_binding = getattr(binding, "transition_binding", None)
-    allow_migration_backend_call = (
-        transition_binding is not None
-        and getattr(transition_binding, "contract_role", None) == "migration_backend"
-    )
-    if (
-        (
-            "resource_transition" in effects
-            or "ledger_update" in effects
-            or binding.behavior_class == "resource_transition"
-        )
-        and not allow_migration_backend_call
-    ):
-        _raise_error(
-            "resource movement must use `resource-transition` or a certified resource_transition adapter",
-            code="resource_move_without_transition",
-            span=expr.span,
-            form_path=expr.form_path,
-            expansion_stack=expr.expansion_stack,
-        )
-    if "resume_state_reuse" in effects:
-        _raise_error(
-            "reusable-state gating must use `resume-or-start` instead of a raw `command-result` adapter call",
-            code="recovery_gate_without_resume_or_start",
-            span=expr.span,
-            form_path=expr.form_path,
-            expansion_stack=expr.expansion_stack,
-        )
-
-
-def _temporary_procedure_catalog(
-    procedure_catalog: ProcedureCatalog,
-    *,
-    definition: ProcedureDef,
-    signature: ProcedureSignature,
-) -> ProcedureCatalog:
-    signatures_by_name = dict(procedure_catalog.signatures_by_name)
-    definitions_by_name = dict(procedure_catalog.definitions_by_name)
-    signatures_by_name[signature.name] = signature
-    definitions_by_name[definition.name] = definition
-    return ProcedureCatalog(
-        signatures_by_name=signatures_by_name,
-        definitions_by_name=definitions_by_name,
-        call_graph=procedure_catalog.call_graph,
-    )

@@ -159,6 +159,10 @@ def test_typecheck_facade_reexports_public_entrypoints_after_owner_split() -> No
     context_path = package_dir / "typecheck_context.py"
     dispatch_path = package_dir / "typecheck_dispatch.py"
     dispatch_source = dispatch_path.read_text(encoding="utf-8")
+    loop_state_source = (package_dir / "loop_state.py").read_text(encoding="utf-8")
+    procedure_typecheck_source = (package_dir / "procedure_typecheck.py").read_text(
+        encoding="utf-8"
+    )
 
     assert typecheck_module.typecheck_expression is typecheck_expression
     assert context_path.is_file()
@@ -185,6 +189,21 @@ def test_typecheck_facade_reexports_public_entrypoints_after_owner_split() -> No
     assert "typecheck_resource_transition_expr(" in dispatch_source
     assert "typecheck_materialize_view_expr(" in dispatch_source
     assert "def _materialize_view_path_contracts_compatible(" not in dispatch_source
+    for retired_name in (
+        "_generated_procedure_signature",
+        "_generated_procedure_definition",
+        "_typecheck_generated_procedure",
+        "_register_generated_record_type",
+        "_register_generated_union_type",
+        "_generated_relpath_seed_expr",
+        "_resolve_field_access_impl",
+        "_validate_semantic_command_adapter_usage",
+        "_temporary_procedure_catalog",
+    ):
+        assert f"def {retired_name}(" not in dispatch_source
+    assert "from .typecheck_dispatch import _register_generated_record_type" not in loop_state_source
+    assert "from .typecheck_dispatch import _temporary_procedure_catalog" not in procedure_typecheck_source
+    assert len(dispatch_source.splitlines()) <= 1_250
 
 
 def test_frontend_type_environment_resolves_stage1_definitions() -> None:

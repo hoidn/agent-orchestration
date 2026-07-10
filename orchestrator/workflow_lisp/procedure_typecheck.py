@@ -931,10 +931,21 @@ def _typecheck_owner(*args, **kwargs):
     return _typecheck(*args, **kwargs)
 
 
-def _temporary_procedure_catalog_owner(*args, **kwargs):
-    from .typecheck_dispatch import _temporary_procedure_catalog
-
-    return _temporary_procedure_catalog(*args, **kwargs)
+def _temporary_procedure_catalog(
+    procedure_catalog: ProcedureCatalog,
+    *,
+    definition: ProcedureDef,
+    signature: ProcedureSignature,
+) -> ProcedureCatalog:
+    signatures_by_name = dict(procedure_catalog.signatures_by_name)
+    definitions_by_name = dict(procedure_catalog.definitions_by_name)
+    signatures_by_name[signature.name] = signature
+    definitions_by_name[definition.name] = definition
+    return ProcedureCatalog(
+        signatures_by_name=signatures_by_name,
+        definitions_by_name=definitions_by_name,
+        call_graph=procedure_catalog.call_graph,
+    )
 
 
 @dataclass(frozen=True)
@@ -1167,7 +1178,7 @@ def _typecheck_let_proc_expr_impl(
         local_bindings={expr.binding.local_name: rewrite_binding},
     )
     session_state.let_proc_rewrite_results[id(expr)] = outer_body_expr
-    generated_catalog = _temporary_procedure_catalog_owner(
+    generated_catalog = _temporary_procedure_catalog(
         procedure_catalog,
         definition=generated_definition,
         signature=generated_signature,

@@ -6,11 +6,14 @@ from dataclasses import dataclass, replace
 from hashlib import sha1
 import re
 
+from .definitions import RecordDef, RecordField
 from .diagnostics import LispFrontendCompileError
 from .effects import EMPTY_EFFECT_SUMMARY, merge_effect_summaries
 from .expressions import LoopStateField, LoopStateSeedExpr, LoopStateUpdateExpr
 from .loops import ensure_loop_projectable_type
+from .spans import SourceSpan
 from .type_env import (
+    FrontendTypeEnvironment,
     ListTypeRef,
     MapTypeRef,
     OptionalTypeRef,
@@ -41,6 +44,39 @@ _CARRIER_METADATA_BY_EXPR_KEY: dict[
     tuple[str, int, int, tuple[str, ...]],
     dict[tuple[tuple[str, str], ...], LoopStateCarrierMetadata],
 ] = {}
+
+
+def _type_name(type_ref: TypeRef) -> str:
+    return type_ref.name
+
+
+def _register_generated_record_type(
+    type_env: FrontendTypeEnvironment,
+    *,
+    name: str,
+    fields: tuple[tuple[str, TypeRef], ...],
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> None:
+    if type_env._type_refs.get(name) is not None:
+        return
+    definition = RecordDef(
+        name=name,
+        fields=tuple(
+            RecordField(
+                name=field_name,
+                type_name=_type_name(field_type),
+                span=span,
+            )
+            for field_name, field_type in fields
+        ),
+        span=span,
+    )
+    type_env._type_refs[name] = RecordTypeRef(
+        name=name,
+        definition=definition,
+        field_types={field_name: field_type for field_name, field_type in fields},
+    )
 
 
 def reset_loop_state_metadata() -> None:
@@ -174,8 +210,6 @@ def _typecheck_loop_state_seed(
     raise_error,
     type_label,
 ):
-    from .typecheck_dispatch import _register_generated_record_type, _type_refs_compatible
-
     field_effects = []
     rewritten_fields: list[LoopStateField] = []
     resolved_fields: list[tuple[str, TypeRef]] = []
@@ -211,7 +245,7 @@ def _typecheck_loop_state_seed(
                 form_path=field.form_path,
             )
         typed_value = recurse(field.value_expr)
-        if not _type_refs_compatible(resolved_type, typed_value.type_ref):
+        if not type_refs_compatible(resolved_type, typed_value.type_ref):
             raise_error(
                 (
                     f"`loop-state` field `{field.name}` expected `{type_label(resolved_type)}` "
@@ -277,8 +311,6 @@ def _typecheck_loop_state_update(
     raise_error,
     type_label,
 ):
-    from .typecheck_dispatch import _type_refs_compatible
-
     typed_base = recurse(expr.base_expr)
     metadata = carrier_metadata_for_type(typed_base.type_ref)
     if metadata is None:
@@ -303,7 +335,7 @@ def _typecheck_loop_state_update(
                 expansion_stack=field_expr.expansion_stack,
             )
         typed_value = recurse(field_expr)
-        if not _type_refs_compatible(expected_type, typed_value.type_ref):
+        if not type_refs_compatible(expected_type, typed_value.type_ref):
             raise_error(
                 (
                     f"`loop-state` field `{field_name}` expected `{type_label(expected_type)}` "

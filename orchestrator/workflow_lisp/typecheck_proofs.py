@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from .effects import EMPTY_EFFECT_SUMMARY, merge_effect_summaries
+from .effects import merge_effect_summaries
 from .expressions import FieldAccessExpr, MatchExpr, NameExpr
 from .loops import LoopControlTypeRef
 from .parametric_constraints import SharedUnionFieldCapability

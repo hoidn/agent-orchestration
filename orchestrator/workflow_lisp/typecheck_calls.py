@@ -7,7 +7,6 @@ from .diagnostics import LispFrontendCompileError
 from .effects import (
     EMPTY_EFFECT_SUMMARY,
     CallsWorkflowEffect,
-    ProcedureCallEdge,
     effect_summary_from_direct,
     merge_effect_summaries,
 )
@@ -20,7 +19,6 @@ from .phase import (
 from .procedure_refs import (
     ProcRefResolutionContext,
     ResolvedProcRefValue,
-    resolve_proc_ref_name,
     resolve_proc_ref_value,
 )
 from .type_env import (
