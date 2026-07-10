@@ -25,6 +25,8 @@ Design references:
 - [Workflow Lisp Macro Surface Contract](design/workflow_lisp_macro_surface_contract.md)
 - [Workflow Lisp Frontend Standard Library Lowering](design/workflow_lisp_stdlib_lowering.md)
 - [Workflow Lisp Runtime Closures Boundary](design/workflow_lisp_runtime_closures_boundary.md)
+- [Workflow Lisp Unified Frontend Design](design/workflow_lisp_unified_frontend_design.md)
+- [Workflow Lisp Native Transportable Returns And Typed Result Guidance](design/workflow_lisp_native_transportable_returns.md)
 - [Workflow Language Design Principles](design/workflow_language_design_principles.md)
 - [Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md)
 - [Workflow Lisp Generic Core, Expression Surface, And Adapter Retirement](design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md)
@@ -376,8 +378,12 @@ Current component-contract boundaries:
 - Core statement-family identity comes from the current shared Core AST
   taxonomy, not from ad hoc frontend-only statement names.
 
-Deferred or future:
+Designed or future, but not current authoring:
 
+- native direct returns for every currently transportable type across
+  workflows, providers, commands, procedures, and workflow calls;
+- authored `(result T ...)` return guidance and record/union payload-field
+  `:description`, `:format-hint`, and typed `:example` annotations;
 - runtime first-class procedures or closures
 - provider-selected or command-produced procedure values
 - procedure values stored in workflow outputs, records, unions, artifacts,
@@ -392,6 +398,15 @@ Runtime closures remain future runtime-owned callable values. Current work only
 proves disabled-profile rejection and source-map diagnostics. Do not author
 runtime closure values, dynamic procedure dispatch, or procedure-valued runtime
 state.
+
+The first two bullets above are accepted, gated v2.15 design rather than an
+open-ended future idea. They are sequenced in two Stage-5 plans—native returns
+first, typed result guidance second—but are not current authoring syntax. In the
+current checkout, public `defworkflow`, `provider-result`, and `command-result`
+boundaries still require record or union results; `(result T ...)`, annotated
+result fields, and authored target DSL v2.15 are rejected. Follow the
+[Capability Status Matrix](capability_status_matrix.md) rather than copying the
+accepted target syntax until both rows are promoted from `Designed`.
 
 Some migration slices now have evidence, but YAML remains authoritative for a
 workflow until that specific `.orc` version has compile, shared-validation,
@@ -649,8 +664,10 @@ two-value enum example. That route uses the stdlib-owned `ReviewDecision` union
 defined in
 `docs/design/workflow_lisp_review_revise_stdlib_parametric_integration.md`.
 
-Enums support contract validation, exhaustive `match`, stable branch shape,
-prompt-contract generation, and typed diagnostics.
+Enums support contract validation, stable equality-based routing,
+prompt-contract generation, and typed diagnostics. Workflow Lisp `match`
+currently consumes unions, not enums; use `if` with same-type enum equality
+when routing on an enum value.
 
 ### 5.3 Records
 
@@ -929,6 +946,10 @@ Rules:
 
 Use `provider-result` when a provider produces structured state.
 
+Current authoring boundary: `:returns` must name a record or union. Direct
+scalar, enum, path, optional, list, and map provider returns belong to the
+accepted native-return design, not the current compiler surface.
+
 ```lisp
 (let* ((attempt
          (provider-result providers.execute
@@ -1021,6 +1042,12 @@ Prompts should usually avoid:
 
 Use `command-result` when a deterministic command or certified adapter returns
 structured state.
+
+Current authoring boundary: `:returns` must name a record or union. If current
+behavior genuinely has a meaningful fixed result shape, model that shape as a
+record. Otherwise, keep the existing boundary or defer the migration rather
+than inventing a transport-only one-field wrapper; direct simple-value command
+results are not authorable until the v2.15 capability is implemented.
 
 ```lisp
 (defrecord ChecksResult
@@ -1552,6 +1579,20 @@ Usually avoid:
 - duplicated generated output contracts;
 - broad ambient doc globs;
 - instructions to echo session IDs or pointer paths.
+
+### Current Result-Guidance Boundary
+
+Use meaningful result and field names and explain field semantics in the
+provider task prompt today. The current Workflow Lisp parser accepts plain
+return type names and two-item record/union fields; it does not yet accept
+`(result T ...)` or field-level `:description`, `:format-hint`, and `:example`
+annotations. Do not hand-edit generated YAML contracts to simulate that source
+surface.
+
+The accepted v2.15 target will pass optional typed root and payload-field
+guidance through generated contracts to the provider prompt without changing
+runtime validity. That target remains `Designed` in the capability matrix until
+both the native-return and typed-guidance implementation plans complete.
 
 For nontrivial provider calls, build a typed prompt-input record and pass that
 record to `:inputs`. This keeps provider inputs named, typed, and separate from
@@ -2204,7 +2245,7 @@ Before running a new `.orc` workflow, confirm:
 | Area | Check |
 | --- | --- |
 | Frontend choice | This belongs in `.orc`; YAML is needed only for compatibility or fixtures. |
-| Types | Inputs, outputs, provider results, and command results have record/union types. |
+| Types | All boundary values are typed. In the current checkout, public workflow, provider-result, and command-result returns use record/union types; scalar and path inputs remain valid where their boundary contracts permit them. |
 | Paths | Path contracts are reusable `defpath` definitions. |
 | Authority | Structured bundles/artifacts are authority; reports are views. |
 | Providers | Provider decisions return structured state through `provider-result`. |
