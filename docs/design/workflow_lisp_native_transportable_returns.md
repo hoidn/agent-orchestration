@@ -120,6 +120,8 @@ guidance must compose without making guidance part of type identity.
 - Add optional root-return and payload-field guidance with typed examples.
 - Preserve source attribution, resume reconstruction, deterministic state,
   validation-before-exposure, and stdout non-authority.
+- Widen DSL v2.15's public workflow-output and guidance schemas so
+  compiler-generated and authored mappings share one validation surface.
 - Specify the normative DSL/provider documentation changes required by the
   generated contract.
 
@@ -164,6 +166,20 @@ true
 runtime plans, state, dashboards, diagnostics, and debug projections. Authored
 Workflow Lisp never names or projects it. The compiler binds the validated
 artifact directly to the source expression's declared type.
+
+At a reusable/public workflow boundary, the compiler also declares exactly one
+generated output named `__result__` for a root-valued return. Its `from` ref
+points to the terminal producer artifact of the same name. A `call` copies that
+declared callee output onto the outer call-step artifact map under
+`__result__`; the Workflow Lisp call expression binds that artifact directly as
+the declared type. The name remains invisible in Workflow Lisp even though it
+is visible in executable mappings and state.
+
+DSL v2.15 widens public workflow `outputs` to the same transportable
+leaf/collection schemas already used by frontend-lowered contracts. This is a
+deliberate normative widening, not a compiler-only loader exception. Existing
+DSL versions retain their current authored-YAML restrictions. Workflow Lisp
+sources using root-valued public returns declare `(:target-dsl "2.15")`.
 
 The alternatives are rejected:
 
@@ -299,6 +315,35 @@ guidance does not change the return type, requiredness, accepted runtime values,
 specialization identity, semantic fingerprints, proof rules, routing, effects,
 or resume behavior.
 
+### Guidance composition
+
+Guidance belongs to the authored declaration that contains it. Composition is
+deterministic:
+
+- a `defschema` field retains its guidance when included in a record or union
+  variant;
+- schema inclusion does not create an override layer; an included field and a
+  local field with the same name remain a duplicate-field error under the
+  existing schema rules;
+- imports and generic specialization preserve guidance without adding it to
+  type or specialization identity;
+- a flattened leaf retains its own guidance, while guidance from annotated
+  record-valued ancestor fields is carried separately as an ordered
+  `guidance_context` keyed by authored field path; strings are never
+  concatenated implicitly;
+- an ancestor example, when valid, remains an example of that ancestor value
+  and is not reinterpreted as a leaf example; and
+- runtime shared-field classification ignores guidance metadata. If the same
+  shared union field has different guidance in different variants, the
+  executable contract retains one runtime field schema plus
+  `guidance_by_variant`. Identical guidance may be deterministically deduplicated.
+
+Variant-specific fields keep their own guidance. A selected variant controls
+runtime validation and source attribution, while the provider prompt presents
+variant-keyed guidance before the provider chooses the discriminant. Guidance
+differences must never turn one structurally shared field into conflicting
+active/inactive runtime fields.
+
 ## Compiler And IR Design
 
 ### Shared return checking
@@ -335,6 +380,27 @@ The same rule applies at a public `defworkflow` boundary. Public/resumable
 workflow behavior remains special operationally, but its returned value uses
 the same type and contract derivation as an internal procedure.
 
+The executable workflow boundary is explicit rather than inferred:
+
+```yaml
+outputs:
+  __result__:
+    kind: scalar
+    type: bool
+    from:
+      ref: root.steps.<terminal-step>.artifacts.__result__
+```
+
+Optional/list/map roots use the widened collection output schema; paths use the
+existing relpath output schema. A pure literal, pure expression, conditional
+join, or loop result that lacks an existing producing artifact is materialized
+through the ordinary compiler-generated typed projection step. That step writes
+the direct JSON root and exposes `artifacts.__result__`; it does not introduce
+an object envelope. Persisted workflow outputs are finalized only under the
+existing success/finalization rules, and resumed calls reconstruct the outer
+call artifact from the declared callee output exactly as for existing named
+outputs.
+
 Returning a value does not by itself add a separately named publication. Any
 public artifact publication remains explicit boundary policy over the returned
 typed value.
@@ -358,10 +424,32 @@ authority.
 
 ### Source maps and diagnostics
 
-The generated root field uses the existing output-contract field lineage
-mechanism, but its origin is the authored return type or `(result ...)` span.
-Runtime violations should display "return value" and the authored type rather
-than requiring users to understand `__result__`.
+Root and fixed-bundle fields extend the accepted contract-field lineage with
+`subject_kind = "output_bundle_field"`. The stable root subject name is:
+
+```text
+<generated-step-id>::root-result::__result__
+```
+
+`ValidationSubjectRef.workflow_name` continues to carry canonical workflow
+identity, so the subject name is opaque outside equality and lookup. A root
+subject's origin is the authored `(result ...)` form when present, otherwise
+the authored return type token in `:returns` or after `->`.
+
+The source-map builder persists these subjects in the existing additive
+`contract_fields` section with `entity_kind = "output_bundle_field"`, and
+`validation_subjects` maps each subject to that origin. Classic and WCC origin
+maps, inline procedure child contexts, clone/rekey logic, the Semantic IR
+source-map bridge, and `CompiledFrontendIndex` must support both
+`variant_output_field` and `output_bundle_field`. Older v1 maps without the new
+subjects remain valid; unresolved subjects retain the enclosing-step fallback.
+
+The generated workflow boundary output separately uses the existing
+`generated_output` subject and points to the same authored return occurrence.
+Runtime value violations resolve through `output_bundle_field`; call/export
+boundary diagnostics resolve through `generated_output`. Runtime diagnostics
+should display "return value" and the authored type rather than requiring users
+to understand `__result__`.
 
 Diagnostics must distinguish:
 
@@ -405,11 +493,26 @@ The loader and shared validation layer must validate guidance metadata even
 though runtime result validation ignores it. This keeps authored YAML and
 compiler-generated executable mappings on one checked contract surface.
 
-The normative DSL/provider decision must state whether bundle guidance is
-available to authored YAML as well as compiler-generated Workflow Lisp. The
-recommended contract is additive public DSL support because the shared loader
-and renderer already consume the same mapping; a hidden compiler-only key would
-create an unnecessary second schema.
+Bundle and field guidance is additive public DSL v2.15 support, not
+compiler-only metadata. That version adds:
+
+- `description`, `format_hint`, and JSON-native `example` to
+  `output_bundle.fields`, `variant_output.shared_fields`, and variant fields;
+- `guidance_by_variant` for structurally shared union fields whose authored
+  guidance differs;
+- ordered `guidance_context` for flattened nested-field ancestry; and
+- optional bundle-level `guidance` for overall record/union return guidance.
+
+The loader validates this metadata and rejects it on older authored DSL
+versions. Prompt composition renders it; output-contract value validation
+ignores it. Compiler-generated and authored mappings therefore share one
+normative schema and do not depend on unknown-key tolerance.
+
+Native returns and typed result guidance are one v2.15 release contract even
+though implementation is split into sequential plans. The v2.15 capability is
+not promoted as complete until both plans and their shared normative spec gate
+pass; this prevents a released version from changing its accepted guidance
+keys between the two implementation waves.
 
 ## Contracts And Interfaces
 
@@ -435,6 +538,15 @@ New documentation must explicitly allow any JSON document root and define
 `json_pointer: ""` as selecting that root. Field and bundle guidance are
 prompt-only metadata with schema validation but no value-validation impact.
 
+DSL v2.15 also widens public `outputs` contract definitions to optional, list,
+and map schemas under the same element restrictions as the frontend contract
+system. Existing scalar, enum, relpath, record-flattened, and union-flattened
+boundaries remain compatible. This widening is required for a public Workflow
+Lisp workflow returning a collection to cross an ordinary `call` boundary
+without a compiler-private validation path. Workflow input widening is outside
+this design; existing Workflow Lisp/compiler-private collection input rules
+remain governed by their current contract.
+
 ### Runtime state
 
 Root-valued results are persisted as ordinary step artifacts:
@@ -454,6 +566,11 @@ Root-valued results are persisted as ordinary step artifacts:
 This name is observable but compiler-owned. Workflow Lisp authors bind the
 typed expression result and do not reference this state path.
 
+For a reusable workflow, the callee's finalized output map and the caller's
+outer call-step artifact map both use the same generated `__result__` key. The
+compiler consumes that key when rebuilding the typed call expression; authored
+Workflow Lisp and public publication names remain independent of it.
+
 ## Dependencies And Sequencing
 
 The design depends on the existing output-bundle validator, runtime-owned
@@ -472,6 +589,8 @@ Implementation should be split into two independently reviewable plans:
 The native-return substrate must land first. Typed result guidance then uses
 the accepted root contract instead of inventing a parallel transport. Both
 must complete before a procedure-first pilot depends on direct scalar returns.
+Native-return acceptance fixtures use plain `:returns T` / `-> T` and contain
+no guidance metadata; guidance fixtures are added only by the dependent plan.
 
 Planning may be drafted before the active migration sequence completes, but
 implementation must honor the roadmap's compiler/runtime freeze and rebaseline
@@ -535,10 +654,16 @@ remain valid. Their generated contracts, artifact names, output paths, source
 identities, checkpoint identities, and runtime behavior should remain
 byte-equivalent where deterministic serialization makes that measurable.
 
-Old runtimes already understand empty JSON pointers, but old frontends do not
-compile the new source forms. Build/executable artifact schema versions must be
-bumped only if persisted IR shape actually changes; the implementation plan
-must audit readers rather than assume either compatibility or incompatibility.
+The current validator already understands empty JSON pointers, but a v2.14
+runtime does not accept the new DSL version, widened public outputs, or guidance
+schema. Native-return workflows therefore require a v2.15-capable compiler,
+loader, and runtime. Existing v2.14 record/union workflows remain on their
+current contracts and do not acquire new metadata implicitly.
+
+Build/executable artifact schema versions must be bumped only if persisted IR
+shape actually changes; the implementation plan must audit readers rather than
+assume either compatibility or incompatibility. The DSL version decision is
+not open: the public contract changes are v2.15.
 
 No existing wrapper record is automatically rewritten. Authors may migrate a
 one-field wrapper to a direct return deliberately after downstream callers and
@@ -631,6 +756,12 @@ Given a workflow returning `Optional[List[String]]`, JSON `null` produces
 `None`, a JSON array of strings produces the typed list, and a missing bundle
 fails. A caller receives the direct typed value without a one-field record.
 
+The compiled callee declares `outputs.__result__` from the terminal producer's
+`artifacts.__result__`. The runtime call step exposes the same artifact key, and
+the caller compiler binds it as `Optional[List[String]]`. A pure or join-produced
+list first passes through the ordinary typed materialization step; no test-only
+adapter or object envelope may satisfy the scenario.
+
 ### Existing union remains unchanged
 
 Given an existing provider workflow returning a tagged union, compilation and
@@ -677,10 +808,12 @@ Implementation requires coordinated updates to:
 
 - `docs/design/workflow_lisp_frontend_specification.md`;
 - `docs/design/workflow_lisp_type_catalog.md`;
+- `docs/design/workflow_lisp_source_map.md`;
 - `docs/lisp_workflow_drafting_guide.md`;
 - `specs/dsl.md`;
 - `specs/io.md` when root-target or command wording needs clarification;
 - `specs/providers.md`;
+- `specs/versioning.md` and the v2.15 accepted-version/schema tables;
 - `docs/capability_status_matrix.md`;
 - `docs/design/README.md` and `docs/index.md`;
 - executable/debug schema documentation if serialized IR changes; and
