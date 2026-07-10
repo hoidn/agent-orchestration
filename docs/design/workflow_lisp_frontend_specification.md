@@ -3508,6 +3508,24 @@ Imported stdlib and generic-specialization routes must also map:
 Missing source-map origin for any generated helper, step, boundary field, path,
 or projection is a compile-time failure in promoted routes.
 
+Generated structured-result contracts must preserve authored union-field
+identity through runtime validation. Each authored variant field has a stable
+source-map subject whose origin resolves to that field's exact source span and
+form path. Shared field names retain one origin per variant, and runtime
+validation selects the origin for the active contract rule. Runtime violations
+carry only the stable subject reference; the canonical source-map sidecar owns
+the authored span, expansion, and form metadata.
+
+Runtime source attribution must not recompile source, infer identity from a
+field name, or make the generated contract a second source-map authority. A
+build produced before field-level lineage was available may fall back to its
+enclosing generated step, but a newly promoted route must fail source-map
+validation if its emitted field subject is dangling or ambiguous. Both the
+canonical source-map validator and the Semantic IR source-map bridge must
+recognize the field origin section and its validation subjects. The detailed
+component contract is
+[Workflow Lisp Source Map](workflow_lisp_source_map.md).
+
 Example diagnostic:
 
 ```text

@@ -20,7 +20,7 @@ page, not a replacement for the linked docs.
 | [workflow_lisp_macro_surface_contract.md](workflow_lisp_macro_surface_contract.md) | Current macro surface and provenance obligations | Yes | Yes | Use for current macro behavior, not future macro ambitions. |
 | [workflow_lisp_stdlib_lowering.md](workflow_lisp_stdlib_lowering.md) | Stdlib lowering boundary | Partial | Yes | Explains when high-level forms should be stdlib composition rather than compiler primitives. |
 | [workflow_lisp_state_layout.md](workflow_lisp_state_layout.md) | Generated path and state layout ownership | Partial | No | Use when generated paths, loop roots, and resume identities are involved. |
-| [workflow_lisp_source_map.md](workflow_lisp_source_map.md) | Source-map provenance | Yes | No | Use when generated steps, fields, or paths need source ownership. |
+| [workflow_lisp_source_map.md](workflow_lisp_source_map.md) | Source-map provenance, including runtime structured-result field lineage | Partial | No | Current step/node provenance plus the accepted contract-field lineage extension; use when generated steps, fields, paths, or runtime violations need source ownership. |
 | [workflow_lisp_debug_yaml_renderer.md](workflow_lisp_debug_yaml_renderer.md) | Debug YAML projection | Yes | No | Debug YAML is a view, not execution authority. |
 | [workflow_lisp_effect_graph.md](workflow_lisp_effect_graph.md) | Effect visibility | Partial | No | Use when imported/procedural effects must remain visible after lowering. |
 | [workflow_lisp_core_workflow_ast.md](workflow_lisp_core_workflow_ast.md) | Core Workflow AST | Yes | No | Implementation boundary between frontend and validation/runtime layers. |
