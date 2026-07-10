@@ -5913,6 +5913,37 @@ class WorkflowExecutor:
             else:
                 artifacts = validate_expected_outputs(resolved_expected_outputs or [], workspace=self.workspace)
         except OutputContractError as contract_error:
+            step_name = step.get('name', f'step_{self.current_step}')
+            step_id = self._step_id(step)
+            violations = []
+            for serialized_violation in contract_error.violations:
+                if not isinstance(serialized_violation, Mapping):
+                    violations.append(serialized_violation)
+                    continue
+                enriched_violation = dict(serialized_violation)
+                subject_refs = enriched_violation.get('subject_refs', ())
+                if not isinstance(subject_refs, (list, tuple)):
+                    subject_refs = ()
+                try:
+                    origins = self._frontend_index.origins_for_subject_refs(
+                        subject_refs,
+                        fallback_step=(step_name, step_id),
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to resolve optional output-contract lineage for step %s: %s",
+                        step_name,
+                        exc,
+                    )
+                    origins = []
+                serialized_origins = [
+                    dict(origin)
+                    for origin in origins
+                    if isinstance(origin, Mapping)
+                ]
+                if serialized_origins:
+                    enriched_violation['source_origins'] = serialized_origins
+                violations.append(enriched_violation)
             failed_result = dict(result)
             failed_result['status'] = 'failed'
             failed_result['exit_code'] = 2
@@ -5920,7 +5951,7 @@ class WorkflowExecutor:
                 'type': 'contract_violation',
                 'message': 'Expected output contract validation failed',
                 'context': {
-                    'violations': contract_error.violations
+                    'violations': violations
                 }
             }
             return failed_result
