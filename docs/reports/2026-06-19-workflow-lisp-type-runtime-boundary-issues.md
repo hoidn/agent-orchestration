@@ -1,10 +1,42 @@
 # Workflow Lisp Type And Runtime Boundary Issues
 
 Date: 2026-06-19
-Status: diagnostic report
+Status: diagnostic report; dispositioned 2026-07-08 (accepted with
+modifications). Retained as a historical record — where a recommendation has
+been absorbed by newer authority, the pointer in "Disposition Of
+Recommendations" governs, not this report's original wording.
 Scope: issues uncovered while reasoning about refined match binders, branch-local
 fields, stdlib drain results, executable output contracts, source maps, and
 runtime validation.
+
+Related current authority:
+
+- `docs/design/workflow_lisp_parametric_type_system.md` — generic `defproc`
+  mechanism and the Tranche 2 drain migration (recommendations 3, 5, 7)
+- `docs/plans/2026-07-07-drain-migration-g8-retirement.md` — name-specific hook
+  retirement and bridge-augmentation retirement (recommendations 5, 6)
+- `docs/plans/2026-07-07-yaml-retirement-program.md` — YAML-surface end state
+  (recommendation 7's parity framing)
+- `docs/design/workflow_lisp_shared_owner_lane_prerequisites.md` — the one
+  design doc that has adopted refined-match-binder terminology so far
+  (recommendations 1–2)
+- `docs/plans/2026-07-07-refactoring-dead-code-and-lowering-consolidation.md`
+  — Task 3's fixture disposition interacts with recommendation 8
+
+## Disposition Of Recommendations (2026-07-08)
+
+| Rec | Status | Owner / action |
+|---|---|---|
+| 1–2 (refined-binder terminology; proof internal-only) | **Open, actionable now** | Doc sweep: author-facing surfaces say "refined match binders"; "proof" reserved for compiler metadata, diagnostics, source maps, resume evidence. Adopted so far only in `workflow_lisp_shared_owner_lane_prerequisites.md`; the frontend specification and five other design docs still front "proof-gated". Implementation already conforms — authors write ordinary `match`. |
+| 3 (variant-scoped output contracts) | **Partially absorbed** | Entry-publication/variant handling advanced under the design-delta certification work; the constraint surface is owned by the parametric type system. Residual gap tracked by open question 1. |
+| 4 (shared contract representations) | **Partially realized** | The converged executable IR plus shared surface validation is the shared substrate; "one contract model drives typechecker and runtime validators" remains directional. |
+| 5 (retire name-specific hooks) | **Absorbed** | Parametric type system Tranche 2 + `2026-07-07-drain-migration-g8-retirement.md` Phases 1–2; the G8 deletion inventory enumerates the lowerer, monomorphizer, name-keyed validators, and registry heads this report asked to retire. |
+| 6 (bridges/views at consumer boundaries) | **Absorbed** | Bridge declarations with owner/schema/consumer/retirement metadata exist; the compiler-hook bridge augmentation flagged here retires with the certification bundle (drain plan Phase 3). |
+| 7 (generic lifecycle types) | **Mechanism landed; application pending; parity sentence amended** | `std/drain.orc` already owns `DrainResult`, `SelectionResult`, `GapResult`, `SelectionPayload`, `GapPayload`, `DrainLoopTerminal`; parametric generics enable the `DrainResult<TSummary>` shape during the drain migration. See the amended parity note in issue 7. |
+| 8 (negative tests) | **Amended to a coverage audit** | See the amended recommendation; resolves a live collision with the Phase-1 refactoring plan's orphaned-fixture deletion. |
+| 9 (unified typed-return semantics) | **Directional, gated** | Needs a frontend-spec update before implementation; conflicts today with the `record-drain-outcome` contract. Not implementation authority. |
+| 10 (interpreter-like evaluation) | **Directional** | WCC + lexical checkpoints are the current path; roadmap-level only. |
+| 11 (demote workflow as reuse unit) | **Directional, partially enacted** | Enacted for drain (`backlog-drain-proc` is authored as a `defproc`, not a workflow); generalizing beyond drain needs a frontend-spec update. |
 
 ## Summary
 
@@ -234,10 +266,18 @@ What should go away or become views:
 
 Implication: the stdlib should own generic lifecycle unions and callable
 boundaries. Workflow families should supply typed payloads and ordinary
-projections to public outputs or legacy views. Exact replication of the YAML
-state-machine representation should not be a parity requirement; parity should
-compare semantic terminal results, payloads, public artifacts, and accepted
-compatibility views.
+projections to public outputs or legacy views.
+
+**Amendment (2026-07-08)** to the original parity claim ("exact replication of
+the YAML state-machine representation should not be a parity requirement"):
+this is the correct *end state*, and it is strengthened by the decision to
+retire user-facing YAML (`docs/plans/2026-07-07-yaml-retirement-program.md`).
+It is **not** license to weaken the current migration gates: the
+census-fingerprint and manifest-row strictness in the certification lane is
+intentionally load-bearing *while* the migration is in flight, and it retires
+with the bundle (drain plan Phase 3), not before. Distinguish migration-time
+evidence (strict, structural, temporary) from end-state parity (semantic
+terminal results, payloads, public artifacts, accepted compatibility views).
 
 ### 8. The current vocabulary risks over-modeling if every boundary gets its own concept
 
@@ -411,9 +451,24 @@ type definitions and refined WCC bindings
    Keep Design Delta-specific types for item, gap, summary, provider request,
    validation, and public compatibility payloads.
 
-8. Add focused negative tests.
+8. Audit negative-path coverage against the case list below; wire or recreate
+   only the gaps.
 
-   Minimum useful failures:
+   **Amendment (2026-07-08)** — originally "add focused negative tests." A
+   coverage audit must come first: the variant-proofs suite already covers part
+   of this list behaviorally, and three orphaned fixtures created in this
+   report's spirit were never wired to any test
+   (`tests/fixtures/workflow_lisp/invalid/if_variant_proof_missing.orc`,
+   `review_loop_result_contract_invalid.orc`,
+   `backlog_drain_hidden_compatibility_bridge_reread_invalid.orc`). Resolve the
+   audit against
+   `docs/plans/2026-07-07-refactoring-dead-code-and-lowering-consolidation.md`
+   Task 3 **before** that task's fixture deletion runs: wire a fixture into a
+   behavioral test if its case is uncovered; let the deletion stand if the case
+   is already covered elsewhere. Per repo test policy, assert behavior and
+   diagnostics contracts, not literal prompt or message text.
+
+   Audit case list (unchanged from the original recommendation):
 
    - access `blocked.blocker-class` outside a `BLOCKED` match arm;
    - return a union whose repeated field names collide after lowering;
@@ -433,12 +488,21 @@ type definitions and refined WCC bindings
    different mechanism. Publication and bridge effects should consume returned
    typed values; they should not be required for parent composition.
 
+   *Disposition (2026-07-08): directional only — this is a language-semantics
+   commitment that requires a frontend-specification update before any
+   implementation, and it conflicts today with the `record-drain-outcome`
+   contract. This report is not implementation authority for it.*
+
 10. Prefer interpreter-like evaluation between explicit effect boundaries.
 
    Pure and structured Workflow Lisp regions should behave like ordinary typed
    expression evaluation with lexical environments and refined match binders.
    External work should cross explicit effect boundaries that carry contracts
    for validation, resume, source maps, artifacts, and parity evidence.
+
+   *Disposition (2026-07-08): directional only — WCC and lexical checkpoints
+   are the current path toward this hybrid; roadmap-level, no near-term
+   action.*
 
 11. Shrink workflow to the durable executable boundary.
 
@@ -447,30 +511,52 @@ type definitions and refined WCC bindings
    Workflow entrypoints should own run/resume/public-boundary obligations, not
    serve as the default abstraction for every reusable helper.
 
+   *Disposition (2026-07-08): partially enacted — the drain migration authors
+   `backlog-drain-proc` as a `defproc`, not a workflow
+   (`docs/plans/2026-07-07-drain-migration-g8-retirement.md` Phase 1).
+   Generalizing beyond drain requires a frontend-specification update; this
+   report is not implementation authority for that generalization.*
+
 ## Open Questions
 
 - How much of the executable output contract can be generated directly from
   the existing type environment today, and how much still lives in bespoke
-  output-contract code?
+  output-contract code? *(Still open; sharpened by the parametric constraint
+  surface now owning the type-side vocabulary.)*
 - Which current stdlib drain/runtime-proof allowances are genuinely generic,
   and which are still name-specific transitional scaffolding?
+  *(Answered 2026-07-08: enumerated by the G8 deletion inventory in
+  `docs/plans/2026-07-07-drain-migration-g8-retirement.md` Phase 2 — the
+  phase-drain lowerer, drain-terminal intrinsic paths, the monomorphizer,
+  name-keyed validators, and three `compatibility_route_only` registry heads
+  are the name-specific set.)*
 - Do bridge/publication declarations already provide enough metadata to replace
   the Design Delta-specific compile-result augmentation hooks?
+  *(Answered 2026-07-08: yes, contingent on the certification-bundle
+  retirement — drain plan Phase 3 retires the augmentation hooks while
+  preserving the generic bridge/publication metadata.)*
 - Are source maps currently complete enough to map runtime output failures back
-  to variant-scoped authored fields?
+  to variant-scoped authored fields? *(Still open; belongs to the
+  recommendation 8 coverage audit.)*
 - Should the frontend spec explicitly rename author-facing "proof-gated field
   access" to "refined match binders" while retaining proof terminology for
-  internal metadata?
+  internal metadata? *(Answered 2026-07-08: yes — execute as the
+  recommendations 1–2 terminology sweep;
+  `workflow_lisp_shared_owner_lane_prerequisites.md` already models the
+  wording.)*
 - Should the frontend spec make the effect-set distinction explicit enough
   that pure helpers, effectful procedures, and workflow entrypoints share one
   return-value model while differing by resumability and runtime boundary
-  obligations?
+  obligations? *(Open — this is the recommendation 9 design-doc gate.)*
 - Should the runtime roadmap explicitly target interpreter-like evaluation for
   pure/structured regions while keeping providers, commands, child workflow
   calls, transitions, publication, and bridges as compiled effect boundaries?
+  *(Open, roadmap-level — recommendation 10.)*
 - Should the frontend/runtime roadmap demote reusable workflow calls in favor
   of regular functions plus explicit provider/effect steps, leaving workflow as
-  the durable public run boundary?
+  the durable public run boundary? *(Partially answered by the drain migration
+  authoring `backlog-drain-proc` as a `defproc`; generalization is the
+  recommendation 11 design-doc gate.)*
 
 ## Bottom Line
 
@@ -485,3 +571,8 @@ boundaries, while keeping those effect boundaries explicit and inspectable.
 In that shape, provider/effect steps are the primary durable step abstraction;
 workflow is the public/resumable execution boundary, not the normal unit of
 internal reuse.
+
+*(2026-07-08: this bottom line has held up. The contract-projection root cause
+is the same conclusion the parametric type system work reached independently.
+For current status per recommendation, see "Disposition Of Recommendations"
+above; where a disposition names a newer owner, that owner governs.)*
