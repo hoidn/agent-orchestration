@@ -787,7 +787,12 @@ Production compile (P2 command), two runs:
   `modules_by_name`), and `std/drain.orc` gained the dormant definitions — any completion of
   Task 1.4 changes it by construction. The behavioral pre-swap evidence — the intrinsic-route
   checkpoint-identity maps — is unchanged (identity suite green, zero rows), which is the gate
-  Task 1.5 depends on.
+  Task 1.5 depends on. Review addendum (2026-07-10): one span-provenance artifact delta exists
+  between the two builds — checkpoint `ckpt:375db64221bf1496a0e1d147` (the production
+  `backlog_drain` effect boundary) changed its `binding_schema.schema_digest`, because the digest
+  hashes `repr(type_ref)` (`wcc/defunctionalize.py:1072-1088`) and TypeRef reprs embed source
+  spans, which the export additions shifted by two lines. Same mechanical class as the
+  fingerprint; `checkpoint_id` and all identity rows unchanged; pre-existing machinery behavior.
 
 Task 1.4 has no checkbox line in this plan; this record is its completion evidence. Task 1.5 is
 unblocked, with its expansion shape amended to the let*-bound terminal per the A+D adjudication.
