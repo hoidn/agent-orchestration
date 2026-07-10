@@ -538,6 +538,8 @@ Signature shape (normative for the migration; body elided):
           (SelectionT has-union-variant GAP (gap GapPayloadT))
           (SelectionT has-union-variant BLOCKED (reason String))
           (SelPayloadT is-record)
+          (SelPayloadT has-field item-id String)
+          (SelPayloadT has-field item-state-root Path.state-root)
           (GapPayloadT is-record)
           (RunResultT has-union-variant CONTINUE (summary-path WorkReport))
           (RunResultT has-union-variant BLOCKED
@@ -552,7 +554,15 @@ Signature shape (normative for the migration; body elided):
 The `RunResultT` clauses match `std/resource` `SelectedItemResult`
 (`CONTINUE (summary-path)`, `BLOCKED (summary-path blocker-class)`); the
 `GapResultT` clauses match `std/drain` `GapResult` — the two field
-vocabularies differ deliberately and must not be conflated. The ctx
+vocabularies differ deliberately and must not be conflated. The two
+`SelPayloadT has-field` clauses are the G2 amendment raised by the
+backlog-drain generic migration plan
+(`docs/plans/2026-07-06-backlog-drain-generic-migration-plan.md`, Task 4
+Step 1): the generic body projects exactly the selection-payload fields the
+intrinsic reads when building the item context —
+`selection.item-id` and `selection.item-state-root`
+(`lowering/phase_drain.py`, `_phase_stdlib_lower_backlog_drain_impl`,
+`item_ctx_value` construction). The ctx
 path-field clauses name base path families; consumer contexts satisfy them
 through rule 4 assignment compatibility (e.g. `DesignDeltaDrainCtx.manifest`
 is the consumer-refined `StateFileExisting`, which narrows
