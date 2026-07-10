@@ -8,6 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
+from orchestrator.exceptions import (
+    ValidationSubjectRef,
+    parse_validation_subject_ref,
+    serialize_validation_subject_ref,
+)
+
 
 @dataclass
 class ContractViolation:
@@ -15,14 +21,46 @@ class ContractViolation:
     type: str
     message: str
     context: Dict[str, Any]
+    subject_refs: tuple[ValidationSubjectRef, ...] = ()
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize violation for state/error payloads."""
-        return {
+        serialized = {
             "type": self.type,
             "message": self.message,
             "context": self.context,
         }
+        subject_refs: list[dict[str, str]] = []
+        seen_subjects: set[tuple[str, str, str | None]] = set()
+        for subject_ref in self.subject_refs:
+            identity = (
+                subject_ref.subject_kind,
+                subject_ref.subject_name,
+                subject_ref.workflow_name,
+            )
+            if identity in seen_subjects:
+                continue
+            seen_subjects.add(identity)
+            subject_refs.append(serialize_validation_subject_ref(subject_ref))
+        if subject_refs:
+            serialized["subject_refs"] = subject_refs
+        return serialized
+
+
+def _field_subject_refs(
+    spec: Mapping[str, Any],
+    *,
+    selected_variant: str | None = None,
+) -> tuple[ValidationSubjectRef, ...]:
+    """Defensively read optional field-lineage metadata from one contract rule."""
+
+    subject_value: object = spec.get("source_map_subject")
+    if selected_variant is not None:
+        subjects_by_variant = spec.get("source_map_subjects_by_variant")
+        if isinstance(subjects_by_variant, Mapping):
+            subject_value = subjects_by_variant.get(selected_variant)
+    subject_ref = parse_validation_subject_ref(subject_value)
+    return (subject_ref,) if subject_ref is not None else ()
 
 
 class OutputContractError(Exception):
@@ -432,6 +470,10 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
                         "name": field_name,
                         "json_pointer": json_pointer,
                     },
+                    subject_refs=_field_subject_refs(
+                        spec,
+                        selected_variant=parsed_discriminant,
+                    ),
                 )
             )
             continue
@@ -447,6 +489,10 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
             violation.context["path"] = bundle_path
             violation.context["variant"] = parsed_discriminant
             violation.context["json_pointer"] = json_pointer
+            violation.subject_refs = _field_subject_refs(
+                spec,
+                selected_variant=parsed_discriminant,
+            )
             violations.append(violation)
             continue
         artifacts[field_name] = parsed_value
@@ -507,6 +553,7 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
                         "name": field_name,
                         "json_pointer": json_pointer,
                     },
+                    subject_refs=_field_subject_refs(spec),
                 )
             )
             continue
@@ -522,6 +569,7 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
             violation.context["path"] = bundle_path
             violation.context["variant"] = parsed_discriminant
             violation.context["json_pointer"] = json_pointer
+            violation.subject_refs = _field_subject_refs(spec)
             violations.append(violation)
             continue
         artifacts[field_name] = parsed_value
@@ -552,6 +600,7 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
                             "name": field_name,
                             "json_pointer": json_pointer,
                         },
+                        subject_refs=_field_subject_refs(spec),
                     )
                 )
 

@@ -8,11 +8,21 @@ import pytest
 import orchestrator.contracts.output_contract as output_contract_module
 
 from orchestrator.contracts.output_contract import (
+    ContractViolation,
     OutputContractError,
     validate_variant_output_bundle,
     validate_output_bundle,
     validate_expected_outputs,
 )
+from orchestrator.exceptions import ValidationSubjectRef
+
+
+def _variant_field_subject(variant: str, field_name: str) -> dict[str, str]:
+    return {
+        "subject_kind": "variant_output_field",
+        "subject_name": f"execute::Decision::{variant}::{field_name}",
+        "workflow_name": "demo/module::entry",
+    }
 
 
 def test_validate_expected_outputs_parses_supported_types(tmp_path: Path):
@@ -343,7 +353,7 @@ def test_validate_variant_output_bundle_accepts_completed_variant(tmp_path: Path
     }
 
 
-def test_validate_variant_output_bundle_rejects_missing_active_variant_field(tmp_path: Path):
+def test_validate_variant_output_bundle_rejects_missing_active_variant_field_with_subject(tmp_path: Path):
     """variant_output requires fields declared by the selected variant."""
     bundle_path = tmp_path / "state" / "variant_bundle.json"
     bundle_path.parent.mkdir(parents=True)
@@ -369,6 +379,9 @@ def test_validate_variant_output_bundle_rejects_missing_active_variant_field(tmp
                         "type": "relpath",
                         "under": "artifacts/work",
                         "must_exist_target": True,
+                        "source_map_subject": _variant_field_subject(
+                            "COMPLETED", "execution_report_path"
+                        ),
                     }
                 ]
             },
@@ -390,7 +403,11 @@ def test_validate_variant_output_bundle_rejects_missing_active_variant_field(tmp
         validate_variant_output_bundle(contract, workspace=tmp_path)
 
     assert [
-        {"type": violation["type"], "context": violation["context"]}
+        {
+            "type": violation["type"],
+            "context": violation["context"],
+            "subject_refs": violation["subject_refs"],
+        }
         for violation in exc_info.value.violations
     ] == [
         {
@@ -401,11 +418,14 @@ def test_validate_variant_output_bundle_rejects_missing_active_variant_field(tmp
                 "name": "execution_report_path",
                 "json_pointer": "/execution_report_path",
             },
+            "subject_refs": [
+                _variant_field_subject("COMPLETED", "execution_report_path")
+            ],
         }
     ]
 
 
-def test_validate_variant_output_bundle_rejects_forbidden_variant_fields(tmp_path: Path):
+def test_validate_variant_output_bundle_rejects_forbidden_variant_fields_with_subject(tmp_path: Path):
     """variant_output rejects fields from unselected variants."""
     (tmp_path / "artifacts" / "work").mkdir(parents=True)
     (tmp_path / "artifacts" / "work" / "execution_report.md").write_text("# report\n", encoding="utf-8")
@@ -452,6 +472,9 @@ def test_validate_variant_output_bundle_rejects_forbidden_variant_fields(tmp_pat
                         "type": "relpath",
                         "under": "artifacts/work",
                         "must_exist_target": True,
+                        "source_map_subject": _variant_field_subject(
+                            "BLOCKED", "progress_report_path"
+                        ),
                     }
                 ]
             },
@@ -461,7 +484,163 @@ def test_validate_variant_output_bundle_rejects_forbidden_variant_fields(tmp_pat
     with pytest.raises(OutputContractError) as exc_info:
         validate_variant_output_bundle(contract, workspace=tmp_path)
 
-    assert any(v["type"] == "variant_forbidden_field_present" for v in exc_info.value.violations)
+    violation = next(
+        violation
+        for violation in exc_info.value.violations
+        if violation["type"] == "variant_forbidden_field_present"
+    )
+    assert violation["subject_refs"] == [
+        _variant_field_subject("BLOCKED", "progress_report_path")
+    ]
+
+
+def test_validate_variant_output_bundle_missing_shared_field_uses_selected_subject(tmp_path: Path):
+    bundle_path = tmp_path / "state" / "variant_bundle.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(
+        json.dumps({"implementation_state": "COMPLETED"}) + "\n",
+        encoding="utf-8",
+    )
+    contract = {
+        "path": "state/variant_bundle.json",
+        "discriminant": {
+            "name": "implementation_state",
+            "json_pointer": "/implementation_state",
+            "type": "enum",
+            "allowed": ["COMPLETED", "BLOCKED"],
+        },
+        "shared_fields": [
+            {
+                "name": "report",
+                "json_pointer": "/report",
+                "type": "string",
+                "source_map_subjects_by_variant": {
+                    "COMPLETED": _variant_field_subject("COMPLETED", "report"),
+                    "BLOCKED": _variant_field_subject("BLOCKED", "report"),
+                },
+            }
+        ],
+        "variants": {
+            "COMPLETED": {"fields": []},
+            "BLOCKED": {"fields": []},
+        },
+    }
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_variant_output_bundle(contract, workspace=tmp_path)
+
+    assert exc_info.value.violations[0]["subject_refs"] == [
+        _variant_field_subject("COMPLETED", "report")
+    ]
+
+
+def test_validate_variant_output_bundle_type_invalid_uses_selected_field_subject(tmp_path: Path):
+    bundle_path = tmp_path / "state" / "variant_bundle.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(
+        json.dumps({"implementation_state": "COMPLETED", "attempts": "many"}) + "\n",
+        encoding="utf-8",
+    )
+    contract = {
+        "path": "state/variant_bundle.json",
+        "discriminant": {
+            "name": "implementation_state",
+            "json_pointer": "/implementation_state",
+            "type": "enum",
+            "allowed": ["COMPLETED", "BLOCKED"],
+        },
+        "variants": {
+            "COMPLETED": {
+                "fields": [
+                    {
+                        "name": "attempts",
+                        "json_pointer": "/attempts",
+                        "type": "integer",
+                        "source_map_subject": _variant_field_subject("COMPLETED", "attempts"),
+                    }
+                ]
+            },
+            "BLOCKED": {"fields": []},
+        },
+    }
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_variant_output_bundle(contract, workspace=tmp_path)
+
+    violation = exc_info.value.violations[0]
+    assert violation["type"] == "variant_field_type_invalid"
+    assert violation["subject_refs"] == [
+        _variant_field_subject("COMPLETED", "attempts")
+    ]
+
+
+@pytest.mark.parametrize(
+    "source_metadata",
+    [None, {"subject_kind": "variant_output_field"}],
+)
+def test_validate_variant_output_bundle_subject_free_or_malformed_metadata_omits_subject_refs(
+    tmp_path: Path,
+    source_metadata: dict[str, str] | None,
+):
+    bundle_path = tmp_path / "state" / "variant_bundle.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(
+        json.dumps({"implementation_state": "COMPLETED"}) + "\n",
+        encoding="utf-8",
+    )
+    field_spec = {
+        "name": "report",
+        "json_pointer": "/report",
+        "type": "string",
+    }
+    if source_metadata is not None:
+        field_spec["source_map_subject"] = source_metadata
+    contract = {
+        "path": "state/variant_bundle.json",
+        "discriminant": {
+            "name": "implementation_state",
+            "json_pointer": "/implementation_state",
+            "type": "enum",
+            "allowed": ["COMPLETED"],
+        },
+        "variants": {
+            "COMPLETED": {
+                "fields": [field_spec]
+            }
+        },
+    }
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_variant_output_bundle(contract, workspace=tmp_path)
+
+    violation = exc_info.value.violations[0]
+    assert set(violation) == {"type", "message", "context"}
+    assert violation["type"] == "variant_required_field_missing"
+    assert violation["context"] == {
+        "path": "state/variant_bundle.json",
+        "variant": "COMPLETED",
+        "name": "report",
+        "json_pointer": "/report",
+    }
+
+
+def test_contract_violation_variant_subject_serialization_is_stable_and_deduplicated():
+    subject = ValidationSubjectRef(
+        subject_kind="variant_output_field",
+        subject_name="execute::Decision::COMPLETED::report",
+        workflow_name="demo/module::entry",
+    )
+
+    serialized = ContractViolation(
+        type="variant_required_field_missing",
+        message="missing",
+        context={},
+        subject_refs=(subject, subject),
+    ).to_dict()
+
+    assert serialized["subject_refs"] == [
+        _variant_field_subject("COMPLETED", "report")
+    ]
 
 
 def test_validate_variant_output_bundle_accepts_shared_fields(tmp_path: Path):

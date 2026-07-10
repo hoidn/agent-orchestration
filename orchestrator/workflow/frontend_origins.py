@@ -9,7 +9,9 @@ and this module never imports or reads executor or execution state.
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, Iterable, Mapping
+
+from orchestrator.exceptions import ValidationSubjectRef, parse_validation_subject_ref
 
 
 # Preserve the established observability logger while moving its implementation.
@@ -26,6 +28,8 @@ class CompiledFrontendIndex:
             provenance.frontend_kind if provenance is not None else None
         )
         self._source_trace_payload_cache: Dict[str, Mapping[str, Any]] = {}
+        self.origins_by_key = self._load_origins_by_key()
+        self.subject_origins = self._load_subject_origins()
         self.node_origins = self._load_node_origins()
         self.step_origins = self._load_step_origins()
         self.command_boundaries = self._load_command_boundaries()
@@ -62,6 +66,77 @@ class CompiledFrontendIndex:
         normalized = payload if isinstance(payload, Mapping) else {}
         self._source_trace_payload_cache[cache_key] = normalized
         return normalized
+
+    def _load_origins_by_key(
+        self,
+        provenance: Any = _DEFAULT_PROVENANCE,
+    ) -> Dict[str, Mapping[str, Any]]:
+        """Index every persisted origin section by its stable origin key."""
+        payload = self._load_source_trace_payload(provenance)
+        indexed: Dict[str, Mapping[str, Any]] = {}
+        workflows = payload.get("workflows")
+        if not isinstance(workflows, Mapping):
+            return indexed
+        for workflow_payload in workflows.values():
+            if not isinstance(workflow_payload, Mapping):
+                continue
+            workflow_origin = workflow_payload.get("workflow_origin")
+            if isinstance(workflow_origin, Mapping):
+                origin_key = workflow_origin.get("origin_key")
+                if isinstance(origin_key, str) and origin_key:
+                    indexed.setdefault(origin_key, workflow_origin)
+            for section_name in (
+                "step_ids",
+                "generated_inputs",
+                "generated_outputs",
+                "generated_paths",
+                "generated_internal_inputs",
+                "contract_fields",
+            ):
+                section = workflow_payload.get(section_name)
+                if not isinstance(section, Mapping):
+                    continue
+                for origin in section.values():
+                    if not isinstance(origin, Mapping):
+                        continue
+                    origin_key = origin.get("origin_key")
+                    if isinstance(origin_key, str) and origin_key:
+                        indexed.setdefault(origin_key, origin)
+        return indexed
+
+    def _load_subject_origins(
+        self,
+        provenance: Any = _DEFAULT_PROVENANCE,
+    ) -> Dict[tuple[str, str, str], Mapping[str, Any]]:
+        """Bind workflow-qualified validation subjects to indexed origins."""
+        payload = self._load_source_trace_payload(provenance)
+        indexed: Dict[tuple[str, str, str], Mapping[str, Any]] = {}
+        workflows = payload.get("workflows")
+        if not isinstance(workflows, Mapping):
+            return indexed
+        for workflow_payload in workflows.values():
+            if not isinstance(workflow_payload, Mapping):
+                continue
+            validation_subjects = workflow_payload.get("validation_subjects")
+            if not isinstance(validation_subjects, list):
+                continue
+            for binding in validation_subjects:
+                if not isinstance(binding, Mapping):
+                    continue
+                subject_ref = parse_validation_subject_ref(binding.get("subject_ref"))
+                origin_key = binding.get("origin_key")
+                if subject_ref is None or not isinstance(origin_key, str):
+                    continue
+                origin = self.origins_by_key.get(origin_key)
+                if origin is None or subject_ref.workflow_name is None:
+                    continue
+                subject_key = (
+                    subject_ref.subject_kind,
+                    subject_ref.subject_name,
+                    subject_ref.workflow_name,
+                )
+                indexed.setdefault(subject_key, origin)
+        return indexed
 
     def _load_step_origins(
         self,
@@ -177,6 +252,47 @@ class CompiledFrontendIndex:
             if origin is not None:
                 return origin
         return None
+
+    def origins_for_subject_refs(
+        self,
+        subject_refs: Iterable[object],
+        *,
+        fallback_step: tuple[str, str] | None = None,
+    ) -> list[Mapping[str, Any]]:
+        """Resolve serialized or in-memory subjects without consulting source files."""
+        origins: list[Mapping[str, Any]] = []
+        seen_origin_keys: set[str] = set()
+        for value in subject_refs:
+            if isinstance(value, ValidationSubjectRef):
+                subject_ref = value
+            else:
+                subject_ref = parse_validation_subject_ref(value)
+            if subject_ref is None or not all(
+                isinstance(part, str) and part
+                for part in (
+                    subject_ref.subject_kind,
+                    subject_ref.subject_name,
+                    subject_ref.workflow_name,
+                )
+            ):
+                continue
+            subject_key = (
+                subject_ref.subject_kind,
+                subject_ref.subject_name,
+                subject_ref.workflow_name,
+            )
+            origin = self.subject_origins.get(subject_key)
+            if origin is None:
+                continue
+            origin_key = origin.get("origin_key")
+            if not isinstance(origin_key, str) or origin_key in seen_origin_keys:
+                continue
+            seen_origin_keys.add(origin_key)
+            origins.append(origin)
+        if origins or fallback_step is None:
+            return origins
+        fallback_origin = self.origin_for_step(*fallback_step)
+        return [fallback_origin] if fallback_origin is not None else []
 
     def command_boundary_for_step(
         self,

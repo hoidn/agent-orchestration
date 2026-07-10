@@ -16,7 +16,9 @@ from orchestrator.runtime_observability import (
 from orchestrator.monitor.process import write_process_metadata
 from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
+from orchestrator.exceptions import ValidationSubjectRef
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.frontend_origins import CompiledFrontendIndex
 from orchestrator.workflow.surface_ast import WorkflowProvenance
 
 
@@ -216,6 +218,169 @@ def test_record_compiled_frontend_provenance_persists_bridge_fields():
     }
     assert "command_boundaries" not in state["runtime_observability"]["compiled_frontend"]
     assert "core_nodes" not in state["runtime_observability"]["compiled_frontend"]
+
+
+def test_compiled_frontend_contract_field_origins_resolve_subject_refs_with_ordered_deduplication(
+    tmp_path: Path,
+):
+    source_map = tmp_path / "source_map.json"
+    workflow_name = "demo/module::entry"
+    first_ref = {
+        "subject_kind": "variant_output_field",
+        "subject_name": "execute::Decision::COMPLETED::report",
+        "workflow_name": workflow_name,
+    }
+    second_ref = {
+        "subject_kind": "variant_output_field",
+        "subject_name": "execute::Decision::BLOCKED::progress",
+        "workflow_name": workflow_name,
+    }
+    step_origin = {
+        "origin_key": f"{workflow_name}::step_id::run",
+        "entity_kind": "step_id",
+        "workflow_name": workflow_name,
+        "path": "workflow.orc",
+        "line": 20,
+    }
+    first_origin = {
+        "origin_key": f"{workflow_name}::variant_output_field::{first_ref['subject_name']}",
+        "entity_kind": "variant_output_field",
+        "workflow_name": workflow_name,
+        "path": "workflow.orc",
+        "line": 7,
+    }
+    second_origin = {
+        "origin_key": f"{workflow_name}::variant_output_field::{second_ref['subject_name']}",
+        "entity_kind": "variant_output_field",
+        "workflow_name": workflow_name,
+        "path": "workflow.orc",
+        "line": 11,
+    }
+    source_map.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_source_map.v1",
+                "workflows": {
+                    workflow_name: {
+                        "step_ids": {"run": step_origin},
+                        "contract_fields": {
+                            first_ref["subject_name"]: first_origin,
+                            second_ref["subject_name"]: second_origin,
+                        },
+                        "validation_subjects": [
+                            {"subject_ref": first_ref, "origin_key": first_origin["origin_key"]},
+                            {"subject_ref": second_ref, "origin_key": second_origin["origin_key"]},
+                        ],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    provenance = WorkflowProvenance(
+        workflow_path=tmp_path / "workflow.orc",
+        source_root=tmp_path,
+        frontend_kind="workflow_lisp",
+        frontend_build_root=tmp_path,
+        frontend_source_trace_path=source_map,
+        frontend_entry_workflow=workflow_name,
+    )
+    index = CompiledFrontendIndex(provenance)
+    first_object = ValidationSubjectRef(**first_ref)
+    second_object = ValidationSubjectRef(**second_ref)
+
+    assert index.origins_for_subject_refs(
+        [first_ref, first_object, second_object, second_ref],
+        fallback_step=("Run", "run"),
+    ) == [first_origin, second_origin]
+    assert index.origins_for_subject_refs(
+        [{**first_ref, "workflow_name": "another/module::entry"}]
+    ) == []
+
+
+def test_compiled_frontend_subject_ref_resolution_falls_back_only_when_none_resolve(
+    tmp_path: Path,
+):
+    source_map = tmp_path / "source_map.json"
+    workflow_name = "demo/module::entry"
+    step_origin = {
+        "origin_key": f"{workflow_name}::step_id::run",
+        "entity_kind": "step_id",
+        "workflow_name": workflow_name,
+        "path": "workflow.orc",
+        "line": 20,
+    }
+    source_map.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_source_map.v1",
+                "workflows": {
+                    workflow_name: {
+                        "step_ids": {"run": step_origin},
+                        "contract_fields": {},
+                        "validation_subjects": [],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    provenance = WorkflowProvenance(
+        workflow_path=tmp_path / "missing-source.orc",
+        source_root=tmp_path,
+        frontend_kind="workflow_lisp",
+        frontend_build_root=tmp_path,
+        frontend_source_trace_path=source_map,
+        frontend_entry_workflow=workflow_name,
+    )
+    index = CompiledFrontendIndex(provenance)
+    unknown_ref = {
+        "subject_kind": "variant_output_field",
+        "subject_name": "unknown",
+        "workflow_name": workflow_name,
+    }
+
+    assert index.origins_for_subject_refs([unknown_ref, None, {"bad": "metadata"}]) == []
+    assert index.origins_for_subject_refs(
+        [unknown_ref, None, {"bad": "metadata"}],
+        fallback_step=("Run", "run"),
+    ) == [step_origin]
+
+
+def test_compiled_frontend_old_v1_subject_ref_index_preserves_step_lookup(tmp_path: Path):
+    source_map = tmp_path / "source_map.json"
+    step_origin = {
+        "origin_key": "demo/module::entry::step_id::run",
+        "entity_kind": "step_id",
+        "workflow_name": "demo/module::entry",
+        "path": "workflow.orc",
+        "line": 20,
+    }
+    source_map.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_source_map.v1",
+                "workflows": {
+                    "demo/module::entry": {
+                        "step_ids": {"run": step_origin},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    provenance = WorkflowProvenance(
+        workflow_path=tmp_path / "workflow.orc",
+        source_root=tmp_path,
+        frontend_kind="workflow_lisp",
+        frontend_build_root=tmp_path,
+        frontend_source_trace_path=source_map,
+        frontend_entry_workflow="demo/module::entry",
+    )
+    index = CompiledFrontendIndex(provenance)
+
+    assert index.origin_for_step("Run", "run") == step_origin
+    assert index.origins_for_subject_refs([]) == []
 
 
 def test_compiled_frontend_source_context_prefers_executable_node_lineage_over_step_ids(tmp_path: Path):
