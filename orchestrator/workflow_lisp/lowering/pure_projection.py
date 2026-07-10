@@ -701,6 +701,14 @@ def _field_type(type_ref: TypeRef, field_name: str, *, type_env: FrontendTypeEnv
             if resolved is not None:
                 return resolved
     if isinstance(type_ref, VariantCaseTypeRef):
+        # Same carried-field-types preference as `_type_descriptor` (gap C):
+        # the bare-name union re-lookup below fails for caller-module unions
+        # inside specialized generic bodies; `field_types` carries the same
+        # resolved mapping the lookup would produce.
+        if type_ref.field_types is not None:
+            resolved = type_ref.field_types.get(field_name)
+            if resolved is not None:
+                return resolved
         union_type = type_env.resolve_type(type_ref.union_name, span=type_ref.definition.span, form_path=())
         if isinstance(union_type, UnionTypeRef):
             resolved = union_type.variant_field_types.get(type_ref.variant_name, {}).get(field_name)
@@ -764,9 +772,22 @@ def _type_descriptor(type_ref: TypeRef, *, type_env: FrontendTypeEnvironment) ->
             ],
         }
     if isinstance(type_ref, VariantCaseTypeRef):
-        union_type = type_env.resolve_type(type_ref.union_name, span=type_ref.definition.span, form_path=())
-        if not isinstance(union_type, UnionTypeRef):
-            raise TypeError(f"expected union type for variant case `{type_ref.union_name}`")
+        # Prefer the resolved field types carried from the union that produced
+        # this variant case (`VariantCaseTypeRef.field_types`, type_env.py).
+        # Re-resolving `union_name` by bare name fails for caller-module
+        # unions lowered inside a specialized generic body, whose
+        # defining-module `type_env` cannot see them (gap C,
+        # docs/plans/2026-07-07-drain-migration-g8-retirement.md Phase 1
+        # Ledger). Same-module refs carry the identical mapping, so the
+        # descriptor is unchanged wherever the name lookup used to succeed.
+        variant_field_types = type_ref.field_types
+        if variant_field_types is None or any(
+            field.name not in variant_field_types for field in type_ref.definition.fields
+        ):
+            union_type = type_env.resolve_type(type_ref.union_name, span=type_ref.definition.span, form_path=())
+            if not isinstance(union_type, UnionTypeRef):
+                raise TypeError(f"expected union type for variant case `{type_ref.union_name}`")
+            variant_field_types = union_type.variant_field_types[type_ref.variant_name]
         return {
             "kind": "variant_case",
             "union_name": type_ref.union_name,
@@ -775,7 +796,7 @@ def _type_descriptor(type_ref: TypeRef, *, type_env: FrontendTypeEnvironment) ->
                 {
                     "name": field.name,
                     "type": _type_descriptor(
-                        union_type.variant_field_types[type_ref.variant_name][field.name],
+                        variant_field_types[field.name],
                         type_env=type_env,
                     ),
                 }

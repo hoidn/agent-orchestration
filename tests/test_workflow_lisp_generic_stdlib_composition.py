@@ -403,6 +403,59 @@ def test_minimal_caller_satisfies_finalize_selected_item_declared_constraints(tm
     )
 
 
+def test_cross_module_generic_loop_projects_caller_union_fields(tmp_path: Path) -> None:
+    # Gap C regression (docs/plans/2026-07-07-drain-migration-g8-retirement.md,
+    # Phase 1 Ledger): a specialized generic `loop/recur` body that matches a
+    # caller-module union and projects variant fields into its `done` payload
+    # must lower from the resolved type refs carried through specialization.
+    # Re-resolving the union by bare name in the generic's defining-module
+    # type environment fails with `type_unknown` for exactly the flagship's
+    # cross-module shape (imported stdlib generic + caller-owned unions).
+    entry_fixture = (
+        MODULE_FIXTURES
+        / "valid"
+        / "generic_loop_union_cross_module"
+        / "generic_loop_union_cross_module"
+        / "entry.orc"
+    )
+    result = compile_stage3_entrypoint(
+        entry_fixture,
+        source_roots=(MODULE_FIXTURES / "valid" / "generic_loop_union_cross_module",),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={
+            "probe_select": ExternalToolBinding(
+                name="probe_select",
+                stable_command=("python", "scripts/select_next_item.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=None,
+    )
+    assert result is not None
+
+
+def test_same_module_generic_loop_projects_caller_union_fields(tmp_path: Path) -> None:
+    # Same-module control for the cross-module gap-C regression above: the
+    # identical generic loop shape compiles when the caller union lives in
+    # the generic's own module, pinning that the fix only has to change the
+    # cross-module resolution path.
+    assert (
+        _compile_module_fixture(
+            FIXTURES / "valid" / "generic_loop_union_same_module.orc",
+            tmp_path=tmp_path,
+            command_boundaries={
+                "probe_select": ExternalToolBinding(
+                    name="probe_select",
+                    stable_command=("python", "scripts/select_next_item.py"),
+                )
+            },
+        )
+        is not None
+    )
+
+
 def test_drain_generic_hook_probe_effectful_proc_hook_compiles_shared_validated(tmp_path: Path) -> None:
     # Drain-migration feasibility probe (gaps G1/G3/G5): an effectful defproc
     # hook that returns a caller-owned union and contains a command-result
