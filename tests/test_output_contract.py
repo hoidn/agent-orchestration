@@ -343,6 +343,68 @@ def test_validate_variant_output_bundle_accepts_completed_variant(tmp_path: Path
     }
 
 
+def test_validate_variant_output_bundle_rejects_missing_active_variant_field(tmp_path: Path):
+    """variant_output requires fields declared by the selected variant."""
+    bundle_path = tmp_path / "state" / "variant_bundle.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(
+        json.dumps({"implementation_state": "COMPLETED"}) + "\n",
+        encoding="utf-8",
+    )
+
+    contract = {
+        "path": "state/variant_bundle.json",
+        "discriminant": {
+            "name": "implementation_state",
+            "json_pointer": "/implementation_state",
+            "type": "enum",
+            "allowed": ["COMPLETED", "BLOCKED"],
+        },
+        "variants": {
+            "COMPLETED": {
+                "fields": [
+                    {
+                        "name": "execution_report_path",
+                        "json_pointer": "/execution_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    }
+                ]
+            },
+            "BLOCKED": {
+                "fields": [
+                    {
+                        "name": "progress_report_path",
+                        "json_pointer": "/progress_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    }
+                ]
+            },
+        },
+    }
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_variant_output_bundle(contract, workspace=tmp_path)
+
+    assert [
+        {"type": violation["type"], "context": violation["context"]}
+        for violation in exc_info.value.violations
+    ] == [
+        {
+            "type": "variant_required_field_missing",
+            "context": {
+                "path": "state/variant_bundle.json",
+                "variant": "COMPLETED",
+                "name": "execution_report_path",
+                "json_pointer": "/execution_report_path",
+            },
+        }
+    ]
+
+
 def test_validate_variant_output_bundle_rejects_forbidden_variant_fields(tmp_path: Path):
     """variant_output rejects fields from unselected variants."""
     (tmp_path / "artifacts" / "work").mkdir(parents=True)
