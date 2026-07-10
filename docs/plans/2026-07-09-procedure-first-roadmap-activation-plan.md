@@ -502,9 +502,9 @@ Closeout dispositions:
   closeout amendment. Structural/static checks, 398 behavioral tests, the
   Design Delta smoke, and the full-suite baseline comparison are recorded in
   the component plan.
-- **Build split:** both targeted certification suites passed. The build plan is
-  not closed: Task 6 still requires its module-size check, full `pytest -q`, and
-  final report.
+- **Build split:** completed 2026-07-09. Task 6's module-size/static audit,
+  exact certification selectors, compatibility review, and full-suite baseline
+  comparison are recorded in the component plan.
 
 Executor handoff (superseded by the 2026-07-09 Task 9 closeout): the committed executor code boundary is
 `1600fd7ed6c920c1bd9f3a6890ff10f6d7ee25b0`. Committed

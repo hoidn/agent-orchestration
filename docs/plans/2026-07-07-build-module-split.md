@@ -1,6 +1,6 @@
 # Refactoring Plan: Split `orchestrator/workflow_lisp/build.py` into Flat Sibling Modules
 
-> **Execution status (verified 2026-07-09):** Verified at `36aafed448892b2f773b27c8c507db31bccd15fd` (`Extract materialize view step interpreter behind a permanent delegator`). Tasks 1-5 are landed in `31df2a663fe4a7d4306ab9a5dbd0cf304e1a9495` (`Move stateless build manifest io helpers to sibling module`), `e9df325c3654f7b6e6b97a598726b0984b4688a3` (`Move design-delta certification helpers to sibling module`), `5efeb981144d15164f964a3404c99554141577a2` (`Move build artifact writers and serializers to sibling module`), `962766b39c06a06b8d8ef086f47dcd8ad83f1cdc` (`Thread design-delta reports through evidence and payload bundles`), and `dfdf55c4072e2f8eb595b59f3a96a4bb227023be` (`Slice frontend bundle build into compile select assemble emit stages`). The `_compile_entry`, `_select_and_reattach`, and `_emit` stage helpers are present; Task 6, the final full-suite, module-size, and certification gate, remains. Unrelated user work exists in the checkout and must be preserved.
+> **Execution status (completed 2026-07-09):** Tasks 1-5 landed in `31df2a66`, `e9df325c`, `5efeb981`, `962766b3`, and `dfdf55c4`. Task 6 is verified below; its bounded static cleanup landed in `ac71c9c5` (`Clean build split stage residue`). The split modules import cleanly, their pyflakes gate is silent, the exact certification suites pass, and the full-suite failure identities match the established pre-plan baseline. Unrelated user work exists in the checkout and must be preserved.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -588,19 +588,19 @@ With the three siblings extracted, `build_frontend_bundle` is now compile → se
 
 ### Task 6: Full-suite verification + module-size check
 
-- [ ] **Step 1: Confirm the size goal**
+- [x] **Step 1: Confirm the size goal**
 
   ```bash
   wc -l orchestrator/workflow_lisp/build.py orchestrator/workflow_lisp/build_manifest_io.py orchestrator/workflow_lisp/build_design_delta.py orchestrator/workflow_lisp/build_artifacts.py
   ```
   Expected: each module materially smaller than the 6,075-line original. `build.py` should now be roughly the public dataclasses + `build_frontend_bundle` + stage helpers + re-export blocks. (The 500-line house guideline is aspirational for the two largest siblings, which may exceed it; note any that do and whether a further split is warranted.)
 
-- [ ] **Step 2: Full suite (long-running — use the tmux skill)**
+- [x] **Step 2: Full suite (long-running — use the tmux skill)**
 
   Run in tmux: `pytest -q`
   Expected: same failures-before == failures-after relative to the Entry-gate baseline. Any *new* red is a regression from the split — STOP and bisect against the per-task commits.
 
-- [ ] **Step 3: Certification compile smoke**
+- [x] **Step 3: Certification compile smoke**
 
   ```bash
   pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -q
@@ -608,6 +608,36 @@ With the three siblings extracted, `build_frontend_bundle` is now compile → se
   ```
   Expected: PASS.
 
-- [ ] **Step 4: Report**
+- [x] **Step 4: Report**
 
-  Summarize: lines per module before/after, the re-exports kept (with their external importers), the `DesignDeltaEvidence`/`DesignDeltaReportPayloads` field counts, and the measured retirement cost from Task 4 Step 5. Do not push; leave commits local for review.
+Summarize: lines per module before/after, the re-exports kept (with their external importers), the `DesignDeltaEvidence`/`DesignDeltaReportPayloads` field counts, and the measured retirement cost from Task 4 Step 5. Do not push; leave commits local for review.
+
+#### Task 6 closeout evidence (2026-07-09)
+
+- Module sizes versus the 6,075-line original: `build.py` 1,492;
+  `build_manifest_io.py` 781; `build_design_delta.py` 2,987; and
+  `build_artifacts.py` 1,446 lines. All are materially smaller ownership units.
+  The design-delta unit deliberately remains large because the governing
+  sequence deletes that certification family during drain retirement rather
+  than splitting it again first. Re-evaluate the artifact/manifest modules
+  after that deletion; another pre-drain split is not warranted.
+- Full suite at the verified code boundary: **6 failed, 4073 passed, 11 skipped
+  in 912.02s**. The six identities exactly match the pre-plan baseline. The
+  subsequent `ac71c9c5` cleanup removed only an unused import/computation and
+  preserved the compatibility re-export; focused runtime-plan/executable-IR
+  coverage passed (**2 passed, 188 deselected**).
+- Exact certification gates: Design Delta feasibility **93 passed in 162.46s**;
+  build artifacts **190 passed in 287.36s**.
+- Four-module pyflakes is silent. Import-order review found no cycle, and
+  `build._public_runtime_plan_payload` remains identical to the artifacts-owner
+  function.
+- Permanent re-exports retained: `_parse_command_boundaries_manifest` for nine
+  direct test-module importers; `_cli_request_diagnostic` for CLI compile and
+  explain; `_json_data` and `_origin_payload` for CLI explain;
+  `_display_workflow_name` for feasibility coverage; and
+  `_serialize_lexical_checkpoint_points_for_retirement` for the build-artifact
+  monkeypatch contract.
+- Actual bundle widths are **8 fields** for `DesignDeltaEvidence` and **19
+  fields** for `DesignDeltaReportPayloads`. `build.py` has seven lines naming
+  the three load/serialize entry points and five lines naming the two bundle
+  types: a measured 12-line retirement call/type surface.
