@@ -11,6 +11,10 @@
 > `docs/plans/2026-07-09-runtime-union-field-lineage-plan.md` is the active
 > Stage-1 implementation plan. The boundary final gate and drain migration
 > remain blocked until it completes.
+> `docs/plans/2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md`
+> is separately tracked as Pending: Stage 4 owns its frontend-spec design, and
+> it is the first Stage 5 substrate item before the procedure-first pilot. It
+> does not change the current Stage 1-3 selection.
 
 **Tech Stack:** Markdown, Git, `rg`, pytest, pyflakes.
 
