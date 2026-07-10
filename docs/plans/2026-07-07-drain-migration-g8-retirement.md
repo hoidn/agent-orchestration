@@ -464,3 +464,100 @@ $ python -c "import json,glob,os; p=max(glob.glob('.orchestrate/build/*/g8_delet
 ```
 
 Compile exit 0 with zero diagnostics; freshest `g8_deletion_evidence.json` status `pass`. This is the pre-swap intrinsic-route certification baseline for Gate P2.4.
+
+### Task 1.2 / 1.2a probe record (2026-07-10)
+
+#### G1 adjudication (2026-07-10)
+
+The Task 1.2 probe hit gap G1 exactly as the STOP rule anticipated: the effectful-proc-hook /
+`ProcRef` binding failure (outcome (c) of the component plan's Task 2 four-outcome table). The
+human adjudicated on 2026-07-10: **extend the typechecker** (option "extend ProcRef"), preserving
+the flagship `backlog-drain-proc` signature verbatim. Recorded as a **plan-required freeze
+exception**: the semantic-migration freeze does not bar this change because it is plan-mandated
+and explicitly user-adjudicated, not a discretionary refactor. Executed as Task 1.2a.
+
+#### RED diagnostic (probe as the RED vehicle, pre-fix, fresh 2026-07-10)
+
+```text
+$ pytest tests/test_workflow_lisp_generic_stdlib_composition.py -k hook_probe -v
+FAILED tests/test_workflow_lisp_generic_stdlib_composition.py::test_drain_generic_hook_probe_effectful_proc_hook_compiles_shared_validated
+
+orchestrator.workflow_lisp.diagnostics.LispFrontendCompileError:
+tests/fixtures/workflow_lisp/valid/drain_generic_hook_probe.orc:57:12:
+[parametric_capability_undeclared] match on type parameter `SelectionT` requires declared `has-union-variant` capabilities
+kind: validation
+form: workflow-lisp > defproc > probe-generic
+1 failed, 11 deselected in 0.34s
+```
+
+Line 57:12 is the match subject `(selector ctx)` in the committed variant-F (narrowed,
+exhaustive variant-name-only 4-arm match) fixture shape; raised by the definition-scoped (raw)
+pass, no `instantiated from` note.
+
+#### Fix summary
+
+- `orchestrator/workflow_lisp/procedure_typecheck.py` — `_apply_provisional_parametric_type`
+  now descends into `ProcRefTypeRef` **return** positions, substituting the provisional
+  `has-union-variant` capability union that `_provisional_parametric_match_types` synthesizes
+  for a direct `TypeParamRef` parameter. ProcRef **parameter** positions deliberately stay raw
+  (inference sinks, not match subjects). Single function touched; 14 lines added.
+- `orchestrator/workflow_lisp/typecheck_proofs.py` untouched: its categorical
+  `parametric_capability_undeclared` rejection of `TypeParamRef` match subjects is exactly the
+  required negative behavior once declared capabilities are substituted upstream.
+- `typecheck_dispatch.py` / `typecheck_calls.py`: zero changes (as the task brief expected).
+- Unit tests pinning both directions in `tests/test_workflow_lisp_procedures.py`:
+  `test_proc_ref_return_match_typechecks_with_declared_union_capabilities` (raw pass +
+  instantiated specialization both typecheck) and
+  `test_proc_ref_return_match_without_declared_capabilities_is_rejected`
+  (`parametric_capability_undeclared` preserved when no capabilities are declared).
+- Commits: `cab7741e` (typecheck extension + unit tests), `971597f7` (probe fixture + probe
+  test — the component plan's sanctioned probe commit).
+
+#### Post-fix probe outcomes
+
+- **G1 cleared.** `pytest tests/test_workflow_lisp_generic_stdlib_composition.py -k hook_probe -v`
+  → `1 passed, 11 deselected`. The committed probe fixture
+  (`tests/fixtures/workflow_lisp/valid/drain_generic_hook_probe.orc`, variant-F shape: effectful
+  `command-result` selector hook bound through `ProcRef[(CtxT) -> SelectionT]`, result consumed
+  by an exhaustive 4-arm `match`) compiles through the shared-validated stage-3 entry.
+- **G5 did not reproduce on the real ProcRef binding path.** The same shared-validated compile
+  (`validate_shared=True`) of the ProcRef-bound effectful hook completed with zero diagnostics —
+  no `source_map_missing`. This closes the Task 1.2 report's "weakly probed" caveat: the
+  flagship's actual binding shape has now cleared loader-shape validation. (The
+  known `source_map_missing` reproduction on trivially-bodied inline hooks —
+  `minimal_caller_review_revise_loop.orc` — is unchanged and still routed frontend-only;
+  production-shaped effectful hooks lower to real steps and pass.)
+- **G3 confirmed as recorded finding** (post-fix re-probe of the preserved skeleton fixture:
+  4-variant caller union, 2-arm generic match, shared-validated compile): the raw pass now
+  clears and instantiation fails with literal diagnostic
+  `union_match_non_exhaustive: match must cover every variant of `SelectionResult`; missing `GAP``
+  carrying note `instantiated from <caller call site>`. Extra-variant callers remain unsupported
+  pending a design decision; decision authority: the parametric design's Subset Semantics
+  section (`docs/design/workflow_lisp_parametric_type_system.md`). Raised, not resolved. The
+  existing pin `test_compile_stage3_rechecks_instantiated_generic_match_exhaustiveness` still
+  passes, confirming instantiate-then-typecheck semantics are untouched.
+- **Incidental (unchanged):** `procedure_type_param_unbindable` rejects constraint-only type
+  parameters, so a single-hook probe cannot carry the flagship's field-typed SELECTED/GAP
+  clauses (`(selection SelPayloadT)` / `(gap GapPayloadT)`); the committed fixture uses the
+  variant-name-only clauses. The flagship is unaffected — `SelPayloadT`/`GapPayloadT` appear in
+  the `run-item`/`gap-drafter` ProcRef positions.
+
+#### Fresh suite results vs Task 1.1 baselines (2026-07-10, post-fix)
+
+| Module | Baseline | Fresh result |
+| --- | --- | --- |
+| `tests/test_workflow_lisp_generic_stdlib_composition.py` | 11 passed | `12 passed in 0.79s` (+1: probe test) |
+| `tests/test_workflow_lisp_procedures.py` | 128 passed | `130 passed in 1.14s` (+2: capability unit tests) |
+| `tests/test_workflow_lisp_expressions.py` | — (owning typecheck module, no Task 1.1 baseline) | `50 passed in 0.31s` |
+| `tests/test_workflow_lisp_phase_stdlib.py` | — (owning typecheck module, no Task 1.1 baseline) | `104 passed in 2.89s` |
+| `tests/test_workflow_lisp_drain_stdlib.py` | 63 passed | `63 passed in 12.98s` |
+| `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py` | 93 passed | `93 passed in 155.10s` |
+
+Zero failures — no new failure identities; count deltas are exactly the added tests.
+
+End-to-end certification compile (required for typecheck changes) re-run post-fix: exit 0, zero
+diagnostics, fingerprint `0758b59a065ce8e0` (identical to the Task 1.1 baseline), freshest
+`g8_deletion_evidence.json` status `pass`.
+
+Task 1.2 has no checkbox line in this plan; this record is its completion evidence. Task 1.3 is
+unblocked.
