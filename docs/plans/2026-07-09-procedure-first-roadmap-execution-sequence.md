@@ -74,7 +74,8 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-07-typecheck-family-completion.md` | Completed through its Task 7 closeout amendment. Structural/static gates are clean, 398 typecheck tests and 19 Design Delta smoke tests pass, and the full-suite failure set matches the pre-plan baseline. |
 | `2026-07-07-build-module-split.md` | Completed through Task 6. Module/static gates are clean, 93 feasibility and 190 artifact tests pass, and the full-suite failure set matches the pre-plan baseline. |
 | `2026-07-07-executor-decomposition.md` | Completed through Task 9. Its targeted executor surface and Design Delta smoke pass; the full-suite failure identities match the pre-Task-2 baseline. |
-| `2026-07-08-boundary-report-followups.md` | Paused at the Task 5 case 5 production design gate. Cases 2 and 3 landed; case 5 confirmed that runtime violations lack authored union-field lineage. |
+| `2026-07-08-boundary-report-followups.md` | Paused at Task 5 case 5 while the accepted runtime union-field lineage implementation plan executes. Cases 2 and 3 landed. |
+| `2026-07-09-runtime-union-field-lineage-plan.md` | Active Stage-1 prerequisite. Implements the accepted source-map design, resumes boundary case 5, and closes that plan before the drain begins. |
 | `2026-07-07-drain-migration-g8-retirement.md` | Governs the parametric flagship migration and cleanup after re-anchoring to the refactored modules, but must not begin until the boundary-report case 5 gate clears. |
 | `2026-07-07-yaml-retirement-program.md` | Task 1 may inform later design. Its Design Delta family promotion is coordinated between drain Phases 2 and 3; other code-changing and promotion tasks wait until the procedure-first pilot is accepted. |
 
@@ -121,14 +122,15 @@ Execute in this order:
    are recorded in the component plan. Large
    `build_design_delta.py` size is accepted temporarily because Stage 3 deletes
    the family-specific certification unit; do not start a second split first.
-5. **Boundary-report follow-ups — paused at Task 5 case 5.** Tasks 1-4 are
+5. **Boundary-report follow-ups — executing the accepted case 5 prerequisite.** Tasks 1-4 are
    complete. Case 2 landed in `be6596ae`; case 3 landed in `02f38549`. The case
    5 reproduction confirmed that runtime violations carry variant/field/pointer
    context but no source-map subject, `CompiledFrontendIndex` only resolves
    step/node identity, and persisted source maps omit authored `defunion`
-   variant-field spans/form identity. Do not begin drain migration. First land
-   a separate accepted production design and implementation for that lineage,
-   resume case 5, and complete Task 6 plus the final gate. Recommendation 11
+   variant-field spans/form identity. The production design is accepted in
+   `docs/design/workflow_lisp_source_map.md`; execute
+   `2026-07-09-runtime-union-field-lineage-plan.md`, resume case 5, and complete
+   Task 6 plus the final gate. Do not begin drain migration first. Recommendation 11
    remains design-gated; this stage must not implement the broad transition.
 6. Run the combined compiler/runtime baseline and one orchestrator smoke.
 
