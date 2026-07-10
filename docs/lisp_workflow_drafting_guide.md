@@ -24,6 +24,7 @@ Design references:
 - [Workflow Lisp Executable IR](design/workflow_lisp_executable_ir.md)
 - [Workflow Lisp Macro Surface Contract](design/workflow_lisp_macro_surface_contract.md)
 - [Workflow Lisp Frontend Standard Library Lowering](design/workflow_lisp_stdlib_lowering.md)
+- [Workflow Lisp Parametric Type System](design/workflow_lisp_parametric_type_system.md)
 - [Workflow Lisp Runtime Closures Boundary](design/workflow_lisp_runtime_closures_boundary.md)
 - [Workflow Lisp Unified Frontend Design](design/workflow_lisp_unified_frontend_design.md)
 - [Workflow Lisp Native Transportable Returns And Typed Result Guidance](design/workflow_lisp_native_transportable_returns.md)
@@ -834,9 +835,11 @@ implemented for compile-time-only specialization. The compiler infers concrete
 type bindings from call sites, materializes monomorphic specializations before
 lowering, and erases those type parameters before runtime-visible artifacts
 such as lowered workflows, source maps, Semantic IR, and Executable IR are
-emitted. The current first tranche also implements `:where` for generic
-`defproc` using the fixed clause order `:forall`, params, `:where`, `->`.
-Supported spellings are:
+emitted. `:where` clauses for generic `defproc` use the fixed clause order
+`:forall`, params, `:where`, `->`. The constraint vocabulary, subset
+semantics, and specialization pipeline are owned by
+[Workflow Lisp Parametric Type System](design/workflow_lisp_parametric_type_system.md);
+the stable spellings, summarized:
 
 - `(T is-record)`
 - `(T is-union)`
@@ -845,11 +848,22 @@ Supported spellings are:
 - `(T has-union-variant VARIANT (field Type) ...)`
 - `(T has-shared-union-field field Type)`
 
+The `Type` position in `has-field`, `has-union-variant`, and
+`has-shared-union-field` may name another `:forall` parameter, which is how
+cross-parameter contracts are expressed — for example, constraining a hook's
+payload parameter to be the same type as the selector union's
+`SELECTED.selection` field.
+
 Constraint checks run against resolved concrete call-site types before the
-specialization is accepted. `has-shared-union-field` is intentionally narrow:
-it allows branch-free projection only of the named field after the constraint
-is validated. It does not prove which variant is present, and it does not make
-variant-specific fields available outside a proof-bearing `match`. Generic
+specialization is accepted, and every clause carries subset semantics: it
+proves a required capability; no clause forbids extra caller fields or
+variants or proves exact shape. `has-shared-union-field` is intentionally
+narrow: it allows branch-free projection only of the named field after the
+constraint is validated; it does not prove which variant is present, and it
+does not make variant-specific fields available outside a proof-bearing
+`match` — and adding a caller variant that lacks the shared field breaks that
+constraint. Variant and field names referenced by a stdlib definition's
+`:where` clauses are frozen public vocabulary for callers. Generic
 `defworkflow` remains out of scope in the current compiler surface.
 
 ### 6.3 `defun`
