@@ -1521,6 +1521,112 @@ def test_compile_stage3_retypechecks_specialized_generic_body_instead_of_reusing
     assert specialized.typed_body is not base.typed_body
 
 
+def _proc_ref_return_match_module_lines(*, where_clauses: list[str]) -> list[str]:
+    # A generic definition matching on the result of a ProcRef-typed hook
+    # parameter: the definition-scoped pass must type the call result via the
+    # declared `has-union-variant` capabilities (or reject when undeclared).
+    return [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.14")',
+        "  (defrecord SelectorCtx",
+        "    (seed String))",
+        "  (defunion SelectionResult",
+        "    (EMPTY)",
+        "    (BLOCKED",
+        "      (reason String)))",
+        "  (defrecord WorkflowOutput",
+        "    (status String))",
+        "  (defproc pick",
+        "    ((ctx SelectorCtx))",
+        "    -> SelectionResult",
+        "    :effects ()",
+        "    :lowering inline",
+        "    (variant SelectionResult EMPTY))",
+        "  (defproc status-from-selector",
+        "    :forall (CtxT SelectionT)",
+        "    ((ctx CtxT)",
+        "     (selector ProcRef[(CtxT) -> SelectionT]))",
+        *where_clauses,
+        "    -> String",
+        "    :effects ()",
+        "    :lowering inline",
+        "    (let* ((selection (selector ctx)))",
+        "      (match selection",
+        '        ((EMPTY e) "empty")',
+        "        ((BLOCKED b) b.reason))))",
+        "  (defworkflow entry",
+        "    ((ctx SelectorCtx))",
+        "    -> WorkflowOutput",
+        "    (let* ((status (status-from-selector ctx (proc-ref pick))))",
+        "      (record WorkflowOutput",
+        "        :status status))))",
+    ]
+
+
+def _typecheck_proc_ref_return_match_module(path: Path):
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
+    _validate_definition_module(module)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    workflow_defs = elaborate_workflow_definitions(syntax_module)
+    procedure_defs = elaborate_procedure_definitions(syntax_module)
+    workflow_catalog = build_workflow_catalog(module, workflow_defs, type_env)
+    procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
+    typed_procedures, _typed_workflows, _resolved_catalog = _infer_stage3_effect_summaries(
+        procedure_defs,
+        workflow_defs=workflow_defs,
+        type_env=type_env,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=build_extern_environment(provider_externs={}, prompt_externs={}),
+        command_boundary_environment=build_command_boundary_environment({}),
+    )
+    return typed_procedures
+
+
+def test_proc_ref_return_match_typechecks_with_declared_union_capabilities(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "proc_ref_return_match_declared.orc",
+        _proc_ref_return_match_module_lines(
+            where_clauses=[
+                "    :where ((CtxT is-record)",
+                "            (SelectionT is-union)",
+                "            (SelectionT has-union-variant EMPTY)",
+                "            (SelectionT has-union-variant BLOCKED (reason String)))",
+            ]
+        ),
+    )
+
+    typed_procedures = _typecheck_proc_ref_return_match_module(path)
+
+    # Both passes must succeed: the definition-scoped (raw) pass types the
+    # ProcRef call result via the declared capability union, and the
+    # instantiated specialization typechecks against the concrete union.
+    assert any(procedure.definition.name == "status-from-selector" for procedure in typed_procedures)
+    assert any(
+        getattr(procedure.specialization, "base_name", "") == "status-from-selector"
+        for procedure in typed_procedures
+    )
+
+
+def test_proc_ref_return_match_without_declared_capabilities_is_rejected(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "proc_ref_return_match_undeclared.orc",
+        _proc_ref_return_match_module_lines(
+            where_clauses=[
+                "    :where ((CtxT is-record)",
+                "            (SelectionT is-union))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_proc_ref_return_match_module(path)
+
+    _assert_diagnostic_code(excinfo, "parametric_capability_undeclared")
+
+
 def test_compiler_owner_split_stops_importing_procedure_specialization_from_lowering() -> None:
     compiler_path = Path(_compiler_module().__file__)
 

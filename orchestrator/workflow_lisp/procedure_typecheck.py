@@ -357,6 +357,20 @@ def _apply_provisional_parametric_type(
 ) -> TypeRef:
     if isinstance(type_ref, TypeParamRef):
         return provisional_match_types.get(type_ref.name, type_ref)
+    if isinstance(type_ref, ProcRefTypeRef):
+        # A ProcRef-typed hook parameter's invocation result is typed from the
+        # ProcRef's return position, so the definition-scoped pass must apply
+        # the same provisional `has-union-variant` capability union there that
+        # a direct `TypeParamRef` parameter receives (provisional pass,
+        # docs/design/workflow_lisp_parametric_type_system.md). Parameter
+        # positions stay raw: they are inference sinks, not match subjects.
+        rewritten_return = _apply_provisional_parametric_type(
+            type_ref.return_type_ref,
+            provisional_match_types,
+        )
+        if rewritten_return is type_ref.return_type_ref:
+            return type_ref
+        return replace(type_ref, return_type_ref=rewritten_return)
     return type_ref
 
 
