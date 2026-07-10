@@ -66,7 +66,14 @@ from .effects import _lower_provider_result
 from .generated_paths import allocate_generated_result_bundle, allocate_materialized_value_view, allocate_private_generated_path
 from .phase_drain import _selected_item_summary_pointer_path
 from .phase_flow import _build_match_projection_anchor_step
-from .origins import LoweringOrigin, _origin_from_context_source, _record_missing_step_origins, _record_step_origin, _rekey_origin_map
+from .origins import (
+    LoweringOrigin,
+    _origin_from_context_source,
+    _record_missing_step_origins,
+    _record_step_origin,
+    _register_generated_contract_field_bindings,
+    _rekey_origin_map,
+)
 from .pure_projection import (
     _infer_expr_type as _infer_pure_projection_expr_type,
     _nominal_descriptor_name,
@@ -199,6 +206,7 @@ def _phase_stdlib_lower_resource_transition_impl(
         span=expr.span,
         form_path=expr.form_path,
     )
+    _register_generated_contract_field_bindings(context, bundle_contract.field_origins)
     allocation = allocate_generated_result_bundle(
         context=context,
         source_expr=expr,

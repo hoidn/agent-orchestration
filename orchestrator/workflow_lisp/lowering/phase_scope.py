@@ -1952,6 +1952,7 @@ def _union_case_contract_definitions(
 ) -> dict[str, dict[str, Any]]:
     """Build the output contracts visible inside one union match case."""
 
+    # Boundary projection only: this payload shapes case outputs, not a runtime contract.
     contract = derive_structured_result_contract(
         type_ref,
         workflow_name=workflow_name,

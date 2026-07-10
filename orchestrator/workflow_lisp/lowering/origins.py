@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -20,6 +20,7 @@ from ..procedures import ProcedureLoweringMode, TypedProcedureDef
 from ..spans import SourceSpan
 
 if TYPE_CHECKING:
+    from ..contracts import GeneratedContractFieldOrigin
     from .core import LoweredWorkflow
 
 
@@ -165,6 +166,43 @@ def _origins_with_keys(
     }
 
 
+def _register_generated_contract_field_bindings(
+    context: Any,
+    field_origins: tuple[GeneratedContractFieldOrigin, ...],
+) -> None:
+    """Register authored field origins for one runtime-attached contract."""
+
+    seen_subjects = {
+        (
+            binding.subject_ref.subject_kind,
+            binding.subject_ref.subject_name,
+            binding.subject_ref.workflow_name,
+        )
+        for binding in context.generated_contract_field_bindings
+    }
+    for field_origin in field_origins:
+        subject_ref = field_origin.subject_ref
+        subject_identity = (
+            subject_ref.subject_kind,
+            subject_ref.subject_name,
+            subject_ref.workflow_name,
+        )
+        if subject_identity in seen_subjects:
+            continue
+        context.generated_contract_field_bindings.append(
+            ValidationSubjectBinding(
+                subject_ref=subject_ref,
+                origin=_with_origin_key(
+                    _origin_from_context_source(context, field_origin),
+                    workflow_name=context.workflow_name,
+                    entity_kind="variant_output_field",
+                    subject_name=subject_ref.subject_name,
+                ),
+            )
+        )
+        seen_subjects.add(subject_identity)
+
+
 def _lowering_origin_key(
     *,
     workflow_name: str,
@@ -182,6 +220,7 @@ def _build_validation_subject_bindings(
     generated_inputs: Mapping[str, LoweringOrigin],
     generated_outputs: Mapping[str, LoweringOrigin],
     generated_paths: Mapping[str, LoweringOrigin],
+    extra_bindings: Iterable[ValidationSubjectBinding] = (),
 ) -> tuple[ValidationSubjectBinding, ...]:
     bindings: list[ValidationSubjectBinding] = [
         ValidationSubjectBinding(
@@ -249,6 +288,7 @@ def _build_validation_subject_bindings(
         )
         for name, origin in generated_paths.items()
     )
+    bindings.extend(extra_bindings)
     bindings.sort(
         key=lambda binding: (
             binding.subject_ref.subject_kind,

@@ -69,6 +69,7 @@ from .origins import (
     _origin_from_context_source,
     _record_missing_step_origins,
     _record_step_origin,
+    _register_generated_contract_field_bindings,
     _rekey_origin_map,
 )
 from .phase_scope import (
@@ -246,6 +247,7 @@ def _phase_stdlib_lower_run_provider_phase_impl(
         span=expr.span,
         form_path=expr.form_path,
     )
+    _register_generated_contract_field_bindings(context, bundle_contract.field_origins)
     authored_contract = dict(bundle_contract.payload)
     allocation = allocate_generated_result_bundle(
         context=context,
@@ -382,6 +384,7 @@ def _phase_stdlib_lower_produce_one_of_impl(
         span=expr.span,
         form_path=expr.form_path,
     )
+    _register_generated_contract_field_bindings(context, select_contract.field_origins)
     select_payload = dict(select_contract.payload)
     allocation = allocate_generated_result_bundle(
         context=context,
@@ -422,6 +425,7 @@ def _phase_stdlib_lower_produce_one_of_impl(
         }
         for candidate in expr.candidates
     }
+    # Boundary projection only: this payload is not attached to an executable step.
     union_payload = derive_structured_result_contract(
         typed_expr.type_ref,
         workflow_name=context.workflow_name,
@@ -894,6 +898,7 @@ def _phase_stdlib_lower_resume_or_start_impl(
         span=expr.span,
         form_path=expr.form_path,
     )
+    _register_generated_contract_field_bindings(context, loader_contract.field_origins)
     loader_allocation = allocate_generated_result_bundle(
         context=context,
         source_expr=expr,
@@ -1439,6 +1444,7 @@ def _resume_required_artifact_fields(
     """Compute artifact fields that must still exist for reusable state."""
 
     if isinstance(type_ref, RecordTypeRef):
+        # Static reusable-state analysis only; no runtime contract is attached here.
         fields = derive_structured_result_contract(
             type_ref,
             workflow_name=context.workflow_name,

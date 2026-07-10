@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +23,11 @@ from ..workflows import (
     TypedWorkflowDef,
     WorkflowCatalog,
 )
-from .origins import GeneratedSemanticEffectBinding, LoweringOrigin
+from .origins import (
+    GeneratedSemanticEffectBinding,
+    LoweringOrigin,
+    ValidationSubjectBinding,
+)
 
 
 @dataclass
@@ -87,6 +91,9 @@ class _LoweringContext:
     return_output_contracts: Mapping[str, Mapping[str, Any]]
     local_type_bindings: Mapping[str, TypeRef]
     is_generated_private_workflow: bool
+    generated_contract_field_bindings: list[ValidationSubjectBinding] = field(
+        default_factory=list
+    )
     phase_scope: _ActivePhaseScope | None = None
     iteration_scope: str | None = None
     lowering_schema_version: int | None = None

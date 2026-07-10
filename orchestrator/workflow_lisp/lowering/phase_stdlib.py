@@ -71,6 +71,7 @@ def _union_case_contract_definitions(
 ) -> dict[str, dict[str, Any]]:
     from ..contracts import derive_structured_result_contract
 
+    # Boundary projection only: this payload shapes case outputs, not a runtime contract.
     contract = derive_structured_result_contract(
         type_ref,
         workflow_name=workflow_name,
@@ -143,6 +144,7 @@ def review_loop_result_output_contracts(
             span=span,
             form_path=form_path,
         )
+    # Boundary projection only: this payload shapes outputs, not a runtime contract.
     payload = derive_structured_result_contract(
         type_ref,
         workflow_name=context.workflow_name,

@@ -15,7 +15,11 @@ from ..type_env import TypeRef
 from ..workflows import PromptExtern, ProviderExtern
 from .context import _compile_error, _TerminalResult
 from .generated_paths import allocate_generated_result_bundle
-from .origins import _origin_from_context_source, _record_step_origin
+from .origins import (
+    _origin_from_context_source,
+    _record_step_origin,
+    _register_generated_contract_field_bindings,
+)
 from .phase_scope import (
     _build_phase_prompt_input_prelude,
     _build_phase_stdlib_prompt_input_prelude,
@@ -114,6 +118,7 @@ def _lower_command_result_operation(
         span=command_result.span,
         form_path=command_result.form_path,
     )
+    _register_generated_contract_field_bindings(context, bundle_contract.field_origins)
     allocation = allocate_generated_result_bundle(
         context=context,
         source_expr=command_result,
@@ -302,6 +307,7 @@ def _lower_provider_result_operation(
         span=provider_result.span,
         form_path=provider_result.form_path,
     )
+    _register_generated_contract_field_bindings(context, bundle_contract.field_origins)
     authored_contract = dict(bundle_contract.payload)
     hidden_inputs: dict[str, Any] = {}
     generated_steps: list[dict[str, Any]] = []

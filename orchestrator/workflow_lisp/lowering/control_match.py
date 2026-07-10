@@ -27,7 +27,11 @@ from .context import (
     _TerminalResult,
 )
 from .generated_paths import allocate_generated_result_bundle
-from .origins import LoweringOrigin, _record_step_origin
+from .origins import (
+    LoweringOrigin,
+    _record_step_origin,
+    _register_generated_contract_field_bindings,
+)
 from .values import (
     _build_output_step_local_value,
     _flatten_inline_output_refs,
@@ -447,6 +451,7 @@ def _normalize_union_match_case_terminal(
         span=span,
         form_path=form_path,
     )
+    _register_generated_contract_field_bindings(context, bundle_contract.field_origins)
     authored_contract = dict(bundle_contract.payload)
     authored_contract["path"] = shared_bundle_path
     context.generated_path_spans.setdefault(authored_contract["path"], LoweringOrigin(span=span, form_path=form_path))

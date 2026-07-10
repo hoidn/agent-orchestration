@@ -33,7 +33,12 @@ from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, Un
 from ..typecheck import TypedExpr
 from .context import _compile_error, _LoweringContext, _TerminalResult
 from .generated_paths import allocate_generated_result_bundle
-from .origins import LoweringOrigin, _origin_from_context_source, _record_step_origin
+from .origins import (
+    LoweringOrigin,
+    _origin_from_context_source,
+    _record_step_origin,
+    _register_generated_contract_field_bindings,
+)
 
 
 _PROVIDER_BUNDLE_PATH_REF_KEY = "__provider_bundle_path_ref__"
@@ -867,6 +872,7 @@ def _lower_union_variant_expr(
         span=union_expr.span,
         form_path=union_expr.form_path,
     )
+    _register_generated_contract_field_bindings(context, bundle_contract.field_origins)
     allocation = allocate_generated_result_bundle(
         context=context,
         source_expr=union_expr,

@@ -347,9 +347,130 @@ def _write_parametric_source_map_module(path: Path) -> Path:
     return path
 
 
+def _write_union_field_lineage_module(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule source-map/union-field-lineage)",
+                "  (export entry)",
+                "  (defunion Decision",
+                "    (ACCEPTED",
+                "      (report String))",
+                "    (REJECTED",
+                "      (report String)))",
+                "  (defworkflow entry",
+                "    ((input String))",
+                "    -> Decision",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.implementation.execute",
+                "      :inputs (input)",
+                "      :returns Decision)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def _source_map_payload(document) -> dict[str, object]:
     build_module = importlib.import_module("orchestrator.workflow_lisp.build")
     return build_module._json_data(document)
+
+
+def test_source_map_persists_distinct_authored_union_contract_fields(
+    tmp_path: Path,
+) -> None:
+    path = _write_union_field_lineage_module(
+        tmp_path / "source-map" / "union-field-lineage.orc"
+    )
+    _, document, workflow_name = _build_source_map_document(
+        path,
+        tmp_path=tmp_path,
+        selected_name="entry",
+    )
+    workflow = document.workflows[workflow_name]
+    accepted = next(
+        entry
+        for key, entry in workflow.contract_fields.items()
+        if "::ACCEPTED::report" in key
+    )
+    rejected = next(
+        entry
+        for key, entry in workflow.contract_fields.items()
+        if "::REJECTED::report" in key
+    )
+
+    assert accepted.origin_key != rejected.origin_key
+    assert (
+        accepted.line,
+        accepted.column,
+        accepted.end_line,
+        accepted.end_column,
+    ) == (8, 7, 8, 22)
+    assert (
+        rejected.line,
+        rejected.column,
+        rejected.end_line,
+        rejected.end_column,
+    ) == (10, 7, 10, 22)
+    assert accepted.entity_kind == rejected.entity_kind == "variant_output_field"
+    assert all(
+        any(
+            binding.origin_key == entry.origin_key
+            and binding.subject_ref.subject_kind == "variant_output_field"
+            and binding.subject_ref.subject_name == entry.generated_name_origin
+            and binding.subject_ref.workflow_name == workflow_name
+            for binding in workflow.validation_subjects
+        )
+        for entry in (accepted, rejected)
+    )
+
+
+def test_source_map_validator_rejects_dangling_contract_field_binding(
+    tmp_path: Path,
+) -> None:
+    path = _write_union_field_lineage_module(
+        tmp_path / "source-map" / "union-field-lineage.orc"
+    )
+    source_map_module, document, workflow_name = _build_source_map_document(
+        path,
+        tmp_path=tmp_path,
+        selected_name="entry",
+    )
+    workflow = document.workflows[workflow_name]
+    field_binding_index = next(
+        index
+        for index, binding in enumerate(workflow.validation_subjects)
+        if binding.subject_ref.subject_kind == "variant_output_field"
+    )
+    dangling_binding = replace(
+        workflow.validation_subjects[field_binding_index],
+        origin_key="missing-contract-field-origin",
+    )
+    broken_document = replace(
+        document,
+        workflows={
+            **dict(document.workflows),
+            workflow_name: replace(
+                workflow,
+                validation_subjects=(
+                    *workflow.validation_subjects[:field_binding_index],
+                    dangling_binding,
+                    *workflow.validation_subjects[field_binding_index + 1 :],
+                ),
+            ),
+        },
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        source_map_module.validate_source_map_document(broken_document)
+
+    assert excinfo.value.diagnostics[0].code == "source_map_validation_ref_missing"
 
 
 def _walk_steps(raw_steps: object) -> tuple[dict[str, object], ...]:

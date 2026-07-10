@@ -132,6 +132,7 @@ class WorkflowSourceMap:
     step_ids: Mapping[str, SourceMapEntry]
     generated_inputs: Mapping[str, SourceMapEntry]
     generated_outputs: Mapping[str, SourceMapEntry]
+    contract_fields: Mapping[str, SourceMapEntry]
     generated_paths: Mapping[str, SourceMapEntry]
     generated_internal_inputs: Mapping[str, SourceMapEntry]
     generated_path_allocations: tuple[GeneratedPathAllocationLineage, ...]
@@ -184,6 +185,10 @@ def build_source_map_document(
                 lowered.origin_map.generated_output_spans,
                 workflow_name=workflow_name,
                 entity_kind="generated_output",
+            )
+            contract_fields = _contract_field_entry_mapping(
+                lowered=lowered,
+                workflow_name=workflow_name,
             )
             generated_paths = _entry_mapping(
                 lowered.origin_map.generated_path_spans,
@@ -240,6 +245,7 @@ def build_source_map_document(
                 step_ids=step_ids,
                 generated_inputs=generated_inputs,
                 generated_outputs=generated_outputs,
+                contract_fields=contract_fields,
                 generated_paths=generated_paths,
                 generated_internal_inputs=generated_internal_inputs,
                 generated_path_allocations=generated_path_allocations,
@@ -308,6 +314,25 @@ def validate_source_map_document(document: WorkflowLispSourceMap) -> None:
                             "validation subject "
                             f"`{subject.subject_ref.subject_kind}:{subject.subject_ref.subject_name}` "
                             "does not resolve to a declared origin"
+                        ),
+                    )
+                )
+        for subject_name, entry in workflow.contract_fields.items():
+            matching_subjects = [
+                subject
+                for subject in workflow.validation_subjects
+                if _validation_subject_key(subject.subject_ref, workflow.workflow_name)
+                == ("variant_output_field", subject_name, workflow.workflow_name)
+                and subject.origin_key == entry.origin_key
+            ]
+            if len(matching_subjects) != 1:
+                diagnostics.append(
+                    _diagnostic_for_entry(
+                        workflow_origin,
+                        code="source_map_validation_subject_missing",
+                        message=(
+                            "contract field "
+                            f"`{subject_name}` must have exactly one matching validation subject"
                         ),
                     )
                 )
@@ -445,6 +470,23 @@ def _step_entry_mapping(
         parent_origin=workflow_origin,
     )
     return augmented
+
+
+def _contract_field_entry_mapping(
+    *,
+    lowered: "LoweredWorkflow",
+    workflow_name: str,
+) -> Mapping[str, SourceMapEntry]:
+    return {
+        binding.subject_ref.subject_name: _entry_from_origin(
+            binding.origin,
+            workflow_name=workflow_name,
+            entity_kind="variant_output_field",
+            subject_name=binding.subject_ref.subject_name,
+        )
+        for binding in lowered.origin_map.validation_subject_bindings
+        if binding.subject_ref.subject_kind == "variant_output_field"
+    }
 
 
 def _augment_missing_step_entries(
@@ -597,6 +639,7 @@ def _iter_origin_entries(workflow: WorkflowSourceMap) -> Iterable[SourceMapEntry
     yield from workflow.step_ids.values()
     yield from workflow.generated_inputs.values()
     yield from workflow.generated_outputs.values()
+    yield from workflow.contract_fields.values()
     yield from workflow.generated_paths.values()
     yield from workflow.generated_internal_inputs.values()
 
