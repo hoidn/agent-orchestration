@@ -561,3 +561,45 @@ diagnostics, fingerprint `0758b59a065ce8e0` (identical to the Task 1.1 baseline)
 
 Task 1.2 has no checkbox line in this plan; this record is its completion evidence. Task 1.3 is
 unblocked.
+
+#### Task 1.3 — Intrinsic-route checkpoint-identity baselines (2026-07-10)
+
+Committed `tests/baselines/drain_checkpoint_identity/{exemplar,design_delta_drain}.json` plus the
+two freshness tests in `tests/test_workflow_lisp_checkpoint_identity_comparison.py`
+(commit `8e2f8fcc`). Snapshots taken from the current intrinsic route, before any edit to
+`std/drain.orc`, the macro, or the production hooks.
+
+Map sizes: `exemplar.json` **5** rows (drain, selector-run, run-selected-item, gap-draft, and the
+generated `std/drain::backlog-drain` child); `design_delta_drain.json` **70** rows across 17
+workflows of the production compile closure (drain entry 7, `work_item::run-selected-item-stdlib`
+25, `implementation_phase` 10, `plan_phase` 5, generated `std/drain::backlog-drain` 1, rest in
+architect/adapters/transitions/selector/projections/bootstrap modules). The generated child's
+`normalize_result` checkpoint id is identical in both baselines (context-independent), and both
+maps were byte-identical across two consecutive compiles.
+
+Fresh output (two consecutive runs, second shown):
+
+```text
+pytest --collect-only tests/test_workflow_lisp_checkpoint_identity_comparison.py -q  → 3 tests collected
+pytest tests/test_workflow_lisp_checkpoint_identity_comparison.py -v                 → 3 passed in 1.82s
+```
+
+Two recorded deviations from the component plan's Task 3 skeleton (both widen, never weaken, the
+Task 1.5 gate):
+
+1. **The map spans every validated bundle of the compile, not just the entry executor.** Each
+   bundle's runtime plan carries only its own workflow's lexical points, so an entry-only map for
+   the exemplar would hold 1 row and omit the macro-generated `std/drain::backlog-drain` child —
+   exactly the generated-step identities the migration puts at risk.
+2. **Keys are `{workflow}::{origin}::{step_kind}`, not the skeleton's two-part form.** In the
+   production module, `stdlib_adapters::draft-design-gap-stdlib`'s `recorded_progress` step
+   carries two effect-boundary checkpoints (`call` ckpt:b521875b… and `resource_transition`
+   ckpt:fe2e42e0…) with identical `(workflow, origin_key)`; the two-part key would silently drop a
+   row. This is deterministic double-annotation, not run-to-run instability. The helper fails
+   closed on any remaining duplicate key. `checkpoint_identity_map(executor)` itself is untouched;
+   note for Task 1.5: its two-part keying is lossy on the production module.
+
+Anchor drift noted: the task brief described the module as "currently 12 tests" — it held 1 test
+at baseline (`test_checkpoint_identity_stable_across_recompiles`, parametric plan Task 9); all
+pre-existing tests still pass. Task 1.3 has no checkbox line in this plan; this record is its
+completion evidence.
