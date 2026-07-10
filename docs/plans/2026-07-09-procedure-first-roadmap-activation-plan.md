@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the approved procedure-first roadmap executable by reconciling the existing component plans with landed commits, tracking and routing the governing plan set, re-anchoring stale ownership paths, and establishing the verified handoff to the remaining executor work.
+**Goal:** Make the approved procedure-first roadmap executable by reconciling the existing component plans with landed commits, tracking and routing the governing plan set, re-anchoring stale ownership paths, and establishing a verified component-plan handoff.
 
-**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status, updates symbol/path anchors after module extraction, and leaves the checkout at one unambiguous next task: the first executor-decomposition task not present at the committed boundary, currently Task 9.
+**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff has now completed; current routing advances to lowering-fork closeout.
 
 **Tech Stack:** Markdown, Git, `rg`, pytest, pyflakes.
 
@@ -140,8 +140,8 @@ git log --format='%h %s' -- \
   orchestrator/workflow/steps | head -16
 ```
 
-Expected at the current committed boundary: Tasks 2-4, 5a-5e, 6, 7, and 8
-are landed; Task 9 is next. Task 7 followed its plan-authorized low-overlap branch:
+Expected at the activation boundary recorded by this task: Tasks 2-4, 5a-5e,
+6, 7, and 8 are landed; Task 9 was next. Task 7 followed its plan-authorized low-overlap branch:
 committed `executor_runtime.py` exists with `LoopRuntime` and `CallRuntime`
 rather than one literal `ExecutorRuntime`. Task 8's three `execute()` helpers
 are committed. If Task 9 is now complete in `HEAD`, inspect the newest commits
@@ -505,11 +505,13 @@ Closeout dispositions:
   not closed: Task 6 still requires its module-size check, full `pytest -q`, and
   final report.
 
-Executor handoff: the newest committed executor boundary is
+Executor handoff (superseded by the 2026-07-09 Task 9 closeout): the committed executor code boundary is
 `1600fd7ed6c920c1bd9f3a6890ff10f6d7ee25b0`. Committed
 `orchestrator/workflow/executor_runtime.py` exists. A literal
 `ExecutorRuntime` does not; the plan-authorized narrower `LoopRuntime` and
 `CallRuntime` protocols are committed and used by their consumers. Task 8's
 `_execute_prologue`, `_execute_step_loop`, and `_execute_epilogue` helpers are
-committed. Task 9, the verification-only final executor-surface suite and
-orchestrator smoke gate, is the first unlanded executor task.
+committed. Task 9 subsequently passed its corrected executor-surface and
+orchestrator smoke gates; its six full-suite failure identities were also
+present on the pre-Task-2 revision. The active handoff is now lowering-fork
+closeout, as routed by `docs/index.md` and the governing execution sequence.

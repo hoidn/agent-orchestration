@@ -1,6 +1,6 @@
 # Executor Decomposition: Extraction-Behind-Delegators for `orchestrator/workflow/executor.py`
 
-> **Execution status (verified 2026-07-09):** Verified at `1600fd7ed6c920c1bd9f3a6890ff10f6d7ee25b0` (`Slice executor run method into prologue and epilogue helpers`). Tasks 2-4 are landed in `a5f02e43cd95542a6f0e41b67543dfe0cfc29b44` (`Extract nested call frame state manager into its own module`), `b85066ae83af39c4cf1cd7ebf8fa628524033d24` (`Extract compiled frontend origin index into its own module`), and `9b331b6f66118bbc234f1163efdec482f2627c35` (`Extract pure step result helpers and switch loop and call executors to direct imports`). Tasks 5a-5e are landed in `98e80f0cb28cbaef2843283144fe93b338cffd77` (`Add step runtime protocol and steps package scaffold`), `3f55ff14bdade3df52bc62a583a95e1476bbc595` (`Extract resource transition step interpreter`), `c32106e7d64f8312fa64236f3edea3104566cef2` (`Extract pure projection step interpreter`), `be2ea0af985dc393cc4efd7669d9440559961fb0` (`Extract scalar step interpreter`), and `36aafed448892b2f773b27c8c507db31bccd15fd` (`Extract materialize view step interpreter behind a permanent delegator`). Task 6 is landed in `0da6e4ca46d436eb29b13974517a8931d7002040` (`Extract adjudication runner into its own module`). Task 7 is landed in `b3d7eb91dc57f334b6a0c737e57f21f82b5f3088` (`Type loop and call executors with an executor runtime protocol`): committed `orchestrator/workflow/executor_runtime.py` exists and, following Task 7's low-overlap decision rule, defines the narrower `LoopRuntime` and `CallRuntime` protocols rather than a single literal `ExecutorRuntime`; `loops.py` and `calls.py` use those committed contracts. Task 8 is landed in `1600fd7ed6c920c1bd9f3a6890ff10f6d7ee25b0`; `_execute_prologue`, `_execute_step_loop`, and `_execute_epilogue` are committed helpers on `WorkflowExecutor`. Task 9, the final executor-surface suite and orchestrator smoke gate, is the first unlanded task. Unrelated user work exists in the checkout and must be preserved.
+> **Execution status (completed 2026-07-09):** Verified through `1600fd7ed6c920c1bd9f3a6890ff10f6d7ee25b0` (`Slice executor run method into prologue and epilogue helpers`). Tasks 2-4 are landed in `a5f02e43cd95542a6f0e41b67543dfe0cfc29b44` (`Extract nested call frame state manager into its own module`), `b85066ae83af39c4cf1cd7ebf8fa628524033d24` (`Extract compiled frontend origin index into its own module`), and `9b331b6f66118bbc234f1163efdec482f2627c35` (`Extract pure step result helpers and switch loop and call executors to direct imports`). Tasks 5a-5e are landed in `98e80f0cb28cbaef2843283144fe93b338cffd77` (`Add step runtime protocol and steps package scaffold`), `3f55ff14bdade3df52bc62a583a95e1476bbc595` (`Extract resource transition step interpreter`), `c32106e7d64f8312fa64236f3edea3104566cef2` (`Extract pure projection step interpreter`), `be2ea0af985dc393cc4efd7669d9440559961fb0` (`Extract scalar step interpreter`), and `36aafed448892b2f773b27c8c507db31bccd15fd` (`Extract materialize view step interpreter behind a permanent delegator`). Task 6 is landed in `0da6e4ca46d436eb29b13974517a8931d7002040` (`Extract adjudication runner into its own module`). Task 7 is landed in `b3d7eb91dc57f334b6a0c737e57f21f82b5f3088` (`Type loop and call executors with an executor runtime protocol`): committed `orchestrator/workflow/executor_runtime.py` exists and, following Task 7's low-overlap decision rule, defines the narrower `LoopRuntime` and `CallRuntime` protocols rather than a single literal `ExecutorRuntime`; `loops.py` and `calls.py` use those committed contracts. Task 8 is landed in `1600fd7ed6c920c1bd9f3a6890ff10f6d7ee25b0`; `_execute_prologue`, `_execute_step_loop`, and `_execute_epilogue` are committed helpers on `WorkflowExecutor`. Task 9 is verified below: the corrected executor-surface suite and smoke gate pass, while the full suite has the same six failing test identities on the pre-Task-2 revision and the completed revision. Unrelated user work exists in the checkout and must be preserved.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -843,30 +843,41 @@ git commit -m "Slice executor run method into prologue and epilogue helpers"
 
 ### Task 9: Full executor-surface suite + orchestrator smoke
 
-- [ ] **Step 1: Full targeted suite (use the tmux skill if long)**
+- [x] **Step 1: Full targeted suite (use the tmux skill if long)**
 
 ```bash
 pytest tests/test_workflow_executor_characterization.py tests/test_runtime_step_lifecycle.py \
        tests/test_workflow_lisp_materialize_view_runtime.py tests/test_workflow_lisp_pure_projection_runtime.py \
-       tests/test_observability_summary_runtime.py tests/test_workflow_lisp_call_frames.py -q
+       tests/test_observability_summary_runtime.py tests/test_subworkflow_calls.py -q
 ```
 Expected: all PASS (this is the brief's stated blast radius; near-zero risk if delegators were kept).
 
-- [ ] **Step 2: Full suite**
+- [x] **Step 2: Full suite**
 
 Run in tmux: `pytest -q`
 Expected: same failures-before == failures-after (capture a baseline `pytest -q` on the pre-Task-2 tree if it carried in-flight failures, and compare).
 
-- [ ] **Step 3: Orchestrator smoke**
+- [x] **Step 3: Orchestrator smoke**
 
 ```bash
 pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -q -k "smoke"
 ```
 Expected: PASS.
 
-- [ ] **Step 4: Report**
+- [x] **Step 4: Report**
 
 Summarize: lines removed from `executor.py` per task; new module sizes (each must be <500 lines — split further if not); the final residual `self.executor.*` member counts for loops/calls; which delegators are permanent vs droppable; any StepRuntime/ExecutorRuntime protocol members that had to be added beyond the measured sets. Do not push; leave commits local for review.
+
+#### Task 9 closeout evidence (2026-07-09)
+
+- The plan's former `tests/test_workflow_lisp_call_frames.py` selector was stale: that file does not exist. `tests/test_subworkflow_calls.py` is the repository's call-frame coverage (including persisted child-frame state), so the gate above now names that module. The corrected targeted command passed: **123 passed in 5.22s**.
+- Full suite at `a413e94914b34e60bacd0dc5ef78a437078ff8d5` (documentation-only commits after the Task-8 code revision) completed with **6 failed, 4073 passed, 11 skipped in 924.02s**. The failing identities are the NeurIPS steered-backlog continuation case, the Design Delta provider-default routing case, the valid-output-bundle/nonzero-exit case, and three semantic-IR cases.
+- The same six selectors all fail on the pre-Task-2 code revision `df327ad8`, and none of their four test modules changed from `df327ad8` through `1600fd7e`. This meets the plan's explicit `failures-before == failures-after` criterion; they are not executor-decomposition regressions.
+- The Design Delta orchestrator smoke passed: **19 passed, 74 deselected in 64.21s**.
+- `executor.py` changed from 10,954 to 8,390 lines: **2,564 net lines removed** across Tasks 2-8. Per commit, net executor-line changes were Task 2 `-356`, Task 3 `-87`, Task 4 `-24`, Task 5a `0`, Task 5b `-95`, Task 5c `-113`, Task 5d `-6`, Task 5e `-162`, Task 6 `-1,783`, Task 7 `+19`, and Task 8 `+43`.
+- New module sizes are all below 500 lines: `call_frame_state.py` 379; `frontend_origins.py` 259; `step_results.py` 76; `executor_runtime.py` 328; step modules 1/31/117/139/161/193; adjudication modules 63/209/254/266/322/326/422/472/484/490.
+- Final whole-executor back-reference surfaces are **27 distinct members** in `loops.py` and **15** in `calls.py`. Relative to the original measured sets, direct helper imports removed `_json_safe_runtime_value` and `_to_step_result` from loops and `_contract_violation_result` and `_json_safe_runtime_value` from calls. `projection` is the one newly measured `LoopRuntime` member; `CallRuntime` required no member beyond its measured set. `StepRuntime` required no additional member after its scaffold; Task 7 only generalized two step parameters to `RuntimeStepInput`.
+- Permanent executor delegators are the five step-result compatibility methods, `_execute_materialize_view`, `_execute_scalar_step` (as a `StepRuntime` dependency), and `_execute_adjudicated_provider_with_context`. `_execute_resource_transition` and `_execute_pure_projection` have no test bindings and remain explicitly droppable later. The call-frame transitional re-export was dropped.
 
 ---
 

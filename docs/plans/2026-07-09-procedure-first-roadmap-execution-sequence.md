@@ -73,7 +73,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-07-lowering-fork-migration.md` | Treat as implementation-complete only after its final grep and named tests pass; expected remaining `lowering_core` use is drain-frozen residue. |
 | `2026-07-07-typecheck-family-completion.md` | Treat as implementation-complete only after its final structural and behavioral gates pass; expected owner modules already exist. |
 | `2026-07-07-build-module-split.md` | Tasks 1-5 appear landed; execute/re-run the final verification and module-boundary audit. Do not redo mechanical moves. |
-| `2026-07-07-executor-decomposition.md` | Tasks 2-8 are landed; use the executor plan's execution-status note for commit and verification evidence. Task 9, the final executor gate, is next. |
+| `2026-07-07-executor-decomposition.md` | Completed through Task 9. Its targeted executor surface and Design Delta smoke pass; the full-suite failure identities match the pre-Task-2 baseline. |
 | `2026-07-08-boundary-report-followups.md` | Execute before the semantic freeze; it supplies terminology and negative-coverage evidence consumed by later design work. |
 | `2026-07-07-drain-migration-g8-retirement.md` | Governs the parametric flagship migration and cleanup after re-anchoring to the refactored modules. |
 | `2026-07-07-yaml-retirement-program.md` | Task 1 may inform later design. Its Design Delta family promotion is coordinated between drain Phases 2 and 3; other code-changing and promotion tasks wait until the procedure-first pilot is accepted. |
@@ -106,19 +106,20 @@ Gate S0:
 
 Execute in this order:
 
-1. **Lowering-fork closeout.** Run the final residue audit and named lowering
+1. **Executor decomposition Task 9 closeout — completed 2026-07-09.** The
+   corrected executor-surface suite passed, the full-suite failure identities
+   matched the pre-Task-2 baseline, and the orchestrator smoke passed. Do not
+   replay Tasks 2-8 or repeat this gate without a relevant code change.
+2. **Lowering-fork closeout — active next.** Run the final residue audit and named lowering
    suites. The only accepted `lowering_core` back-import residue is the region
    frozen for drain retirement.
-2. **Typecheck-family closeout.** Run the structural import audit and the
+3. **Typecheck-family closeout.** Run the structural import audit and the
    procedures, drain, resource/view, and resume suites. No additional ownership
    redesign belongs here.
-3. **Build-split closeout.** Run its Task 6 full verification, import-cycle
+4. **Build-split closeout.** Run its Task 6 full verification, import-cycle
    checks, compatibility re-export checks, and module-size report. Large
    `build_design_delta.py` size is accepted temporarily because Stage 3 deletes
    the family-specific certification unit; do not start a second split first.
-4. **Executor decomposition Task 9 closeout.** Run the plan's final
-   executor-surface suite, full suite, and orchestrator smoke, then record the
-   closeout report. Tasks 5-8 are landed; do not replay them.
 5. **Boundary-report follow-ups.** Land the terminology and negative-coverage
    work. Recommendation 11 remains design-gated; this stage must not implement
    the broad transition.
