@@ -54,12 +54,17 @@ def _compile_entry_fixture(path: Path, *, source_root: Path, tmp_path: Path, val
     )
 
 
-def _compile_module_fixture(path: Path, *, tmp_path: Path):
+def _compile_module_fixture(
+    path: Path,
+    *,
+    tmp_path: Path,
+    command_boundaries: dict[str, ExternalToolBinding] | None = None,
+):
     return compile_stage3_module(
         path,
         provider_externs={},
         prompt_externs={},
-        command_boundaries={},
+        command_boundaries=command_boundaries or {},
         validate_shared=True,
         workspace_root=tmp_path,
         lowering_route=None,
@@ -393,6 +398,27 @@ def test_minimal_caller_satisfies_finalize_selected_item_declared_constraints(tm
         _compile_module_fixture(
             FIXTURES / "valid" / "minimal_caller_finalize_selected_item.orc",
             tmp_path=tmp_path,
+        )
+        is not None
+    )
+
+
+def test_drain_generic_hook_probe_effectful_proc_hook_compiles_shared_validated(tmp_path: Path) -> None:
+    # Drain-migration feasibility probe (gaps G1/G3/G5): an effectful defproc
+    # hook that returns a caller-owned union and contains a command-result
+    # effect must bind through ProcRef inference into a generic definition and
+    # compile through the shared-validated stage-3 entry. Probe record:
+    # docs/plans/2026-07-07-drain-migration-g8-retirement.md, Phase 1 Ledger.
+    assert (
+        _compile_module_fixture(
+            FIXTURES / "valid" / "drain_generic_hook_probe.orc",
+            tmp_path=tmp_path,
+            command_boundaries={
+                "probe_select": ExternalToolBinding(
+                    name="probe_select",
+                    stable_command=("python", "scripts/select_next_item.py"),
+                )
+            },
         )
         is not None
     )
