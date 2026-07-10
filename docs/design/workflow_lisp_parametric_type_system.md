@@ -40,8 +40,8 @@ The first tranche of this direction is implemented and in production:
   hook parameters whose signatures mention type parameters, and a stdlib-owned
   terminal union.
 - `std/resource.orc` `finalize-selected-item-proc`: `:forall (PlanT ImplT)`
-  with `has-union-variant` constraints and proof-gated `match` on constrained
-  parameters.
+  with `has-union-variant` constraints and `match` with refined match binders
+  on constrained parameters.
 - Shared machinery with no knowledge of consumer names:
   `procedure_specialization.py` (instantiate-then-typecheck),
   `procedure_typecheck.py`, `parametric_constraints.py`,

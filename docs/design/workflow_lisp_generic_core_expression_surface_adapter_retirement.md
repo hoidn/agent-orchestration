@@ -233,7 +233,10 @@ family-route consumption prerequisite. G6 proving routes are not selectable
 until G5A has shown that imported generic stdlib helpers can carry
 constraint-checked caller-owned shapes through proof-gated `match`, declared
 transition/view effects, and ordinary WCC lowering without compiler-name
-special cases. Imported-macro-heavy G6 drain routes are not selectable until
+special cases. For the author-facing/internal terminology pairing, see the
+"Pattern Matching" section in
+`docs/design/workflow_lisp_frontend_specification.md`. Imported-macro-heavy G6
+drain routes are not selectable until
 G5C has shown that an imported stdlib macro can synthesize branch-local field
 projection and downstream helper/call arguments through ordinary macro
 expansion, specialization, typecheck, and WCC lowering without degrading

@@ -136,9 +136,9 @@ monomorphic-helper bridge and is not revised by this document. The first stable
 generic `fix` hook is findings-only:
 `ProcRef[(CompletedT InputsT ReviewFindings) -> CompletedT]`. The loop should
 return an exact stdlib-owned terminal protocol, and callers should project
-workflow-specific terminal unions outside the loop using ordinary proof-gated
-matches. Constructor `ProcRef` bridges or field-mapping extensions are
-deferred, not parallel implementation targets.
+workflow-specific terminal unions outside the loop using ordinary `match` with
+refined match binders. Constructor `ProcRef` bridges or field-mapping
+extensions are deferred, not parallel implementation targets.
 
 The exact first-tranche `ReviewFindings` carrier, minimum
 `ReviewFindings.v1` artifact envelope, and `ReviewDecision` /
@@ -414,7 +414,9 @@ Recommended sequence:
   and generated nodes.
 - `ProcRef` specialization remains compile-time-only.
 - Unsatisfied constraints fail before runtime.
-- Variant-specific fields remain proof-gated after specialization.
+- Variant-specific fields remain proof-gated after specialization. For the
+  author-facing/internal terminology pairing, see "Pattern Matching" in
+  `docs/design/workflow_lisp_frontend_specification.md`.
 - A non-review-loop fixture proves the machinery is generic.
 - A review-loop fixture uses the same machinery without compiler recognition of
   the literal `review-revise-loop` name.

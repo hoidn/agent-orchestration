@@ -308,7 +308,9 @@ plus generic language machinery. It also fixes diagnostic ownership for this
 tranche: unsatisfied structural constraints fail against the generic definition
 and call site, while ordinary typing, proof-gated union behavior, effect
 visibility, and lowering correctness are checked on the instantiated helper.
-Pre-instantiation generic-body checking is intentionally deferred.
+For the author-facing/internal terminology pairing, see "Pattern Matching" in
+`docs/design/workflow_lisp_frontend_specification.md`. Pre-instantiation
+generic-body checking is intentionally deferred.
 
 Target dependency direction:
 
@@ -1698,7 +1700,7 @@ The semantic contract is:
   `ProcRef[(CompletedT InputsT ReviewFindings) -> CompletedT]`.
 - the stdlib loop returns exact `ReviewLoopResult` variants.
 - any workflow-specific terminal union is constructed by caller code after a
-  proof-gated `match` on `ReviewLoopResult`.
+  `match` on `ReviewLoopResult` with refined match binders.
 - `APPROVE` and `BLOCKED` are terminal.
 - `REVISE` invokes fix and continues.
 - `EXHAUSTED` is typed terminal non-completion.
@@ -2754,7 +2756,8 @@ the following must pass:
   provider/command, materialization, and projection surfaces.
 - The stdlib loop returns exact `ReviewLoopResult` variants.
 - Workflow-specific terminal unions, if any, are built by caller-side
-  proof-gated matches rather than review-loop-specific compiler semantics.
+  `match` with refined match binders rather than review-loop-specific compiler
+  semantics.
 - `APPROVE`, `REVISE->APPROVE`, `BLOCKED`, and `EXHAUSTED` behavior pass.
 - `EXHAUSTED` is typed non-completion.
 - `REVISE` is not completion.
@@ -2911,7 +2914,7 @@ Proceed in this order:
 12. Implement `std/phase.orc` `review-revise-loop` returning exact
    `ReviewLoopResult`.
 13. Project workflow-specific terminal unions outside the stdlib loop where
-   needed, using ordinary proof-gated matches.
+   needed, using ordinary `match` with refined match binders.
 14. Use terminal-constructor ProcRefs or field-mapping extensions only if a
    later design explicitly reopens stdlib-internal caller-owned terminal
    construction.
@@ -2959,4 +2962,4 @@ or lowering fragility.
 The remaining open product question is narrower: whether any later tranche ever
 needs stdlib-internal construction of caller-owned terminal unions at all. This
 document keeps the first stable route on exact stdlib-owned terminal protocol
-plus caller-side proof-gated projection.
+plus caller-side projection through `match` with refined match binders.
