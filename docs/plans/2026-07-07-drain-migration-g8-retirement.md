@@ -108,14 +108,14 @@ Frozen caller surface (design, quoted): "the caller-facing compatibility contrac
 **Files:** Modify this plan (append `## Phase 1 Ledger` with the re-baseline record).
 **Entry condition:** Gate P1 recorded above.
 
-- [ ] **Step 1:** Execute the 2026-07-06 plan's Task 1 Steps 1–3 verbatim (precondition check, Anchor Map re-verification greps, fresh suite counts for `test_workflow_lisp_drain_stdlib.py`, `test_workflow_lisp_design_delta_drain_migration_feasibility.py` [93 tests at drafting], `test_workflow_lisp_procedures.py`, `test_workflow_lisp_generic_stdlib_composition.py`, `test_workflow_lisp_build_artifacts.py`, `test_lisp_frontend_autonomous_drain_runtime.py`), recording results in **this** file's Phase 1 Ledger instead of the old plan.
-- [ ] **Step 2:** Additionally capture the pre-swap certification/parity baseline:
+- [x] **Step 1:** Execute the 2026-07-06 plan's Task 1 Steps 1–3 verbatim (precondition check, Anchor Map re-verification greps, fresh suite counts for `test_workflow_lisp_drain_stdlib.py`, `test_workflow_lisp_design_delta_drain_migration_feasibility.py` [93 tests at drafting], `test_workflow_lisp_procedures.py`, `test_workflow_lisp_generic_stdlib_composition.py`, `test_workflow_lisp_build_artifacts.py`, `test_lisp_frontend_autonomous_drain_runtime.py`), recording results in **this** file's Phase 1 Ledger instead of the old plan.
+- [x] **Step 2:** Additionally capture the pre-swap certification/parity baseline:
 ```bash
 python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json
 python -c "import json,glob,os; p=max(glob.glob('.orchestrate/build/*/g8_deletion_evidence.json'), key=os.path.getmtime); print(p, json.load(open(p))['status'])"
 ```
 Expected: compile exits 0; artifact `status` prints `pass`.
-- [ ] **Step 3: Commit** — `git add docs/plans/2026-07-07-drain-migration-g8-retirement.md && git commit -m "Record drain migration re-baseline"`
+- [x] **Step 3: Commit** — `git add docs/plans/2026-07-07-drain-migration-g8-retirement.md && git commit -m "Record drain migration re-baseline"`
 
 ### Task 1.2: Feasibility probes (hook kind, subset-match, loader-shape)
 
@@ -372,3 +372,95 @@ After Task 2.3 and before recording Gate P3 as satisfied, execute `docs/plans/20
 3. **Codified G8 evidence under-approximates the doc's gate.** The retirement design says G8 "must not be selected until evidence from G2 through G7 proves every removed path is unused", yet every codified `g8_deletion_evidence` row already passes while the intrinsic inline expansion runs on every production schema-2 compile (child `std/drain::backlog-drain` lowered with `preserve_owner_boundary=False`, `_callable_backlog_drain_enabled` → False → inline branch; proven by `tests/test_workflow_lisp_drain_stdlib.py` WCC_M4 tests). The codified rows track manifest rows/adapters/registry heads, not the lowering lane. The real gate is Phase 1 (Tranche 2); Gate P2 encodes that. Consider (out of scope here) a doc note aligning §17's acceptance rows with the lowering-lane evidence.
 4. **Minor historical correction:** `resume_plumbing_retirement.py`'s fingerprint-mismatch gate raises `ValueError`, not `LispFrontendCompileError` as earlier context stated — same fail-closed effect; recorded for provenance without retaining a mutable line anchor.
 5. **Concurrent-plan drift:** `stage7_metrics.py` still existed at drafting, but the 2026-07-09 re-anchor confirms it is absent. The Task 2.1 live symbol search, not the drafting snapshot, remains the inventory of record.
+
+---
+
+## Phase 1 Ledger
+
+### Task 1.1 re-baseline record (2026-07-10)
+
+#### Gate P1 evidence (fresh output, 2026-07-10)
+
+1. Feasibility gates:
+
+```text
+$ pytest tests/test_workflow_lisp_checkpoint_identity_comparison.py tests/test_workflow_lisp_generic_stdlib_composition.py -q
+............                                                             [100%]
+12 passed in 0.94s
+```
+
+2. Drain-region files clean:
+
+```text
+$ git status --porcelain orchestrator/workflow_lisp/ | grep -E "phase_drain|drain_terminal|typecheck_drain_phase|typecheck_calls|defunctionalize"
+(empty — grep exit 1, no matches)
+```
+
+Gate P1 SATISFIED.
+
+#### Component-plan Task 1 Step 1 — preconditions
+
+```text
+$ pytest tests/test_workflow_lisp_checkpoint_identity_comparison.py -q
+1 passed in 0.33s
+
+$ git status --porcelain orchestrator/workflow_lisp/ tests/ workflows/library/
+ M tests/test_workflow_non_progress_step_back_demo.py
+ M workflows/library/prompts/workflow_step_back/diagnose_non_progress.md
+```
+
+Both dirty files are on the user-owned expected-dirty list; neither is an Anchor Map file; `orchestrator/workflow_lisp/` is clean. Precondition HOLDS. Note: the Task-1.1 working-tree amendment said only `tests/test_workflow_non_progress_step_back_demo.py` matches the status globs; `workflows/library/prompts/workflow_step_back/diagnose_non_progress.md` also matches the `workflows/library/` glob. Both are expected user-owned files outside the drain region — recorded as a drift note, not a blocker.
+
+#### Component-plan Task 1 Step 2 — Anchor Map re-verification (per row)
+
+STOP checks first: `grep -rn "backlog-drain-proc" orchestrator/ tests/` → no hits (exit 1) — no authored proc body exists in `std/drain.orc`; the intrinsic lowering is present. No STOP condition triggered.
+
+| Anchor Map row | Drafting anchor (2026-07-06) | Current location (2026-07-10) | Status |
+| --- | --- | --- | --- |
+| Drain macro | `std/drain.orc:280-286` | `defmacro backlog-drain` at `std/drain.orc:280` | HOLDS |
+| Authored terminal half | `std/drain.orc:128-279` | `empty/blocked/completed-drain-result-proc` at :128/:135/:145, `finalize-drain-terminal` :153, `consume-drain-terminal-effects` :177; `drain-run-state` resource :99, `record-drain-outcome` transition :102 (resource/transition sit just above the drafting range) | HOLDS (resource/transition at :99/:102) |
+| Form registry entries | `form_registry.py:576-599` | `"backlog-drain"` :577, `elaboration_route="backlog_drain"` :584 and :596, `"backlog-drain-callable-boundary"` :589 | HOLDS |
+| Elaboration | `expressions.py:982`, `_elaborate_backlog_drain` :3128, `BacklogDrainExpr`/`BacklogDrainSpec` `drain_stdlib.py:12-23` | route entry `expressions.py:982`; `_elaborate_backlog_drain` :3128; `BacklogDrainSpec` `drain_stdlib.py:13`; `BacklogDrainExpr` defined at `expressions.py:514` | HOLDS (`BacklogDrainExpr` clarified to `expressions.py:514`) |
+| Typecheck dispatch | `typecheck_dispatch.py:1788` | `isinstance(expr, BacklogDrainExpr)` at `typecheck_dispatch.py:1115` (file now 1171 lines), dispatching into `typecheck_backlog_drain_expr` (`typecheck_drain_phase.py:39`) per the 2026-07-09 re-anchor | MOVED → :1115 |
+| Name-keyed validators | `typecheck_calls.py:464-697` | `validate_selector_workflow_ref` :433, `validate_run_item_workflow_ref` :510, `validate_gap_drafter_workflow_ref` :600; re-anchor symbols `workflow_ref_signature` :273, `_backlog_drain_blocker_class_type` :496 present | MOVED → :433/:510/:600 |
+| Intrinsic lowering | `phase_drain.py:399-1978` + helpers to :2455 | `_phase_stdlib_lower_backlog_drain_impl` def :345; `_validate_backlog_drain_provider_metadata` :1949; `_selected_item_summary_pointer_path` :1943; module 2410 lines | MOVED → :345 (module shrank to 2410 lines) |
+| Form-specific monomorphizer | `phase_drain.py:208-391` | `_callable_backlog_drain_enabled` :154, `_callable_backlog_drain_specialization_key` :198, `_ensure_callable_backlog_drain_workflow` :253 | MOVED → :154-:264 |
+| Python terminal duplicate | `drain_terminal.py:173+` | `lower_shared_drain_terminal_result` :173 (module 374 lines) | HOLDS |
+| Schema-1 dispatch | `control_dispatch.py:151-154, 213-214` | import `from .phase_drain import _lower_backlog_drain` :60; `isinstance(expr, BacklogDrainExpr)` branch :150-151; no second dispatch site remains near :213 (only backlog hits are :60 and :151) | MOVED (second site gone; :60 + :150-151 remain) |
+| WCC dispatch | `defunctionalize.py:3100-3108, 3243-3254` | `"backlog_drain"` accounting :3101; `BacklogDrainExpr` branch calling `_phase_stdlib_lower_backlog_drain_impl` :3243-3244; import :83. Additional live sites for Task 2.1's inventory: `wcc/route.py` :655, :1093; `wcc/elaborate.py` :327/:461/:1278/:2206-2209/:2338/:2692 | HOLDS (plus route/elaborate sites per re-anchor) |
+| Inventory strings | `stage7_metrics.py:102`, `stdlib_contracts.py:90,271,273` | `stage7_metrics.py` absent (expected — Contradictions & Findings item 5); `stdlib_contracts.py` `form_name="backlog-drain"` :244, `backlog_drain_contract_invalid` diagnostics :270 | MOVED (stage7_metrics deleted; contracts → :244/:270) |
+| Production consumer (sole) | `drain.orc:64`; hooks `stdlib_adapters.orc:26`, `work_item.orc:433`, `stdlib_adapters.orc:62` | `(backlog-drain design-delta …)` at `workflows/library/lisp_frontend_design_delta/drain.orc:64` with `:selector select-next-work-stdlib` (`stdlib_adapters.orc:26`), `:run-item run-selected-item-stdlib` (`work_item.orc:407`), `:gap-drafter draft-design-gap-stdlib` (`stdlib_adapters.orc:62`) | HOLDS (run-item hook MOVED → `work_item.orc:407`) |
+| Blessed exemplar fixture | `tests/fixtures/workflow_lisp/valid/drain_stdlib_backlog_drain.orc` (98 lines) | present, 98 lines | HOLDS |
+| Negative fixtures | ~12 under `tests/fixtures/workflow_lisp/invalid/` matching `backlog_drain_*`/`drain_ctx_*` | 10 matches (9 `.orc` + 1 `.json`): `backlog_drain_gap_drafter_non_record_payload_invalid.orc`, `backlog_drain_hidden_compatibility_bridge_public_boundary_invalid.orc`, `backlog_drain_hidden_compatibility_bridge_public_run_item_invalid.orc`, `backlog_drain_hidden_compatibility_bridge_reread_pointer_authority_invalid.json`, `backlog_drain_selector_blocked_extra_state_field_invalid.orc`, `backlog_drain_selector_blocked_reason_missing_invalid.orc`, `backlog_drain_union_call_boundary_invalid.orc`, `backlog_drain_workflow_ref_signature_invalid.orc`, `drain_ctx_contract_invalid.orc`, `drain_stdlib_backlog_drain_non_symbol_callee.orc` | HOLDS (count 10 vs drafting "~12") |
+| Generic precedent | `std/phase.orc:82-149`, macro :150+ | `defproc review-revise-loop-proc` :82; `defmacro review-revise-loop` :150 | HOLDS |
+
+#### Component-plan Task 1 Step 3 — fresh suite counts (2026-07-10)
+
+| Module | Result |
+| --- | --- |
+| `tests/test_workflow_lisp_drain_stdlib.py` | `63 passed in 13.09s` |
+| `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py` | `93 passed in 153.93s (0:02:33)` |
+| `tests/test_workflow_lisp_procedures.py` | `128 passed in 1.12s` |
+| `tests/test_workflow_lisp_generic_stdlib_composition.py` | `11 passed in 0.77s` |
+| `tests/test_workflow_lisp_build_artifacts.py` | `190 passed in 288.84s (0:04:48)` |
+| `tests/test_lisp_frontend_autonomous_drain_runtime.py` | `149 passed in 176.19s (0:02:56)` |
+
+Zero failures, zero skips across all six modules — no failure identities to record. None of the known repo-wide baseline failures fall in these modules, as expected. **These counts are the Task-1.1 baselines cited by Gate P2.3 and Task 1.6.**
+
+#### Task 1.1 Step 2 — pre-swap certification/parity baseline (intrinsic route)
+
+```text
+$ python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json
+exit 0
+  "build_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/build/0758b59a065ce8e0",
+  "diagnostic_count": 0,
+  "entry_workflow": "lisp_frontend_design_delta/drain::drain",
+  "fingerprint": "0758b59a065ce8e0",
+  "lowering_route": "wcc_m4",
+  "lowering_schema_version": 2
+
+$ python -c "import json,glob,os; p=max(glob.glob('.orchestrate/build/*/g8_deletion_evidence.json'), key=os.path.getmtime); print(p, json.load(open(p))['status'])"
+.orchestrate/build/0758b59a065ce8e0/g8_deletion_evidence.json pass
+```
+
+Compile exit 0 with zero diagnostics; freshest `g8_deletion_evidence.json` status `pass`. This is the pre-swap intrinsic-route certification baseline for Gate P2.4.
