@@ -11,13 +11,17 @@ class ValidationSubjectRef:
     workflow_name: str | None = None
 
 
-def serialize_validation_subject_ref(subject_ref: ValidationSubjectRef) -> dict[str, str | None]:
-    """Serialize one validation subject using the shared provenance wire shape."""
+def serialize_validation_subject_ref(subject_ref: ValidationSubjectRef) -> dict[str, str]:
+    """Serialize a workflow-qualified subject using the shared provenance wire shape."""
+
+    workflow_name = subject_ref.workflow_name
+    if not isinstance(workflow_name, str) or not workflow_name:
+        raise ValueError("validation subject wire metadata requires a workflow name")
 
     return {
         "subject_kind": subject_ref.subject_kind,
         "subject_name": subject_ref.subject_name,
-        "workflow_name": subject_ref.workflow_name,
+        "workflow_name": workflow_name,
     }
 
 

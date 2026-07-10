@@ -24,6 +24,20 @@ def test_validation_subject_ref_round_trips_through_exact_wire_mapping() -> None
     assert parse_validation_subject_ref(serialized) == subject_ref
 
 
+@pytest.mark.parametrize("workflow_name", [None, ""])
+def test_serialize_validation_subject_ref_rejects_unqualified_workflow(
+    workflow_name: str | None,
+) -> None:
+    subject_ref = ValidationSubjectRef(
+        subject_kind="variant_output_field",
+        subject_name="execute::Decision::ACCEPTED::report",
+        workflow_name=workflow_name,
+    )
+
+    with pytest.raises(ValueError):
+        serialize_validation_subject_ref(subject_ref)
+
+
 @pytest.mark.parametrize(
     "value",
     [
