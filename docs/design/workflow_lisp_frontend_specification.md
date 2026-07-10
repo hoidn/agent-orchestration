@@ -968,9 +968,10 @@ P ProcRef[(A B ...) -> R]
 ```
 
 Constraint checking is compile-time. Unsatisfied constraints fail before
-lowering. Variant-specific fields remain proof-gated after specialization:
-generic code still needs a proof-bearing `match` before accessing
-variant-specific fields.
+lowering. Variant-specific fields remain governed by proof metadata (the
+compiler-internal representation of refined match binders) after
+specialization: generic code still needs a proof-bearing `match` before
+accessing variant-specific fields.
 
 Specialization identity includes at least:
 
@@ -1346,6 +1347,12 @@ Deliberate exclusions stay enforced by typed diagnostics:
   ((BLOCKED blocked)
    (record-blocked ctx blocked)))
 ```
+
+The author-facing model is **refined match binders**: inside each `match` arm,
+the binder is the selected variant payload, so that variant's fields are in
+scope directly on the binder. Compiler, lowering, validation, and runtime
+surfaces represent the same refinement as **proof metadata**; proof tokens are
+not authored values.
 
 `match` over a union creates a proof context.
 
@@ -2246,7 +2253,7 @@ Semantic contract:
   `ProcRef[(CompletedT InputsT ReviewFindings) -> CompletedT]`.
 - the stdlib loop returns exact `ReviewLoopResult` variants.
 - workflow-specific terminal unions are projected outside the loop by ordinary
-  proof-gated `match`.
+  `match` with refined match binders.
 - `APPROVE` and `BLOCKED` are terminal.
 - `REVISE` invokes fix and continues; it is not completion.
 - `EXHAUSTED` is typed terminal non-completion.
@@ -3928,7 +3935,8 @@ artifacts.
 Notes:
 
 - the stdlib loop returns `phase/ReviewLoopResult`; workflow-specific terminal
-  unions are projected by caller code with an ordinary proof-gated `match`
+  unions are projected by caller code with an ordinary `match` using
+  refined match binders
 - no manual state path
 - no markdown extraction
 - no explicit snapshot name
