@@ -33,7 +33,7 @@ Related current authority:
 | 5 (retire name-specific hooks) | **Absorbed** | Parametric type system Tranche 2 + `2026-07-07-drain-migration-g8-retirement.md` Phases 1–2; the G8 deletion inventory enumerates the lowerer, monomorphizer, name-keyed validators, and registry heads this report asked to retire. |
 | 6 (bridges/views at consumer boundaries) | **Absorbed** | Bridge declarations with owner/schema/consumer/retirement metadata exist; the compiler-hook bridge augmentation flagged here retires with the certification bundle (drain plan Phase 3). |
 | 7 (generic lifecycle types) | **Mechanism landed; application pending; parity sentence amended** | `std/drain.orc` already owns `DrainResult`, `SelectionResult`, `GapResult`, `SelectionPayload`, `GapPayload`, `DrainLoopTerminal`; parametric generics enable the `DrainResult<TSummary>` shape during the drain migration. See the amended parity note in issue 7. |
-| 8 (negative tests) | **Amended to a coverage audit** | See the amended recommendation; resolves a live collision with the Phase-1 refactoring plan's orphaned-fixture deletion. |
+| 8 (negative tests) | **Amended to a coverage audit** | See the amended recommendation; records the historical collision with the Phase-1 refactoring plan's orphaned-fixture deletion and the post-deletion coverage audit. |
 | 9 (unified typed-return semantics) | **Directional, gated** | Needs a frontend-spec update before implementation; conflicts today with the `record-drain-outcome` contract. Not implementation authority. |
 | 10 (interpreter-like evaluation) | **Directional** | WCC + lexical checkpoints are the current path; roadmap-level only. |
 | 11 (demote workflow as reuse unit) | **Directional, partially enacted** | Enacted for drain (`backlog-drain-proc` is authored as a `defproc`, not a workflow); generalizing beyond drain needs a frontend-spec update. |
@@ -455,18 +455,20 @@ type definitions and refined WCC bindings
    only the gaps.
 
    **Amendment (2026-07-08)** — originally "add focused negative tests." A
-   coverage audit must come first: the variant-proofs suite already covers part
-   of this list behaviorally, and three orphaned fixtures created in this
-   report's spirit were never wired to any test
+   coverage audit must come before any new wiring: the variant-proofs suite
+   already covers part of this list behaviorally, and three orphaned fixtures
+   created in this report's spirit were never wired to any test
    (`tests/fixtures/workflow_lisp/invalid/if_variant_proof_missing.orc`,
    `review_loop_result_contract_invalid.orc`,
-   `backlog_drain_hidden_compatibility_bridge_reread_invalid.orc`). Resolve the
-   audit against
+   `backlog_drain_hidden_compatibility_bridge_reread_invalid.orc`). The original
+   instruction was to resolve the audit against
    `docs/plans/2026-07-07-refactoring-dead-code-and-lowering-consolidation.md`
-   Task 3 **before** that task's fixture deletion runs: wire a fixture into a
-   behavioral test if its case is uncovered; let the deletion stand if the case
-   is already covered elsewhere. Per repo test policy, assert behavior and
-   diagnostics contracts, not literal prompt or message text.
+   Task 3 before its fixture deletion ran; that ordering is now historical
+   because commit `ce1170d1` landed the deletion. For current follow-up work,
+   retain the audit-before-new-wiring rule: let the deletion stand for covered
+   cases and add only minimal current-contract coverage for genuine gaps. Per
+   repo test policy, assert behavior and diagnostics contracts, not literal
+   prompt or message text.
 
    Audit case list (unchanged from the original recommendation):
 
@@ -485,10 +487,10 @@ type definitions and refined WCC bindings
    | Case | Status | Evidence |
    |---|---|---|
    | 1. Variant-specific field access outside its match arm | **Covered** | `tests/test_workflow_lisp_variant_proofs.py::test_typecheck_variant_field_access_requires_proof_context` and `tests/test_workflow_lisp_expressions.py::test_shared_union_field_capability_does_not_allow_variant_specific_field_without_match` cover the behavior with `variant_ref_unproved` / `variant_ref_wrong_variant` diagnostics. |
-   | 2. Repeated union-field names colliding after lowering | **Gap** | The nearest collision coverage, `tests/test_workflow_lisp_structured_results.py::test_workflow_signature_contract_flattening_rejects_projection_name_collisions`, is a nested-record projection collision, not a union-lowering collision. Duplicate field names across variants are allowed. |
-   | 3. Active variant missing a required output field | **Gap** | Runtime diagnostic `variant_required_field_missing` has no test. Compile-time `record_field_missing` coverage is not equivalent to a runtime output-bundle omission. |
+   | 2. Repeated union-field names colliding after lowering | **Gap** | Task 5 owner: `tests/test_workflow_lisp_structured_results.py`. Its nearest existing coverage, `test_workflow_signature_contract_flattening_rejects_projection_name_collisions`, is a nested-record projection collision, not a union-lowering collision. Task 5 must prove that valid same-name fields in distinct union variants remain variant-scoped and collision-free through lowering; it must not reject those names across variants. |
+   | 3. Active variant missing a required output field | **Gap** | Task 5 owner: `tests/test_output_contract.py`. Runtime diagnostic `variant_required_field_missing` has no test. Compile-time `record_field_missing` coverage is not equivalent to a runtime output-bundle omission. |
    | 4. Inactive variant field handling | **Covered** | `tests/test_output_contract.py::test_validate_variant_output_bundle_rejects_forbidden_variant_fields` covers rejection through `variant_forbidden_field_present`; `tests/test_workflow_lisp_pure_projection_runtime.py::test_pure_projection_runtime_skips_inactive_union_variant_outputs` covers skipping inactive projections. |
-   | 5. Runtime output failure attribution to an authored union field | **Gap** | No test maps a runtime output failure through source-map attribution to the authored union field. |
+   | 5. Runtime output failure attribution to an authored union field | **Gap** | Task 5 owner: `tests/test_workflow_lisp_source_map.py`. No test maps a runtime output failure through source-map attribution to the authored union field. |
    | 6. Generic stdlib drain projection without name-specific handling | **Owned elsewhere** | `docs/plans/2026-07-07-drain-migration-g8-retirement.md` owns this through Phase 1 Task 1.6 / Gate P2 and the Phase 2 name-blindness check. |
 
    Fixture reconciliation: commit `ce1170d1` deleted all three fixtures named

@@ -74,7 +74,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-07-typecheck-family-completion.md` | Completed through its Task 7 closeout amendment. Structural/static gates are clean, 398 typecheck tests and 19 Design Delta smoke tests pass, and the full-suite failure set matches the pre-plan baseline. |
 | `2026-07-07-build-module-split.md` | Completed through Task 6. Module/static gates are clean, 93 feasibility and 190 artifact tests pass, and the full-suite failure set matches the pre-plan baseline. |
 | `2026-07-07-executor-decomposition.md` | Completed through Task 9. Its targeted executor surface and Design Delta smoke pass; the full-suite failure identities match the pre-Task-2 baseline. |
-| `2026-07-08-boundary-report-followups.md` | Execute before the semantic freeze; it supplies terminology and negative-coverage evidence consumed by later design work. |
+| `2026-07-08-boundary-report-followups.md` | Active at Task 5 before the semantic freeze; Task 4 published the audit and selected cases 2, 3, and 5 for their named owning suites. |
 | `2026-07-07-drain-migration-g8-retirement.md` | Governs the parametric flagship migration and cleanup after re-anchoring to the refactored modules. |
 | `2026-07-07-yaml-retirement-program.md` | Task 1 may inform later design. Its Design Delta family promotion is coordinated between drain Phases 2 and 3; other code-changing and promotion tasks wait until the procedure-first pilot is accepted. |
 
@@ -121,12 +121,14 @@ Execute in this order:
    are recorded in the component plan. Large
    `build_design_delta.py` size is accepted temporarily because Stage 3 deletes
    the family-specific certification unit; do not start a second split first.
-5. **Boundary-report follow-ups — active next, ownership-gated.** Tasks 1-3 are
-   complete. Task 4 publication is paused while the report has uncommitted
-   owner changes; do not start Task 5 from provisional discovery. Once the
-   ownership gate clears, land the audit and applicable negative coverage.
-   Recommendation 11 remains design-gated; this stage must not implement the
-   broad transition.
+5. **Boundary-report follow-ups — active next at Task 5.** Tasks 1-4 are
+   complete; Task 4's audit landed in `e1822cf4` with date correction
+   `ab4668b0`. Implement the selected gaps in their owning suites: case 2 in
+   `tests/test_workflow_lisp_structured_results.py`, case 3 in
+   `tests/test_output_contract.py`, and case 5 in
+   `tests/test_workflow_lisp_source_map.py`. Then complete the historical
+   reconciliation and final gate. Recommendation 11 remains design-gated;
+   this stage must not implement the broad transition.
 6. Run the combined compiler/runtime baseline and one orchestrator smoke.
 
 Gate S1:
