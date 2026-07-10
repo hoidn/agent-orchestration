@@ -77,7 +77,9 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-08-boundary-report-followups.md` | Completed through Task 6 and its final gate. Case 5 now has production runtime/source-map attribution evidence. |
 | `2026-07-09-runtime-union-field-lineage-plan.md` | Completed through Task 6. The post-fix full suite retains exactly the six recorded baseline failures. |
 | `2026-07-07-drain-migration-g8-retirement.md` | Next active roadmap plan. Begin at Phase 1 Task 1.1; do not skip its re-baseline and anchor verification. |
-| `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Pending Stage-4 design. After that design is accepted and the plan is revised/reviewed, it is the first Stage-5 typed-return substrate item before the procedure-first pilot. |
+| `2026-07-10-workflow-lisp-native-transportable-returns-plan.md` | Accepted and reviewed Stage-5 wave 1 plan. Execute after Gates S3 and S4; it widens every current transportable return boundary and introduces the v2.15 direct-root contract without promoting v2.15. |
+| `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Accepted and reviewed Stage-5 wave 2 plan. Execute only after native returns; it adds root/field guidance and owns the combined v2.15 promotion gate. |
+| `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
 | `2026-07-07-yaml-retirement-program.md` | Task 1 may inform later design. Its Design Delta family promotion is coordinated between drain Phases 2 and 3; other code-changing and promotion tasks wait until the procedure-first pilot is accepted. |
 
 ## Concrete Execution Sequence
@@ -238,23 +240,20 @@ Then inventory current reusable workflow calls and classify each as:
 - `effect-adapter`: migrate only after a named substrate gap lands;
 - `legacy-retire`: delete rather than translate.
 
-In the same Stage 4 frontend-spec pass, specify the author-facing structured
-result field-guidance contract before revising its pending implementation plan:
+The typed-return portion of Stage 4 is already resolved by
+`docs/design/workflow_lisp_native_transportable_returns.md`. It establishes a
+uniform language-wide return model, direct JSON roots for every currently
+transportable type, compiler-owned `__result__` carriage, optional root and
+record/union-field guidance, exact v2.15 wire schemas, typed examples, and
+prompt-only guidance semantics. The independently reviewed execution plans are:
 
-6. decide optional `description`, `format_hint`, and `example` annotation
-   syntax for record and union payload fields, plus whether enum members and
-   union variants join the surface;
-7. define propagation through `defschema`, imports, generics, nested-record
-   flattening, shared union fields, and variant-specific lowering;
-8. define compile-time annotation/example checking and representation in
-   generated contracts, IR, source maps, and provider prompts;
-9. preserve the invariant that guidance affects prompts only, never
-   optionality, type validation, runtime validity, routing, effects, resume, or
-   checkpoint semantics.
+6. `2026-07-10-workflow-lisp-native-transportable-returns-plan.md`; then
+7. `2026-07-10-workflow-lisp-typed-result-guidance-plan.md`.
 
-The pending plan is
-`2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md`. Stage 4
-must revise and review it against the accepted delta before implementation.
+At the Stage-5 handoff after S3/S4, re-run each plan's Task 1 owner audit. Do not reopen
+the accepted typed-return decisions unless the broader procedure-first design
+finds a demonstrated conflict; record such a conflict as an explicit design
+amendment rather than silently changing an implementation plan.
 
 Gate S4:
 
@@ -263,29 +262,34 @@ Gate S4:
 - no production implementation starts from the diagnostic report alone;
 - separate implementation plans exist for substrate changes, the pilot, and
   migration waves when those scopes are independently testable;
-- the structured-result field-guidance delta is accepted and its pending plan
-  has been revised and approved for Stage 5 execution.
+- the native-return and typed-guidance design remains compatible with the
+  accepted broader procedure-first delta, and both reviewed plans are ready for
+  their Stage-5 owner rebaseline.
 
 ### Stage 5: Implement Procedure-First Reuse In Waves
 
 Execute only accepted plans, in this order:
 
-1. **Structured-result field-guidance substrate.** Execute the accepted and
-   revised `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md`
-   first. It is bounded typed-return substrate and must complete before the
-   procedure-first pilot.
-2. **Remaining substrate wave.** Land only type, return, effect, lowering,
+1. **Native transportable-return substrate.** Execute
+   `2026-07-10-workflow-lisp-native-transportable-returns-plan.md`. Keep direct
+   JSON roots and compiler-owned `__result__` carriage uniform across every
+   currently transportable type; do not promote v2.15 yet.
+2. **Typed result-guidance substrate.** Execute
+   `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` only after wave 1.
+   Its completion gate jointly promotes the v2.15 native-return and guidance
+   contract.
+3. **Remaining substrate wave.** Land only type, return, effect, lowering,
    source-map, or runtime-contract capabilities proven missing by Stage 4.
    Reuse the shared parametric specialization pipeline; do not add
    consumer-name branches.
-3. **Pilot wave.** Convert a small non-public workflow family with real effects
+4. **Pilot wave.** Convert a small non-public workflow family with real effects
    and typed returns. Preserve a public workflow wrapper only where an external
    run/resume boundary is required.
-4. **Library/stdlib wave.** Convert reusable internal families with the same
+5. **Library/stdlib wave.** Convert reusable internal families with the same
    classification and parity gates.
-5. **Production-family wave.** Convert eligible internal reuse only after
+6. **Production-family wave.** Convert eligible internal reuse only after
    output, artifact, effect, resume, and checkpoint parity is computed.
-6. **Compatibility retirement.** Delete workflow-as-function shims only after
+7. **Compatibility retirement.** Delete workflow-as-function shims only after
    the last consumer has migrated and negative coverage proves public workflow
    boundaries remain intact.
 

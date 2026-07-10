@@ -10,10 +10,11 @@
 > implementation are complete, the boundary final gate passed, and
 > `docs/plans/2026-07-07-drain-migration-g8-retirement.md` Phase 1 Task 1.1 is
 > the next active selection. The semantic-migration freeze remains in force.
-> `docs/plans/2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md`
-> is separately tracked as Pending: Stage 4 owns its frontend-spec design, and
-> it is the first Stage 5 substrate item before the procedure-first pilot. It
-> does not change the current Stage 1-3 selection.
+> The typed-return portion of Stage 4 is now accepted in
+> `docs/design/workflow_lisp_native_transportable_returns.md`. Its reviewed
+> Stage 5 order is native transportable returns, then typed result guidance,
+> then the procedure-first pilot. The plans remain gated by S3/S4 and do not
+> change the current Stage 1-3 selection.
 
 **Tech Stack:** Markdown, Git, `rg`, pytest, pyflakes.
 

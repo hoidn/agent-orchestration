@@ -1,14 +1,16 @@
 # Workflow Lisp Structured-Result Field Guidance Implementation Plan
 
-> **Status:** Pending Stage 4 design. This plan is part of the approved
-> procedure-first plan set, but it is not execution-ready and must not begin
-> before the Stage 4 frontend-spec delta is accepted and this plan is revised
-> and reviewed against that contract.
+> **Status:** Superseded on 2026-07-10. Do not execute this provisional plan.
+> Its scope was expanded and replaced by the accepted design
+> `docs/design/workflow_lisp_native_transportable_returns.md` and the reviewed
+> execution sequence:
+> `docs/plans/2026-07-10-workflow-lisp-native-transportable-returns-plan.md`
+> followed by
+> `docs/plans/2026-07-10-workflow-lisp-typed-result-guidance-plan.md`.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: After the Stage 4 design gate,
-> use superpowers:writing-plans to replace provisional implementation details,
-> then use superpowers:subagent-driven-development to execute the approved plan
-> task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Historical record:** Everything below this notice preserves the superseded
+> proposal for provenance only. Its dependencies, tasks, checkboxes, and
+> execution instructions are obsolete; follow the two replacement plans above.
 
 **Goal:** Let Workflow Lisp type declarations attach reusable semantic guidance
 to structured-result fields so generated provider output-contract prompts

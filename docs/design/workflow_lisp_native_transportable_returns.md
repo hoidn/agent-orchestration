@@ -1,9 +1,10 @@
 # Workflow Lisp Native Transportable Returns And Typed Result Guidance
 
-- **Status:** proposed
+- **Status:** accepted
 - **Kind:** feature and frontend architecture decision
 - **Owner:** Workflow Lisp frontend
-- **Reviewers:** pending independent design review
+- **Reviewers:** independent design review approved after three review passes;
+  authoring surface approved by the user on 2026-07-10
 - **Created:** 2026-07-10
 - **Last material update:** 2026-07-10
 - **Related docs:**
@@ -12,7 +13,8 @@
   - `docs/design/workflow_lisp_runtime_migration_foundation.md`
   - `docs/design/workflow_lisp_source_map.md`
   - `docs/reports/2026-06-19-workflow-lisp-type-runtime-boundary-issues.md`
-  - `docs/plans/2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md`
+  - `docs/plans/2026-07-10-workflow-lisp-native-transportable-returns-plan.md`
+  - `docs/plans/2026-07-10-workflow-lisp-typed-result-guidance-plan.md`
   - `specs/dsl.md`
   - `specs/io.md`
   - `specs/providers.md`
@@ -361,6 +363,12 @@ The compiler classifies each result contract as one of:
 
 This classification is structural and type-driven. It must not branch on
 workflow, provider, procedure, module, or domain names.
+
+The classification is a new `result_shape` contract property. It is distinct
+from the existing `WorkflowBoundaryProjection.return_kind` compatibility key:
+that key retains `record` and `union` for existing projections and adds `root`
+for the new boundary. Consumers must not silently reinterpret the old key as
+the new three-value classification.
 
 ### Binding and projection
 
