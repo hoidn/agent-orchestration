@@ -692,6 +692,7 @@ def _lower_procedure_call(
         generated_path_spans=context.generated_path_spans,
         generated_path_allocations=context.generated_path_allocations,
         generated_semantic_effects=context.generated_semantic_effects,
+        generated_contract_field_bindings=context.generated_contract_field_bindings,
         output_projection_metadata=context.output_projection_metadata,
         top_level_artifacts=context.top_level_artifacts,
         inline_call_counters=context.inline_call_counters,

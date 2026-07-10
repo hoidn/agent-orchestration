@@ -377,6 +377,42 @@ def _write_union_field_lineage_module(path: Path) -> Path:
     return path
 
 
+def _write_inline_union_field_lineage_module(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule source-map/inline-union-field-lineage)",
+                "  (export entry)",
+                "  (defunion Decision",
+                "    (ACCEPTED",
+                "      (report String))",
+                "    (REJECTED",
+                "      (report String)))",
+                "  (defproc run-review",
+                "    ((input String))",
+                "    -> Decision",
+                "    :effects ((uses-provider providers.execute))",
+                "    :lowering inline",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.implementation.execute",
+                "      :inputs (input)",
+                "      :returns Decision))",
+                "  (defworkflow entry",
+                "    ((input String))",
+                "    -> Decision",
+                "    (run-review input)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def _source_map_payload(document) -> dict[str, object]:
     build_module = importlib.import_module("orchestrator.workflow_lisp.build")
     return build_module._json_data(document)
@@ -471,6 +507,44 @@ def test_source_map_validator_rejects_dangling_contract_field_binding(
         source_map_module.validate_source_map_document(broken_document)
 
     assert excinfo.value.diagnostics[0].code == "source_map_validation_ref_missing"
+
+
+def test_source_map_preserves_inline_union_contract_field_lineage(
+    tmp_path: Path,
+) -> None:
+    path = _write_inline_union_field_lineage_module(
+        tmp_path / "source-map" / "inline-union-field-lineage.orc"
+    )
+    _, document, workflow_name = _build_source_map_document(
+        path,
+        tmp_path=tmp_path,
+        selected_name="entry",
+    )
+    workflow = document.workflows[workflow_name]
+    inline_decision_fields = {
+        subject_name: entry
+        for subject_name, entry in workflow.contract_fields.items()
+        if "::Decision::" in subject_name
+    }
+
+    assert any(
+        "::Decision::ACCEPTED::report" in subject_name
+        for subject_name in inline_decision_fields
+    )
+    assert any(
+        "::Decision::REJECTED::report" in subject_name
+        for subject_name in inline_decision_fields
+    )
+    assert all(
+        any(
+            binding.subject_ref.subject_kind == "variant_output_field"
+            and binding.subject_ref.subject_name == subject_name
+            and binding.subject_ref.workflow_name == workflow_name
+            and binding.origin_key == entry.origin_key
+            for binding in workflow.validation_subjects
+        )
+        for subject_name, entry in inline_decision_fields.items()
+    )
 
 
 def _walk_steps(raw_steps: object) -> tuple[dict[str, object], ...]:
