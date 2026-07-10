@@ -403,6 +403,65 @@ def test_minimal_caller_satisfies_finalize_selected_item_declared_constraints(tm
     )
 
 
+def test_minimal_caller_satisfies_backlog_drain_proc_declared_constraints(tmp_path: Path) -> None:
+    # Minimal-caller fixture for the Tranche 2 flagship (design Acceptance
+    # Checks: every stdlib generic gets one whose types provide exactly the
+    # declared constraints and nothing more). The fixture let*-binds the
+    # backlog-drain-proc terminal and passes it to settle-drain-terminal —
+    # the user-sanctioned composition idiom (2026-07-10 adjudication:
+    # procedure calls in argument position are unsupported; bind with let*).
+    # The backlog-drain macro is NOT exercised (it re-targets in Task 5 of
+    # docs/plans/2026-07-06-backlog-drain-generic-migration-plan.md and must
+    # emit this same let*-bound shape).
+    #
+    # Reality anchors mirrored from the frozen intrinsic
+    # `_phase_stdlib_lower_backlog_drain_impl`
+    # (orchestrator/workflow_lisp/lowering/phase_drain.py) — read, not
+    # invented:
+    # - G2 selection-payload projection: the item context is built from
+    #   selection `item-id` and `item-state-root` plus ctx `run`/`ledger`
+    #   and run `artifact-root` (item_ctx_value, phase_drain.py:602-608).
+    # - G4 selector-BLOCKED mapping: the selector's BLOCKED `reason` is
+    #   dropped and the terminal blocker class is the constant
+    #   `user_decision_required`
+    #   (selector_blocked_compatibility_blocker, phase_drain.py:653,
+    #   applied at the mark_selector_blocked markers, phase_drain.py:1496-1518).
+    # - Exhaustion class: `on_exhausted` forces loop-status EXHAUSTED with
+    #   blocker class `unrecoverable_after_fix_attempt`
+    #   (phase_drain.py:1704-1709); items/progress stay at accumulator state.
+    # - Progress-report seeding: the intrinsic seeds the accumulator
+    #   progress path with the literal
+    #   `artifacts/work/drain-progress-report.md`
+    #   (seed_progress_literal, phase_drain.py:654); the generic proc takes
+    #   it as the `initial-progress-report` parameter, which this fixture
+    #   (and Task 5's macro) supplies via the `__generated-relpath-seed__`
+    #   pattern with that same literal.
+    # - EMPTY vs COMPLETED: an EMPTY selection terminates as EMPTY only when
+    #   zero items were processed, otherwise COMPLETED
+    #   (empty_route_step, phase_drain.py:1256-1306).
+    assert (
+        _compile_module_fixture(
+            FIXTURES / "valid" / "minimal_caller_backlog_drain.orc",
+            tmp_path=tmp_path,
+            command_boundaries={
+                "drain_select": ExternalToolBinding(
+                    name="drain_select",
+                    stable_command=("python", "scripts/select_next_item.py"),
+                ),
+                "drain_run_item": ExternalToolBinding(
+                    name="drain_run_item",
+                    stable_command=("python", "scripts/execute_selected_item.py"),
+                ),
+                "drain_draft_gap": ExternalToolBinding(
+                    name="drain_draft_gap",
+                    stable_command=("python", "scripts/draft_gap_item.py"),
+                ),
+            },
+        )
+        is not None
+    )
+
+
 def test_cross_module_generic_loop_projects_caller_union_fields(tmp_path: Path) -> None:
     # Gap C regression (docs/plans/2026-07-07-drain-migration-g8-retirement.md,
     # Phase 1 Ledger): a specialized generic `loop/recur` body that matches a

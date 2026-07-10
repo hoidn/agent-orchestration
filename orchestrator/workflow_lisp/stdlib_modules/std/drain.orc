@@ -17,7 +17,9 @@
           completed-drain-result-proc
           finalize-drain-terminal
           consume-drain-terminal-effects
-          backlog-drain)
+          backlog-drain
+          backlog-drain-proc
+          settle-drain-terminal)
   (defrecord SelectionPayload
     (item-id String)
     (item-state-root Path.state-root))
@@ -284,4 +286,108 @@
       :run-item run-item
       :gap-drafter gap-drafter
       :max-iterations max))
+  ; Generic drain loop body (dormant until the backlog-drain macro re-targets
+  ; onto it). Signature is the Tranche 2 flagship from
+  ; docs/design/workflow_lisp_parametric_type_system.md (:where copied
+  ; verbatim, including the G2 SelPayloadT field clauses). Reality anchors
+  ; mirror the frozen intrinsic `_phase_stdlib_lower_backlog_drain_impl`
+  ; (lowering/phase_drain.py): item-context projection (item-id /
+  ; item-state-root), selector-BLOCKED -> user_decision_required,
+  ; on-exhausted -> unrecoverable_after_fix_attempt, EMPTY-with-work ->
+  ; COMPLETED, and the caller-supplied initial progress-report seed.
+  (defproc backlog-drain-proc
+    :forall (CtxT SelectionT SelPayloadT GapPayloadT RunResultT GapResultT)
+    ((ctx CtxT)
+     (selector ProcRef[(CtxT) -> SelectionT])
+     (run-item ProcRef[(std/context/ItemCtx SelPayloadT) -> RunResultT])
+     (gap-drafter ProcRef[(CtxT GapPayloadT) -> GapResultT])
+     (max-iterations Int)
+     (initial-progress-report WorkReport))
+    :where ((CtxT is-record)
+            (CtxT has-field run std/context/RunCtx)
+            (CtxT has-field state-root Path.state-root)
+            (CtxT has-field manifest Path.state-root)
+            (CtxT has-field ledger Path.state-root)
+            (SelectionT is-union)
+            (SelectionT has-union-variant EMPTY)
+            (SelectionT has-union-variant SELECTED (selection SelPayloadT))
+            (SelectionT has-union-variant GAP (gap GapPayloadT))
+            (SelectionT has-union-variant BLOCKED (reason String))
+            (SelPayloadT is-record)
+            (SelPayloadT has-field item-id String)
+            (SelPayloadT has-field item-state-root Path.state-root)
+            (GapPayloadT is-record)
+            (RunResultT has-union-variant CONTINUE (summary-path WorkReport))
+            (RunResultT has-union-variant BLOCKED
+              (summary-path WorkReport) (blocker-class BlockerClass))
+            (GapResultT has-union-variant CONTINUE)
+            (GapResultT has-union-variant BLOCKED
+              (progress-report-path WorkReport) (blocker-class BlockerClass)))
+    -> std/drain/DrainLoopTerminal
+    :effects ()
+    :lowering inline
+    (loop/recur
+      :max max-iterations
+      :state (loop-state
+               (items-processed Int 0)
+               (progress-report-path WorkReport initial-progress-report))
+      :on-exhausted (variant std/drain/DrainLoopTerminal EXHAUSTED
+                      :items_processed state.items-processed
+                      :progress_report_path state.progress-report-path
+                      :blocker_class std/resource/BlockerClass.unrecoverable_after_fix_attempt)
+      (fn (state)
+        (match (selector ctx)
+          ((EMPTY empty)
+           (if (= state.items-processed 0)
+             (done
+               (variant std/drain/DrainLoopTerminal EMPTY
+                 :items_processed state.items-processed
+                 :progress_report_path state.progress-report-path))
+             (done
+               (variant std/drain/DrainLoopTerminal COMPLETED
+                 :items_processed state.items-processed
+                 :progress_report_path state.progress-report-path))))
+          ((SELECTED selected)
+           (let* ((item-ctx (record std/context/ItemCtx
+                              :run ctx.run
+                              :item-id selected.selection.item-id
+                              :state-root selected.selection.item-state-root
+                              :artifact-root ctx.run.artifact-root
+                              :ledger ctx.ledger)))
+             (match (run-item item-ctx selected.selection)
+               ((CONTINUE continued)
+                (continue (loop-state :like state
+                            :items-processed (+ state.items-processed 1)
+                            :progress-report-path continued.summary-path)))
+               ((BLOCKED blocked)
+                (done (variant std/drain/DrainLoopTerminal BLOCKED
+                        :items_processed state.items-processed
+                        :progress_report_path blocked.summary-path
+                        :blocker_class blocked.blocker-class))))))
+          ((GAP gapped)
+           (match (gap-drafter ctx gapped.gap)
+             ((CONTINUE continued)
+              (continue (loop-state :like state
+                          :items-processed state.items-processed)))
+             ((BLOCKED blocked)
+              (done (variant std/drain/DrainLoopTerminal BLOCKED
+                      :items_processed state.items-processed
+                      :progress_report_path blocked.progress-report-path
+                      :blocker_class blocked.blocker-class)))))
+          ((BLOCKED blocked)
+           (done (variant std/drain/DrainLoopTerminal BLOCKED
+                   :items_processed state.items-processed
+                   :progress_report_path state.progress-report-path
+                   :blocker_class std/resource/BlockerClass.user_decision_required)))))))
+  ; Monomorphic terminal settlement: consume terminal effects, then finalize
+  ; the terminal into the public DrainResult. Composes the existing helpers;
+  ; it does not re-implement them.
+  (defproc settle-drain-terminal
+    ((terminal DrainLoopTerminal))
+    -> DrainResult
+    :effects ((uses-command apply_resource_transition)
+              (writes drain-summary))
+    :lowering inline
+    (let* ((consumed-summary-path (consume-drain-terminal-effects terminal)))
+      (finalize-drain-terminal terminal)))
 )
