@@ -157,7 +157,16 @@ def test_runtime_union_field_violation_resolves_exact_authored_field_origin(
     assert violation["type"] == "variant_required_field_missing"
     assert violation["context"]["variant"] == "ACCEPTED"
     assert violation["context"]["name"] == "report"
-    assert violation["subject_refs"][0]["subject_kind"] == "variant_output_field"
+    assert len(violation["subject_refs"]) == 1
+    assert violation["subject_refs"] == [
+        {
+            "subject_kind": "variant_output_field",
+            "subject_name": (
+                "runtime_union_lineage::decide__result::Decision::ACCEPTED::report"
+            ),
+            "workflow_name": "runtime_union_lineage::decide",
+        }
+    ]
     assert len(violation["source_origins"]) == 1
     origin = violation["source_origins"][0]
     assert origin["entity_kind"] == "variant_output_field"
