@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from orchestrator.loader import WorkflowLoader
-from orchestrator.workflow.core_ast import build_core_workflow_ast
 from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow.runtime_plan import enrich_workflow_runtime_plan
@@ -83,7 +82,7 @@ from .build_artifacts import (
     _entry_publication_source_map_step_ids,
     _fingerprint_build,
     _origin_payload,
-    _public_runtime_plan_payload,
+    _public_runtime_plan_payload as _public_runtime_plan_payload_export,
     _serialize_expanded_frontend_ast,
     _serialize_frontend_ast,
     _serialize_lexical_checkpoint_points,
@@ -96,6 +95,8 @@ from .build_artifacts import (
     _validate_selected_workflow_hidden_compatibility_bridge_public_boundary,
     _write_build_artifacts,
 )
+
+_public_runtime_plan_payload = _public_runtime_plan_payload_export
 
 from .command_boundaries import CertifiedAdapterBinding, ExternalToolBinding
 from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
@@ -920,8 +921,6 @@ def _select_and_reattach(
         **dict(validated_bundles_by_name),
         entry_selection.canonical_name: validated_bundle,
     }
-    runtime_plan_payload = _public_runtime_plan_payload(validated_bundle.runtime_plan)
-
     return _SelectAndReattachResult(
         validated_bundle=validated_bundle,
         validated_bundles_by_name=validated_bundles_by_name,
