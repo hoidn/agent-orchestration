@@ -1,5 +1,7 @@
 # Lowering Fork Migration and Shim Retirement Plan (Tranche 1 remainder)
 
+> **Execution status (completed 2026-07-09):** Tasks 1-8 are committed through `3ff5492b`; no later committed change touches the plan-owned lowering paths. Task 9 is verified below. The only remaining `lowering_core` imports and attribute references are the explicitly frozen `phase_drain.py` / `drain_terminal.py` residue owned by the drain/G8 retirement plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the phase_scope↔workflow_calls fork (nine diverged helper pairs, with the fix stream stranded on workflow_calls) and then retire the `lowering_core` forwarder-shim pattern (~120 forwarders across 10 modules) by threading recursion through `_LoweringContext` and direct owner imports.
@@ -275,7 +277,16 @@ pytest tests/test_workflow_lisp_phase_stdlib.py tests/test_workflow_lisp_drain_s
 
 ### Task 9: Final sweep and gate
 
-- [ ] **Step 1:** `grep -rln "import core as lowering_core" orchestrator/workflow_lisp/lowering/` → expected: only `phase_drain.py` and `drain_terminal.py` (frozen residue, retired by the drain/G8 plan).
-- [ ] **Step 2:** Full lowering surface: `pytest tests/test_workflow_lisp_lowering.py tests/test_workflow_lisp_phase_stdlib.py tests/test_workflow_lisp_drain_stdlib.py tests/test_workflow_lisp_wcc_m1.py tests/test_workflow_lisp_wcc_m2.py tests/test_workflow_lisp_wcc_m4.py -q` → PASS.
-- [ ] **Step 3:** Full suite in tmux: `pytest -q` → same pass set as before this plan.
-- [ ] **Step 4:** Report lines deleted, remaining frozen residue, and any expectation updates made under the Baseline rule.
+- [x] **Step 1:** `grep -rln "import core as lowering_core" orchestrator/workflow_lisp/lowering/` → expected: only `phase_drain.py` and `drain_terminal.py` (frozen residue, retired by the drain/G8 plan).
+- [x] **Step 2:** Full lowering surface: `pytest tests/test_workflow_lisp_lowering.py tests/test_workflow_lisp_phase_stdlib.py tests/test_workflow_lisp_drain_stdlib.py tests/test_workflow_lisp_wcc_m1.py tests/test_workflow_lisp_wcc_m2.py tests/test_workflow_lisp_wcc_m4.py -q` → PASS.
+- [x] **Step 3:** Full suite in tmux: `pytest -q` → same pass set as before this plan.
+- [x] **Step 4:** Report lines deleted, remaining frozen residue, and any expectation updates made under the Baseline rule.
+
+#### Task 9 closeout evidence (2026-07-09)
+
+- The residue grep returned exactly `phase_drain.py` and `drain_terminal.py`.
+- The exact six-module lowering selector passed: **386 passed in 25.86s**.
+- Full suite at `78deb6759710` completed with **6 failed, 4073 passed, 11 skipped in 947.91s**. All six failure identities match both the executor closeout baseline and direct execution of those selectors at pre-plan revision `93a34adf`; they are not lowering-fork regressions.
+- The exact plan commit set deleted 768 code lines and inserted 277, for **491 net code lines removed**. Including the 116-line dossier appendix, the tranche removed 375 net lines.
+- No test file changed in the plan commits, so Baseline-rule expectation updates were **zero**.
+- Thirteen `lowering_core.` references remain: nine in `phase_drain.py` (one documented import-cycle-required `_normalize_generated_step_id` forwarder and eight frozen-body references) and four frozen forwarders in `drain_terminal.py`. Their retirement remains owned by the drain/G8 plan.

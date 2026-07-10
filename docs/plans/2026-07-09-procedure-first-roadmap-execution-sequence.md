@@ -70,7 +70,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | Plan | Disposition in this sequence |
 | --- | --- |
 | `2026-07-07-refactoring-dead-code-and-lowering-consolidation.md` | Audit existing commits and run its final closeout; do not replay landed tasks. |
-| `2026-07-07-lowering-fork-migration.md` | Treat as implementation-complete only after its final grep and named tests pass; expected remaining `lowering_core` use is drain-frozen residue. |
+| `2026-07-07-lowering-fork-migration.md` | Completed through Task 9. Its final grep contains only drain-frozen residue; 386 lowering tests pass and the full-suite failure set matches the pre-plan baseline. |
 | `2026-07-07-typecheck-family-completion.md` | Treat as implementation-complete only after its final structural and behavioral gates pass; expected owner modules already exist. |
 | `2026-07-07-build-module-split.md` | Tasks 1-5 appear landed; execute/re-run the final verification and module-boundary audit. Do not redo mechanical moves. |
 | `2026-07-07-executor-decomposition.md` | Completed through Task 9. Its targeted executor surface and Design Delta smoke pass; the full-suite failure identities match the pre-Task-2 baseline. |
@@ -110,10 +110,10 @@ Execute in this order:
    corrected executor-surface suite passed, the full-suite failure identities
    matched the pre-Task-2 baseline, and the orchestrator smoke passed. Do not
    replay Tasks 2-8 or repeat this gate without a relevant code change.
-2. **Lowering-fork closeout — active next.** Run the final residue audit and named lowering
-   suites. The only accepted `lowering_core` back-import residue is the region
-   frozen for drain retirement.
-3. **Typecheck-family closeout.** Run the structural import audit and the
+2. **Lowering-fork closeout — completed 2026-07-09.** The final residue audit
+   contains only the region frozen for drain retirement; the exact lowering
+   selector and full-suite baseline comparison are recorded in the component plan.
+3. **Typecheck-family closeout — active next.** Run the structural import audit and the
    procedures, drain, resource/view, and resume suites. No additional ownership
    redesign belongs here.
 4. **Build-split closeout.** Run its Task 6 full verification, import-cycle

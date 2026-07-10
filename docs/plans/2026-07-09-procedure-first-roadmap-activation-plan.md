@@ -298,7 +298,7 @@ Under the procedure-first roadmap entry in `docs/index.md`, add a compact
 component-plan list or paragraph that identifies:
 
 - closeout plans: lowering, typecheck family, build split;
-- active next plan: executor decomposition;
+- activation-time next plan: executor decomposition (now completed; use current `docs/index.md` routing);
 - semantic migration plan: drain migration/G8 retirement;
 - prerequisite evidence plan: boundary-report follow-ups.
 
@@ -495,9 +495,9 @@ before and after every suite. No pre-existing test failure was accepted.
 
 Closeout dispositions:
 
-- **Lowering:** the targeted activation check passed. The lowering plan is not
-  closed: its Task 9 full lowering-surface selector (including the WCC M1, M2,
-  and M4 suites), full `pytest -q`, and report remain.
+- **Lowering:** completed 2026-07-09. Its Task 9 residue audit, 386-test lowering
+  selector, full-suite baseline comparison, and report are recorded in the
+  component plan. Only drain-frozen `lowering_core` residue remains.
 - **Typecheck family:** the targeted activation check and the full Design Delta
   feasibility suite passed. The typecheck plan is not closed: its end-of-plan
   full `pytest -q` and final structural/reporting gate remain.
