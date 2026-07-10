@@ -195,6 +195,11 @@ Expected: PASS.
 
 ### Task 2: Register field origins and persist canonical source-map entries
 
+> **Status (completed 2026-07-09):** Landed in `87a3b487`, with inline
+> procedure catalog sharing in `9b605ba7` and fail-closed duplicate/missing
+> subject handling in `256ac49c`. Specification and code-quality reviews
+> approved the final range; 59 affected-module tests pass.
+
 **Files:**
 - Modify: `orchestrator/workflow_lisp/lowering/context.py`
 - Modify: `orchestrator/workflow_lisp/lowering/origins.py`
@@ -209,7 +214,7 @@ Expected: PASS.
 - Modify: `orchestrator/workflow_lisp/source_map.py`
 - Test: `tests/test_workflow_lisp_source_map.py`
 
-- [ ] **Step 1: Add the RED production-compile source-map test**
+- [x] **Step 1: Add the RED production-compile source-map test**
 
 Use a real `.orc` fixture containing two variants with a compatible same-name
 field on distinct lines and a provider or command structured result. Compile
@@ -245,7 +250,7 @@ pytest tests/test_workflow_lisp_source_map.py -q -k 'contract_field or union_fie
 
 Expected: FAIL because `WorkflowSourceMap` has no `contract_fields`.
 
-- [ ] **Step 2: Add shared lowering registration ownership**
+- [x] **Step 2: Add shared lowering registration ownership**
 
 Add `generated_contract_field_bindings` to `_LoweringContext`. Initialize an
 empty list in both classic and WCC root contexts; inline procedure contexts
@@ -264,14 +269,14 @@ rg -n 'derive_structured_result_contract\(' orchestrator/workflow_lisp -g '*.py'
 Document static-only exceptions in a short code comment beside the call; do
 not register reusable-state analysis or boundary-projection-only derivations.
 
-- [ ] **Step 3: Carry custom bindings into the classic origin map**
+- [x] **Step 3: Carry custom bindings into the classic origin map**
 
 Extend `_build_validation_subject_bindings` with explicit extra bindings.
 Classic `LoweringOriginMap` construction must combine standard subjects with
 the context's field bindings and retain their already assigned origin keys.
 Do not infer field origins by scanning the generated mapping.
 
-- [ ] **Step 4: Persist and validate `contract_fields`**
+- [x] **Step 4: Persist and validate `contract_fields`**
 
 In `source_map.py`:
 
@@ -284,7 +289,7 @@ In `source_map.py`:
 - do not change the canonical coverage key set solely for this additive
   section.
 
-- [ ] **Step 5: Run Task 2 checks and commit**
+- [x] **Step 5: Run Task 2 checks and commit**
 
 ```bash
 pytest tests/test_workflow_lisp_source_map.py -q -k 'contract_field or union_field_lineage'
