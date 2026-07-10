@@ -2860,6 +2860,7 @@ def _source_map_origin_keys(workflow_payload: Mapping[str, Any]) -> set[str]:
         "generated_outputs",
         "generated_paths",
         "generated_internal_inputs",
+        "contract_fields",
     ):
         section = workflow_payload.get(section_name)
         if not isinstance(section, Mapping):
@@ -2901,6 +2902,10 @@ def _supported_source_map_subject_keys(
     supported.update(
         ("generated_path", name, workflow_name)
         for name in _mapping_string_keys(workflow_payload.get("generated_paths"))
+    )
+    supported.update(
+        ("variant_output_field", name, workflow_name)
+        for name in _mapping_string_keys(workflow_payload.get("contract_fields"))
     )
     return supported
 

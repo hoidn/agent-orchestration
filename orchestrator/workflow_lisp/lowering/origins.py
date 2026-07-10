@@ -563,6 +563,23 @@ def _rekey_origin_map(origin_map: LoweringOriginMap, *, workflow_name: str) -> L
         )
         for effect in origin_map.generated_semantic_effects
     )
+    contract_field_bindings = tuple(
+        replace(
+            binding,
+            subject_ref=replace(
+                binding.subject_ref,
+                workflow_name=workflow_name,
+            ),
+            origin=_with_origin_key(
+                binding.origin,
+                workflow_name=workflow_name,
+                entity_kind="variant_output_field",
+                subject_name=binding.subject_ref.subject_name,
+            ),
+        )
+        for binding in origin_map.validation_subject_bindings
+        if binding.subject_ref.subject_kind == "variant_output_field"
+    )
     return LoweringOriginMap(
         workflow_name=workflow_name,
         workflow_origin=workflow_origin,
@@ -578,6 +595,7 @@ def _rekey_origin_map(origin_map: LoweringOriginMap, *, workflow_name: str) -> L
             generated_inputs={**authored_input_spans, **internal_input_spans},
             generated_outputs=generated_output_spans,
             generated_paths=generated_path_spans,
+            extra_bindings=contract_field_bindings,
         ),
         generated_semantic_effects=generated_semantic_effects,
     )

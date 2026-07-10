@@ -46,7 +46,13 @@ DESIGN_DELTA_PARENT_DRAIN_COMMANDS = (
 )
 
 
-def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
+def _compile(
+    path: Path,
+    *,
+    tmp_path: Path,
+    validate_shared: bool = False,
+    lowering_route: str = "legacy",
+):
     return compile_stage3_module(
         path,
         provider_externs={"providers.execute": "test-provider"},
@@ -59,7 +65,7 @@ def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
-        lowering_route="legacy",
+        lowering_route=lowering_route,
         validate_shared=validate_shared,
         workspace_root=tmp_path,
     )
@@ -71,9 +77,15 @@ def _build_source_map_document(
     tmp_path: Path,
     selected_name: str,
     validate_shared: bool = False,
+    lowering_route: str = "legacy",
 ):
     source_map_module = importlib.import_module("orchestrator.workflow_lisp.source_map")
-    compile_result = _compile(path, tmp_path=tmp_path, validate_shared=validate_shared)
+    compile_result = _compile(
+        path,
+        tmp_path=tmp_path,
+        validate_shared=validate_shared,
+        lowering_route=lowering_route,
+    )
     canonical_name = next(
         workflow.definition.name
         for workflow in compile_result.typed_workflows
@@ -465,6 +477,45 @@ def test_source_map_persists_distinct_authored_union_contract_fields(
         )
         for entry in (accepted, rejected)
     )
+
+
+def test_source_map_contract_field_lineage_matches_legacy_and_wcc_routes(
+    tmp_path: Path,
+) -> None:
+    path = _write_union_field_lineage_module(
+        tmp_path / "source-map" / "union-field-lineage-routes.orc"
+    )
+    _, legacy_document, legacy_name = _build_source_map_document(
+        path,
+        tmp_path=tmp_path,
+        selected_name="entry",
+        lowering_route="legacy",
+    )
+    _, wcc_document, wcc_name = _build_source_map_document(
+        path,
+        tmp_path=tmp_path,
+        selected_name="entry",
+        lowering_route="wcc_m4",
+    )
+
+    def field_identity_and_span(document, workflow_name):
+        return {
+            subject_name: (
+                entry.line,
+                entry.column,
+                entry.end_line,
+                entry.end_column,
+                entry.form_path,
+            )
+            for subject_name, entry in document.workflows[
+                workflow_name
+            ].contract_fields.items()
+        }
+
+    legacy_fields = field_identity_and_span(legacy_document, legacy_name)
+    wcc_fields = field_identity_and_span(wcc_document, wcc_name)
+    assert legacy_fields
+    assert wcc_fields == legacy_fields
 
 
 def test_source_map_validator_rejects_dangling_contract_field_binding(

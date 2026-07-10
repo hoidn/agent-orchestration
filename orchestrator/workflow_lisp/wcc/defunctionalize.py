@@ -811,6 +811,7 @@ def _lower_one_wcc_workflow(
                 workflow_name=typed_workflow.definition.name,
                 entity_kind="generated_path",
             ),
+            extra_bindings=context.generated_contract_field_bindings,
         ),
         generated_semantic_effects=generated_semantic_effects,
     )

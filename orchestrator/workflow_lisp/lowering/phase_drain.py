@@ -2260,10 +2260,19 @@ def _specialize_same_file_lowered_workflow_provider_metadata(
         if isinstance(value, list):
             return [rewrite(item) for item in value]
         if isinstance(value, Mapping):
-            rewritten = {
-                key: rewrite(item)
-                for key, item in value.items()
-            }
+            rewritten: dict[Any, Any] = {}
+            for key, item in value.items():
+                if key == "source_map_subject" and isinstance(item, Mapping):
+                    rewritten[key] = {**dict(item), "workflow_name": alias}
+                elif key == "source_map_subjects_by_variant" and isinstance(item, Mapping):
+                    rewritten[key] = {
+                        variant: {**dict(subject), "workflow_name": alias}
+                        if isinstance(subject, Mapping)
+                        else subject
+                        for variant, subject in item.items()
+                    }
+                else:
+                    rewritten[key] = rewrite(item)
             if isinstance(value.get("provider"), str):
                 rewritten["provider"] = provider_id or str(value["provider"])
                 rewritten = lowering_core._rewrite_prompt_source_mapping(rewritten, prompt_binding)

@@ -6,12 +6,12 @@ import re
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass, replace
 from pathlib import Path
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 
 import pytest
 import yaml
 
-from orchestrator.exceptions import WorkflowValidationError
+from orchestrator.exceptions import ValidationSubjectRef, WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
@@ -25,6 +25,66 @@ LEXICAL_POLICY_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkp
 LEXICAL_RESTORE_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_restore_regions.orc")
 TYPED_PROMPT_INPUT_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/typed_prompt_input_phase.orc")
 ENTRY_PUBLICATION_RUNTIME_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/entry_publication_runtime.orc")
+
+
+def _real_union_contract_source_map_payload(tmp_path: Path):
+    source_path = tmp_path / "semantic-ir-union-lineage.orc"
+    source_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule semantic-ir/union-lineage)",
+                "  (export entry)",
+                "  (defunion Decision",
+                "    (ACCEPTED",
+                "      (report String))",
+                "    (REJECTED",
+                "      (report String)))",
+                "  (defworkflow entry",
+                "    ((input String))",
+                "    -> Decision",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.execute",
+                "      :inputs (input)",
+                "      :returns Decision)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    compile_result = compile_stage3_module(
+        source_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.execute": "prompts/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="legacy",
+    )
+    workflow_name = next(
+        workflow.definition.name
+        for workflow in compile_result.typed_workflows
+        if workflow.definition.name == "entry"
+        or workflow.definition.name.endswith("::entry")
+    )
+    source_map_module = importlib.import_module("orchestrator.workflow_lisp.source_map")
+    build_module = importlib.import_module("orchestrator.workflow_lisp.build")
+    document = source_map_module.build_source_map_document(
+        SimpleNamespace(
+            compiled_results_by_name={"__main__": compile_result},
+            validated_bundles_by_name=compile_result.validated_bundles,
+        ),
+        selected_name=workflow_name,
+        display_name_resolver=lambda name: name.rsplit("::", 1)[-1],
+    )
+    payload = build_module._json_data(document)
+    bundle = next(
+        bundle
+        for name, bundle in compile_result.validated_bundles.items()
+        if name == workflow_name or name.endswith(f"::{workflow_name}")
+    )
+    return workflow_name, payload, bundle
 
 
 def _g0_retirement_metadata(
@@ -1174,6 +1234,122 @@ def test_derive_semantic_ir_rejects_invalid_frontend_source_map_bridges(
     assert expected_fragment in error.message
     assert error.subject_refs
     assert error.subject_refs[0].workflow_name == bundle.surface.name
+
+
+def test_semantic_ir_source_map_bridges_every_contract_field_subject(
+    tmp_path: Path,
+) -> None:
+    semantic_ir_module = importlib.import_module("orchestrator.workflow.semantic_ir")
+    workflow_name, source_map_payload, _ = _real_union_contract_source_map_payload(tmp_path)
+    workflow_payload = source_map_payload["workflows"][workflow_name]
+
+    bridges = semantic_ir_module._frontend_source_map_bridges_from_payload(
+        workflow_name,
+        workflow_payload,
+    )
+    field_subjects = {
+        (
+            binding["subject_ref"]["subject_name"],
+            binding["origin_key"],
+        )
+        for binding in workflow_payload["validation_subjects"]
+        if binding["subject_ref"]["subject_kind"] == "variant_output_field"
+    }
+    bridged_fields = {
+        (bridge.subject_ref.subject_name, bridge.origin_key)
+        for bridge in bridges.values()
+        if bridge.subject_ref.subject_kind == "variant_output_field"
+    }
+
+    assert field_subjects
+    assert bridged_fields == field_subjects
+
+
+def test_semantic_ir_source_map_rejects_contract_field_subject_with_missing_origin(
+    tmp_path: Path,
+) -> None:
+    semantic_ir_module = importlib.import_module("orchestrator.workflow.semantic_ir")
+    workflow_name, source_map_payload, _ = _real_union_contract_source_map_payload(tmp_path)
+    workflow_payload = source_map_payload["workflows"][workflow_name]
+    field_binding = next(
+        binding
+        for binding in workflow_payload["validation_subjects"]
+        if binding["subject_ref"]["subject_kind"] == "variant_output_field"
+    )
+    broken_payload = {
+        **workflow_payload,
+        "contract_fields": {
+            subject_name: entry
+            for subject_name, entry in workflow_payload["contract_fields"].items()
+            if entry["origin_key"] != field_binding["origin_key"]
+        },
+    }
+
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        semantic_ir_module._frontend_source_map_bridges_from_payload(
+            workflow_name,
+            broken_payload,
+        )
+
+    error = excinfo.value.errors[0]
+    assert "semantic_ir_invalid" in error.message
+    assert error.subject_refs == (
+        ValidationSubjectRef(
+            subject_kind="variant_output_field",
+            subject_name=field_binding["subject_ref"]["subject_name"],
+            workflow_name=workflow_name,
+        ),
+    )
+
+
+def test_semantic_ir_source_map_old_v1_without_contract_fields_still_derives(
+    tmp_path: Path,
+) -> None:
+    semantic_ir_module = importlib.import_module("orchestrator.workflow.semantic_ir")
+    workflow_name, source_map_payload, bundle = _real_union_contract_source_map_payload(tmp_path)
+    workflow_payload = source_map_payload["workflows"][workflow_name]
+    old_v1_workflow_payload = {
+        key: value
+        for key, value in workflow_payload.items()
+        if key != "contract_fields"
+    }
+    old_v1_workflow_payload["validation_subjects"] = [
+        binding
+        for binding in workflow_payload["validation_subjects"]
+        if binding["subject_ref"]["subject_kind"] != "variant_output_field"
+    ]
+    old_v1_source_map_path = tmp_path / "old-v1-source-map.json"
+    old_v1_source_map_path.write_text(
+        json.dumps(
+            {
+                **source_map_payload,
+                "workflows": {
+                    **source_map_payload["workflows"],
+                    workflow_name: old_v1_workflow_payload,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    old_v1_provenance = replace(
+        bundle.surface.provenance,
+        frontend_source_trace_path=old_v1_source_map_path,
+    )
+
+    semantic_ir = semantic_ir_module.derive_workflow_semantic_ir(
+        surface=replace(bundle.surface, provenance=old_v1_provenance),
+        ir=bundle.ir,
+        projection=bundle.projection,
+        runtime_plan=bundle.runtime_plan,
+        imports=bundle.imports,
+        provenance=old_v1_provenance,
+    )
+
+    assert semantic_ir.source_map
+    assert all(
+        bridge.subject_ref.subject_kind != "variant_output_field"
+        for bridge in semantic_ir.source_map.values()
+    )
 
 
 def test_source_map_executable_coverage_failures_stay_in_source_map_diagnostic_family(

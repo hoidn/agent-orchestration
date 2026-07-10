@@ -3216,7 +3216,9 @@ def test_compile_stage3_module_rejects_ambiguous_imported_selector_boundary_type
         assert "ambiguous" in diagnostic.message
 
 
-def test_compile_stage3_module_rebinds_same_file_selector_provider_metadata(tmp_path: Path) -> None:
+def test_compile_stage3_module_rebinds_same_file_selector_provider_metadata_and_contract_field_alias_rekey(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "same_file_selector_rebind.orc"
     path.write_text(
         "\n".join(
@@ -3247,13 +3249,17 @@ def test_compile_stage3_module_rebinds_same_file_selector_provider_metadata(tmp_
                 "  (defrecord GapPayload",
                 "    (gap-id String))",
                 "  (defunion SelectionResult",
-                "    (EMPTY)",
+                "    (EMPTY",
+                "      (status String))",
                 "    (GAP",
-                "      (gap GapPayload))",
+                "      (gap GapPayload)",
+                "      (status String))",
                 "    (SELECTED",
-                "      (selection SelectionPayload))",
+                "      (selection SelectionPayload)",
+                "      (status String))",
                 "    (BLOCKED",
-                "      (reason String)))",
+                "      (reason String)",
+                "      (status String)))",
                 "  (defworkflow selector-run",
                 "    ((ctx DrainCtx))",
                 "    -> SelectionResult",
@@ -3276,8 +3282,9 @@ def test_compile_stage3_module_rebinds_same_file_selector_provider_metadata(tmp_
         lowering_route=LoweringRoute.WCC_M4,
     )
 
+    original = result.lowered_workflows[0]
     specialized = _specialize_same_file_lowered_workflow_provider_metadata(
-        result.lowered_workflows[0],
+        original,
         provider_id="main-selector-provider",
         prompt_binding=PromptExtern(
             name="prompts.selector",
@@ -3290,3 +3297,86 @@ def test_compile_stage3_module_rebinds_same_file_selector_provider_metadata(tmp_
     provider_step = specialized.authored_mapping["steps"][0]
     assert provider_step["provider"] == "main-selector-provider"
     assert provider_step["asset_file"] == "prompts/main-selector.md"
+
+    original_provider_step = original.authored_mapping["steps"][0]
+
+    def subject_mappings(value: object) -> tuple[dict[str, object], ...]:
+        if isinstance(value, list):
+            return tuple(
+                subject
+                for item in value
+                for subject in subject_mappings(item)
+            )
+        if not isinstance(value, dict):
+            return ()
+        subjects: list[dict[str, object]] = []
+        singular = value.get("source_map_subject")
+        if isinstance(singular, dict):
+            subjects.append(singular)
+        by_variant = value.get("source_map_subjects_by_variant")
+        if isinstance(by_variant, dict):
+            subjects.extend(
+                subject
+                for subject in by_variant.values()
+                if isinstance(subject, dict)
+            )
+        subjects.extend(
+            subject
+            for key, item in value.items()
+            if key not in {"source_map_subject", "source_map_subjects_by_variant"}
+            for subject in subject_mappings(item)
+        )
+        return tuple(subjects)
+
+    original_subjects = subject_mappings(original_provider_step["variant_output"])
+    specialized_subjects = subject_mappings(provider_step["variant_output"])
+    assert original_subjects
+    assert "source_map_subject" in json.dumps(original_provider_step["variant_output"])
+    assert "source_map_subjects_by_variant" in json.dumps(
+        original_provider_step["variant_output"]
+    )
+    assert len(specialized_subjects) == len(original_subjects)
+    assert [subject["subject_name"] for subject in specialized_subjects] == [
+        subject["subject_name"] for subject in original_subjects
+    ]
+    assert {
+        subject["workflow_name"] for subject in specialized_subjects
+    } == {"selector-run__selector_rebound"}
+
+    original_field_bindings = tuple(
+        binding
+        for binding in original.origin_map.validation_subject_bindings
+        if binding.subject_ref.subject_kind == "variant_output_field"
+    )
+    specialized_field_bindings = tuple(
+        binding
+        for binding in specialized.origin_map.validation_subject_bindings
+        if binding.subject_ref.subject_kind == "variant_output_field"
+    )
+    assert original_field_bindings
+    assert len(specialized_field_bindings) == len(original_field_bindings)
+    assert [
+        binding.subject_ref.subject_name for binding in specialized_field_bindings
+    ] == [binding.subject_ref.subject_name for binding in original_field_bindings]
+    assert all(
+        binding.subject_ref.workflow_name == "selector-run__selector_rebound"
+        and binding.origin.origin_key.startswith(
+            "selector-run__selector_rebound::variant_output_field::"
+        )
+        for binding in specialized_field_bindings
+    )
+
+    def without_subject_metadata(value: object) -> object:
+        if isinstance(value, list):
+            return [without_subject_metadata(item) for item in value]
+        if isinstance(value, dict):
+            return {
+                key: without_subject_metadata(item)
+                for key, item in value.items()
+                if key not in {"source_map_subject", "source_map_subjects_by_variant"}
+            }
+        return value
+
+    assert without_subject_metadata(provider_step["variant_output"]) == (
+        without_subject_metadata(original_provider_step["variant_output"])
+    )
