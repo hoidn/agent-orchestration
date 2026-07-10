@@ -498,9 +498,10 @@ Closeout dispositions:
 - **Lowering:** completed 2026-07-09. Its Task 9 residue audit, 386-test lowering
   selector, full-suite baseline comparison, and report are recorded in the
   component plan. Only drain-frozen `lowering_core` residue remains.
-- **Typecheck family:** the targeted activation check and the full Design Delta
-  feasibility suite passed. The typecheck plan is not closed: its end-of-plan
-  full `pytest -q` and final structural/reporting gate remain.
+- **Typecheck family:** completed 2026-07-09 through its bounded Task 7
+  closeout amendment. Structural/static checks, 398 behavioral tests, the
+  Design Delta smoke, and the full-suite baseline comparison are recorded in
+  the component plan.
 - **Build split:** both targeted certification suites passed. The build plan is
   not closed: Task 6 still requires its module-size check, full `pytest -q`, and
   final report.

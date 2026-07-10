@@ -1,6 +1,6 @@
 # Typecheck Dispatch Owner-Family Migration Completion (Phase 2)
 
-> **Execution status (active closeout amendment, verified 2026-07-09):** Execution has landed through Tasks 1-6: `bbc22fd1a819b009338b2801d47f55faeae771c1` (`Import typecheck raise helpers directly in family modules`), `6f01104face629a730e0a420162b97bda163ccc5` (`Move shared typecheck helpers into context leaf and drop compat back-imports`), `a124a7b4ec72722ebac8686f0c27714d92723461` (`Retire dispatch-local command argv validation for owner version`), `85556eab1c6298c986dc7705aa3dbb7befaec0cb` (`Retire dispatch-local macro-introduced effect check for owner version`), `6b99ca317503b02a0fda2ad213cb06fcd136539c` (`Extract resume-or-start typecheck into owner module`), `481cd284acff352b7c40aba8131ff031021d855b` (`Extract drain and phase typecheck cluster into owner module`), and `a4d9a3bb8ebfda957f4b4c6f02b72c2b49cbf657` (`Extract resource and view typecheck cluster into owner module`), with follow-up fix `69cce99f` included in the verified code boundary. The three owner modules exist and the legacy `compat` back-import grep is clean. The first closeout attempt passed 398 behavioral tests and the 19-test Design Delta smoke, but exposed a planning gap: the explicit Tasks 1-6 left `typecheck_dispatch.py` at 1,541 lines with dead tail helpers, two live deferred-import ownership residues, and 29 pre-plan pyflakes findings. Task 7 below is the bounded amendment required before the end-of-plan gate can close. Unrelated user work exists in the checkout and must be preserved.
+> **Execution status (completed 2026-07-09):** Tasks 1-6 landed in `bbc22fd1`, `6f01104f`, `a124a7b4`, `85556eab`, `6b99ca31`, `481cd284`, and `a4d9a3bb`, with follow-up fix `69cce99f`. The closeout amendment landed in `881b3f162adcc0986f4b6e2463d51db1ed65abe6` (`Retire omitted typecheck dispatch tail residue`). The owner modules exist, legacy `compat` back-imports are gone, the nine-module pyflakes gate is silent, and `typecheck_dispatch.py` is 1,171 lines. The exact behavioral, certification, and full-suite baseline gates are recorded below. Unrelated user work exists in the checkout and must be preserved.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -521,7 +521,7 @@ semantics or move the retained `_typecheck` core-control-flow dispatcher.
 - Modify: `orchestrator/workflow_lisp/typecheck_proofs.py`
 - Modify: `tests/test_workflow_lisp_expressions.py`
 
-- [ ] **Step 1: Add and run a failing ownership structure test.** Extend the
+- [x] **Step 1: Add and run a failing ownership structure test.** Extend the
   existing typecheck owner-split structure test to require: no dispatch-local
   definitions for `_generated_procedure_signature`,
   `_generated_procedure_definition`, `_typecheck_generated_procedure`,
@@ -534,7 +534,7 @@ semantics or move the retained `_typecheck` core-control-flow dispatcher.
   lines. Run collection, then the focused test and confirm it fails for the
   omitted ownership residue before changing production code.
 
-- [ ] **Step 2: Move the two live helpers to their owners.** Move
+- [x] **Step 2: Move the two live helpers to their owners.** Move
   `_register_generated_record_type` (and its tiny `_type_name` helper) into
   `loop_state.py`, remove the deferred dispatch import, and call the local owner
   directly. Move `_temporary_procedure_catalog` into
@@ -542,7 +542,7 @@ semantics or move the retained `_typecheck` core-control-flow dispatcher.
   call the owner directly. Preserve signatures and bodies; add no compatibility
   re-export because repository-wide grep shows only the two owner call paths.
 
-- [ ] **Step 3: Delete only proven-dead tail helpers.** Delete the seven
+- [x] **Step 3: Delete only proven-dead tail helpers.** Delete the seven
   zero-caller generated/union/field-access helpers named in Step 1 plus the
   dispatch-local semantic-command-adapter validator. The validator was retained
   by Task 3's semantic-difference STOP rule, but the closeout audit proves it
@@ -551,22 +551,49 @@ semantics or move the retained `_typecheck` core-control-flow dispatcher.
   Re-run repository-wide greps before deletion; any newly discovered caller is
   a STOP-and-report condition.
 
-- [ ] **Step 4: Clear the measured static residue.** Remove only the imports
+- [x] **Step 4: Clear the measured static residue.** Remove only the imports
   and duplicate binding reported by pyflakes in `typecheck_dispatch.py`,
   `typecheck_calls.py`, and `typecheck_proofs.py`. Do not make opportunistic
   formatting or ownership changes. `pyflakes` on the nine modules named by the
   end gate must be silent.
 
-- [ ] **Step 5: Verify green before committing.** Run the focused ownership
+- [x] **Step 5: Verify green before committing.** Run the focused ownership
   test, `pytest --collect-only tests/test_workflow_lisp_expressions.py`, import
   checks, pyflakes, the exact seven-module typecheck selector, and the Design
   Delta smoke. Confirm `typecheck_dispatch.py` is at most 1,250 lines.
 
-- [ ] **Step 6: Commit.** Stage only the seven files listed above and commit
+- [x] **Step 6: Commit.** Stage only the seven files listed above and commit
   with `Retire omitted typecheck dispatch tail residue`.
 
 After Task 7, rerun the full suite in tmux. Compare its failure identities to
 the six pre-plan failures recorded by the 2026-07-09 closeout audit.
+
+### Final closeout evidence (2026-07-09)
+
+- TDD ownership lock: the focused test first failed on the retained
+  `_generated_procedure_signature` definition, then passed after the owner
+  moves and deletions. `tests/test_workflow_lisp_expressions.py` collects 50
+  tests.
+- Static/structural gates: imports and compile checks pass; the legacy `compat`
+  grep is empty; nine-module pyflakes is silent; `typecheck_dispatch.py` is
+  **1,171 lines**, down from 3,357 (**2,186 lines removed**).
+- Owner sizes: `typecheck_context.py` 333, `typecheck_resume.py` 289,
+  `typecheck_drain_phase.py` 494, and `typecheck_resource_view.py` 482 lines.
+  Task 7 additionally moved generated-record registration into `loop_state.py`
+  and temporary procedure-catalog construction into `procedure_typecheck.py`.
+- Exact seven-module gate: **398 passed in 17.95s**. Dedicated loop-state
+  review coverage also passed: **20 passed**.
+- Design Delta smoke: **19 passed, 74 deselected in 65.04s**. An intermediate
+  eight-dot progress yield was not treated as a completed result; the live
+  pytest process was polled through its real exit-0 summary.
+- Full suite after Task 7: **6 failed, 4073 passed, 11 skipped in 912.02s**.
+  The six identities exactly match the pre-plan baseline recorded during the
+  closeout audit, so Task 7 introduced no new failure.
+- Task 3's semantic-command-adapter pair was correctly STOPPED because the
+  implementations differed. Task 7 later proved the dispatch-local version
+  had zero callers and deleted that dead definition without selecting or
+  changing either behavior. `_backlog_drain_blocker_class_type` remains
+  consolidated in `typecheck_calls.py`, imported by the drain/phase owner.
 
 ---
 

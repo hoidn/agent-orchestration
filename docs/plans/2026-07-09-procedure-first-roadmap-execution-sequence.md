@@ -71,7 +71,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | --- | --- |
 | `2026-07-07-refactoring-dead-code-and-lowering-consolidation.md` | Audit existing commits and run its final closeout; do not replay landed tasks. |
 | `2026-07-07-lowering-fork-migration.md` | Completed through Task 9. Its final grep contains only drain-frozen residue; 386 lowering tests pass and the full-suite failure set matches the pre-plan baseline. |
-| `2026-07-07-typecheck-family-completion.md` | Treat as implementation-complete only after its final structural and behavioral gates pass; expected owner modules already exist. |
+| `2026-07-07-typecheck-family-completion.md` | Completed through its Task 7 closeout amendment. Structural/static gates are clean, 398 typecheck tests and 19 Design Delta smoke tests pass, and the full-suite failure set matches the pre-plan baseline. |
 | `2026-07-07-build-module-split.md` | Tasks 1-5 appear landed; execute/re-run the final verification and module-boundary audit. Do not redo mechanical moves. |
 | `2026-07-07-executor-decomposition.md` | Completed through Task 9. Its targeted executor surface and Design Delta smoke pass; the full-suite failure identities match the pre-Task-2 baseline. |
 | `2026-07-08-boundary-report-followups.md` | Execute before the semantic freeze; it supplies terminology and negative-coverage evidence consumed by later design work. |
@@ -113,10 +113,10 @@ Execute in this order:
 2. **Lowering-fork closeout — completed 2026-07-09.** The final residue audit
    contains only the region frozen for drain retirement; the exact lowering
    selector and full-suite baseline comparison are recorded in the component plan.
-3. **Typecheck-family closeout — active next.** Run the structural import audit and the
-   procedures, drain, resource/view, and resume suites. No additional ownership
-   redesign belongs here.
-4. **Build-split closeout.** Run its Task 6 full verification, import-cycle
+3. **Typecheck-family closeout — completed 2026-07-09.** The omitted dispatch
+   tail was resolved by the bounded Task 7 amendment; its structural, static,
+   behavioral, smoke, and full-suite baseline gates are recorded in the component plan.
+4. **Build-split closeout — active next.** Run its Task 6 full verification, import-cycle
    checks, compatibility re-export checks, and module-size report. Large
    `build_design_delta.py` size is accepted temporarily because Stage 3 deletes
    the family-specific certification unit; do not start a second split first.
