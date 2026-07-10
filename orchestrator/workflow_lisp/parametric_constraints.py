@@ -42,11 +42,17 @@ def provisional_shared_union_field_capabilities(
     type_env: FrontendTypeEnvironment,
     type_param_names: frozenset[str] = frozenset(),
 ) -> tuple[SharedUnionFieldCapability, ...]:
-    """Return authored shared-field capabilities keyed by the type-parameter name."""
+    """Return authored declared-field capabilities keyed by the type-parameter name."""
 
     capabilities: list[SharedUnionFieldCapability] = []
     for clause in where_clauses:
-        if clause.constraint_name != "has-shared-union-field":
+        # `has-field` clauses grant the same definition-scoped field-access
+        # capability on a `TypeParamRef` base that `has-shared-union-field`
+        # clauses grant (structural constraint vocabulary,
+        # docs/design/workflow_lisp_parametric_type_system.md): the raw pass
+        # resolves the projection to the declared field type, while the
+        # call-site pass keeps validating the concrete binding unchanged.
+        if clause.constraint_name not in ("has-field", "has-shared-union-field"):
             continue
         if clause.field_name is None or clause.field_type_name is None:
             continue

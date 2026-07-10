@@ -1136,6 +1136,68 @@ def test_compile_stage3_rejects_type_param_record_field_mismatch(tmp_path: Path)
     assert "payload" in excinfo.value.diagnostics[0].message
 
 
+def _has_field_projection_module_lines(*, body_projection: str) -> list[str]:
+    return [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.14")',
+        "  (defrecord Inner",
+        "    (marker String))",
+        "  (defrecord Ctx",
+        "    (payload Inner))",
+        "  (defrecord WorkflowOutput",
+        "    (status String))",
+        "  (defproc read-payload",
+        "    :forall (CtxT)",
+        "    ((ctx CtxT))",
+        "    :where ((CtxT is-record)",
+        "            (CtxT has-field payload Inner))",
+        "    -> WorkflowOutput",
+        "    :effects ()",
+        "    :lowering inline",
+        "    (record WorkflowOutput",
+        f"      :status {body_projection}))",
+        "  (defworkflow entry",
+        "    ((ctx Ctx))",
+        "    -> WorkflowOutput",
+        "    (read-payload ctx)))",
+    ]
+
+
+def test_compile_stage3_accepts_declared_has_field_projection_on_type_param(tmp_path: Path) -> None:
+    # Definition-scoped pass: a declared `(CtxT has-field payload Inner)`
+    # capability licenses `ctx.payload` on the TypeParamRef base, resolving to
+    # `Inner`, and nested access (`.marker`) continues via ordinary record
+    # access on the resolved type.
+    path = _write_module(
+        tmp_path / "parametric_has_field_projection.orc",
+        _has_field_projection_module_lines(body_projection="ctx.payload.marker"),
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+
+    assert any(
+        getattr(procedure.specialization, "base_name", "") == "read-payload"
+        for procedure in result.typed_procedures
+    )
+
+
+def test_compile_stage3_rejects_undeclared_field_projection_on_type_param(tmp_path: Path) -> None:
+    # Negative pin: field access on a type parameter WITHOUT a matching
+    # declared `has-field` clause keeps the categorical definition-scoped
+    # rejection (`marker` is declared on Inner, not on CtxT).
+    path = _write_module(
+        tmp_path / "parametric_undeclared_field_projection.orc",
+        _has_field_projection_module_lines(body_projection="ctx.marker"),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "record_field_unknown")
+    assert "does not support field access" in excinfo.value.diagnostics[0].message
+
+
 def test_typecheck_rejects_unbindable_type_param_at_definition(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(
