@@ -303,6 +303,11 @@ Expected: PASS. Stage only files actually changed after the call-site audit.
 
 ### Task 3: Preserve field lineage through WCC, aliases, and Semantic IR
 
+> **Status (completed 2026-07-09):** Landed in `af518da7` and passed
+> specification and code-quality review. Focused route/alias and Semantic IR
+> selectors pass; source-map plus drain suites pass 88 tests. The three full
+> Semantic IR failures match the recorded pre-existing baseline identities.
+
 **Files:**
 - Modify: `orchestrator/workflow_lisp/wcc/defunctionalize.py`
 - Modify: `orchestrator/workflow_lisp/lowering/origins.py`
@@ -312,7 +317,7 @@ Expected: PASS. Stage only files actually changed after the call-site audit.
 - Test: `tests/test_workflow_lisp_drain_stdlib.py`
 - Test: `tests/test_workflow_semantic_ir.py`
 
-- [ ] **Step 1: Add RED route-completeness tests**
+- [x] **Step 1: Add RED route-completeness tests**
 
 Compile the same union-result source with `lowering_route="legacy"` and
 `lowering_route="wcc_m4"`; assert their `contract_fields` subject identities
@@ -331,21 +336,21 @@ pytest tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_drain_std
 
 Expected: FAIL on WCC construction and alias rekeying.
 
-- [ ] **Step 2: Carry bindings through WCC and inline contexts**
+- [x] **Step 2: Carry bindings through WCC and inline contexts**
 
 Pass `context.generated_contract_field_bindings` into the WCC-created
 `LoweringOriginMap` exactly as classic lowering does. Confirm inline procedure
 contexts share, rather than copy, the list so bindings registered during the
 call survive return to the parent.
 
-- [ ] **Step 3: Rekey origins and embedded contract subjects together**
+- [x] **Step 3: Rekey origins and embedded contract subjects together**
 
 Extend `_rekey_origin_map` to preserve custom field bindings while replacing
 their `workflow_name` and origin-key workflow prefix. In the drain clone helper,
 rewrite only subject dictionaries under `source_map_subject` and
 `source_map_subjects_by_variant`; leave semantic contract fields unchanged.
 
-- [ ] **Step 4: Add RED Semantic IR bridge coverage**
+- [x] **Step 4: Add RED Semantic IR bridge coverage**
 
 Extend the existing source-map bridge test to build a real source map with
 `contract_fields` and assert a `SemanticSourceMapBridgeEntry` exists for every
@@ -365,14 +370,14 @@ pytest tests/test_workflow_semantic_ir.py -q -k 'source_map and (contract_field 
 Expected: FAIL because `_source_map_origin_keys` and
 `_supported_source_map_subject_keys` omit `contract_fields`.
 
-- [ ] **Step 5: Extend the Semantic IR source-map consumer**
+- [x] **Step 5: Extend the Semantic IR source-map consumer**
 
 Add `contract_fields` to origin-section indexing and add supported
 `("variant_output_field", subject_name, workflow_name)` identities from that
 section. Do not require the section when absent. Preserve the current fail-closed
 behavior for a declared subject whose origin is absent or unsupported.
 
-- [ ] **Step 6: Run Task 3 checks and commit**
+- [x] **Step 6: Run Task 3 checks and commit**
 
 ```bash
 pytest tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_drain_stdlib.py -q -k 'contract_field and (wcc or inline or alias or rekey)'
