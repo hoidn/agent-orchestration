@@ -189,6 +189,7 @@ def build_source_map_document(
             contract_fields = _contract_field_entry_mapping(
                 lowered=lowered,
                 workflow_name=workflow_name,
+                workflow_origin=workflow_origin,
             )
             generated_paths = _entry_mapping(
                 lowered.origin_map.generated_path_spans,
@@ -476,17 +477,37 @@ def _contract_field_entry_mapping(
     *,
     lowered: "LoweredWorkflow",
     workflow_name: str,
+    workflow_origin: SourceMapEntry,
 ) -> Mapping[str, SourceMapEntry]:
-    return {
-        binding.subject_ref.subject_name: _entry_from_origin(
+    entries: dict[str, SourceMapEntry] = {}
+    for binding in lowered.origin_map.validation_subject_bindings:
+        if binding.subject_ref.subject_kind != "variant_output_field":
+            continue
+        subject_name = binding.subject_ref.subject_name
+        entry = _entry_from_origin(
             binding.origin,
             workflow_name=workflow_name,
             entity_kind="variant_output_field",
-            subject_name=binding.subject_ref.subject_name,
+            subject_name=subject_name,
         )
-        for binding in lowered.origin_map.validation_subject_bindings
-        if binding.subject_ref.subject_kind == "variant_output_field"
-    }
+        existing = entries.get(subject_name)
+        if existing is not None and existing == entry:
+            continue
+        if existing is not None:
+            raise LispFrontendCompileError(
+                (
+                    _diagnostic_for_entry(
+                        workflow_origin,
+                        code="source_map_duplicate_key",
+                        message=(
+                            "variant-output field subject "
+                            f"`{subject_name}` has conflicting source-map entries"
+                        ),
+                    ),
+                )
+            )
+        entries[subject_name] = entry
+    return entries
 
 
 def _augment_missing_step_entries(

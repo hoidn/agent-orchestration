@@ -172,12 +172,12 @@ def _register_generated_contract_field_bindings(
 ) -> None:
     """Register authored field origins for one runtime-attached contract."""
 
-    seen_subjects = {
+    bindings_by_subject = {
         (
             binding.subject_ref.subject_kind,
             binding.subject_ref.subject_name,
             binding.subject_ref.workflow_name,
-        )
+        ): binding
         for binding in context.generated_contract_field_bindings
     }
     for field_origin in field_origins:
@@ -187,20 +187,39 @@ def _register_generated_contract_field_bindings(
             subject_ref.subject_name,
             subject_ref.workflow_name,
         )
-        if subject_identity in seen_subjects:
+        binding = ValidationSubjectBinding(
+            subject_ref=subject_ref,
+            origin=_with_origin_key(
+                _origin_from_context_source(context, field_origin),
+                workflow_name=context.workflow_name,
+                entity_kind="variant_output_field",
+                subject_name=subject_ref.subject_name,
+            ),
+        )
+        existing = bindings_by_subject.get(subject_identity)
+        if existing is not None and existing.origin == binding.origin:
             continue
-        context.generated_contract_field_bindings.append(
-            ValidationSubjectBinding(
-                subject_ref=subject_ref,
-                origin=_with_origin_key(
-                    _origin_from_context_source(context, field_origin),
-                    workflow_name=context.workflow_name,
-                    entity_kind="variant_output_field",
-                    subject_name=subject_ref.subject_name,
+        if existing is not None:
+            raise LispFrontendCompileError(
+                (
+                    with_diagnostic_metadata(
+                        LispFrontendDiagnostic(
+                            code="source_map_duplicate_key",
+                            message=(
+                                "variant-output field subject "
+                                f"`{subject_ref.subject_name}` has conflicting authored origins"
+                            ),
+                            span=binding.origin.span,
+                            form_path=binding.origin.form_path,
+                            expansion_stack=binding.origin.expansion_stack,
+                            phase="lowering",
+                        ),
+                        validation_pass="source_map",
+                    ),
                 ),
             )
-        )
-        seen_subjects.add(subject_identity)
+        context.generated_contract_field_bindings.append(binding)
+        bindings_by_subject[subject_identity] = binding
 
 
 def _lowering_origin_key(

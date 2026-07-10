@@ -509,6 +509,161 @@ def test_source_map_validator_rejects_dangling_contract_field_binding(
     assert excinfo.value.diagnostics[0].code == "source_map_validation_ref_missing"
 
 
+def test_lowering_rejects_conflicting_contract_field_subject_origins() -> None:
+    from orchestrator.exceptions import ValidationSubjectRef
+    from orchestrator.workflow_lisp.contracts import GeneratedContractFieldOrigin
+    from orchestrator.workflow_lisp.lowering.origins import (
+        _register_generated_contract_field_bindings,
+    )
+    from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+
+    subject_ref = ValidationSubjectRef(
+        subject_kind="variant_output_field",
+        subject_name="execute::Decision::ACCEPTED::report",
+        workflow_name="source-map/conflict::entry",
+    )
+    first_span = SourceSpan(
+        start=SourcePosition("conflict.orc", 8, 7, 100),
+        end=SourcePosition("conflict.orc", 8, 22, 115),
+    )
+    second_span = SourceSpan(
+        start=SourcePosition("conflict.orc", 10, 7, 140),
+        end=SourcePosition("conflict.orc", 10, 22, 155),
+    )
+    context = SimpleNamespace(
+        workflow_name="source-map/conflict::entry",
+        origin_notes=(),
+        generated_contract_field_bindings=[],
+    )
+    _register_generated_contract_field_bindings(
+        context,
+        (
+            GeneratedContractFieldOrigin(
+                subject_ref=subject_ref,
+                span=first_span,
+                form_path=("workflow-lisp", "defunion", "Decision", "ACCEPTED", "report"),
+            ),
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _register_generated_contract_field_bindings(
+            context,
+            (
+                GeneratedContractFieldOrigin(
+                    subject_ref=subject_ref,
+                    span=second_span,
+                    form_path=("workflow-lisp", "defunion", "Decision", "REJECTED", "report"),
+                ),
+            ),
+        )
+
+    assert excinfo.value.diagnostics[0].code == "source_map_duplicate_key"
+
+
+def test_source_map_builder_rejects_conflicting_contract_field_bindings(
+    tmp_path: Path,
+) -> None:
+    path = _write_union_field_lineage_module(
+        tmp_path / "source-map" / "union-field-lineage.orc"
+    )
+    source_map_module = importlib.import_module("orchestrator.workflow_lisp.source_map")
+    compile_result = _compile(path, tmp_path=tmp_path)
+    lowered = next(
+        item
+        for item in compile_result.lowered_workflows
+        if item.typed_workflow.definition.name == "entry"
+        or item.typed_workflow.definition.name.endswith("::entry")
+    )
+    field_binding = next(
+        binding
+        for binding in lowered.origin_map.validation_subject_bindings
+        if binding.subject_ref.subject_kind == "variant_output_field"
+    )
+    conflicting_origin = replace(
+        field_binding.origin,
+        span=replace(
+            field_binding.origin.span,
+            start=replace(
+                field_binding.origin.span.start,
+                line=field_binding.origin.span.start.line + 1,
+            ),
+            end=replace(
+                field_binding.origin.span.end,
+                line=field_binding.origin.span.end.line + 1,
+            ),
+        ),
+        form_path=field_binding.origin.form_path + ("conflict",),
+    )
+    broken_lowered = replace(
+        lowered,
+        origin_map=replace(
+            lowered.origin_map,
+            validation_subject_bindings=(
+                *lowered.origin_map.validation_subject_bindings,
+                replace(field_binding, origin=conflicting_origin),
+            ),
+        ),
+    )
+    broken_result = replace(
+        compile_result,
+        lowered_workflows=tuple(
+            broken_lowered if item is lowered else item
+            for item in compile_result.lowered_workflows
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        source_map_module.build_source_map_document(
+            SimpleNamespace(
+                compiled_results_by_name={"__main__": broken_result},
+                validated_bundles_by_name=broken_result.validated_bundles,
+            ),
+            selected_name=lowered.typed_workflow.definition.name,
+            display_name_resolver=lambda name: name.rsplit("::", 1)[-1],
+        )
+
+    assert excinfo.value.diagnostics[0].code == "source_map_duplicate_key"
+
+
+def test_source_map_validator_rejects_contract_field_without_matching_subject(
+    tmp_path: Path,
+) -> None:
+    path = _write_union_field_lineage_module(
+        tmp_path / "source-map" / "union-field-lineage.orc"
+    )
+    source_map_module, document, workflow_name = _build_source_map_document(
+        path,
+        tmp_path=tmp_path,
+        selected_name="entry",
+    )
+    workflow = document.workflows[workflow_name]
+    subject_name = next(iter(workflow.contract_fields))
+    broken_document = replace(
+        document,
+        workflows={
+            **dict(document.workflows),
+            workflow_name: replace(
+                workflow,
+                validation_subjects=tuple(
+                    binding
+                    for binding in workflow.validation_subjects
+                    if not (
+                        binding.subject_ref.subject_kind == "variant_output_field"
+                        and binding.subject_ref.subject_name == subject_name
+                        and binding.subject_ref.workflow_name == workflow_name
+                    )
+                ),
+            ),
+        },
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        source_map_module.validate_source_map_document(broken_document)
+
+    assert excinfo.value.diagnostics[0].code == "source_map_validation_subject_missing"
+
+
 def test_source_map_preserves_inline_union_contract_field_lineage(
     tmp_path: Path,
 ) -> None:
