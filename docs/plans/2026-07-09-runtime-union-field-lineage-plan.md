@@ -391,13 +391,18 @@ Expected: PASS.
 
 ### Task 4: Serialize violation subjects and resolve them at runtime
 
+> **Status (completed 2026-07-09):** Landed in `bb24aa3b`, with
+> workflow-qualified fallback, malformed-binding rejection, and failed-sidecar
+> caching in `7018b9ca`. Specification and code-quality reviews approved the
+> final range; 54 affected-module tests pass.
+
 **Files:**
 - Modify: `orchestrator/contracts/output_contract.py`
 - Modify: `orchestrator/workflow/frontend_origins.py`
 - Test: `tests/test_output_contract.py`
 - Test: `tests/test_runtime_observability.py`
 
-- [ ] **Step 1: Add RED output-validator subject tests**
+- [x] **Step 1: Add RED output-validator subject tests**
 
 Extend the existing missing-active and forbidden-inactive tests with subject
 metadata in the field specs. Assert exact structured `subject_refs`, including
@@ -423,7 +428,7 @@ pytest tests/test_output_contract.py -q -k 'variant and subject'
 
 Expected: FAIL because `ContractViolation` has no subjects.
 
-- [ ] **Step 2: Implement additive subject serialization**
+- [x] **Step 2: Implement additive subject serialization**
 
 Add `subject_refs: tuple[ValidationSubjectRef, ...] = ()` to
 `ContractViolation`. Serialize with stable first-seen de-duplication and omit
@@ -436,7 +441,7 @@ the key when empty. Use the defensive parser from
 
 Do not change contract codes, validity, artifact parsing, or message wording.
 
-- [ ] **Step 3: Add RED compiled-index resolution tests**
+- [x] **Step 3: Add RED compiled-index resolution tests**
 
 Write one source-map payload containing `contract_fields`, one field validation
 subject, and one step origin. Construct `CompiledFrontendIndex` through normal
@@ -458,7 +463,7 @@ pytest tests/test_runtime_observability.py -q -k 'subject_ref or contract_field_
 
 Expected: FAIL because the index has no subject/origin catalogs.
 
-- [ ] **Step 4: Implement indexed subject lookup**
+- [x] **Step 4: Implement indexed subject lookup**
 
 In `frontend_origins.py`, index all origin sections, including optional
 `contract_fields`, by `origin_key`; index validation subjects by the full
@@ -467,7 +472,7 @@ In `frontend_origins.py`, index all origin sections, including optional
 de-duplicated origins. If no field origin resolves and an explicit fallback
 step is supplied, use `origin_for_step`. Never read or compile `.orc` source.
 
-- [ ] **Step 5: Run Task 4 checks and commit**
+- [x] **Step 5: Run Task 4 checks and commit**
 
 ```bash
 pytest tests/test_output_contract.py -q -k 'variant and subject'
