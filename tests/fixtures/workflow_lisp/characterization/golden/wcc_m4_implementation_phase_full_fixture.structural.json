@@ -276,18 +276,69 @@
                   "json_pointer": "/review_report",
                   "must_exist_target": true,
                   "name": "review_report",
+                  "source_map_subjects_by_variant": {
+                    "APPROVE": {
+                      "subject_kind": "variant_output_field",
+                      "subject_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1__result::std/phase::ReviewDecision::APPROVE::review_report",
+                      "workflow_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1"
+                    },
+                    "BLOCKED": {
+                      "subject_kind": "variant_output_field",
+                      "subject_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1__result::std/phase::ReviewDecision::BLOCKED::review_report",
+                      "workflow_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1"
+                    },
+                    "REVISE": {
+                      "subject_kind": "variant_output_field",
+                      "subject_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1__result::std/phase::ReviewDecision::REVISE::review_report",
+                      "workflow_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1"
+                    }
+                  },
                   "type": "relpath",
                   "under": "artifacts/review"
                 },
                 {
                   "json_pointer": "/findings/schema_version",
                   "name": "findings__schema_version",
+                  "source_map_subjects_by_variant": {
+                    "APPROVE": {
+                      "subject_kind": "variant_output_field",
+                      "subject_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1__result::std/phase::ReviewDecision::APPROVE::findings__schema_version",
+                      "workflow_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1"
+                    },
+                    "BLOCKED": {
+                      "subject_kind": "variant_output_field",
+                      "subject_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1__result::std/phase::ReviewDecision::BLOCKED::findings__schema_version",
+                      "workflow_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1"
+                    },
+                    "REVISE": {
+                      "subject_kind": "variant_output_field",
+                      "subject_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1__result::std/phase::ReviewDecision::REVISE::findings__schema_version",
+                      "workflow_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1"
+                    }
+                  },
                   "type": "string"
                 },
                 {
                   "json_pointer": "/findings/items_path",
                   "must_exist_target": true,
                   "name": "findings__items_path",
+                  "source_map_subjects_by_variant": {
+                    "APPROVE": {
+                      "subject_kind": "variant_output_field",
+                      "subject_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1__result::std/phase::ReviewDecision::APPROVE::findings__items_path",
+                      "workflow_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1"
+                    },
+                    "BLOCKED": {
+                      "subject_kind": "variant_output_field",
+                      "subject_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1__result::std/phase::ReviewDecision::BLOCKED::findings__items_path",
+                      "workflow_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1"
+                    },
+                    "REVISE": {
+                      "subject_kind": "variant_output_field",
+                      "subject_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1__result::std/phase::ReviewDecision::REVISE::findings__items_path",
+                      "workflow_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1"
+                    }
+                  },
                   "type": "relpath",
                   "under": "artifacts/work"
                 }
@@ -309,6 +360,11 @@
                       ],
                       "json_pointer": "/blocker_class",
                       "name": "blocker_class",
+                      "source_map_subject": {
+                        "subject_kind": "variant_output_field",
+                        "subject_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1__result::std/phase::ReviewDecision::BLOCKED::blocker_class",
+                        "workflow_name": "%wcc_m4_implementation_phase_full_fixture.wcc_m4_implementation_phase_full_fixture::run-review.v1"
+                      },
                       "type": "enum"
                     }
                   ]
@@ -596,6 +652,11 @@
                       "json_pointer": "/review_report",
                       "must_exist_target": true,
                       "name": "review_report",
+                      "source_map_subject": {
+                        "subject_kind": "variant_output_field",
+                        "subject_name": "wcc_m4_implementation_phase_full_fixture::run__attempt::ImplementationAttempt::BLOCKED::review_report",
+                        "workflow_name": "wcc_m4_implementation_phase_full_fixture::run"
+                      },
                       "type": "relpath",
                       "under": "artifacts/review"
                     },
@@ -610,17 +671,32 @@
                       ],
                       "json_pointer": "/blocker_class",
                       "name": "blocker_class",
+                      "source_map_subject": {
+                        "subject_kind": "variant_output_field",
+                        "subject_name": "wcc_m4_implementation_phase_full_fixture::run__attempt::ImplementationAttempt::BLOCKED::blocker_class",
+                        "workflow_name": "wcc_m4_implementation_phase_full_fixture::run"
+                      },
                       "type": "enum"
                     },
                     {
                       "json_pointer": "/findings/schema_version",
                       "name": "findings__schema_version",
+                      "source_map_subject": {
+                        "subject_kind": "variant_output_field",
+                        "subject_name": "wcc_m4_implementation_phase_full_fixture::run__attempt::ImplementationAttempt::BLOCKED::findings__schema_version",
+                        "workflow_name": "wcc_m4_implementation_phase_full_fixture::run"
+                      },
                       "type": "string"
                     },
                     {
                       "json_pointer": "/findings/items_path",
                       "must_exist_target": true,
                       "name": "findings__items_path",
+                      "source_map_subject": {
+                        "subject_kind": "variant_output_field",
+                        "subject_name": "wcc_m4_implementation_phase_full_fixture::run__attempt::ImplementationAttempt::BLOCKED::findings__items_path",
+                        "workflow_name": "wcc_m4_implementation_phase_full_fixture::run"
+                      },
                       "type": "relpath",
                       "under": "artifacts/work"
                     }
@@ -632,6 +708,11 @@
                       "json_pointer": "/execution_report_path",
                       "must_exist_target": true,
                       "name": "execution_report_path",
+                      "source_map_subject": {
+                        "subject_kind": "variant_output_field",
+                        "subject_name": "wcc_m4_implementation_phase_full_fixture::run__attempt::ImplementationAttempt::COMPLETED::execution_report_path",
+                        "workflow_name": "wcc_m4_implementation_phase_full_fixture::run"
+                      },
                       "type": "relpath",
                       "under": "artifacts/work"
                     }

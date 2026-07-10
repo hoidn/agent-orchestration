@@ -1,12 +1,11 @@
 # Type/Runtime Boundary Report Follow-ups Plan
 
-> **Execution status (paused at Task 5 case 5 design gate, 2026-07-09):**
-> Tasks 1-4 are complete. Task 5 case 2 landed in `be6596ae` and case 3
-> landed in `02f38549`. The case 5 feasibility reproduction confirmed a
-> production capability gap that cannot be closed under this plan's
-> no-production architecture. Task 6 and the final gate are paused. The drain
-> migration must not begin until a separate accepted design and implementation
-> close the case 5 lineage gap and this plan resumes.
+> **Execution status (completed 2026-07-10):** Tasks 1-4 are complete. Task 5
+> case 2 landed in `be6596ae`, case 3 landed in `02f38549`, and the separate
+> runtime union-field lineage implementation closed case 5 in `194ad866` with
+> the exact subject identity pinned in `962daa2d`. Task 6 and the final gate
+> now pass. The next active roadmap work is the drain migration Phase 1 Task
+> 1.1.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -30,7 +29,7 @@ fixture only when an uncovered case is expressible under this plan's
 no-production boundary. The case 5 reproduction proved that it is not. Task 6
 is historical reconciliation/status, not a replay of the deletion.
 
-**Case 5 design gate (confirmed 2026-07-09):** A real compile/build/runtime
+**Case 5 design gate (historical reproduction, 2026-07-09):** A real compile/build/runtime
 reproduction reaches `variant_required_field_missing` with structured
 `variant`, `name`, and `json_pointer` context, but the violation carries no
 source-map subject. `CompiledFrontendIndex` supports only step/node origin
@@ -38,6 +37,11 @@ lookup, and the persisted source map does not retain authored `defunion`
 variant-field spans or form identity. Adding the requested source-map test
 therefore requires production lineage design and implementation outside this
 plan. Do not weaken the test to generated-step attribution.
+
+**Case 5 resolution (verified 2026-07-10):** The accepted source-map design
+was implemented separately. The production compile/build/runtime acceptance
+test now resolves the selected authored union field through the persisted
+source map without weakening attribution to the enclosing generated step.
 
 ## Global Constraints
 
@@ -236,7 +240,7 @@ The cleanly published Task-4 audit selects exactly three gaps for this task:
 |---|---|---|---|
 | 2. Same-name fields across union variants | `tests/test_workflow_lisp_structured_results.py` | Prove valid same-name fields remain variant-scoped and collision-free through lowering; do not reject them merely for sharing a name across distinct variants. | **Landed** in `be6596ae`. |
 | 3. Missing active-variant required field at runtime | `tests/test_output_contract.py` | Exercise `variant_required_field_missing` through runtime output-bundle validation. | **Landed** in `02f38549`. |
-| 5. Runtime failure source-map attribution | `tests/test_workflow_lisp_source_map.py` | Map a runtime output failure back to the authored union field. | **Blocked — production design gate.** The confirmed missing links are recorded above. |
+| 5. Runtime failure source-map attribution | `tests/test_workflow_lisp_runtime_source_map.py` | Map a runtime output failure back to the authored union field. | **Landed** in `194ad866`; exact selected-field subject identity pinned in `962daa2d`. Acceptance: `test_runtime_union_field_violation_resolves_exact_authored_field_origin`. |
 
 For coverable gaps, implement one case and one commit at a time. Cases 1 and 4
 are already covered; case 6 remains owned by the drain-migration plan.
@@ -277,23 +281,25 @@ Case 5:
 
 - [x] **Step 1:** Run the real compile/build/runtime reproduction and identify
   the missing runtime-violation-to-authored-field lineage links.
-- [ ] **Step 2 — BLOCKED:** Add the owning-suite integration test only after a
-  separate accepted production design makes authored union-field attribution
-  available through the runtime remapping path.
-- [ ] **Step 3 — BLOCKED:** No case 5 test commit exists under this plan.
+- [x] **Step 2:** The separate accepted production design made authored
+  union-field attribution available through the runtime remapping path; the
+  owning-suite integration test passes through normal compile/build/runtime.
+- [x] **Step 3:** Commits `194ad866` and `962daa2d` close the case 5 coverage
+  obligation.
 
 ---
 
 ### Task 6: Record historical reconciliation/status for the Phase-1 fixture deletion
 
-> **Status:** Paused behind the Task 5 case 5 production design gate.
+> **Status (completed 2026-07-10):** Historical deletion reconciled without
+> restoring, deleting, or editing any fixture or the closed Phase-1 plan.
 
 **Files:**
 - Inspect: `docs/plans/2026-07-07-refactoring-dead-code-and-lowering-consolidation.md` (Task 3 fixture list)
 - Modify: none
 
-- [ ] **Step 1:** Verify the landed deletion commit and current path status. Reconcile each fixture-related Task 4 audit and Task 5 wiring outcome as either existing coverage with the historical deletion left intact, or a new minimal current-contract fixture created after that deletion.
-- [ ] **Step 2:** Record that status in the final execution handoff only after
+- [x] **Step 1:** Verify the landed deletion commit and current path status. Reconcile each fixture-related Task 4 audit and Task 5 wiring outcome as either existing coverage with the historical deletion left intact, or a new minimal current-contract fixture created after that deletion.
+- [x] **Step 2:** Record that status in the final execution handoff only after
   the Task-4 report publication and every applicable Task-5 gap commit are
   complete. Do not edit the historical Phase-1 deletion list or rerun its
   `git rm`; do not create a standalone reconciliation commit.
@@ -302,12 +308,32 @@ Case 5:
 
 ### Final gate
 
-> **Status:** Paused. Do not treat the landed case 2 and case 3 tests as closure
-> of the still-blocked case 5 lineage obligation.
+> **Status (completed 2026-07-10):** Case 5 and the final verification gate are
+> complete.
 
-- [ ] `grep -rn "proof-gated" docs/design/*.md` → hits only in the superseded constraints doc and internal-mechanics sentences.
-- [ ] `pytest tests/test_workflow_lisp_variant_proofs.py tests/test_workflow_lisp_structured_results.py tests/test_output_contract.py tests/test_workflow_lisp_source_map.py -q` → PASS.
-- [ ] Report: residual `proof-gated` classification per doc, the audit table outcome per case, fixtures wired vs confirmed-deletable, and the Phase-1 reconciliation made.
+- [x] `rg -n 'proof-gated' docs/design/*.md` → twelve hits: three in the
+  superseded structural constraints draft; the remainder are internal
+  specialization, proving-route, lowering, or elaboration mechanics in the
+  compile-time specialization (1), generic-core (5), frontend specification
+  (1), and review/revise integration (2) docs.
+- [x] `pytest tests/test_workflow_lisp_variant_proofs.py tests/test_workflow_lisp_structured_results.py tests/test_output_contract.py tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_runtime_source_map.py -q` → **105 passed**.
+- [x] Report: residual `proof-gated` classification per doc, the audit table outcome per case, fixtures wired vs confirmed-deletable, and the Phase-1 reconciliation made.
+
+### Final execution handoff (2026-07-10)
+
+- Cases 1 and 4 remain covered by the test identities recorded in the audit;
+  case 2 remains covered by `be6596ae`; case 3 remains covered by `02f38549`;
+  case 5 is covered by
+  `tests/test_workflow_lisp_runtime_source_map.py::test_runtime_union_field_violation_resolves_exact_authored_field_origin`
+  at `194ad866` / `962daa2d`; case 6 remains owned by the drain migration.
+- Deletion commit `ce1170d1` remains intact. All three named historical paths
+  are absent. `if_variant_proof_missing.orc` stays deleted because case 1 has
+  direct behavioral coverage. `review_loop_result_contract_invalid.orc` was
+  not restored because it is not the runtime omission case and case 3 uses a
+  current-contract unit test. The hidden compatibility-bridge reread fixture
+  remains historical and drain-owned.
+- The boundary gate passed **105 tests**. No historical fixture or completed
+  refactoring plan was changed.
 
 ## Roadmap (not in this plan)
 

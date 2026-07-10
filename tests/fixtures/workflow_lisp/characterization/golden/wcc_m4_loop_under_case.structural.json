@@ -161,6 +161,18 @@
                   "json_pointer": "/report",
                   "must_exist_target": true,
                   "name": "report",
+                  "source_map_subjects_by_variant": {
+                    "BLOCKED": {
+                      "subject_kind": "variant_output_field",
+                      "subject_name": "run__attempt::AttemptResult::BLOCKED::report",
+                      "workflow_name": "run"
+                    },
+                    "COMPLETED": {
+                      "subject_kind": "variant_output_field",
+                      "subject_name": "run__attempt::AttemptResult::COMPLETED::report",
+                      "workflow_name": "run"
+                    }
+                  },
                   "type": "relpath",
                   "under": "artifacts/work"
                 }
@@ -171,6 +183,11 @@
                     {
                       "json_pointer": "/reason",
                       "name": "reason",
+                      "source_map_subject": {
+                        "subject_kind": "variant_output_field",
+                        "subject_name": "run__attempt::AttemptResult::BLOCKED::reason",
+                        "workflow_name": "run"
+                      },
                       "type": "string"
                     }
                   ]
@@ -883,18 +900,69 @@
                           {
                             "json_pointer": "/status",
                             "name": "status",
+                            "source_map_subjects_by_variant": {
+                              "BLOCKED": {
+                                "subject_kind": "variant_output_field",
+                                "subject_name": "run__match_attempt__blocked__result_bundle::LoopResult::BLOCKED::status",
+                                "workflow_name": "run"
+                              },
+                              "COMPLETED": {
+                                "subject_kind": "variant_output_field",
+                                "subject_name": "run__match_attempt__blocked__result_bundle::LoopResult::COMPLETED::status",
+                                "workflow_name": "run"
+                              },
+                              "EXHAUSTED": {
+                                "subject_kind": "variant_output_field",
+                                "subject_name": "run__match_attempt__blocked__result_bundle::LoopResult::EXHAUSTED::status",
+                                "workflow_name": "run"
+                              }
+                            },
                             "type": "string"
                           },
                           {
                             "json_pointer": "/report",
                             "must_exist_target": true,
                             "name": "report",
+                            "source_map_subjects_by_variant": {
+                              "BLOCKED": {
+                                "subject_kind": "variant_output_field",
+                                "subject_name": "run__match_attempt__blocked__result_bundle::LoopResult::BLOCKED::report",
+                                "workflow_name": "run"
+                              },
+                              "COMPLETED": {
+                                "subject_kind": "variant_output_field",
+                                "subject_name": "run__match_attempt__blocked__result_bundle::LoopResult::COMPLETED::report",
+                                "workflow_name": "run"
+                              },
+                              "EXHAUSTED": {
+                                "subject_kind": "variant_output_field",
+                                "subject_name": "run__match_attempt__blocked__result_bundle::LoopResult::EXHAUSTED::report",
+                                "workflow_name": "run"
+                              }
+                            },
                             "type": "relpath",
                             "under": "artifacts/work"
                           },
                           {
                             "json_pointer": "/reason",
                             "name": "reason",
+                            "source_map_subjects_by_variant": {
+                              "BLOCKED": {
+                                "subject_kind": "variant_output_field",
+                                "subject_name": "run__match_attempt__blocked__result_bundle::LoopResult::BLOCKED::reason",
+                                "workflow_name": "run"
+                              },
+                              "COMPLETED": {
+                                "subject_kind": "variant_output_field",
+                                "subject_name": "run__match_attempt__blocked__result_bundle::LoopResult::COMPLETED::reason",
+                                "workflow_name": "run"
+                              },
+                              "EXHAUSTED": {
+                                "subject_kind": "variant_output_field",
+                                "subject_name": "run__match_attempt__blocked__result_bundle::LoopResult::EXHAUSTED::reason",
+                                "workflow_name": "run"
+                              }
+                            },
                             "type": "string"
                           }
                         ],

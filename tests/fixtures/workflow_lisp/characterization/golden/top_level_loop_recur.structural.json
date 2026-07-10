@@ -79,6 +79,11 @@
                       "json_pointer": "/progress_report",
                       "must_exist_target": true,
                       "name": "progress_report",
+                      "source_map_subject": {
+                        "subject_kind": "variant_output_field",
+                        "subject_name": "loop-recur-minimal__attempt::ImplementationState::BLOCKED::progress_report",
+                        "workflow_name": "loop-recur-minimal"
+                      },
                       "type": "relpath",
                       "under": "artifacts/work"
                     },
@@ -93,6 +98,11 @@
                       ],
                       "json_pointer": "/blocker_class",
                       "name": "blocker_class",
+                      "source_map_subject": {
+                        "subject_kind": "variant_output_field",
+                        "subject_name": "loop-recur-minimal__attempt::ImplementationState::BLOCKED::blocker_class",
+                        "workflow_name": "loop-recur-minimal"
+                      },
                       "type": "enum"
                     }
                   ]
@@ -103,6 +113,11 @@
                       "json_pointer": "/execution_report",
                       "must_exist_target": true,
                       "name": "execution_report",
+                      "source_map_subject": {
+                        "subject_kind": "variant_output_field",
+                        "subject_name": "loop-recur-minimal__attempt::ImplementationState::COMPLETED::execution_report",
+                        "workflow_name": "loop-recur-minimal"
+                      },
                       "type": "relpath",
                       "under": "artifacts/work"
                     }

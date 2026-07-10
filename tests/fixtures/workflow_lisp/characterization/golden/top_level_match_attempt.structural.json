@@ -227,6 +227,18 @@
                   ],
                   "json_pointer": "/implementation_state",
                   "name": "implementation_state",
+                  "source_map_subjects_by_variant": {
+                    "BLOCKED": {
+                      "subject_kind": "variant_output_field",
+                      "subject_name": "neurips_implementation_attempt::run-implementation-attempt__attempt::ImplementationAttempt::BLOCKED::implementation_state",
+                      "workflow_name": "neurips_implementation_attempt::run-implementation-attempt"
+                    },
+                    "COMPLETED": {
+                      "subject_kind": "variant_output_field",
+                      "subject_name": "neurips_implementation_attempt::run-implementation-attempt__attempt::ImplementationAttempt::COMPLETED::implementation_state",
+                      "workflow_name": "neurips_implementation_attempt::run-implementation-attempt"
+                    }
+                  },
                   "type": "enum"
                 }
               ],
@@ -237,6 +249,11 @@
                       "json_pointer": "/progress_report_path",
                       "must_exist_target": true,
                       "name": "progress_report_path",
+                      "source_map_subject": {
+                        "subject_kind": "variant_output_field",
+                        "subject_name": "neurips_implementation_attempt::run-implementation-attempt__attempt::ImplementationAttempt::BLOCKED::progress_report_path",
+                        "workflow_name": "neurips_implementation_attempt::run-implementation-attempt"
+                      },
                       "type": "relpath",
                       "under": "artifacts/work"
                     },
@@ -251,6 +268,11 @@
                       ],
                       "json_pointer": "/blocker_class",
                       "name": "blocker_class",
+                      "source_map_subject": {
+                        "subject_kind": "variant_output_field",
+                        "subject_name": "neurips_implementation_attempt::run-implementation-attempt__attempt::ImplementationAttempt::BLOCKED::blocker_class",
+                        "workflow_name": "neurips_implementation_attempt::run-implementation-attempt"
+                      },
                       "type": "enum"
                     }
                   ]
@@ -261,6 +283,11 @@
                       "json_pointer": "/execution_report_path",
                       "must_exist_target": true,
                       "name": "execution_report_path",
+                      "source_map_subject": {
+                        "subject_kind": "variant_output_field",
+                        "subject_name": "neurips_implementation_attempt::run-implementation-attempt__attempt::ImplementationAttempt::COMPLETED::execution_report_path",
+                        "workflow_name": "neurips_implementation_attempt::run-implementation-attempt"
+                      },
                       "type": "relpath",
                       "under": "artifacts/work"
                     }

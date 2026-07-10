@@ -74,9 +74,9 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-07-typecheck-family-completion.md` | Completed through its Task 7 closeout amendment. Structural/static gates are clean, 398 typecheck tests and 19 Design Delta smoke tests pass, and the full-suite failure set matches the pre-plan baseline. |
 | `2026-07-07-build-module-split.md` | Completed through Task 6. Module/static gates are clean, 93 feasibility and 190 artifact tests pass, and the full-suite failure set matches the pre-plan baseline. |
 | `2026-07-07-executor-decomposition.md` | Completed through Task 9. Its targeted executor surface and Design Delta smoke pass; the full-suite failure identities match the pre-Task-2 baseline. |
-| `2026-07-08-boundary-report-followups.md` | Paused at Task 5 case 5 while the accepted runtime union-field lineage implementation plan executes. Cases 2 and 3 landed. |
-| `2026-07-09-runtime-union-field-lineage-plan.md` | Active Stage-1 prerequisite. Implements the accepted source-map design, resumes boundary case 5, and closes that plan before the drain begins. |
-| `2026-07-07-drain-migration-g8-retirement.md` | Governs the parametric flagship migration and cleanup after re-anchoring to the refactored modules, but must not begin until the boundary-report case 5 gate clears. |
+| `2026-07-08-boundary-report-followups.md` | Completed through Task 6 and its final gate. Case 5 now has production runtime/source-map attribution evidence. |
+| `2026-07-09-runtime-union-field-lineage-plan.md` | Completed through Task 6. The post-fix full suite retains exactly the six recorded baseline failures. |
+| `2026-07-07-drain-migration-g8-retirement.md` | Next active roadmap plan. Begin at Phase 1 Task 1.1; do not skip its re-baseline and anchor verification. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Pending Stage-4 design. After that design is accepted and the plan is revised/reviewed, it is the first Stage-5 typed-return substrate item before the procedure-first pilot. |
 | `2026-07-07-yaml-retirement-program.md` | Task 1 may inform later design. Its Design Delta family promotion is coordinated between drain Phases 2 and 3; other code-changing and promotion tasks wait until the procedure-first pilot is accepted. |
 
@@ -123,16 +123,13 @@ Execute in this order:
    are recorded in the component plan. Large
    `build_design_delta.py` size is accepted temporarily because Stage 3 deletes
    the family-specific certification unit; do not start a second split first.
-5. **Boundary-report follow-ups — executing the accepted case 5 prerequisite.** Tasks 1-4 are
-   complete. Case 2 landed in `be6596ae`; case 3 landed in `02f38549`. The case
-   5 reproduction confirmed that runtime violations carry variant/field/pointer
-   context but no source-map subject, `CompiledFrontendIndex` only resolves
-   step/node identity, and persisted source maps omit authored `defunion`
-   variant-field spans/form identity. The production design is accepted in
-   `docs/design/workflow_lisp_source_map.md`; execute
-   `2026-07-09-runtime-union-field-lineage-plan.md`, resume case 5, and complete
-   Task 6 plus the final gate. Do not begin drain migration first. Recommendation 11
-   remains design-gated; this stage must not implement the broad transition.
+5. **Boundary-report follow-ups and runtime union-field lineage — completed
+   2026-07-10.** Cases 2 and 3 remain landed in `be6596ae` and `02f38549`.
+   Case 5 is implemented in `194ad866` with its exact subject identity pinned
+   in `962daa2d`; the boundary final gate passed 105 tests, and the post-fix
+   full suite retained exactly the six recorded baseline failures.
+   Recommendation 11 remains design-gated; this stage did not implement the
+   broad transition.
 6. Run the combined compiler/runtime baseline and one orchestrator smoke.
 
 Gate S1:
@@ -147,6 +144,10 @@ After S1, impose a semantic-migration freeze: no discretionary compiler,
 executor, build, typecheck, or lowering refactors until Stage 3 completes.
 
 ### Stage 2: Land The Parametric Drain Route
+
+**Current next selection (2026-07-10):** Execute
+`2026-07-07-drain-migration-g8-retirement.md` Phase 1 Task 1.1. The
+semantic-migration freeze is in force.
 
 Re-anchor and execute `2026-07-07-drain-migration-g8-retirement.md` Phase 1:
 
@@ -343,6 +344,10 @@ Use the narrowest owning checks first, then advance only at explicit gates:
 
 Fresh output is required. A green check from before a route swap, module move,
 or retirement deletion is not evidence for the later state.
+
+After the narrow owning selectors, run broad, slow, or full pytest gates with
+`pytest -q -n 16 --dist=worksteal`. Keep long runs in tmux and compare known
+baseline failures by exact test identity.
 
 ## Completion Criteria
 

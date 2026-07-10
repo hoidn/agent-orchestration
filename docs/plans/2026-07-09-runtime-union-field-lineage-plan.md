@@ -1,5 +1,12 @@
 # Runtime Union Field Lineage Implementation Plan
 
+> **Execution status (completed 2026-07-10):** Tasks 1-5 landed through
+> `962daa2d`. Task 6 closed the boundary-report case 5 and final gates after
+> refreshing the eight structural characterization goldens that intentionally
+> gained provenance-only contract metadata. The post-fix full suite retains
+> exactly the six failures recorded at `2f8d35f5`; drain migration Phase 1
+> Task 1.1 is the next active roadmap work.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Carry authored Workflow Lisp union variant-field identity through generated runtime contracts, source maps, Semantic IR, and executor contract violations so a runtime missing/forbidden field points to the exact authored declaration.
@@ -17,8 +24,9 @@
   parent frontend contract.
 - `docs/plans/2026-07-08-boundary-report-followups.md` Task 5 case 5 owns the
   coverage gate this plan unblocks.
-- `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md` keeps
-  the drain migration paused until the boundary plan closes.
+- `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md` kept
+  the drain migration paused until the boundary plan closed and now routes to
+  its Phase 1 Task 1.1.
 
 ## Working-tree and execution rules
 
@@ -566,14 +574,30 @@ Expected: PASS.
 
 ### Task 6: Close the boundary gate and hand the roadmap to the drain migration
 
+> **Status (completed 2026-07-10):** Verified against code revision
+> `d7c7a904`. The exact case 5 acceptance test, boundary gate,
+> implementation-wide gate, WCC characterization repair, CLI smoke, and full
+> baseline comparison are recorded below.
+
 **Files:**
+- Modify: `AGENTS.md`
+- Modify: `docs/plans/2026-07-09-runtime-union-field-lineage-plan.md`
 - Modify: `docs/plans/2026-07-08-boundary-report-followups.md`
 - Modify: `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
 - Modify: `docs/plans/2026-07-09-procedure-first-roadmap-activation-plan.md`
 - Modify: `docs/index.md`
 - Modify if status materially changes: `docs/capability_status_matrix.md`
+- Refresh through the canonical structural snapshot builder:
+  `tests/fixtures/workflow_lisp/characterization/golden/straight_line_provider_phase.structural.json`,
+  `top_level_match_attempt.structural.json`,
+  `top_level_loop_recur.structural.json`,
+  `stdlib_review_revise_loop.structural.json`,
+  `wcc_m4_loop_under_case.structural.json`,
+  `wcc_m4_implementation_phase_full_fixture.structural.json`,
+  `design_delta_union_match_projection.structural.json`, and
+  `wcc_m3_nested_non_tail_match.structural.json`.
 
-- [ ] **Step 1: Run the boundary plan's previously blocked case**
+- [x] **Step 1: Run the boundary plan's previously blocked case**
 
 ```bash
 pytest tests/test_workflow_lisp_runtime_source_map.py tests/test_workflow_lisp_source_map.py -q -k 'union_field or contract_field or runtime'
@@ -582,13 +606,13 @@ pytest tests/test_workflow_lisp_runtime_source_map.py tests/test_workflow_lisp_s
 Record the exact acceptance test id and implementation commit in Task 5 case 5.
 Mark only its now-complete steps; do not rewrite cases 2 or 3.
 
-- [ ] **Step 2: Perform historical fixture reconciliation**
+- [x] **Step 2: Perform historical fixture reconciliation**
 
 Run the boundary plan Task 6 commands against the current checkout and record
 the result in its final execution handoff. Do not restore or delete historical
 fixtures and do not edit the closed Phase-1 deletion plan.
 
-- [ ] **Step 3: Run the boundary final gate**
+- [x] **Step 3: Run the boundary final gate**
 
 ```bash
 rg -n 'proof-gated' docs/design/*.md
@@ -598,7 +622,7 @@ pytest tests/test_workflow_lisp_variant_proofs.py tests/test_workflow_lisp_struc
 Classify residual terminology hits and record the exact pass count. Only then
 mark the boundary plan complete and remove the pause wording from routing docs.
 
-- [ ] **Step 4: Run implementation-wide verification**
+- [x] **Step 4: Run implementation-wide verification**
 
 ```bash
 pytest --collect-only tests/test_workflow_lisp_runtime_source_map.py -q
@@ -611,26 +635,74 @@ pre-plan baseline (six known failures at `2f8d35f5`, unless the baseline has
 been intentionally updated by an intervening commit):
 
 ```bash
-pytest -q
+pytest -q -n 16 --dist=worksteal
 ```
 
 Do not weaken or skip a new failure. Record exact counts and identities.
 
-- [ ] **Step 5: Route the next active plan and commit closure**
+- [x] **Step 5: Route the next active plan and commit closure**
 
 Update the sequence, activation plan, and index so
 `docs/plans/2026-07-07-drain-migration-g8-retirement.md` Phase 1 Task 1.1 is the
 next active roadmap work. Keep the semantic-migration freeze in force.
 
 ```bash
-git diff --check -- docs/plans/2026-07-08-boundary-report-followups.md docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md docs/plans/2026-07-09-procedure-first-roadmap-activation-plan.md docs/index.md docs/capability_status_matrix.md
-git add -- docs/plans/2026-07-08-boundary-report-followups.md docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md docs/plans/2026-07-09-procedure-first-roadmap-activation-plan.md docs/index.md
-git add -- docs/capability_status_matrix.md  # only if changed
+git diff --check -- \
+  AGENTS.md \
+  docs/plans/2026-07-08-boundary-report-followups.md \
+  docs/plans/2026-07-09-runtime-union-field-lineage-plan.md \
+  docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md \
+  docs/plans/2026-07-09-procedure-first-roadmap-activation-plan.md \
+  docs/index.md docs/capability_status_matrix.md \
+  tests/fixtures/workflow_lisp/characterization/golden/{straight_line_provider_phase,top_level_match_attempt,top_level_loop_recur,stdlib_review_revise_loop,wcc_m4_loop_under_case,wcc_m4_implementation_phase_full_fixture,design_delta_union_match_projection,wcc_m3_nested_non_tail_match}.structural.json
+git add -- \
+  AGENTS.md \
+  docs/plans/2026-07-08-boundary-report-followups.md \
+  docs/plans/2026-07-09-runtime-union-field-lineage-plan.md \
+  docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md \
+  docs/plans/2026-07-09-procedure-first-roadmap-activation-plan.md \
+  docs/index.md docs/capability_status_matrix.md \
+  tests/fixtures/workflow_lisp/characterization/golden/{straight_line_provider_phase,top_level_match_attempt,top_level_loop_recur,stdlib_review_revise_loop,wcc_m4_loop_under_case,wcc_m4_implementation_phase_full_fixture,design_delta_union_match_projection,wcc_m3_nested_non_tail_match}.structural.json
 git commit -m "Close runtime union field lineage gate"
 ```
 
 Expected: the boundary plan is complete and the governing roadmap points to
 the drain migration without claiming that the drain itself has begun.
+
+### Task 6 verification evidence (2026-07-10)
+
+- Case 5 production path:
+  `tests/test_workflow_lisp_runtime_source_map.py::test_runtime_union_field_violation_resolves_exact_authored_field_origin`;
+  implementation `194ad866`, exact selected-field subject pin `962daa2d`.
+  The focused runtime/source-map selector passed **12 tests** with **18
+  deselected**.
+- Boundary final gate: **105 passed**. The twelve residual `proof-gated`
+  hits are either the three occurrences in the superseded structural
+  constraints draft or internal compiler/lowering/proving mechanics in the
+  compile-time specialization, generic-core, frontend, and review/revise
+  design docs.
+- Runtime-source-map collection: **5 tests collected**. The implementation-wide
+  selector produced the four expected in-scope baseline failures and **184
+  passed**: three Semantic IR identities plus the valid-output-bundle/nonzero
+  identity. `python -m orchestrator --help` exited `0`.
+- The first serial full suite exposed nine stale WCC structural goldens:
+  **15 failed, 4104 passed, 11 skipped in 919.41s**. An 8-worker confirmation
+  reproduced the same identities in **327.33s**. All nine extra failures were
+  caused solely by intentional `source_map_subject` /
+  `source_map_subjects_by_variant` additions. The canonical structural
+  snapshot builder refreshed eight goldens with exactly 39 additions under
+  those two keys; the exact nine tests then passed and the full WCC
+  characterization module passed **77 tests**.
+- Post-fix full suite:
+  `pytest -q -n 16 --dist=loadscope` completed with **6 failed, 4113 passed,
+  11 skipped in 329.05s**. The failures exactly match the six identities at
+  `2f8d35f5`: NeurIPS steered-backlog continuation, Design Delta provider-role
+  default routing, valid output bundle overriding raw nonzero exit, and the
+  three Semantic IR baseline cases. This completed gate remains loadscope
+  evidence. Future broad, slow, and full pytest runs use
+  `pytest -q -n 16 --dist=worksteal` after narrow selectors, preserving
+  identity evidence while avoiding the serial run's 15:19 wall time; the
+  8-worker comparison took 5:27.
 
 ## Completion handoff
 
