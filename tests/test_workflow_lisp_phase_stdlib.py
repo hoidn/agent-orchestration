@@ -25,7 +25,10 @@ from orchestrator.workflow_lisp.compiler import (
     compile_stage3_entrypoint,
     compile_stage3_module,
 )
-from orchestrator.workflow_lisp.contracts import is_review_findings_type
+from orchestrator.workflow_lisp.contracts import (
+    derive_reusable_state_contract_metadata,
+    is_review_findings_type,
+)
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import (
@@ -44,7 +47,7 @@ from orchestrator.workflow_lisp.stdlib_contracts import (
 )
 from orchestrator.workflow_lisp.modules import build_import_scope
 from orchestrator.workflow_lisp.syntax import build_syntax_module
-from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
+from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, UnionTypeRef
 from orchestrator.workflow_lisp.workflows import (
     CertifiedAdapterBinding,
     CommandBoundaryEnvironment,
@@ -202,6 +205,69 @@ def _structured_contract_fingerprint(
         json.dumps(structured_contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     return f"2.14:{return_type_name}:{structured_contract_kind}:{digest}"
+
+
+def test_reusable_state_fingerprint_excludes_runtime_provenance(tmp_path: Path) -> None:
+    types_path = _write_module(
+        tmp_path / "reusable_state_provenance.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defunion Decision",
+                "    (ACCEPTED",
+                "      (report String))",
+                "    (REJECTED",
+                "      (report String))))",
+            ]
+        ),
+    )
+    syntax_module = _build_syntax_module(types_path)
+    type_env = FrontendTypeEnvironment.from_module(_compile_definition_module(types_path))
+    decision = type_env.resolve_type(
+        "Decision",
+        span=syntax_module.span,
+        form_path=("workflow-lisp", "defunion", "Decision"),
+    )
+
+    assert isinstance(decision, UnionTypeRef)
+    contract_kind, fingerprint, _, structured_contract = (
+        derive_reusable_state_contract_metadata(
+            decision,
+            target_dsl_version="2.14",
+            workflow_name="demo/module::entry",
+            step_id="execute",
+            span=syntax_module.span,
+            form_path=("workflow-lisp", "defworkflow", "entry"),
+        )
+    )
+
+    def strip_runtime_provenance(value: object) -> object:
+        if isinstance(value, dict):
+            return {
+                key: strip_runtime_provenance(item)
+                for key, item in value.items()
+                if key not in {
+                    "source_map_subject",
+                    "source_map_subjects_by_variant",
+                }
+            }
+        if isinstance(value, list):
+            return [strip_runtime_provenance(item) for item in value]
+        return value
+
+    [shared] = structured_contract["shared_fields"]
+    assert set(shared["source_map_subjects_by_variant"]) == {
+        "ACCEPTED",
+        "REJECTED",
+    }
+    semantic_contract = strip_runtime_provenance(structured_contract)
+    expected_digest = hashlib.sha256(
+        json.dumps(semantic_contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    assert contract_kind == "union"
+    assert fingerprint == f"2.14:Decision:union:{expected_digest}"
 
 
 def _checks_structured_contract() -> dict[str, object]:

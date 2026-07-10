@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from orchestrator import __version__ as ORCHESTRATOR_VERSION
+from orchestrator.exceptions import ValidationSubjectRef, serialize_validation_subject_ref
 from orchestrator.workflow.surface_ast import SurfaceContract
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -35,6 +36,12 @@ REUSABLE_PHASE_STATE_SCHEMA = "ReusablePhaseState.v1"
 REUSABLE_PHASE_STATE_VERSION = "v1"
 REUSABLE_PHASE_STATE_SIDECAR_SUFFIX = ".reusable_state.json"
 REUSABLE_PHASE_STATE_CANONICAL_BUNDLE_DIGEST_FIELD = "canonical_bundle_sha256"
+_NON_SEMANTIC_CONTRACT_PROVENANCE_KEYS = frozenset(
+    {
+        "source_map_subject",
+        "source_map_subjects_by_variant",
+    }
+)
 
 
 def is_review_findings_type(type_ref: TypeRef) -> bool:
@@ -78,6 +85,15 @@ def review_findings_types_compatible(expected: TypeRef, actual: TypeRef) -> bool
 
 
 @dataclass(frozen=True)
+class GeneratedContractFieldOrigin:
+    """Authored union-field origin for one generated runtime contract leaf."""
+
+    subject_ref: ValidationSubjectRef
+    span: SourceSpan
+    form_path: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class GeneratedBundleContract:
     """Workflow output contract generated from a frontend record or union type.
 
@@ -92,6 +108,7 @@ class GeneratedBundleContract:
     path: str
     payload: Mapping[str, Any]
     type_ref: RecordTypeRef | UnionTypeRef
+    field_origins: tuple[GeneratedContractFieldOrigin, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -190,6 +207,40 @@ def derive_structured_result_contract(
             type_ref=type_ref,
         )
 
+    shared_fields = _shared_variant_structured_result_fields(
+        type_ref,
+        span=span,
+        form_path=form_path,
+    )
+    variant_fields = {
+        variant.name: _flatten_variant_structured_result_fields(
+            type_ref,
+            variant.name,
+            span=span,
+            form_path=form_path,
+        )
+        for variant in type_ref.definition.variants
+    }
+    subjects_by_variant, field_origins = _derive_union_contract_field_lineage(
+        type_ref,
+        workflow_name=workflow_name,
+        step_id=step_id,
+        span=span,
+        form_path=form_path,
+    )
+    for variant_name, fields in variant_fields.items():
+        for field in fields:
+            field["source_map_subject"] = serialize_validation_subject_ref(
+                subjects_by_variant[variant_name][field["name"]]
+            )
+    for field in shared_fields:
+        field["source_map_subjects_by_variant"] = {
+            variant.name: serialize_validation_subject_ref(
+                subjects_by_variant[variant.name][field["name"]]
+            )
+            for variant in type_ref.definition.variants
+        }
+
     payload = {
         "path": path,
         "discriminant": {
@@ -198,19 +249,10 @@ def derive_structured_result_contract(
             "type": "enum",
             "allowed": [variant.name for variant in type_ref.definition.variants],
         },
-        "shared_fields": _shared_variant_structured_result_fields(
-            type_ref,
-            span=span,
-            form_path=form_path,
-        ),
+        "shared_fields": shared_fields,
         "variants": {
             variant.name: {
-                "fields": _flatten_variant_structured_result_fields(
-                    type_ref,
-                    variant.name,
-                    span=span,
-                    form_path=form_path,
-                ),
+                "fields": variant_fields[variant.name],
             }
             for variant in type_ref.definition.variants
         },
@@ -220,6 +262,7 @@ def derive_structured_result_contract(
         path=path,
         payload=payload,
         type_ref=type_ref,
+        field_origins=field_origins,
     )
 
 
@@ -539,7 +582,7 @@ def derive_reusable_state_contract_metadata(
     structured_contract_kind = "record" if isinstance(type_ref, RecordTypeRef) else "union"
     digest = hashlib.sha256(
         json.dumps(
-            structured_contract,
+            _strip_contract_provenance_for_fingerprint(structured_contract),
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
@@ -552,6 +595,22 @@ def derive_reusable_state_contract_metadata(
         form_path=form_path,
     )
     return structured_contract_kind, fingerprint, artifact_requirements, structured_contract
+
+
+def _strip_contract_provenance_for_fingerprint(value: Any) -> Any:
+    """Return the semantic contract value used for reusable-state identity."""
+
+    if isinstance(value, Mapping):
+        return {
+            key: _strip_contract_provenance_for_fingerprint(item)
+            for key, item in value.items()
+            if key not in _NON_SEMANTIC_CONTRACT_PROVENANCE_KEYS
+        }
+    if isinstance(value, list):
+        return [_strip_contract_provenance_for_fingerprint(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_strip_contract_provenance_for_fingerprint(item) for item in value)
+    return value
 
 
 def derive_reusable_state_public_input_hash_basis(signature: WorkflowSignature) -> tuple[str, ...]:
@@ -935,6 +994,68 @@ def _flatten_structured_result_fields(
             )
         )
     return flattened
+
+
+def _derive_union_contract_field_lineage(
+    type_ref: UnionTypeRef,
+    *,
+    workflow_name: str,
+    step_id: str,
+    span: SourceSpan | None,
+    form_path: tuple[str, ...],
+) -> tuple[
+    dict[str, dict[str, ValidationSubjectRef]],
+    tuple[GeneratedContractFieldOrigin, ...],
+]:
+    subjects_by_variant: dict[str, dict[str, ValidationSubjectRef]] = {}
+    origins: list[GeneratedContractFieldOrigin] = []
+    seen_subjects: set[tuple[str, str, str | None]] = set()
+
+    for variant in type_ref.definition.variants:
+        variant_subjects: dict[str, ValidationSubjectRef] = {}
+        for field in variant.fields:
+            field_type = _resolve_variant_field_type(type_ref, variant.name, field.name)
+            origin_form_path = (
+                "workflow-lisp",
+                "defunion",
+                type_ref.definition.name,
+                variant.name,
+                field.name,
+            )
+            flattened_fields = _flatten_structured_result_field(
+                field_type,
+                field_path=(field.name,),
+                span=span,
+                form_path=form_path,
+            )
+            for flattened_field in flattened_fields:
+                subject_ref = ValidationSubjectRef(
+                    subject_kind="variant_output_field",
+                    subject_name=(
+                        f"{step_id}::{type_ref.name}::{variant.name}::"
+                        f"{flattened_field['name']}"
+                    ),
+                    workflow_name=workflow_name,
+                )
+                variant_subjects[flattened_field["name"]] = subject_ref
+                subject_key = (
+                    subject_ref.subject_kind,
+                    subject_ref.subject_name,
+                    subject_ref.workflow_name,
+                )
+                if subject_key in seen_subjects:
+                    continue
+                seen_subjects.add(subject_key)
+                origins.append(
+                    GeneratedContractFieldOrigin(
+                        subject_ref=subject_ref,
+                        span=field.span,
+                        form_path=origin_form_path,
+                    )
+                )
+        subjects_by_variant[variant.name] = variant_subjects
+
+    return subjects_by_variant, tuple(origins)
 
 
 def _flatten_variant_structured_result_fields(

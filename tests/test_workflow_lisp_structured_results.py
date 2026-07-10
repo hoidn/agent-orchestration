@@ -81,6 +81,21 @@ def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileErr
     assert excinfo.value.diagnostics[0].code == code
 
 
+def _strip_contract_source_metadata(value: object) -> object:
+    if isinstance(value, dict):
+        return {
+            key: _strip_contract_source_metadata(item)
+            for key, item in value.items()
+            if key not in {
+                "source_map_subject",
+                "source_map_subjects_by_variant",
+            }
+        }
+    if isinstance(value, list):
+        return [_strip_contract_source_metadata(item) for item in value]
+    return value
+
+
 def _typecheck_top_level_names() -> set[str]:
     source_path = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck").__file__)
     module = ast.parse(source_path.read_text(encoding="utf-8"))
@@ -280,7 +295,7 @@ def test_derive_structured_result_contract_for_phase_translation_union_keeps_var
 
     assert contract.contract_kind == "variant_output"
     assert contract.payload["discriminant"]["name"] == "variant"
-    assert contract.payload["shared_fields"] == [
+    assert _strip_contract_source_metadata(contract.payload["shared_fields"]) == [
         {
             "name": "implementation_state",
             "json_pointer": "/implementation_state",
@@ -288,7 +303,9 @@ def test_derive_structured_result_contract_for_phase_translation_union_keeps_var
             "allowed": ["COMPLETED", "BLOCKED"],
         }
     ]
-    assert contract.payload["variants"]["COMPLETED"]["fields"] == [
+    assert _strip_contract_source_metadata(
+        contract.payload["variants"]["COMPLETED"]["fields"]
+    ) == [
         {
             "name": "execution_report_path",
             "json_pointer": "/execution_report_path",
@@ -297,7 +314,9 @@ def test_derive_structured_result_contract_for_phase_translation_union_keeps_var
             "must_exist_target": True,
         },
     ]
-    assert contract.payload["variants"]["BLOCKED"]["fields"] == [
+    assert _strip_contract_source_metadata(
+        contract.payload["variants"]["BLOCKED"]["fields"]
+    ) == [
         {
             "name": "progress_report_path",
             "json_pointer": "/progress_report_path",
@@ -319,6 +338,116 @@ def test_derive_structured_result_contract_for_phase_translation_union_keeps_var
             ],
         },
     ]
+
+
+def test_derive_structured_result_contract_adds_stable_field_subjects() -> None:
+    module = _compile_definition_module(PHASE_FIXTURE)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    implementation_attempt = type_env.resolve_type(
+        "ImplementationAttempt",
+        span=_build_syntax_module(PHASE_FIXTURE).span,
+        form_path=("workflow-lisp", "defunion", "ImplementationAttempt"),
+    )
+
+    assert isinstance(implementation_attempt, UnionTypeRef)
+    contract = derive_structured_result_contract(
+        implementation_attempt,
+        workflow_name="demo/module::entry",
+        step_id="execute",
+        span=_build_syntax_module(PHASE_FIXTURE).span,
+        form_path=("workflow-lisp", "defworkflow", "entry"),
+    )
+
+    completed = contract.payload["variants"]["COMPLETED"]["fields"]
+    blocked = contract.payload["variants"]["BLOCKED"]["fields"]
+    assert completed[0]["source_map_subject"] == {
+        "subject_kind": "variant_output_field",
+        "subject_name": "execute::ImplementationAttempt::COMPLETED::execution_report_path",
+        "workflow_name": "demo/module::entry",
+    }
+    assert blocked[0]["source_map_subject"]["subject_name"].startswith(
+        "execute::ImplementationAttempt::BLOCKED::"
+    )
+    assert tuple(origin.subject_ref.subject_name for origin in contract.field_origins) == (
+        "execute::ImplementationAttempt::COMPLETED::implementation_state",
+        "execute::ImplementationAttempt::COMPLETED::execution_report_path",
+        "execute::ImplementationAttempt::BLOCKED::implementation_state",
+        "execute::ImplementationAttempt::BLOCKED::progress_report_path",
+        "execute::ImplementationAttempt::BLOCKED::blocker_class",
+    )
+
+
+def test_derive_structured_result_contract_adds_distinct_shared_field_subjects(
+    tmp_path: Path,
+) -> None:
+    types_path = _write_module(
+        tmp_path / "shared_nested_union_fields.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord ReportEnvelope",
+                "    (path String))",
+                "  (defunion Decision",
+                "    (ACCEPTED",
+                "      (report String)",
+                "      (details ReportEnvelope))",
+                "    (REJECTED",
+                "      (report String)",
+                "      (details ReportEnvelope))))",
+            ]
+        ),
+    )
+    syntax_module = _build_syntax_module(types_path)
+    type_env = FrontendTypeEnvironment.from_module(compile_stage1_module(types_path))
+    decision = type_env.resolve_type(
+        "Decision",
+        span=syntax_module.span,
+        form_path=("workflow-lisp", "defunion", "Decision"),
+    )
+
+    assert isinstance(decision, UnionTypeRef)
+    contract = derive_structured_result_contract(
+        decision,
+        workflow_name="demo/module::entry",
+        step_id="execute",
+        span=syntax_module.span,
+        form_path=("workflow-lisp", "defworkflow", "entry"),
+    )
+
+    shared_by_name = {
+        field["name"]: field
+        for field in contract.payload["shared_fields"]
+    }
+    shared = shared_by_name["report"]
+    assert "source_map_subject" not in shared
+    subjects = shared["source_map_subjects_by_variant"]
+    assert set(subjects) == {"ACCEPTED", "REJECTED"}
+    assert subjects["ACCEPTED"] != subjects["REJECTED"]
+    assert subjects["ACCEPTED"]["subject_name"] == (
+        "execute::Decision::ACCEPTED::report"
+    )
+    assert subjects["REJECTED"]["subject_name"] == (
+        "execute::Decision::REJECTED::report"
+    )
+
+    nested_origins_by_variant = {
+        origin.subject_ref.subject_name.split("::")[-2]: origin
+        for origin in contract.field_origins
+        if origin.subject_ref.subject_name.endswith("::details__path")
+    }
+    for variant in decision.definition.variants:
+        nested_field = next(field for field in variant.fields if field.name == "details")
+        origin = nested_origins_by_variant[variant.name]
+        assert origin.span == nested_field.span
+        assert origin.form_path == (
+            "workflow-lisp",
+            "defunion",
+            "Decision",
+            variant.name,
+            "details",
+        )
 
 
 def test_typecheck_workflow_definitions_rejects_return_type_mismatches(tmp_path: Path) -> None:
@@ -990,7 +1119,9 @@ def test_derive_structured_result_contract_builds_variant_output_for_union_resul
         "allowed": ["COMPLETED", "BLOCKED"],
     }
     assert contract.payload["shared_fields"] == []
-    assert contract.payload["variants"]["COMPLETED"]["fields"] == [
+    assert _strip_contract_source_metadata(
+        contract.payload["variants"]["COMPLETED"]["fields"]
+    ) == [
         {
             "name": "execution_report",
             "json_pointer": "/execution_report",
@@ -999,7 +1130,9 @@ def test_derive_structured_result_contract_builds_variant_output_for_union_resul
             "must_exist_target": True,
         }
     ]
-    assert contract.payload["variants"]["BLOCKED"]["fields"][1] == {
+    assert _strip_contract_source_metadata(
+        contract.payload["variants"]["BLOCKED"]["fields"][1]
+    ) == {
         "name": "blocker_class",
         "json_pointer": "/blocker_class",
         "type": "enum",
@@ -1059,7 +1192,7 @@ def test_derive_structured_result_contract_keeps_repeated_union_fields_variant_s
 
     assert contract.contract_kind == "variant_output"
     assert contract.payload["shared_fields"] == []
-    assert contract.payload["variants"] == {
+    assert _strip_contract_source_metadata(contract.payload["variants"]) == {
         "ACCEPTED": {
             "fields": [
                 {

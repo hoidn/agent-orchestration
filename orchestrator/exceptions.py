@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List
+from typing import List, Mapping
 
 
 @dataclass
@@ -9,6 +9,36 @@ class ValidationSubjectRef:
     subject_kind: str
     subject_name: str
     workflow_name: str | None = None
+
+
+def serialize_validation_subject_ref(subject_ref: ValidationSubjectRef) -> dict[str, str | None]:
+    """Serialize one validation subject using the shared provenance wire shape."""
+
+    return {
+        "subject_kind": subject_ref.subject_kind,
+        "subject_name": subject_ref.subject_name,
+        "workflow_name": subject_ref.workflow_name,
+    }
+
+
+def parse_validation_subject_ref(value: object) -> ValidationSubjectRef | None:
+    """Parse optional provenance metadata without raising or inferring identity."""
+
+    if not isinstance(value, Mapping):
+        return None
+    subject_kind = value.get("subject_kind")
+    subject_name = value.get("subject_name")
+    workflow_name = value.get("workflow_name")
+    if not all(
+        isinstance(part, str) and part
+        for part in (subject_kind, subject_name, workflow_name)
+    ):
+        return None
+    return ValidationSubjectRef(
+        subject_kind=subject_kind,
+        subject_name=subject_name,
+        workflow_name=workflow_name,
+    )
 
 
 @dataclass
