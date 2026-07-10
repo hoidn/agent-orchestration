@@ -244,6 +244,11 @@ document owns the answer.
 **Keywords:** lisp-frontend, let-proc, procref, lexical-procedure, compile-time
 **Use this when:** Reviewing local procedure authoring ergonomics without runtime closures or a second lowering path.
 
+### [Workflow Lisp Provider Prompt Queue](design/workflow_lisp_provider_prompt_queue.md)
+**Description:** Proposed design for a static `prompt-queue` grouping on provider invocation forms: one atomic runtime step drives N sequential turns against one persisted provider session, with step-level prompt injections on the first turn and the output contract plus result bundle on the final turn only.
+**Keywords:** lisp-frontend, prompt-queue, provider-session, multi-turn, output-contract
+**Use this when:** Reviewing or extending the multi-turn provider invocation direction; not implementable until the design is accepted and given an explicit roadmap slot.
+
 ### [Workflow Lisp Parametric Type System](design/workflow_lisp_parametric_type_system.md)
 **Description:** Single-owner design for the parametric type-system direction: generic `defproc` with `:forall`/`:where`, the structural-constraint vocabulary (including type-parameter constraint field types and subset semantics), the instantiate-then-typecheck specialization pipeline, diagnostics contract, and the permanent-primitive vs migration-destined form classification with the per-form migration test. Supersedes the two 2026-06-02 parametric drafts.
 **Keywords:** lisp-frontend, parametric, type-system, structural-constraints, specialization, generics, form-migration, backlog-drain
