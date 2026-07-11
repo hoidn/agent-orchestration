@@ -534,3 +534,45 @@ def test_drain_generic_hook_probe_effectful_proc_hook_compiles_shared_validated(
         )
         is not None
     )
+
+
+def test_drain_generic_hook_call_let_binding_promotes_to_private_workflow(tmp_path: Path) -> None:
+    # Loop-lane promotion widening (docs/plans/2026-07-07-drain-migration-g8-retirement.md,
+    # Phase 1 Ledger; defproc lowering-mode contract,
+    # docs/design/workflow_lisp_frontend_specification.md): a generic-loop-lane
+    # hook whose body let*-binds a workflow `call` result exports step-backed
+    # outputs, so the iteration-scope promotion re-check must promote it to a
+    # private `%…v1` workflow and the whole drain graph must compile clean
+    # through shared validation — the loop lane then sees a single call step
+    # instead of inlining the hook body through the frontend loop-body lane.
+    result = _compile_module_fixture(
+        FIXTURES / "valid" / "drain_generic_hook_call_binding_promotion.orc",
+        tmp_path=tmp_path,
+        command_boundaries={
+            "drain_select": ExternalToolBinding(
+                name="drain_select",
+                stable_command=("python", "scripts/select_next_item.py"),
+            ),
+            "drain_run_item": ExternalToolBinding(
+                name="drain_run_item",
+                stable_command=("python", "scripts/execute_selected_item.py"),
+            ),
+            "drain_draft_gap": ExternalToolBinding(
+                name="drain_draft_gap",
+                stable_command=("python", "scripts/draft_gap_item.py"),
+            ),
+        },
+    )
+    lowered_names = [
+        workflow.typed_workflow.definition.name for workflow in result.lowered_workflows
+    ]
+    promoted_names = [
+        name
+        for name in lowered_names
+        if name.startswith("%drain_generic_hook_call_binding_promotion.")
+        and "select-with-call-binding" in name
+        and name.endswith(".v1")
+    ]
+    assert promoted_names, lowered_names
+    for name in promoted_names:
+        assert name in result.validated_bundles

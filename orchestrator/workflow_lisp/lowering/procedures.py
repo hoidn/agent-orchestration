@@ -569,6 +569,13 @@ def _lower_procedure_call(
             typed_procedures_by_name=context.typed_procedures,
             type_env=procedure_type_env,
             procedure_type_envs=context.procedure_type_envs,
+            # Iteration-scope-only widening: this re-check alone threads the
+            # workflow-signature lookup, so hooks whose bodies let*-bind
+            # workflow calls promote inside the generic loop lane while
+            # module-level and specialization-site promotion decisions stay
+            # untouched (defproc lowering-mode contract,
+            # docs/design/workflow_lisp_frontend_specification.md).
+            workflow_signatures_by_name=context.workflow_catalog.signatures_by_name,
         ):
             resolved_lowering_mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
             generated_workflow_name = procedure.generated_workflow_name or (

@@ -2292,6 +2292,102 @@ def test_auto_lowering_counts_distinct_same_file_call_sites_not_reachable_paths(
     assert procedure.generated_workflow_name is None
 
 
+def test_auto_lowering_call_binding_body_stays_inline_outside_iteration_scopes(
+    tmp_path: Path,
+) -> None:
+    # Gating pin for the loop-lane promotion widening
+    # (docs/plans/2026-07-07-drain-migration-g8-retirement.md, Phase 1 Ledger;
+    # defproc lowering-mode contract,
+    # docs/design/workflow_lisp_frontend_specification.md): typing workflow
+    # `call` let* bindings for private-workflow eligibility is enabled only at
+    # the iteration-scope promotion re-check inside procedure-call lowering.
+    # Module-level auto resolution must keep treating a call-binding body as
+    # inline so existing non-loop procs never silently change lowering mode
+    # (and step identity).
+    path = _write_module(
+        tmp_path / "call_binding_auto_stays_inline.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defrecord Payload",
+            "    (flag Bool))",
+            "  (defworkflow make-payload",
+            "    ((flag Bool))",
+            "    -> Payload",
+            "    (record Payload :flag flag))",
+            "  (defproc project-payload",
+            "    ((flag Bool))",
+            "    -> Payload",
+            "    :effects ((calls-workflow make-payload))",
+            "    :lowering auto",
+            "    (let* ((payload (call make-payload :flag flag)))",
+            "      payload))",
+            "  (defworkflow first",
+            "    ((flag Bool))",
+            "    -> Payload",
+            "    (project-payload flag))",
+            "  (defworkflow second",
+            "    ((flag Bool))",
+            "    -> Payload",
+            "    (project-payload flag)))",
+        ],
+    )
+
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
+    _validate_definition_module(module)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    workflow_defs = elaborate_workflow_definitions(syntax_module)
+    procedure_defs = elaborate_procedure_definitions(syntax_module)
+    workflow_catalog = build_workflow_catalog(module, workflow_defs, type_env)
+    procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
+    typed_procedures = _typecheck_procedure_definitions(
+        procedure_defs,
+        type_env=type_env,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=None,
+        command_boundary_environment=None,
+    )
+    typed_procedures, procedure_catalog = _validate_procedure_effects_and_cycles(
+        typed_procedures,
+        procedure_catalog=procedure_catalog,
+    )
+    typed_workflows = typecheck_workflow_definitions(
+        workflow_defs,
+        type_env=type_env,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=None,
+        command_boundary_environment=None,
+        procedure_effects_by_name={
+            procedure.definition.name: procedure.transitive_effect_summary
+            for procedure in typed_procedures
+        },
+    )
+    procedure = _resolve_procedure_lowering(
+        typed_procedures,
+        typed_workflows=typed_workflows,
+        workflow_path=path,
+        type_env=type_env,
+    )["project-payload"]
+
+    assert procedure.definition.name == "project-payload"
+    assert procedure.resolved_lowering_mode.value == "inline"
+    assert procedure.generated_workflow_name is None
+
+    result = compile_stage3_module(
+        path,
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    lowered_names = [
+        workflow.typed_workflow.definition.name for workflow in result.lowered_workflows
+    ]
+    assert not [name for name in lowered_names if name.startswith("%")], lowered_names
+
+
 def test_auto_lowering_stays_inline_when_private_workflow_would_only_project_inputs(
     tmp_path: Path,
 ) -> None:

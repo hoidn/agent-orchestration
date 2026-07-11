@@ -127,8 +127,17 @@ def _procedure_private_body_valid(
     typed_procedures_by_name: Mapping[str, TypedProcedureDef],
     type_env: FrontendTypeEnvironment,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
+    workflow_signatures_by_name: Mapping[str, Any] | None = None,
 ) -> bool:
-    """Return whether a procedure body exports only workflow-boundary values."""
+    """Return whether a procedure body exports only workflow-boundary values.
+
+    `workflow_signatures_by_name` optionally enables typing workflow `call`
+    let* bindings against the callee's return signature. Only the
+    iteration-scope promotion re-check inside procedure-call lowering threads
+    it; every other promotion site leaves it unset so existing non-loop procs
+    never change lowering mode (defproc lowering-mode contract,
+    docs/design/workflow_lisp_frontend_specification.md).
+    """
 
     from .lowering.values import (
         _procedure_signature_local_type_bindings,
@@ -150,6 +159,7 @@ def _procedure_private_body_valid(
         type_env=current_type_env,
         procedure_type_envs=procedure_type_envs,
         active_procedures=frozenset({procedure.definition.name}),
+        workflow_signatures_by_name=workflow_signatures_by_name,
     )
 
 
@@ -159,6 +169,7 @@ def _private_workflow_result_type_for_expr(
     local_type_bindings: Mapping[str, TypeRef],
     typed_procedures_by_name: Mapping[str, TypedProcedureDef],
     type_env: FrontendTypeEnvironment,
+    workflow_signatures_by_name: Mapping[str, Any] | None = None,
 ) -> TypeRef | None:
     """Resolve one private-workflow expression type for binding export checks."""
 
@@ -170,6 +181,7 @@ def _private_workflow_result_type_for_expr(
             local_type_bindings=local_type_bindings,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            workflow_signatures_by_name=workflow_signatures_by_name,
         )
         for field_name in expr.fields:
             if not isinstance(current_type, (RecordTypeRef, VariantCaseTypeRef)):
@@ -257,12 +269,24 @@ def _private_workflow_result_type_for_expr(
         if procedure is None:
             return None
         return procedure.signature.return_type_ref
+    if isinstance(expr, CallExpr):
+        # A let*-bound workflow call is step-backed by construction; it only
+        # types when the caller threads a workflow-signature lookup, which the
+        # iteration-scope promotion re-check alone does (defproc lowering-mode
+        # contract, docs/design/workflow_lisp_frontend_specification.md).
+        if workflow_signatures_by_name is None:
+            return None
+        callee_signature = workflow_signatures_by_name.get(expr.callee_name)
+        if callee_signature is None:
+            return None
+        return callee_signature.return_type_ref
     if isinstance(expr, WithPhaseExpr):
         return _private_workflow_result_type_for_expr(
             expr.body,
             local_type_bindings=local_type_bindings,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            workflow_signatures_by_name=workflow_signatures_by_name,
         )
     if isinstance(expr, MatchExpr):
         subject_type = _private_workflow_result_type_for_expr(
@@ -270,6 +294,7 @@ def _private_workflow_result_type_for_expr(
             local_type_bindings=local_type_bindings,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            workflow_signatures_by_name=workflow_signatures_by_name,
         )
         arm_types: list[TypeRef | None] = []
         for arm in expr.arms:
@@ -287,6 +312,7 @@ def _private_workflow_result_type_for_expr(
                     local_type_bindings=arm_local_types,
                     typed_procedures_by_name=typed_procedures_by_name,
                     type_env=type_env,
+                    workflow_signatures_by_name=workflow_signatures_by_name,
                 )
             )
         if arm_types and all(arm_type == arm_types[0] for arm_type in arm_types):
@@ -300,6 +326,7 @@ def _private_workflow_result_type_for_expr(
                 local_type_bindings=child_local_types,
                 typed_procedures_by_name=typed_procedures_by_name,
                 type_env=type_env,
+                workflow_signatures_by_name=workflow_signatures_by_name,
             )
             if binding_type is None:
                 return None
@@ -309,6 +336,7 @@ def _private_workflow_result_type_for_expr(
             local_type_bindings=child_local_types,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            workflow_signatures_by_name=workflow_signatures_by_name,
         )
     if isinstance(expr, IfExpr):
         then_type = _private_workflow_result_type_for_expr(
@@ -316,12 +344,14 @@ def _private_workflow_result_type_for_expr(
             local_type_bindings=local_type_bindings,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            workflow_signatures_by_name=workflow_signatures_by_name,
         )
         else_type = _private_workflow_result_type_for_expr(
             expr.else_expr,
             local_type_bindings=local_type_bindings,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            workflow_signatures_by_name=workflow_signatures_by_name,
         )
         if then_type is not None and then_type == else_type:
             return then_type
@@ -339,6 +369,7 @@ def _private_workflow_binding_local_value(
     type_env: FrontendTypeEnvironment,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
     active_procedures: frozenset[str],
+    workflow_signatures_by_name: Mapping[str, Any] | None = None,
 ) -> Any | None:
     """Return the step-backed local shape one private-workflow binding exports."""
 
@@ -361,6 +392,7 @@ def _private_workflow_binding_local_value(
             type_env=type_env,
             procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
+            workflow_signatures_by_name=workflow_signatures_by_name,
         )
     if isinstance(expr, ProcedureCallExpr):
         callee = typed_procedures_by_name.get(expr.callee_name)
@@ -383,6 +415,7 @@ def _private_workflow_binding_local_value(
             ),
             procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures | {callee.definition.name},
+            workflow_signatures_by_name=workflow_signatures_by_name,
         ):
             return None
         return _private_workflow_local_value_for_type(
@@ -396,6 +429,7 @@ def _private_workflow_binding_local_value(
         local_type_bindings=local_type_bindings,
         typed_procedures_by_name=typed_procedures_by_name,
         type_env=type_env,
+        workflow_signatures_by_name=workflow_signatures_by_name,
     )
     if binding_type is None:
         return None
@@ -411,6 +445,7 @@ def _private_workflow_binding_local_value(
             type_env=type_env,
             procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
+            workflow_signatures_by_name=workflow_signatures_by_name,
         ):
             return None
     elif isinstance(expr, LetStarExpr):
@@ -423,6 +458,7 @@ def _private_workflow_binding_local_value(
             type_env=type_env,
             procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
+            workflow_signatures_by_name=workflow_signatures_by_name,
         ):
             return None
     elif not isinstance(
@@ -486,6 +522,7 @@ def _private_workflow_body_exports_step_backed_outputs(
     type_env: FrontendTypeEnvironment,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
     active_procedures: frozenset[str],
+    workflow_signatures_by_name: Mapping[str, Any] | None = None,
 ) -> bool:
     """Check that a private workflow body returns step-backed outputs."""
 
@@ -521,6 +558,7 @@ def _private_workflow_body_exports_step_backed_outputs(
             type_env=type_env,
             procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
+            workflow_signatures_by_name=workflow_signatures_by_name,
         )
     if isinstance(expr, ProcedureCallExpr):
         callee = typed_procedures_by_name.get(expr.callee_name)
@@ -543,6 +581,7 @@ def _private_workflow_body_exports_step_backed_outputs(
             ),
             procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures | {callee.definition.name},
+            workflow_signatures_by_name=workflow_signatures_by_name,
         )
     if isinstance(expr, LetStarExpr):
         child_locals = dict(local_values)
@@ -557,6 +596,7 @@ def _private_workflow_body_exports_step_backed_outputs(
                 type_env=type_env,
                 procedure_type_envs=procedure_type_envs,
                 active_procedures=active_procedures,
+                workflow_signatures_by_name=workflow_signatures_by_name,
             )
             if binding_value is None:
                 return False
@@ -566,6 +606,7 @@ def _private_workflow_body_exports_step_backed_outputs(
                 local_type_bindings=child_local_types,
                 typed_procedures_by_name=typed_procedures_by_name,
                 type_env=type_env,
+                workflow_signatures_by_name=workflow_signatures_by_name,
             )
             if binding_type is not None:
                 child_local_types[binding_name] = binding_type
@@ -578,6 +619,7 @@ def _private_workflow_body_exports_step_backed_outputs(
             type_env=type_env,
             procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
+            workflow_signatures_by_name=workflow_signatures_by_name,
         )
     if isinstance(expr, MatchExpr):
         return _match_outputs_are_step_backed(
@@ -589,6 +631,7 @@ def _private_workflow_body_exports_step_backed_outputs(
             type_env=type_env,
             procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
+            workflow_signatures_by_name=workflow_signatures_by_name,
         )
     if isinstance(expr, IfExpr):
         return _private_workflow_body_exports_step_backed_outputs(
@@ -600,6 +643,7 @@ def _private_workflow_body_exports_step_backed_outputs(
             type_env=type_env,
             procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
+            workflow_signatures_by_name=workflow_signatures_by_name,
         ) and _private_workflow_body_exports_step_backed_outputs(
             expr.else_expr,
             return_type_ref=return_type_ref,
@@ -609,6 +653,7 @@ def _private_workflow_body_exports_step_backed_outputs(
             type_env=type_env,
             procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
+            workflow_signatures_by_name=workflow_signatures_by_name,
         )
     if isinstance(expr, (NameExpr, FieldAccessExpr, EnumMemberExpr)):
         return _inline_outputs_are_step_backed(
@@ -641,6 +686,7 @@ def _match_outputs_are_step_backed(
     type_env: FrontendTypeEnvironment,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
     active_procedures: frozenset[str],
+    workflow_signatures_by_name: Mapping[str, Any] | None = None,
 ) -> bool:
     """Return whether every match arm exports step-backed outputs."""
 
@@ -656,6 +702,7 @@ def _match_outputs_are_step_backed(
         local_type_bindings=local_type_bindings,
         typed_procedures_by_name=typed_procedures_by_name,
         type_env=type_env,
+        workflow_signatures_by_name=workflow_signatures_by_name,
     )
     return all(
         _private_workflow_body_exports_step_backed_outputs(
@@ -693,6 +740,7 @@ def _match_outputs_are_step_backed(
             type_env=type_env,
             procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
+            workflow_signatures_by_name=workflow_signatures_by_name,
         )
         for arm in match_expr.arms
     )
