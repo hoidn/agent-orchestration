@@ -87,6 +87,7 @@ from ..lowering.phase_resource import (
 )
 from ..loops import RepeatUntilEmitterInput
 from ..lowering.control_loops import _emit_repeat_until_from_emitter_input
+from ..phase import eligible_private_context_source_param_names
 from ..lowering.procedures import LowerableProcedureCall, _private_workflow_from_procedure, _procedure_type_env_for, _resolve_procedure_lowering, _lower_procedure_call, _rewrite_nested_sibling_step_refs
 from ..lowering.workflow_calls import LowerableWorkflowCall, _lower_workflow_call
 from orchestrator.workflow.state_layout import GeneratedPathPrivacy, GeneratedPathSemanticRole, derive_entrypoint_managed_write_root_allocations
@@ -3399,6 +3400,17 @@ def _lower_wcc_procedure_call(
             callee_name=value.callee_name,
             procedure=procedure,
             ordinal=prefix_ordinal,
+        ),
+        # An inline proc body evaluates derived-private-child hidden-context
+        # eligibility against the proc's own signature, not the enclosing
+        # caller being lowered — same proc-local scope the frontend inline
+        # lane installs in lowering/procedures.py (structural
+        # private-exec-context / std/context contract,
+        # docs/design/workflow_lisp_frontend_specification.md).
+        procedure_hidden_context_signature=(
+            procedure.signature
+            if eligible_private_context_source_param_names(procedure.signature)
+            else None
         ),
         local_type_bindings={
             **dict(context.local_type_bindings),

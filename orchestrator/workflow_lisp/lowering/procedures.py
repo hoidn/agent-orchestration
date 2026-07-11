@@ -26,6 +26,7 @@ from ..expressions import (
     WithPhaseExpr,
     WorkflowRefLiteralExpr,
 )
+from ..phase import eligible_private_context_source_param_names
 from ..procedure_refs import ResolvedProcRefValue
 from ..procedures import (
     ProcedureLoweringMode,
@@ -666,6 +667,17 @@ def _lower_procedure_call(
         ),
         workflow_path=context.workflow_path,
         signature=context.signature,
+        # An inline proc body evaluates derived-private-child hidden-context
+        # eligibility against the proc's own signature, not the enclosing
+        # caller being lowered — mirroring the proc-shaped active signature
+        # procedure body typechecking activates (structural
+        # private-exec-context / std/context contract,
+        # docs/design/workflow_lisp_frontend_specification.md).
+        procedure_hidden_context_signature=(
+            procedure.signature
+            if eligible_private_context_source_param_names(procedure.signature)
+            else None
+        ),
         authored_input_contracts=context.authored_input_contracts,
         workflow_catalog=context.workflow_catalog,
         imported_workflow_bundles=context.imported_workflow_bundles,

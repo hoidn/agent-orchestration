@@ -96,6 +96,12 @@ class _LoweringContext:
     )
     phase_scope: _ActivePhaseScope | None = None
     iteration_scope: str | None = None
+    # Proc-shaped active signature for hidden-context eligibility while an
+    # inline proc body is being lowered into its caller; None outside inline
+    # proc bodies and for procs without a structural private-exec-context
+    # param (structural private-exec-context / std/context contract,
+    # docs/design/workflow_lisp_frontend_specification.md).
+    procedure_hidden_context_signature: object | None = None
     lowering_schema_version: int | None = None
     wcc_effect_lowerer: Any | None = None
     generated_private_workflow_type_envs: dict[str, FrontendTypeEnvironment] | None = None

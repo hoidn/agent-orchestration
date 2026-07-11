@@ -91,6 +91,9 @@ ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE = (
 ITEM_CTX_CHILD_PHASE_REUSE_PROC_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_item_ctx_child_phase_reuse_proc.orc"
 )
+ITEM_CTX_CHILD_PHASE_REUSE_PROC_REF_FIXTURE = (
+    WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_item_ctx_child_phase_reuse_proc_ref.orc"
+)
 DERIVED_PHASE_CONTEXT_PROC_WITHOUT_CONTEXT_SOURCE_INVALID_FIXTURE = (
     WORKFLOW_LISP_FIXTURES
     / "invalid"
@@ -1199,8 +1202,10 @@ def _compile_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojec
     return module_path, result, lowered_by_name
 
 
-def _compile_design_delta_item_ctx_child_phase_reuse_proc_entrypoint(tmp_path: Path):
-    module_path = ITEM_CTX_CHILD_PHASE_REUSE_PROC_FIXTURE
+def _compile_design_delta_item_ctx_child_phase_reuse_proc_entrypoint(
+    tmp_path: Path,
+    module_path: Path = ITEM_CTX_CHILD_PHASE_REUSE_PROC_FIXTURE,
+):
     result = compile_stage3_entrypoint(
         module_path,
         source_roots=(WORKFLOW_LISP_FIXTURES / "valid", REPO_ROOT / "workflows" / "library"),
@@ -4124,25 +4129,41 @@ def test_design_delta_item_ctx_child_phase_reuse_route_supports_arbitrary_module
     }.issubset(run_item_calls)
 
 
-def test_design_delta_item_ctx_child_phase_reuse_proc_typecheck_accepts_omitted_phase_ctx(
+def test_design_delta_item_ctx_child_phase_reuse_proc_compiles_end_to_end(
     tmp_path: Path,
 ) -> None:
     # The proc-shaped active-signature adapter (procedure_typecheck.py,
     # typecheck_calls.py) lets `run-item-ctx-first`'s `(item-ctx ItemCtx)`
     # param authorize the same derived-private-child omission a defworkflow
-    # body gets, for both callees (`run-plan-phase`, `implementation-phase`).
-    # `:lowering inline` proc bodies re-run this same eligibility check with a
-    # caller-scoped (not proc-scoped) active signature during Stage 3
-    # lowering (lowering/workflow_calls.py), so the compile still fails, but
-    # strictly later than before: `derived_phase_context_binding_invalid` at
-    # `phase-ctx` (lowering) instead of `workflow_signature_mismatch` (typecheck).
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_design_delta_item_ctx_child_phase_reuse_proc_entrypoint(tmp_path)
+    # body gets, for both callees (`run-plan-phase`, `implementation-phase`);
+    # `:lowering inline` proc-body lowering evaluates the same eligibility
+    # against the proc-local active signature (lowering/procedures.py,
+    # wcc/defunctionalize.py, lowering/workflow_calls.py), so the fixture
+    # compiles clean end-to-end through full Stage 3.
+    _, result, _ = _compile_design_delta_item_ctx_child_phase_reuse_proc_entrypoint(tmp_path)
 
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "derived_phase_context_binding_invalid"
-    assert diagnostic.phase == "lowering"
-    assert diagnostic.form_path[-1] == "run-item-ctx-first"
+    assert any(
+        name.endswith("::run-entry")
+        for name in result.entry_result.validated_bundles
+    )
+
+
+def test_design_delta_item_ctx_child_phase_reuse_proc_ref_compiles_end_to_end(
+    tmp_path: Path,
+) -> None:
+    # Same fixture shape routed through a generic ProcRef invoker (the way
+    # `std/drain/backlog-drain-proc` invokes its bound `run-item` hook):
+    # the derived-private-child omission inside `run-item-ctx-first` must
+    # survive proc-ref specialization plus nested inline lowering.
+    _, result, _ = _compile_design_delta_item_ctx_child_phase_reuse_proc_entrypoint(
+        tmp_path,
+        module_path=ITEM_CTX_CHILD_PHASE_REUSE_PROC_REF_FIXTURE,
+    )
+
+    assert any(
+        name.endswith("::run-entry")
+        for name in result.entry_result.validated_bundles
+    )
 
 
 def test_design_delta_proc_without_private_context_source_still_requires_phase_ctx(

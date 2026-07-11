@@ -1082,8 +1082,17 @@ def _lower_workflow_call(
                         span=expr.span,
                         form_path=expr.form_path,
                     )
+                # While an inline proc body is being lowered into its caller,
+                # `context.signature` is the enclosing caller's signature;
+                # derived-private-child eligibility must instead see the
+                # proc's own signature, matching the proc-shaped active
+                # signature the typecheck-side omission gate uses (structural
+                # private-exec-context / std/context contract,
+                # docs/design/workflow_lisp_frontend_specification.md).
                 eligibility = derived_private_child_context_eligibility(
-                    context.signature,
+                    context.procedure_hidden_context_signature
+                    if context.procedure_hidden_context_signature is not None
+                    else context.signature,
                     param_name=param_name,
                 )
                 if not eligibility.allowed:
