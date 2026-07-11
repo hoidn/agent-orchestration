@@ -796,3 +796,68 @@ Production compile (P2 command), two runs:
 
 Task 1.4 has no checkbox line in this plan; this record is its completion evidence. Task 1.5 is
 unblocked, with its expansion shape amended to the let*-bound terminal per the A+D adjudication.
+
+#### Task 1.5 — three rounds (1.5 / 1.5a / 1.5b), PAUSED pending native-transportable-returns wave 1
+
+**Status: Phase 1 PAUSED at Task 1.5 (user adjudication, 2026-07-10).** Three execution rounds
+each ended pre-gate on newly discovered machinery gaps; THE GATE was never reached, no swap
+commit exists, the frozen macro/call-site surfaces and the committed identity baselines are
+untouched, and every round restored to a fully green baseline. Full evidence:
+`.superpowers/sdd/task-1.5-report.md`, `task-1.5a-report.md`, `task-1.5b-report.md`.
+
+**Landed and reviewed during the rounds (both stay):**
+- `6e4b2c7c` — *Honor derived hidden phase context in procedure bodies* (sixth gap, typecheck
+  layer: `hidden_context_omission_allowed` keyed exclusively off the active WORKFLOW signature;
+  fix threads a proc-shaped signature gated on `eligible_private_context_source_param_names`).
+  Review: spec PASS 7/7, quality Approved (2 Minor, carried).
+- `9459395f` — *Honor proc-local hidden context during inline lowering* (eighth gap: the same
+  eligibility check re-run at lowering with the enclosing caller's signature; fixed on BOTH
+  inline lanes — `lowering/procedures.py` and `wcc/defunctionalize.py::_lower_wcc_procedure_call`
+  must be edited in pairs for any context-threading change). Verified closed on the real
+  production run-item body through the production loop lane. Review: spec PASS 7/7, quality
+  Approved (3 Minor, carried). All canaries at baseline after both commits: identity 3,
+  drain_stdlib 63, composition 15, procedures 132, feasibility 96 (93 + 3 new tests),
+  fingerprint `24798cac21228fe6` unchanged, g8 `pass`.
+- Also validated: the re-targeted let*-bound macro expansion itself compiles through the FROZEN
+  caller keyword surface (1.5 report §5); the compiler-oracle `:effects` sets for all three
+  hooks are recorded (1.5 report §3, 1.5a report §2.1) for the eventual re-run.
+
+**The architectural blocker (1.5b report §4, complete one-round classification):** the generic
+loop's `repeat_until` body lowers hook bodies on the FRONTEND expression lane, not WCC. Minimal
+command-result hooks pass `_procedure_private_boundary_valid`/`_procedure_private_body_valid`
+and get promoted to private `%…v1` workflows; the REAL production hook bodies do not qualify,
+fall back to inline lowering inside the loop body, and hit frontend-lane restrictions the WCC
+route long since lifted:
+- **gap-7 residue** — `workflow_return_not_exportable`: the union-return exporter
+  (`lowering/values.py::_record_expr_value_at_path`) requires a literal `record` expression at
+  every intermediate node of every leaf path; record-typed fields populated by projection
+  reference (`select-next-work-stdlib`'s `check_commands`) have no construction to move. The
+  user-sanctioned inline-construction body delta was verified INSUFFICIENT (clears the first
+  offender; the class fires one level deeper; a bounded widening experiment cleared it and then
+  exposed G-B behind it — serial body-delta adjudication provably cannot converge).
+- **G-B** — `workflow_boundary_type_invalid` ×6: cross-branch structured refs into the
+  selector-call step unresolved + structured if/else below top level rejected (v2.2 limit).
+- **G-C** — same-file call bindings inside loop-lane inline proc bodies must resolve to
+  workflow inputs (`work_item.orc:318:14`, `route-blocked-implementation`).
+- **G-D** — crash, not a diagnostic: `ValueError: pure boolean conditions require WCC
+  pure-projection lowering` (`conditionals.py:94`) on `draft-design-gap-stdlib`'s frozen body.
+Per-gap reproducers: `hook_conversion_probe.py {select|gap|run-item} [--pre-delta]`
+(session scratchpad; reconstruction recipe in 1.5b report §3).
+
+**Adjudications (user, 2026-07-10, all recorded in the SDD ledger):** sixth gap → extend the
+typechecker (landed, `6e4b2c7c`); gaps 7+8 hybrid → gap-8 machinery fix (landed, `9459395f`) +
+gap-7 body delta (verified insufficient, STOP honored, not committed); final → **PAUSE Phase 1
+pending native-transportable-returns wave 1**
+(`docs/plans/2026-07-10-workflow-lisp-native-transportable-returns-plan.md`), whose intake
+receives requirement **R-G7** (1.5b report §6: union-variant returns must lower regardless of
+payload authoring shape — let*-bound references, projection references, and inline
+constructions are semantically equivalent pure values) plus the G-B/G-C/G-D lane findings,
+since transportable returns through the generic loop lane is the actual production requirement.
+
+**Resume condition:** native-transportable-returns wave 1 lands → re-run Task 1.5 from the
+preserved swap patch (1.5a report §8 / scratchpad `task-1.5a-part2-swap-current.patch`, which
+carries the oracle effect sets) under the standing identity protocol — the identity decision
+(reproduce-identities vs reviewed remap) still WAITS for the real row-level diff. Caveat for
+that future gate read (1.5b report F3): the earlier §5 promoted-bundle identity predictions
+were derived from promotable minimal hooks and do NOT apply if real bodies lower inline —
+read the eventual row table on its own evidence.
