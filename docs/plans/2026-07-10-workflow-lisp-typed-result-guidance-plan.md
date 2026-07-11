@@ -26,6 +26,47 @@ composition, public v2.15 guidance wire schemas, prompts, and runtime-neutrality
 evidence. It does not change transportability, root artifact identity, workflow
 call carriage, runtime value parsers, or record/union proof semantics.
 
+## Wave-1 Handoff Intake (2026-07-11)
+
+Recorded at native-returns wave-1 closure (commits `bccbd7b0..7c6fa439`; whole-wave
+review verdict READY). Items this plan's executors must see; sources are the wave's
+per-task reviews and the whole-wave review's triage.
+
+**Promotion blockers — resolve or explicitly waive before `2.15` enters
+`SUPPORTED_VERSIONS`:**
+1. Root-valued `command-result` binding immediately preceding a lexical checkpoint
+   yields an empty compile-time restore-descriptor set; resume across a later failed
+   boundary FAIL_CLOSEDs for that shape (fail-closed, zero production exposure today;
+   recorded in the wave-1 plan's Task 10 Step-3 audit). Root+command-result specific.
+2. `loader.py:~5022` `_supported_output_types` widening is preview-version-scoped, not
+   boundary-scoped: at promotion, public authored v2.15 YAML would silently gain
+   collection-typed `output_bundle`/`variant_output`/`expected_outputs` fields unless
+   the widening is re-scoped or that outcome is deliberately accepted. This plan's
+   Task 9 Step 6 gate covers it; do not weaken that gate.
+
+**Wave-2-owned cleanups (fold into the natural task):**
+3. Design-doc cross-reference comments on the v2.15 gate surfaces
+   (`loader.py:120/193/846-856/5022`, `syntax.py:516`).
+4. Loader guard: reject empty `json_pointer` with sibling fields
+   (`loader.py:~3349-3356`) when this plan rewrites that validator region.
+5. Version-comparator cross-reference (`workflows.py` tuple-compare vs loader
+   `_version_at_least` index-compare) when promotion touches version logic.
+6. `"return"`/`"__result__"` literal pair across ≥6 modules → single
+   `TERMINAL_MEMBER_NAMES` seam (guidance adds more consumers of this seam); include
+   the capture-side dead `"return" in artifacts` branch in `capture_restore_payload`.
+7. `target_dsl_version: str = "2.14"` silent default on eight lowering entry points
+   (`compiler.py`, `wcc/defunctionalize.py` ×5, `wcc/lower.py`) → keyword-required
+   when guidance threading touches these signatures.
+8. Drafting-guide version-boundary precision: only PUBLIC workflow root returns need
+   `(:target-dsl "2.15")`; internal roots compile at 2.14. Add the item-1 resume
+   caveat to user-facing docs.
+9. Private-workflow proc lane root policy is implicit (record/union-only, fail-closed
+   at `lowering/procedures.py:154-160`): make roots-there an explicit decision.
+
+**Not this plan's scope (recorded here for visibility):** the pre-existing WCC
+fail-closed resume policy past failed command/provider boundaries (record and root
+alike) is a production `orchestrator resume` limitation needing its own backlog item.
+
 ## Working-Tree And Entry-Gate Rules
 
 - Work from the repository root; do not create a worktree.
