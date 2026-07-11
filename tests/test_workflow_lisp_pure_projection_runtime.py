@@ -18,6 +18,9 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.pure_expr import pure_expr_payload_digest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.lowering import pure_projection as pure_projection_lowering
+from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+from orchestrator.workflow_lisp.type_env import MapTypeRef, PrimitiveTypeRef
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
@@ -401,6 +404,30 @@ def test_compile_stage3_entrypoint_emits_visible_pure_projection_step(tmp_path: 
 
     assert [step.kind.value for step in bundle.surface.steps] == ["pure_projection"]
     assert bundle.surface.steps[0].pure_projection["payload"]["pure_expr_schema_version"] == 1
+
+
+def test_pure_projection_collection_root_contract_emits_boundary_diagnostic() -> None:
+    span = SourceSpan(
+        start=SourcePosition(path="collection_root.orc", line=1, column=1, offset=0),
+        end=SourcePosition(path="collection_root.orc", line=1, column=2, offset=1),
+    )
+    map_ref = MapTypeRef(
+        name="(Map String Int)",
+        key_type_ref=PrimitiveTypeRef(name="String"),
+        value_type_ref=PrimitiveTypeRef(name="Int"),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        pure_projection_lowering._output_contracts_for_type(
+            map_ref,
+            context=None,
+            span=span,
+            form_path=("workflow", "return"),
+        )
+
+    assert [diagnostic.code for diagnostic in excinfo.value.diagnostics] == [
+        "workflow_boundary_collection_unsupported"
+    ]
 
 
 def test_pure_projection_runtime_reuses_committed_bundle_on_resume(tmp_path: Path) -> None:

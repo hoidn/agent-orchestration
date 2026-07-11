@@ -827,10 +827,19 @@ def _output_contracts_for_type(
             span=span,
             form_path=form_path,
         )
+    if isinstance(type_ref, PathTypeRef):
+        (root_field,) = derive_workflow_boundary_fields(
+            type_ref,
+            generated_name="return",
+            source_path=("return",),
+            span=span,
+            form_path=form_path,
+        )
+        return {"__result__": dict(root_field.contract_definition)}
     return {
         "__result__": {
             "kind": "scalar",
-            "type": _scalar_contract_type(type_ref),
+            "type": _scalar_contract_type(type_ref, span=span, form_path=form_path),
             **(
                 {"allowed": list(type_ref.allowed_values)}
                 if isinstance(type_ref, PrimitiveTypeRef) and type_ref.allowed_values
@@ -840,7 +849,7 @@ def _output_contracts_for_type(
     }
 
 
-def _scalar_contract_type(type_ref: TypeRef) -> str:
+def _scalar_contract_type(type_ref: TypeRef, *, span, form_path: tuple[str, ...]) -> str:
     if isinstance(type_ref, PrimitiveTypeRef):
         if type_ref.allowed_values:
             return "enum"
@@ -848,7 +857,19 @@ def _scalar_contract_type(type_ref: TypeRef) -> str:
         return name_map.get(type_ref.name, "string")
     if isinstance(type_ref, PathTypeRef):
         return "relpath"
-    raise TypeError(f"unsupported scalar pure projection contract `{type(type_ref).__name__}`")
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code="workflow_boundary_collection_unsupported",
+                message=(
+                    f"`{getattr(type_ref, 'name', type(type_ref).__name__)}` "
+                    "cannot lower across a workflow boundary in Stage 3"
+                ),
+                span=span,
+                form_path=form_path,
+            ),
+        )
+    )
 
 
 def output_contracts_for_boundary_type(
@@ -871,7 +892,7 @@ def output_contracts_for_boundary_type(
     return {
         generated_name: {
             "kind": "scalar",
-            "type": _scalar_contract_type(type_ref),
+            "type": _scalar_contract_type(type_ref, span=span, form_path=form_path),
             **(
                 {"allowed": list(type_ref.allowed_values)}
                 if isinstance(type_ref, PrimitiveTypeRef) and type_ref.allowed_values

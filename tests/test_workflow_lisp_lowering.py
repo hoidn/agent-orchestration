@@ -49,7 +49,12 @@ from orchestrator.workflow_lisp.lowering import (
     lower_workflow_definitions,
     validate_lowered_workflows,
 )
-from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
+from orchestrator.workflow_lisp.type_env import (
+    PRELUDE_PATH_TYPES,
+    FrontendTypeEnvironment,
+    PathTypeRef,
+    PrimitiveTypeRef,
+)
 from orchestrator.workflow_lisp.stdlib_contracts import (
     STDLIB_LOWERING_CONTRACTS,
     STDLIB_LOWERING_CONTRACTS_BY_FORM,
@@ -1999,6 +2004,42 @@ def test_wcc_if_literal_bool_arm_materializes_root_result_bundle(tmp_path: Path)
         {"name": "__result__", "json_pointer": "", "kind": "scalar", "type": "bool"}
     ]
     assert list(literal_projection["pure_projection"]["output_contracts"]) == ["__result__"]
+
+
+def test_output_contracts_for_type_root_parity_across_lowering_lanes() -> None:
+    """Both lowering lanes derive identical root `__result__` contracts per type."""
+    core_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
+    pure_projection_module = importlib.import_module(
+        "orchestrator.workflow_lisp.lowering.pure_projection"
+    )
+    span = SourceSpan(
+        start=SourcePosition(path="lane_parity.orc", line=1, column=1, offset=0),
+        end=SourcePosition(path="lane_parity.orc", line=1, column=2, offset=1),
+    )
+    root_type_refs = (
+        PrimitiveTypeRef(name="Bool"),
+        PrimitiveTypeRef(name="Int"),
+        PrimitiveTypeRef(name="String"),
+        PathTypeRef(
+            name="Path.state-root",
+            definition=PRELUDE_PATH_TYPES["Path.state-root"],
+        ),
+    )
+
+    for type_ref in root_type_refs:
+        core_contracts = core_module._output_contracts_for_type(
+            type_ref,
+            context=None,
+            span=span,
+            form_path=(),
+        )
+        pure_contracts = pure_projection_module._output_contracts_for_type(
+            type_ref,
+            context=None,
+            span=span,
+            form_path=(),
+        )
+        assert pure_contracts == core_contracts, type_ref
 
 
 def test_wcc_optional_bool_root_binding_binds_result_artifact(tmp_path: Path) -> None:
