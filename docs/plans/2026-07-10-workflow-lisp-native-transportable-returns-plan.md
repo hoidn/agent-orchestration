@@ -1,9 +1,15 @@
 # Workflow Lisp Native Transportable Returns Implementation Plan
 
-> **Status:** Reviewed implementation plan, execution gated. Do not begin implementation
-> until procedure-first Roadmap Gates S3 and S4 are complete, the
-> semantic-migration freeze has lifted, and Task 1 has re-anchored every owner
-> against the current checkout.
+> **Status:** Reviewed implementation plan, execution active. The original entry gate
+> ("do not begin until Gates S3 and S4 are complete and the semantic-migration freeze
+> has lifted") is **superseded** by the roadmap Amendment of 2026-07-10 (user
+> adjudication, commit `bccbd7b0`, recorded in
+> `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`): wave 1
+> executes ahead of S3/S4 because drain Phase 1 is paused at Task 1.5 on a blocker this
+> plan resolves, and wave-1 work is plan-required under the freeze exception class.
+> Compensating control: every implementation task must additionally pass the cross-plan
+> drain canaries recorded in the Task 1 Rebaseline Record below. Task 1 owner
+> re-anchoring completed 2026-07-10 at `bccbd7b0`.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -29,9 +35,76 @@ keys, or example validation. All acceptance fixtures use plain `-> T` and
 `:returns T`. DSL v2.15 is not promoted as complete until the dependent typed
 result guidance plan also passes its normative and integration gates.
 
+## Requirement Intake — R-G7 (2026-07-10)
+
+Intake only; no scope change and no redesign. Recorded per the 2026-07-10 user
+adjudication that paused drain Phase 1 at Task 1.5 and routed this requirement into
+this plan's wave.
+
+**Provenance:** drain plan Phase 1 Ledger entry "Task 1.5 — three rounds
+(1.5 / 1.5a / 1.5b), PAUSED pending native-transportable-returns wave 1"
+(`docs/plans/2026-07-07-drain-migration-g8-retirement.md`, commit `7a806ae9`); full
+evidence `.superpowers/sdd/task-1.5b-report.md` §4/§6; roadmap Amendment at commit
+`bccbd7b0`.
+
+**R-G7 (verbatim from `.superpowers/sdd/task-1.5b-report.md` §6):**
+
+> **R-G7:** A workflow/proc union-variant return whose variants carry nested record
+> payloads MUST lower regardless of how the payload expression is authored — let*-bound
+> record references, projection references to record-typed fields of call results
+> (`selection.work_item_bootstrap.check_commands`), and inline constructions are all
+> semantically equivalent pure values and must be equally transportable. The current
+> exporter contract (literal `record` expression required at every intermediate path
+> node, `lowering/values.py::_record_expr_value_at_path`) forces authors to synthesize
+> field-by-field record reconstructions, which silently decouples from the type
+> definition when fields are added. Evidence: this report §2.3–§2.4; acceptance probe:
+> `hook_conversion_probe.py select --pre-delta` compiles clean. The §4 lane findings
+> (G-B/G-C/G-D) should be triaged alongside, since transportable returns through the
+> generic loop lane is the actual production requirement.
+
+**Adjacent triage items (1.5b report §4 residual lane findings; literal identities):**
+
+- gap-7 residue (the exporter contract R-G7 targets):
+  `workflow_return_not_exportable` "record return field
+  work_item_bootstrap__check_commands__commands …" (`stdlib_adapters.orc:36:22`,
+  lowering). Hook: `select-next-work-stdlib`.
+- **G-B** — `workflow_boundary_type_invalid` ×6 (`shared_validation`): cross-branch
+  structured refs into the selector-call step unresolved (×5) plus nested structured
+  if/else below top level rejected (v2.2 limit). Hook: `select-next-work-stdlib`
+  (post-delta only).
+- **G-C** — `workflow_signature_mismatch` "Stage 3 lowering requires same-file call
+  bindings to resolve to workflow inputs" (`work_item.orc:318:14`,
+  `route-blocked-implementation`, phase: lowering). Hook: `run-selected-item-stdlib`.
+- **G-D** — crash, not a diagnostic: `ValueError: pure boolean conditions require WCC
+  pure-projection lowering` (`orchestrator/workflow_lisp/conditionals.py:94`). Hook:
+  `draft-design-gap-stdlib`.
+
+**Acceptance probe recipe:** the converted `select-next-work-stdlib` hook with an
+UNCHANGED body compiles clean through the generic loop lane —
+`hook_conversion_probe.py select --pre-delta` (per-hook probe harness; reconstruction
+recipe in `.superpowers/sdd/task-1.5b-report.md` §3: copy `workflows/library` to a temp
+tree; apply the Task-1.5a swap-patch conversion for the hook — defworkflow → defproc,
+oracle `:effects` verbatim, `:lowering inline`; add a driver module routing it through
+`std/drain/backlog-drain-proc` via `(proc-ref …)`; compile via
+`compile_stage3_entrypoint` with `validate_shared=True` and production
+provider/prompt/command externs).
+
+**Discharge mapping:** Task 5 (root materialization across the pure, conditional, loop,
+and procedure lanes) and Task 6 (workflow-boundary and call carriage) are the tasks
+that plausibly discharge R-G7's exporter and loop-lane transport obligations; the
+G-B/G-C/G-D lane findings are triage items to re-probe alongside them. Final
+verification of R-G7 happens at the drain plan's Task 1.5 re-run (its recorded resume
+condition), NOT in this plan's gates.
+
 ## Working-Tree And Entry-Gate Rules
 
 - Work from the repository root; do not create a worktree.
+- Amendment (2026-07-10, commit `bccbd7b0`): wave 1 runs ahead of Gates S3/S4. In
+  addition to its own gates, every implementation task must pass the paused drain
+  migration's behavioral canaries recorded in the Task 1 Rebaseline Record: the
+  checkpoint-identity suite with zero row changes, and the P2 production drain compile
+  with exit 0, `diagnostic_count: 0`, and freshest `g8_deletion_evidence.json`
+  `status: pass` (fingerprint baseline `24798cac21228fe6` held by `.py`-only tasks).
 - Preserve unrelated user changes and stage only files named by the active task.
 - Re-run Task 1 after any Stage 1-3 migration commit that changes frontend,
   lowering, loader, runtime-plan, source-map, adjudication, or executor owners.
@@ -54,7 +127,7 @@ result guidance plan also passes its normative and integration gates.
 - Inspect: `orchestrator/workflow/adjudication/`
 - Inspect: `orchestrator/dashboard/server.py`
 
-- [ ] **Step 1: Record the post-S3 baseline**
+- [x] **Step 1: Record the post-S3 baseline**
 
 Run:
 
@@ -66,7 +139,7 @@ git status --short
 Record the commit and only in-scope ownership changes in this plan. Expected:
 Gate S3 is documented complete and unrelated dirty paths remain untouched.
 
-- [ ] **Step 2: Re-anchor every named symbol**
+- [x] **Step 2: Re-anchor every named symbol**
 
 Run:
 
@@ -80,7 +153,7 @@ paths before code changes. Hard-coded version findings must be classified as
 source-version policy, generated executable version, compatibility fixture, or
 legacy evidence.
 
-- [ ] **Step 3: Capture the narrow pre-change test baseline**
+- [x] **Step 3: Capture the narrow pre-change test baseline**
 
 Run:
 
@@ -91,12 +164,114 @@ pytest -q tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_structu
 Expected: PASS, or record exact pre-existing failure identities without
 weakening later gates.
 
-- [ ] **Step 4: Commit the evidence-only rebaseline if the plan changed**
+- [x] **Step 4: Commit the evidence-only rebaseline if the plan changed**
 
 ```bash
 git add docs/plans/2026-07-10-workflow-lisp-native-transportable-returns-plan.md
 git commit -m "Rebaseline native return implementation owners"
 ```
+
+#### Task 1 Rebaseline Record (2026-07-10)
+
+**Entry state (supersedes Step 1's "Gate S3 is documented complete" expectation):**
+
+- HEAD at rebaseline: `bccbd7b0` "Amend roadmap to run native returns wave 1 before
+  S3" (2026-07-10).
+- Gates S3/S4 are NOT complete and the semantic-migration freeze has NOT lifted. Wave 1
+  executes ahead of S3/S4 per the roadmap Amendment (user adjudication 2026-07-10,
+  commit `bccbd7b0`): drain Phase 1 is paused at Task 1.5 (ledger entry "Task 1.5 —
+  three rounds (1.5 / 1.5a / 1.5b), PAUSED pending native-transportable-returns wave 1"
+  in `docs/plans/2026-07-07-drain-migration-g8-retirement.md`, commit `7a806ae9`) on
+  the R-G7 / G-B / G-C / G-D blocker whose resolution is this plan's subject; wave-1
+  work is plan-required (non-discretionary) under the freeze exception class.
+- `git status --short`: exactly the seven user-owned in-flight paths (two step-back
+  plan docs, the migration-experiment recommendation report, iteration-22 checks log,
+  the non-progress step-back demo test/YAML/prompt); untouched — never stage, restore,
+  format, or edit them.
+
+**Cross-plan canary obligation (binding for EVERY wave-1 implementation task, in
+addition to its own gates):**
+
+- `pytest -q tests/test_workflow_lisp_checkpoint_identity_comparison.py` — 3 tests,
+  zero row changes vs committed baselines. Fresh at rebaseline: **3 passed**.
+- P2 production drain compile (`python -m orchestrator compile
+  workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow
+  lisp_frontend_design_delta/drain::drain` with the
+  `design_delta_parent_drain.{providers,prompts,commands}` externs files under
+  `workflows/examples/inputs/workflow_lisp_migrations/`) — exit 0,
+  `diagnostic_count: 0`, freshest `g8_deletion_evidence.json` `status: pass`. Fresh at
+  rebaseline: **exit 0, diagnostic_count 0, fingerprint `24798cac21228fe6`, g8 status
+  `pass`**. The fingerprint baseline `24798cac21228fe6` changes only when `.orc`
+  sources change; `.py`-only tasks must hold it.
+
+**Owner re-anchor (all live at `bccbd7b0`; no stale plan paths found — every file
+named by Tasks 1-10 exists, including both fixture directories):**
+
+| Symbol / owner | Location |
+| --- | --- |
+| `derive_structured_result_contract` | `orchestrator/workflow_lisp/contracts.py:177` |
+| `derive_workflow_signature_contracts` | `orchestrator/workflow_lisp/contracts.py:269` |
+| `GeneratedBundleContract` | `orchestrator/workflow_lisp/contracts.py:97` |
+| `_structured_result_field_definition` | `orchestrator/workflow_lisp/contracts.py:1173` |
+| `_output_contracts_for_type` | TWO definitions, both Task 5 owners: `orchestrator/workflow_lisp/lowering/core.py:1590` and `orchestrator/workflow_lisp/lowering/pure_projection.py:809`; WCC call sites `wcc/defunctionalize.py:2180,2408` |
+| `_output_bundle_fields` | `orchestrator/workflow_lisp/lowering/pure_projection.py:878` |
+| `_record_output_refs` | `orchestrator/workflow_lisp/lowering/values.py:629` |
+| `_record_expr_value_at_path` (R-G7 exporter) | `orchestrator/workflow_lisp/lowering/values.py:518` |
+| `WorkflowSignature` | `orchestrator/workflow_lisp/workflows.py:347` |
+| `validate_output_bundle` | `orchestrator/contracts/output_contract.py:183` |
+| `render_output_bundle_contract_block` | `orchestrator/contracts/prompt_contract.py:195` |
+| `_supported_output_types` | `orchestrator/loader.py:5006` |
+| `SUPPORTED_VERSIONS` / `VERSION_ORDER` | `orchestrator/loader.py:85` / `orchestrator/loader.py:94` |
+| `WorkflowLispSyntaxModule.target_dsl_version` | `orchestrator/workflow_lisp/syntax.py:183,187`; `:target-dsl` acceptance gate `syntax.py:245` |
+| `_resolve_json_pointer` | THREE copies: `orchestrator/contracts/output_contract.py:841`, `orchestrator/workflow/adjudication/evidence.py:235`, `orchestrator/workflow/adjudication/utils.py:17` — Task 9 must preserve empty-root behavior in all three |
+| `CompiledFrontendIndex` | `orchestrator/workflow/frontend_origins.py:22` |
+| `_lower_wcc_procedure_call` | `orchestrator/workflow_lisp/wcc/defunctionalize.py:3340` |
+| To-be-added symbols | `is_transportable_result_type`, `result_shape`, `_enabled_preview_versions` — confirmed absent (0 hits), introduced by Tasks 2-3 |
+
+Recent-machinery note: commits `6e4b2c7c` / `9459395f` (2026-07-10) touched
+`typecheck_calls.py`, `typecheck_context.py`, `procedure_typecheck.py`,
+`lowering/context.py`, `lowering/procedures.py`, `lowering/workflow_calls.py`, and
+`wcc/defunctionalize.py` with additive hidden-context eligibility threading; none of
+the anchor symbols above moved. Standing pairing rule inherited from the 1.5b report
+F2, relevant to Tasks 5-6: any context-threading change must edit
+`lowering/procedures.py` and `wcc/defunctionalize.py::_lower_wcc_procedure_call` in
+pairs.
+
+**Hard-coded `2.14` classification (Step 2 scan; production matches):**
+
+| Site | Class | Note |
+| --- | --- | --- |
+| `loader.py:85-96` (`SUPPORTED_VERSIONS`/`VERSION_ORDER`); `_version_at_least(version, "2.14")` gates at `loader.py:239,846,1240-1335,5011,5406` | source-version policy | Task 2 adds `2.15` to `VERSION_ORDER` only, plus the private preview gate |
+| `syntax.py:245` (`:target-dsl` != "2.14" rejected) | source-version policy | Task 2 widens to accept `"2.15"` |
+| `lowering/core.py:1182` authored_mapping `"version": "2.14"` | generated executable version | Task 2 threads the module `target_dsl_version` |
+| `wcc/defunctionalize.py:703` authored_mapping `"version": "2.14"` | generated executable version | WCC twin of `core.py:1182`; Task 2 stages this file |
+| `lowering/phase_flow.py:670,710,829,916`; `typecheck_resume.py:151,163` (`target_dsl_version="2.14"` into reusable-state contract metadata) | generated executable version (contract-fingerprint inputs) | stdlib phase/resume reusable-state lane is pinned at 2.14; changing these alters fingerprints — out of wave-1 scope, leave pinned |
+| `migration_parity.py:457` (`"dsl_version": "2.14"` report metadata) | legacy evidence | FROZEN surface, read-only |
+| `stdlib_modules/std/{context,drain,phase,resource}.orc` `(:target-dsl "2.14")` | compatibility fixture (pinned sources) | Task 2: do not mass-upgrade stdlib modules |
+| tests: 59 test modules (563 matched lines) + 367 fixture files (374 matched lines) | compatibility fixture | fixture `:target-dsl` headers and authored `version` fields |
+
+**Step 3 baselines (fresh 2026-07-10 at `bccbd7b0`):**
+
+- Six-suite command (`test_workflow_lisp_workflows`, `test_workflow_lisp_structured_results`,
+  `test_workflow_lisp_lowering`, `test_workflow_lisp_workflow_refs`,
+  `test_output_contract_collections`, `test_prompt_contract_injection`):
+  **291 passed, 0 failed**.
+- Inherited-failure modules named by later gates, compared BY IDENTITY (later gates
+  must not assume these modules are clean):
+  - `tests/test_workflow_semantic_ir.py` (Task 7 gate): 42 passed, 3 failed —
+    `test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence`,
+    `test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys`,
+    `test_compiled_bundle_semantic_ir_preserves_command_boundary_classification`.
+  - `tests/test_workflow_output_contract_integration.py` (Task 4 gate): 23 passed,
+    1 failed — `test_provider_valid_output_bundle_overrides_raw_nonzero_exit`.
+- Known repo-wide baseline (2026-07-10 full suite,
+  `.superpowers/sdd/fullsuite-2026-07-10-postdocs.txt`): 6 failed / 4116 passed /
+  11 skipped. The remaining two known identities, in modules no task gate names:
+  `test_provider_role_routing.py::test_design_delta_drain_defaults_route_work_to_codex_gpt54`,
+  `test_neurips_steered_backlog_runtime.py::test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch`.
+- Broad gate for Task 10 Step 4 ("recorded by Task 1"): S3 has not run, so no
+  post-S3 broad gate exists; the inherited broad gate is the full-suite baseline above
+  compared by identity, plus the cross-plan canaries.
 
 ### Task 2: Add the unreleased v2.15 preview and output-schema gates
 
