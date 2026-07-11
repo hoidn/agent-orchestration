@@ -1381,6 +1381,71 @@ def test_run_parity_target_records_selected_boundary_projection_split(
     }
 
 
+def test_load_selected_workflow_boundary_projection_ignores_root_return_kind(
+    tmp_path: Path,
+) -> None:
+    """`return_kind: "root"` (native-return wave 1) is additive and unread by
+    the migration-parity boundary-projection loader: the extracted payload is
+    identical to the equivalent record/union boundary row, with or without
+    the new field present."""
+    module = _parity_module()
+    payload = _valid_manifest_payload()
+    manifest_path = _write_json(tmp_path / "parity_targets.json", payload)
+    target = module.load_parity_targets(manifest_path)[0]
+
+    build_root = tmp_path / "build"
+    build_root.mkdir(parents=True, exist_ok=True)
+    boundary_row = {
+        "workflow_name": target.entry_workflow,
+        "display_name": "entry",
+        "return_kind": "root",
+        "boundary": {
+            "public_input_names": ["report_path"],
+            "private_runtime_context_bindings": [],
+            "private_managed_write_root_inputs": [],
+            "private_compatibility_bridge_inputs": [],
+        },
+    }
+    (build_root / "workflow_boundary_projection.json").write_text(
+        json.dumps({"workflows": [boundary_row]}), encoding="utf-8"
+    )
+    build_manifest = {
+        "artifact_paths": {
+            "workflow_boundary_projection": str(
+                build_root / "workflow_boundary_projection.json"
+            ),
+        },
+    }
+
+    with_root_kind = module._load_selected_workflow_boundary_projection(
+        target=target,
+        build_manifest=build_manifest,
+        build_root=build_root,
+        repo_root=tmp_path,
+    )
+
+    del boundary_row["return_kind"]
+    (build_root / "workflow_boundary_projection.json").write_text(
+        json.dumps({"workflows": [boundary_row]}), encoding="utf-8"
+    )
+    without_root_kind = module._load_selected_workflow_boundary_projection(
+        target=target,
+        build_manifest=build_manifest,
+        build_root=build_root,
+        repo_root=tmp_path,
+    )
+
+    assert with_root_kind == without_root_kind
+    assert with_root_kind == {
+        "workflow_name": target.entry_workflow,
+        "display_name": "entry",
+        "public_input_names": ["report_path"],
+        "private_runtime_context_bindings": [],
+        "private_managed_write_root_inputs": [],
+        "private_compatibility_bridge_inputs": [],
+    }
+
+
 def test_run_parity_target_records_parent_family_evidence_roles(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

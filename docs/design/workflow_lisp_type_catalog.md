@@ -36,6 +36,28 @@ Union -> tagged variant contract
 WorkflowRef[A -> B] -> compile-time callable signature
 ```
 
+## Root/Direct Return Contract
+
+A non-record/non-union ("root") result type maps to one generated
+`output_bundle` field named `__result__` with `json_pointer: ""`, so the
+runtime document is the direct JSON value rather than an object:
+
+```text
+Bool -> root output_bundle field, JSON boolean
+Int, Float -> root output_bundle field, JSON number
+String, enum, path -> root output_bundle field, JSON string
+Optional[T] -> root optional schema, null or the JSON form of T
+List[T] -> root list schema, JSON array
+Map[String, T] -> root map schema, JSON object
+Record, Union -> unchanged: flattened output_bundle / variant_output
+```
+
+`result_shape` (`root_value` | `record_value` | `union_value`) is the
+structural, type-driven classification behind this split; it never branches
+on workflow, provider, procedure, module, or domain names. See
+[Workflow Lisp Native Transportable Returns And Typed Result Guidance](workflow_lisp_native_transportable_returns.md)
+for the full contract, wire schema, and DSL v2.15 preview scope.
+
 ## Path Types
 
 Path types represent artifact values, not pointer files. Pointer materialization

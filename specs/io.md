@@ -74,6 +74,11 @@
 - State fields
   - For `lines`/`json`, omit raw `output` to avoid duplication; include `truncated` flag and mode-specific fields.
   - Deterministic artifacts parsed from `expected_outputs` or `output_bundle` are exposed under `steps.<Step>.artifacts` (unless artifact persistence is disabled).
+  - This applies unchanged to an `output_bundle` whose sole field uses
+    `json_pointer: ""` (see `specs/dsl.md`): the artifact value is the whole
+    parsed JSON document, and `output_capture`/stdout are never consulted for
+    it — the bundle file is the only structured-output authority regardless
+    of field shape.
 
 ## Recommended Strictness Split
 

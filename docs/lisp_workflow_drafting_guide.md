@@ -401,13 +401,19 @@ runtime closure values, dynamic procedure dispatch, or procedure-valued runtime
 state.
 
 The first two bullets above are accepted, gated v2.15 design rather than an
-open-ended future idea. They are sequenced in two Stage-5 plans—native returns
-first, typed result guidance second—but are not current authoring syntax. In the
-current checkout, public `defworkflow`, `provider-result`, and `command-result`
-boundaries still require record or union results; `(result T ...)`, annotated
-result fields, and authored target DSL v2.15 are rejected. Follow the
-[Capability Status Matrix](capability_status_matrix.md) rather than copying the
-accepted target syntax until both rows are promoted from `Designed`.
+open-ended future idea, sequenced in two Stage-5 plans. Native returns
+(wave 1) is landed: a `.orc` source declaring `(:target-dsl "2.15")` may
+return `Bool`, `Int`, `Float`, `String`, an enum, a declared path, an
+`Optional[T]`, a `List[T]`, or a `Map[String, T]` directly from
+`defworkflow`, `provider-result`, `command-result`, effectful `defproc`, and
+workflow calls, without wrapping it in a one-field record. Typed result
+guidance (wave 2) is not implemented: `(result T ...)` and annotated result
+fields still reject. This is still a private, compiler-recognized preview,
+not a promoted DSL version: ordinary loader entrypoints (CLI run/resume/
+report, dashboard, imported-bundle manifests) continue to reject
+`version: "2.15"` until the typed-result-guidance plan promotes it. Follow the
+[Capability Status Matrix](capability_status_matrix.md) for the current status
+of each row.
 
 Some migration slices now have evidence, but YAML remains authoritative for a
 workflow until that specific `.orc` version has compile, shared-validation,
@@ -960,9 +966,12 @@ Rules:
 
 Use `provider-result` when a provider produces structured state.
 
-Current authoring boundary: `:returns` must name a record or union. Direct
-scalar, enum, path, optional, list, and map provider returns belong to the
-accepted native-return design, not the current compiler surface.
+`:returns` may name a record, a union, or (with `(:target-dsl "2.15")`) any
+other currently transportable type directly — `Bool`, `Int`, `Float`,
+`String`, an enum, a declared path, `Optional[T]`, `List[T]`, or
+`Map[String, T]`. A direct return lowers to one generated `output_bundle`
+field named `__result__` with `json_pointer: ""`; the provider writes the
+plain JSON value, and authored code never names `__result__`.
 
 ```lisp
 (let* ((attempt
@@ -1057,11 +1066,11 @@ Prompts should usually avoid:
 Use `command-result` when a deterministic command or certified adapter returns
 structured state.
 
-Current authoring boundary: `:returns` must name a record or union. If current
-behavior genuinely has a meaningful fixed result shape, model that shape as a
-record. Otherwise, keep the existing boundary or defer the migration rather
-than inventing a transport-only one-field wrapper; direct simple-value command
-results are not authorable until the v2.15 capability is implemented.
+`:returns` may name a record, a union, or (with `(:target-dsl "2.15")`) any
+other currently transportable type directly. If current behavior genuinely
+has a meaningful fixed result shape, model that shape as a record. Otherwise,
+prefer a direct scalar/enum/path/optional/list/map return over inventing a
+transport-only one-field wrapper.
 
 ```lisp
 (defrecord ChecksResult

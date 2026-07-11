@@ -12,8 +12,9 @@ middle-end, runtime migration, and composition/stdlib behavior:
 [Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md),
 [Workflow Lisp Core Calculus And Compiler Middle-End](workflow_lisp_core_calculus_middle_end.md),
 [Workflow Lisp Runtime Migration Foundation](workflow_lisp_runtime_migration_foundation.md),
+[Workflow Lisp Post-Foundation Composition And Stdlib Migration](workflow_lisp_post_foundation_composition_stdlib_migration.md),
 and
-[Workflow Lisp Post-Foundation Composition And Stdlib Migration](workflow_lisp_post_foundation_composition_stdlib_migration.md).
+[Workflow Lisp Native Transportable Returns And Typed Result Guidance](workflow_lisp_native_transportable_returns.md).
 
 Design principles: this specification follows the language-wide principles in
 [Workflow Language Design Principles](workflow_language_design_principles.md).
@@ -4338,6 +4339,39 @@ Composition and stdlib migration requires:
 7. inventory adapter lint debt before strict enforcement;
 8. use `--require-non-regressive` for evidence and `--require-promotable` for
    any primary-surface decision.
+
+## 105.3 Native Transportable Returns And Typed Result Guidance
+
+Wave 1 (native transportable returns) is landed: `defworkflow`, effectful
+`defproc`, `provider-result`, `command-result`, and workflow calls share one
+`is_transportable_result_type` decision instead of separate record/union
+allowlists. Every currently transportable type (`String`, `Int`, `Float`,
+`Bool`, enums, declared path refinements, `Optional[T]`, `List[T]`,
+`Map[String, T]`, records, and unions) is valid in every return position.
+
+A non-record/non-union ("root") result lowers to one generated
+`output_bundle` field named `__result__` with `json_pointer: ""`; the
+provider or command writes the direct JSON value, not an object wrapper.
+Authored Workflow Lisp never names or projects `__result__`; the compiler
+binds the validated artifact directly as the declared type. A reusable
+workflow boundary declares exactly one generated output named `__result__`
+for a root-valued return, and `call` carries it through the outer call-step
+artifacts unchanged.
+
+DSL v2.15 is the wire version for this widened contract, but it is an
+unreleased private preview: only the compiler's own shared-validation call
+enables it (`_enabled_preview_versions`). Ordinary loader entrypoints (CLI
+run/resume/report, dashboard projection, imported-bundle manifest loading)
+continue to reject `version: "2.15"` until the dependent typed-result-guidance
+plan promotes it. v2.14 authored YAML and existing record/union `.orc`
+programs are unaffected and remain non-regressive (byte-identical executable
+contracts, source identities, and checkpoint identities).
+
+Full contract, wire schema, and verification strategy:
+[Workflow Lisp Native Transportable Returns And Typed Result Guidance](workflow_lisp_native_transportable_returns.md).
+Typed result guidance (`(result T ...)`, field annotations, guidance wire
+keys) is a separate, not-yet-implemented wave; v2.15 capability promotion
+waits for it.
 
 ## Part XIX. Open Design Decisions
 

@@ -677,3 +677,41 @@ def test_resume_planner_requires_projection_for_provider_session_guard() -> None
                 }
             }
         )
+
+
+def test_projection_maps_root_result_output_bundle_step_like_any_other_step(
+    tmp_path: Path,
+):
+    """State projection (presentation-key/step-id mapping) is agnostic to
+    artifact contract shape: a step whose `output_bundle` is a native-return
+    root field (`json_pointer: ""`) is mapped identically to an ordinary step,
+    with no root-specific branch in the projection layer."""
+    workflow_path = _write_yaml(
+        tmp_path / "root_result_projection.yaml",
+        {
+            "version": "2.7",
+            "name": "root-result-projection",
+            "steps": [
+                {
+                    "name": "WriteRootResult",
+                    "id": "write_root_result",
+                    "command": ["bash", "-lc", "printf 'true\\n' > state/bundle.json"],
+                    "output_bundle": {
+                        "path": "state/bundle.json",
+                        "fields": [{"name": "__result__", "json_pointer": "", "type": "bool"}],
+                    },
+                },
+            ],
+        },
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    projection = bundle.projection
+    body_steps = materialize_projection_body_steps(bundle)
+
+    assert len(body_steps) == 1
+    node_id = body_steps[0]["step_id"]
+    assert projection.node_id_by_compatibility_index[0] == node_id
+    assert projection.compatibility_index_by_node_id[node_id] == 0
+    assert projection.presentation_key_by_node_id[node_id] == "WriteRootResult"
+    assert projection.node_id_by_step_id[node_id] == node_id

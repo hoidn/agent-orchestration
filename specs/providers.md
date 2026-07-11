@@ -83,6 +83,12 @@
     - These annotations and render modes are prompt guidance only and do not change runtime consume enforcement semantics.
     - v2.10 resume steps reserve the `session_id_from` consume for runtime `${SESSION_ID}` binding; that consume is excluded from prompt injection and `consume_bundle`.
   - If the step defines `expected_outputs`, `output_bundle`, or `variant_output` and `inject_output_contract` is not `false`, append a deterministic `Output Contract` or `Variant Output Contract` suffix describing required artifacts (`name`, `path`, `type`, optional constraints) or the required JSON bundle (`path`, `fields[*].json_pointer`, `fields[*].type`, optional constraints).
+    - An `output_bundle` whose sole field uses `json_pointer: ""` (a direct
+      root value) renders a "write one JSON value" suffix describing the root
+      type and its resolved path, not an object/`fields:` list — the prompt
+      never claims a JSON object for a scalar/enum/relpath/optional/list/map
+      root result, and never names or requests the compiler-owned `__result__`
+      field key.
     - `expected_outputs.path`, `output_bundle.path`, and `variant_output.path` entries in this suffix are rendered after applying the same runtime variable substitution used for output-contract validation, so provider prompts show workspace-relative concrete paths rather than unresolved `${...}` templates.
     - Optional `expected_outputs` guidance annotations (`description`, `format_hint`, `example`) are included in this suffix when present.
     - These annotations and rendered concrete paths are prompt guidance only. Prompt text does not replace the runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding or change runtime contract validation semantics.

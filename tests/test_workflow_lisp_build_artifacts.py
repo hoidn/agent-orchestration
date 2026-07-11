@@ -5874,6 +5874,81 @@ def test_source_map_emits_versioned_schema_and_runtime_lineage_sections(tmp_path
     assert projection_entry["generated_internal_inputs"][0]["reason"] == "managed_write_root"
 
 
+def _write_native_root_return_module(tmp_path: Path) -> Path:
+    package_dir = tmp_path / "root_return_pkg"
+    package_dir.mkdir(parents=True, exist_ok=True)
+    module_path = package_dir / "entry.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule root_return_pkg/entry)",
+                "  (export orchestrate)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defworkflow orchestrate",
+                "    ((report_path WorkReport))",
+                "    -> Bool",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" report_path)',
+                "      :returns Bool)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return module_path
+
+
+def _native_root_return_request(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    module_path = _write_native_root_return_module(tmp_path)
+    return request_cls(
+        source_path=module_path,
+        source_roots=(tmp_path,),
+        entry_workflow="orchestrate",
+        provider_externs_path=None,
+        prompt_externs_path=None,
+        imported_workflow_bundles_path=None,
+        command_boundaries_path=CLI_FIXTURES / "commands.json",
+        emit_debug_yaml=False,
+        workspace_root=tmp_path,
+    )
+
+
+def test_boundary_projection_serializes_root_return_kind_for_native_transportable_return(
+    tmp_path: Path,
+) -> None:
+    """A native-return (v2.15 preview) root-valued public workflow serializes
+    `return_kind: "root"` in the boundary-projection build artifact, on the
+    same schema version as existing record/union boundaries, with a single
+    generated `__result__` output."""
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_native_root_return_request(tmp_path))
+    boundary_projection = json.loads(
+        result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
+    )
+
+    assert boundary_projection["schema_version"] == "workflow_lisp_boundary_projection.v1"
+    entry_name = "root_return_pkg/entry::orchestrate"
+    projection_entry = next(
+        workflow
+        for workflow in boundary_projection["workflows"]
+        if workflow["workflow_name"] == entry_name
+    )
+    assert projection_entry["return_kind"] == "root"
+    assert [field["generated_name"] for field in projection_entry["flattened_outputs"]] == [
+        "__result__"
+    ]
+
+
 def test_source_map_serializes_generated_semantic_effects_for_frontend_build(tmp_path: Path) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")

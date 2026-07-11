@@ -1065,3 +1065,54 @@ def test_v13_consume_bundle_not_written_when_consume_contract_fails(tmp_path: Pa
     assert review["exit_code"] == 2
     assert review["error"]["type"] == "contract_violation"
     assert not (tmp_path / "state" / "consumes" / "review_impl_vs_plan.json").exists()
+
+
+def test_root_result_output_bundle_publish_records_artifact_version(tmp_path: Path):
+    """A native-return root `output_bundle` field (`json_pointer: ""`) feeds
+    the same publish/consume lineage ledger as any other artifact source."""
+    workflow = {
+        "version": "2.7",
+        "name": "root-result-publish-ledger",
+        "artifacts": {
+            "checks_passed": {
+                "kind": "scalar",
+                "type": "bool",
+            }
+        },
+        "steps": [
+            {
+                "name": "RunChecks",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'true\\n' > state/bundle.json",
+                ],
+                "output_bundle": {
+                    "path": "state/bundle.json",
+                    "fields": [{"name": "__result__", "json_pointer": "", "type": "bool"}],
+                },
+                "publishes": [{"artifact": "checks_passed", "from": "__result__"}],
+            },
+            {
+                "name": "ReviewChecks",
+                "consumes": [
+                    {
+                        "artifact": "checks_passed",
+                        "producers": ["RunChecks"],
+                        "policy": "latest_successful",
+                        "freshness": "any",
+                    }
+                ],
+                "command": ["bash", "-lc", "echo review"],
+            },
+        ],
+    }
+
+    final_state, persisted = _run_workflow(tmp_path, workflow)
+
+    assert final_state["status"] == "completed"
+    assert final_state["steps"]["RunChecks"]["artifacts"] == {"__result__": True}
+    versions = persisted.get("artifact_versions", {}).get("checks_passed", [])
+    assert len(versions) == 1
+    assert versions[0]["producer"] == "root.runchecks"
+    assert versions[0]["value"] is True

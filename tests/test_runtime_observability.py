@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from orchestrator.runtime_observability import (
     close_executor_session,
     compute_active_runtime,
@@ -517,17 +519,20 @@ def test_compiled_frontend_subject_fallback_prefers_entry_workflow_step(tmp_path
     ) == []
 
 
-def test_compiled_frontend_inconsistent_subject_bindings_use_step_fallback(tmp_path: Path):
+@pytest.mark.parametrize("subject_kind", ["variant_output_field", "output_bundle_field"])
+def test_compiled_frontend_inconsistent_subject_bindings_use_step_fallback(
+    tmp_path: Path, subject_kind: str
+):
     source_map = tmp_path / "source_map.json"
     workflow_a = "demo/module::entry"
     workflow_b = "demo/module::helper"
     cross_workflow_ref = {
-        "subject_kind": "variant_output_field",
+        "subject_kind": subject_kind,
         "subject_name": "execute::Decision::COMPLETED::report",
         "workflow_name": workflow_a,
     }
     wrong_kind_ref = {
-        "subject_kind": "variant_output_field",
+        "subject_kind": subject_kind,
         "subject_name": "execute::Decision::COMPLETED::summary",
         "workflow_name": workflow_a,
     }
@@ -539,8 +544,8 @@ def test_compiled_frontend_inconsistent_subject_bindings_use_step_fallback(tmp_p
         "line": 20,
     }
     other_field_origin = {
-        "origin_key": f"{workflow_b}::variant_output_field::report",
-        "entity_kind": "variant_output_field",
+        "origin_key": f"{workflow_b}::{subject_kind}::report",
+        "entity_kind": subject_kind,
         "workflow_name": workflow_b,
         "path": "helper.orc",
         "line": 7,

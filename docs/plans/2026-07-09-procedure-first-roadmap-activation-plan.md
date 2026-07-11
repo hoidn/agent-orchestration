@@ -4,17 +4,23 @@
 
 **Goal:** Make the approved procedure-first roadmap executable by reconciling the existing component plans with landed commits, tracking and routing the governing plan set, re-anchoring stale ownership paths, and establishing a verified component-plan handoff.
 
-**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff and the later lowering-fork closeout are historical; the runtime union-field lineage prerequisite and boundary gate are now complete, so current routing selects drain migration Phase 1 Task 1.1.
+**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff and the later lowering-fork closeout are historical; the runtime union-field lineage prerequisite and boundary gate are now complete, and drain migration Phase 1 is now paused at Task 1.5 pending the native-return wave-1 substrate — current routing selects that Task 1.5 re-run now that wave 1 has landed.
 
-> **Current execution amendment (updated 2026-07-10):** The case 5 design and
-> implementation are complete, the boundary final gate passed, and
-> `docs/plans/2026-07-07-drain-migration-g8-retirement.md` Phase 1 Task 1.1 is
-> the next active selection. The semantic-migration freeze remains in force.
-> The typed-return portion of Stage 4 is now accepted in
+> **Current execution amendment (updated 2026-07-11):** The case 5 design and
+> implementation are complete, and the boundary final gate passed. The
+> typed-return portion of Stage 4 is accepted in
 > `docs/design/workflow_lisp_native_transportable_returns.md`. Its reviewed
 > Stage 5 order is native transportable returns, then typed result guidance,
-> then the procedure-first pilot. The plans remain gated by S3/S4 and do not
-> change the current Stage 1-3 selection.
+> then the procedure-first pilot. A 2026-07-10 roadmap amendment (recorded in
+> `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`) ran
+> native-return wave 1 ahead of Gates S3/S4, because drain Phase 1 paused at
+> Task 1.5 on the blocker wave 1 resolves. Wave 1 is now landed
+> (compiler-internal; DSL v2.15 stays an unreleased private preview). Next
+> active selection: `docs/plans/2026-07-07-drain-migration-g8-retirement.md`
+> Phase 1 Task 1.5 re-run, per the amendment's resume condition. Typed result
+> guidance (wave 2) follows the Task 1.5 re-run, per the original ordering —
+> not immediately after wave 1. The semantic-migration freeze remains in
+> force and neither wave changes the current Stage 1-3 selection.
 
 **Tech Stack:** Markdown, Git, `rg`, pytest, pyflakes.
 
@@ -526,7 +532,9 @@ committed. Task 9 subsequently passed its corrected executor-surface and
 orchestrator smoke gates; its six full-suite failure identities were also
 present on the pre-Task-2 revision. That lowering-fork handoff is now
 historical. The runtime union-field lineage plan and boundary-report final gate
-subsequently completed. Current routing now executes
-`docs/plans/2026-07-07-drain-migration-g8-retirement.md` Phase 1 Task 1.1, as
-recorded by `docs/index.md` and the governing execution sequence; the
-semantic-migration freeze remains in force.
+subsequently completed. Drain migration Phase 1 then paused at Task 1.5
+pending native-return wave 1 (2026-07-10 roadmap amendment); wave 1 landed
+2026-07-11. Current routing now executes
+`docs/plans/2026-07-07-drain-migration-g8-retirement.md` Phase 1 Task 1.5
+re-run, as recorded by `docs/index.md` and the governing execution sequence;
+the semantic-migration freeze remains in force.

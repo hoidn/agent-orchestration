@@ -261,18 +261,21 @@ SourceMapEntry(
 )
 ```
 
-Contract-field entries use `entity_kind = "variant_output_field"`. Their
+Contract-field entries use `entity_kind` equal to the subject's own kind —
+`variant_output_field` for union payload fields, `output_bundle_field` for
+root and other fixed-bundle fields — not a variant-only literal. Their
 `generated_name_origin` is the stable subject name, while their span and form
 path point to the authored field declaration.
 
 ## Contracts And Interfaces
 
 The persisted per-workflow source map gains an additive `contract_fields`
-mapping. The existing `validation_subjects` section gains
-`variant_output_field` subjects whose `origin_key` resolves into that mapping.
-The schema identifier remains `workflow_lisp_source_map.v1`: this is an
-additive optional section, existing readers already tolerate unknown or absent
-sections, and new readers must tolerate old v1 maps without it.
+mapping. The existing `validation_subjects` section gains subjects of both
+`variant_output_field` and `output_bundle_field` kind whose `origin_key`
+resolves into that mapping. The schema identifier remains
+`workflow_lisp_source_map.v1`: this is an additive optional section, existing
+readers already tolerate unknown or absent sections, and new readers must
+tolerate old v1 maps without it.
 
 `ContractViolation` gains optional structured subject references. Serialization
 omits the field when there are no subjects so unrelated diagnostics retain

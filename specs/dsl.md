@@ -24,6 +24,12 @@
     - Preferred authoring style for relpath boundaries: use `type: relpath` alone; explicit `kind: relpath` remains valid for backward compatibility.
     - `from` must be exactly `{ ref: "root.steps.<Step>.artifacts.<name>|exit_code|outcome.<field>" }`.
     - Export validation runs after the workflow body completes successfully and, for v2.3+ workflows with `finally`, only after finalization completes successfully.
+    - v2.15 (unreleased preview; see `specs/versioning.md`) widens `outputs`
+      (not `inputs`) to accept `kind: collection` (`optional|list|map`) in
+      addition to the existing scalar/enum/relpath contracts, so a public
+      workflow may directly export a collection value produced by a
+      Workflow-Lisp-compiled root return. Ordinary authored YAML on other DSL
+      versions does not gain this widening.
   - `imports`: reusable workflow aliases (v2.5+).
     - Shape: `{ <alias>: "<workflow-source-relative path>" }`.
     - Import paths resolve relative to the directory containing the authored workflow file and must remain within WORKSPACE.
@@ -219,6 +225,17 @@
         as `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` before process/provider launch.
         See `specs/io.md`.
       - Parsed values are exposed as `steps.<Step>.artifacts` (unless `persist_artifacts_in_state:false`).
+      - A bundle whose sole field uses `json_pointer: ""` treats the entire
+        JSON document as that field's value (a "direct root" contract): the
+        producer writes the plain scalar/enum/relpath JSON value, not an
+        object envelope.
+      - `kind: scalar|collection` (optional; default `scalar`; `collection`
+        requires v2.14+ and an authoring lane that enables it — see
+        `specs/versioning.md` v2.15). `kind: collection` fields use
+        `type: optional|list|map` instead of the scalar type list:
+        `optional` requires an `item` schema, `list` requires an `items`
+        schema, and `map` requires `keys` (must resolve to `type: string`)
+        and `values` schemas, each itself an `OutputBundleField`-shaped spec.
     - `variant_output` (optional; v2.14+): deterministic artifacts extracted from one JSON bundle with a tagged-union shape.
       - Mutually exclusive with `expected_outputs`, `output_bundle`, and `select_variant_output`.
       - The contract declares a `discriminant` artifact with enum `allowed` values and a `variants` map keyed by those values.
