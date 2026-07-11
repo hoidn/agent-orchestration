@@ -7824,3 +7824,48 @@ def test_compile_stage3_module_renders_helper_provenance_notes_for_shared_valida
 
     assert "helper call site at" in rendered
     assert "helper definition at" in rendered
+
+
+def test_lowered_mapping_version_follows_source_module_target_dsl(tmp_path: Path) -> None:
+    """Compiled executable mappings carry the source module's target DSL version."""
+    workflow_path = _write_module(
+        tmp_path / "target_dsl_215_minimal.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport))",
+                "  (defworkflow choose-report",
+                "    ((ready Bool)",
+                "     (report_path WorkReport)",
+                "     (fallback_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (if ready",
+                "      (record ImplementationSummary",
+                "        :report report_path)",
+                "      (record ImplementationSummary",
+                "        :report fallback_path))))",
+            ]
+        ),
+    )
+
+    classic_result = compile_stage3_module(
+        workflow_path,
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    wcc_result = compile_stage3_module(
+        workflow_path,
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=LoweringRoute.WCC_M4,
+    )
+
+    assert classic_result.lowered_workflows[0].authored_mapping["version"] == "2.15"
+    assert wcc_result.lowered_workflows[0].authored_mapping["version"] == "2.15"

@@ -746,6 +746,7 @@ def lower_workflow_definitions(
     extern_environment: ExternEnvironment,
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env: FrontendTypeEnvironment | None = None,
+    target_dsl_version: str = "2.14",
 ) -> tuple[LoweredWorkflow, ...]:
     """Lower typechecked frontend workflows into shared workflow dictionaries.
 
@@ -889,6 +890,7 @@ def lower_workflow_definitions(
             workflows_by_name=workflows_by_name,
             ensure_workflow_lowered=lower_one,
             specialize_workflow=specialize_workflow,
+            target_dsl_version=target_dsl_version,
         )
         lowered_by_name[workflow_name] = lowered
         visiting.remove(workflow_name)
@@ -1004,6 +1006,7 @@ def _lower_one_workflow(
     workflows_by_name: Mapping[str, TypedWorkflowDef],
     ensure_workflow_lowered: Any,
     specialize_workflow: Any,
+    target_dsl_version: str = "2.14",
 ) -> LoweredWorkflow:
     """Lower one typed workflow body and assemble its shared mapping.
 
@@ -1179,7 +1182,7 @@ def _lower_one_workflow(
     )
 
     authored_mapping: dict[str, object] = {
-        "version": "2.14",
+        "version": target_dsl_version,
         "name": typed_workflow.definition.name,
         "inputs": authored_inputs,
         "outputs": _lower_workflow_outputs(
@@ -2364,6 +2367,7 @@ def _validate_one_lowered_workflow(
         boundary_validation_policy=boundary_validation_policy,
     )
     loader._allow_private_collection_output_schemas = True
+    loader._enabled_preview_versions = frozenset({"2.15"})
     loader._allow_generated_repeat_until_on_exhausted_refs = True
     loader._generated_repeat_until_on_exhausted_refs = {
         step_name: dict(output_refs)

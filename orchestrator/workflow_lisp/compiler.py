@@ -1393,6 +1393,7 @@ def _lower_workflows_for_route(
     extern_environment,
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env: FrontendTypeEnvironment,
+    target_dsl_version: str = "2.14",
 ):
     if lowering_route is LoweringRoute.WCC_M1:
         validate_wcc_m1_route_supported(typed_workflows)
@@ -1409,6 +1410,7 @@ def _lower_workflows_for_route(
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             type_env=type_env,
+            target_dsl_version=target_dsl_version,
         )
     if lowering_route is LoweringRoute.WCC_M2:
         validate_wcc_m2_route_supported(typed_workflows, typed_procedures)
@@ -1425,6 +1427,7 @@ def _lower_workflows_for_route(
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             type_env=type_env,
+            target_dsl_version=target_dsl_version,
         )
     if lowering_route is LoweringRoute.WCC_M3:
         validate_wcc_m3_route_supported(typed_workflows, typed_procedures)
@@ -1441,6 +1444,7 @@ def _lower_workflows_for_route(
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             type_env=type_env,
+            target_dsl_version=target_dsl_version,
         )
     if lowering_route is LoweringRoute.WCC_M4:
         validate_wcc_m4_route_supported(
@@ -1461,6 +1465,7 @@ def _lower_workflows_for_route(
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             type_env=type_env,
+            target_dsl_version=target_dsl_version,
         )
     return lower_workflow_definitions(
         typed_workflows,
@@ -1472,6 +1477,7 @@ def _lower_workflows_for_route(
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
         type_env=type_env,
+        target_dsl_version=target_dsl_version,
     )
 
 
@@ -1667,6 +1673,7 @@ def _run_stage3_validation_pipeline(
             extern_environment=state.extern_environment,
             command_boundary_environment=state.command_boundary_environment,
             type_env=state.type_env,
+            target_dsl_version=state.module.target_dsl_version,
         )
         return replace(state, lowered_workflows=lowered_workflows)
 
@@ -2440,6 +2447,7 @@ def _compile_stage3_graph(
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             type_env=type_env,
+            target_dsl_version=module_source.syntax_module.target_dsl_version,
         )
         requires_internal_bundle_validation = (
             normalized_validation_profile is not Stage3ValidationProfile.SHARED_CALLABLE

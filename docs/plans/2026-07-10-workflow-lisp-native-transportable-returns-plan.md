@@ -284,7 +284,7 @@ pairs.
 - Test: `tests/test_workflow_lisp_workflows.py`
 - Test: `tests/test_workflow_lisp_lowering.py`
 
-- [ ] **Step 1: Write failing v2.15 preview and header tests**
+- [x] **Step 1: Write failing v2.15 preview and header tests**
 
 Add tests proving:
 
@@ -308,7 +308,7 @@ assert preview_loader.load(self.write_workflow(v215_workflow)).surface.version =
 - compiled executable mappings use the source module's target DSL rather than
   a hard-coded `2.14`.
 
-- [ ] **Step 2: Run the RED selectors**
+- [x] **Step 2: Run the RED selectors**
 
 ```bash
 pytest -q tests/test_loader_validation.py -k 'v215 or collection_output'
@@ -317,7 +317,7 @@ pytest -q tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_lowerin
 
 Expected: FAIL because v2.15 and public collection outputs are not accepted.
 
-- [ ] **Step 3: Implement the minimal unreleased preview/schema widening**
+- [x] **Step 3: Implement the minimal unreleased preview/schema widening**
 
 Add `2.15` to `VERSION_ORDER` but not `SUPPORTED_VERSIONS`. Introduce the
 private, default-empty `_enabled_preview_versions` loader gate and enable only
@@ -330,7 +330,7 @@ existing private-v2.14 lane.
 Thread `WorkflowLispSyntaxModule.target_dsl_version` into generated executable mappings;
 do not mass-upgrade existing 2.14 sources or stdlib modules.
 
-- [ ] **Step 4: Run focused and collection checks**
+- [x] **Step 4: Run focused and collection checks**
 
 ```bash
 pytest -q tests/test_loader_validation.py -k 'version or output or collection'
@@ -339,7 +339,7 @@ pytest -q tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_lowerin
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add orchestrator/loader.py orchestrator/workflow_lisp/syntax.py orchestrator/workflow_lisp/lowering orchestrator/workflow_lisp/wcc tests/test_loader_validation.py tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_lowering.py

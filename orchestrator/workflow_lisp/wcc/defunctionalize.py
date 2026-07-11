@@ -222,6 +222,7 @@ def lower_wcc_m2_workflow_definitions(
     extern_environment: ExternEnvironment,
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env,
+    target_dsl_version: str = "2.14",
 ) -> tuple[lowering_core.LoweredWorkflow, ...]:
     """Lower bounded straight-line workflows through WCC M2."""
     return _lower_wcc_workflow_definitions(
@@ -238,6 +239,7 @@ def lower_wcc_m2_workflow_definitions(
         command_boundary_environment=command_boundary_environment,
         type_env=type_env,
         route_schema_version=WCC_M2_ROUTE_SCHEMA_VERSION,
+        target_dsl_version=target_dsl_version,
     )
 
 
@@ -255,6 +257,7 @@ def lower_wcc_m3_workflow_definitions(
     extern_environment: ExternEnvironment,
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env,
+    target_dsl_version: str = "2.14",
 ) -> tuple[lowering_core.LoweredWorkflow, ...]:
     """Lower bounded same-file match workflows through WCC M3."""
 
@@ -272,6 +275,7 @@ def lower_wcc_m3_workflow_definitions(
         command_boundary_environment=command_boundary_environment,
         type_env=type_env,
         route_schema_version=WCC_M3_ROUTE_SCHEMA_VERSION,
+        target_dsl_version=target_dsl_version,
     )
 
 
@@ -289,6 +293,7 @@ def lower_wcc_m4_workflow_definitions(
     extern_environment: ExternEnvironment,
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env,
+    target_dsl_version: str = "2.14",
 ) -> tuple[lowering_core.LoweredWorkflow, ...]:
     """Lower bounded loop workflows through WCC M4."""
 
@@ -306,6 +311,7 @@ def lower_wcc_m4_workflow_definitions(
         command_boundary_environment=command_boundary_environment,
         type_env=type_env,
         route_schema_version="wcc_m4",
+        target_dsl_version=target_dsl_version,
     )
 
 
@@ -324,6 +330,7 @@ def _lower_wcc_workflow_definitions(
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env,
     route_schema_version: str,
+    target_dsl_version: str = "2.14",
 ) -> tuple[lowering_core.LoweredWorkflow, ...]:
     """Lower WCC workflows through one route-selected normalized program shape."""
 
@@ -463,6 +470,7 @@ def _lower_wcc_workflow_definitions(
             ensure_workflow_lowered=lower_one,
             specialize_workflow=specialize_workflow,
             route_schema_version=route_schema_version,
+            target_dsl_version=target_dsl_version,
         )
         lowered_by_name[workflow_name] = lowered
         lowered_order.append(workflow_name)
@@ -508,6 +516,7 @@ def _lower_one_wcc_workflow(
     ensure_workflow_lowered: Any,
     specialize_workflow: Any,
     route_schema_version: str,
+    target_dsl_version: str = "2.14",
 ) -> lowering_core.LoweredWorkflow:
     inputs, outputs, boundary_projection = derive_workflow_signature_contracts(typed_workflow.signature)
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
@@ -700,7 +709,7 @@ def _lower_one_wcc_workflow(
     )
 
     authored_mapping: dict[str, object] = {
-        "version": "2.14",
+        "version": target_dsl_version,
         "name": typed_workflow.definition.name,
         "inputs": authored_inputs,
         "outputs": lowering_core._lower_workflow_outputs(

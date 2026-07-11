@@ -18,6 +18,8 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .sexpr import BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
 from .spans import SourceSpan
 
+SUPPORTED_TARGET_DSL_VERSIONS = frozenset({"2.14", "2.15"})
+
 
 @dataclass(frozen=True)
 class ExpansionFrame:
@@ -242,7 +244,7 @@ def build_syntax_module(parse_tree: ListExpr) -> WorkflowLispSyntaxModule:
                     span=value.span,
                     code="language_version_unsupported",
                 )
-            if keyword.value == ":target-dsl" and value.value != "2.14":
+            if keyword.value == ":target-dsl" and value.value not in SUPPORTED_TARGET_DSL_VERSIONS:
                 _raise_error(
                     f"unsupported target DSL `{value.value}`",
                     span=value.span,

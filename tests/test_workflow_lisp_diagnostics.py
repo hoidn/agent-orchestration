@@ -1386,7 +1386,7 @@ def test_compile_stage1_renders_unsupported_target_dsl_diagnostic() -> None:
 
     assert "unsupported_target_dsl.orc:3:16" in rendered
     assert "[target_dsl_unsupported]" in rendered
-    assert "unsupported target DSL `2.15`" in rendered
+    assert "unsupported target DSL `9.9`" in rendered
 
 
 def test_compile_stage1_preserves_diagnostic_order(tmp_path: Path) -> None:

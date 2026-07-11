@@ -1246,3 +1246,28 @@ def test_workflow_signature_identity_excludes_publish_metadata() -> None:
     assert publishable_signature.params == helper_signature.params
     assert publishable_signature.return_type_ref == helper_signature.return_type_ref
     assert not hasattr(publishable_signature, "publication_policy")
+
+
+def test_build_syntax_module_accepts_target_dsl_215_without_rejecting_214() -> None:
+    from orchestrator.workflow_lisp.reader import read_sexpr_text
+
+    def _module_source(target_dsl: str) -> str:
+        return "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                f'  (:target-dsl "{target_dsl}")',
+                "  (defenum Approval",
+                "    APPROVE))",
+            ]
+        )
+
+    v215_module = build_syntax_module(
+        read_sexpr_text(_module_source("2.15"), source_path="target_dsl_215.orc")
+    )
+    v214_module = build_syntax_module(
+        read_sexpr_text(_module_source("2.14"), source_path="target_dsl_214.orc")
+    )
+
+    assert v215_module.target_dsl_version == "2.15"
+    assert v214_module.target_dsl_version == "2.14"

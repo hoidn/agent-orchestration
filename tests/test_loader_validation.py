@@ -4937,6 +4937,110 @@ class TestLoaderValidation:
             "list",
         ]
 
+    def _v215_workflow(self) -> dict:
+        return {
+            "version": "2.15",
+            "name": "v215-root-result",
+            "steps": [{"name": "emit", "command": ["python", "-c", "print('true')"]}],
+        }
+
+    def _collection_outputs_workflow(self, version: str) -> dict:
+        return {
+            "version": version,
+            "name": "public-collection-outputs",
+            "steps": [{
+                "name": "Collect",
+                "command": ["echo", "ok"],
+                "output_bundle": {
+                    "path": "state/bundle.json",
+                    "fields": [
+                        {
+                            "name": "attempt_ids",
+                            "json_pointer": "/attempt_ids",
+                            "type": "list",
+                            "items": {"type": "integer"},
+                        },
+                        {
+                            "name": "maybe_ready",
+                            "json_pointer": "/maybe_ready",
+                            "type": "optional",
+                            "item": {"type": "bool"},
+                        },
+                        {
+                            "name": "scores",
+                            "json_pointer": "/scores",
+                            "type": "map",
+                            "keys": {"type": "string"},
+                            "values": {"type": "float"},
+                        },
+                    ],
+                },
+            }],
+            "outputs": {
+                "attempt_ids": {
+                    "kind": "collection",
+                    "type": "list",
+                    "items": {"type": "integer"},
+                    "from": {"ref": "root.steps.Collect.artifacts.attempt_ids"},
+                },
+                "maybe_ready": {
+                    "kind": "collection",
+                    "type": "optional",
+                    "item": {"type": "bool"},
+                    "from": {"ref": "root.steps.Collect.artifacts.maybe_ready"},
+                },
+                "scores": {
+                    "kind": "collection",
+                    "type": "map",
+                    "keys": {"type": "string"},
+                    "values": {"type": "float"},
+                    "from": {"ref": "root.steps.Collect.artifacts.scores"},
+                },
+            },
+        }
+
+    def test_v215_version_rejected_by_default_loader(self):
+        """The default loader keeps rejecting the unreleased v2.15 preview version."""
+        with pytest.raises(WorkflowValidationError, match="Unsupported version '2.15'"):
+            self.loader.load(self.write_workflow(self._v215_workflow()))
+
+    def test_v215_version_accepted_by_preview_loader(self):
+        """A loader with the v2.15 preview enabled loads v2.15 workflows."""
+        preview_loader = WorkflowLoader(self.workspace)
+        preview_loader._enabled_preview_versions = frozenset({"2.15"})
+
+        loaded = preview_loader.load(self.write_workflow(self._v215_workflow()))
+
+        assert loaded.surface.version == "2.15"
+
+    def test_v215_preview_public_collection_outputs_accepted(self):
+        """v2.15 preview workflows accept optional/list/map public output schemas."""
+        preview_loader = WorkflowLoader(self.workspace)
+        preview_loader._enabled_preview_versions = frozenset({"2.15"})
+
+        loaded = preview_loader.load(self.write_workflow(self._collection_outputs_workflow("2.15")))
+        surface = thaw_surface_workflow(loaded)
+
+        assert {name: spec["type"] for name, spec in surface["outputs"].items()} == {
+            "attempt_ids": "list",
+            "maybe_ready": "optional",
+            "scores": "map",
+        }
+
+    def test_v214_public_collection_outputs_rejected(self):
+        """v2.14 authored YAML still rejects public collection output schemas."""
+        path = self.write_workflow(self._collection_outputs_workflow("2.14"))
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        messages = [str(err.message) for err in exc_info.value.errors]
+        assert any("outputs.attempt_ids.type invalid type 'list'" in message for message in messages)
+        assert any(
+            "outputs.attempt_ids: kind 'collection' is only available for frontend-lowered workflows" in message
+            for message in messages
+        )
+
     def test_v13_consume_bundle_requires_version_1_3(self):
         """consume_bundle is gated to version 1.3+."""
         workflow = {

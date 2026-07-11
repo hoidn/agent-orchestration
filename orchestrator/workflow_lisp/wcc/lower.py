@@ -52,6 +52,7 @@ def lower_wcc_m1_workflow_definitions(
     extern_environment: ExternEnvironment,
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env: FrontendTypeEnvironment,
+    target_dsl_version: str = "2.14",
 ) -> tuple[LoweredWorkflow, ...]:
     """Lower pure-subset workflows through WCC M1, then reuse legacy lowering."""
 
@@ -73,6 +74,7 @@ def lower_wcc_m1_workflow_definitions(
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
         type_env=type_env,
+        target_dsl_version=target_dsl_version,
     )
 
 
