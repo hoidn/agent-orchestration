@@ -2136,3 +2136,111 @@ def test_existing_adjudication_sidecars_fail_fast_without_rebaseline(tmp_path: P
     assert result["error"]["type"] == "adjudication_resume_mismatch"
     assert stale_baseline.read_text(encoding="utf-8") == "original baseline sidecar"
     assert stale_packet.read_text(encoding="utf-8") == '{"packet": "stale"}'
+
+
+def _root_result_bundle_contract() -> dict:
+    return {
+        "path": "state/bundle.json",
+        "fields": [{"name": "__result__", "json_pointer": "", "type": "bool"}],
+    }
+
+
+def _root_document_candidate_command(document_text: str) -> list[str]:
+    return [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            "print('candidate stdout must stay a sidecar')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            f"Path('state/bundle.json').write_text({document_text!r}, encoding='utf-8')\n"
+        ),
+    ]
+
+
+def _root_result_workflow(scores: dict[str, float] | None = None) -> dict:
+    workflow = _workflow(scores)
+    step = workflow["steps"][0]
+    step.pop("expected_outputs")
+    step["output_bundle"] = _root_result_bundle_contract()
+    step["publishes"] = [{"artifact": "root_flag", "from": "__result__"}]
+    workflow["artifacts"] = {"root_flag": {"kind": "scalar", "type": "bool"}}
+    workflow["providers"]["candidate_a"]["command"] = _root_document_candidate_command("false\n")
+    workflow["providers"]["candidate_b"]["command"] = _root_document_candidate_command("true\n")
+    return workflow
+
+
+def test_adjudicated_provider_promotes_root_result_bundle_and_ignores_candidate_stdout(
+    tmp_path: Path,
+) -> None:
+    state = _run(tmp_path, _root_result_workflow())
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed"
+    assert result["artifacts"] == {"__result__": True}
+    assert result["adjudication"]["selected_candidate_id"] == "b"
+    assert result["adjudication"]["promotion_status"] == "committed"
+    assert json.loads((tmp_path / "state/bundle.json").read_text(encoding="utf-8")) is True
+    assert "output" not in result
+    assert "json" not in result
+    assert "lines" not in result
+    paths = candidate_paths(tmp_path / ".orchestrate/runs/run-1", "root", "root.draft", 1, "b")
+    assert paths.stdout_log.read_text(encoding="utf-8") == "candidate stdout must stay a sidecar\n"
+    assert state["artifact_versions"]["root_flag"][-1]["value"] is True
+
+
+def test_resume_after_committed_promotion_publishes_root_result_bundle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate_attempts = tmp_path / "candidate_attempts.txt"
+    workflow = _root_result_workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({candidate_attempts.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/bundle.json').write_text('true\\n', encoding='utf-8')\n"
+        ),
+    ]
+    original_materialize = executor_module.materialize_run_score_ledger
+    calls = 0
+
+    def interrupt_before_terminal_ledger(*args, **kwargs) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise SystemExit("interrupted after promotion commit")
+        return original_materialize(*args, **kwargs)
+
+    monkeypatch.setattr(executor_module, "materialize_run_score_ledger", interrupt_before_terminal_ledger)
+    with pytest.raises(SystemExit):
+        _run(tmp_path, workflow)
+
+    visit = adjudication_visit_paths(tmp_path / ".orchestrate/runs/run-1", "root", "root.draft", 1)
+    promotion_manifest = json.loads(visit.promotion_manifest_path.read_text(encoding="utf-8"))
+    assert promotion_manifest["status"] == "committed"
+    interrupted_state = json.loads(
+        (tmp_path / ".orchestrate/runs/run-1/state.json").read_text(encoding="utf-8")
+    )
+    assert "root_flag" not in interrupted_state.get("artifact_versions", {})
+
+    monkeypatch.setattr(executor_module, "materialize_run_score_ledger", original_materialize)
+    state = _resume(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed"
+    assert result["adjudication"]["promotion_status"] == "committed"
+    assert result["artifacts"] == {"__result__": True}
+    assert candidate_attempts.read_text(encoding="utf-8") == "1"
+    run_rows = [json.loads(line) for line in visit.run_score_ledger_path.read_text(encoding="utf-8").splitlines()]
+    assert [row["promotion_status"] for row in run_rows] == ["committed"]
+    assert json.loads((tmp_path / "state/bundle.json").read_text(encoding="utf-8")) is True
+    assert state["artifact_versions"]["root_flag"][-1]["value"] is True

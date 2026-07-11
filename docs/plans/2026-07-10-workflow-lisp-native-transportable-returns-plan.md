@@ -703,14 +703,14 @@ git commit -m "Support root results in runtime projections"
 - Test: `tests/test_adjudicated_provider_resume.py`
 - Test: `tests/test_adjudicated_provider_outcomes.py`
 
-- [ ] **Step 1: Add RED adjudication tests**
+- [x] **Step 1: Add RED adjudication tests**
 
 Use a candidate bundle whose entire document is `true`, select it, promote the
 declared bundle, revalidate the parent, resume a committed promotion, and prove
 rollback on parent validation failure. Assert candidate/evaluator stdout does
 not become the result.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 pytest -q tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_resume.py tests/test_adjudicated_provider_outcomes.py -k 'root_result or empty_pointer'
@@ -719,13 +719,13 @@ pytest -q tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_prov
 Expected: PASS if consumers are already generic; otherwise fail at the exact
 object/pointer assumption to patch.
 
-- [ ] **Step 3: Implement only evidence-backed fixes**
+- [x] **Step 3: Implement only evidence-backed fixes**
 
 Preserve the existing staged promotion transaction and `_resolve_json_pointer`
 empty-root behavior. Do not special-case `Bool` or `__result__` outside generic
 contract iteration.
 
-- [ ] **Step 4: Run all adjudication suites**
+- [x] **Step 4: Run all adjudication suites**
 
 ```bash
 pytest -q tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_outcomes.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_resume.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_scoring.py
@@ -733,10 +733,28 @@ pytest -q tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_pro
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit only if production changes were required; otherwise record the passing
 evidence in the plan without an empty commit.
+
+**Task 9 evidence record (2026-07-11): NO production change was required.** All
+eight new adjudication tests (selection + promotion + parent revalidation +
+committed-promotion resume + rollback + stdout-sidecar assertions over a
+candidate bundle whose entire document is `true`, plus the
+`_resolve_json_pointer` three-copy parity matrix) PASSED pre-change — the
+adjudication consumers are already generic over root documents. Step-0 seven
+adjudication suites: 165 passed fresh; Step-4 seven suites: 173 passed
+(165 identities + 8 new, zero flips). `_resolve_json_pointer` parity:
+`adjudication/utils.py` and `adjudication/evidence.py` copies are
+byte-identical; `contracts/output_contract.py` differs only in docstring,
+token naming, an explicit dict-miss return, and an explicit list `"-"` guard —
+all behaviorally equivalent (pinned by
+`test_resolve_json_pointer_empty_pointer_parity_across_copies`). Canaries:
+six-suite 379 passed; identity suite 3 passed, zero rows; P2 drain compile
+exit 0, `diagnostic_count: 0`, fingerprint `24798cac21228fe6`, g8 `pass`.
+Tests committed as the proof artifact (`Prove adjudicated root result
+handling`); full record in `.superpowers/sdd/nr-task-9-report.md`.
 
 ### Task 10: End-to-end compatibility and normative closure
 

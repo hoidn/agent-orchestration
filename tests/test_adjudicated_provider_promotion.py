@@ -598,6 +598,181 @@ def test_promotion_resume_failed_manifest_returns_recorded_failure(
     assert exc_info.value.failure_type == "promotion_validation_failed"
 
 
+def _root_result_bundle_contract() -> dict:
+    return {
+        "path": "state/bundle.json",
+        "fields": [{"name": "__result__", "json_pointer": "", "type": "bool"}],
+    }
+
+
+def _write_root_bundle_resume_manifest(
+    manifest_path: Path,
+    *,
+    status: str,
+    document_text: str = "true\n",
+) -> None:
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    source = manifest_path.parent / "candidate-source/state/bundle.json"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(document_text, encoding="utf-8")
+    payload = {
+        "schema": "adjudicated_provider.promotion.v1",
+        "status": status,
+        "files": [
+            {
+                "role": "bundle",
+                "artifact": "output_bundle",
+                "source": source.as_posix(),
+                "dest_rel": "state/bundle.json",
+                "source_sha256": _hash_text(document_text),
+                "baseline_preimage": {"state": "absent"},
+                "current_preimage": {"state": "absent"},
+            }
+        ],
+        "promoted_paths": {},
+        "created_parent_dirs": ["state"],
+    }
+    manifest_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+
+
+def test_promotes_root_result_bundle_with_empty_pointer_document(tmp_path: Path) -> None:
+    parent = tmp_path / "parent"
+    candidate = tmp_path / "candidate"
+    parent.mkdir()
+    candidate.mkdir()
+    (candidate / "state").mkdir()
+    (candidate / "state/bundle.json").write_text("true\n", encoding="utf-8")
+    visit, manifest = _baseline(tmp_path, parent)
+
+    result = promote_candidate_outputs(
+        expected_outputs=None,
+        output_bundle=_root_result_bundle_contract(),
+        candidate_workspace=candidate,
+        parent_workspace=parent,
+        baseline_manifest=manifest,
+        promotion_manifest_path=visit.promotion_manifest_path,
+        selected_candidate_id="candidate_a",
+    )
+
+    assert result.status == "committed"
+    assert json.loads((parent / "state/bundle.json").read_text(encoding="utf-8")) is True
+    manifest_doc = json.loads(visit.promotion_manifest_path.read_text(encoding="utf-8"))
+    assert manifest_doc["status"] == "committed"
+    assert manifest_doc["selected_candidate_id"] == "candidate_a"
+
+
+def test_promotion_resume_committed_root_result_manifest_revalidates_parent_document(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    (parent / "state").mkdir()
+    (parent / "state/bundle.json").write_text("true\n", encoding="utf-8")
+    visit = adjudication_visit_paths(tmp_path / ".orchestrate/runs/run-1", "root", "root.draft", 1)
+    _write_root_bundle_resume_manifest(visit.promotion_manifest_path, status="committed")
+
+    result = promote_candidate_outputs(
+        expected_outputs=None,
+        output_bundle=_root_result_bundle_contract(),
+        candidate_workspace=tmp_path / "missing-candidate",
+        parent_workspace=parent,
+        baseline_manifest=_baseline(tmp_path, parent)[1],
+        promotion_manifest_path=visit.promotion_manifest_path,
+    )
+
+    assert result.status == "committed"
+
+
+def test_promotion_resume_committed_root_result_manifest_fails_when_parent_root_invalid(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    (parent / "state").mkdir()
+    (parent / "state/bundle.json").write_text('"not-a-bool"\n', encoding="utf-8")
+    visit = adjudication_visit_paths(tmp_path / ".orchestrate/runs/run-1", "root", "root.draft", 1)
+    _write_root_bundle_resume_manifest(visit.promotion_manifest_path, status="committed")
+
+    with pytest.raises(PromotionConflictError) as exc_info:
+        promote_candidate_outputs(
+            expected_outputs=None,
+            output_bundle=_root_result_bundle_contract(),
+            candidate_workspace=tmp_path / "missing-candidate",
+            parent_workspace=parent,
+            baseline_manifest=_baseline(tmp_path, parent)[1],
+            promotion_manifest_path=visit.promotion_manifest_path,
+        )
+
+    assert exc_info.value.failure_type == "promotion_validation_failed"
+
+
+def test_promotion_rolls_back_root_result_bundle_on_parent_validation_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "parent"
+    candidate = tmp_path / "candidate"
+    parent.mkdir()
+    candidate.mkdir()
+    (candidate / "state").mkdir()
+    (candidate / "state/bundle.json").write_text("true\n", encoding="utf-8")
+    visit, manifest = _baseline(tmp_path, parent)
+
+    def fail_parent_validation(expected_outputs, output_bundle, workspace):
+        del expected_outputs, output_bundle, workspace
+        raise OutputContractError(
+            [
+                ContractViolation(
+                    type="forced_failure",
+                    message="validation failed after commit",
+                    context={"path": "state/bundle.json"},
+                )
+            ]
+        )
+
+    monkeypatch.setattr(adjudication, "_validate_promotion_parent", fail_parent_validation, raising=False)
+
+    with pytest.raises(PromotionConflictError) as exc_info:
+        promote_candidate_outputs(
+            expected_outputs=None,
+            output_bundle=_root_result_bundle_contract(),
+            candidate_workspace=candidate,
+            parent_workspace=parent,
+            baseline_manifest=manifest,
+            promotion_manifest_path=visit.promotion_manifest_path,
+        )
+
+    assert exc_info.value.failure_type == "promotion_validation_failed"
+    assert not (parent / "state/bundle.json").exists()
+    assert not (parent / "state").exists()
+    manifest_doc = json.loads(visit.promotion_manifest_path.read_text(encoding="utf-8"))
+    assert manifest_doc["status"] == "failed"
+
+
+def test_resolve_json_pointer_empty_pointer_parity_across_copies() -> None:
+    from orchestrator.contracts.output_contract import _resolve_json_pointer as contract_resolve
+    from orchestrator.workflow.adjudication.evidence import _resolve_json_pointer as evidence_resolve
+    from orchestrator.workflow.adjudication.utils import _resolve_json_pointer as utils_resolve
+
+    documents = [
+        True,
+        False,
+        None,
+        5,
+        "docs/plans/demo.md",
+        [1, {"a": 2}],
+        {"a": {"b": [True]}, "~k": 1, "/k": 2},
+    ]
+    pointers = ["", "/a", "/a/b", "/a/b/0", "/0", "/1", "/2", "/-", "/nope", "x", "/~0k", "/~1k"]
+
+    for document in documents:
+        for pointer in pointers:
+            expected = contract_resolve(document, pointer)
+            assert evidence_resolve(document, pointer) == expected
+            assert utils_resolve(document, pointer) == expected
+        assert contract_resolve(document, "") == (True, document)
+
+
 def test_promotion_resume_rolling_back_completes_rollback_and_returns_failure(
     tmp_path: Path,
 ) -> None:

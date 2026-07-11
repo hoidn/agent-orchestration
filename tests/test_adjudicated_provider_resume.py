@@ -9,6 +9,7 @@ from tests.test_adjudicated_provider_runtime import (
     test_existing_adjudication_sidecars_fail_fast_without_rebaseline,
     test_resume_after_baseline_snapshot_reuses_baseline_and_runs_candidates,
     test_resume_after_committed_promotion_finalizes_ledger_mirror_and_publication,
+    test_resume_after_committed_promotion_publishes_root_result_bundle,
     test_resume_after_partial_candidate_generation_runs_remaining_candidates,
     test_resume_after_scored_candidates_promotes_without_rerunning_candidates,
     test_resume_rejects_mismatched_adjudication_sidecars,
