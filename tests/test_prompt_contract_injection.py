@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import yaml
 
+from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
@@ -1094,6 +1095,113 @@ def test_provider_output_bundle_missing_bundle(tmp_path: Path):
 
     assert state["steps"]["Select"]["exit_code"] == 2
     assert any(violation["type"] == "missing_bundle_file" for violation in violations)
+
+
+def test_render_output_bundle_contract_block_root_field_renders_json_value_schema() -> None:
+    """A single empty-pointer field renders one JSON-value schema, not an object contract."""
+    root_bundle = {
+        "path": "state/run-root/test-run/result.json",
+        "fields": [
+            {
+                "name": "__result__",
+                "json_pointer": "",
+                "type": "bool",
+            }
+        ],
+    }
+
+    rendered = render_output_bundle_contract_block(root_bundle)
+
+    assert "format: JSON value" in rendered
+    assert "format: JSON object" not in rendered
+    assert "fields:" not in rendered
+    assert "name: __result__" not in rendered
+    assert "json_pointer:" not in rendered
+    assert "type: bool" in rendered
+    assert "path: state/run-root/test-run/result.json" in rendered
+
+
+def test_provider_output_bundle_root_result_appends_json_value_contract_and_persists_result(
+    tmp_path: Path,
+) -> None:
+    """A root output_bundle renders a JSON-value contract and persists `__result__` end to end."""
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "select.md").write_text("Decide readiness.\n", encoding="utf-8")
+
+    workflow = {
+        "version": "2.7",
+        "name": "provider-output-bundle-root-result",
+        "inputs": {
+            "state_root": {
+                "type": "relpath",
+                "under": "state",
+                "default": "state/default-root",
+            }
+        },
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Decide",
+            "provider": "mock_provider",
+            "input_file": "prompts/select.md",
+            "output_bundle": {
+                "path": "${inputs.state_root}/${run.id}/result.json",
+                "fields": [
+                    {
+                        "name": "__result__",
+                        "json_pointer": "",
+                        "type": "bool",
+                    },
+                ],
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml", bound_inputs={"state_root": "state/run-root"})
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    captured = {"prompt": "", "env": {}}
+
+    def _prepare_invocation(*args, **kwargs):
+        captured["prompt"] = kwargs.get("prompt_content") or ""
+        captured["env"] = kwargs.get("env") or {}
+        return SimpleNamespace(input_mode="stdin", prompt=captured["prompt"]), None
+
+    def _execute(_invocation, **_kwargs):
+        bundle_path = tmp_path / captured["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text("true\n", encoding="utf-8")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+
+    assert state["steps"]["Decide"]["exit_code"] == 0
+    assert state["steps"]["Decide"]["artifacts"] == {"__result__": True}
+    assert captured["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] == "state/run-root/test-run/result.json"
+    assert "Write one JSON value exactly as specified." in captured["prompt"]
+    assert "format: JSON value" in captured["prompt"]
+    assert "format: JSON object" not in captured["prompt"]
+    assert "name: __result__" not in captured["prompt"]
+    assert "type: bool" in captured["prompt"]
+    assert "path: state/run-root/test-run/result.json" in captured["prompt"]
 
 
 def test_provider_variant_output_shared_fields_render_once(tmp_path: Path) -> None:

@@ -433,7 +433,7 @@ git commit -m "Generalize Workflow Lisp result contracts"
 - Test: `tests/test_prompt_contract_injection.py`
 - Test: `tests/test_workflow_output_contract_integration.py`
 
-- [ ] **Step 1: Add RED provider/command lowering tests**
+- [x] **Step 1: Add RED provider/command lowering tests**
 
 Assert that a plain `:returns Bool` produces an `output_bundle` root field,
 that terminal refs bind `root.steps.<step>.artifacts.__result__`, and that the
@@ -441,7 +441,7 @@ prompt contract represents a JSON value rather than claiming an object.
 Tests must inspect structured contract data or behavioral output, not literal
 prompt phrasing.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 pytest -q tests/test_workflow_lisp_structured_results.py tests/test_workflow_lisp_lowering.py tests/test_prompt_contract_injection.py -k 'root_result or native_bool'
@@ -449,14 +449,14 @@ pytest -q tests/test_workflow_lisp_structured_results.py tests/test_workflow_lis
 
 Expected: FAIL because non-record result refs and prompt shape are absent.
 
-- [ ] **Step 3: Implement direct effect lowering**
+- [x] **Step 3: Implement direct effect lowering**
 
 Extend result-ref helpers so root values expose `__result__`. Teach prompt
 rendering to detect a single empty-pointer field and render a root JSON schema.
 Keep `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, wrong-path failure, and stdout
 non-authority unchanged.
 
-- [ ] **Step 4: Run focused integration tests**
+- [x] **Step 4: Run focused integration tests**
 
 ```bash
 pytest -q tests/test_workflow_lisp_structured_results.py tests/test_workflow_lisp_lowering.py tests/test_prompt_contract_injection.py tests/test_workflow_output_contract_integration.py
@@ -464,7 +464,7 @@ pytest -q tests/test_workflow_lisp_structured_results.py tests/test_workflow_lis
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add orchestrator/workflow_lisp/lowering/effects.py orchestrator/workflow_lisp/lowering/values.py orchestrator/contracts/prompt_contract.py tests/test_workflow_lisp_structured_results.py tests/test_workflow_lisp_lowering.py tests/test_prompt_contract_injection.py tests/test_workflow_output_contract_integration.py

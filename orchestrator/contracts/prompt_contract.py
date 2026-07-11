@@ -194,6 +194,10 @@ def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
 
 def render_output_bundle_contract_block(output_bundle: Dict[str, Any]) -> str:
     """Render a stable prompt suffix describing a required JSON output bundle."""
+    fields = output_bundle.get("fields", [])
+    if len(fields) == 1 and fields[0].get("json_pointer") == "":
+        return _render_root_output_bundle_contract_block(output_bundle, fields[0])
+
     lines: List[str] = [
         "## Output Contract",
         (
@@ -207,11 +211,37 @@ def render_output_bundle_contract_block(output_bundle: Dict[str, Any]) -> str:
         "  fields:",
     ]
 
-    for spec in output_bundle.get("fields", []):
+    for spec in fields:
         lines.append(f"    - name: {spec['name']}")
         lines.append(f"      json_pointer: {spec['json_pointer']}")
         _append_schema_spec(lines, spec, indent=6)
 
+    return "\n".join(lines) + "\n"
+
+
+def _render_root_output_bundle_contract_block(
+    output_bundle: Dict[str, Any], field: Dict[str, Any]
+) -> str:
+    """Render a stable prompt suffix for a single direct-JSON-root output bundle.
+
+    A non-record/non-union result lowers to one `__result__` field at JSON
+    pointer `""` (`orchestrator/workflow_lisp/contracts.py`,
+    `docs/design/workflow_lisp_native_transportable_returns.md`). The bundle
+    is one JSON value, not an object with named fields, so the prompt must not
+    claim `format: JSON object` or name the compiler-owned `__result__` field.
+    """
+    lines: List[str] = [
+        "## Output Contract",
+        (
+            "Write one JSON value exactly as specified. If "
+            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, it is the "
+            "runtime-owned authoritative write target."
+        ),
+        _RELPATH_GUIDANCE,
+        f"- path: {output_bundle['path']}",
+        "  format: JSON value",
+    ]
+    _append_schema_spec(lines, field, indent=2)
     return "\n".join(lines) + "\n"
 
 

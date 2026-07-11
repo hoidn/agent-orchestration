@@ -1766,6 +1766,121 @@ def test_provider_result_bundle_allocation_uses_state_layout(tmp_path: Path) -> 
     assert "attempt" in _allocation_field(allocation, "stable_identity")
 
 
+def test_provider_result_native_bool_binds_terminal_result_artifact_ref(tmp_path: Path) -> None:
+    """A let*-bound native `Bool` provider result binds `root.steps.<step>.artifacts.__result__`."""
+    workflow_path = _write_module(
+        tmp_path / "native_bool_provider_binding.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord SummaryWithFlag",
+                "    (report WorkReport)",
+                "    (approved Bool))",
+                "  (defworkflow native-bool-provider-binding",
+                "    ((report_path WorkReport))",
+                "    -> SummaryWithFlag",
+                "    (let* ((approved",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report_path)",
+                "               :returns Bool)))",
+                "      (record SummaryWithFlag",
+                "        :report report_path",
+                "        :approved approved))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    provider_step = next(step for step in lowered["steps"] if "provider" in step)
+    assert provider_step["output_bundle"]["fields"][0]["name"] == "__result__"
+    assert provider_step["output_bundle"]["fields"][0]["json_pointer"] == ""
+    assert provider_step["output_bundle"]["fields"][0]["type"] == "bool"
+
+    materialize_step = next(step for step in lowered["steps"] if "materialize_artifacts" in step)
+    approved_value = next(
+        value
+        for value in materialize_step["materialize_artifacts"]["values"]
+        if value["name"] == "return__approved"
+    )
+    assert approved_value["source"] == {
+        "ref": f"root.steps.{provider_step['name']}.artifacts.__result__"
+    }
+
+
+def test_command_result_native_int_binds_terminal_result_artifact_ref(tmp_path: Path) -> None:
+    """A let*-bound native `Int` command result binds `root.steps.<step>.artifacts.__result__`."""
+    workflow_path = _write_module(
+        tmp_path / "native_int_command_binding.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord SummaryWithCount",
+                "    (report WorkReport)",
+                "    (count Int))",
+                "  (defworkflow native-int-command-binding",
+                "    ((report_path WorkReport))",
+                "    -> SummaryWithCount",
+                "    (let* ((count",
+                "             (command-result count_things",
+                '               :argv ("python" "scripts/count_things.py" report_path)',
+                "               :returns Int)))",
+                "      (record SummaryWithCount",
+                "        :report report_path",
+                "        :count count))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        command_boundaries={
+            "count_things": ExternalToolBinding(
+                name="count_things",
+                stable_command=("python", "scripts/count_things.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    command_step = next(step for step in lowered["steps"] if "command" in step)
+    assert command_step["output_bundle"]["fields"][0]["name"] == "__result__"
+    assert command_step["output_bundle"]["fields"][0]["json_pointer"] == ""
+    assert command_step["output_bundle"]["fields"][0]["type"] == "integer"
+
+    materialize_step = next(step for step in lowered["steps"] if "materialize_artifacts" in step)
+    count_value = next(
+        value
+        for value in materialize_step["materialize_artifacts"]["values"]
+        if value["name"] == "return__count"
+    )
+    assert count_value["source"] == {
+        "ref": f"root.steps.{command_step['name']}.artifacts.__result__"
+    }
+
+
 def test_provider_bundle_path_projection_explicit_output_bundle(tmp_path: Path) -> None:
     workflow_path = _write_provider_bundle_projection_module(
         tmp_path,

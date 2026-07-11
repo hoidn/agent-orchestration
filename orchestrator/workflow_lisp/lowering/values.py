@@ -627,7 +627,13 @@ def _render_provider_artifact_ref(provider_step_name: str, field_access: FieldAc
 
 
 def _record_output_refs(step_name: str, type_ref: Any) -> dict[str, str]:
-    """Return flattened output refs for a record or union result type."""
+    """Return flattened output refs for a record, union, or direct-root result type.
+
+    Structural and type-driven, matching `GeneratedBundleContract.result_shape`
+    (`orchestrator/workflow_lisp/contracts.py`): every non-record/non-union
+    transportable type lowers to one generated `__result__` artifact (see
+    `docs/design/workflow_lisp_native_transportable_returns.md`).
+    """
 
     if isinstance(type_ref, RecordTypeRef):
         return _flatten_record_output_refs(step_name, type_ref)
@@ -636,7 +642,7 @@ def _record_output_refs(step_name: str, type_ref: Any) -> dict[str, str]:
             output_name: f"root.steps.{step_name}.artifacts.{'__'.join(field_path)}"
             for output_name, field_path in _flatten_boundary_leaf_paths(type_ref, generated_name="return")
         }
-    return {}
+    return {"return": f"root.steps.{step_name}.artifacts.__result__"}
 
 
 def _flatten_return_output_names(context: _LoweringContext) -> tuple[str, ...]:
