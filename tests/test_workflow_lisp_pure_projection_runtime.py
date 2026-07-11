@@ -207,6 +207,40 @@ def _compile_runtime_enum_member_bundle(tmp_path: Path):
     return result.validated_bundles_by_name["pure_expr_runtime_enum_member::project"]
 
 
+def _compile_runtime_native_root_bundle(tmp_path: Path):
+    module_path = tmp_path / "pure_expr_runtime_native_root.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule pure_expr_runtime_native_root)",
+                "  (export root-flag)",
+                "  (defrecord FlagResult",
+                "    (flag Bool))",
+                "  (defworkflow root-flag",
+                "    ((count Int))",
+                "    -> FlagResult",
+                "    (let* ((flag (if (> count 0) true false)))",
+                "      (record FlagResult :flag flag))))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    return result.validated_bundles_by_name["pure_expr_runtime_native_root::root-flag"]
+
+
 def _compile_runtime_union_variant_bundle(tmp_path: Path):
     module_path = tmp_path / "pure_expr_runtime_union_variant.orc"
     module_path.write_text(
@@ -441,6 +475,29 @@ def test_pure_projection_runtime_executes_enum_member_equality(tmp_path: Path) -
 
     assert project["status"] == "completed"
     assert project["artifacts"] == {"return__ready": True, "return__status": "DONE"}
+
+
+def test_pure_projection_runtime_executes_native_root_result_projection(tmp_path: Path) -> None:
+    loaded = _compile_runtime_native_root_bundle(tmp_path)
+    projection_step = next(
+        step for step in loaded.surface.steps if getattr(step, "pure_projection", None)
+    )
+    bundle_fields = [dict(field) for field in projection_step.common.output_bundle["fields"]]
+    assert bundle_fields == [
+        {"name": "__result__", "json_pointer": "", "kind": "scalar", "type": "bool"}
+    ]
+
+    state_manager = StateManager(workspace=tmp_path, run_id="pure-projection-native-root")
+    state_manager.initialize(
+        str(tmp_path / "pure_expr_runtime_native_root.orc"),
+        bound_inputs={"count": 2},
+    )
+
+    result = WorkflowExecutor(loaded, tmp_path, state_manager).execute()
+    project = result["steps"][projection_step.name]
+
+    assert project["status"] == "completed"
+    assert project["artifacts"] == {"__result__": True}
 
 
 def test_pure_projection_runtime_skips_inactive_union_variant_outputs(tmp_path: Path) -> None:

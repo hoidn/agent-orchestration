@@ -484,13 +484,13 @@ git commit -m "Lower direct provider and command return values"
 - Test: `tests/test_workflow_lisp_procedures.py`
 - Test: `tests/test_workflow_lisp_wcc_m4.py`
 
-- [ ] **Step 1: Add RED materialization tests**
+- [x] **Step 1: Add RED materialization tests**
 
 Cover a literal `Bool`, a pure expression, both arms of an `if`, a bounded loop
 result, and an effectful procedure whose terminal result is root-valued. Assert
 the materialization bundle uses `json_pointer: ""`, not `/result` or a wrapper.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 pytest -q tests/test_workflow_lisp_pure_projection_runtime.py tests/test_workflow_lisp_lowering.py -k 'root or scalar_return or collection_return'
@@ -498,13 +498,13 @@ pytest -q tests/test_workflow_lisp_pure_projection_runtime.py tests/test_workflo
 
 Expected: FAIL on `/result`, missing output refs, or boundary rejection.
 
-- [ ] **Step 3: Implement one root materialization convention**
+- [x] **Step 3: Implement one root materialization convention**
 
 Make `_output_contracts_for_type`, `_output_bundle_fields`, join-output helpers,
 and WCC defunctionalization use `__result__` plus the empty pointer only for
 root-valued results. Preserve existing record/union pointers and names.
 
-- [ ] **Step 4: Run classic/WCC and procedure suites**
+- [x] **Step 4: Run classic/WCC and procedure suites**
 
 ```bash
 pytest -q tests/test_workflow_lisp_pure_projection_runtime.py tests/test_workflow_lisp_lowering.py tests/test_workflow_lisp_procedures.py tests/test_workflow_lisp_wcc_m4.py
@@ -512,7 +512,7 @@ pytest -q tests/test_workflow_lisp_pure_projection_runtime.py tests/test_workflo
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Stage the named Task 5 owners and tests, then commit:
 

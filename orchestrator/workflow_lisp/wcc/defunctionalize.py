@@ -2833,14 +2833,19 @@ def _lower_static_terminal_projection(
         leaf = _static_terminal_leaf(static_value, field_path=field.source_path[1:])
         if not _is_static_terminal_literal(leaf):
             return None
+        artifact_name = (
+            "__result__"
+            if not isinstance(type_ref, (RecordTypeRef, UnionTypeRef))
+            else field.generated_name
+        )
         values.append(
             {
-                "name": field.generated_name,
+                "name": artifact_name,
                 "source": {"literal": leaf},
                 "contract": dict(field.contract_definition),
             }
         )
-        output_refs[field.generated_name] = f"root.steps.{step_name}.artifacts.{field.generated_name}"
+        output_refs[field.generated_name] = f"root.steps.{step_name}.artifacts.{artifact_name}"
 
     step = {
         "name": step_name,

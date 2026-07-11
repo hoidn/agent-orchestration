@@ -178,12 +178,18 @@ def lower_pure_projection_step(
             "output_contracts": lowered_output_contracts,
         },
     }
-    return LoweredPureProjection(
-        step=step,
-        output_refs={
+    if set(lowered_output_contracts) == {"__result__"}:
+        # Root-valued results keep the shared logical `return` ref name while
+        # the runtime artifact is the compiler-owned `__result__`.
+        output_refs = {"return": f"root.steps.{step_name}.artifacts.__result__"}
+    else:
+        output_refs = {
             output_name: f"root.steps.{step_name}.artifacts.{output_name}"
             for output_name in lowered_output_contracts
-        },
+        }
+    return LoweredPureProjection(
+        step=step,
+        output_refs=output_refs,
     )
 
 
@@ -822,7 +828,7 @@ def _output_contracts_for_type(
             form_path=form_path,
         )
     return {
-        "return": {
+        "__result__": {
             "kind": "scalar",
             "type": _scalar_contract_type(type_ref),
             **(
@@ -948,6 +954,8 @@ def _structured_output_contracts(
 
 
 def _output_json_pointer(output_name: str) -> str:
+    if output_name == "__result__":
+        return ""
     if output_name == "return":
         return "/result"
     if output_name == "return__variant":

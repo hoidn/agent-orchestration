@@ -858,6 +858,78 @@ def test_wcc_m4_defunctionalizes_typed_exhaustion_to_repeat_until_outputs(tmp_pa
     assert on_exhausted["result__reason"] == "max_iterations_reached"
 
 
+def test_wcc_m4_scalar_loop_result_normalizes_root_result_artifact(tmp_path: Path) -> None:
+    """A bounded loop with a root-valued result materializes `__result__`, not `return`."""
+    module_path = tmp_path / "native_loop_scalar_result.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord SummaryWithCount",
+                "    (report WorkReport)",
+                "    (count Int))",
+                "  (defrecord CounterState",
+                "    (count Int))",
+                "  (defworkflow native-loop-count",
+                "    ((report_path WorkReport))",
+                "    -> SummaryWithCount",
+                "    (let* ((total",
+                "             (loop/recur",
+                "               :max 6",
+                "               :state (record CounterState :count 0)",
+                "               (fn (state)",
+                "                 (if (< state.count 3)",
+                "                   (continue (record-update state :count (+ state.count 1)))",
+                "                   (done state.count))))))",
+                "      (record SummaryWithCount",
+                "        :report report_path",
+                "        :count total))))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={"providers.execute": "fake"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    normalization_step = next(
+        step
+        for step in lowered["steps"]
+        if "materialize_artifacts" in step and step["name"].endswith("__total__result")
+    )
+    assert [value["name"] for value in normalization_step["materialize_artifacts"]["values"]] == [
+        "__result__"
+    ]
+
+    return_step = next(
+        step
+        for step in lowered["steps"]
+        if "materialize_artifacts" in step and step["name"].endswith("__return")
+    )
+    count_value = next(
+        value
+        for value in return_step["materialize_artifacts"]["values"]
+        if value["name"] == "return__count"
+    )
+    assert count_value["source"] == {
+        "ref": f"root.steps.{normalization_step['name']}.artifacts.__result__"
+    }
+
+
 def test_wcc_m4_exports_specialized_stdlib_review_loop_terminal_value(tmp_path: Path) -> None:
     result = _compile_review_loop_wcc_m4(
         VALID_FIXTURES / "phase_stdlib_review_loop.orc",

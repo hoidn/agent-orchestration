@@ -1639,16 +1639,20 @@ def _output_contracts_for_type(
             definition["projection"] = metadata
             contracts[field.generated_name] = definition
         return contracts
-    return {
-        field.generated_name: dict(field.contract_definition)
-        for field in derive_workflow_boundary_fields(
-            type_ref,
-            generated_name="return",
-            source_path=("return",),
-            span=span,
-            form_path=form_path,
-        )
-    }
+    fields = derive_workflow_boundary_fields(
+        type_ref,
+        generated_name="return",
+        source_path=("return",),
+        span=span,
+        form_path=form_path,
+    )
+    if isinstance(type_ref, RecordTypeRef):
+        return {
+            field.generated_name: dict(field.contract_definition)
+            for field in fields
+        }
+    (root_field,) = fields
+    return {"__result__": dict(root_field.contract_definition)}
 
 
 def _lower_conditional_branch_expr(
@@ -1728,6 +1732,8 @@ def _conditional_case_outputs(
     outputs: dict[str, Any] = {}
     for output_name, contract_definition in output_contracts.items():
         output_ref = terminal.output_refs.get(output_name)
+        if output_ref is None and output_name == "__result__":
+            output_ref = terminal.output_refs.get("return")
         if output_ref is None and not output_name.startswith("return__"):
             output_ref = terminal.output_refs.get(f"return__{output_name}")
         if not isinstance(output_ref, str):
@@ -1753,7 +1759,9 @@ def _conditional_output_refs(
     """Build conditional terminal refs, preserving workflow-boundary union names."""
 
     output_refs = {
-        output_name: f"root.steps.{step_name}.artifacts.{output_name}"
+        ("return" if output_name == "__result__" else output_name): (
+            f"root.steps.{step_name}.artifacts.{output_name}"
+        )
         for output_name in output_contracts
     }
     if isinstance(result_type, UnionTypeRef):

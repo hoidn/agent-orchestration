@@ -5639,3 +5639,69 @@ def test_compile_stage3_rejects_variant_projection_match_mismatch(tmp_path: Path
         )
     _assert_diagnostic_code(excinfo, "parametric_constraint_unsatisfied")
     assert "SELECTED" in excinfo.value.diagnostics[0].message
+
+
+def test_wcc_effectful_proc_pure_terminal_materializes_root_result(tmp_path: Path) -> None:
+    """An effectful proc whose terminal is a root-valued pure expression exposes `__result__`."""
+    path = _write_module(
+        tmp_path / "native_proc_root_terminal.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord SummaryWithCount",
+            "    (report WorkReport)",
+            "    (count Int))",
+            "  (defproc bump-count",
+            "    ((report_path WorkReport))",
+            "    -> Int",
+            "    :effects ((uses-provider providers.execute))",
+            "    :lowering inline",
+            "    (let* ((n",
+            "             (provider-result providers.execute",
+            "               :prompt prompts.implementation.execute",
+            "               :inputs (report_path)",
+            "               :returns Int)))",
+            "      (+ n 1)))",
+            "  (defworkflow native-proc-terminal",
+            "    ((report_path WorkReport))",
+            "    -> SummaryWithCount",
+            "    (let* ((total (bump-count report_path)))",
+            "      (record SummaryWithCount",
+            "        :report report_path",
+            "        :count total))))",
+        ],
+    )
+
+    result = compile_stage3_module(
+        path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        lowering_route="wcc_m4",
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    terminal_projection = next(
+        step
+        for step in lowered["steps"]
+        if "pure_projection" in step and step["name"].endswith("__terminal_projection")
+    )
+    assert terminal_projection["output_bundle"]["fields"] == [
+        {"name": "__result__", "json_pointer": "", "kind": "scalar", "type": "integer"}
+    ]
+
+    materialize_step = next(step for step in lowered["steps"] if "materialize_artifacts" in step)
+    count_value = next(
+        value
+        for value in materialize_step["materialize_artifacts"]["values"]
+        if value["name"] == "return__count"
+    )
+    assert count_value["source"] == {
+        "ref": f"root.steps.{terminal_projection['name']}.artifacts.__result__"
+    }

@@ -1881,6 +1881,232 @@ def test_command_result_native_int_binds_terminal_result_artifact_ref(tmp_path: 
     }
 
 
+def test_if_native_bool_effectful_arms_bind_root_result_artifact(tmp_path: Path) -> None:
+    """Both arms of a root-valued `if` join through `__result__`, not `return`."""
+    workflow_path = _write_module(
+        tmp_path / "native_bool_if_binding.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord SummaryWithFlag",
+                "    (report WorkReport)",
+                "    (approved Bool))",
+                "  (defworkflow native-bool-if-binding",
+                "    ((report_path WorkReport) (flag Bool))",
+                "    -> SummaryWithFlag",
+                "    (let* ((approved",
+                "             (if flag",
+                "               (provider-result providers.execute",
+                "                 :prompt prompts.implementation.execute",
+                "                 :inputs (report_path)",
+                "                 :returns Bool)",
+                "               (provider-result providers.execute",
+                "                 :prompt prompts.implementation.execute",
+                "                 :inputs (report_path)",
+                "                 :returns Bool))))",
+                "      (record SummaryWithFlag",
+                "        :report report_path",
+                "        :approved approved))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    if_step = next(step for step in lowered["steps"] if "if" in step)
+    for branch_name in ("then", "else"):
+        branch_outputs = if_step[branch_name]["outputs"]
+        assert list(branch_outputs) == ["__result__"]
+        assert branch_outputs["__result__"]["from"]["ref"].endswith(".artifacts.__result__")
+
+    materialize_step = next(step for step in lowered["steps"] if "materialize_artifacts" in step)
+    approved_value = next(
+        value
+        for value in materialize_step["materialize_artifacts"]["values"]
+        if value["name"] == "return__approved"
+    )
+    assert approved_value["source"] == {
+        "ref": f"root.steps.{if_step['name']}.artifacts.__result__"
+    }
+
+
+def test_wcc_if_literal_bool_arm_materializes_root_result_bundle(tmp_path: Path) -> None:
+    """A literal `Bool` arm materializes one `__result__` root bundle, no `/result` pointer."""
+    workflow_path = _write_module(
+        tmp_path / "native_bool_if_literal.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord SummaryWithFlag",
+                "    (report WorkReport)",
+                "    (approved Bool))",
+                "  (defworkflow native-bool-if-literal",
+                "    ((report_path WorkReport) (flag Bool))",
+                "    -> SummaryWithFlag",
+                "    (let* ((approved",
+                "             (if flag",
+                "               (provider-result providers.execute",
+                "                 :prompt prompts.implementation.execute",
+                "                 :inputs (report_path)",
+                "                 :returns Bool)",
+                "               false)))",
+                "      (record SummaryWithFlag",
+                "        :report report_path",
+                "        :approved approved))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        lowering_route="wcc_m4",
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    if_step = next(step for step in lowered["steps"] if "if" in step)
+    assert list(if_step["then"]["outputs"]) == ["__result__"]
+    assert list(if_step["else"]["outputs"]) == ["__result__"]
+    literal_projection = next(
+        step
+        for step in if_step["else"]["steps"]
+        if "pure_projection" in step
+    )
+    bundle_fields = literal_projection["output_bundle"]["fields"]
+    assert bundle_fields == [
+        {"name": "__result__", "json_pointer": "", "kind": "scalar", "type": "bool"}
+    ]
+    assert list(literal_projection["pure_projection"]["output_contracts"]) == ["__result__"]
+
+
+def test_wcc_optional_bool_root_binding_binds_result_artifact(tmp_path: Path) -> None:
+    """A let*-bound `Optional[Bool]` root value binds through `artifacts.__result__`."""
+    workflow_path = _write_module(
+        tmp_path / "native_optional_binding.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord SummaryWithFlag",
+                "    (report WorkReport)",
+                "    (approved Bool))",
+                "  (defworkflow native-optional-binding",
+                "    ((report_path WorkReport))",
+                "    -> SummaryWithFlag",
+                "    (let* ((maybe",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report_path)",
+                "               :returns Optional[Bool]))",
+                "           (approved (or-else maybe true)))",
+                "      (record SummaryWithFlag",
+                "        :report report_path",
+                "        :approved approved))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        lowering_route="wcc_m4",
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    provider_step = next(step for step in lowered["steps"] if "provider" in step)
+    assert provider_step["output_bundle"]["fields"][0]["name"] == "__result__"
+    assert provider_step["output_bundle"]["fields"][0]["json_pointer"] == ""
+    assert provider_step["output_bundle"]["fields"][0]["type"] == "optional"
+
+    projection_steps = [step for step in lowered["steps"] if "pure_projection" in step]
+    binding_refs = json.dumps(
+        [step["pure_projection"]["binding_refs"] for step in projection_steps]
+    )
+    assert f"root.steps.{provider_step['name']}.artifacts.__result__" in binding_refs
+
+
+def test_provider_result_list_root_binding_binds_terminal_result_artifact_ref(tmp_path: Path) -> None:
+    """A let*-bound `List[Int]` root value binds `artifacts.__result__` into a record field."""
+    workflow_path = _write_module(
+        tmp_path / "native_list_binding.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord SummaryWithItems",
+                "    (report WorkReport)",
+                "    (items List[Int]))",
+                "  (defworkflow native-list-binding",
+                "    ((report_path WorkReport))",
+                "    -> SummaryWithItems",
+                "    (let* ((items",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report_path)",
+                "               :returns List[Int])))",
+                "      (record SummaryWithItems",
+                "        :report report_path",
+                "        :items items))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    provider_step = next(step for step in lowered["steps"] if "provider" in step)
+    materialize_step = next(step for step in lowered["steps"] if "materialize_artifacts" in step)
+    items_value = next(
+        value
+        for value in materialize_step["materialize_artifacts"]["values"]
+        if value["name"] == "return__items"
+    )
+    assert items_value["source"] == {
+        "ref": f"root.steps.{provider_step['name']}.artifacts.__result__"
+    }
+
+
 def test_provider_bundle_path_projection_explicit_output_bundle(tmp_path: Path) -> None:
     workflow_path = _write_provider_bundle_projection_module(
         tmp_path,

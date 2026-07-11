@@ -445,11 +445,15 @@ def _lower_pure_projection_binding_expr(
         step_id=context.normalize_generated_step_id(step_name_prefix),
         source_expr=source_expr,
         stable_target="binding_projection",
-        output_contracts=output_contracts_for_boundary_type(
-            binding_type,
-            generated_name=binding_name,
-            span=source_expr.span,
-            form_path=source_expr.form_path,
+        output_contracts=(
+            output_contracts_for_boundary_type(
+                binding_type,
+                generated_name=binding_name,
+                span=source_expr.span,
+                form_path=source_expr.form_path,
+            )
+            if isinstance(binding_type, (RecordTypeRef, UnionTypeRef))
+            else None
         ),
     )
     return [lowered.step], _TerminalResult(
@@ -487,7 +491,9 @@ def _binding_local_value_from_terminal(
                 provider_bundle_identity=binding_terminal.provider_bundle_identity,
             )
         return local_value
-    if isinstance(binding_type, (PathTypeRef, PrimitiveTypeRef)) and "return" in binding_terminal.output_refs:
+    if "return" in binding_terminal.output_refs:
+        # Root-valued terminals expose one logical `return` ref regardless of
+        # the transportable type family; records/unions returned above.
         return binding_terminal.output_refs["return"]
     if isinstance(expr, LiteralExpr):
         return expr

@@ -317,9 +317,14 @@ def _emit_repeat_until_from_emitter_input(
         form_path=expr.form_path,
     )
     if isinstance(result_type, (RecordTypeRef, PathTypeRef, PrimitiveTypeRef)):
+        def _normalized_artifact_name(field) -> str:
+            if isinstance(result_type, RecordTypeRef):
+                return field.generated_name
+            return "__result__"
+
         result_values = [
             {
-                "name": field.generated_name,
+                "name": _normalized_artifact_name(field),
                 "source": {
                     "ref": f"root.steps.{plan.repeat_step_name}.artifacts.{_loop_projection_field_name(plan.result_projection, field.source_path[1:])}"
                 },
@@ -336,7 +341,7 @@ def _emit_repeat_until_from_emitter_input(
             step_name=plan.result_normalization_step_name,
             step_id=result_step_id,
             output_refs={
-                field.generated_name: f"root.steps.{plan.result_normalization_step_name}.artifacts.{field.generated_name}"
+                field.generated_name: f"root.steps.{plan.result_normalization_step_name}.artifacts.{_normalized_artifact_name(field)}"
                 for field in normalized_result_fields
             },
             output_kind="step",
