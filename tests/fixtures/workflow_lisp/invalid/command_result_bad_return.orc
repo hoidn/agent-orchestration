@@ -6,4 +6,4 @@
     -> ChecksResult
     (command-result run_checks
       :argv ("python" "scripts/run_checks.py" report_path)
-      :returns String)))
+      :returns Json)))

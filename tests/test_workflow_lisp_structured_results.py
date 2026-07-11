@@ -24,11 +24,22 @@ from orchestrator.workflow_lisp.diagnostics import (
 from orchestrator.workflow_lisp.expressions import elaborate_expression
 from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
 from orchestrator.workflow_lisp.syntax import SyntaxNode, WorkflowLispSyntaxModule, build_syntax_module
-from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, PrimitiveTypeRef, RecordTypeRef, UnionTypeRef
+from orchestrator.workflow_lisp.type_env import (
+    FrontendTypeEnvironment,
+    PathTypeRef,
+    PrimitiveTypeRef,
+    ProcRefTypeRef,
+    RecordTypeRef,
+    UnionTypeRef,
+    WorkflowRefTypeRef,
+)
 from orchestrator.workflow_lisp.typecheck import typecheck_expression
 from orchestrator.workflow_lisp.workflows import (
     CertifiedAdapterBinding,
+    ExternEnvironment,
     ExternalToolBinding,
+    PromptExtern,
+    ProviderExtern,
     WorkflowSignature,
     _flattened_boundary_contracts,
     _normalize_boundary_contract_definition,
@@ -43,6 +54,20 @@ FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 TYPE_FIXTURE = FIXTURES / "valid" / "type_definitions.orc"
 PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
 VALID_CERTIFIED_ADAPTER_FIXTURE = FIXTURES / "valid" / "certified_adapter_call.orc"
+NATIVE_RETURNS_FIXTURE = FIXTURES / "valid" / "native_transportable_returns.orc"
+NATIVE_RETURNS_INVALID_FIXTURE = FIXTURES / "invalid" / "native_return_type_not_transportable.orc"
+
+NATIVE_RETURN_TYPE_NAMES = (
+    "Bool",
+    "Int",
+    "Float",
+    "String",
+    "BlockerClass",
+    "WorkReport",
+    "Optional[Bool]",
+    "List[Int]",
+    "Map[String, Float]",
+)
 
 
 def _build_syntax_module(path: Path) -> WorkflowLispSyntaxModule:
@@ -480,7 +505,7 @@ def test_typecheck_provider_result_requires_record_or_union_return_types(tmp_pat
             "(provider-result providers.execute "
             ":prompt prompts.implementation.execute "
             ":inputs (input report_path) "
-            ":returns WorkReport)"
+            ":returns Json)"
         ),
         bound_names=frozenset({"providers.execute", "prompts.implementation.execute", "input", "report_path"}),
     )
@@ -1542,3 +1567,332 @@ def test_build_workflow_catalog_rejects_unsupported_boundary_types_in_validated_
         build_workflow_catalog(module, workflow_defs, type_env)
 
     _assert_diagnostic_code(excinfo, expected_code)
+
+
+def _native_returns_extern_environment() -> "ExternEnvironment":
+    return ExternEnvironment(
+        bindings_by_name={
+            "providers.execute": ProviderExtern(
+                name="providers.execute",
+                provider_id="test-provider",
+            ),
+            "prompts.implementation.execute": PromptExtern(
+                name="prompts.implementation.execute",
+                asset_file="prompts/implementation/execute.md",
+            ),
+        }
+    )
+
+
+def _resolve_native_type(type_env: FrontendTypeEnvironment, type_name: str):
+    return type_env.resolve_type(
+        type_name,
+        span=_build_syntax_module(TYPE_FIXTURE).span,
+        form_path=("workflow-lisp", "native-returns-test"),
+    )
+
+
+def test_derive_structured_result_contract_builds_native_root_result_for_bool() -> None:
+    workflow_name = "native-approval"
+    step_id = "native_approval__flag"
+    contract = derive_structured_result_contract(
+        PrimitiveTypeRef(name="Bool"),
+        workflow_name=workflow_name,
+        step_id=step_id,
+    )
+
+    assert contract.contract_kind == "output_bundle"
+    assert contract.payload["fields"] == [{
+        "name": "__result__",
+        "json_pointer": "",
+        "type": "bool",
+        "source_map_subject": {
+            "subject_kind": "output_bundle_field",
+            "subject_name": f"{step_id}::root-result::__result__",
+            "workflow_name": workflow_name,
+        },
+    }]
+    assert contract.result_shape == "root_value"
+    assert contract.path == f".orchestrate/workflow_lisp/{workflow_name}/{step_id}/result.json"
+
+
+@pytest.mark.parametrize(
+    ("returns_type_name", "expected_definition"),
+    [
+        ("Int", {"type": "integer"}),
+        ("Float", {"type": "float"}),
+        ("String", {"type": "string"}),
+        (
+            "BlockerClass",
+            {
+                "type": "enum",
+                "allowed": [
+                    "missing_resource",
+                    "unavailable_hardware",
+                    "roadmap_conflict",
+                    "external_dependency_outside_authority",
+                    "user_decision_required",
+                    "unrecoverable_after_fix_attempt",
+                ],
+            },
+        ),
+        (
+            "WorkReport",
+            {"type": "relpath", "under": "artifacts/work", "must_exist_target": True},
+        ),
+        ("Optional[Bool]", {"type": "optional", "item": {"type": "bool"}}),
+        ("List[Int]", {"type": "list", "items": {"type": "integer"}}),
+        (
+            "Map[String, Float]",
+            {"type": "map", "keys": {"type": "string"}, "values": {"type": "float"}},
+        ),
+    ],
+)
+def test_derive_structured_result_contract_native_root_covers_transportable_families(
+    returns_type_name: str,
+    expected_definition: dict,
+) -> None:
+    type_env = _build_type_env()
+    contract = derive_structured_result_contract(
+        _resolve_native_type(type_env, returns_type_name),
+        workflow_name="native-root",
+        step_id="native_root__result",
+    )
+
+    assert contract.contract_kind == "output_bundle"
+    assert contract.result_shape == "root_value"
+    assert contract.payload["fields"] == [{
+        "name": "__result__",
+        "json_pointer": "",
+        **expected_definition,
+        "source_map_subject": {
+            "subject_kind": "output_bundle_field",
+            "subject_name": "native_root__result::root-result::__result__",
+            "workflow_name": "native-root",
+        },
+    }]
+
+
+def test_result_shape_classifies_record_and_union_native_result_contracts() -> None:
+    type_env = _build_type_env()
+    record_contract = derive_structured_result_contract(
+        _resolve_native_type(type_env, "ChecksResult"),
+        workflow_name="command_checks",
+        step_id="command_checks__run_checks",
+    )
+    union_contract = derive_structured_result_contract(
+        _resolve_native_type(type_env, "ImplementationState"),
+        workflow_name="provider_attempt",
+        step_id="provider_attempt__result",
+    )
+
+    assert record_contract.result_shape == "record_value"
+    assert union_contract.result_shape == "union_value"
+
+
+@pytest.mark.parametrize(
+    "type_name",
+    [*NATIVE_RETURN_TYPE_NAMES, "ChecksResult", "ImplementationState"],
+)
+def test_is_transportable_result_type_accepts_native_transportable_families(type_name: str) -> None:
+    from orchestrator.workflow_lisp.contracts import is_transportable_result_type
+
+    type_env = _build_type_env()
+
+    assert is_transportable_result_type(_resolve_native_type(type_env, type_name)) is True
+
+
+@pytest.mark.parametrize(
+    "type_name",
+    [
+        "Json",
+        "Provider",
+        "Prompt",
+        "Optional[ImplementationState]",
+        "List[ImplementationSummary]",
+        "Map[String, ImplementationState]",
+    ],
+)
+def test_is_transportable_result_type_rejects_non_transportable_types(type_name: str) -> None:
+    from orchestrator.workflow_lisp.contracts import is_transportable_result_type
+
+    type_env = _build_type_env()
+
+    assert is_transportable_result_type(_resolve_native_type(type_env, type_name)) is False
+
+
+def test_is_transportable_result_type_rejects_compile_time_reference_types() -> None:
+    from orchestrator.workflow_lisp.contracts import is_transportable_result_type
+
+    type_env = _build_type_env()
+    checks_result = _resolve_native_type(type_env, "ChecksResult")
+    proc_ref = ProcRefTypeRef(
+        name="ProcRef",
+        param_type_refs=(),
+        return_type_ref=PrimitiveTypeRef(name="Bool"),
+    )
+    workflow_ref = WorkflowRefTypeRef(
+        name="WorkflowRef",
+        param_type_refs=(),
+        return_type_ref=checks_result,
+    )
+
+    assert is_transportable_result_type(proc_ref) is False
+    assert is_transportable_result_type(workflow_ref) is False
+
+
+@pytest.mark.parametrize("returns_type_name", NATIVE_RETURN_TYPE_NAMES)
+def test_typecheck_provider_result_accepts_native_transportable_returns(returns_type_name: str) -> None:
+    type_env = _build_type_env()
+    expr = elaborate_expression(
+        _expression_syntax(
+            "(provider-result providers.execute "
+            ":prompt prompts.implementation.execute "
+            ":inputs (report_path) "
+            f":returns {returns_type_name})"
+        ),
+        bound_names=frozenset({"providers.execute", "prompts.implementation.execute", "report_path"}),
+    )
+
+    typed = typecheck_expression(
+        expr,
+        type_env=type_env,
+        value_env={
+            "report_path": type_env.resolve_type(
+                "WorkReport",
+                span=expr.span,
+                form_path=expr.form_path,
+            ),
+        },
+        extern_environment=_native_returns_extern_environment(),
+    )
+
+    assert typed.type_ref == type_env.resolve_type(
+        returns_type_name,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+
+@pytest.mark.parametrize("returns_type_name", NATIVE_RETURN_TYPE_NAMES)
+def test_typecheck_command_result_accepts_native_transportable_returns(returns_type_name: str) -> None:
+    type_env = _build_type_env()
+    expr = elaborate_expression(
+        _expression_syntax(
+            "(command-result native_step "
+            ':argv ("python" "scripts/native_step.py" report_path) '
+            f":returns {returns_type_name})"
+        ),
+        bound_names=frozenset({"report_path"}),
+    )
+
+    typed = typecheck_expression(
+        expr,
+        type_env=type_env,
+        value_env={
+            "report_path": type_env.resolve_type(
+                "WorkReport",
+                span=expr.span,
+                form_path=expr.form_path,
+            ),
+        },
+    )
+
+    assert typed.type_ref == type_env.resolve_type(
+        returns_type_name,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+
+@pytest.mark.parametrize(
+    "returns_type_name",
+    ["Provider", "Prompt", "Optional[ImplementationState]", "List[ImplementationSummary]"],
+)
+def test_typecheck_provider_result_rejects_non_transportable_native_returns(returns_type_name: str) -> None:
+    type_env = _build_type_env()
+    expr = elaborate_expression(
+        _expression_syntax(
+            "(provider-result providers.execute "
+            ":prompt prompts.implementation.execute "
+            ":inputs (report_path) "
+            f":returns {returns_type_name})"
+        ),
+        bound_names=frozenset({"providers.execute", "prompts.implementation.execute", "report_path"}),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=type_env,
+            value_env={
+                "report_path": type_env.resolve_type(
+                    "WorkReport",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                ),
+            },
+            extern_environment=_native_returns_extern_environment(),
+        )
+
+    _assert_diagnostic_code(excinfo, "provider_result_return_type_invalid")
+
+
+@pytest.mark.parametrize(
+    "returns_type_name",
+    ["Json", "Map[String, ImplementationState]"],
+)
+def test_typecheck_command_result_rejects_non_transportable_native_returns(returns_type_name: str) -> None:
+    type_env = _build_type_env()
+    expr = elaborate_expression(
+        _expression_syntax(
+            "(command-result native_step "
+            ':argv ("python" "scripts/native_step.py" report_path) '
+            f":returns {returns_type_name})"
+        ),
+        bound_names=frozenset({"report_path"}),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=type_env,
+            value_env={
+                "report_path": type_env.resolve_type(
+                    "WorkReport",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                ),
+            },
+        )
+
+    _assert_diagnostic_code(excinfo, "command_result_return_type_invalid")
+
+
+def test_native_transportable_returns_fixture_typechecks_with_root_return_signatures() -> None:
+    typed_workflows = _typecheck_fixture(
+        NATIVE_RETURNS_FIXTURE,
+        types_path=NATIVE_RETURNS_FIXTURE,
+        extern_environment=_native_returns_extern_environment(),
+    )
+
+    return_types = {
+        typed.definition.name: typed.signature.return_type_ref for typed in typed_workflows
+    }
+    assert return_types["native-approval-flag"] == PrimitiveTypeRef(name="Bool")
+    assert return_types["native-review-decision"].allowed_values == ("APPROVE", "REVISE")
+    assert return_types["native-confidence-score"] == PrimitiveTypeRef(name="Float")
+    assert return_types["native-finding-count"] == PrimitiveTypeRef(name="Int")
+    assert return_types["native-summary-line"] == PrimitiveTypeRef(name="String")
+    assert isinstance(return_types["native-report-location"], PathTypeRef)
+
+
+def test_native_return_type_not_transportable_fixture_rejected() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_fixture(
+            NATIVE_RETURNS_INVALID_FIXTURE,
+            types_path=NATIVE_RETURNS_INVALID_FIXTURE,
+            extern_environment=_native_returns_extern_environment(),
+        )
+
+    _assert_diagnostic_code(excinfo, "provider_result_return_type_invalid")

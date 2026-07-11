@@ -3,5 +3,5 @@
   (:target-dsl "2.14")
   (defworkflow invalid-return
     ((prompt Prompt))
-    -> String
+    -> Provider
     prompt))

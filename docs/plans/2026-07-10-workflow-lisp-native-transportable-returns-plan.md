@@ -362,7 +362,7 @@ git commit -m "Add unreleased v2.15 workflow output preview"
 - Create: `tests/fixtures/workflow_lisp/valid/native_transportable_returns.orc`
 - Create: `tests/fixtures/workflow_lisp/invalid/native_return_type_not_transportable.orc`
 
-- [ ] **Step 1: Write failing transportability tests**
+- [x] **Step 1: Write failing transportability tests**
 
 Cover `Bool`, `Int`, `Float`, `String`, enum, path, `Optional[Bool]`,
 `List[Int]`, and `Map[String, Float]` across workflow, provider, and command
@@ -385,7 +385,7 @@ assert contract.payload["fields"] == [{
 }]
 ```
 
-- [ ] **Step 2: Run RED tests and collect new fixtures**
+- [x] **Step 2: Run RED tests and collect new fixtures**
 
 ```bash
 pytest --collect-only -q tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_structured_results.py
@@ -394,7 +394,7 @@ pytest -q tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_structu
 
 Expected: collection succeeds; behavior tests fail on record/union guards.
 
-- [ ] **Step 3: Implement one shared transportability decision**
+- [x] **Step 3: Implement one shared transportability decision**
 
 In `contracts.py`, widen `GeneratedBundleContract.type_ref` to `TypeRef`, add
 `is_transportable_result_type(type_ref)`, and extend
@@ -407,7 +407,7 @@ In `workflows.py` and `typecheck_effects.py`, replace record/union checks with
 the shared predicate while preserving legacy phase-specific restrictions and
 stable diagnostic codes.
 
-- [ ] **Step 4: Run contract/type suites**
+- [x] **Step 4: Run contract/type suites**
 
 ```bash
 pytest -q tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_structured_results.py tests/test_output_contract_collections.py
@@ -415,7 +415,7 @@ pytest -q tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_structu
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add orchestrator/workflow_lisp/contracts.py orchestrator/workflow_lisp/workflows.py orchestrator/workflow_lisp/typecheck_effects.py tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_structured_results.py tests/test_output_contract_collections.py tests/fixtures/workflow_lisp/valid/native_transportable_returns.orc tests/fixtures/workflow_lisp/invalid/native_return_type_not_transportable.orc

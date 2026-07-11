@@ -236,3 +236,48 @@ def test_render_collection_contract_blocks_include_nested_schema_details() -> No
     assert "values:" in rendered_bundle
     assert "type: optional" in rendered_variant
     assert "type: list" in rendered_variant
+
+
+def test_validate_output_bundle_native_root_result_reads_document_root(tmp_path: Path) -> None:
+    bundle_path = tmp_path / "state" / "bundle.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text("true\n", encoding="utf-8")
+
+    artifacts = validate_output_bundle(
+        {
+            "path": "state/bundle.json",
+            "fields": [
+                {
+                    "name": "__result__",
+                    "json_pointer": "",
+                    "type": "bool",
+                }
+            ],
+        },
+        workspace=tmp_path,
+    )
+
+    assert artifacts == {"__result__": True}
+
+
+def test_validate_output_bundle_native_root_result_supports_collection_roots(tmp_path: Path) -> None:
+    bundle_path = tmp_path / "state" / "bundle.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(json.dumps([1, 2, 3]) + "\n", encoding="utf-8")
+
+    artifacts = validate_output_bundle(
+        {
+            "path": "state/bundle.json",
+            "fields": [
+                {
+                    "name": "__result__",
+                    "json_pointer": "",
+                    "type": "list",
+                    "items": {"type": "integer"},
+                }
+            ],
+        },
+        workspace=tmp_path,
+    )
+
+    assert artifacts == {"__result__": [1, 2, 3]}

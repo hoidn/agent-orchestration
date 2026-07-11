@@ -198,6 +198,7 @@ def typecheck_provider_result_expr(
     recurse,
     typed_factory,
 ):
+    from .contracts import is_transportable_result_type
     from .workflows import PromptExtern, ProviderExtern
 
     if is_macro_introduced_effect(expr.span, expr.expansion_stack):
@@ -213,9 +214,9 @@ def typecheck_provider_result_expr(
         span=expr.span,
         form_path=expr.form_path,
     )
-    if not isinstance(return_type, (RecordTypeRef, UnionTypeRef)):
+    if not is_transportable_result_type(return_type):
         raise_error(
-            f"`provider-result` must return a record or union type, got `{expr.returns_type_name}`",
+            f"`provider-result` must return a transportable result type, got `{expr.returns_type_name}`",
             code="provider_result_return_type_invalid",
             span=expr.span,
             form_path=expr.form_path,
@@ -382,6 +383,7 @@ def typecheck_command_result_expr(
         CertifiedAdapterBinding,
         certified_adapter_supports_promoted_calls,
     )
+    from .contracts import is_transportable_result_type
 
     if is_macro_introduced_effect(expr.span, expr.expansion_stack):
         raise_required_lint(
@@ -396,9 +398,9 @@ def typecheck_command_result_expr(
         span=expr.span,
         form_path=expr.form_path,
     )
-    if not isinstance(return_type, (RecordTypeRef, UnionTypeRef)):
+    if not is_transportable_result_type(return_type):
         raise_error(
-            f"`command-result` must return a record or union type, got `{expr.returns_type_name}`",
+            f"`command-result` must return a transportable result type, got `{expr.returns_type_name}`",
             code="command_result_return_type_invalid",
             span=expr.span,
             form_path=expr.form_path,

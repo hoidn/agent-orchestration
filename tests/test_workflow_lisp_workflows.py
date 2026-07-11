@@ -26,6 +26,8 @@ from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.syntax import SyntaxNode, WorkflowLispSyntaxModule, build_syntax_module
 from orchestrator.workflow_lisp.type_env import (
     FrontendTypeEnvironment,
+    ListTypeRef,
+    PathTypeRef,
     PrimitiveTypeRef,
     RecordTypeRef,
     UnionTypeRef,
@@ -1271,3 +1273,85 @@ def test_build_syntax_module_accepts_target_dsl_215_without_rejecting_214() -> N
 
     assert v215_module.target_dsl_version == "2.15"
     assert v214_module.target_dsl_version == "2.14"
+
+
+def test_build_workflow_catalog_accepts_native_transportable_scalar_returns() -> None:
+    fixture = FIXTURES / "valid" / "native_transportable_returns.orc"
+    module = _compile_definition_module(fixture)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    workflow_defs = elaborate_workflow_definitions(_build_syntax_module(fixture))
+
+    catalog = build_workflow_catalog(module, workflow_defs, type_env)
+
+    signatures = catalog.signatures_by_name
+    assert signatures["native-approval-flag"].return_type_ref == PrimitiveTypeRef(name="Bool")
+    assert signatures["native-review-decision"].return_type_ref.allowed_values == ("APPROVE", "REVISE")
+    assert signatures["native-confidence-score"].return_type_ref == PrimitiveTypeRef(name="Float")
+    assert signatures["native-finding-count"].return_type_ref == PrimitiveTypeRef(name="Int")
+    assert signatures["native-summary-line"].return_type_ref == PrimitiveTypeRef(name="String")
+    assert isinstance(signatures["native-report-location"].return_type_ref, PathTypeRef)
+
+
+def _native_collection_return_module(tmp_path: Path, return_type_name: str) -> Path:
+    stem = return_type_name.replace("[", "_").replace("]", "").replace(",", "_").replace(" ", "")
+    return _write_module(
+        tmp_path / f"native_return_{stem.lower()}.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defworkflow native-collection-return",
+                "    ((report_path WorkReport))",
+                f"    -> {return_type_name}",
+                "    (command-result collect_values",
+                '      :argv ("python" "scripts/collect_values.py" report_path)',
+                f"      :returns {return_type_name})))",
+            ]
+        ),
+    )
+
+
+def test_build_workflow_catalog_accepts_native_list_return_with_collection_boundaries(
+    tmp_path: Path,
+) -> None:
+    module_path = _native_collection_return_module(tmp_path, "List[Int]")
+    module = _compile_definition_module(module_path)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    workflow_defs = elaborate_workflow_definitions(_build_syntax_module(module_path))
+
+    catalog = build_workflow_catalog(
+        module,
+        workflow_defs,
+        type_env,
+        allow_collection_return_boundaries=True,
+    )
+
+    return_type_ref = catalog.signatures_by_name["native-collection-return"].return_type_ref
+    assert isinstance(return_type_ref, ListTypeRef)
+    assert return_type_ref.item_type_ref == PrimitiveTypeRef(name="Int")
+
+
+@pytest.mark.parametrize("return_type_name", ["Optional[Bool]", "Map[String, Float]"])
+def test_build_workflow_catalog_keeps_stage3_boundary_rules_for_native_collection_returns(
+    tmp_path: Path,
+    return_type_name: str,
+) -> None:
+    module_path = _native_collection_return_module(tmp_path, return_type_name)
+    module = _compile_definition_module(module_path)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    workflow_defs = elaborate_workflow_definitions(_build_syntax_module(module_path))
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_workflow_catalog(
+            module,
+            workflow_defs,
+            type_env,
+            allow_collection_return_boundaries=True,
+        )
+
+    _assert_diagnostic_code(excinfo, "workflow_boundary_collection_unsupported")

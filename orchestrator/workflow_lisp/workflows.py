@@ -349,7 +349,7 @@ class WorkflowSignature:
 
     name: str
     params: tuple[tuple[str, TypeRef], ...]
-    return_type_ref: RecordTypeRef | UnionTypeRef
+    return_type_ref: TypeRef
     span: SourceSpan
     form_path: tuple[str, ...]
     param_defaults: Mapping[str, WorkflowParamDefault] = field(default_factory=dict)
@@ -783,6 +783,7 @@ def build_workflow_catalog(
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
 ) -> WorkflowCatalog:
     """Build same-file workflow signatures before any body is typechecked."""
+    from .contracts import is_transportable_result_type
     from .phase_family_boundary import (
         is_compatibility_bridge_param,
         is_selected_phase_family_workflow,
@@ -818,12 +819,12 @@ def build_workflow_catalog(
             form_path=workflow_def.form_path,
             expansion_stack=workflow_def.expansion_stack,
         )
-        if not isinstance(return_type_ref, (RecordTypeRef, UnionTypeRef)):
+        if not is_transportable_result_type(return_type_ref):
             diagnostics.append(
                 LispFrontendDiagnostic(
                     code="workflow_return_type_invalid",
                     message=(
-                        f"workflow `{workflow_def.name}` must return a record or union type in Stage 3, "
+                        f"workflow `{workflow_def.name}` must return a transportable result type, "
                         f"got `{workflow_def.return_type_name}`"
                     ),
                     span=workflow_def.span,
@@ -1596,6 +1597,8 @@ def _signature_from_imported_bundle(
 ) -> WorkflowSignature:
     """Reconstruct a frontend workflow signature from a validated bundle."""
 
+    from .contracts import is_transportable_result_type
+
     input_contracts = workflow_input_contracts(bundle)
     public_input_contracts = workflow_public_input_contracts(bundle)
     boundary_projection = workflow_boundary_projection(bundle)
@@ -1671,12 +1674,12 @@ def _signature_from_imported_bundle(
         span=span,
         form_path=form_path,
     )
-    if not isinstance(return_type_ref, (RecordTypeRef, UnionTypeRef)):
+    if not is_transportable_result_type(return_type_ref):
         raise LispFrontendCompileError(
             (
                 required_lint_diagnostic(
                     "workflow_call_signature_erased",
-                    message=f"imported workflow `{alias}` must resolve to a record or union return type",
+                    message=f"imported workflow `{alias}` must resolve to a transportable return type",
                     span=span,
                     form_path=form_path,
                 ),

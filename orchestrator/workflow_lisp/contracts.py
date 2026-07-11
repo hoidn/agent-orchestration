@@ -95,20 +95,54 @@ class GeneratedContractFieldOrigin:
 
 @dataclass(frozen=True)
 class GeneratedBundleContract:
-    """Workflow output contract generated from a frontend record or union type.
+    """Workflow output contract generated from a frontend result type.
 
     The runtime validates provider and command outputs by reading a JSON file
     and checking it against a declared contract. Records use `output_bundle`
     because every field is present. Unions use `variant_output` because the
-    discriminant chooses which fields are allowed or required. `type_ref` keeps
-    that generated runtime contract tied to the original frontend type.
+    discriminant chooses which fields are allowed or required. Every other
+    transportable type uses `output_bundle` with one root `__result__` field at
+    JSON pointer `""` (see
+    `../../docs/design/workflow_lisp_native_transportable_returns.md`).
+    `type_ref` keeps that generated runtime contract tied to the original
+    frontend type.
     """
 
     contract_kind: str
     path: str
     payload: Mapping[str, Any]
-    type_ref: RecordTypeRef | UnionTypeRef
+    type_ref: TypeRef
     field_origins: tuple[GeneratedContractFieldOrigin, ...] = ()
+
+    @property
+    def result_shape(self) -> str:
+        """Structural result classification: `root_value`, `record_value`, or `union_value`."""
+
+        if isinstance(self.type_ref, RecordTypeRef):
+            return "record_value"
+        if isinstance(self.type_ref, UnionTypeRef):
+            return "union_value"
+        return "root_value"
+
+
+def is_transportable_result_type(type_ref: TypeRef) -> bool:
+    """Return whether one declared result type can derive a runtime result contract.
+
+    This is the single shared transportability decision for workflow, provider,
+    command, and procedure return declarations (see
+    `../../docs/design/workflow_lisp_native_transportable_returns.md`). Records
+    and unions derive the existing structured-result contracts; any other type
+    is transportable exactly when the existing structured-result field rules can
+    express it as one direct JSON root value.
+    """
+
+    if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
+        return True
+    try:
+        _structured_result_field_definition(type_ref, span=None, form_path=())
+    except (LispFrontendCompileError, TypeError):
+        return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -175,7 +209,7 @@ class WorkflowBoundaryProjection:
 
 
 def derive_structured_result_contract(
-    type_ref: RecordTypeRef | UnionTypeRef,
+    type_ref: TypeRef,
     *,
     workflow_name: str,
     step_id: str,
@@ -187,10 +221,39 @@ def derive_structured_result_contract(
     Provider and command forms produce semantic state by writing a JSON file,
     not by emitting prose. This helper chooses the generated bundle path and the
     runtime contract that will validate that JSON before later steps can refer
-    to its fields.
+    to its fields. Non-record/non-union transportable types derive one root
+    `output_bundle` field named `__result__` at JSON pointer `""`.
     """
 
     path = _bundle_path(workflow_name=workflow_name, step_id=step_id)
+    if not isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
+        root_subject = ValidationSubjectRef(
+            subject_kind="output_bundle_field",
+            subject_name=f"{step_id}::root-result::__result__",
+            workflow_name=workflow_name,
+        )
+        payload = {
+            "path": path,
+            "fields": [
+                {
+                    "name": "__result__",
+                    "json_pointer": "",
+                    **_structured_result_field_definition(
+                        type_ref,
+                        span=span,
+                        form_path=form_path,
+                    ),
+                    "source_map_subject": serialize_validation_subject_ref(root_subject),
+                }
+            ],
+        }
+        return GeneratedBundleContract(
+            contract_kind="output_bundle",
+            path=path,
+            payload=payload,
+            type_ref=type_ref,
+        )
+
     if isinstance(type_ref, RecordTypeRef):
         payload = {
             "path": path,
