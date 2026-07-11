@@ -196,9 +196,13 @@ addition to its own gates):**
   zero row changes vs committed baselines. Fresh at rebaseline: **3 passed**.
 - P2 production drain compile (`python -m orchestrator compile
   workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow
-  lisp_frontend_design_delta/drain::drain` with the
-  `design_delta_parent_drain.{providers,prompts,commands}` externs files under
-  `workflows/examples/inputs/workflow_lisp_migrations/`) — exit 0,
+  lisp_frontend_design_delta/drain::drain --provider-externs-file
+  workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json
+  --prompt-externs-file
+  workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json
+  --command-boundaries-file
+  workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json`) —
+  exit 0,
   `diagnostic_count: 0`, freshest `g8_deletion_evidence.json` `status: pass`. Fresh at
   rebaseline: **exit 0, diagnostic_count 0, fingerprint `24798cac21228fe6`, g8 status
   `pass`**. The fingerprint baseline `24798cac21228fe6` changes only when `.orc`
