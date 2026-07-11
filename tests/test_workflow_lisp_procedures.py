@@ -5705,3 +5705,44 @@ def test_wcc_effectful_proc_pure_terminal_materializes_root_result(tmp_path: Pat
     assert count_value["source"] == {
         "ref": f"root.steps.{terminal_projection['name']}.artifacts.__result__"
     }
+
+
+def test_wcc_anonymous_effect_terminal_pure_op_compiles_cleanly(tmp_path: Path) -> None:
+    """A pure op over an unbound (anonymous) effect result compiles without diagnostics."""
+    path = _write_module(
+        tmp_path / "anon_effect_terminal.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defproc bump-count",
+            "    ((report_path WorkReport))",
+            "    -> Int",
+            "    :effects ((uses-provider providers.execute))",
+            "    :lowering inline",
+            "    (+ (provider-result providers.execute",
+            "         :prompt prompts.implementation.execute",
+            "         :inputs (report_path)",
+            "         :returns Int)",
+            "       1))",
+            "  (defworkflow native-proc-terminal",
+            "    ((report_path WorkReport))",
+            "    -> Int",
+            "    (bump-count report_path)))",
+        ],
+    )
+
+    result = compile_stage3_module(
+        path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        lowering_route="wcc_m4",
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert result.diagnostics == ()
