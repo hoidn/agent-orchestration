@@ -94,6 +94,9 @@ ITEM_CTX_CHILD_PHASE_REUSE_PROC_FIXTURE = (
 ITEM_CTX_CHILD_PHASE_REUSE_PROC_REF_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_item_ctx_child_phase_reuse_proc_ref.orc"
 )
+LOOP_PROMOTED_HOOK_PHASE_CTX_FIXTURE = (
+    WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_loop_promoted_hook_phase_ctx.orc"
+)
 DERIVED_PHASE_CONTEXT_PROC_WITHOUT_CONTEXT_SOURCE_INVALID_FIXTURE = (
     WORKFLOW_LISP_FIXTURES
     / "invalid"
@@ -4164,6 +4167,79 @@ def test_design_delta_item_ctx_child_phase_reuse_proc_ref_compiles_end_to_end(
         name.endswith("::run-entry")
         for name in result.entry_result.validated_bundles
     )
+
+
+def test_design_delta_loop_promoted_hook_carries_phase_ctx_bridge_inputs(
+    tmp_path: Path,
+) -> None:
+    # Promoted-call seam pin (docs/plans/2026-07-07-drain-migration-g8-retirement.md,
+    # Phase 1 Ledger; structural private-exec-context / std/context contract,
+    # docs/design/workflow_lisp_frontend_specification.md): when the generic
+    # drain loop promotes a run-item hook whose body calls child phase
+    # workflows with omitted phase-ctx, the loop's call step into the promoted
+    # `%…v1` workflow must thread the callee's runtime-owned-context bridge
+    # inputs (`phase-ctx__{plan,implementation}__run__run-id`) the same way an
+    # ordinary workflow call step does.
+    command_boundaries = dict(_design_delta_work_item_runtime_command_boundaries(tmp_path))
+    command_boundaries.update(
+        {
+            "drain_select": ExternalToolBinding(
+                name="drain_select",
+                stable_command=("python", "scripts/select_next_item.py"),
+            ),
+            "drain_draft_gap": ExternalToolBinding(
+                name="drain_draft_gap",
+                stable_command=("python", "scripts/draft_gap_item.py"),
+            ),
+            "mk_fallback_report": ExternalToolBinding(
+                name="mk_fallback_report",
+                stable_command=("python", "scripts/make_fallback_report.py"),
+            ),
+        }
+    )
+    result = compile_stage3_entrypoint(
+        LOOP_PROMOTED_HOOK_PHASE_CTX_FIXTURE,
+        source_roots=(WORKFLOW_LISP_FIXTURES / "valid", REPO_ROOT / "workflows" / "library"),
+        provider_externs=_design_delta_work_item_provider_externs(),
+        prompt_externs=_design_delta_work_item_prompt_externs(),
+        command_boundaries=command_boundaries,
+        validate_shared=True,
+        workspace_root=tmp_path,
+        family_profile_catalog=load_workflow_family_profile_catalog(
+            (DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,)
+        ),
+    )
+
+    promoted_names = [
+        name
+        for name in result.entry_result.validated_bundles
+        if name.startswith("%design_delta_loop_promoted_hook_phase_ctx.")
+        and "run-item-with-child-phases" in name
+        and name.endswith(".v1")
+    ]
+    assert promoted_names, sorted(result.entry_result.validated_bundles)
+
+    def _walk(node):
+        if isinstance(node, dict):
+            yield node
+            for value in node.values():
+                yield from _walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                yield from _walk(item)
+
+    call_steps = [
+        node
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+        for node in _walk(workflow.authored_mapping)
+        if isinstance(node, dict) and node.get("call") in promoted_names
+    ]
+    assert call_steps
+    for step in call_steps:
+        with_bindings = step.get("with", {})
+        assert "phase-ctx__plan__run__run-id" in with_bindings, sorted(with_bindings)
+        assert "phase-ctx__implementation__run__run-id" in with_bindings, sorted(with_bindings)
 
 
 def test_design_delta_proc_without_private_context_source_still_requires_phase_ctx(

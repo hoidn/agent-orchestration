@@ -363,8 +363,11 @@ def _lower_procedure_call(
         _resolve_inline_expr_value,
     )
     from .workflow_calls import (
+        _carry_callee_private_exec_context_bindings,
+        _carry_callee_runtime_context_inputs,
         _managed_write_root_binding_step,
         _managed_write_root_requirements_for_callable,
+        _render_callee_private_exec_context_call_bindings,
     )
 
     arg_exprs = expr.args
@@ -624,6 +627,48 @@ def _lower_procedure_call(
                 )
             else:
                 with_bindings[param_name] = _render_call_binding_ref(arg_expr, local_values=local_values)
+        # The synthesized private workflow inherits the body's omitted-phase-ctx
+        # calls, which ordinary workflow lowering bridges as generated internal
+        # inputs (`phase-ctx__*` leaves, e.g. `phase-ctx__plan__run__run-id`);
+        # thread them here through the same three bridge-input helpers an
+        # ordinary workflow call step uses, with the promoted call's own args
+        # as the authored source bindings (structural private-exec-context /
+        # std/context contract,
+        # docs/design/workflow_lisp_frontend_specification.md).
+        call_arg_bindings = {
+            param_name: arg_expr
+            for arg_expr, (param_name, _) in zip(arg_exprs, procedure.signature.params, strict=True)
+        }
+        with_bindings.update(
+            {
+                name: value
+                for name, value in _render_callee_private_exec_context_call_bindings(
+                    lowered_callee=callee,
+                    imported_bundle=None,
+                    authored_bindings=call_arg_bindings,
+                    local_values=local_values,
+                ).items()
+                if name not in with_bindings
+            }
+        )
+        with_bindings.update(
+            _carry_callee_private_exec_context_bindings(
+                context=context,
+                source_expr=expr,
+                lowered_callee=callee,
+                imported_bundle=None,
+                already_bound=set(with_bindings),
+            )
+        )
+        with_bindings.update(
+            _carry_callee_runtime_context_inputs(
+                context=context,
+                source_expr=expr,
+                lowered_callee=callee,
+                imported_bundle=None,
+                already_bound=set(with_bindings),
+            )
+        )
         binding_steps, managed_bindings = _managed_write_root_binding_step(
             context=context,
             source_expr=expr,
