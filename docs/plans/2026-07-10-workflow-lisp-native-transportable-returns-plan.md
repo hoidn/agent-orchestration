@@ -657,13 +657,13 @@ git commit -m "Attribute root result contract violations"
 - Test: `tests/test_dashboard_server.py`
 - Test: `tests/test_dashboard_projection.py`
 
-- [ ] **Step 1: Add RED state/consumer tests**
+- [x] **Step 1: Add RED state/consumer tests**
 
 Persist and resume `artifacts.__result__` for scalar, optional-null, and list
 roots. Assert runtime-plan artifact entries and dashboard empty-pointer preview
 show the value without treating it as an object field.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 pytest -q tests/test_resume_command.py tests/test_workflow_lisp_pure_projection_runtime.py tests/test_workflow_ir_lowering.py tests/test_workflow_lisp_build_artifacts.py tests/test_workflow_state_projection.py tests/test_dashboard_server.py tests/test_dashboard_projection.py -k 'root_result or empty_pointer'
@@ -671,12 +671,12 @@ pytest -q tests/test_resume_command.py tests/test_workflow_lisp_pure_projection_
 
 Expected: FAIL only where consumers assume non-empty pointers/record fields.
 
-- [ ] **Step 3: Patch the narrow consumers**
+- [x] **Step 3: Patch the narrow consumers**
 
 Reuse ordinary artifact persistence and digests. Update only consumers whose
 RED tests fail; do not introduce a second state store or root-value ledger.
 
-- [ ] **Step 4: Run state/resume/dashboard suites**
+- [x] **Step 4: Run state/resume/dashboard suites**
 
 ```bash
 pytest -q tests/test_resume_command.py tests/test_workflow_lisp_lexical_checkpoint_default_resume.py tests/test_workflow_ir_lowering.py tests/test_workflow_lisp_build_artifacts.py tests/test_workflow_state_projection.py tests/test_dashboard_server.py tests/test_dashboard_projection.py
@@ -684,7 +684,7 @@ pytest -q tests/test_resume_command.py tests/test_workflow_lisp_lexical_checkpoi
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Stage only named consumers whose RED tests required changes and commit:
 

@@ -1202,6 +1202,67 @@ def test_summary_hub_links_relpath_fields_from_output_bundle(tmp_path: Path):
     assert ">architecture_path</a>" not in body
 
 
+def test_summary_hub_links_root_result_relpath_from_empty_pointer_output_bundle(tmp_path: Path):
+    architecture = tmp_path / "docs" / "plans" / "arch.md"
+    architecture.parent.mkdir(parents=True)
+    architecture.write_text("# Architecture\n", encoding="utf-8")
+    state_root = tmp_path / "state" / "item"
+    state_root.mkdir(parents=True)
+    (state_root / "bundle.json").write_text(
+        json.dumps("docs/plans/arch.md"),
+        encoding="utf-8",
+    )
+    workflow = _write_yaml(
+        tmp_path / "workflows" / "draft.yaml",
+        {
+            "version": "2.14",
+            "name": "draft",
+            "steps": [
+                {
+                    "name": "DraftArchitecture",
+                    "provider": "codex",
+                    "output_bundle": {
+                        "path": "state/item/bundle.json",
+                        "fields": [
+                            {
+                                "name": "__result__",
+                                "json_pointer": "",
+                                "type": "relpath",
+                            }
+                        ],
+                    },
+                }
+            ],
+        },
+    )
+    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
+    summaries = run_root / "summaries"
+    summaries.mkdir(parents=True)
+    (summaries / "index.json").write_text(
+        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
+        encoding="utf-8",
+    )
+    (run_root / "state.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run1",
+                "status": "running",
+                "workflow_file": str(workflow.relative_to(tmp_path)),
+                "steps": {"DraftArchitecture": {"status": "running"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
+
+    body = response.body.decode("utf-8")
+    assert response.status == 200
+    assert 'href="/runs/w0/run1/files/workspace/state/item/bundle.json"' in body
+    assert 'href="/runs/w0/run1/files/workspace/docs/plans/arch.md" title="docs/plans/arch.md">arch.md</a>' in body
+    assert ">__result__</a>" not in body
+
+
 def test_summary_hub_groups_repeated_step_summaries_by_invocation(tmp_path: Path):
     workflow = _write_yaml(
         tmp_path / "workflows" / "flow.yaml",

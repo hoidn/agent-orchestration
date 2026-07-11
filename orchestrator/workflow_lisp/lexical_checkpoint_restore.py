@@ -800,6 +800,14 @@ def _type_ref_for_contract(contract: Any, fallback: Any) -> str:
     return type(fallback).__name__
 
 
+def _case_return_contract(case_output: Mapping[str, Any]) -> Any | None:
+    """Resolve the case's terminal contract for record (`return`) and root (`__result__`) outputs."""
+    contract = case_output.get("return")
+    if contract is not None:
+        return contract
+    return case_output.get("__result__")
+
+
 def _binding_matches_current_contract(
     *,
     binding: Mapping[str, Any],
@@ -820,7 +828,7 @@ def _binding_matches_current_contract(
     case_outputs = getattr(node, "case_outputs", {})
     if not isinstance(selected_variant, str) or selected_variant not in case_outputs:
         return False
-    contract = _mapping(case_outputs[selected_variant]).get("return")
+    contract = _case_return_contract(_mapping(case_outputs[selected_variant]))
     if contract is None or not _binding_contract_matches_type_ref(contract, binding.get("type_ref")):
         return False
     source_address = getattr(contract, "source_address", None)

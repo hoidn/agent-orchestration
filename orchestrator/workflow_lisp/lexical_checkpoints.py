@@ -419,7 +419,7 @@ def _workflow_call_debug_payload(
     return candidates[0][2]
 
 
-def _json_object_from_workspace(workspace: Path, relative_path: str) -> Mapping[str, Any]:
+def _json_value_from_workspace(workspace: Path, relative_path: str) -> Any:
     path = (workspace / relative_path).resolve()
     try:
         path.relative_to(workspace.resolve())
@@ -428,9 +428,13 @@ def _json_object_from_workspace(workspace: Path, relative_path: str) -> Mapping[
     if not path.is_file():
         raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError, ValueError) as exc:
         raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid) from exc
+
+
+def _json_object_from_workspace(workspace: Path, relative_path: str) -> Mapping[str, Any]:
+    payload = _json_value_from_workspace(workspace, relative_path)
     if not isinstance(payload, Mapping):
         raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
     return payload
@@ -535,7 +539,9 @@ def _structured_output_completed_effect_ref(
     bundle_path = resolved_output_bundle.get("path")
     if not isinstance(bundle_path, str) or not bundle_path:
         raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
-    bundle_payload = _json_object_from_workspace(executor.workspace, bundle_path)
+    # Root results legally serialize any JSON value at the document root, so
+    # structured-output evidence must not require an object-shaped bundle.
+    bundle_payload = _json_value_from_workspace(executor.workspace, bundle_path)
     structured_output = _mapping(_mapping(point_policy.get("evidence_requirements")).get("structured_output"))
     return {
         **_completed_effect_ref_base(point, effect_kind=effect_kind),

@@ -244,3 +244,32 @@ def test_projector_exposes_call_frame_local_artifact_lineage(tmp_path: Path):
         "unsafe call frame root.call::visit::1 artifact unsafe_frame_result" in warning
         for warning in detail.warnings
     )
+
+
+def test_projector_preserves_root_result_artifacts_from_empty_pointer_bundles(tmp_path: Path):
+    relpath_target = tmp_path / "docs" / "report.md"
+    relpath_target.parent.mkdir(parents=True)
+    relpath_target.write_text("# report\n", encoding="utf-8")
+    state = {
+        "run_id": "run5",
+        "status": "completed",
+        "steps": {
+            "DecideScalar": {"status": "completed", "artifacts": {"__result__": True}},
+            "DecideOptional": {"status": "completed", "artifacts": {"__result__": None}},
+            "DecideList": {"status": "completed", "artifacts": {"__result__": [1, 2, 3]}},
+            "DecidePath": {"status": "completed", "artifacts": {"__result__": "docs/report.md"}},
+        },
+    }
+    _write_state(tmp_path, "run5", state)
+
+    detail = RunProjector().project_detail(_scan_one(tmp_path))
+    steps = {step.name: step for step in detail.steps}
+
+    assert steps["DecideScalar"].artifacts == {"__result__": True}
+    assert steps["DecideOptional"].artifacts == {"__result__": None}
+    assert steps["DecideList"].artifacts == {"__result__": [1, 2, 3]}
+    assert steps["DecidePath"].artifacts == {"__result__": "docs/report.md"}
+    assert steps["DecidePath"].file_refs["__result__"].route_path == "docs/report.md"
+    for name in ("DecideScalar", "DecideOptional", "DecideList"):
+        assert "__result__" not in steps[name].file_refs
+    assert not any("__result__" in warning for warning in detail.warnings)

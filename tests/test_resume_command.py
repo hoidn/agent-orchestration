@@ -1037,6 +1037,252 @@ def _build_projection_runtime_plan_snapshot_workflow() -> dict:
     }
 
 
+def _build_root_result_resume_workflow() -> dict:
+    return {
+        "version": "2.7",
+        "name": "root-result-resume",
+        "steps": [
+            {
+                "name": "WriteScalarRoot",
+                "id": "write_scalar_root",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'true\\n' > state/scalar.json && printf 'scalar\\n' >> state/replay.log",
+                ],
+                "output_bundle": {
+                    "path": "state/scalar.json",
+                    "fields": [{"name": "__result__", "json_pointer": "", "type": "bool"}],
+                },
+            },
+            {
+                "name": "Gate",
+                "id": "gate",
+                "command": ["bash", "-lc", "test -f state/approved.txt"],
+            },
+        ],
+    }
+
+
+_ROOT_RESULT_BUNDLE_SCRIPTS = {
+    "write_optional.py": (
+        "import os, pathlib\n"
+        'bundle = pathlib.Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])\n'
+        "bundle.parent.mkdir(parents=True, exist_ok=True)\n"
+        'bundle.write_text("null\\n", encoding="utf-8")\n'
+        'with open("state/replay.log", "a", encoding="utf-8") as log:\n'
+        '    log.write("optional\\n")\n'
+    ),
+    "write_list.py": (
+        "import os, pathlib\n"
+        'bundle = pathlib.Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])\n'
+        "bundle.parent.mkdir(parents=True, exist_ok=True)\n"
+        'bundle.write_text("[1, 2, 3]\\n", encoding="utf-8")\n'
+        'with open("state/replay.log", "a", encoding="utf-8") as log:\n'
+        '    log.write("list\\n")\n'
+    ),
+}
+
+
+def _compile_root_result_collection_bundle(workspace: Path):
+    (workspace / "state").mkdir(exist_ok=True)
+    scripts = workspace / "scripts"
+    scripts.mkdir(exist_ok=True)
+    for name, source in _ROOT_RESULT_BUNDLE_SCRIPTS.items():
+        (scripts / name).write_text(source, encoding="utf-8")
+    work = workspace / "artifacts" / "work"
+    work.mkdir(parents=True, exist_ok=True)
+    (work / "report.md").write_text("report\n", encoding="utf-8")
+    (work / "summary.json").write_text("{}\n", encoding="utf-8")
+    module_path = workspace / "root_result_collection_resume.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule root_result_collection_resume)",
+                "  (export orchestrate)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defpath SummaryTarget",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ChecksResult",
+                "    (report WorkReport))",
+                "  (defrecord HelperResult",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (defrecord SummaryValue",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (defworkflow pure-helper",
+                "    ((checks ChecksResult))",
+                "    -> HelperResult",
+                "    (record HelperResult",
+                '      :status "ready"',
+                "      :report checks.report))",
+                "  (defworkflow orchestrate",
+                "    ((report_path WorkReport)",
+                "     (summary_target SummaryTarget))",
+                "    -> List[Int]",
+                "    (let* ((maybe (command-result write_optional",
+                '             :argv ("python" "scripts/write_optional.py")',
+                "             :returns Optional[Bool]))",
+                "           (helper",
+                "             (call pure-helper",
+                "               :checks (record ChecksResult",
+                "                         :report report_path)))",
+                "           (summary_path",
+                "             (materialize-view runtime-summary",
+                "               :value (record SummaryValue",
+                "                        :status helper.status",
+                "                        :report helper.report)",
+                "               :renderer canonical-json",
+                "               :renderer-version 1",
+                "               :target summary_target",
+                "               :returns SummaryTarget)))",
+                "      (command-result write_list",
+                '        :argv ("python" "scripts/write_list.py")',
+                "        :returns List[Int]))))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(workspace,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={
+            name: ExternalToolBinding(
+                name=name,
+                stable_command=("python", f"scripts/{name}.py"),
+            )
+            for name in ("write_optional", "write_list")
+        },
+        validate_shared=True,
+        workspace_root=workspace,
+    )
+    bundle = next(
+        validated
+        for name, validated in result.validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+    return module_path, bundle
+
+
+def test_resume_root_result_scalar_output_bundle_persists_across_resume(temp_workspace):
+    run_id = "root-result-scalar-resume"
+    workflow_path = temp_workspace / "root_result_resume.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_root_result_resume_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    loaded = WorkflowLoader(temp_workspace).load(workflow_path)
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize(str(workflow_path), context=bundle_context_dict(loaded))
+
+    first_run = WorkflowExecutor(loaded, temp_workspace, state_manager).execute(on_error="stop")
+
+    assert first_run["status"] == "failed"
+    assert first_run["steps"]["WriteScalarRoot"]["status"] == "completed"
+    assert first_run["steps"]["WriteScalarRoot"]["artifacts"] == {"__result__": True}
+
+    (temp_workspace / "state" / "approved.txt").write_text("ok\n", encoding="utf-8")
+    with patch("os.getcwd", return_value=str(temp_workspace)):
+        result = resume_workflow(run_id=run_id, repair=False, force_restart=False)
+
+    assert result == 0
+    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
+    assert loaded_state.status == "completed"
+    assert loaded_state.steps["WriteScalarRoot"]["artifacts"] == {"__result__": True}
+    replay_log = temp_workspace / "state" / "replay.log"
+    assert replay_log.read_text(encoding="utf-8").split() == ["scalar"]
+
+
+def test_projection_runtime_plan_includes_root_result_output_bundle_entries(tmp_path: Path):
+    workflow_path = tmp_path / "root_result_resume.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_root_result_resume_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+
+    entries = {
+        (artifact.source_node_id, artifact.publication_mode, artifact.contract_name): artifact
+        for artifact in bundle.runtime_plan.artifacts
+    }
+    root_entry = entries[("root.write_scalar_root", "output_bundle", "__result__")]
+    assert root_entry.contract_kind == "bool"
+
+
+def test_resume_root_result_collection_bundles_persist_and_resume_at_lexical_checkpoints(
+    temp_workspace,
+):
+    run_id = "root-result-collection-resume"
+    module_path, bundle = _compile_root_result_collection_bundle(temp_workspace)
+
+    root_plan_entries = [
+        artifact
+        for artifact in bundle.runtime_plan.artifacts
+        if artifact.contract_name == "__result__" and artifact.publication_mode == "output_bundle"
+    ]
+    assert len({entry.source_node_id for entry in root_plan_entries}) == 2
+    assert all(
+        isinstance(entry.contract_kind, str) and entry.contract_kind
+        for entry in root_plan_entries
+    )
+
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize(
+        str(module_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs={
+            "report_path": "artifacts/work/report.md",
+            "summary_target": "artifacts/work/summary.json",
+        },
+    )
+
+    real_render_view = WorkflowExecutor._execute_materialize_view.__globals__["render_view"]
+    fail_once = {"armed": True}
+
+    def _fail_render_once(*args, **kwargs):
+        if fail_once["armed"]:
+            fail_once["armed"] = False
+            raise RuntimeError("synthetic materialize-view failure")
+        return real_render_view(*args, **kwargs)
+
+    with patch("orchestrator.workflow.executor.render_view", side_effect=_fail_render_once):
+        first_run = WorkflowExecutor(bundle, temp_workspace, state_manager, retry_delay_ms=0).execute(
+            on_error="stop"
+        )
+
+    assert first_run["status"] == "failed"
+    first_artifacts = [payload.get("artifacts") for payload in first_run["steps"].values()]
+    assert {"__result__": None} in first_artifacts
+
+    resume_state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    resume_state_manager.load()
+    resumed = WorkflowExecutor(bundle, temp_workspace, resume_state_manager, retry_delay_ms=0).execute(
+        resume=True
+    )
+
+    assert resumed["status"] == "completed"
+    resumed_artifacts = [payload.get("artifacts") for payload in resumed["steps"].values()]
+    assert {"__result__": None} in resumed_artifacts
+    assert {"__result__": [1, 2, 3]} in resumed_artifacts
+    assert resumed["workflow_outputs"] == {"__result__": [1, 2, 3]}
+    replay_log = temp_workspace / "state" / "replay.log"
+    assert replay_log.read_text(encoding="utf-8").split() == ["optional", "list"]
+
+
 def _seed_resume_loop_state(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
     workflow_path = workspace / "resume_loop.yaml"
     workflow_path.write_text(yaml.safe_dump(_build_resume_loop_workflow(), sort_keys=False))

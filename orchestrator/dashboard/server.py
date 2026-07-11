@@ -2363,8 +2363,11 @@ class DashboardApp:
             if field_type != "relpath":
                 continue
             field_name = self._str_or_none(field.get("name")) or "bundle_field"
-            pointer = self._str_or_none(field.get("json_pointer"))
-            value = self._json_pointer_value(bundle_payload, pointer)
+            pointer = field.get("json_pointer")
+            value = self._json_pointer_value(
+                bundle_payload,
+                pointer if isinstance(pointer, str) else None,
+            )
             if isinstance(value, str):
                 add_link(field_name, value, display_label=self._display_label_for_relpath_target(value))
 
@@ -2409,9 +2412,10 @@ class DashboardApp:
         return re.sub(r"\$\{inputs\.([A-Za-z_][A-Za-z0-9_]*)\}", replace, value)
 
     def _json_pointer_value(self, payload: object, pointer: Optional[str]) -> object:
-        if not pointer:
+        if pointer is None:
             return None
         if pointer == "":
+            # Empty RFC 6901 pointer addresses the document root (root results).
             return payload
         if not pointer.startswith("/"):
             return None

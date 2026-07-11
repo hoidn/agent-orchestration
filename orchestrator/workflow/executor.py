@@ -1003,7 +1003,10 @@ class WorkflowExecutor:
             if selected_case is None and isinstance(node, MatchJoinNode):
                 return None
             artifacts = dict(loop_artifacts)
+            # Publish under both terminal member names so record (`return`)
+            # and root (`__result__`) consumers resolve the restored value.
             artifacts["return"] = binding_value
+            artifacts["__result__"] = binding_value
             if selected_case is None:
                 return {
                     "status": "completed",
@@ -1579,7 +1582,9 @@ class WorkflowExecutor:
         *,
         state: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        if member != "return" or not isinstance(self._lexical_restore_overlay, dict):
+        # Restored bindings answer the record terminal member (`return`) and
+        # the root-result member (`__result__`) interchangeably.
+        if member not in ("return", "__result__") or not isinstance(self._lexical_restore_overlay, dict):
             return _RESTORE_REF_MISSING
         bindings = self._lexical_restore_overlay.get("bindings")
         if not isinstance(bindings, Mapping):
