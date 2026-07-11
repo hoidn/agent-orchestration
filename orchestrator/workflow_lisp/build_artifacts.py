@@ -57,7 +57,7 @@ from .phase_family_boundary import (
     is_design_delta_parent_drain_target_workflow,
 )
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
-from .type_env import UnionTypeRef
+from .type_env import RecordTypeRef, UnionTypeRef
 from .workflows import prompt_extern_source_bindings_payload
 
 if TYPE_CHECKING:
@@ -123,6 +123,10 @@ def _build_entry_publication_report(
             typed_workflow.signature.return_type_ref, UnionTypeRef
         ):
             return_kind = "union"
+        elif typed_workflow is not None and not isinstance(
+            typed_workflow.signature.return_type_ref, RecordTypeRef
+        ):
+            return_kind = "root"
         elif typed_workflow is not None:
             return_kind = "non_union"
         row_variant = row.get("variant")

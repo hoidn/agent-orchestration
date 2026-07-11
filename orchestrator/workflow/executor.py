@@ -8050,6 +8050,10 @@ class WorkflowExecutor:
         active_union_variants: Mapping[str, Any],
     ) -> bool:
         boundary = self._structured_output_boundary_metadata(validation_spec)
+        if boundary.get("return_kind") == "root":
+            # A root-valued `__result__` output is always active; only flattened
+            # union variant outputs are gated on the resolved discriminant.
+            return False
         if boundary.get("return_kind") != "union":
             return False
         if boundary.get("field_role") != "variant":

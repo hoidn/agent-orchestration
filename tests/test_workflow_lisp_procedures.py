@@ -5714,7 +5714,7 @@ def test_wcc_anonymous_effect_terminal_pure_op_compiles_cleanly(tmp_path: Path) 
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.15")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',

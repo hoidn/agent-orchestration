@@ -538,7 +538,7 @@ git commit -m "Materialize root-valued Workflow Lisp returns"
 - Test: `tests/test_subworkflow_calls.py`
 - Test: `tests/test_workflow_lisp_modules.py`
 
-- [ ] **Step 1: Add RED boundary/call tests**
+- [x] **Step 1: Add RED boundary/call tests**
 
 Assert a v2.15 scalar/collection workflow derives:
 
@@ -553,7 +553,7 @@ the declared type. Include finalization suppression and negative v2.14 public
 root-return cases for scalar, enum, path, optional, list, and map. Require one
 stable diagnostic telling the author to declare `(:target-dsl "2.15")`.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 pytest -q tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_workflow_refs.py tests/test_subworkflow_calls.py tests/test_workflow_lisp_modules.py -k 'root_result or collection_return or native_return'
@@ -561,7 +561,7 @@ pytest -q tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_workflo
 
 Expected: FAIL because workflow signatures and calls assume flattened records.
 
-- [ ] **Step 3: Implement boundary projection and call reconstruction**
+- [x] **Step 3: Implement boundary projection and call reconstruction**
 
 Set `result_shape="root_value"` while preserving `record_value` and
 `union_value` for the other shapes. Keep the existing boundary compatibility
@@ -572,7 +572,7 @@ Thread it through terminal normalization, call output export,
 outer-step artifacts, imported signature recovery, and typed call bindings.
 Do not expose `__result__` as a Workflow Lisp field.
 
-- [ ] **Step 4: Run workflow/call suites**
+- [x] **Step 4: Run workflow/call suites**
 
 ```bash
 pytest -q tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_workflow_refs.py tests/test_subworkflow_calls.py tests/test_workflow_lisp_modules.py
@@ -580,7 +580,7 @@ pytest -q tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_workflo
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add orchestrator/workflow_lisp/contracts.py orchestrator/workflow_lisp/workflows.py orchestrator/workflow_lisp/lowering/core.py orchestrator/workflow_lisp/lowering/workflow_calls.py orchestrator/workflow_lisp/lowering/values.py orchestrator/workflow_lisp/entry_publication.py orchestrator/workflow_lisp/build_artifacts.py orchestrator/workflow/signatures.py orchestrator/workflow/executor.py tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_workflow_refs.py tests/test_subworkflow_calls.py tests/test_workflow_lisp_modules.py

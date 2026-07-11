@@ -1559,3 +1559,105 @@ def test_call_suppresses_outputs_when_callee_finalization_fails(tmp_path: Path):
     assert frame["finalization_status"] == "failed"
     assert frame["export_status"] == "suppressed"
     assert frame["state"]["workflow_outputs"] == {}
+
+
+def _root_result_library(*, fail: bool = False) -> dict:
+    produce = (
+        "mkdir -p state && printf 'true\n' > state/root_result_probe.txt && exit 1"
+        if fail
+        else "true"
+    )
+    return {
+        "version": "2.5",
+        "name": "root-result-library",
+        "outputs": {
+            "__result__": {
+                "kind": "scalar",
+                "type": "bool",
+                "from": {"ref": "root.steps.SetResult.artifacts.__result__"},
+            }
+        },
+        "artifacts": {
+            "__result__": {
+                "kind": "scalar",
+                "type": "bool",
+            }
+        },
+        "steps": [
+            {
+                "name": "Probe",
+                "id": "probe",
+                "command": ["bash", "-lc", produce],
+            },
+            {
+                "name": "SetResult",
+                "id": "set_result",
+                "set_scalar": {
+                    "artifact": "__result__",
+                    "value": True,
+                },
+            },
+        ],
+    }
+
+
+def test_call_step_exposes_root_result_output_artifact(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "root_result_library.yaml",
+        _root_result_library(),
+    )
+    caller = _caller_workflow(
+        call_step={
+            "name": "CallRootResult",
+            "id": "call_root_result",
+            "call": "root_result",
+        },
+        imports={"root_result": "workflows/library/root_result_library.yaml"},
+    )
+
+    final_state, persisted = _run_workflow(tmp_path, caller, "call-root-result")
+
+    assert final_state["status"] == "completed"
+    call_step = persisted["steps"]["CallRootResult"]
+    assert call_step["status"] == "completed"
+    assert call_step["artifacts"] == {"__result__": True}
+
+
+def test_call_root_result_child_workflow_failure_suppresses_child_finalization(tmp_path: Path):
+    library = _root_result_library(fail=True)
+    library["finally"] = {
+        "id": "cleanup",
+        "steps": [
+            {
+                "name": "Cleanup",
+                "id": "cleanup_step",
+                "command": ["bash", "-lc", "true"],
+            }
+        ],
+    }
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "root_result_library.yaml",
+        library,
+    )
+    caller = _caller_workflow(
+        call_step={
+            "name": "CallRootResult",
+            "id": "call_root_result",
+            "call": "root_result",
+        },
+        imports={"root_result": "workflows/library/root_result_library.yaml"},
+    )
+
+    final_state, persisted = _run_workflow(
+        tmp_path,
+        caller,
+        "call-root-result-failure",
+        on_error="stop",
+    )
+
+    assert final_state["status"] == "failed"
+    call_step = persisted["steps"]["CallRootResult"]
+    assert call_step["status"] == "failed"
+    call_debug = call_step["debug"]["call"]
+    assert call_debug["workflow_outputs"] == {}
+    assert call_debug["finalization"]["workflow_outputs_status"] == "suppressed"

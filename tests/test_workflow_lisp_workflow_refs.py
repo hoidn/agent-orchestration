@@ -358,3 +358,147 @@ def test_workflow_ref_invalid_contracts_raise_targeted_diagnostics(
         )
 
     _assert_diagnostic_code(excinfo, expected_code)
+
+
+_ROOT_RESULT_CALLEE_LINES = [
+    "  (defworkflow root-flag",
+    "    ((count Int))",
+    "    -> Bool",
+    "    (provider-result providers.execute",
+    "      :prompt prompts.implementation.execute",
+    "      :inputs (count)",
+    "      :returns Bool))",
+]
+
+
+def _root_result_provider_externs() -> dict[str, str]:
+    return {"providers.execute": "test-provider"}
+
+
+def _root_result_prompt_externs() -> dict[str, str]:
+    return {"prompts.implementation.execute": "prompts/implementation/execute.md"}
+
+
+@pytest.mark.parametrize("lowering_route", [LoweringRoute.LEGACY, LoweringRoute.WCC_M4])
+def test_same_file_call_of_root_result_workflow_binds_declared_type(
+    tmp_path: Path,
+    lowering_route: LoweringRoute,
+) -> None:
+    path = tmp_path / "root_result_same_file_call.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defrecord Wrap",
+                "    (ok Bool))",
+                *_ROOT_RESULT_CALLEE_LINES,
+                "  (defworkflow outer",
+                "    ((count Int))",
+                "    -> Wrap",
+                "    (let* ((ok (call root-flag :count count)))",
+                "      (record Wrap :ok ok))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        path,
+        provider_externs=_root_result_provider_externs(),
+        prompt_externs=_root_result_prompt_externs(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=lowering_route,
+    )
+
+    assert "root-flag" in result.validated_bundles
+    assert "outer" in result.validated_bundles
+    callee = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "root-flag"
+    )
+    assert set(callee.authored_mapping["outputs"]) == {"__result__"}
+    outer = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "outer"
+    )
+    call_step = next(
+        step for step in outer.authored_mapping["steps"] if step.get("call") == "root-flag"
+    )
+    output_ref = outer.authored_mapping["outputs"]["return__ok"]["from"]["ref"]
+    assert output_ref == f"root.steps.{call_step['name']}.artifacts.__result__"
+
+
+def test_imported_bundle_call_of_root_result_workflow_binds_declared_type(
+    tmp_path: Path,
+) -> None:
+    callee_path = tmp_path / "root_result_imported_callee.orc"
+    callee_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                *_ROOT_RESULT_CALLEE_LINES,
+                ")",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    compiled_callee = compile_stage3_module(
+        callee_path,
+        provider_externs=_root_result_provider_externs(),
+        prompt_externs=_root_result_prompt_externs(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
+    )
+    callee_bundle = next(
+        bundle
+        for name, bundle in compiled_callee.validated_bundles.items()
+        if name == "root-flag" or name.endswith("::root-flag")
+    )
+
+    caller_path = tmp_path / "root_result_imported_caller.orc"
+    caller_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord Wrap",
+                "    (ok Bool))",
+                "  (defworkflow outer",
+                "    ((count Int))",
+                "    -> Wrap",
+                "    (let* ((ok (call root-flag :count count)))",
+                "      (record Wrap :ok ok))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        caller_path,
+        provider_externs=_root_result_provider_externs(),
+        prompt_externs=_root_result_prompt_externs(),
+        imported_workflow_bundles={"root-flag": callee_bundle},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
+    )
+
+    outer = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "outer"
+    )
+    call_step = next(
+        step for step in outer.authored_mapping["steps"] if step.get("call") == "root-flag"
+    )
+    output_ref = outer.authored_mapping["outputs"]["return__ok"]["from"]["ref"]
+    assert output_ref == f"root.steps.{call_step['name']}.artifacts.__result__"

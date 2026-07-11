@@ -1337,7 +1337,7 @@ def test_build_workflow_catalog_accepts_native_list_return_with_collection_bound
 
 
 @pytest.mark.parametrize("return_type_name", ["Optional[Bool]", "Map[String, Float]"])
-def test_build_workflow_catalog_keeps_stage3_boundary_rules_for_native_collection_returns(
+def test_build_workflow_catalog_accepts_native_collection_root_result_returns_for_v215(
     tmp_path: Path,
     return_type_name: str,
 ) -> None:
@@ -1346,12 +1346,263 @@ def test_build_workflow_catalog_keeps_stage3_boundary_rules_for_native_collectio
     type_env = FrontendTypeEnvironment.from_module(module)
     workflow_defs = elaborate_workflow_definitions(_build_syntax_module(module_path))
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        build_workflow_catalog(
-            module,
-            workflow_defs,
-            type_env,
-            allow_collection_return_boundaries=True,
-        )
+    catalog = build_workflow_catalog(module, workflow_defs, type_env)
 
-    _assert_diagnostic_code(excinfo, "workflow_boundary_collection_unsupported")
+    return_type_ref = catalog.signatures_by_name["native-collection-return"].return_type_ref
+    assert return_type_ref.name == return_type_name
+
+
+def _root_return_workflow_module(
+    tmp_path: Path,
+    *,
+    target_dsl: str,
+    return_type_name: str,
+) -> Path:
+    stem = (
+        return_type_name.replace("[", "_")
+        .replace("]", "")
+        .replace(",", "_")
+        .replace(" ", "")
+        .lower()
+    )
+    return _write_module(
+        tmp_path / f"root_return_{stem}_{target_dsl.replace('.', '_')}.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                f'  (:target-dsl "{target_dsl}")',
+                "  (defenum ReviewDecision",
+                "    APPROVE",
+                "    REVISE)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defworkflow native-root-return",
+                "    ((report_path WorkReport))",
+                f"    -> {return_type_name}",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.implementation.execute",
+                "      :inputs (report_path)",
+                f"      :returns {return_type_name})))",
+            ]
+        ),
+    )
+
+
+_ROOT_RETURN_FAMILIES = [
+    "Bool",
+    "ReviewDecision",
+    "WorkReport",
+    "Optional[Bool]",
+    "List[Int]",
+    "Map[String, Float]",
+]
+
+
+@pytest.mark.parametrize("return_type_name", _ROOT_RETURN_FAMILIES)
+def test_v214_workflow_native_return_root_families_require_target_dsl_215(
+    tmp_path: Path,
+    return_type_name: str,
+) -> None:
+    module_path = _root_return_workflow_module(
+        tmp_path,
+        target_dsl="2.14",
+        return_type_name=return_type_name,
+    )
+    module = _compile_definition_module(module_path)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    workflow_defs = elaborate_workflow_definitions(_build_syntax_module(module_path))
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_workflow_catalog(module, workflow_defs, type_env)
+
+    _assert_diagnostic_code(excinfo, "workflow_root_return_target_dsl_unsupported")
+    assert '(:target-dsl "2.15")' in excinfo.value.diagnostics[0].message
+
+
+def test_v215_scalar_workflow_derives_root_result_boundary_output(tmp_path: Path) -> None:
+    module_path = _root_return_workflow_module(
+        tmp_path,
+        target_dsl="2.15",
+        return_type_name="Bool",
+    )
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="legacy",
+    )
+
+    lowered = result.lowered_workflows[0]
+    outputs = lowered.authored_mapping["outputs"]
+    assert set(outputs) == {"__result__"}
+    terminal_step = next(
+        step["name"] for step in lowered.authored_mapping["steps"] if "output_bundle" in step
+    )
+    assert outputs["__result__"]["from"] == {
+        "ref": f"root.steps.{terminal_step}.artifacts.__result__"
+    }
+    assert outputs["__result__"]["kind"] == "scalar"
+    assert outputs["__result__"]["type"] == "bool"
+    assert lowered.boundary_projection.return_kind == "root"
+    assert [field.generated_name for field in lowered.boundary_projection.flattened_outputs] == [
+        "__result__"
+    ]
+    assert "native-root-return" in result.validated_bundles
+
+
+@pytest.mark.parametrize(
+    "return_type_name",
+    ["Optional[Bool]", "List[Int]", "Map[String, Float]"],
+)
+def test_v215_collection_return_workflow_derives_root_result_boundary_output(
+    tmp_path: Path,
+    return_type_name: str,
+) -> None:
+    module_path = _root_return_workflow_module(
+        tmp_path,
+        target_dsl="2.15",
+        return_type_name=return_type_name,
+    )
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="legacy",
+    )
+
+    lowered = result.lowered_workflows[0]
+    outputs = lowered.authored_mapping["outputs"]
+    assert set(outputs) == {"__result__"}
+    assert outputs["__result__"]["kind"] == "collection"
+    assert outputs["__result__"]["from"]["ref"].endswith(".artifacts.__result__")
+    assert lowered.boundary_projection.return_kind == "root"
+    assert "native-root-return" in result.validated_bundles
+
+
+def test_derive_workflow_signature_contracts_keeps_record_and_union_return_kinds(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp.contracts import derive_workflow_signature_contracts
+
+    module_path = _write_module(
+        tmp_path / "return_kind_stability.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord Summary",
+                "    (status String))",
+                "  (defunion Decision",
+                "    (ALLOW",
+                "      (detail String))",
+                "    (REJECT",
+                "      (detail String)))",
+                "  (defworkflow record-return",
+                "    ((message String))",
+                "    -> Summary",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.implementation.execute",
+                "      :inputs (message)",
+                "      :returns Summary))",
+                "  (defworkflow union-return",
+                "    ((message String))",
+                "    -> Decision",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.implementation.execute",
+                "      :inputs (message)",
+                "      :returns Decision)))",
+            ]
+        ),
+    )
+    module = _compile_definition_module(module_path)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    workflow_defs = elaborate_workflow_definitions(_build_syntax_module(module_path))
+    catalog = build_workflow_catalog(module, workflow_defs, type_env)
+
+    _, record_outputs, record_projection = derive_workflow_signature_contracts(
+        catalog.signatures_by_name["record-return"]
+    )
+    _, union_outputs, union_projection = derive_workflow_signature_contracts(
+        catalog.signatures_by_name["union-return"]
+    )
+
+    assert record_projection.return_kind == "record"
+    assert set(record_outputs) == {"return__status"}
+    assert union_projection.return_kind == "union"
+    assert set(union_outputs) == {"return__variant", "return__detail"}
+    assert union_outputs["return__variant"].definition["projection"]["return_kind"] == "union"
+
+
+@pytest.mark.parametrize(
+    ("return_type_name", "expected_check"),
+    [
+        ("Bool", lambda type_ref: type_ref == PrimitiveTypeRef(name="Bool")),
+        (
+            "Optional[Bool]",
+            lambda type_ref: type_ref.name == "Optional[Bool]"
+            and type_ref.item_type_ref == PrimitiveTypeRef(name="Bool"),
+        ),
+        (
+            "WorkReport",
+            lambda type_ref: isinstance(type_ref, PathTypeRef)
+            and type_ref.name == "WorkReport",
+        ),
+    ],
+)
+def test_build_workflow_catalog_reconstructs_imported_root_result_signature_from_bundle(
+    tmp_path: Path,
+    return_type_name: str,
+    expected_check,
+) -> None:
+    callee_path = _root_return_workflow_module(
+        tmp_path,
+        target_dsl="2.15",
+        return_type_name=return_type_name,
+    )
+    compiled = compile_stage3_module(
+        callee_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="legacy",
+    )
+    caller_types = _write_module(
+        tmp_path / "root_result_caller_types.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true))",
+            ]
+        ),
+    )
+    caller_module = _compile_definition_module(caller_types)
+
+    workflow_catalog = build_workflow_catalog(
+        caller_module,
+        (),
+        FrontendTypeEnvironment.from_module(caller_module),
+        imported_workflow_bundles={
+            "native-root-return": next(
+                bundle
+                for name, bundle in compiled.validated_bundles.items()
+                if name == "native-root-return" or name.endswith("::native-root-return")
+            )
+        },
+    )
+
+    return_type_ref = workflow_catalog.signatures_by_name["native-root-return"].return_type_ref
+    assert expected_check(return_type_ref)

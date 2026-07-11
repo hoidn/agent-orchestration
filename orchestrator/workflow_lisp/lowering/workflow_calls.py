@@ -1442,13 +1442,20 @@ def _lower_workflow_call(
         "call": canonical_name,
         "with": with_bindings,
     }
+    if isinstance(result_type, (RecordTypeRef, UnionTypeRef)):
+        call_output_refs = {
+            output_name: f"root.steps.{step_name}.artifacts.{output_name}"
+            for output_name, _ in _flatten_boundary_leaf_paths(result_type, generated_name="return")
+        }
+    else:
+        # A root-valued callee declares one generated `__result__` output; the
+        # runtime call step exposes it under the same artifact key, and the
+        # caller binds it through the logical `return` ref.
+        call_output_refs = {"return": f"root.steps.{step_name}.artifacts.__result__"}
     return [*projection_binding_steps, *binding_steps, step], _TerminalResult(
         step_name=step_name,
         step_id=step_id,
-        output_refs={
-            output_name: f"root.steps.{step_name}.artifacts.{output_name}"
-            for output_name, _ in _flatten_boundary_leaf_paths(result_type, generated_name="return")
-        },
+        output_refs=call_output_refs,
         output_kind="call",
         hidden_inputs={},
         returned_union_type_name=result_type.name if isinstance(result_type, UnionTypeRef) else None,

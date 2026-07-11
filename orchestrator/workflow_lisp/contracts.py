@@ -362,24 +362,35 @@ def derive_workflow_signature_contracts(
             flattened_inputs.append(flattened_field)
 
     return_projection: UnionWorkflowBoundaryProjection | None = None
-    return_fields = derive_workflow_boundary_fields(
-        signature.return_type_ref,
-        generated_name="return",
-        source_path=("return",),
-        span=signature.span,
-        form_path=signature.form_path,
-    )
-    if isinstance(signature.return_type_ref, UnionTypeRef):
-        return_projection = derive_union_workflow_boundary_projection(
+    if isinstance(signature.return_type_ref, (RecordTypeRef, UnionTypeRef)):
+        return_kind = "record" if isinstance(signature.return_type_ref, RecordTypeRef) else "union"
+        return_fields = derive_workflow_boundary_fields(
             signature.return_type_ref,
+            generated_name="return",
+            source_path=("return",),
             span=signature.span,
             form_path=signature.form_path,
         )
-        return_fields = _relax_variant_only_relpath_outputs(
-            signature.return_type_ref,
-            return_fields,
-            span=signature.span,
-            form_path=signature.form_path,
+        if isinstance(signature.return_type_ref, UnionTypeRef):
+            return_projection = derive_union_workflow_boundary_projection(
+                signature.return_type_ref,
+                span=signature.span,
+                form_path=signature.form_path,
+            )
+            return_fields = _relax_variant_only_relpath_outputs(
+                signature.return_type_ref,
+                return_fields,
+                span=signature.span,
+                form_path=signature.form_path,
+            )
+    else:
+        return_kind = "root"
+        return_fields = (
+            root_workflow_boundary_field(
+                signature.return_type_ref,
+                span=signature.span,
+                form_path=signature.form_path,
+            ),
         )
 
     for flattened_field in return_fields:
@@ -411,7 +422,7 @@ def derive_workflow_signature_contracts(
                 )
                 for param_name, type_ref in signature.params
             ),
-            return_kind="record" if isinstance(signature.return_type_ref, RecordTypeRef) else "union",
+            return_kind=return_kind,
             flattened_inputs=tuple(flattened_inputs),
             flattened_outputs=tuple(flattened_outputs),
         ),
@@ -780,6 +791,36 @@ def derive_workflow_boundary_fields(
         source_path=source_path,
         span=span,
         form_path=form_path,
+    )
+
+
+def root_workflow_boundary_field(
+    type_ref: TypeRef,
+    *,
+    span: SourceSpan | None,
+    form_path: tuple[str, ...],
+) -> FlattenedContractField:
+    """Derive the single generated `__result__` output for a root-valued return.
+
+    Root workflow boundaries (`result_shape == "root_value"`) expose one
+    compiler-owned output named `__result__` whose contract comes from the same
+    structured-result schema rules as provider/command root results, so
+    Optional/List/Map roots use the widened v2.15 collection output schema
+    instead of the record-flattening Stage 3 rules
+    (`docs/design/workflow_lisp_native_transportable_returns.md`).
+    """
+
+    definition = _workflow_boundary_contract_from_structured_field(
+        _structured_result_field_definition(
+            type_ref,
+            span=span,
+            form_path=form_path,
+        )
+    )
+    return FlattenedContractField(
+        generated_name="__result__",
+        source_path=("return",),
+        contract_definition=definition,
     )
 
 

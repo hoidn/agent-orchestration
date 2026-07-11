@@ -188,6 +188,9 @@ def compatibility_reason_for_selected_row(
     reason = "field_level_publication_not_supported_in_c3"
     if not is_entry_workflow:
         reason = "non_entry_workflow_not_publishable_in_c3"
+    elif return_kind == "root":
+        # Root-valued (`__result__`) returns have no variants to publish.
+        reason = "root_return_not_publishable_in_c3"
     elif return_kind != "union":
         reason = "non_union_return_not_publishable_in_c3"
     elif (

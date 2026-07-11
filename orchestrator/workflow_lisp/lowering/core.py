@@ -1435,6 +1435,10 @@ def _normalize_top_level_terminal(
     output_refs: dict[str, str] = {}
     for output_name, definition in authored_outputs.items():
         source_ref = terminal.output_refs.get(output_name)
+        if source_ref is None and output_name == "__result__":
+            # Root-valued boundaries expose one generated `__result__` output
+            # while terminals keep the logical `return` ref key.
+            source_ref = terminal.output_refs.get("return")
         if not isinstance(source_ref, str):
             field_name = output_name.removeprefix("return__")
             raise _compile_error(

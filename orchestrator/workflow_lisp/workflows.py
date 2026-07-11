@@ -833,22 +833,42 @@ def build_workflow_catalog(
                 )
             )
             continue
-        return_analysis = analyze_workflow_boundary_type(
-            return_type_ref,
-            source_path=("return",),
-            allow_union=True,
-        )
-        return_diagnostic = _boundary_diagnostic(
-            workflow_name=workflow_def.name,
-            analysis=return_analysis,
-            span=workflow_def.span,
-            form_path=workflow_def.form_path,
-            expansion_stack=workflow_def.expansion_stack,
-            allow_collection_boundaries=allow_collection_return_boundaries,
-        )
-        if return_diagnostic is not None:
-            diagnostics.append(return_diagnostic)
-            continue
+        if not isinstance(return_type_ref, (RecordTypeRef, UnionTypeRef)):
+            # Root-valued public returns are a DSL v2.15 contract; transportability
+            # (checked above) is the only additional gate for them, so the Stage 3
+            # record/union boundary-flattening analysis below does not apply.
+            if not _target_dsl_supports_root_workflow_returns(module.target_dsl_version):
+                diagnostics.append(
+                    LispFrontendDiagnostic(
+                        code="workflow_root_return_target_dsl_unsupported",
+                        message=(
+                            f"workflow `{workflow_def.name}` returns "
+                            f"`{workflow_def.return_type_name}` directly, which requires "
+                            'DSL 2.15; declare `(:target-dsl "2.15")` in the module header'
+                        ),
+                        span=workflow_def.span,
+                        form_path=workflow_def.form_path,
+                        expansion_stack=workflow_def.expansion_stack,
+                    )
+                )
+                continue
+        else:
+            return_analysis = analyze_workflow_boundary_type(
+                return_type_ref,
+                source_path=("return",),
+                allow_union=True,
+            )
+            return_diagnostic = _boundary_diagnostic(
+                workflow_name=workflow_def.name,
+                analysis=return_analysis,
+                span=workflow_def.span,
+                form_path=workflow_def.form_path,
+                expansion_stack=workflow_def.expansion_stack,
+                allow_collection_boundaries=allow_collection_return_boundaries,
+            )
+            if return_diagnostic is not None:
+                diagnostics.append(return_diagnostic)
+                continue
         params: list[tuple[str, TypeRef]] = []
         private_compatibility_bridge_types: dict[str, TypeRef] = {}
         param_defaults: dict[str, WorkflowParamDefault] = {}
@@ -1915,6 +1935,16 @@ def _synthetic_workflow_param_default_syntax(
     )
 
 
+def _target_dsl_supports_root_workflow_returns(target_dsl_version: str) -> bool:
+    """Return whether a module's target DSL accepts root-valued public returns."""
+
+    try:
+        parsed = tuple(int(part) for part in str(target_dsl_version).split("."))
+    except ValueError:
+        return False
+    return parsed >= (2, 15)
+
+
 def _match_boundary_type_from_contracts(
     contracts: Mapping[str, Mapping[str, object]],
     *,
@@ -1931,6 +1961,13 @@ def _match_boundary_type_from_contracts(
         for name, definition in contracts.items()
         if isinstance(name, str) and isinstance(definition, Mapping)
     }
+    if generated_name == "return" and set(normalized_contracts) == {"__result__"}:
+        return _root_boundary_type_from_contract(
+            normalized_contracts["__result__"],
+            type_env=type_env,
+            span=span,
+            form_path=form_path,
+        )
     candidates: list[TypeRef] = []
     for candidate in type_env._type_refs.values():  # noqa: SLF001 - internal compiler matching
         if isinstance(candidate, UnionTypeRef) and not allow_union:
@@ -2010,6 +2047,201 @@ def _flattened_boundary_contracts(
         field.generated_name: _normalize_boundary_contract_definition(field.contract_definition)
         for field in fields
     }
+
+
+def _root_boundary_type_from_contract(
+    definition: Mapping[str, object],
+    *,
+    type_env: FrontendTypeEnvironment,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> TypeRef:
+    """Reconstruct an imported root `__result__` return type from its contract.
+
+    Root boundary contracts fully describe scalar and collection structure, so
+    they are rebuilt structurally; enum and path leaves resolve to the caller's
+    authored types by matching their declared constraints, mirroring the
+    record/union candidate matching in `_match_boundary_type_from_contracts`.
+    """
+
+    reconstructed = _reconstruct_root_contract_type(
+        definition,
+        type_env=type_env,
+        span=span,
+        form_path=form_path,
+    )
+    from .contracts import root_workflow_boundary_field
+
+    round_trip = _normalize_boundary_contract_definition(
+        root_workflow_boundary_field(
+            reconstructed,
+            span=span,
+            form_path=form_path,
+        ).contract_definition
+    )
+    if round_trip != _normalize_boundary_contract_definition(definition):
+        raise LispFrontendCompileError(
+            (
+                required_lint_diagnostic(
+                    "workflow_call_signature_erased",
+                    message=(
+                        "imported workflow root `__result__` boundary does not match the "
+                        f"reconstructed `{reconstructed.name}` contract"
+                    ),
+                    span=span,
+                    form_path=form_path,
+                ),
+            )
+        )
+    return reconstructed
+
+
+def _reconstruct_root_contract_type(
+    definition: Mapping[str, object],
+    *,
+    type_env: FrontendTypeEnvironment,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> TypeRef:
+    value_type = definition.get("type")
+    if value_type == "bool":
+        return PrimitiveTypeRef(name="Bool")
+    if value_type == "integer":
+        return PrimitiveTypeRef(name="Int")
+    if value_type == "float":
+        return PrimitiveTypeRef(name="Float")
+    if value_type == "string":
+        return PrimitiveTypeRef(name="String")
+    if value_type == "enum":
+        allowed = tuple(str(value) for value in definition.get("allowed", ()))
+        return _match_root_leaf_candidate(
+            type_env,
+            matches=lambda candidate: isinstance(candidate, PrimitiveTypeRef)
+            and candidate.allowed_values == allowed,
+            leaf_label=f"enum values {list(allowed)}",
+            span=span,
+            form_path=form_path,
+        )
+    if value_type == "relpath":
+        under = definition.get("under")
+        must_exist = definition.get("must_exist_target")
+        return _match_root_leaf_candidate(
+            type_env,
+            matches=lambda candidate: isinstance(candidate, PathTypeRef)
+            and candidate.definition.under == under
+            and candidate.definition.must_exist == must_exist,
+            leaf_label=f"relpath under `{under}`",
+            span=span,
+            form_path=form_path,
+        )
+    if value_type == "optional":
+        item = _reconstruct_root_contract_type(
+            _mapping_or_erased(definition.get("item"), span=span, form_path=form_path),
+            type_env=type_env,
+            span=span,
+            form_path=form_path,
+        )
+        return OptionalTypeRef(name=f"Optional[{item.name}]", item_type_ref=item)
+    if value_type == "list":
+        item = _reconstruct_root_contract_type(
+            _mapping_or_erased(definition.get("items"), span=span, form_path=form_path),
+            type_env=type_env,
+            span=span,
+            form_path=form_path,
+        )
+        return ListTypeRef(name=f"List[{item.name}]", item_type_ref=item)
+    if value_type == "map":
+        value = _reconstruct_root_contract_type(
+            _mapping_or_erased(definition.get("values"), span=span, form_path=form_path),
+            type_env=type_env,
+            span=span,
+            form_path=form_path,
+        )
+        return MapTypeRef(
+            name=f"Map[String, {value.name}]",
+            key_type_ref=PrimitiveTypeRef(name="String"),
+            value_type_ref=value,
+        )
+    raise LispFrontendCompileError(
+        (
+            required_lint_diagnostic(
+                "workflow_call_signature_erased",
+                message=(
+                    "imported workflow root `__result__` boundary uses unsupported "
+                    f"contract type `{value_type}`"
+                ),
+                span=span,
+                form_path=form_path,
+            ),
+        )
+    )
+
+
+def _mapping_or_erased(
+    value: object,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> Mapping[str, object]:
+    if isinstance(value, Mapping):
+        return value
+    raise LispFrontendCompileError(
+        (
+            required_lint_diagnostic(
+                "workflow_call_signature_erased",
+                message="imported workflow root `__result__` boundary is missing an element schema",
+                span=span,
+                form_path=form_path,
+            ),
+        )
+    )
+
+
+def _match_root_leaf_candidate(
+    type_env: FrontendTypeEnvironment,
+    *,
+    matches,
+    leaf_label: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> TypeRef:
+    candidates: list[TypeRef] = []
+    for candidate in type_env._type_refs.values():  # noqa: SLF001 - internal compiler matching
+        if not matches(candidate):
+            continue
+        if any(type_refs_compatible(existing, candidate) for existing in candidates):
+            continue
+        candidates.append(candidate)
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        candidate_names = ", ".join(sorted(candidate.name for candidate in candidates))
+        raise LispFrontendCompileError(
+            (
+                required_lint_diagnostic(
+                    "workflow_call_signature_erased",
+                    message=(
+                        "imported workflow root `__result__` boundary is ambiguous across "
+                        f"authored types: {candidate_names}"
+                    ),
+                    span=span,
+                    form_path=form_path,
+                ),
+            )
+        )
+    raise LispFrontendCompileError(
+        (
+            required_lint_diagnostic(
+                "workflow_call_signature_erased",
+                message=(
+                    "imported workflow root `__result__` boundary does not match any "
+                    f"authored type in scope ({leaf_label})"
+                ),
+                span=span,
+                form_path=form_path,
+            ),
+        )
+    )
 
 
 def _workflow_boundary_fields_for_param(

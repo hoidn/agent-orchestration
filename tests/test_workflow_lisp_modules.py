@@ -1290,3 +1290,147 @@ def test_compile_stage3_entrypoint_rejects_ambiguous_unqualified_transition_impo
         )
 
     _assert_diagnostic_code(excinfo, "module_import_ambiguous")
+
+
+def test_compile_stage3_entrypoint_imported_root_result_call_executes_runtime(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    callee_dir = source_root / "rootcall"
+    callee_dir.mkdir(parents=True)
+    _write_module(
+        callee_dir / "rootlib.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule rootcall/rootlib)",
+                "  (export root-flag)",
+                "  (defworkflow root-flag",
+                "    ((count Int))",
+                "    -> Bool",
+                "    (> count 0)))",
+            ]
+        )
+        + "\n",
+    )
+    entry_path = _write_module(
+        callee_dir / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule rootcall/entry)",
+                "  (import rootcall/rootlib :only (root-flag))",
+                "  (export run)",
+                "  (defrecord Wrap",
+                "    (ok Bool))",
+                "  (defworkflow run",
+                "    ((count Int))",
+                "    -> Wrap",
+                "    (let* ((ok (call root-flag :count count)))",
+                "      (record Wrap :ok ok))))",
+            ]
+        )
+        + "\n",
+    )
+
+    result = _compile_stage3_entrypoint(
+        entry_path,
+        source_root=source_root,
+        lowering_route=None,
+        validate_shared=True,
+        tmp_path=tmp_path,
+    )
+    bundle = result.entry_result.validated_bundles["rootcall/entry::run"]
+    runtime_inputs = dict(workflow_runtime_input_contracts(bundle))
+    binding_inputs = {
+        input_name: contract
+        for input_name, contract in runtime_inputs.items()
+        if not input_name.startswith("__write_root__")
+    }
+    bound_inputs = bind_workflow_inputs(binding_inputs, {"count": 2}, tmp_path)
+    state_manager = StateManager(workspace=tmp_path, run_id="imported-root-result-call")
+    state_manager.initialize(
+        entry_path.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs=bound_inputs,
+    )
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
+        on_error="stop"
+    )
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {"return__ok": True}
+    call_step = next(
+        result_payload
+        for step_name, result_payload in state["steps"].items()
+        if "__call_" in step_name
+    )
+    assert call_step["status"] == "completed"
+    assert call_step["artifacts"] == {"__result__": True}
+
+
+def test_root_result_workflow_failure_suppresses_output_finalization(tmp_path: Path) -> None:
+    module_path = _write_module(
+        tmp_path / "root_result_failure.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defworkflow root-check",
+                "    ((count Int))",
+                "    -> Bool",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py")',
+                "      :returns Bool)))",
+            ]
+        )
+        + "\n",
+    )
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = next(
+        bundle
+        for name, bundle in result.validated_bundles.items()
+        if name == "root-check" or name.endswith("::root-check")
+    )
+    runtime_inputs = dict(workflow_runtime_input_contracts(bundle))
+    binding_inputs = {
+        input_name: contract
+        for input_name, contract in runtime_inputs.items()
+        if not input_name.startswith("__write_root__")
+    }
+    bound_inputs = bind_workflow_inputs(binding_inputs, {"count": 1}, tmp_path)
+    state_manager = StateManager(workspace=tmp_path, run_id="root-result-suppression")
+    state_manager.initialize(
+        module_path.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs=bound_inputs,
+    )
+
+    state = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        state_manager,
+        max_retries=0,
+        retry_delay_ms=0,
+    ).execute(on_error="stop")
+
+    assert state["status"] == "failed"
+    assert not state.get("workflow_outputs")

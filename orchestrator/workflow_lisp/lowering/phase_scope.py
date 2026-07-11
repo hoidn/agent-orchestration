@@ -399,6 +399,10 @@ def _lower_workflow_outputs(
     lowered_outputs: dict[str, Any] = {}
     for output_name, definition in authored_outputs.items():
         source_ref = terminal.output_refs.get(output_name)
+        if source_ref is None and output_name == "__result__":
+            # Root-valued boundaries expose one generated `__result__` output
+            # while terminals keep the logical `return` ref key.
+            source_ref = terminal.output_refs.get("return")
         if source_ref is None:
             field_name = output_name.removeprefix("return__")
             raise _compile_error(
