@@ -255,6 +255,24 @@ the accepted typed-return decisions unless the broader procedure-first design
 finds a demonstrated conflict; record such a conflict as an explicit design
 amendment rather than silently changing an implementation plan.
 
+> **Amendment (2026-07-10, user adjudication):** Wave 1
+> (`2026-07-10-workflow-lisp-native-transportable-returns-plan.md`) executes
+> **ahead of** Gates S3/S4. Drain Phase 1 is paused at Task 1.5 on an
+> architectural blocker whose resolution IS this plan's subject (requirement
+> R-G7 and lane findings G-B/G-C/G-D, recorded in the drain plan's Phase 1
+> Ledger and `.superpowers/sdd/task-1.5b-report.md` §4/§6): the generic loop
+> lane cannot lower real production hook bodies until returns are natively
+> transportable. Waiting for S3 would deadlock the roadmap. Wave-1 work is
+> plan-required (non-discretionary), i.e. the same semantic-migration-freeze
+> exception class as the six landed drain machinery extensions. Compensating
+> control: every wave-1 implementation task must additionally pass the paused
+> drain migration's behavioral canaries — the checkpoint-identity suite
+> (`tests/test_workflow_lisp_checkpoint_identity_comparison.py`, zero row
+> changes) and the P2 production drain compile (exit 0, zero diagnostics,
+> `g8_deletion_evidence.json` pass) — so the frozen flagship's baselines stay
+> authoritative while the substrate moves underneath it. Drain resumes at a
+> Task 1.5 re-run once wave 1 lands.
+
 Gate S4:
 
 - the frontend-spec delta is accepted;
