@@ -154,7 +154,10 @@ class CompiledFrontendIndex:
                     or origin.get("workflow_name") != workflow_name
                 ):
                     continue
-                if subject_ref.subject_kind == "variant_output_field":
+                if subject_ref.subject_kind in (
+                    "variant_output_field",
+                    "output_bundle_field",
+                ):
                     contract_fields = workflow_payload.get("contract_fields")
                     field_origin = (
                         contract_fields.get(subject_ref.subject_name)
@@ -162,7 +165,7 @@ class CompiledFrontendIndex:
                         else None
                     )
                     if (
-                        origin.get("entity_kind") != "variant_output_field"
+                        origin.get("entity_kind") != subject_ref.subject_kind
                         or not isinstance(field_origin, Mapping)
                         or field_origin.get("origin_key") != origin_key
                     ):

@@ -298,6 +298,113 @@ def test_compiled_frontend_contract_field_origins_resolve_subject_refs_with_orde
     ) == []
 
 
+def test_compiled_frontend_root_result_output_bundle_field_subject_resolution(
+    tmp_path: Path,
+):
+    source_map = tmp_path / "source_map.json"
+    workflow_name = "demo/module::entry"
+    root_ref = {
+        "subject_kind": "output_bundle_field",
+        "subject_name": "entry__result::root-result::__result__",
+        "workflow_name": workflow_name,
+    }
+    step_origin = {
+        "origin_key": f"{workflow_name}::step_id::entry__result",
+        "entity_kind": "step_id",
+        "workflow_name": workflow_name,
+        "path": "workflow.orc",
+        "line": 20,
+    }
+    root_origin = {
+        "origin_key": f"{workflow_name}::output_bundle_field::{root_ref['subject_name']}",
+        "entity_kind": "output_bundle_field",
+        "workflow_name": workflow_name,
+        "path": "workflow.orc",
+        "line": 8,
+    }
+    source_map.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_source_map.v1",
+                "workflows": {
+                    workflow_name: {
+                        "step_ids": {"entry__result": step_origin},
+                        "contract_fields": {
+                            root_ref["subject_name"]: root_origin,
+                        },
+                        "validation_subjects": [
+                            {"subject_ref": root_ref, "origin_key": root_origin["origin_key"]},
+                        ],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    provenance = WorkflowProvenance(
+        workflow_path=tmp_path / "workflow.orc",
+        source_root=tmp_path,
+        frontend_kind="workflow_lisp",
+        frontend_build_root=tmp_path,
+        frontend_source_trace_path=source_map,
+        frontend_entry_workflow=workflow_name,
+    )
+    index = CompiledFrontendIndex(provenance)
+
+    assert index.origins_for_subject_refs(
+        [root_ref],
+        fallback_step=("entry__result", "entry__result"),
+    ) == [root_origin]
+
+
+def test_compiled_frontend_root_result_subject_uses_step_fallback_on_old_v1_map(
+    tmp_path: Path,
+):
+    source_map = tmp_path / "source_map.json"
+    workflow_name = "demo/module::entry"
+    root_ref = {
+        "subject_kind": "output_bundle_field",
+        "subject_name": "entry__result::root-result::__result__",
+        "workflow_name": workflow_name,
+    }
+    step_origin = {
+        "origin_key": f"{workflow_name}::step_id::entry__result",
+        "entity_kind": "step_id",
+        "workflow_name": workflow_name,
+        "path": "workflow.orc",
+        "line": 20,
+    }
+    source_map.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_source_map.v1",
+                "workflows": {
+                    workflow_name: {
+                        "step_ids": {"entry__result": step_origin},
+                        "validation_subjects": [],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    provenance = WorkflowProvenance(
+        workflow_path=tmp_path / "workflow.orc",
+        source_root=tmp_path,
+        frontend_kind="workflow_lisp",
+        frontend_build_root=tmp_path,
+        frontend_source_trace_path=source_map,
+        frontend_entry_workflow=workflow_name,
+    )
+    index = CompiledFrontendIndex(provenance)
+
+    assert index.origins_for_subject_refs([root_ref]) == []
+    assert index.origins_for_subject_refs(
+        [root_ref],
+        fallback_step=("entry__result", "entry__result"),
+    ) == [step_origin]
+
+
 def test_compiled_frontend_subject_ref_resolution_falls_back_only_when_none_resolve(
     tmp_path: Path,
 ):

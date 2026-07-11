@@ -798,6 +798,89 @@ def test_validate_output_bundle_invalid_json_raises_violation(tmp_path: Path):
     assert any(v["type"] == "invalid_json_document" for v in exc_info.value.violations)
 
 
+def _root_result_field_subject() -> dict[str, str]:
+    return {
+        "subject_kind": "output_bundle_field",
+        "subject_name": "entry__result::root-result::__result__",
+        "workflow_name": "demo/module::entry",
+    }
+
+
+def test_validate_output_bundle_root_result_type_invalid_attaches_subject(tmp_path: Path):
+    """A root __result__ value violation carries its output_bundle_field subject."""
+    bundle_path = tmp_path / "state" / "result.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(json.dumps("nope") + "\n", encoding="utf-8")
+
+    bundle = {
+        "path": "state/result.json",
+        "fields": [
+            {
+                "name": "__result__",
+                "json_pointer": "",
+                "type": "bool",
+                "source_map_subject": _root_result_field_subject(),
+            }
+        ],
+    }
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_output_bundle(bundle, workspace=tmp_path)
+
+    violation = exc_info.value.violations[0]
+    assert violation["type"] == "invalid_bool"
+    assert violation["subject_refs"] == [_root_result_field_subject()]
+
+
+def test_validate_output_bundle_json_pointer_not_found_attaches_output_bundle_field_subject(
+    tmp_path: Path,
+):
+    """Ordinary bundle field violations carry optional field lineage when present."""
+    bundle_path = tmp_path / "state" / "bundle.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(json.dumps({"other": 1}) + "\n", encoding="utf-8")
+
+    bundle = {
+        "path": "state/bundle.json",
+        "fields": [
+            {
+                "name": "decision",
+                "json_pointer": "/decision",
+                "type": "string",
+                "source_map_subject": _root_result_field_subject(),
+            }
+        ],
+    }
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_output_bundle(bundle, workspace=tmp_path)
+
+    violation = exc_info.value.violations[0]
+    assert violation["type"] == "json_pointer_not_found"
+    assert violation["subject_refs"] == [_root_result_field_subject()]
+
+
+def test_validate_output_bundle_subject_free_field_violation_omits_subject_refs(
+    tmp_path: Path,
+):
+    """Bundles without lineage metadata keep their existing violation payload."""
+    bundle_path = tmp_path / "state" / "result.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(json.dumps("nope") + "\n", encoding="utf-8")
+
+    bundle = {
+        "path": "state/result.json",
+        "fields": [{"name": "__result__", "json_pointer": "", "type": "bool"}],
+    }
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_output_bundle(bundle, workspace=tmp_path)
+
+    violation = exc_info.value.violations[0]
+    assert violation["type"] == "invalid_bool"
+    assert "subject_refs" not in violation
+
+
 def test_validate_output_bundle_missing_pointer_raises_violation(tmp_path: Path):
     """Missing JSON pointer path in bundle fails validation."""
     (tmp_path / "artifacts" / "work").mkdir(parents=True)

@@ -323,7 +323,7 @@ def validate_source_map_document(document: WorkflowLispSourceMap) -> None:
                 subject
                 for subject in workflow.validation_subjects
                 if _validation_subject_key(subject.subject_ref, workflow.workflow_name)
-                == ("variant_output_field", subject_name, workflow.workflow_name)
+                == (entry.entity_kind, subject_name, workflow.workflow_name)
                 and subject.origin_key == entry.origin_key
             ]
             if len(matching_subjects) != 1:
@@ -481,13 +481,16 @@ def _contract_field_entry_mapping(
 ) -> Mapping[str, SourceMapEntry]:
     entries: dict[str, SourceMapEntry] = {}
     for binding in lowered.origin_map.validation_subject_bindings:
-        if binding.subject_ref.subject_kind != "variant_output_field":
+        if binding.subject_ref.subject_kind not in (
+            "variant_output_field",
+            "output_bundle_field",
+        ):
             continue
         subject_name = binding.subject_ref.subject_name
         entry = _entry_from_origin(
             binding.origin,
             workflow_name=workflow_name,
-            entity_kind="variant_output_field",
+            entity_kind=binding.subject_ref.subject_kind,
             subject_name=subject_name,
         )
         existing = entries.get(subject_name)
@@ -500,7 +503,7 @@ def _contract_field_entry_mapping(
                         workflow_origin,
                         code="source_map_duplicate_key",
                         message=(
-                            "variant-output field subject "
+                            "contract field subject "
                             f"`{subject_name}` has conflicting source-map entries"
                         ),
                     ),

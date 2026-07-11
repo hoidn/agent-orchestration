@@ -602,14 +602,14 @@ git commit -m "Carry direct values across workflow calls"
 - Test: `tests/test_runtime_observability.py`
 - Test: `tests/test_output_contract.py`
 
-- [ ] **Step 1: Add RED subject/origin tests**
+- [x] **Step 1: Add RED subject/origin tests**
 
 Require `output_bundle_field` subject identity
 `<step-id>::root-result::__result__`, a `contract_fields` origin at the authored
 return span, generated-output lineage for the workflow boundary, and resolved
 runtime violations that display the authored return rather than only the step.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 pytest -q tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_runtime_source_map.py tests/test_workflow_semantic_ir.py tests/test_runtime_observability.py tests/test_output_contract.py -k 'output_bundle_field or root_result'
@@ -617,14 +617,14 @@ pytest -q tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_runtim
 
 Expected: FAIL because the source-map bridge accepts only variant field subjects.
 
-- [ ] **Step 3: Implement additive lineage**
+- [x] **Step 3: Implement additive lineage**
 
 Generalize contract-field origin filtering and validation to
 `output_bundle_field`, carry the subject in root field specs, attach it to
 ordinary bundle violations, and teach `CompiledFrontendIndex` to resolve it.
 Preserve old v1 maps and enclosing-step fallback.
 
-- [ ] **Step 4: Run source-map and integration suites**
+- [x] **Step 4: Run source-map and integration suites**
 
 ```bash
 pytest -q tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_runtime_source_map.py tests/test_workflow_semantic_ir.py tests/test_runtime_observability.py tests/test_output_contract.py tests/test_workflow_output_contract_integration.py
@@ -632,7 +632,7 @@ pytest -q tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_runtim
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Stage the named Task 7 paths and commit:
 

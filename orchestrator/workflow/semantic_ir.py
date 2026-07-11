@@ -2903,10 +2903,15 @@ def _supported_source_map_subject_keys(
         ("generated_path", name, workflow_name)
         for name in _mapping_string_keys(workflow_payload.get("generated_paths"))
     )
-    supported.update(
-        ("variant_output_field", name, workflow_name)
-        for name in _mapping_string_keys(workflow_payload.get("contract_fields"))
-    )
+    contract_fields = workflow_payload.get("contract_fields")
+    if isinstance(contract_fields, Mapping):
+        for name, entry in contract_fields.items():
+            if not isinstance(name, str):
+                continue
+            entity_kind = entry.get("entity_kind") if isinstance(entry, Mapping) else None
+            if entity_kind not in ("variant_output_field", "output_bundle_field"):
+                entity_kind = "variant_output_field"
+            supported.add((entity_kind, name, workflow_name))
     return supported
 
 

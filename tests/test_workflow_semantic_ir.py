@@ -1265,6 +1265,83 @@ def test_semantic_ir_source_map_bridges_every_contract_field_subject(
     assert bridged_fields == field_subjects
 
 
+def test_semantic_ir_source_map_bridges_root_result_output_bundle_field_subject(
+    tmp_path: Path,
+) -> None:
+    semantic_ir_module = importlib.import_module("orchestrator.workflow.semantic_ir")
+    source_path = tmp_path / "semantic-ir-root-result-lineage.orc"
+    source_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule semantic-ir/root-result-lineage)",
+                "  (export entry)",
+                "  (defworkflow entry",
+                "    ((input String))",
+                "    -> Bool",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.execute",
+                "      :inputs (input)",
+                "      :returns Bool)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    compile_result = compile_stage3_module(
+        source_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.execute": "prompts/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="legacy",
+    )
+    workflow_name = next(
+        workflow.definition.name
+        for workflow in compile_result.typed_workflows
+        if workflow.definition.name == "entry"
+        or workflow.definition.name.endswith("::entry")
+    )
+    source_map_module = importlib.import_module("orchestrator.workflow_lisp.source_map")
+    build_module = importlib.import_module("orchestrator.workflow_lisp.build")
+    document = source_map_module.build_source_map_document(
+        SimpleNamespace(
+            compiled_results_by_name={"__main__": compile_result},
+            validated_bundles_by_name=compile_result.validated_bundles,
+        ),
+        selected_name=workflow_name,
+        display_name_resolver=lambda name: name.rsplit("::", 1)[-1],
+    )
+    workflow_payload = build_module._json_data(document)["workflows"][workflow_name]
+
+    bridges = semantic_ir_module._frontend_source_map_bridges_from_payload(
+        workflow_name,
+        workflow_payload,
+    )
+
+    root_field_subjects = {
+        (
+            binding["subject_ref"]["subject_name"],
+            binding["origin_key"],
+        )
+        for binding in workflow_payload["validation_subjects"]
+        if binding["subject_ref"]["subject_kind"] == "output_bundle_field"
+    }
+    bridged_root_fields = {
+        (bridge.subject_ref.subject_name, bridge.origin_key)
+        for bridge in bridges.values()
+        if bridge.subject_ref.subject_kind == "output_bundle_field"
+    }
+    assert root_field_subjects
+    assert any(
+        subject_name.endswith("::root-result::__result__")
+        for subject_name, _ in root_field_subjects
+    )
+    assert bridged_root_fields == root_field_subjects
+
+
 def test_semantic_ir_source_map_rejects_contract_field_subject_with_missing_origin(
     tmp_path: Path,
 ) -> None:

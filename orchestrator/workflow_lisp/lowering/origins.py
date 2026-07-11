@@ -192,7 +192,7 @@ def _register_generated_contract_field_bindings(
             origin=_with_origin_key(
                 _origin_from_context_source(context, field_origin),
                 workflow_name=context.workflow_name,
-                entity_kind="variant_output_field",
+                entity_kind=subject_ref.subject_kind,
                 subject_name=subject_ref.subject_name,
             ),
         )
@@ -206,7 +206,7 @@ def _register_generated_contract_field_bindings(
                         LispFrontendDiagnostic(
                             code="source_map_duplicate_key",
                             message=(
-                                "variant-output field subject "
+                                "contract field subject "
                                 f"`{subject_ref.subject_name}` has conflicting authored origins"
                             ),
                             span=binding.origin.span,
@@ -573,12 +573,13 @@ def _rekey_origin_map(origin_map: LoweringOriginMap, *, workflow_name: str) -> L
             origin=_with_origin_key(
                 binding.origin,
                 workflow_name=workflow_name,
-                entity_kind="variant_output_field",
+                entity_kind=binding.subject_ref.subject_kind,
                 subject_name=binding.subject_ref.subject_name,
             ),
         )
         for binding in origin_map.validation_subject_bindings
-        if binding.subject_ref.subject_kind == "variant_output_field"
+        if binding.subject_ref.subject_kind
+        in ("variant_output_field", "output_bundle_field")
     )
     return LoweringOriginMap(
         workflow_name=workflow_name,

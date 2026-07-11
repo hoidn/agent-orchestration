@@ -281,6 +281,7 @@ def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Di
                 type="json_pointer_not_found",
                 message="Output bundle json_pointer did not resolve to a value",
                 context={"path": bundle_path, "name": artifact_name, "json_pointer": json_pointer},
+                subject_refs=_field_subject_refs(spec),
             ))
             continue
 
@@ -294,6 +295,7 @@ def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Di
         if violation is not None:
             violation.context["path"] = bundle_path
             violation.context["json_pointer"] = json_pointer
+            violation.subject_refs = _field_subject_refs(spec)
             violations.append(violation)
             continue
 

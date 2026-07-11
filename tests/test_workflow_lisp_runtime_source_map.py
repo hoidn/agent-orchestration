@@ -245,6 +245,174 @@ def test_malformed_optional_source_map_preserves_contract_failure(
     assert "source_origins" not in violation
 
 
+def _build_runtime_root_result(tmp_path: Path):
+    source_lines = [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.15")',
+        "  (defmodule runtime_root_lineage)",
+        "  (export decide)",
+        "  (defworkflow decide",
+        "    ((request String))",
+        "    -> Bool",
+        "    (provider-result providers.decide",
+        "      :prompt prompts.decide",
+        "      :inputs (request)",
+        "      :returns Bool))",
+        ")",
+    ]
+    source_path = tmp_path / "runtime_root_lineage.orc"
+    source_path.write_text("\n".join(source_lines) + "\n", encoding="utf-8")
+    prompt_path = tmp_path / "prompts" / "decide.md"
+    prompt_path.parent.mkdir(parents=True, exist_ok=True)
+    prompt_path.write_text("Decide true or false.\n", encoding="utf-8")
+    providers_path = _write_json(
+        tmp_path / "providers.json",
+        {"providers.decide": "fake-decision-provider"},
+    )
+    prompts_path = _write_json(
+        tmp_path / "prompts.json",
+        {"prompts.decide": "prompts/decide.md"},
+    )
+    result = build_frontend_bundle(
+        FrontendBuildRequest(
+            source_path=source_path,
+            source_roots=(tmp_path,),
+            entry_workflow="decide",
+            provider_externs_path=providers_path,
+            prompt_externs_path=prompts_path,
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=None,
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+    provider_result_line = source_lines.index("    (provider-result providers.decide") + 1
+    return result.validated_bundle, source_path, provider_result_line
+
+
+def _execute_runtime_root_result(
+    tmp_path: Path,
+    *,
+    output_payload: object,
+    run_id: str,
+    strip_root_lineage: bool = False,
+):
+    bundle, source_path, provider_result_line = _build_runtime_root_result(tmp_path)
+    if strip_root_lineage:
+        # Rewrite the persisted sidecar into an old-v1 map without root field
+        # lineage: no contract_fields section, no output_bundle_field subjects.
+        source_trace_path = bundle.provenance.frontend_source_trace_path
+        assert source_trace_path is not None
+        payload = json.loads(source_trace_path.read_text(encoding="utf-8"))
+        for workflow_payload in payload["workflows"].values():
+            workflow_payload.pop("contract_fields", None)
+            workflow_payload["validation_subjects"] = [
+                binding
+                for binding in workflow_payload.get("validation_subjects", [])
+                if binding["subject_ref"]["subject_kind"] != "output_bundle_field"
+            ]
+        source_trace_path.write_text(
+            json.dumps(payload, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    state_manager = StateManager(workspace=tmp_path, run_id=run_id)
+    state_manager.initialize(
+        str(source_path),
+        bound_inputs={"request": "decide"},
+    )
+
+    def _prepare_invocation(_self, *args, **kwargs):
+        return (
+            SimpleNamespace(
+                input_mode="stdin",
+                prompt=kwargs.get("prompt_content", ""),
+                env=kwargs.get("env") or {},
+            ),
+            None,
+        )
+
+    def _execute(_self, invocation, **_kwargs):
+        bundle_path = tmp_path / invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(
+            json.dumps(output_payload) + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+            raw_stdout=None,
+            normalized_stdout=None,
+            provider_session=None,
+        )
+
+    with patch.object(
+        ProviderExecutor, "prepare_invocation", _prepare_invocation
+    ), patch.object(ProviderExecutor, "execute", _execute):
+        state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(
+            on_error="continue"
+        )
+
+    failed_steps = [
+        step_state
+        for step_state in state["steps"].values()
+        if step_state.get("error", {}).get("type") == "contract_violation"
+    ]
+    assert len(failed_steps) == 1
+    return failed_steps[0], provider_result_line
+
+
+def test_runtime_root_result_violation_resolves_authored_return_origin(
+    tmp_path: Path,
+) -> None:
+    step_state, provider_result_line = _execute_runtime_root_result(
+        tmp_path,
+        output_payload="nope",
+        run_id="runtime-root-result-lineage",
+    )
+
+    assert step_state["status"] == "failed"
+    assert step_state["exit_code"] == 2
+    violation = step_state["error"]["context"]["violations"][0]
+    assert violation["type"] == "invalid_bool"
+    assert violation["subject_refs"] == [
+        {
+            "subject_kind": "output_bundle_field",
+            "subject_name": (
+                "runtime_root_lineage::decide__result::root-result::__result__"
+            ),
+            "workflow_name": "runtime_root_lineage::decide",
+        }
+    ]
+    assert len(violation["source_origins"]) == 1
+    origin = violation["source_origins"][0]
+    assert origin["entity_kind"] == "output_bundle_field"
+    assert origin["line"] == provider_result_line
+
+
+def test_runtime_root_result_violation_uses_step_fallback_for_old_v1_map(
+    tmp_path: Path,
+) -> None:
+    step_state, _ = _execute_runtime_root_result(
+        tmp_path,
+        output_payload="nope",
+        run_id="runtime-root-result-old-v1-fallback",
+        strip_root_lineage=True,
+    )
+
+    violation = step_state["error"]["context"]["violations"][0]
+    assert violation["type"] == "invalid_bool"
+    assert violation["subject_refs"][0]["subject_kind"] == "output_bundle_field"
+    assert len(violation["source_origins"]) == 1
+    assert violation["source_origins"][0]["entity_kind"] == "step_id"
+
+
 def test_runtime_union_field_violations_receive_independent_origins(
     tmp_path: Path,
 ) -> None:

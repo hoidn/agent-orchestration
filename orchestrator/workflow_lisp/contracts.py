@@ -247,11 +247,24 @@ def derive_structured_result_contract(
                 }
             ],
         }
+        field_origins: tuple[GeneratedContractFieldOrigin, ...] = ()
+        if span is not None:
+            # The authored return declaration (`:returns ...` in the effect
+            # form) is the root subject's origin; derivations without a span
+            # keep the enclosing-step fallback.
+            field_origins = (
+                GeneratedContractFieldOrigin(
+                    subject_ref=root_subject,
+                    span=span,
+                    form_path=form_path,
+                ),
+            )
         return GeneratedBundleContract(
             contract_kind="output_bundle",
             path=path,
             payload=payload,
             type_ref=type_ref,
+            field_origins=field_origins,
         )
 
     if isinstance(type_ref, RecordTypeRef):

@@ -389,6 +389,31 @@ def _write_union_field_lineage_module(path: Path) -> Path:
     return path
 
 
+def _write_root_result_lineage_module(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule source-map/root-result-lineage)",
+                "  (export entry)",
+                "  (defworkflow entry",
+                "    ((input String))",
+                "    -> Bool",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.implementation.execute",
+                "      :inputs (input)",
+                "      :returns Bool)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def _write_inline_union_field_lineage_module(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -514,6 +539,88 @@ def test_source_map_contract_field_lineage_matches_legacy_and_wcc_routes(
 
     legacy_fields = field_identity_and_span(legacy_document, legacy_name)
     wcc_fields = field_identity_and_span(wcc_document, wcc_name)
+    assert legacy_fields
+    assert wcc_fields == legacy_fields
+
+
+def test_source_map_persists_root_result_output_bundle_field_lineage(
+    tmp_path: Path,
+) -> None:
+    path = _write_root_result_lineage_module(
+        tmp_path / "source-map" / "root-result-lineage.orc"
+    )
+    _, document, workflow_name = _build_source_map_document(
+        path,
+        tmp_path=tmp_path,
+        selected_name="entry",
+    )
+    workflow = document.workflows[workflow_name]
+    subject_name, entry = next(
+        (subject_name, entry)
+        for subject_name, entry in workflow.contract_fields.items()
+        if subject_name.endswith("::root-result::__result__")
+    )
+
+    assert entry.entity_kind == "output_bundle_field"
+    assert entry.generated_name_origin == subject_name
+    # The authored `:returns Bool` declaration lives inside the provider-result form.
+    assert entry.line == 9
+    assert any(
+        binding.origin_key == entry.origin_key
+        and binding.subject_ref.subject_kind == "output_bundle_field"
+        and binding.subject_ref.subject_name == subject_name
+        and binding.subject_ref.workflow_name == workflow_name
+        for binding in workflow.validation_subjects
+    )
+    # The generated workflow boundary output keeps ordinary generated_output lineage.
+    boundary_entry = workflow.generated_outputs["__result__"]
+    assert boundary_entry.entity_kind == "generated_output"
+    assert any(
+        binding.origin_key == boundary_entry.origin_key
+        and binding.subject_ref.subject_kind == "generated_output"
+        and binding.subject_ref.subject_name == "__result__"
+        and binding.subject_ref.workflow_name == workflow_name
+        for binding in workflow.validation_subjects
+    )
+
+
+def test_source_map_root_result_contract_field_lineage_matches_legacy_and_wcc_routes(
+    tmp_path: Path,
+) -> None:
+    path = _write_root_result_lineage_module(
+        tmp_path / "source-map" / "root-result-lineage-routes.orc"
+    )
+    _, legacy_document, legacy_name = _build_source_map_document(
+        path,
+        tmp_path=tmp_path,
+        selected_name="entry",
+        lowering_route="legacy",
+    )
+    _, wcc_document, wcc_name = _build_source_map_document(
+        path,
+        tmp_path=tmp_path,
+        selected_name="entry",
+        lowering_route="wcc_m4",
+    )
+
+    def root_field_identity_and_span(document, workflow_name):
+        return {
+            subject_name: (
+                entry.entity_kind,
+                entry.line,
+                entry.column,
+                entry.end_line,
+                entry.end_column,
+                entry.form_path,
+            )
+            for subject_name, entry in document.workflows[
+                workflow_name
+            ].contract_fields.items()
+            if subject_name.endswith("::root-result::__result__")
+        }
+
+    legacy_fields = root_field_identity_and_span(legacy_document, legacy_name)
+    wcc_fields = root_field_identity_and_span(wcc_document, wcc_name)
     assert legacy_fields
     assert wcc_fields == legacy_fields
 
