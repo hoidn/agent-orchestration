@@ -50,6 +50,7 @@ from .procedures import (
     proc_ref_specialization_name,
     procedure_type_env_for,
 )
+from .phase import eligible_private_context_source_param_names
 from .procedure_refs import (
     BoundProcArg,
     ProcRefAuthoritySource,
@@ -230,6 +231,20 @@ def typecheck_procedure_definitions(
             )
         else:
             body_expr = procedure_def.body
+        session_state = get_session_state()
+        previous_hidden_context_signature = session_state.procedure_hidden_context_signature
+        # A defproc body may omit a callee's hidden private phase context under
+        # the same derived-private-child eligibility rules as a defworkflow
+        # body exactly when the proc's params carry a structural private exec
+        # context; procs without a private context source keep the plain
+        # missing-binding failure (structural private-exec-context /
+        # std/context contract,
+        # docs/design/workflow_lisp_frontend_specification.md).
+        session_state.procedure_hidden_context_signature = (
+            signature
+            if eligible_private_context_source_param_names(signature)
+            else None
+        )
         try:
             typed_body = typecheck_expression(
                 body_expr,
@@ -250,6 +265,8 @@ def typecheck_procedure_definitions(
             if specialization is None:
                 raise
             raise _annotate_specialization_body_error(exc, origin_span=specialization.origin_span) from exc
+        finally:
+            session_state.procedure_hidden_context_signature = previous_hidden_context_signature
         if not type_refs_compatible(signature.return_type_ref, typed_body.type_ref):
             raise LispFrontendCompileError(
                 (

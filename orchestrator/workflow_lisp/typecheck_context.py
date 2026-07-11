@@ -60,6 +60,7 @@ class TypecheckSessionState:
     generated_local_procedures: dict[str, TypedProcedureDef] = field(default_factory=dict)
     let_proc_rewrite_results: dict[int, ExprNode] = field(default_factory=dict)
     workflow_signature: object | None = None
+    procedure_hidden_context_signature: object | None = None
     reusable_state_producer_context: Mapping[str, object] | None = None
     shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...] = ()
 
@@ -100,6 +101,7 @@ def snapshot_session_state() -> TypecheckSessionState:
         generated_local_procedures=dict(state.generated_local_procedures),
         let_proc_rewrite_results=dict(state.let_proc_rewrite_results),
         workflow_signature=state.workflow_signature,
+        procedure_hidden_context_signature=state.procedure_hidden_context_signature,
         reusable_state_producer_context=(
             None
             if state.reusable_state_producer_context is None
@@ -118,6 +120,7 @@ def restore_session_state(snapshot: TypecheckSessionState) -> None:
     state.generated_local_procedures = dict(snapshot.generated_local_procedures)
     state.let_proc_rewrite_results = dict(snapshot.let_proc_rewrite_results)
     state.workflow_signature = snapshot.workflow_signature
+    state.procedure_hidden_context_signature = snapshot.procedure_hidden_context_signature
     state.reusable_state_producer_context = snapshot.reusable_state_producer_context
     state.shared_union_field_capabilities = tuple(snapshot.shared_union_field_capabilities)
 

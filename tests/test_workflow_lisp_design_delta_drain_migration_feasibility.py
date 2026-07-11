@@ -88,6 +88,14 @@ PARENT_CALL_WORK_ITEM_CANDIDATE_FIXTURE = (
 ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_item_ctx_child_phase_reuse.orc"
 )
+ITEM_CTX_CHILD_PHASE_REUSE_PROC_FIXTURE = (
+    WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_item_ctx_child_phase_reuse_proc.orc"
+)
+DERIVED_PHASE_CONTEXT_PROC_WITHOUT_CONTEXT_SOURCE_INVALID_FIXTURE = (
+    WORKFLOW_LISP_FIXTURES
+    / "invalid"
+    / "derived_phase_context_proc_without_context_source_invalid.orc"
+)
 DERIVED_PHASE_CONTEXT_BINDING_INVALID_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "invalid" / "derived_phase_context_binding_invalid.orc"
 )
@@ -1179,6 +1187,28 @@ def _compile_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojec
         entry_workflow=(
             "design_delta_item_ctx_child_phase_reuse::run-entry-branching-terminal-reprojection"
         ),
+        family_profile_catalog=load_workflow_family_profile_catalog(
+            (DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,)
+        ),
+    )
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    }
+    return module_path, result, lowered_by_name
+
+
+def _compile_design_delta_item_ctx_child_phase_reuse_proc_entrypoint(tmp_path: Path):
+    module_path = ITEM_CTX_CHILD_PHASE_REUSE_PROC_FIXTURE
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(WORKFLOW_LISP_FIXTURES / "valid", REPO_ROOT / "workflows" / "library"),
+        provider_externs=_design_delta_work_item_provider_externs(),
+        prompt_externs=_design_delta_work_item_prompt_externs(),
+        command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
+        validate_shared=True,
+        workspace_root=tmp_path,
         family_profile_catalog=load_workflow_family_profile_catalog(
             (DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,)
         ),
@@ -4092,6 +4122,49 @@ def test_design_delta_item_ctx_child_phase_reuse_route_supports_arbitrary_module
         "lisp_frontend_design_delta/plan_phase::run-plan-phase",
         "lisp_frontend_design_delta/implementation_phase::implementation-phase",
     }.issubset(run_item_calls)
+
+
+def test_design_delta_item_ctx_child_phase_reuse_proc_typecheck_accepts_omitted_phase_ctx(
+    tmp_path: Path,
+) -> None:
+    # The proc-shaped active-signature adapter (procedure_typecheck.py,
+    # typecheck_calls.py) lets `run-item-ctx-first`'s `(item-ctx ItemCtx)`
+    # param authorize the same derived-private-child omission a defworkflow
+    # body gets, for both callees (`run-plan-phase`, `implementation-phase`).
+    # `:lowering inline` proc bodies re-run this same eligibility check with a
+    # caller-scoped (not proc-scoped) active signature during Stage 3
+    # lowering (lowering/workflow_calls.py), so the compile still fails, but
+    # strictly later than before: `derived_phase_context_binding_invalid` at
+    # `phase-ctx` (lowering) instead of `workflow_signature_mismatch` (typecheck).
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_design_delta_item_ctx_child_phase_reuse_proc_entrypoint(tmp_path)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "derived_phase_context_binding_invalid"
+    assert diagnostic.phase == "lowering"
+    assert diagnostic.form_path[-1] == "run-item-ctx-first"
+
+
+def test_design_delta_proc_without_private_context_source_still_requires_phase_ctx(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            DERIVED_PHASE_CONTEXT_PROC_WITHOUT_CONTEXT_SOURCE_INVALID_FIXTURE,
+            source_roots=(WORKFLOW_LISP_FIXTURES / "invalid", REPO_ROOT / "workflows" / "library"),
+            provider_externs=_design_delta_work_item_provider_externs(),
+            prompt_externs=_design_delta_work_item_prompt_externs(),
+            command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
+            validate_shared=True,
+            workspace_root=tmp_path,
+            family_profile_catalog=load_workflow_family_profile_catalog(
+                (DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,)
+            ),
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_signature_mismatch"
+    assert "phase-ctx" in diagnostic.message
 
 
 def test_design_delta_item_ctx_child_phase_reuse_route_rejects_non_item_ctx_root(
