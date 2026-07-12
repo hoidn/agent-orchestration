@@ -147,6 +147,19 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
+        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_loop_promoted_hook_carries_phase_ctx_bridge_inputs"
+      ],
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "path": "tests/fixtures/workflow_lisp/valid/design_delta_loop_promoted_hook_phase_ctx.orc",
+      "readiness_label": "leaf_compile_candidate",
+      "route_label": "wcc_default",
+      "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_loop_promoted_hook_phase_ctx",
+      "surface_kind": "test_fixture"
+    },
+    {
+      "copy_safety": "test_evidence_only",
+      "evidence": [
         "tests/test_workflow_lisp_source_map.py::test_source_map_records_branch_scoped_resume_identity_lineage"
       ],
       "lowering_route": "wcc_m4",
@@ -223,19 +236,6 @@
       "readiness_label": "leaf_compile_candidate",
       "route_label": "wcc_default",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_parent_calls_work_item",
-      "surface_kind": "test_fixture"
-    },
-    {
-      "copy_safety": "test_evidence_only",
-      "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_loop_promoted_hook_carries_phase_ctx_bridge_inputs"
-      ],
-      "lowering_route": "wcc_m4",
-      "lowering_schema_version": 2,
-      "path": "tests/fixtures/workflow_lisp/valid/design_delta_loop_promoted_hook_phase_ctx.orc",
-      "readiness_label": "leaf_compile_candidate",
-      "route_label": "wcc_default",
-      "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_loop_promoted_hook_phase_ctx",
       "surface_kind": "test_fixture"
     },
     {
