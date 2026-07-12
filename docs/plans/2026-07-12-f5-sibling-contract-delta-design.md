@@ -79,12 +79,26 @@ otherwise-unused `Path.state-root` workflow parameter. Under the dedicated
 profile, that variant must still produce a validated executable entry bundle
 and retain `low_level_state_path_in_high_level_module` as a machine-readable
 diagnostic, including its contract validation pass, frontend authority layer,
-and source/form provenance. Under the strict shared-callable profile, the same
-variant must fail closed on that diagnostic. These paired probes prove that the
-dedicated evidence surface retains rather than erases a non-promotable
-public-boundary finding and that strict public-boundary policy remains
-enforceable. They do not claim that the promoted route needs a profile-specific
-exception.
+and source/form provenance. The same variant must be exercised through this
+explicit policy matrix:
+
+- `validation_profile="DEDICATED_RUNTIME_PROOF"` with default lint succeeds,
+  builds the executable bundle, and retains the diagnostic. This is the owned
+  executable-retention evidence.
+- `validate_shared=True` (`SHARED_CALLABLE`) with default lint also succeeds and
+  retains the same diagnostic. `SHARED_CALLABLE` alone is not a rejection
+  policy.
+- `validate_shared=True` (`SHARED_CALLABLE`) together with
+  `lint_profile=LINT_PROFILE_STRICT` rejects the variant on that diagnostic.
+  This is the fail-closed public-boundary policy evidence.
+- `validation_profile="DEDICATED_RUNTIME_PROOF"` together with
+  `lint_profile=LINT_PROFILE_STRICT` also rejects. The dedicated profile does
+  not override strict lint severity.
+
+Validation profile and lint severity are independent inputs. These are paired
+policy probes, not a validation-profile differential: default lint retains the
+finding, while strict lint rejects it. They do not claim that the promoted route
+needs a profile-specific exception.
 
 The normal generic route separately carries machine-readable generated/private
 proof metadata on `LoweredWorkflow`:
@@ -138,8 +152,10 @@ contract-delta re-expression of the same obligations on the generic route.
 - Preserve machine-readable non-promotable boundary evidence with an in-memory
   negative boundary variant while accepting that the promoted fixture itself
   has no such finding.
-- Keep the strict shared-callable/public-boundary guard fail-closed on the same
-  negative variant; do not infer guard behavior from successful compilation.
+- Keep the public-boundary policy fail-closed on the same negative variant by
+  passing both `validate_shared=True` and
+  `lint_profile=LINT_PROFILE_STRICT`; do not imply that
+  `SHARED_CALLABLE` with default lint rejects.
 - Preserve the negative guarantee that authored parent-scope fallback refs
   cannot be made valid merely by adding them to compiler-owned allowance
   metadata.
@@ -171,9 +187,11 @@ Use the narrow data-and-test alignment approach:
 2. Retarget the stale runtime-proof assertions and mutations from the
    removed child workflow to the selected entry workflow's structurally located
    inline drain loop.
-3. Add a two-profile behavioral boundary probe over an in-memory source variant
-   so retained diagnostics and public-boundary rejection remain independently
-   observable.
+3. Add the paired lint-policy probes over an in-memory source variant so
+   retained diagnostics under default lint and public-boundary rejection under
+   the explicit `validate_shared=True` plus
+   `lint_profile=LINT_PROFILE_STRICT` invocation remain independently observable
+   across the profile/lint matrix.
 4. Preserve each test's semantic obligation while replacing child-call and
    child-name assertions with behavioral assertions about generic inline
    composition, parent-owned source lineage, generated nested-step validation,
@@ -217,8 +235,8 @@ The runtime-proof test changes must preserve the following obligations.
 
 | Existing intent | Generic-route assertion |
 | --- | --- |
-| Public-callable boundary validation remains fail-closed. | Successful compilation of the normal inline route is not the proof. An in-memory variant with an explicit low-level public boundary fails under strict shared-callable validation with `low_level_state_path_in_high_level_module`. |
-| Dedicated runtime proof retains non-promotable boundary evidence rather than erasing it. | The normal promoted fixture has an empty retained-diagnostic tuple. The same in-memory low-level-boundary variant compiles on the dedicated profile, builds the executable entry bundle, and retains the diagnostic with code, pass, authority, and source/form provenance. |
+| Public-callable boundary policy remains fail-closed. | Successful compilation is not the rejection proof. The low-level-boundary variant fails with `low_level_state_path_in_high_level_module` only when the probe passes both `validate_shared=True` (`SHARED_CALLABLE`) and `lint_profile=LINT_PROFILE_STRICT`. Shared/default succeeds and retains the same finding. |
+| Dedicated runtime proof retains non-promotable boundary evidence rather than erasing it. | The normal promoted fixture has an empty retained-diagnostic tuple. The same in-memory low-level-boundary variant compiles with `validation_profile="DEDICATED_RUNTIME_PROOF"` under default lint, builds the executable entry bundle, and retains the diagnostic with code, pass, authority, and source/form provenance. Dedicated/strict also rejects, confirming that strict lint is independent of validation profile. |
 | Dedicated runtime proof records generated/private metadata and source lineage. | The dedicated profile produces the executable entry bundle; runtime-proof name/ref metadata resolves only to source-mapped generated owners; and parent-owned origin/generated-path lineage covers the inline loop and terminal work. |
 | Generated nested structured steps are accepted on the sanctioned route. | A generated structured step copied into the actual inline repeat body and declared in compiler-owned nested-step metadata survives `validate_lowered_workflows` under `DEDICATED_RUNTIME_PROOF`. |
 | Authored parent-scope fallback refs remain rejected even when metadata lists them. | A fabricated authored fallback ref inserted into the inline repeat body still raises the established fail-closed diagnostic after the same owner/ref pair is added to both allowance collections. |
@@ -302,8 +320,9 @@ relationships, not full generated IDs or digest fragments.
 - The unmodified promoted fixture reports no non-promotable boundary finding;
   the explicit low-level-boundary test variant retains that finding as
   machine-readable metadata on the dedicated lane.
-- Strict shared-callable validation rejects that same low-level-boundary
-  variant; normal-route compile success cannot stand in for this negative.
+- The rejecting public-boundary probe passes both `validate_shared=True`
+  (`SHARED_CALLABLE`) and `lint_profile=LINT_PROFILE_STRICT`. Shared/default
+  succeeds and retains the same diagnostic; dedicated/strict also rejects.
 - Compiler-owned metadata may authorize compiler-generated nested structure;
   it may not authorize an authored invalid ref.
 - Frontend-only evidence remains non-executable.
@@ -322,8 +341,10 @@ relationships, not full generated IDs or digest fragments.
   lineage evidence with generated-name equality.
 - **Boundary variant loses its diagnostic:** fail the dedicated-profile test;
   do not treat an empty tuple from the negative variant as promotion evidence.
-- **Strict shared-callable boundary variant succeeds:** treat it as a guard
-  regression; do not replace the negative probe with a normal compile check.
+- **The probe with `validate_shared=True` and
+  `lint_profile=LINT_PROFILE_STRICT` succeeds:** treat it as a strict-policy
+  regression; do not replace the negative probe with a default-lint compile
+  check.
 - **Generated nested mutation rejected:** stop and investigate whether the
   mutation is actually marked compiler-generated on the owning parent route;
   do not add a production exception.
@@ -354,10 +375,12 @@ fixture source
 The registry is declarative inventory, not proof that compilation succeeds.
 Its row must cite the existing feasibility test. The frontend-only profile is a
 negative control, not executable evidence. The in-memory source variant proves
-diagnostic retention and strict public-boundary rejection; it is not a second
-fixture or an alternate compiler route. Mutated lowered mappings are focused
-validator probes, not alternate compiler implementations. They are valid only
-when based on the real parent-owned lowered route produced by the compiler.
+diagnostic retention under default lint and rejection when both
+`validate_shared=True` and `lint_profile=LINT_PROFILE_STRICT` are supplied; it
+is not a second fixture or an alternate compiler route. Mutated lowered mappings
+are focused validator probes, not alternate compiler implementations. They are
+valid only when based on the real parent-owned lowered route produced by the
+compiler.
 
 Review must confirm that no helper synthesizes a replacement child workflow,
 no test bypasses `compile_stage3_entrypoint`, and no assertion merely checks a
@@ -390,9 +413,12 @@ Then apply the changes in two small cycles:
 1. Add the single registry row and require both route-readiness tests to turn
    green. Run the existing feasibility evidence test named by the row.
 2. Retarget one runtime-proof obligation at a time without changing its semantic
-   assertion. Add the dedicated-versus-strict-shared boundary variant before
-   accepting empty diagnostics on the normal route. Run the full runtime-proof
-   module after each coherent mutation-helper change.
+   assertion. Add the full paired policy matrix before accepting empty
+   diagnostics on the normal route: dedicated/default and shared/default retain;
+   the rejecting public-boundary invocation supplies both `validate_shared=True`
+   and `lint_profile=LINT_PROFILE_STRICT`; dedicated/strict rejects as the
+   independence control. Run the full runtime-proof module after each coherent
+   mutation-helper change.
 
 Required fresh checks from the repository root:
 
@@ -450,9 +476,12 @@ zero intrinsic `backlog-drain` lowerings.
 ### Negative public-boundary and metadata scenarios
 
 Given the in-memory low-level-boundary variant, strict shared-callable
-compilation fails with the retained diagnostic's stable code. This, rather than
-successful compilation of the normal generic route, is the public-boundary
-guard evidence.
+compilation invoked with both `validate_shared=True` (`SHARED_CALLABLE`) and
+`lint_profile=LINT_PROFILE_STRICT` fails with the retained diagnostic's stable
+code. Shared/default succeeds and retains the same diagnostic, as does the
+dedicated/default executable-evidence invocation; dedicated/strict rejects.
+Validation profile and lint severity are independent, so this paired policy
+matrix—not a validation-profile differential—is the public-boundary evidence.
 
 Given the compiler-produced parent mapping, a test inserts an authored
 parent-scope fallback ref into the inline repeat body and also places the
@@ -495,7 +524,10 @@ schema work would enlarge the review surface without improving the contract.
 - All preserved proof obligations remain explicit and behavioral.
 - The normal fixture's empty retained-diagnostic result is paired with a
   dedicated-profile negative variant that retains structured diagnostic
-  metadata and a strict shared-callable run that fails closed on it.
+  metadata under default lint. The rejecting public-boundary run supplies both
+  `validate_shared=True` and `lint_profile=LINT_PROFILE_STRICT`; shared/default
+  retains successfully, and dedicated/strict rejects as the independence
+  control.
 - The fixture evidence, four-suite drain gate, checkpoint-identity canary, and
   composition/procedure canaries pass fresh.
 - The broad worksteal suite introduces no new failure identity.
@@ -521,9 +553,11 @@ normative spec, capability-status row, or roadmap status changes are part of the
 F5 implementation because executable behavior is unchanged. Task 1.7 must
 update the adapter-retirement design's G5E current-evidence note: the promoted
 fixture is boundary-clean, while an explicit negative variant carries the
-machine-readable retained-diagnostic and strict public-boundary evidence. Live
-execution status belongs in the governing roadmap ledger or SDD evidence
-record, not here.
+machine-readable retained-diagnostic under default lint. The rejecting
+public-boundary evidence supplies both `validate_shared=True` and
+`lint_profile=LINT_PROFILE_STRICT`; it is lint-policy evidence, not a claim that
+`SHARED_CALLABLE` with default lint rejects. Live execution status belongs in
+the governing roadmap ledger or SDD evidence record, not here.
 
 ## Implementation Handoff
 
@@ -535,9 +569,12 @@ record, not here.
 3. Edit only `tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py`; replace
    child-workflow selection with a fail-closed structural selector for the
    parent-owned inline repeat.
-4. Add the in-memory low-level-boundary variant and prove both dedicated
-   diagnostic retention and strict shared-callable rejection before accepting
-   the normal fixture's empty retained diagnostics.
+4. Add the in-memory low-level-boundary variant and prove the full policy matrix
+   before accepting the normal fixture's empty retained diagnostics:
+   dedicated/default retains and builds the executable bundle; shared/default
+   retains successfully; the rejecting invocation passes both
+   `validate_shared=True` and `lint_profile=LINT_PROFILE_STRICT`; and
+   dedicated/strict rejects as the independence control.
 5. Retarget each stale test while preserving the obligation table.
 6. Run the narrow, drain integration, canary, and broad worksteal gates.
 7. Review the diff for prohibited paths, digest-pinned identities, fixed list
