@@ -491,11 +491,18 @@ def _parent_backlog_drain_loop_step(parent):
 def _assert_parent_uses_generic_shared_terminal_lane(parent) -> None:
     """Assert the generic settle-drain-terminal lane lowered into the parent.
 
-    Mirrors the intrinsic-route `_assert_child_backlog_drain_uses_shared_terminal_lane`
-    checks on the generic route's lowered shape: per-terminal-case transition +
+    Ports every intrinsic-route `_assert_child_backlog_drain_uses_shared_terminal_lane`
+    check onto the generic route's lowered shape: per-terminal-case transition +
     summary materialization (consume-drain-terminal-effects) and the finalize
-    projection, both matching on the loop's terminal variant.
+    projection (finalize-drain-terminal), both matching on the loop's terminal
+    variant, with exact per-case request-binding refs, has_blocker flags,
+    run-state absence, finalize artifact sourcing, and lane lineage.
     """
+    loop_step = _parent_backlog_drain_loop_step(parent)
+    assert loop_step["name"].endswith("__loop")
+    loop_result_ref = (
+        f"root.steps.{loop_step['name'][: -len('__loop')]}__result.artifacts."
+    )
     consume_step = next(
         step
         for step in parent.authored_mapping["steps"]
@@ -513,7 +520,13 @@ def _assert_parent_uses_generic_shared_terminal_lane(parent) -> None:
             "BLOCKED",
             "EXHAUSTED",
         )
-        assert match_step["match"]["ref"].endswith(".artifacts.return__variant")
+        assert match_step["match"]["ref"] == f"{loop_result_ref}return__variant"
+    recorded_variants = {
+        "EMPTY": "EMPTY",
+        "COMPLETED": "COMPLETED",
+        "BLOCKED": "BLOCKED",
+        "EXHAUSTED": "BLOCKED",
+    }
     for case_name in ("EMPTY", "COMPLETED", "BLOCKED", "EXHAUSTED"):
         case_steps = consume_step["match"]["cases"][case_name]["steps"]
         transition_step = next(step for step in case_steps if "resource_transition" in step)
@@ -523,7 +536,69 @@ def _assert_parent_uses_generic_shared_terminal_lane(parent) -> None:
             summary_step["name"]
         )
         request_bindings = transition_step["resource_transition"]["request_bindings"]
-        assert request_bindings["variant"] in ("EMPTY", "COMPLETED", "BLOCKED")
+        assert request_bindings["variant"] == recorded_variants[case_name]
+        assert request_bindings["items_processed"] == {
+            "ref": f"{loop_result_ref}return__items_processed"
+        }
+        assert request_bindings["progress_report_path"] == {
+            "ref": f"{loop_result_ref}return__progress_report_path"
+        }
+        assert "run_state" not in request_bindings
+        if case_name in ("BLOCKED", "EXHAUSTED"):
+            assert request_bindings["has_blocker"] is True
+            assert request_bindings["blocker_class"] == {
+                "ref": f"{loop_result_ref}return__blocker_class"
+            }
+        else:
+            assert request_bindings["has_blocker"] is False
+            assert request_bindings["blocker_class"] == "missing_resource"
+        finalize_case_steps = finalize_step["match"]["cases"][case_name]["steps"]
+        result_step = next(
+            step for step in finalize_case_steps if "materialize_artifacts" in step
+        )
+        result_values = result_step["materialize_artifacts"]["values"]
+        assert all(value["name"] != "return__run-state" for value in result_values)
+        variant_value = next(
+            value for value in result_values if value["name"] == "return__variant"
+        )
+        assert variant_value["source"] == {"literal": recorded_variants[case_name]}
+        if case_name in ("BLOCKED", "EXHAUSTED"):
+            progress_value = next(
+                value
+                for value in result_values
+                if value["name"] == "return__progress-report-path"
+            )
+            assert progress_value["source"] == {
+                "ref": f"{loop_result_ref}return__progress_report_path"
+            }
+            blocker_value = next(
+                value
+                for value in result_values
+                if value["name"] == "return__blocker-class"
+            )
+            assert blocker_value["source"] == {
+                "ref": f"{loop_result_ref}return__blocker_class"
+            }
+        if case_name == "COMPLETED":
+            items_value = next(
+                value
+                for value in result_values
+                if value["name"] == "return__items-processed"
+            )
+            assert items_value["source"] == {
+                "ref": f"{loop_result_ref}return__items_processed"
+            }
+    hidden_inputs = set(parent.origin_map.internal_input_spans)
+    assert any(
+        "consume_drain_terminal_effects" in input_name
+        and input_name.endswith("__outcome__result_bundle")
+        for input_name in hidden_inputs
+    )
+    generated_paths = set(parent.origin_map.generated_path_spans)
+    assert any(
+        path.endswith("record-drain-outcome-audit.jsonl") for path in generated_paths
+    )
+    assert "state/drain-run-state.json" not in repr(parent.authored_mapping)
 
 
 def _parent_settle_terminal_result_ref(parent, artifact: str) -> str:
