@@ -55,13 +55,15 @@ tmux new-session -d -s f5-prechange-baseline \
 ```
 
 Monitor through tmux until the command exits; do not run a blocking foreground wait. Record
-the exit code, totals, and every categorized full node id from lines beginning `FAILED ` or
-`ERROR `. Materialize the identity set deterministically, preserving the category so a
-failure-to-error transition is visible:
+the exit code, totals, and every categorized pytest summary identity whose line begins
+`FAILED ` or `ERROR ` and whose payload begins with `tests/`. Application logging lines such
+as `ERROR    orchestrator.workflow.executor...` are not pytest identities and must be
+excluded. Materialize the identity set deterministically, preserving the category so a
+failure-to-error transition is visible and accepting multiple spaces after the category:
 
 ```bash
-rg '^(FAILED|ERROR) ' tmp/f5-prechange-broad-baseline.txt \
-  | sed -E 's/^(FAILED|ERROR) ([^ ]+).*/\1 \2/' \
+rg '^(FAILED|ERROR) +tests/[^ ]+' tmp/f5-prechange-broad-baseline.txt \
+  | sed -E 's/^(FAILED|ERROR) +(tests\/[^ ]+).*/\1 \2/' \
   | sort -u > tmp/f5-prechange-failure-identities.txt
 printf '%s\n' \
   'FAILED tests/test_workflow_lisp_route_readiness.py::test_checked_in_registry_loads_and_validates' \
@@ -91,6 +93,11 @@ if [ "$pre_rc" -ne 1 ]; then
 fi
 if [ ! -s tmp/f5-prechange-failure-identities.txt ]; then
   echo "red prechange run has no categorized pytest identities"
+  exit 1
+fi
+if rg -v '^(FAILED|ERROR) tests/[^ ]+$' \
+  tmp/f5-prechange-failure-identities.txt; then
+  echo "prechange identity extraction contains a non-pytest row"
   exit 1
 fi
 if [ -n "$(comm -23 \
@@ -804,9 +811,14 @@ tmux new-session -d -s f5-postchange-verification \
 After the session exits, compare full identities mechanically:
 
 ```bash
-rg '^(FAILED|ERROR) ' tmp/f5-postchange-broad-verification.txt \
-  | sed -E 's/^(FAILED|ERROR) ([^ ]+).*/\1 \2/' \
+rg '^(FAILED|ERROR) +tests/[^ ]+' tmp/f5-postchange-broad-verification.txt \
+  | sed -E 's/^(FAILED|ERROR) +(tests\/[^ ]+).*/\1 \2/' \
   | sort -u > tmp/f5-postchange-failure-identities.txt
+if rg -v '^(FAILED|ERROR) tests/[^ ]+$' \
+  tmp/f5-postchange-failure-identities.txt; then
+  echo "postchange identity extraction contains a non-pytest row"
+  exit 1
+fi
 pre_rc=$(cat tmp/f5-prechange-exit-code.txt)
 post_rc=$(cat tmp/f5-postchange-exit-code.txt)
 case "$pre_rc" in 0|1) ;; *) echo "abnormal prechange pytest exit: $pre_rc"; exit 1 ;; esac
@@ -835,14 +847,15 @@ fi
 
 Expected: both runs have normal pytest summaries. The post-change categorized set must equal
 the pre-change set minus exactly the six named F5 failures—no additions, unrelated removals,
-or `FAILED`/`ERROR` category changes. Post-change exit must be `0` iff that expected set is
-empty, otherwise `1`. The generated-nested test is renamed during Task 2; its old failing
-node id is still one of the six expected removals, while its new passing node id does not
-enter any failure set. Any abnormal/no-summary termination, truncated output, missing exit
-file, crash, interrupt, signal, OOM, identity diff, or unexpected unrelated fix leaves the
-broad gate red until fixed or the design is revised. Never weaken or silently accept it.
-Save both tmux commands, exit codes, totals, and identity files in the evidence record. Do
-not stage the ignored/local `tmp/` files.
+or `FAILED`/`ERROR` category changes. Every compared row must match
+`^(FAILED|ERROR) tests/`; application `ERROR` logs never enter either set. Post-change exit
+must be `0` iff that expected set is empty, otherwise `1`. The generated-nested test is
+renamed during Task 2; its old failing node id is still one of the six expected removals,
+while its new passing node id does not enter any failure set. Any abnormal/no-summary
+termination, truncated output, missing exit file, crash, interrupt, signal, OOM, identity
+diff, or unexpected unrelated fix leaves the broad gate red until fixed or the design is
+revised. Never weaken or silently accept it. Save both tmux commands, exit codes, totals,
+and identity files in the evidence record. Do not stage the ignored/local `tmp/` files.
 
 - [ ] **Step 5: Audit the pinned implementation range for prohibited diffs**
 
