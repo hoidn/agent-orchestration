@@ -693,6 +693,15 @@ not an isolated teaching example.
 
 ## 12. Compatibility And Migration
 
+Status note (2026-07-12): the `backlog-drain` conversion path is implemented
+through the `std/drain` generic procedure and macro on the ordinary
+import/specialization/WCC route. The Design Delta consumer owns the inline
+`repeat_until` and terminal reprojection in its parent workflow; it does not
+delegate the loop to a generated child workflow. Consumer parity and the F5
+boundary contract are green. This is not intrinsic retirement: the legacy
+phase-drain lowering, form-specific specialization, and name-keyed validation
+paths remain until the gated Phase 2 deletion pass.
+
 Existing YAML workflows remain valid. The `.orc` family may keep
 compatibility bridges for YAML-era files while parity requires them. Those
 bridges must be labeled and generated from typed values, not manually

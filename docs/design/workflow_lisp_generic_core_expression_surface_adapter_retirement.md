@@ -1168,13 +1168,16 @@ stdlib-name special case.
 Current evidence note:
 
 - `tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py` is the owned G5E
-  proof lane. It proves that the imported `std/drain` fixture can compile on
-  the explicit dedicated runtime-proof profile, produce a validated executable
-  bundle, preserve source-map and certified command-boundary evidence, and
-  retain non-promotable boundary diagnostics as machine-readable metadata.
-- The same module separately keeps the shared-callable/public-boundary guard
-  lane red on generated structured-match boundary rules, so G5E evidence does
-  not count as parent-callable readiness or G7 cleanup.
+  proof lane. Its normal promoted fixture is boundary-clean on the
+  parent-owned inline generic route and produces a validated executable bundle
+  while preserving source-map and certified command-boundary evidence.
+- The module's explicit in-memory low-level-boundary variant retains the
+  machine-readable `low_level_state_path_in_high_level_module` warning under
+  default lint for both `SHARED_CALLABLE` and `DEDICATED_RUNTIME_PROOF`.
+  Strict lint rejects that variant for both profiles. Generated runtime-proof
+  metadata remains a separate source-mapped allowance surface; it does not
+  turn an authored parent reference into generated structure or make the
+  normal promoted fixture diagnostic-bearing.
 
 ### 15.1G Prerequisite: Imported Generic Loop-State Future-Consumer Proof
 

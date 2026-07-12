@@ -617,6 +617,15 @@ Prerequisites, in order:
    `typecheck_dispatch.py`, which may be deleted immediately and
    independently of this tranche).
 
+Current status (2026-07-12): prerequisites 3–5 are landed. The authored
+`std/drain` generic body runs on the ordinary imported/specialized/WCC route,
+the reviewed checkpoint-identity remap is recorded, and consumer parity plus
+shared obligation relocation (including the F5 parent-owned inline-route
+contract) are green. Prerequisite 6 is not landed: the intrinsic lowering,
+form-specific specialization, and name-keyed validation residue remain until
+the separately gated Phase 2 retirement in
+`docs/plans/2026-07-07-drain-migration-g8-retirement.md`.
+
 Expected residue on the order of the review loop's (registry entry, stdlib
 contract, output-contract shaping). Residue materially above that is a signal
 to stop and reassess against the per-form migration test rather than push
