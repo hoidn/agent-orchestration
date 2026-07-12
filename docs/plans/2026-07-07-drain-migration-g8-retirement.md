@@ -63,7 +63,7 @@ Record fresh command output under each gate before dispatching the phase. A gate
 2. Drain-region files clean: `git status --porcelain orchestrator/workflow_lisp/ | grep -E "phase_drain|drain_terminal|typecheck_drain_phase|typecheck_calls|defunctionalize"` → empty.
 
 **Gate P2 (entry to Phase 2 — the redundancy proof; design prerequisites 3–5 green):**
-1. Phase 1 Tasks 1.1–1.7 committed.
+1. Phase 1 Tasks 1.1–1.7, including Task 1.6a, committed.
 2. **Identity (prereq 4):** `pytest tests/test_workflow_lisp_checkpoint_identity_comparison.py -v` → PASS with the generic route active, against the recorded **intrinsic-route** baselines; the Phase-1 ledger entry in this file states either "identical" or cites the reviewed identity-migration commit. Design: checkpoint ids "unchanged across the intrinsic-to-generic route swap, or an explicit reviewed identity-migration step remaps persisted records".
 3. **Parity (prereq 5):** `pytest tests/test_workflow_lisp_drain_stdlib.py tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py tests/test_lisp_frontend_autonomous_drain_runtime.py -q` → at Task-1.1 recorded baselines (contract deltas documented in the Task 1.6 census).
 4. **Certification lane green on the generic route:** the production compile command (Task 1.6 Step 4) exits 0 and the freshest `g8_deletion_evidence.json` reports `"status": "pass"`.
@@ -175,9 +175,19 @@ python -m orchestrator migration-parity --targets-file workflows/examples/inputs
 Expected: suites at Task-1.1 baselines; compile exits 0 with all fail-closed census gates (value-flow, consumer-rendering, resume-plumbing, transition-authoring, compatibility-bridge, boundary-authority) green on the generic route; parity exits 0 with `"non_regressive": true`. The autonomous-drain runtime suite is end-to-end consumer evidence — failures there are real parity breaks, not contract deltas.
 Commit: `Move drain obligations to shared surfaces with parity evidence` (explicit file list).
 
+### Task 1.6a: F5 sibling contract-delta sweep (required before documentation sync)
+
+- [ ] Execute the approved [F5 sibling contract-delta design](2026-07-12-f5-sibling-contract-delta-design.md) through the detailed [F5 sibling contract-delta implementation plan](2026-07-12-f5-sibling-contract-delta-plan.md) using Subagent-Driven Development.
+- Scope is exact until closure documentation: add the one promoted-hook fixture row in `docs/workflow_lisp_route_readiness_registry.json` and retarget only `tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py` from the retired child-callable representation to the parent-owned inline generic route. No production, stdlib, fixture, frozen migration, baseline, parity-target/report, or generated-artifact edit is permitted.
+- Required gates: route-readiness registry plus CLI and cited feasibility evidence; full runtime-proof module with the four-case validation/lint matrix; the two directly affected modules; Task-1.6 four-suite gate; checkpoint identity; generic composition plus procedures; broad `pytest -q -n 16 --dist=worksteal` in tmux; prohibited-diff audit; spec and quality reviews.
+- Durable proof obligations: fail-closed unique structural selection of the inline repeat; normal-fixture empty retained diagnostics paired with an in-memory low-level-boundary variant; dedicated/default and shared/default retain the structured finding; shared/strict and dedicated/strict reject; compiler-owned generated metadata resolves to source-mapped owners; generated nested structure validates; authored parent-ref fallback remains rejected even if both allowance collections list it.
+- This governing plan is prose- and gate-led: no machine-readable selector or manifest enumerates its Phase 1 task numbers, so there is no routing-state companion edit. Historical `state/**/manifest.json` files are provenance for other drains and remain untouched.
+
+Commit implementation in the two-file scope as the detailed plan prescribes; after all gates and both reviews pass, record the evidence in the Phase 1 Ledger and commit the roadmap-only closure as `Record F5 sibling contract evidence`. Do not claim Task 1.7 or Gate P2 complete from this sweep.
+
 ### Task 1.7: Documentation sync and integration evidence
 
-Execute the 2026-07-06 plan's **Task 8** minus any retirement claims (the intrinsic still exists — record Tranche 2 prerequisites 3–5 as landed, prerequisite 6 as gated on this plan's Phase 2): update `docs/design/workflow_lisp_parametric_type_system.md` status parentheticals, `docs/design/workflow_lisp_runtime_native_drain_authoring.md` §12 status note, `docs/capability_status_matrix.md`. Integration evidence per repo rule:
+Execute the 2026-07-06 plan's **Task 8** minus any retirement claims (the intrinsic still exists — record Tranche 2 prerequisites 3–5 as landed, prerequisite 6 as gated on this plan's Phase 2): update `docs/design/workflow_lisp_parametric_type_system.md` status parentheticals, `docs/design/workflow_lisp_runtime_native_drain_authoring.md` §12 status note, `docs/capability_status_matrix.md`. Reconcile the G5E current-evidence note in `docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md` with the accepted F5 contract: the promoted fixture is boundary-clean; an explicit in-memory low-level-boundary variant retains the machine-readable diagnostic under default lint; and rejection requires strict lint for both shared-callable and dedicated-runtime-proof profiles. Do not reintroduce a child workflow or describe `SHARED_CALLABLE` with default lint as a rejection policy. Integration evidence per repo rule:
 ```bash
 python -m orchestrator run workflows/examples/lisp_frontend_design_delta_drain.yaml --dry-run
 ```
