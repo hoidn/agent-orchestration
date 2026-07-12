@@ -151,7 +151,7 @@ Commit: `Author generic backlog-drain loop body in std/drain`.
 
 Execute the 2026-07-06 plan's **Task 5** as written: re-target `defmacro backlog-drain` in `std/drain.orc` onto `(settle-drain-terminal (backlog-drain-proc …))` with the keyword surface and argument order unchanged; convert the three production hooks (`stdlib_adapters.orc`, `work_item.orc`) per the Task-1.2-validated shape; `git diff workflows/library/lisp_frontend_design_delta/drain.orc` must be **empty** (byte-stable call site is a review gate).
 
-- [ ] **THE GATE (explicit STOP-on-mismatch rule):** run `pytest tests/test_workflow_lisp_checkpoint_identity_comparison.py -v` — the freshness tests now compare the **generic route** against the Task-1.3 intrinsic-route baselines.
+- [x] **THE GATE (explicit STOP-on-mismatch rule):** run `pytest tests/test_workflow_lisp_checkpoint_identity_comparison.py -v` — the freshness tests now compare the **generic route** against the Task-1.3 intrinsic-route baselines. *(DIFFERED — 70→100 rows, fully classified in 1.5c report §5; user adjudicated 2026-07-11 option (b) remap route, evidence-based, then land-now-certify-in-1.6 sequencing; reviewed remap landed as `6a28ddd4` — see "Task 1.5 identity remap adjudication + landing record" below.)*
   - **Identical → record "identical" in the Phase 1 Ledger and proceed.**
   - **Any difference → BLOCKED. Do not commit the re-target.** Produce the row-level diff (which `(workflow, origin_key)` checkpoint ids changed/appeared/vanished), attach it to the ledger, and present the human the design's two sanctioned options: (a) make the generic route reproduce the intrinsic's generated-step identities; (b) "an explicit reviewed identity-migration step remaps persisted records" (design, Specialization Pipeline). **Neither is chosen unilaterally.** Resume runs of consuming workflows depend on these ids; a silent identity break is the failure mode this gate exists to catch.
 
@@ -861,3 +861,117 @@ carries the oracle effect sets) under the standing identity protocol — the ide
 that future gate read (1.5b report F3): the earlier §5 promoted-bundle identity predictions
 were derived from promotable minimal hooks and do NOT apply if real bodies lower inline —
 read the eventual row table on its own evidence.
+
+### Task 1.5 identity remap adjudication + landing record (2026-07-11)
+
+**(a) Adjudications (user, 2026-07-11, two rulings).** First: THE GATE's row diff resolved as
+**option (b) — remap route, evidence-based**: adopt the promoted `%…v1` identities produced by
+the generic route; regenerate the design-delta identity baseline post-swap as a reviewed
+migration step; record the zero-exposure persisted-state scan as the remap evidence (the remap
+table is EMPTY); regenerate the transition-authoring allowlist manifest in the same reviewed
+step. This lifted exactly two freezes:
+`tests/baselines/drain_checkpoint_identity/design_delta_drain.json` (exemplar stays untouched)
+and `design_delta_parent_drain.transition_authoring.json` (minimal, purpose-preserving).
+Second (same day, after the census-gate cascade discovery below): **sequencing =
+land-now-certify-in-1.6** — the swap+baseline+manifest commit lands with the P2-exit-0
+requirement removed from the landing gate set; Task 1.6 greens the certification lane. Two
+census sub-decisions are named and **explicitly deferred to Task 1.6 for census-level
+treatment and user adjudication there, not decided here**: (1) regenerating
+boundary-authority/value-flow evidence would place span-sensitive parametric digest hex into
+PRODUCTION exact-match keys for the first time (checkout-location-sensitive P2 compile);
+(2) the promoted `%work_item.…run-selected-item-stdlib.v1` is not a family-profile target
+workflow, so the 22 boundary-authority rows keyed by the old run-item identity would LEAVE the
+checked surface (deletion, not re-key) unless the profile's target set gains the promoted
+identity.
+
+**(b) Gate classification summary** (full row table: `.superpowers/sdd/task-1.5c-report.md` §5;
+machine-readable diff preserved as scratchpad `gate_row_diff.json`): baseline 70 rows → live
+100 rows; **38 unchanged / 0 changed-in-place / Class A: 30 vanished ↔ 30 appeared one-to-one
+promoted re-key** (`%stdlib_adapters.…select-next-work-stdlib.v1`,
+`%stdlib_adapters.…draft-design-gap-stdlib.v1`, `%work_item.…run-selected-item-stdlib.v1`) /
+**Class B: 2 → 16 terminal restructure** (intrinsic terminal + intrinsic child replaced by
+generic-loop rows + 14 settle-drain-terminal expansion rows) / **Class C: +16 bundle-set
+expansion** (finalizer + phase-helper bundles now separately validated). Zero changed-in-place
+rows = no identity drift on any untouched workflow.
+
+**(c) Zero-exposure scan (the empty-remap evidence).** All 32 vanished checkpoint ids
+extracted from `gate_row_diff.json` (scratchpad `vanished_ids.txt`). Persisted checkpoint
+records live under `.orchestrate/runs/<run>/workflow_lisp/checkpoints/` as
+`index/ckpt:<id>.json` + `records/ckpt:<id>/record:*.json`. Across ALL in-repo run state only
+FIVE ckpt ids exist as persisted records (runs 20260615T010145Z-xl2f1b,
+20260617T225133Z-mey25t): `12b0c09084888034c3b6643f`, `612454f9eb48b18f6709868d`,
+`9e96d2cdde6051d0bdfabc50`, `d2553c2c3a954e553e791195`, `d9f8da44ae6b7bc2d61346d6` — zero
+intersection with the vanished set (checked by filename AND content grep; reproduced fresh at
+landing, 2026-07-11). External trees `/home/ollie/Documents/PtychoPINN/.orchestrate`,
+`/home/ollie/Documents/ptychopinnpaper2/.orchestrate`,
+`/home/ollie/Documents/EasySpin/.orchestrate`: zero `ckpt:*` checkpoint files, zero content
+matches (reproduced fresh at landing). Frozen `state/` dirs: zero content matches. Only other
+appearances of vanished ids: `logs/ExecuteImplementation.stderr` diagnostic echoes (not
+resumable state) and the committed superseded build artifacts under
+`.orchestrate/build/24798cac21228fe6/`. **No persisted checkpoint record anywhere is keyed by
+a vanished identity — the remap table is empty.**
+
+**(d) Digest span-sensitivity caveat.** Class B loop rows and Class C finalizer rows embed
+`repr(TypeRef)`-derived parametric digests (`1d96b1db061e.7ae4672feb00`, `526af52fe5a8` in
+this tree) that hash absolute-path SourceSpans: deterministic within a fixed tree (every
+digest-embedded id reproduced byte-identically between the 1.5c gate run and the 1.5d landing
+regeneration), NOT stable across checkouts/paths. Repo-root invocation is the stability
+convention for the identity suite. Backlog item: make digest inputs span-insensitive —
+**escalated** by the cascade discovery: extending the remap to boundary-authority/value-flow
+manifests would move this sensitivity from test baselines into production compile gates
+(deferred sub-decision (1) above).
+
+**(e) Baseline + manifest regeneration record.**
+- Baseline: regenerated with the identity suite's own `_identity_map_for` machinery from the
+  repo root, serialization preserved (sorted keys, indent 2, trailing newline). Pre-write
+  cross-check against the 1.5c live map passed exactly: 100 rows; 38 shared keys with
+  byte-identical ids; 32 vanished and 62 appeared matching `gate_row_diff.json` by key AND id.
+  Exemplar baseline byte-untouched (verified; the exemplar fixture imports nothing, so its
+  `backlog-drain` head elaborates through the intrinsic route the swap does not touch).
+- Manifest: ONE row added, nothing removed or altered —
+  `low_level.imported_drain_terminal_effects` (`step_kind: resource_transition`,
+  `step_id_contains: "std_drain_consume_drain_terminal_effects_"`), sanctioning the generic
+  route's four imported settle-terminal `outcome` transitions authored in `std/drain.orc`;
+  keyed on the stable stdlib helper name (no digest hex, no occurrence index), mirroring the
+  existing `low_level.imported_finalize_selected_item` convention. Post-retarget live report:
+  `status: pass`, 0 violations / 0 extra / 0 stale / 0 source-shape.
+- **Correction to the 1.5c §4 transition-authoring mechanism (recorded so the ledger carries
+  the corrected record):** the promoted re-key did NOT unmatch run-item's allowlist rows —
+  those rows key on `module_name` + step-id substring, which survive promotion, and zero rows
+  went stale. The actual `ordinary_body_violations` were the four imported
+  `…std_drain_consume_drain_terminal_effects_1__match_terminal__{empty,completed,blocked,exhausted}__outcome`
+  transitions misattributed to the high-level drain module because
+  `_module_name_from_path` only recognizes design-delta library paths — not run-item row
+  unmatching.
+
+**(f) Production fingerprint + certification-lane state (Task 1.6 Step 4 input).**
+**Certification lane red at frozen census gates pending Task 1.6; fingerprint
+unchanged-as-stale at `24798cac21228fe6`** (no new fingerprint minted at this commit — the
+post-swap P2 compile fail-closes before fingerprinting). Sequential unmasking order of the
+census gates against the swapped route (each fail-closed gate masks every gate behind it;
+this ordering is the certification input Task 1.6 Step 4 consumes):
+1. transition-authoring — **green** (fixed by this landing's manifest row);
+2. boundary-authority — **red, next blocker**: `workflow_boundary_authority_unclassified`;
+   22 stale rows (all `lisp_frontend_design_delta/work_item::run-selected-item-stdlib`) +
+   11 missing `lisp_frontend_design_delta/drain::drain` `managed_write_root` rows, 6 of them
+   digest-embedded (`design_delta_parent_drain.boundary_authority.json`);
+3. value-flow census — **red, proven by probe** (temporary mechanically regenerated registry,
+   restored after): `value_flow_census_invalid`, missing + stale `compiled_boundary::…`
+   checked rows (`design_delta_parent_drain.value_flow_census.json`);
+4. not yet reached, grep-proven old-identity exposure:
+   `design_delta_parent_drain.consumer_rendering_census.json`,
+   `design_delta_parent_drain.compatibility_bridges.json`,
+   `design_delta_parent_drain.family_profile.json`.
+Landing-commit gate evidence (all fresh at `6a28ddd4`): identity suite **3 passed** against
+the regenerated baseline; composition+procedures **151 passed** (16+135); drain_stdlib +
+feasibility **36 failed / 124 passed** — failure identities exactly the 1.5c §4 classes with
+the two `transition_authoring_invalid` flips now dying one gate later as
+`workflow_boundary_authority_unclassified`
+(`test_design_delta_parent_drain_build_and_execution_smoke_emit_default_resume_artifact`,
+`test_design_delta_parent_drain_public_input_only_cli_dry_run_still_fails_without_runtime_owned_hidden_bindings`);
+full inventory in `.superpowers/sdd/task-1.5d-report.md` §4.3. Consumer-suite contract deltas
+(including `tests/test_workflow_lisp_transition_authoring.py`'s literal-manifest asserts)
+remain Task 1.6 work. Landed as `6a28ddd4`
+(`Re-target backlog-drain macro onto the generic proc`: `std/drain.orc` macro swap +
+`stdlib_adapters.orc`/`work_item.orc` hook conversion + regenerated baseline + manifest row;
+`drain.orc` call site byte-stable, diff empty).
