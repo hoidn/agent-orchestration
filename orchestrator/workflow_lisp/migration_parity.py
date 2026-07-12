@@ -1602,7 +1602,7 @@ def _parent_loop_control_reasons(
         and has_projection
     )
     has_promoted_owner_route = any(
-        promoted_exact_aliases.issubset(_core_ast_call_aliases(repeat_node))
+        promoted_exact_aliases.issubset(_core_ast_repeat_scope_call_aliases(repeat_node))
         for repeat_node in repeat_nodes
     )
     has_supported_owner_route = (
@@ -1615,6 +1615,33 @@ def _parent_loop_control_reasons(
     if not has_supported_owner_route or has_legacy_selector_action:
         return [reason]
     return []
+
+
+def _core_ast_repeat_scope_call_aliases(repeat_node: Mapping[str, object]) -> list[str]:
+    """Collect call aliases owned by one repeat without entering nested repeats."""
+
+    aliases: list[str] = []
+
+    def collect(node: object, *, repeat_root: bool = False) -> None:
+        if isinstance(node, Mapping):
+            if not repeat_root and str(node.get("kind")) == "repeat_until":
+                return
+            alias = node.get("call_alias")
+            if isinstance(alias, str):
+                aliases.append(alias)
+            workflow_call = node.get("workflow_call")
+            if isinstance(workflow_call, Mapping):
+                workflow = workflow_call.get("workflow")
+                if isinstance(workflow, str):
+                    aliases.append(workflow)
+            for value in node.values():
+                collect(value)
+        elif isinstance(node, list):
+            for item in node:
+                collect(item)
+
+    collect(repeat_node, repeat_root=True)
+    return aliases
 
 
 def _core_ast_call_aliases(node: object) -> list[str]:
