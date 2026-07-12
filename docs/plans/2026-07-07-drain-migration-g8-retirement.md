@@ -975,3 +975,195 @@ remain Task 1.6 work. Landed as `6a28ddd4`
 (`Re-target backlog-drain macro onto the generic proc`: `std/drain.orc` macro swap +
 `stdlib_adapters.orc`/`work_item.orc` hook conversion + regenerated baseline + manifest row;
 `drain.orc` call site byte-stable, diff empty).
+
+### Task 1.6 obligation census + consumer-parity record (2026-07-12; Step 4 OPEN — three machinery-level parity breaks pending adjudication)
+
+**(a) Certification-lane state.** All six fail-closed census gates are GREEN on the generic
+route: P2 production compile exit 0, `diagnostic_count: 0`, **NEW production fingerprint
+`c5cf03b2755308a3`** (replaces stale `24798cac21228fe6` as the certification anchor);
+`g8_deletion_evidence.json` `"status": "pass"`. Landed as: manifest re-keys `4e1a4c6b`
+(`Re-key drain evidence manifests onto generic-route identities`), consumer fixture
+conversions `c8ed7ab7`, consumer test retargets `5059c9e8`. The Task 1.6 **Step 4 checkbox
+stays UNCHECKED**: the four-suite lane is not fully green and the migration-parity gate is
+red — every remaining red reduces to one of three characterized machinery-level parity
+breaks (item (f)), not a contract delta; full evidence (including the parity-lane result)
+in `.superpowers/sdd/task-1.6-report.md`.
+
+**(b) Obligation census — where each drained obligation now lives (prereq-5 rule:
+shared validation surfaces, not the generic body).** No obligation moved into the generic
+body; no design conflict raised. Movements, all mechanically regenerated from compiled
+generic-route evidence via each gate's own machinery (scratchpad scripts
+`regen_boundary_authority_16.py` — the gate's
+`build_design_delta_boundary_authority_expected_rows` — `regen_value_flow_census_16.py`,
+`rekey_consumer_rendering_16.py`, each with abort guards limiting deletions to the
+adjudicated identity; never hand-invented):
+1. `design_delta_parent_drain.boundary_authority.json`: 143 → 132 rows. −22 stale rows
+   (ruling 2, item (c)) + 11 regenerated `lisp_frontend_design_delta/drain::drain`
+   `managed_write_root` rows (authority class `generated_internal` forced by the gate's
+   leak rules): 6 generic-loop write roots (digest-embedded, ruling 3) + 5
+   settle-terminal write roots.
+2. `design_delta_parent_drain.value_flow_census.json`: 180 → 169 rows. −22/+11
+   `compiled_boundary::…` checked rows mirroring (1); coverage `workflow_surfaces` drops
+   the now-rowless `lisp_frontend_design_delta/work_item::run-selected-item-stdlib` and
+   `std/drain::backlog-drain` (loader fail-closes on rowless surfaces); U0 row
+   `std_drain.materialized.shared_drain_result_summary` re-keyed from the synthesized
+   `std/drain::backlog-drain` child surface onto the parent
+   `lisp_frontend_design_delta/drain::drain` surface (obligation relocation: the shared
+   drain-summary timed view is now expressed by the settle-drain-terminal match-terminal
+   effects on the parent).
+3. `design_delta_parent_drain.consumer_rendering_census.json`: 65 → 64 rows. C0 row
+   `c0.std_drain_materialized_shared_drain_result_summary` re-keyed with (2)'s U0 row
+   (surface + `step_id_suffix` `__shared_drain_result__summary` →
+   `__materialize_view__drain_summary`); C0 row
+   `c0.work_item_summary_summary_path_compiled_boundary` DELETED as a forced ruling-2
+   cascade (item (c)).
+4. `design_delta_parent_drain.resume_plumbing_retirement.json`: `source_census.fingerprint`
+   refreshed to the regenerated value-flow census sha256 (the gate cross-checks it).
+5. transition-authoring: already landed in Task 1.5 (`low_level.imported_drain_terminal_effects`).
+6. compatibility-bridges + family-profile manifests: NO changes needed — their gates pass
+   against generic-route evidence unchanged (their `run-selected-item-stdlib` grep hits are
+   module/step-substring keys that survive promotion). The family-profile target set was
+   NOT extended to `%work_item.…v1` (ruling 2).
+
+**(c) Ruling-2 deletion record (user-adjudicated verification narrowing; recorded, not
+silently absorbed).** All 22 deleted boundary-authority rows keyed
+`lisp_frontend_design_delta/work_item::run-selected-item-stdlib`: **16 managed_write_root**
+(the run-item candidate's approved/blocked/exhausted lane write-root bundle paths), **5
+runtime_context_input** (`item-ctx__{artifact-root,ledger,run__artifact-root,run__state-root,state-root}`),
+**1 flattened_output** (`return__summary-path`). (The 1.5d §3 sub-count "17 managed_write_root"
+summed to 23 and was off by one; the adjudicated and landed total is 22, verified 16/5/1
+against `4e1a4c6b`.) Why: post-swap, `run-selected-item-stdlib` is a defproc hook promoted
+to `%work_item.lisp_frontend_design_delta/work_item::run-selected-item-stdlib.v1`, which is
+NOT a family-profile target workflow, so the gate no longer projects these rows and they
+cannot be re-keyed — only deleted. **What is no longer authority-checked:** the promoted
+run-item bundle's write-root set, its item-ctx context inputs (item-ctx is now a
+caller-supplied proc parameter — public inputs on the promoted bundle, bound by the loop
+body from the drain's own checked context), and its flattened summary-path output.
+**Forced cascade (23rd row, consumer-rendering):** C0 row
+`c0.work_item_summary_summary_path_compiled_boundary` referenced the deleted U0 row
+`compiled_boundary::…run-selected-item-stdlib::return__summary-path` via `u0_row_id`; the
+consumer-rendering gate fail-closes on dangling U0 references
+(`consumer_rendering_census_row_stale`), and no re-key target exists (no flattened_output
+row among the 11 regenerated). The exact-path item-summary durability obligation REMAINS
+checked by the surviving bridge row `c0.work_item_summary_summary_path`
+(`bridge_file`/`durable_bridge` on `lisp_frontend_design_delta/work_item::run-work-item`);
+only the compiled-boundary inventory MIRROR — already `track_c_decision: BLOCKED` for
+independent retirement — left the checked surface.
+
+**(d) Ruling-3 digest acceptance + escalated standalone backlog item.** 6 of the 11
+regenerated boundary rows and their value-flow mirrors embed span-sensitive digest keys
+(`…proc_1d96b1db061e_7ae4672feb00…`,
+`__wcc_effect_subject_{7c09dee08b30662c,90e3060fa0e568d9,9914652854f6db53}`), continuous
+with the committed manifests' `_proc_96de13fa5abd`/`_proc_b1ad4a920aa2` practice. The
+production compile is now checkout-location-sensitive for the first time (digests hash
+absolute-path SourceSpans). **Standalone escalated backlog item: make digest inputs
+span-insensitive** — explicitly NOT attempted in Task 1.6 per the ruling.
+
+**(e) Contract deltas (old assertion → new assertion, why; every delta reviewed; no
+negative fixture deleted).** Fixture conversions (`c8ed7ab7`): the defworkflow hooks in
+`drain_stdlib_backlog_drain_{parent_terminal_reprojection,branch_local_terminal_contract_alignment,stdlib}.orc`
+and `backlog_drain_hidden_compatibility_bridge_public_run_item_invalid.orc` converted to
+`defproc` + `:effects ((uses-command …))` + `:lowering inline` per the production/minimal-
+caller shape (the generic macro requires proc hooks); the
+`design_delta_work_item_runtime/lisp_frontend_design_delta/{stdlib_adapters,work_item}.orc`
+runtime mirror byte-synced to the post-swap library (the mirror-equality tests' own
+contract). Test retargets (`5059c9e8`), by class:
+- **Intrinsic-shape → generic lowered shape** (the plan's named class): the
+  `std/drain::backlog-drain` child-workflow resolutions and `call == "std/drain::backlog-drain"`
+  asserts in `test_workflow_lisp_drain_stdlib.py`
+  (`compile_stage3_module_preserves_{parent_terminal_reprojection,branch_local_terminal_contract_alignment}…`,
+  both `…preserves_imported_call_and_projection_provenance` tests) and
+  `test_workflow_lisp_design_delta_drain_migration_feasibility.py`
+  (`compiles_with_hidden_private_context`, `entrypoint_adopts_stdlib_owner_routes`,
+  `stdlib_parent_delegation_audit…`, `preserves_runtime_native_transition_calls…`) now
+  assert: no `std/drain::backlog-drain` in lowered names; exactly one `repeat_until` loop
+  step (max_iterations preserved) lowered inline in the parent with origin-map provenance;
+  projection/blocked-reason refs re-keyed from
+  `…__stdlib-result__call_std/drain::backlog-drain.artifacts.…` to the digest-free
+  `…__std/drain::settle-drain-terminal_1__std/drain::finalize-drain-terminal_1__match_terminal.artifacts.…`;
+  the settle-terminal lane asserted in the parent (per-terminal-case
+  `resource_transition` + `materialize_view` across EMPTY/COMPLETED/BLOCKED/EXHAUSTED —
+  the generic replacement for `_assert_child_backlog_drain_uses_shared_terminal_lane`);
+  hook calls asserted against the promoted `%…v1` identities (ruling 1).
+- **Identity re-keys (rulings 1+4, mechanical):** bundle lookups
+  `lisp_frontend_design_delta/work_item::run-selected-item-stdlib` →
+  `%work_item.lisp_frontend_design_delta/work_item::run-selected-item-stdlib.v1`, with the
+  compile route moved to the parent-drain entry (the proc's validated bundle exists only
+  where the macro calls it): `selected_item_stdlib_{smoke_helper_matches…,keeps_run_state_bridge_private,direct_route_returns_canonical…}`.
+  `smoke_helper` additionally asserts item-ctx is NOT a private runtime-context binding and
+  the helper inputs equal the promoted bundle's public inputs exactly (the test-surface
+  mirror of item (c)'s deleted runtime_context_input rows); `direct_route` executes the
+  promoted bundle with unchanged bound inputs and unchanged expected outputs (runtime
+  behavior identity evidence).
+- **Source-text splits:** `"(defworkflow run-selected-item-stdlib"` split anchors →
+  `"(defproc run-selected-item-stdlib"` (4 sites; text-mechanical).
+- **Closure-only:** `run-selected-item-stdlib` expected in module-only lowered names →
+  asserted ABSENT (a defproc lowers only where called; module-only compile of
+  work_item.orc produces no standalone bundle for it).
+- **Negative fixture (scenario preserved, differently reported):**
+  `rejects_hidden_compatibility_bridge_public_run_item_fixture`: code
+  `workflow_signature_mismatch` (message named `run_state_path`) →
+  `proc_ref_signature_invalid` ("procedure ref argument arity does not match parametric
+  signature", `form_path` pinned to the drain workflow); the smuggled extra
+  `run_state_path` hook parameter remains impossible to author — the parametric proc-ref
+  checker rejects it at the macro boundary but reports arity, not the parameter name.
+- **Transition-authoring report test** (1.5d §9 F5): compiled-origin module set
+  `{transitions, work_item}` → `+ lisp_frontend_design_delta/drain`; the literal
+  single-row `drain::drain` equality → behavioral asserts: the `recorded_summary`
+  transition row still matched by `low_level.record_drain_terminal_outcome`, plus exactly
+  four imported settle-terminal rows matched by `low_level.imported_drain_terminal_effects`
+  (`resource_transition`, std/drain.orc path, one per terminal arm), and nothing else on
+  the drain workflow. `preserves_runtime_native_transition_calls…` adds
+  `std_drain_consume_drain_terminal_effects` to its sanctioned imported-transition markers
+  (mirroring that manifest row) and keeps asserting no OTHER raw drain-module transitions.
+
+**(f) Consumer-parity evidence and the three machinery-level parity breaks (Step 4 gate
+NOT passed; STOP-and-report per plan discipline; adjudication requested).** Fresh at
+`5059c9e8`: census-alignment **10 passed**; autonomous-drain runtime **149 passed** (the
+plan's end-to-end consumer evidence — GREEN); drain_stdlib **61 passed / 2 failed**;
+feasibility **89 passed / 7 failed / 1 deselected**; transition-authoring 13 passed;
+canaries at every commit: identity 3/3, composition+procedures 151. **Migration-parity is
+RED / cannot complete at HEAD**: its own smoke evidence command fails on the break-3
+smokes (harness logs: 4 failed / 2 passed), and its artifact-parity evidence child is
+memory-unbounded (kernel-OOM-killed at 123 GB unattended; watchdog-aborted at 42.5 GB
+monitored) — a second hotspot of the break-1 family; the on-disk
+`design_delta_parent_drain.json` parity artifact remains the STALE 2026-07-07 run. Every
+remaining red is one of three characterized generic-route parity breaks in UNFROZEN
+shared machinery — none is a contract delta, none was fixable inside Task 1.6's freeze
+set (details, quantification, and repro in `.superpowers/sdd/task-1.6-report.md`):
+1. **CLI lint path-explosion** (`orchestrator/workflow/linting.py`
+   `_lint_bundle_redundant_relpath_boundary_kinds` recurses `bundle.imports` with no
+   visited-set; `orchestrator/cli/commands/run.py:399` materializes the list on EVERY
+   `orchestrator run`): the generic route's bundle graph (68 bundles, 496 import edges)
+   path-expands to 5,417,640 visits and exactly **66,781,802 warnings** (measured 4.97M
+   warnings / 5.97 GB in 150 s before timeout) — `orchestrator run`/`--dry-run` of the
+   production drain is effectively unbounded (OOM-scale). Blocks
+   `test_design_delta_parent_drain_public_input_only_cli_dry_run_still_fails_without_runtime_owned_hidden_bindings`
+   (deselected in the evidence runs above; it froze all prior four-suite runs at test #100).
+2. **Loop-exhaustion state snapshot off-by-one** (`orchestrator/workflow/loops.py`
+   `_exhaustion_frame_artifacts` recognizes only a single `*__body__state` step; the
+   generic drain body updates state per match arm —
+   `…__body__selected__continue__state`, `…__body__gap__continue__state` — so recognition
+   silently falls back to iteration-ENTRY state): `:on-exhausted` reports the previous
+   iteration's `progress_report_path` (`item-3-progress.md` where the intrinsic reported
+   `item-4-progress.md`). Fails `test_parent_terminal_reprojection_executes_projected_parent_outputs[payload3]`
+   and `test_branch_local_terminal_contract_alignment_executes_parent_outputs…[payload2]`.
+3. **Terminal-transition `must_exist_target` on zero-write paths**: the generic route
+   types `DrainOutcomeRequest.progress_report_path` as `WorkReport` (must-exist → runtime
+   `missing_target` check via `orchestrator/workflow_lisp/contracts.py:1068` +
+   `orchestrator/contracts/output_contract.py:939`), while the intrinsic terminal lane's
+   `_drain_terminal_transition_config` used a bare path descriptor with no existence
+   requirement; on EMPTY/selector-BLOCKED/gap-only/EXHAUSTED-without-writes terminals the
+   progress report was never written (the seed materializes a path value, not a file; the
+   arm's transition runs before its own materialize-view), so the run FAILS
+   (`resource_transition_contract_invalid`/`missing_target`) where the intrinsic completed.
+   Fails the 7 feasibility smokes
+   (`smokes_selector_{done,blocked,design_gap}_path`, `smokes_blocked_recovery_path`,
+   `design_gap_{converges_via_recorded_run_state,exhausts_without_recorded_progress}`,
+   `imported_selector_ctx_carried_context_smoke`).
+   All three touch frozen surfaces or shared machinery (`std/drain.orc` is byte-frozen;
+   the executors/lint are cross-cutting) — per the plan's discipline, machinery fixes are
+   raised, not landed unilaterally. Pre-existing out-of-lane fallout (not Task 1.6 lane,
+   pre-dating its commits, 13 → 6 after the fixture conversions): 6 failures in
+   `test_workflow_lisp_{route_readiness,stdlib_runtime_proof_boundary}.py`, same
+   intrinsic-shape/registry classes, inventoried in the report §10.
