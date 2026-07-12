@@ -147,17 +147,14 @@ executor, build, typecheck, or lowering refactors until Stage 3 completes.
 
 ### Stage 2: Land The Parametric Drain Route
 
-**Current next selection (2026-07-11):** Native-return wave 1
-(`2026-07-10-workflow-lisp-native-transportable-returns-plan.md`) is complete
-(landed compiler-internally; DSL v2.15 remains an unreleased private
-preview). Per the amendment's resume condition, execute the drain plan's Task
-1.5 re-run next: `2026-07-07-drain-migration-g8-retirement.md` Phase 1 Task
-1.5 (macro retarget plus checkpoint-identity comparison), re-probing the
-R-G7/G-B/G-C/G-D lane findings against the landed substrate. Typed
-result guidance (wave 2,
-`2026-07-10-workflow-lisp-typed-result-guidance-plan.md`) follows the Task 1.5
-re-run per the original Stage-5 ordering. The semantic-migration freeze
-remains in force.
+**Current next selection (2026-07-12):** Drain Phase 1 has landed the generic
+route, reviewed checkpoint remap, consumer parity, and F5 sibling contract.
+The active step is Task 1.7 documentation/integration evidence review and Gate
+P2 closure in `2026-07-07-drain-migration-g8-retirement.md`; neither Task 1.7
+nor Gate P2 is complete until that review closes. Typed result guidance (wave
+2, `2026-07-10-workflow-lisp-typed-result-guidance-plan.md`) follows the drain
+Phase 1 review/gate closure per the accepted ordering. G8 intrinsic deletion
+remains later Phase 2 work, and the semantic-migration freeze remains in force.
 
 Re-anchor and execute `2026-07-07-drain-migration-g8-retirement.md` Phase 1:
 
@@ -281,15 +278,15 @@ amendment rather than silently changing an implementation plan.
 > authoritative while the substrate moves underneath it. Drain resumes at a
 > Task 1.5 re-run once wave 1 lands.
 >
-> **Wave 1 landed (2026-07-11):** all ten tasks of
+> **Historical wave-1 landing record (2026-07-11):** all ten tasks of
 > `2026-07-10-workflow-lisp-native-transportable-returns-plan.md` are complete
 > with non-regressive record/union evidence and the checkpoint-identity/P2
 > drain-compile canaries holding throughout. DSL v2.15 is not promoted — it
 > remains an unreleased private preview enabled only by the Workflow Lisp
-> compiler's own shared-validation call. The drain migration's Task 1.5
-> re-run is next, per the resume condition above; typed result guidance
-> (wave 2) follows it, per the original Stage-5 ordering (see "Current next
-> selection" below), not immediately after wave 1.
+> compiler's own shared-validation call. At that checkpoint, the drain
+> migration's Task 1.5 re-run was the next selected step under the resume
+> condition, with typed result guidance (wave 2) sequenced after it rather than
+> immediately after wave 1. The live selection is recorded above.
 
 Gate S4:
 

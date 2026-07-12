@@ -1327,3 +1327,29 @@ allowance is load-bearing, generated owner metadata resolves correctly, and an a
 parent reference remains rejected even when both allowance collections name it. Final
 review was **spec PASS with no findings** and **quality APPROVED after the fix loop**.
 Task 1.6a is complete. Task 1.7 is next; Gate P2 remains open.
+
+**(i) Task 1.7 evidence under review (2026-07-12; not completion).** Documentation
+and routing synchronization landed in **`d883f5da`** (`Record backlog-drain generic
+migration in design docs`). The verification below was executed fresh against that
+current checkout; only the required workflow-input binding set was reconstructed from
+historical run metadata.
+
+The literal plan command,
+`python -m orchestrator run workflows/examples/lisp_frontend_design_delta_drain.yaml
+--dry-run`, exited **2** with `Workflow input binding failed`, as expected for this
+input-required wrapper. The fresh replay used the exact `argv` binding set in
+`.orchestrate/runs/20260706T161146Z-j82v71/monitor_process.json`: replace that recorded
+Python script executable with `python -m orchestrator`, preserve its workflow path and
+every `--input NAME=VALUE` pair byte-for-byte (the recorded R46 progress/run-state and
+R48 drain/artifact roots included), drop `--stream-output`, and append `--dry-run`.
+That current-checkout replay exited **0** with `Workflow validation successful`; it also
+reported the pre-existing `import-output-collision` warning for `drain_status` across
+`import:done_review` and `import:work_item`.
+
+Fresh tests: `pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py
+-q` passed **97 tests in 162.92s**; the required parallel-form confirmation
+`pytest -q -n 16 --dist=worksteal
+tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py` passed **97 tests
+in 36.69s**; and `pytest tests/test_workflow_lisp_verification_gate.py -q` passed
+**20 tests in 7.49s**. Task 1.7 remains pending review. Gate P2 remains open, and this
+entry makes no intrinsic-retirement or Phase 2 completion claim.

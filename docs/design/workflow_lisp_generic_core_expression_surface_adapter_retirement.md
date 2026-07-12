@@ -1268,9 +1268,10 @@ Current G6 status note:
   `tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py` on
   `validation_profile="DEDICATED_RUNTIME_PROOF"` rather than by shared
   parent-callable validation; and
-- the G7 family cleanup and G8 deletion slice are now landed on the checked
-  owner lanes, so current work is verification and follow-on cleanup rather
-  than more bridge-surface enablement.
+- the G7 family-cleanup prerequisite evidence and the Phase 1 generic route
+  are landed on the checked owner lanes; G8 intrinsic deletion is not landed
+  and remains gated behind Phase 2 / Gate P2 in
+  `docs/plans/2026-07-07-drain-migration-g8-retirement.md`.
 
 ### 15.3 Acceptance
 
