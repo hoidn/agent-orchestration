@@ -12,9 +12,11 @@
     (item-id String)
     (final-plan-gate-state StateExisting))
 
-  (defworkflow selector-run
+  (defproc selector-run
     ((ctx DrainCtx))
     -> SelectionResult
+    :effects ((uses-command select_next_item))
+    :lowering inline
     (command-result select_next_item
       :argv ("python" "scripts/select_next_item.py" ctx.manifest)
       :returns SelectionResult))
@@ -27,11 +29,14 @@
       :item-id item-id
       :final-plan-gate-state run_state_path))
 
-  (defworkflow run-selected-item
+  (defproc run-selected-item
     ((item-ctx ItemCtx)
      (selection SelectionPayload)
      (run_state_path StateExisting))
     -> SelectedItemResult
+    :effects ((calls-workflow project-selected-compat)
+              (uses-command execute_selected_item))
+    :lowering inline
     (let* ((selected
              (call project-selected-compat
                :item-id selection.item-id
@@ -40,10 +45,12 @@
         :argv ("python" "scripts/execute_selected_item.py" selected.final-plan-gate-state)
         :returns SelectedItemResult)))
 
-  (defworkflow gap-draft
+  (defproc gap-draft
     ((ctx DrainCtx)
      (gap GapPayload))
     -> GapResult
+    :effects ((uses-command draft_gap_item))
+    :lowering inline
     (command-result draft_gap_item
       :argv ("python" "scripts/draft_gap_item.py" gap.gap-id)
       :returns GapResult))

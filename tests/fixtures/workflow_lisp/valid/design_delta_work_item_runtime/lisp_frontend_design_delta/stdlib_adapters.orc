@@ -23,9 +23,11 @@
       (progress-report-path std/resource/WorkReport)
       (blocker-class std/resource/BlockerClass)))
 
-  (defworkflow select-next-work-stdlib
+  (defproc select-next-work-stdlib
     ((ctx DesignDeltaDrainCtx))
     -> DesignDeltaSelectionResult
+    :effects ((calls-workflow lisp_frontend_design_delta/selector::select-next-work))
+    :lowering inline
     (let* ((selection
              (call select-next-work
                :ctx ctx))
@@ -59,10 +61,13 @@
             (variant DesignDeltaSelectionResult BLOCKED
               :reason selection.blocked_reason))))))
 
-  (defworkflow draft-design-gap-stdlib
+  (defproc draft-design-gap-stdlib
     ((ctx DesignDeltaDrainCtx)
      (gap DesignDeltaGapPayload))
     -> DesignDeltaGapResult
+    :effects ((calls-workflow lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture-stdlib)
+              (calls-workflow lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib))
+    :lowering inline
     (let* ((draft
              (call draft-design-gap-architecture-stdlib
                :steering ctx.steering_path
