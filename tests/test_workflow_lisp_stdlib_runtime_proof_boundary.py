@@ -171,12 +171,20 @@ def _replace_entry_workflow(result, replacement):
     )
 
 
-def _assert_low_level_boundary_diagnostic(diagnostic) -> None:
+def _assert_low_level_boundary_diagnostic(
+    diagnostic,
+    *,
+    expected_severity: str,
+) -> None:
     assert diagnostic.code == "low_level_state_path_in_high_level_module"
+    assert diagnostic.severity == expected_severity
     assert diagnostic.validation_pass == "contract"
     assert diagnostic.authority_layer == "frontend"
-    assert diagnostic.form_path
+    assert diagnostic.form_path[-2:] == ("defworkflow", "drain")
     assert diagnostic.span is not None
+    assert Path(diagnostic.span.start.path).as_posix().endswith(
+        "/drain_stdlib_backlog_drain_stdlib.orc"
+    )
 
 
 def _runtime_proof_nested_structured_mutation(result, *, include_allowance: bool):
@@ -374,7 +382,7 @@ def test_dedicated_runtime_proof_default_lint_retains_low_level_boundary_variant
         if item.code == "low_level_state_path_in_high_level_module"
     ]
     assert len(findings) == 1
-    _assert_low_level_boundary_diagnostic(findings[0])
+    _assert_low_level_boundary_diagnostic(findings[0], expected_severity="warn")
 
 
 def test_shared_callable_default_lint_retains_low_level_boundary_variant(
@@ -390,7 +398,7 @@ def test_shared_callable_default_lint_retains_low_level_boundary_variant(
         if item.code == "low_level_state_path_in_high_level_module"
     ]
     assert len(findings) == 1
-    _assert_low_level_boundary_diagnostic(findings[0])
+    _assert_low_level_boundary_diagnostic(findings[0], expected_severity="warn")
 
 
 def test_shared_callable_strict_lint_rejects_low_level_boundary_variant(
@@ -408,7 +416,8 @@ def test_shared_callable_strict_lint_rejects_low_level_boundary_variant(
         if item.code == "low_level_state_path_in_high_level_module"
     ]
     assert len(findings) == 1
-    _assert_low_level_boundary_diagnostic(findings[0])
+    assert excinfo.value.diagnostics == tuple(findings)
+    _assert_low_level_boundary_diagnostic(findings[0], expected_severity="error")
 
 
 def test_dedicated_runtime_proof_strict_lint_rejects_low_level_boundary_variant(
@@ -426,7 +435,8 @@ def test_dedicated_runtime_proof_strict_lint_rejects_low_level_boundary_variant(
         if item.code == "low_level_state_path_in_high_level_module"
     ]
     assert len(findings) == 1
-    _assert_low_level_boundary_diagnostic(findings[0])
+    assert excinfo.value.diagnostics == tuple(findings)
+    _assert_low_level_boundary_diagnostic(findings[0], expected_severity="error")
 
 
 def test_runtime_proof_metadata_resolves_to_source_mapped_generated_owners(
