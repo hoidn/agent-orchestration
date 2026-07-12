@@ -173,6 +173,10 @@ def _phase_stdlib_lower_resource_transition_impl(
             form_path=expr.form_path,
         )
         output_fields = _output_bundle_fields(output_contracts)
+        output_fields = [
+            {key: value for key, value in field.items() if key != "must_exist_target"}
+            for field in output_fields
+        ]
         if isinstance(typed_expr.type_ref, RecordTypeRef):
             output_fields = [
                 {

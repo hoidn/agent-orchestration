@@ -6333,7 +6333,7 @@ def test_design_delta_parent_drain_smokes_blocked_recovery_path(
     assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
     recovery_state = _native_drain_run_state(
         workspace,
-        "lisp-frontend-design-delta-work-item--run-selected-item-stdlib",
+        "work-item-lisp-frontend-design-delta-work-item--run-selected-item-stdlib-v1",
     )
     assert recovery_state["blocked_recovery_reason"] == "implementation_architecture_under_scoped"
     assert recovery_state["blocked_recovery_summary"] == "artifacts/work/progress_report.md"
@@ -6386,7 +6386,7 @@ def test_design_delta_parent_drain_design_gap_converges_via_recorded_run_state(
     assert state["workflow_outputs"]["return__variant"] == "DONE"
     gap_progress = _native_drain_run_state(
         workspace,
-        "lisp-frontend-design-delta-stdlib-adapters--draft-design-gap-stdlib",
+        "stdlib-adapters-lisp-frontend-design-delta-stdlib-adapters--draft-design-gap-stdlib-v1",
     )
     assert gap_progress["completed_design_gaps"] == [expected_gap_id]
     assert [obs["decision"] for obs in selector_observations] == [

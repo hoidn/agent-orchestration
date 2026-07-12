@@ -1500,6 +1500,83 @@ def test_lowering_declared_resource_transition_emits_generated_runtime_step(tmp_
     assert lowered.typed_workflow.definition.name == "orchestrate"
 
 
+def test_declared_transition_result_extraction_relaxes_must_exist_only(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "declared_transition_result_extraction.orc"
+    path.write_text(
+        dedent(
+            """
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.14")
+              (defpath StateFile
+                :kind relpath
+                :under "state"
+                :must-exist false)
+              (defpath WorkReport
+                :kind relpath
+                :under "artifacts/work"
+                :must-exist true)
+              (defrecord ReportState
+                (report WorkReport))
+              (defrecord ReportRequest
+                (report WorkReport))
+              (defrecord ReportResult
+                (report WorkReport))
+              (defrecord ReportAudit
+                (report WorkReport))
+              (defresource report-state
+                :state-type ReportState
+                :backing (bridge state_path))
+              (deftransition record-report
+                :resource report-state
+                :request-type ReportRequest
+                :result-type ReportResult
+                :preconditions ()
+                :updates ((set-field report request.report))
+                :write-set (report)
+                :idempotency-fields (report)
+                :result (record ReportResult :report request.report)
+                :audit (record ReportAudit :report request.report)
+                :conflict-policy fail_closed
+                :backend runtime_native)
+              (defworkflow transition-report
+                ((state_path StateFile) (report WorkReport))
+                -> ReportResult
+                (resource-transition
+                  :transition record-report
+                  :resource report-state
+                  :request (record ReportRequest :report report)))
+              (defworkflow project-report
+                ((report WorkReport))
+                -> ReportResult
+                (record ReportResult :report report)))
+            """
+        ).strip()
+        + "\n"
+    )
+
+    result = compile_stage3_module(
+        path,
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    transition_step = result.validated_bundles["transition-report"].surface.steps[0]
+    projection_output = result.validated_bundles["project-report"].surface.outputs[
+        "return__report"
+    ]
+    request_report_type = transition_step.resource_transition["declaration"].transition.request_type[
+        "fields"
+    ][0]["type"]
+    transition_report_field = transition_step.common.output_bundle["fields"][0]
+
+    assert request_report_type == {"kind": "path", "name": "WorkReport"}
+    assert projection_output.definition["must_exist_target"] is True
+    assert "must_exist_target" not in transition_report_field
+
+
 def test_shared_validation_accepts_resource_transition_and_imported_finalize_selected_item(
     tmp_path: Path,
 ) -> None:
