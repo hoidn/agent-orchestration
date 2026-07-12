@@ -696,7 +696,17 @@ class LoopExecutor:
         iteration_state: Mapping[str, Any],
         current_iteration: int,
     ) -> Dict[str, Any]:
-        """Use loop/recur's current-state snapshot for authored exhaustion state reads."""
+        """Use loop/recur's current-state snapshot for authored exhaustion state reads.
+
+        The final iteration's loop-state UPDATE lives on an executed
+        `(continue (loop-state …))` step (`…__continue__state`, one per match
+        arm on branched bodies; skipped arms are ignored) and takes precedence
+        over the iteration-entry `…__body__state` binding, which carries the
+        state as of iteration START. Bodies without an arm update fall back to
+        the single `…__body__state` snapshot. More than one executed candidate
+        at the selected tier is a state-integrity error — fail fast instead of
+        silently reporting the iteration-entry state.
+        """
 
         if current_iteration <= 0:
             return dict(frame_artifacts)
@@ -707,16 +717,34 @@ class LoopExecutor:
         }
         if not state_keys or "status" not in frame_artifacts:
             return dict(frame_artifacts)
-        candidates: list[Mapping[str, Any]] = []
+        executed: dict[str, Mapping[str, Any]] = {}
         for step_name, result in iteration_state.items():
-            if not isinstance(step_name, str) or not step_name.endswith("__body__state"):
+            if not isinstance(step_name, str) or not step_name.endswith("__state"):
                 continue
-            artifacts = result.get("artifacts") if isinstance(result, Mapping) else None
+            if not isinstance(result, Mapping) or result.get("skipped", False):
+                continue
+            artifacts = result.get("artifacts")
             if isinstance(artifacts, Mapping) and state_keys <= set(artifacts):
-                candidates.append(artifacts)
-        if len(candidates) != 1:
+                executed[step_name] = artifacts
+        candidates = {
+            name: artifacts
+            for name, artifacts in executed.items()
+            if name.endswith("__continue__state")
+        } or {
+            name: artifacts
+            for name, artifacts in executed.items()
+            if name.endswith("__body__state")
+        }
+        if len(candidates) > 1:
+            raise LoopStateIntegrityError(
+                "repeat_until exhaustion state snapshot is ambiguous: iteration "
+                f"{current_iteration} carries {len(candidates)} executed loop-state "
+                f"updates ({sorted(candidates)})"
+            )
+        if not candidates:
             return dict(frame_artifacts)
-        return {**dict(frame_artifacts), **{key: candidates[0][key] for key in state_keys}}
+        snapshot = next(iter(candidates.values()))
+        return {**dict(frame_artifacts), **{key: snapshot[key] for key in state_keys}}
 
     def execute_repeat_until(
         self,
