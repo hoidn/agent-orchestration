@@ -37,6 +37,23 @@ class LoadedWorkflowBundle:
     imports: Mapping[str, "LoadedWorkflowBundle"]
     provenance: WorkflowProvenance
 
+    def __repr__(self) -> str:
+        """Summarize without recursing `imports`.
+
+        The dataclass auto-repr walked the import graph once per import PATH,
+        which is combinatorial on shared-import graphs (the generic drain
+        graph has 68 bundles / 496 edges but millions of paths) and made any
+        failing bundle-graph assertion or log format allocate tens of GB.
+        """
+        import_aliases = sorted(
+            alias for alias in self.imports if isinstance(alias, str)
+        )
+        return (
+            f"{type(self).__name__}(name={self.surface.name!r}, "
+            f"workflow_path={str(self.provenance.workflow_path)!r}, "
+            f"imports={import_aliases!r})"
+        )
+
 
 @dataclass(frozen=True)
 class WorkflowBoundaryProjectionView:

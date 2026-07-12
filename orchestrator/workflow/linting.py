@@ -237,12 +237,38 @@ def _lint_redundant_relpath_boundary_kinds(
         )
 
 
+def _lint_bundle_identity(bundle: Any) -> object:
+    """Return a stable identity for one loaded bundle in an import graph.
+
+    Bundles reachable along several import paths must be linted once per
+    DISTINCT bundle, never once per path: shared-import graphs make the
+    path count combinatorial (the generic drain graph has 68 bundles and
+    496 edges but millions of distinct import paths). Loaders may either
+    share bundle objects across edges or reload the same workflow file per
+    edge, so the identity combines the provenance path and workflow name,
+    falling back to object identity.
+    """
+    provenance = getattr(bundle, "provenance", None)
+    workflow_path = getattr(provenance, "workflow_path", None)
+    name = getattr(getattr(bundle, "surface", None), "name", None)
+    if workflow_path is not None:
+        return (str(workflow_path), name)
+    return id(bundle)
+
+
 def _lint_bundle_redundant_relpath_boundary_kinds(
     bundle: Any,
     warnings: List[Dict[str, Any]],
     *,
     path_prefix: str = "",
+    visited: set[object] | None = None,
 ) -> None:
+    if visited is None:
+        visited = set()
+    identity = _lint_bundle_identity(bundle)
+    if identity in visited:
+        return
+    visited.add(identity)
     _lint_redundant_relpath_boundary_kinds(
         bundle.surface.inputs,
         warnings,
@@ -263,6 +289,7 @@ def _lint_bundle_redundant_relpath_boundary_kinds(
             imported_bundle,
             warnings,
             path_prefix=f"{path_prefix}imports.{alias}.",
+            visited=visited,
         )
 
 

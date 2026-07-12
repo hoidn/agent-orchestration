@@ -334,6 +334,109 @@ def test_lint_warns_when_imported_workflow_relpath_boundaries_redundantly_declar
     }
 
 
+def test_lint_visits_each_distinct_bundle_once_across_diamond_imports(tmp_path: Path):
+    """A bundle reachable along several import paths is linted exactly once.
+
+    Path-expanded walks are combinatorial on shared-import graphs (the generic
+    drain graph has 68 bundles / 496 edges but 5.4M distinct import paths), so
+    the lint walk must dedupe per distinct bundle, not per path.
+    """
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "shared.yaml",
+        {
+            "version": "2.9",
+            "name": "shared",
+            "inputs": {
+                "design_path": {
+                    "kind": "relpath",
+                    "type": "relpath",
+                    "under": "docs/plans",
+                    "must_exist_target": True,
+                }
+            },
+            "steps": [{"name": "Noop", "command": ["echo", "ok"]}],
+        },
+    )
+    for middle in ("mid_a", "mid_b"):
+        _write_yaml(
+            tmp_path / "workflows" / "library" / f"{middle}.yaml",
+            {
+                "version": "2.9",
+                "name": middle.replace("_", "-"),
+                "imports": {"shared": "shared.yaml"},
+                "steps": [{"name": "Noop", "command": ["echo", "ok"]}],
+            },
+        )
+    bundle = _load_workflow_bundle(
+        tmp_path,
+        {
+            "version": "2.9",
+            "name": "diamond-caller",
+            "imports": {
+                "mid_a": "workflows/library/mid_a.yaml",
+                "mid_b": "workflows/library/mid_b.yaml",
+            },
+            "steps": [{"name": "Done", "command": ["echo", "done"]}],
+        },
+    )
+
+    warnings = [
+        warning
+        for warning in lint_workflow(bundle)
+        if warning["code"] == "redundant-relpath-boundary-kind"
+    ]
+
+    warning_paths = [warning["path"] for warning in warnings]
+    assert len(warning_paths) == 1
+    assert warning_paths[0].endswith("imports.shared.inputs.design_path")
+
+
+def test_loaded_bundle_repr_stays_bounded_across_diamond_imports(tmp_path: Path):
+    """`repr(bundle)` must not path-expand the import graph.
+
+    The dataclass auto-repr recursed `imports` once per import path, which is
+    combinatorial on shared-import graphs (tens of GB on the generic drain
+    graph whenever pytest or a log formatter renders a failing bundle-graph
+    assertion). The repr must summarize instead of recursing.
+    """
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "shared.yaml",
+        {
+            "version": "2.9",
+            "name": "shared",
+            "steps": [{"name": "Noop", "command": ["echo", "ok"]}],
+        },
+    )
+    for middle in ("mid_a", "mid_b"):
+        _write_yaml(
+            tmp_path / "workflows" / "library" / f"{middle}.yaml",
+            {
+                "version": "2.9",
+                "name": middle.replace("_", "-"),
+                "imports": {"shared": "shared.yaml"},
+                "steps": [{"name": "Noop", "command": ["echo", "ok"]}],
+            },
+        )
+    bundle = _load_workflow_bundle(
+        tmp_path,
+        {
+            "version": "2.9",
+            "name": "diamond-caller",
+            "imports": {
+                "mid_a": "workflows/library/mid_a.yaml",
+                "mid_b": "workflows/library/mid_b.yaml",
+            },
+            "steps": [{"name": "Done", "command": ["echo", "done"]}],
+        },
+    )
+
+    text = repr(bundle)
+
+    assert len(text) < 2000
+    assert "diamond-caller" in text
+    assert "mid_a" in text and "mid_b" in text
+
+
 def test_lint_does_not_warn_for_non_boundary_relpath_contracts(tmp_path: Path):
     workflow = _load_workflow(
         tmp_path,
