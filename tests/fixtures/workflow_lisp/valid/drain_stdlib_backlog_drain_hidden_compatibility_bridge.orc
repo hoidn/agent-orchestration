@@ -3,7 +3,7 @@
   (:target-dsl "2.14")
   (defmodule drain_stdlib_backlog_drain_hidden_compatibility_bridge)
   (import std/context :only (DrainCtx ItemCtx))
-  (import std/resource :only (BlockerClass SelectedItemResult StateExisting))
+  (import std/resource :only (BlockerClass SelectedItemResult StateExisting WorkReport))
   (import std/drain :only
     (GapPayload GapResult DrainResult SelectionPayload SelectionResult backlog-drain))
   (export drain)
@@ -12,9 +12,11 @@
     (item-id String)
     (final-plan-gate-state StateExisting))
 
-  (defworkflow selector-run
+  (defproc selector-run
     ((ctx DrainCtx))
     -> SelectionResult
+    :effects ((uses-command select_next_item))
+    :lowering inline
     (command-result select_next_item
       :argv ("python" "scripts/select_next_item.py" ctx.manifest)
       :returns SelectionResult))
@@ -27,21 +29,22 @@
       :item-id item-id
       :final-plan-gate-state run_state_path))
 
-  (defworkflow run-selected-item
+  (defproc run-selected-item
     ((item-ctx ItemCtx)
      (selection SelectionPayload))
     -> SelectedItemResult
-    (let* ((selected
-             (call project-selected-compat
-               :item-id selection.item-id)))
-      (command-result execute_selected_item
-        :argv ("python" "scripts/execute_selected_item.py" selected.final-plan-gate-state)
-        :returns SelectedItemResult)))
+    :effects ((uses-command execute_selected_item))
+    :lowering inline
+    (command-result execute_selected_item
+      :argv ("python" "scripts/execute_selected_item.py" selection.item-id)
+      :returns SelectedItemResult))
 
-  (defworkflow gap-draft
+  (defproc gap-draft
     ((ctx DrainCtx)
      (gap GapPayload))
     -> GapResult
+    :effects ((uses-command draft_gap_item))
+    :lowering inline
     (command-result draft_gap_item
       :argv ("python" "scripts/draft_gap_item.py" gap.gap-id)
       :returns GapResult))
@@ -50,9 +53,14 @@
     ((ctx DrainCtx)
      (max-iterations Int))
     -> DrainResult
-    (backlog-drain neurips
-      :ctx ctx
-      :selector selector-run
-      :run-item run-selected-item
-      :gap-drafter gap-draft
-      :max-iterations 4)))
+    (let* ((compat-probe
+             (call project-selected-compat
+               :item-id "compat-probe"))
+           (stdlib-result
+             (backlog-drain neurips
+               :ctx ctx
+               :selector selector-run
+               :run-item run-selected-item
+               :gap-drafter gap-draft
+               :max-iterations 4)))
+      stdlib-result)))

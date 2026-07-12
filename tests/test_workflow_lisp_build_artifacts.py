@@ -2220,24 +2220,25 @@ def test_boundary_projection_serializer_preserves_hidden_compatibility_bridge_ov
     serialize = getattr(build, "_serialize_workflow_boundary_projection")
     result = _compile_linked_hidden_compatibility_bridge_fixture(tmp_path)
 
-    workflow_name = "drain_stdlib_backlog_drain_hidden_compatibility_bridge::run-selected-item"
+    # Generic route: proc hooks cannot thread an unbound bridge (their call
+    # sites are fully typed), so the hidden bridge is authored by the drain's
+    # own omitted-binding compat call and classified on the drain boundary.
+    workflow_name = "drain_stdlib_backlog_drain_hidden_compatibility_bridge::drain"
     projection_payload = serialize(result, selected_name=workflow_name)
     workflow_projection = next(
         item
         for item in projection_payload["workflows"]
         if item["workflow_name"] == workflow_name
     )
-    # The family drain delegates to the generated callable owner workflow;
-    # the run-item call (and its hidden bridge binding) lives inside it.
-    callable_drain = next(
+    lowered_drain = next(
         workflow
         for workflow in result.entry_result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
+        if workflow.typed_workflow.definition.name == workflow_name
     )
-    run_item_call = next(
+    compat_call = next(
         step
-        for step in _walk_design_delta_work_item_steps(callable_drain.authored_mapping["steps"])
-        if step.get("call", "").endswith("::run-selected-item")
+        for step in _walk_design_delta_work_item_steps(lowered_drain.authored_mapping["steps"])
+        if step.get("call", "").endswith("::project-selected-compat")
     )
     generated_internal_inputs = {
         item["generated_name"]: item
@@ -2249,7 +2250,7 @@ def test_boundary_projection_serializer_preserves_hidden_compatibility_bridge_ov
         "run_state_path"
     ]
     assert generated_internal_inputs["run_state_path"]["reason"] == "compatibility_bridge"
-    assert run_item_call["with"]["run_state_path"] == {"ref": "inputs.run_state_path"}
+    assert compat_call["with"]["run_state_path"] == {"ref": "inputs.run_state_path"}
 
 
 def _design_delta_work_item_run_work_item_lowered(compile_result):
@@ -5159,8 +5160,11 @@ def test_design_delta_parent_drain_build_artifacts_record_imported_selector_carr
         registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
         resume_plumbing_retirement_manifest_payload=_aligned_design_delta_resume_plumbing_retirement_manifest(),
     )
+    # Generic route: select-next-work-stdlib is a defproc hook (its promoted
+    # bundle takes ctx as caller-supplied inputs); the imported-adapter carried
+    # context lives on the selector workflow the hook calls.
     bundle = built.compile_result.validated_bundles_by_name[
-        "lisp_frontend_design_delta/stdlib_adapters::select-next-work-stdlib"
+        "lisp_frontend_design_delta/selector::select-next-work"
     ]
     boundary = _workflow_boundary_projection(bundle)
     workflow_projection = next(
@@ -5169,7 +5173,7 @@ def test_design_delta_parent_drain_build_artifacts_record_imported_selector_carr
             built.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
         )["workflows"]
         if item["workflow_name"]
-        == "lisp_frontend_design_delta/stdlib_adapters::select-next-work-stdlib"
+        == "lisp_frontend_design_delta/selector::select-next-work"
     )
     authority_report = json.loads(
         built.artifact_paths["boundary_authority_report"].read_text(encoding="utf-8")
@@ -5178,7 +5182,7 @@ def test_design_delta_parent_drain_build_artifacts_record_imported_selector_carr
         row
         for row in authority_report["workflows"]
         if row["workflow_name"]
-        == "lisp_frontend_design_delta/stdlib_adapters::select-next-work-stdlib"
+        == "lisp_frontend_design_delta/selector::select-next-work"
     )
 
     assert len(boundary.private_runtime_context_bindings) == 1
@@ -5276,17 +5280,23 @@ def test_design_delta_parent_drain_imported_backlog_drain_build_artifacts_record
         value_flow_census_payload=_aligned_design_delta_value_flow_census(tmp_path),
         resume_plumbing_retirement_manifest_payload=_aligned_design_delta_resume_plumbing_retirement_manifest(),
     )
+    # Generic route: the backlog-drain proc lowers inline (no std/drain child
+    # bundle); the derived child phase bindings live on the promoted run-item
+    # hook bundle, sourced from its item-ctx parameter.
+    promoted_run_item = (
+        "%work_item.lisp_frontend_design_delta/work_item::run-selected-item-stdlib.v1"
+    )
     assert (
-        "std/drain::backlog-drain" in built.compile_result.validated_bundles_by_name
-    ), "std/drain::backlog-drain must be materialized in the design-delta parent drain build"
-    bundle = built.compile_result.validated_bundles_by_name["std/drain::backlog-drain"]
+        promoted_run_item in built.compile_result.validated_bundles_by_name
+    ), "the promoted run-item hook bundle must be materialized in the design-delta parent drain build"
+    bundle = built.compile_result.validated_bundles_by_name[promoted_run_item]
     boundary = _workflow_boundary_projection(bundle)
     workflow_projection = next(
         item
         for item in json.loads(
             built.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
         )["workflows"]
-        if item["workflow_name"] == "std/drain::backlog-drain"
+        if item["workflow_name"] == promoted_run_item
     )
 
     assert boundary.private_compatibility_bridge_inputs == ()
@@ -5303,10 +5313,13 @@ def test_design_delta_parent_drain_imported_backlog_drain_build_artifacts_record
     } == {
         (
             "phase-ctx__plan",
-            "ctx",
+            "item-ctx",
             "derived_private_child_context",
             "plan",
             (
+                "phase-ctx__plan__run__run-id",
+                "phase-ctx__plan__run__state-root",
+                "phase-ctx__plan__run__artifact-root",
                 "phase-ctx__plan__phase-name",
                 "phase-ctx__plan__state-root",
                 "phase-ctx__plan__artifact-root",
@@ -5314,10 +5327,13 @@ def test_design_delta_parent_drain_imported_backlog_drain_build_artifacts_record
         ),
         (
             "phase-ctx__implementation",
-            "ctx",
+            "item-ctx",
             "derived_private_child_context",
             "implementation",
             (
+                "phase-ctx__implementation__run__run-id",
+                "phase-ctx__implementation__run__state-root",
+                "phase-ctx__implementation__run__artifact-root",
                 "phase-ctx__implementation__phase-name",
                 "phase-ctx__implementation__state-root",
                 "phase-ctx__implementation__artifact-root",
@@ -5339,9 +5355,9 @@ def test_design_delta_parent_drain_imported_backlog_drain_build_artifacts_record
                 "phase-ctx__plan__artifact-root": "compile_time_default",
             },
             "carried_input_sources": {
-                "phase-ctx__plan__run__run-id": ("ctx", "run", "run-id"),
-                "phase-ctx__plan__run__state-root": ("ctx", "run", "state-root"),
-                "phase-ctx__plan__run__artifact-root": ("ctx", "run", "artifact-root"),
+                "phase-ctx__plan__run__run-id": ("item-ctx", "run", "run-id"),
+                "phase-ctx__plan__run__state-root": ("item-ctx", "run", "state-root"),
+                "phase-ctx__plan__run__artifact-root": ("item-ctx", "run", "artifact-root"),
             },
         },
         "phase-ctx__implementation": {
@@ -5355,9 +5371,9 @@ def test_design_delta_parent_drain_imported_backlog_drain_build_artifacts_record
                 "phase-ctx__implementation__artifact-root": "compile_time_default",
             },
             "carried_input_sources": {
-                "phase-ctx__implementation__run__run-id": ("ctx", "run", "run-id"),
-                "phase-ctx__implementation__run__state-root": ("ctx", "run", "state-root"),
-                "phase-ctx__implementation__run__artifact-root": ("ctx", "run", "artifact-root"),
+                "phase-ctx__implementation__run__run-id": ("item-ctx", "run", "run-id"),
+                "phase-ctx__implementation__run__state-root": ("item-ctx", "run", "state-root"),
+                "phase-ctx__implementation__run__artifact-root": ("item-ctx", "run", "artifact-root"),
             },
         },
     }
@@ -5376,9 +5392,9 @@ def test_design_delta_parent_drain_imported_backlog_drain_build_artifacts_record
                 "phase-ctx__plan__artifact-root": "compile_time_default",
             },
             "carried_input_sources": {
-                "phase-ctx__plan__run__run-id": ["ctx", "run", "run-id"],
-                "phase-ctx__plan__run__state-root": ["ctx", "run", "state-root"],
-                "phase-ctx__plan__run__artifact-root": ["ctx", "run", "artifact-root"],
+                "phase-ctx__plan__run__run-id": ["item-ctx", "run", "run-id"],
+                "phase-ctx__plan__run__state-root": ["item-ctx", "run", "state-root"],
+                "phase-ctx__plan__run__artifact-root": ["item-ctx", "run", "artifact-root"],
             },
         },
         "phase-ctx__implementation": {
@@ -5392,9 +5408,9 @@ def test_design_delta_parent_drain_imported_backlog_drain_build_artifacts_record
                 "phase-ctx__implementation__artifact-root": "compile_time_default",
             },
             "carried_input_sources": {
-                "phase-ctx__implementation__run__run-id": ["ctx", "run", "run-id"],
-                "phase-ctx__implementation__run__state-root": ["ctx", "run", "state-root"],
-                "phase-ctx__implementation__run__artifact-root": ["ctx", "run", "artifact-root"],
+                "phase-ctx__implementation__run__run-id": ["item-ctx", "run", "run-id"],
+                "phase-ctx__implementation__run__state-root": ["item-ctx", "run", "state-root"],
+                "phase-ctx__implementation__run__artifact-root": ["item-ctx", "run", "artifact-root"],
             },
         },
     }
@@ -9906,14 +9922,19 @@ def test_design_delta_parent_drain_build_emits_transition_authoring_report_artif
     assert payload["schema_version"] == "workflow_lisp_transition_authoring_report.v1"
     assert payload["workflow_family"] == "design_delta_parent_drain"
     assert payload["status"] == "pass"
+    # Generic route: the settle-drain-terminal transitions are authored in
+    # std/drain.orc and attributed to the drain module (sanctioned by the
+    # low_level.imported_drain_terminal_effects manifest row); the gap-drafter
+    # hook's transition originates under its promoted versioned identity.
     assert {row["module_name"] for row in payload["compiled_origins"]} == {
         "lisp_frontend_design_delta/transitions",
         "lisp_frontend_design_delta/work_item",
+        "lisp_frontend_design_delta/drain",
     }
     assert any(
         row["matched_row_id"] == "low_level.record_design_gap_progress"
         and row["workflow_name"]
-        == "lisp_frontend_design_delta/stdlib_adapters::draft-design-gap-stdlib"
+        == "%stdlib_adapters.lisp_frontend_design_delta/stdlib_adapters::draft-design-gap-stdlib.v1"
         for row in payload["compiled_origins"]
     )
     assert payload["ordinary_body_violations"] == []
