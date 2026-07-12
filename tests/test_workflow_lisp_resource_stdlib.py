@@ -1519,13 +1519,17 @@ def test_declared_transition_result_extraction_relaxes_must_exist_only(
                 :under "artifacts/work"
                 :must-exist true)
               (defrecord ReportState
-                (report WorkReport))
+                (report WorkReport)
+                (reports List[WorkReport]))
               (defrecord ReportRequest
-                (report WorkReport))
+                (report WorkReport)
+                (reports List[WorkReport]))
               (defrecord ReportResult
-                (report WorkReport))
+                (report WorkReport)
+                (reports List[WorkReport]))
               (defrecord ReportAudit
-                (report WorkReport))
+                (report WorkReport)
+                (reports List[WorkReport]))
               (defresource report-state
                 :state-type ReportState
                 :backing (bridge state_path))
@@ -1534,24 +1538,33 @@ def test_declared_transition_result_extraction_relaxes_must_exist_only(
                 :request-type ReportRequest
                 :result-type ReportResult
                 :preconditions ()
-                :updates ((set-field report request.report))
-                :write-set (report)
-                :idempotency-fields (report)
-                :result (record ReportResult :report request.report)
-                :audit (record ReportAudit :report request.report)
+                :updates ((set-field report request.report)
+                          (set-field reports request.reports))
+                :write-set (report reports)
+                :idempotency-fields (report reports)
+                :result (record ReportResult
+                  :report request.report
+                  :reports request.reports)
+                :audit (record ReportAudit
+                  :report request.report
+                  :reports request.reports)
                 :conflict-policy fail_closed
                 :backend runtime_native)
               (defworkflow transition-report
-                ((state_path StateFile) (report WorkReport))
+                ((state_path StateFile) (report WorkReport) (reports List[WorkReport]))
                 -> ReportResult
                 (resource-transition
                   :transition record-report
                   :resource report-state
-                  :request (record ReportRequest :report report)))
+                  :request (record ReportRequest
+                    :report report
+                    :reports reports)))
               (defworkflow project-report
-                ((report WorkReport))
+                ((report WorkReport) (reports List[WorkReport]))
                 -> ReportResult
-                (record ReportResult :report report)))
+                (record ReportResult
+                  :report report
+                  :reports reports)))
             """
         ).strip()
         + "\n"
@@ -1564,17 +1577,30 @@ def test_declared_transition_result_extraction_relaxes_must_exist_only(
         workspace_root=tmp_path,
     )
     transition_step = result.validated_bundles["transition-report"].surface.steps[0]
-    projection_output = result.validated_bundles["project-report"].surface.outputs[
-        "return__report"
-    ]
-    request_report_type = transition_step.resource_transition["declaration"].transition.request_type[
-        "fields"
-    ][0]["type"]
-    transition_report_field = transition_step.common.output_bundle["fields"][0]
+    projection_outputs = result.validated_bundles["project-report"].surface.outputs
+    request_fields = {
+        field["name"]: field["type"]
+        for field in transition_step.resource_transition[
+            "declaration"
+        ].transition.request_type["fields"]
+    }
+    transition_fields = {
+        field["name"]: field
+        for field in transition_step.common.output_bundle["fields"]
+    }
 
-    assert request_report_type == {"kind": "path", "name": "WorkReport"}
-    assert projection_output.definition["must_exist_target"] is True
-    assert "must_exist_target" not in transition_report_field
+    assert request_fields["report"] == {"kind": "path", "name": "WorkReport"}
+    assert request_fields["reports"] == {
+        "kind": "list",
+        "item": {"kind": "path", "name": "WorkReport"},
+    }
+    assert projection_outputs["return__report"].definition["must_exist_target"] is True
+    assert (
+        projection_outputs["return__reports"].definition["items"]["must_exist_target"]
+        is True
+    )
+    assert "must_exist_target" not in transition_fields["report"]
+    assert "must_exist_target" not in transition_fields["reports"]["items"]
 
 
 def test_shared_validation_accepts_resource_transition_and_imported_finalize_selected_item(

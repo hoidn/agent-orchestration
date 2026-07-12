@@ -114,6 +114,19 @@ def _required_output_contract(
     return contract
 
 
+def _relax_declared_transition_result_schema(
+    schema: Mapping[str, Any],
+) -> dict[str, Any]:
+    relaxed = dict(schema)
+    if relaxed.get("type") == "relpath":
+        relaxed.pop("must_exist_target", None)
+    for child_key in ("item", "items", "keys", "values"):
+        child = relaxed.get(child_key)
+        if isinstance(child, Mapping):
+            relaxed[child_key] = _relax_declared_transition_result_schema(child)
+    return relaxed
+
+
 def _lower_resource_transition(*args, **kwargs):
     return _phase_stdlib_lower_resource_transition_impl(*args, **kwargs)
 
@@ -174,7 +187,7 @@ def _phase_stdlib_lower_resource_transition_impl(
         )
         output_fields = _output_bundle_fields(output_contracts)
         output_fields = [
-            {key: value for key, value in field.items() if key != "must_exist_target"}
+            _relax_declared_transition_result_schema(field)
             for field in output_fields
         ]
         if isinstance(typed_expr.type_ref, RecordTypeRef):
