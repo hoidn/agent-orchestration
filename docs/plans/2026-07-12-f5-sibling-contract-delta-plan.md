@@ -918,7 +918,7 @@ same final `<implementation-tip>`.
 Update `docs/plans/2026-07-07-drain-migration-g8-retirement.md`:
 
 - change Task 1.6a's checkbox/status from pending to complete;
-- record both implementation SHAs;
+- record every implementation SHA, including review-fix commits;
 - record route-readiness, cited feasibility, runtime-proof collection/module, two-module, four-suite, identity, composition/procedure, and broad-worksteal results;
 - state that the implementation range changed exactly the two permitted files;
 - state that production, stdlib, fixtures, frozen migration surfaces, parity/checkpoint baselines, and generated evidence remained unchanged;
