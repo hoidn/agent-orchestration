@@ -477,6 +477,64 @@ def _child_backlog_drain_workflow(result):
     )
 
 
+def _parent_backlog_drain_loop_step(parent):
+    """Return the parent's inline generic backlog-drain repeat_until step.
+
+    Generic route: the macro expands to backlog-drain-proc + settle-drain-terminal,
+    lowered inline into the caller; there is no std/drain::backlog-drain child.
+    """
+    loop_steps = [step for step in parent.authored_mapping["steps"] if "repeat_until" in step]
+    assert len(loop_steps) == 1
+    return loop_steps[0]
+
+
+def _assert_parent_uses_generic_shared_terminal_lane(parent) -> None:
+    """Assert the generic settle-drain-terminal lane lowered into the parent.
+
+    Mirrors the intrinsic-route `_assert_child_backlog_drain_uses_shared_terminal_lane`
+    checks on the generic route's lowered shape: per-terminal-case transition +
+    summary materialization (consume-drain-terminal-effects) and the finalize
+    projection, both matching on the loop's terminal variant.
+    """
+    consume_step = next(
+        step
+        for step in parent.authored_mapping["steps"]
+        if "consume-drain-terminal-effects" in step.get("name", "")
+    )
+    finalize_step = next(
+        step
+        for step in parent.authored_mapping["steps"]
+        if "finalize-drain-terminal" in step.get("name", "")
+    )
+    for match_step in (consume_step, finalize_step):
+        assert tuple(match_step["match"]["cases"]) == (
+            "EMPTY",
+            "COMPLETED",
+            "BLOCKED",
+            "EXHAUSTED",
+        )
+        assert match_step["match"]["ref"].endswith(".artifacts.return__variant")
+    for case_name in ("EMPTY", "COMPLETED", "BLOCKED", "EXHAUSTED"):
+        case_steps = consume_step["match"]["cases"][case_name]["steps"]
+        transition_step = next(step for step in case_steps if "resource_transition" in step)
+        summary_step = next(step for step in case_steps if "materialize_view" in step)
+        case_step_names = [step["name"] for step in case_steps]
+        assert case_step_names.index(transition_step["name"]) < case_step_names.index(
+            summary_step["name"]
+        )
+        request_bindings = transition_step["resource_transition"]["request_bindings"]
+        assert request_bindings["variant"] in ("EMPTY", "COMPLETED", "BLOCKED")
+
+
+def _parent_settle_terminal_result_ref(parent, artifact: str) -> str:
+    parent_name = parent.typed_workflow.definition.name
+    return (
+        f"root.steps.{parent_name}"
+        "__std/drain::settle-drain-terminal_1__std/drain::finalize-drain-terminal_1__match_terminal."
+        f"artifacts.{artifact}"
+    )
+
+
 def _drain_transition_audit_rows(workspace: Path) -> list[dict[str, object]]:
     audit_paths = sorted((workspace / "state" / "workflow_lisp").rglob("*-record-drain-outcome.jsonl"))
     rows: list[dict[str, object]] = []
@@ -1513,12 +1571,9 @@ def test_compile_stage3_module_preserves_parent_terminal_reprojection_over_impor
         for workflow in result.entry_result.lowered_workflows
         if workflow.typed_workflow.definition.name.endswith("::drain")
     )
-    child = _child_backlog_drain_workflow(result)
-    call_step = next(
-        step
-        for step in _iter_nested_steps(parent.authored_mapping["steps"])
-        if step.get("call") == "std/drain::backlog-drain"
-    )
+    # Generic route: the backlog-drain proc and its settle-terminal lane lower
+    # inline into the parent; no std/drain::backlog-drain child is synthesized.
+    loop_step = _parent_backlog_drain_loop_step(parent)
     projection_step = next(
         step
         for step in parent.authored_mapping["steps"]
@@ -1526,15 +1581,17 @@ def test_compile_stage3_module_preserves_parent_terminal_reprojection_over_impor
     )
 
     assert parent.typed_workflow.signature.return_type_ref.name == "ParentTerminalResult"
-    assert not any("repeat_until" in step for step in parent.authored_mapping["steps"])
-    assert call_step["id"] in parent.origin_map.step_spans
-    assert projection_step["match"]["ref"] == (
-        "root.steps."
-        "drain_stdlib_backlog_drain_parent_terminal_reprojection::drain__stdlib-result__call_std/drain::backlog-drain."
-        "artifacts.return__variant"
+    assert not any(
+        workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
+        for workflow in result.entry_result.lowered_workflows
+    )
+    assert loop_step["repeat_until"]["max_iterations"] == 4
+    assert loop_step["id"] in parent.origin_map.step_spans
+    assert projection_step["match"]["ref"] == _parent_settle_terminal_result_ref(
+        parent, "return__variant"
     )
     assert tuple(projection_step["match"]["cases"]) == ("EMPTY", "COMPLETED", "BLOCKED")
-    _assert_child_backlog_drain_uses_shared_terminal_lane(child)
+    _assert_parent_uses_generic_shared_terminal_lane(parent)
 
 
 def test_parent_terminal_reprojection_preserves_imported_call_and_projection_provenance(
@@ -1551,7 +1608,9 @@ def test_parent_terminal_reprojection_preserves_imported_call_and_projection_pro
         for workflow in result.entry_result.lowered_workflows
         if workflow.typed_workflow.definition.name.endswith("::drain")
     )
-    child = _child_backlog_drain_workflow(result)
+    # Generic route: the imported loop and terminal lane live in the parent;
+    # provenance must cover the loop step and the settle-terminal match steps.
+    loop_step = _parent_backlog_drain_loop_step(parent)
     projection_step = next(
         step
         for step in parent.authored_mapping["steps"]
@@ -1561,11 +1620,16 @@ def test_parent_terminal_reprojection_preserves_imported_call_and_projection_pro
         case_name: projection_step["match"]["cases"][case_name]["steps"]
         for case_name in ("EMPTY", "COMPLETED", "BLOCKED")
     }
-    child_step_ids = {
+    imported_lane_step_ids = {
         step_id
-        for step in _iter_nested_steps(child.authored_mapping["steps"])
-        if isinstance((step_id := step.get("id")), str)
+        for step in parent.authored_mapping["steps"]
+        if (
+            "consume-drain-terminal-effects" in step.get("name", "")
+            or "finalize-drain-terminal" in step.get("name", "")
+        )
+        and isinstance((step_id := step.get("id")), str)
     }
+    imported_lane_step_ids.add(loop_step["id"])
 
     assert projection_step["id"] in parent.origin_map.step_spans
     assert parent.origin_map.step_spans[projection_step["id"]].origin_key
@@ -1575,9 +1639,12 @@ def test_parent_terminal_reprojection_preserves_imported_call_and_projection_pro
             assert isinstance(step_id, str), case_name
             assert step_id in parent.origin_map.step_spans
             assert parent.origin_map.step_spans[step_id].origin_key
-    assert child_step_ids
-    assert all(step_id in child.origin_map.step_spans for step_id in child_step_ids)
-    assert all(child.origin_map.step_spans[step_id].origin_key for step_id in child_step_ids)
+    assert imported_lane_step_ids
+    assert all(step_id in parent.origin_map.step_spans for step_id in imported_lane_step_ids)
+    assert all(
+        parent.origin_map.step_spans[step_id].origin_key
+        for step_id in imported_lane_step_ids
+    )
 
 
 @pytest.mark.parametrize(
@@ -1751,17 +1818,14 @@ def test_compile_stage3_module_preserves_branch_local_terminal_contract_alignmen
         for workflow in result.entry_result.lowered_workflows
         if workflow.typed_workflow.definition.name.endswith("::drain")
     )
-    child = _child_backlog_drain_workflow(result)
     bundle = next(
         bundle
         for workflow_name, bundle in result.entry_result.validated_bundles.items()
         if workflow_name.endswith("::drain")
     )
-    call_step = next(
-        step
-        for step in _iter_nested_steps(parent.authored_mapping["steps"])
-        if step.get("call") == "std/drain::backlog-drain"
-    )
+    # Generic route: the backlog-drain proc and its settle-terminal lane lower
+    # inline into the parent; no std/drain::backlog-drain child is synthesized.
+    loop_step = _parent_backlog_drain_loop_step(parent)
     projection_step = next(
         step
         for step in parent.authored_mapping["steps"]
@@ -1772,24 +1836,21 @@ def test_compile_stage3_module_preserves_branch_local_terminal_contract_alignmen
     reason_value = next(value for value in blocked_values if value["name"] == "return__reason")
 
     assert parent.typed_workflow.signature.return_type_ref.name == "ParentTerminalResult"
-    assert not any("repeat_until" in step for step in parent.authored_mapping["steps"])
-    assert call_step["id"] in parent.origin_map.step_spans
-    assert projection_step["match"]["ref"] == (
-        "root.steps."
-        "drain_stdlib_backlog_drain_branch_local_terminal_contract_alignment::drain__stdlib-result__call_std/drain::backlog-drain."
-        "artifacts.return__variant"
+    assert not any(
+        workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
+        for workflow in result.entry_result.lowered_workflows
+    )
+    assert loop_step["id"] in parent.origin_map.step_spans
+    assert projection_step["match"]["ref"] == _parent_settle_terminal_result_ref(
+        parent, "return__variant"
     )
     assert tuple(projection_step["match"]["cases"]) == ("EMPTY", "COMPLETED", "BLOCKED")
     assert "return__blocker-class" not in parent.authored_mapping.get("outputs", {})
     assert "return__blocker-class" not in bundle.surface.outputs
     assert reason_value["source"] == {
-        "ref": (
-            "root.steps."
-            "drain_stdlib_backlog_drain_branch_local_terminal_contract_alignment::drain__stdlib-result__call_std/drain::backlog-drain."
-            "artifacts.return__blocker-class"
-        )
+        "ref": _parent_settle_terminal_result_ref(parent, "return__blocker-class")
     }
-    _assert_child_backlog_drain_uses_shared_terminal_lane(child)
+    _assert_parent_uses_generic_shared_terminal_lane(parent)
 
 
 def test_branch_local_terminal_contract_alignment_preserves_imported_call_and_projection_provenance(
@@ -1806,12 +1867,9 @@ def test_branch_local_terminal_contract_alignment_preserves_imported_call_and_pr
         for workflow in result.entry_result.lowered_workflows
         if workflow.typed_workflow.definition.name.endswith("::drain")
     )
-    child = _child_backlog_drain_workflow(result)
-    call_step = next(
-        step
-        for step in _iter_nested_steps(parent.authored_mapping["steps"])
-        if step.get("call") == "std/drain::backlog-drain"
-    )
+    # Generic route: the imported loop and terminal lane live in the parent;
+    # provenance must cover the loop step and the settle-terminal match steps.
+    loop_step = _parent_backlog_drain_loop_step(parent)
     projection_step = next(
         step
         for step in parent.authored_mapping["steps"]
@@ -1822,13 +1880,17 @@ def test_branch_local_terminal_contract_alignment_preserves_imported_call_and_pr
         for case_name in ("EMPTY", "COMPLETED", "BLOCKED")
     }
     blocked_values = case_steps["BLOCKED"][0]["materialize_artifacts"]["values"]
-    child_step_ids = {
+    imported_lane_step_ids = {
         step_id
-        for step in _iter_nested_steps(child.authored_mapping["steps"])
-        if isinstance((step_id := step.get("id")), str)
+        for step in parent.authored_mapping["steps"]
+        if (
+            "consume-drain-terminal-effects" in step.get("name", "")
+            or "finalize-drain-terminal" in step.get("name", "")
+        )
+        and isinstance((step_id := step.get("id")), str)
     }
+    imported_lane_step_ids.add(loop_step["id"])
 
-    assert call_step["id"] in parent.origin_map.step_spans
     assert projection_step["id"] in parent.origin_map.step_spans
     assert parent.origin_map.step_spans[projection_step["id"]].origin_key
     for case_name, steps in case_steps.items():
@@ -1840,19 +1902,16 @@ def test_branch_local_terminal_contract_alignment_preserves_imported_call_and_pr
     assert any(
         value["name"] == "return__reason"
         and value["source"]
-        == {
-            "ref": (
-                "root.steps."
-                "drain_stdlib_backlog_drain_branch_local_terminal_contract_alignment::drain__stdlib-result__call_std/drain::backlog-drain."
-                "artifacts.return__blocker-class"
-            )
-        }
+        == {"ref": _parent_settle_terminal_result_ref(parent, "return__blocker-class")}
         for value in blocked_values
     )
     assert "return__blocker-class" not in parent.authored_mapping.get("outputs", {})
-    assert child_step_ids
-    assert all(step_id in child.origin_map.step_spans for step_id in child_step_ids)
-    assert all(child.origin_map.step_spans[step_id].origin_key for step_id in child_step_ids)
+    assert imported_lane_step_ids
+    assert all(step_id in parent.origin_map.step_spans for step_id in imported_lane_step_ids)
+    assert all(
+        parent.origin_map.step_spans[step_id].origin_key
+        for step_id in imported_lane_step_ids
+    )
 
 
 @pytest.mark.parametrize(
@@ -2925,8 +2984,14 @@ def test_compile_stage3_module_rejects_hidden_compatibility_bridge_public_run_it
         )
 
     diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "workflow_signature_mismatch"
-    assert "run_state_path" in diagnostic.message
+    # Generic route: the smuggled extra run_state_path parameter on the run-item
+    # hook is rejected by the parametric proc-ref signature check at the macro
+    # boundary (arity mismatch) instead of the intrinsic workflow-signature
+    # comparison. The scenario stays impossible to author; the checker reports
+    # the arity mismatch without naming the offending parameter.
+    assert diagnostic.code == "proc_ref_signature_invalid"
+    assert diagnostic.form_path == ("workflow-lisp", "defworkflow", "drain")
+    assert "does not match parametric signature" in diagnostic.message
 
 def test_workflow_ref_provider_metadata_must_satisfy_callee_externs(tmp_path: Path) -> None:
     path = tmp_path / "provider_backlog_drain_invalid.orc"

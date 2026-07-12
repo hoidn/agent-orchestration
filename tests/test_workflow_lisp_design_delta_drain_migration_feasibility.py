@@ -2375,9 +2375,14 @@ def _execute_design_delta_selected_item_stdlib_route(
     recovery_reason: str = "implementation_architecture_under_scoped",
     review_sequence: tuple[str, ...] = ("APPROVE",),
 ):
-    workflow_path, result = _compile_design_delta_work_item_runtime_entrypoint(tmp_path)
+    # Generic route: run-selected-item-stdlib is a defproc hook; its validated
+    # bundle exists only where the drain macro calls it, under the promoted
+    # versioned identity (adjudicated remap route, 2026-07-11).
+    workflow_path, result, _lowered_by_name = (
+        _compile_design_delta_parent_drain_runtime_entrypoint(tmp_path)
+    )
     bundle = result.entry_result.validated_bundles[
-        "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+        "%work_item.lisp_frontend_design_delta/work_item::run-selected-item-stdlib.v1"
     ]
     return _execute_design_delta_work_item_bundle(
         tmp_path,
@@ -4305,9 +4310,12 @@ def test_design_delta_work_item_library_module_stays_closure_only(
     assert {
         "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery",
         "lisp_frontend_design_delta/projections::classify-work-item-terminal",
-        "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
         "lisp_frontend_design_delta/work_item::run-work-item",
     }.issubset(lowered_names)
+    # Generic route: run-selected-item-stdlib is a defproc hook and lowers only
+    # where called (the drain macro call site), so a module-only compile of
+    # work_item.orc must not produce a standalone bundle for it.
+    assert not any("run-selected-item-stdlib" in name for name in lowered_names)
     assert not any("route-blocked-implementation" in name for name in lowered_names)
     assert not any("finalize-approved-review-state" in name for name in lowered_names)
     assert not any("finalize-approved-nonblocked" in name for name in lowered_names)
@@ -4449,16 +4457,16 @@ def test_design_delta_parent_drain_compiles_with_hidden_private_context(
     drain_steps = list(
         _walk_lowered_steps(lowered_by_name["lisp_frontend_design_delta/drain::drain"]["steps"])
     )
-    callable_drain_steps = list(
-        _walk_lowered_steps(lowered_by_name["std/drain::backlog-drain"]["steps"])
-    )
 
-    assert any(step.get("call") == "std/drain::backlog-drain" for step in drain_steps)
-    assert any("repeat_until" in step for step in callable_drain_steps)
+    # Generic route: the backlog-drain proc lowers inline into the parent, so
+    # there is no synthesized std/drain::backlog-drain child workflow; the loop
+    # and the promoted selector hook call live in the parent's own steps.
+    assert "std/drain::backlog-drain" not in lowered_by_name
+    assert any("repeat_until" in step for step in drain_steps)
     assert any(
         step.get("call")
-        == "lisp_frontend_design_delta/stdlib_adapters::select-next-work-stdlib"
-        for step in callable_drain_steps
+        == "%stdlib_adapters.lisp_frontend_design_delta/stdlib_adapters::select-next-work-stdlib.v1"
+        for step in drain_steps
     )
     assert "lisp_frontend_design_delta/drain::drain-runtime-owned" not in lowered_by_name
 
@@ -4877,8 +4885,22 @@ def test_stdlib_parent_delegation_audit_fixture_compiles_promoted_backlog_drain_
 
     assert "(backlog-drain neurips" in drain_source
     assert "(loop/recur" not in drain_source
-    assert len(lowered["steps"]) == 1
-    assert lowered["steps"][0]["call"] == "std/drain::backlog-drain"
+    # Generic route: the macro expands to backlog-drain-proc + settle-drain-terminal,
+    # lowered inline in the caller (no std/drain::backlog-drain child); the hooks
+    # are promoted to versioned workflows and called from the loop body.
+    loop_steps = [step for step in lowered["steps"] if "repeat_until" in step]
+    assert len(loop_steps) == 1
+    assert loop_steps[0]["repeat_until"]["max_iterations"] == 4
+    walked_calls = {
+        step.get("call")
+        for step in _walk_lowered_steps(lowered["steps"])
+        if isinstance(step.get("call"), str)
+    }
+    assert walked_calls == {
+        "%drain_stdlib_backlog_drain_stdlib.drain_stdlib_backlog_drain_stdlib::selector-run.v1",
+        "%drain_stdlib_backlog_drain_stdlib.drain_stdlib_backlog_drain_stdlib::run-selected-item.v1",
+        "%drain_stdlib_backlog_drain_stdlib.drain_stdlib_backlog_drain_stdlib::gap-draft.v1",
+    }
 
 
 def test_design_delta_parent_drain_entrypoint_adopts_stdlib_owner_routes(
@@ -4910,7 +4932,15 @@ def test_design_delta_parent_drain_entrypoint_adopts_stdlib_owner_routes(
     assert "finalize-selected-item" in work_item_source
     assert "(loop/recur" not in drain_source
     assert "(call project-selector-action" not in drain_source
-    assert any(step.get("call") == "std/drain::backlog-drain" for step in drain_lowered["steps"])
+    # Generic route: the drain loop lowers inline in the parent (no
+    # std/drain::backlog-drain child call step); the stdlib-owner route is
+    # adopted through the promoted hook workflows called from the loop body.
+    assert any("repeat_until" in step for step in drain_lowered["steps"])
+    assert any(
+        step.get("call")
+        == "%stdlib_adapters.lisp_frontend_design_delta/stdlib_adapters::select-next-work-stdlib.v1"
+        for step in _walk_lowered_steps(drain_lowered["steps"])
+    )
     assert "lisp_frontend_design_delta/drain::drain-runtime-owned" not in lowered_by_name
     pending_calls = {
         str(step.get("call", ""))
@@ -5053,21 +5083,21 @@ def test_design_delta_selected_item_stdlib_smoke_helper_matches_real_selected_it
     tmp_path: Path,
 ) -> None:
     bound_inputs = _design_delta_selected_item_stdlib_bound_inputs()
+    # Generic route: the promoted run-selected-item-stdlib bundle exists only in
+    # the parent-drain entry compile, and item-ctx is a caller-supplied proc
+    # parameter (public inputs), no longer a private runtime-context binding.
     _workflow_path, result, _lowered_by_name = (
-        _compile_design_delta_parent_call_work_item_entrypoint(tmp_path)
+        _compile_design_delta_parent_drain_runtime_entrypoint(tmp_path)
     )
-    bundle = result.validated_bundles_by_name[
-        "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+    bundle = result.entry_result.validated_bundles[
+        "%work_item.lisp_frontend_design_delta/work_item::run-selected-item-stdlib.v1"
     ]
     boundary = workflow_boundary_projection(bundle)
-    item_ctx_binding = next(
-        binding
+    assert not any(
+        binding.binding_id == "item-ctx"
         for binding in boundary.private_runtime_context_bindings
-        if binding.binding_id == "item-ctx"
     )
-    expected_helper_inputs = set(workflow_public_input_contracts(bundle)) | set(
-        item_ctx_binding.generated_input_names
-    )
+    expected_helper_inputs = set(workflow_public_input_contracts(bundle))
 
     assert set(bound_inputs) == expected_helper_inputs
     assert all(
@@ -5092,14 +5122,16 @@ def test_design_delta_selected_item_stdlib_keeps_run_state_bridge_private(
         REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc"
     ).read_text(encoding="utf-8")
     run_selected_item_stdlib = work_item_source.split(
-        "(defworkflow run-selected-item-stdlib", 1
+        "(defproc run-selected-item-stdlib", 1
     )[1].split("(defworkflow run-work-item", 1)[0]
     bound_inputs = _design_delta_selected_item_stdlib_bound_inputs()
+    # Generic route: the promoted run-selected-item-stdlib bundle exists only in
+    # the parent-drain entry compile (adjudicated remap route, 2026-07-11).
     _workflow_path, result, _lowered_by_name = (
-        _compile_design_delta_parent_call_work_item_entrypoint(tmp_path)
+        _compile_design_delta_parent_drain_runtime_entrypoint(tmp_path)
     )
-    bundle = result.validated_bundles_by_name[
-        "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+    bundle = result.entry_result.validated_bundles[
+        "%work_item.lisp_frontend_design_delta/work_item::run-selected-item-stdlib.v1"
     ]
     boundary = workflow_boundary_projection(bundle)
 
@@ -5122,7 +5154,7 @@ def test_design_delta_selected_item_stdlib_consumes_typed_child_result() -> None
         REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc"
     ).read_text(encoding="utf-8")
     run_selected_item_stdlib = work_item_source.split(
-        "(defworkflow run-selected-item-stdlib", 1
+        "(defproc run-selected-item-stdlib", 1
     )[1].split("(defworkflow run-work-item", 1)[0]
 
     assert "((item-ctx ItemCtx)" in run_selected_item_stdlib or "((item-ctx std/context/ItemCtx)" in run_selected_item_stdlib
@@ -5207,12 +5239,6 @@ def test_design_delta_parent_drain_preserves_runtime_native_transition_calls_aft
     drain_steps = list(
         _walk_lowered_steps(lowered_by_name["lisp_frontend_design_delta/drain::drain"]["steps"])
     )
-    stdlib_drain_steps = list(
-        _walk_lowered_steps(lowered_by_name["std/drain::backlog-drain"]["steps"])
-    )
-    drain_calls = {
-        step.get("call") for step in drain_steps if isinstance(step.get("call"), str)
-    }
     source_map = build_source_map_document(
         result,
         selected_name="lisp_frontend_design_delta/drain::drain",
@@ -5223,6 +5249,11 @@ def test_design_delta_parent_drain_preserves_runtime_native_transition_calls_aft
         "lisp_frontend_design_delta_transitions_record_design_gap_progress",
         "lisp_frontend_design_delta_transitions_record_work_item_terminal_outcome",
         "lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary",
+        # Generic route: the drain-terminal transitions are authored in
+        # std/drain.orc's consume-drain-terminal-effects helper and imported
+        # through the macro expansion; the transition-authoring gate sanctions
+        # them via the low_level.imported_drain_terminal_effects row.
+        "std_drain_consume_drain_terminal_effects",
     )
     raw_resource_transition_modules = {
         row.workflow_origin.module_name
@@ -5232,9 +5263,11 @@ def test_design_delta_parent_drain_preserves_runtime_native_transition_calls_aft
         and not any(marker in node.step_id for marker in imported_transition_markers)
     }
 
-    assert "std/drain::backlog-drain" in drain_calls
+    # Generic route: the loop lowers inline in the parent; there is no
+    # std/drain::backlog-drain child workflow or call step.
+    assert "std/drain::backlog-drain" not in lowered_by_name
     assert "lisp_frontend_design_delta/drain::drain-runtime-owned" not in lowered_by_name
-    assert any("repeat_until" in step for step in stdlib_drain_steps)
+    assert any("repeat_until" in step for step in drain_steps)
     assert "lisp_frontend_design_delta/transitions" in raw_resource_transition_modules
     assert "lisp_frontend_design_delta/drain" not in raw_resource_transition_modules
 
@@ -5317,9 +5350,9 @@ def test_design_delta_parent_drain_summary_cleanup_removes_helper_owned_summary_
     )[1].split("(defproc route-blocked-implementation-stdlib", 1)[0]
     route_blocked_stdlib = work_item_source.split(
         "(defproc route-blocked-implementation-stdlib", 1
-    )[1].split("(defworkflow run-selected-item-stdlib", 1)[0]
+    )[1].split("(defproc run-selected-item-stdlib", 1)[0]
     run_selected_item_stdlib = work_item_source.split(
-        "(defworkflow run-selected-item-stdlib", 1
+        "(defproc run-selected-item-stdlib", 1
     )[1].split("(defworkflow run-work-item", 1)[0]
     run_work_item = work_item_source.split("(defworkflow run-work-item", 1)[1]
 

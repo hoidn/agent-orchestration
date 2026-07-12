@@ -171,9 +171,14 @@ def test_transition_authoring_report_passes_for_checked_design_delta_family(
     assert report["schema_version"] == "workflow_lisp_transition_authoring_report.v1"
     assert report["workflow_family"] == "design_delta_parent_drain"
     assert report["status"] == "pass"
+    # Generic route: the settle-drain-terminal transitions are authored in
+    # std/drain.orc and imported through the macro expansion; the source-map
+    # attributes them to the high-level drain module, and the checked manifest
+    # sanctions them via the low_level.imported_drain_terminal_effects row.
     assert {row["module_name"] for row in report["compiled_origins"]} == {
         "lisp_frontend_design_delta/transitions",
         "lisp_frontend_design_delta/work_item",
+        "lisp_frontend_design_delta/drain",
     }
     assert all(
         row["classification"] == "low_level_library"
@@ -184,24 +189,41 @@ def test_transition_authoring_report_passes_for_checked_design_delta_family(
         for row in report["compiled_origins"]
         if row["workflow_name"] == "lisp_frontend_design_delta/drain::drain"
     ]
-    assert drain_terminal_rows == [
-        {
-            "workflow_name": "lisp_frontend_design_delta/drain::drain",
-            "module_name": "lisp_frontend_design_delta/transitions",
-            "path": str(
-            REPO_ROOT
-            / "workflows"
-            / "library"
-            / "lisp_frontend_design_delta"
-            / "transitions.orc"
-        ),
-            "line": 260,
-            "step_kind": "resource_transition",
-            "step_id": "lisp_frontend_design_delta_drain_drain__recorded_summary__lisp_frontend_design_delta_transitions_record_drain_terminal_outcome_stdlib_1__transition_result",
-            "classification": "low_level_library",
-            "matched_row_id": "low_level.record_drain_terminal_outcome",
-        }
+    recorded_summary_rows = [
+        row
+        for row in drain_terminal_rows
+        if row["matched_row_id"] == "low_level.record_drain_terminal_outcome"
     ]
+    assert [row["step_id"] for row in recorded_summary_rows] == [
+        "lisp_frontend_design_delta_drain_drain__recorded_summary__lisp_frontend_design_delta_transitions_record_drain_terminal_outcome_stdlib_1__transition_result"
+    ]
+    assert recorded_summary_rows[0]["module_name"] == "lisp_frontend_design_delta/transitions"
+    assert recorded_summary_rows[0]["step_kind"] == "resource_transition"
+    imported_terminal_rows = [
+        row
+        for row in drain_terminal_rows
+        if row["matched_row_id"] == "low_level.imported_drain_terminal_effects"
+    ]
+    assert {
+        row["step_id"].rsplit("__match_terminal__", 1)[1]
+        for row in imported_terminal_rows
+    } == {"empty__outcome", "completed__outcome", "blocked__outcome", "exhausted__outcome"}
+    assert all(
+        row["module_name"] == "lisp_frontend_design_delta/drain"
+        and row["step_kind"] == "resource_transition"
+        and "std_drain_consume_drain_terminal_effects_" in row["step_id"]
+        and row["path"]
+        == str(
+            REPO_ROOT
+            / "orchestrator"
+            / "workflow_lisp"
+            / "stdlib_modules"
+            / "std"
+            / "drain.orc"
+        )
+        for row in imported_terminal_rows
+    )
+    assert len(drain_terminal_rows) == len(recorded_summary_rows) + len(imported_terminal_rows)
     finalize_rows = [
         row
         for row in report["compiled_origins"]
