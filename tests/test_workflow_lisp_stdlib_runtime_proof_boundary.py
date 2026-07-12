@@ -10,6 +10,7 @@ import pytest
 from orchestrator.workflow.executable_ir import validate_executable_workflow
 from orchestrator.workflow_lisp.compiler import Stage3ValidationProfile, compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.lints import LINT_PROFILE_STRICT
 from orchestrator.workflow_lisp.lowering.core import validate_lowered_workflows
 from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding
 from tests.test_workflow_lisp_stdlib_form_migration import (
@@ -47,6 +48,28 @@ def _compile_linked_fixture(
     )
 
 
+_ENTRY_PARAMS = """  (defworkflow drain
+    ((ctx DrainCtx)
+     (max-iterations Int))"""
+_LOW_LEVEL_ENTRY_PARAMS = """  (defworkflow drain
+    ((ctx DrainCtx)
+     (state-root Path.state-root)
+     (max-iterations Int))"""
+
+
+def _compile_low_level_boundary_variant(*, tmp_path: Path, **compile_kwargs: object):
+    source = DRAIN_STDLIB_FIXTURE.read_text(encoding="utf-8")
+    assert source.count(_ENTRY_PARAMS) == 1
+    variant_source = source.replace(_ENTRY_PARAMS, _LOW_LEVEL_ENTRY_PARAMS, 1)
+    variant_path = tmp_path / "low_level_boundary_variant.orc"
+    variant_path.write_text(variant_source, encoding="utf-8")
+    return _compile_linked_fixture(
+        variant_path,
+        tmp_path=tmp_path,
+        **compile_kwargs,
+    )
+
+
 def _selected_lowered_workflow(result):
     return next(
         workflow
@@ -55,11 +78,76 @@ def _selected_lowered_workflow(result):
     )
 
 
-def _selected_child_lowered_workflow(result):
-    return next(
-        workflow
-        for workflow in result.entry_result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
+def _walk_nodes(value):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _walk_nodes(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_nodes(child)
+
+
+_DRAIN_REPEAT_OUTPUTS = {
+    "status",
+    "state__items-processed",
+    "state__progress-report-path",
+    "result__variant",
+    "result__items_processed",
+    "result__progress_report_path",
+    "result__blocker_class",
+}
+
+
+def _inline_repeat_candidates(authored_mapping):
+    candidates = []
+    for node in _walk_nodes(authored_mapping):
+        repeat = node.get("repeat_until")
+        if not isinstance(repeat, dict) or not isinstance(repeat.get("steps"), list):
+            continue
+        outputs = repeat.get("outputs")
+        exhausted = repeat.get("on_exhausted", {}).get("outputs", {})
+        if (
+            isinstance(outputs, dict)
+            and _DRAIN_REPEAT_OUTPUTS <= set(outputs)
+            and exhausted.get("status") == "DONE"
+            and exhausted.get("result__variant") == "EXHAUSTED"
+        ):
+            candidates.append((node, repeat))
+    return candidates
+
+
+def _selected_inline_repeat(authored_mapping):
+    candidates = _inline_repeat_candidates(authored_mapping)
+    assert len(candidates) == 1, (
+        f"expected one parent-owned inline drain repeat, found {len(candidates)}"
+    )
+    return candidates[0]
+
+
+def _source_mapped_owner_records(lowered):
+    records = {}
+    for node in _walk_nodes(lowered.authored_mapping):
+        name = node.get("name")
+        step_id = node.get("id")
+        if not isinstance(name, str) or not isinstance(step_id, str):
+            continue
+        origin = lowered.origin_map.step_spans.get(step_id)
+        if origin is not None:
+            records[name] = (node, origin)
+    return records
+
+
+def _assert_generated_stdlib_owner(node, origin) -> None:
+    assert Path(origin.span.start.path).as_posix().endswith(
+        "orchestrator/workflow_lisp/stdlib_modules/std/drain.orc"
+    )
+    assert (
+        origin.form_path[-2:] == ("defproc", "backlog-drain-proc")
+        or (
+            "assert" in node
+            and origin.form_path[-2:] == ("defworkflow", "drain")
+        )
     )
 
 
@@ -74,11 +162,21 @@ def _observed_command_boundary_names(result) -> set[str]:
     return names
 
 
-def _replace_lowered_workflow(result, workflow_name: str, replacement):
+def _replace_entry_workflow(result, replacement):
     return tuple(
-        replacement if workflow.typed_workflow.definition.name == workflow_name else workflow
-        for workflow in result.entry_result.lowered_workflows
+        replacement
+        if item.typed_workflow.definition.name == ENTRY_WORKFLOW_NAME
+        else item
+        for item in result.entry_result.lowered_workflows
     )
+
+
+def _assert_low_level_boundary_diagnostic(diagnostic) -> None:
+    assert diagnostic.code == "low_level_state_path_in_high_level_module"
+    assert diagnostic.validation_pass == "contract"
+    assert diagnostic.authority_layer == "frontend"
+    assert diagnostic.form_path
+    assert diagnostic.span is not None
 
 
 def test_dedicated_runtime_proof_profile_builds_validated_entry_bundle_for_imported_stdlib_drain(
@@ -111,9 +209,12 @@ def test_shared_callable_profile_keeps_generated_structured_branch_guard_active(
 
     lowered = _selected_lowered_workflow(result)
 
-    assert [step.get("call") for step in lowered.authored_mapping["steps"]] == [
-        "std/drain::backlog-drain"
-    ]
+    _, inline_repeat = _selected_inline_repeat(lowered.authored_mapping)
+    assert inline_repeat["steps"]
+    assert not any(
+        step.get("call") == "std/drain::backlog-drain"
+        for step in lowered.authored_mapping["steps"]
+    )
 
 
 def test_frontend_only_profile_keeps_entry_validated_bundles_empty_for_linked_fixture(
@@ -138,14 +239,139 @@ def test_runtime_proof_profile_records_non_promotable_boundary_evidence_and_sour
     )
 
     lowered = _selected_lowered_workflow(result)
-    retained = result.entry_result.retained_non_promotable_diagnostics
+    repeat_owner, inline_repeat = _selected_inline_repeat(lowered.authored_mapping)
 
-    assert any(diag.code == "low_level_state_path_in_high_level_module" for diag in retained)
-    assert not any(diag.code == "workflow_boundary_type_invalid" for diag in retained)
-    assert any(step.get("call") == "std/drain::backlog-drain" for step in lowered.authored_mapping["steps"])
-    assert any("call_std/drain::backlog-drain" in step_id for step_id in lowered.origin_map.step_spans)
-    assert any("__write_root__std_drain_backlog_drain__normalize_result__empty" in path for path in lowered.origin_map.generated_path_spans)
-    assert any("__write_root__std_drain_backlog_drain__normalize_result__blocked" in path for path in lowered.origin_map.generated_path_spans)
+    assert result.entry_result.retained_non_promotable_diagnostics == ()
+    assert inline_repeat["steps"]
+    assert repeat_owner["id"] in lowered.origin_map.step_spans
+    repeat_index = lowered.authored_mapping["steps"].index(repeat_owner)
+    terminal_owners = lowered.authored_mapping["steps"][repeat_index + 1 :]
+    assert terminal_owners
+    assert all(step["id"] in lowered.origin_map.step_spans for step in terminal_owners)
+    assert any(
+        "__write_root__" in path
+        for path in lowered.origin_map.generated_path_spans
+    )
+    assert any(
+        "finalize_drain_terminal" in path
+        for path in lowered.origin_map.generated_path_spans
+    )
+    assert not any(
+        step.get("call") == "std/drain::backlog-drain"
+        for step in lowered.authored_mapping["steps"]
+    )
+
+
+def test_parent_owned_inline_route_selector_fails_closed_on_ambiguous_shape(
+    tmp_path: Path,
+) -> None:
+    result = _compile_linked_fixture(
+        DRAIN_STDLIB_FIXTURE,
+        tmp_path=tmp_path,
+        validation_profile="DEDICATED_RUNTIME_PROOF",
+    )
+    lowered = _selected_lowered_workflow(result)
+    authored = deepcopy(lowered.authored_mapping)
+    repeat_owner, _ = _selected_inline_repeat(authored)
+    authored["steps"].append(deepcopy(repeat_owner))
+
+    with pytest.raises(AssertionError, match="found 2"):
+        _selected_inline_repeat(authored)
+    with pytest.raises(AssertionError, match="found 0"):
+        _selected_inline_repeat({})
+
+
+def test_dedicated_runtime_proof_default_lint_retains_low_level_boundary_variant(
+    tmp_path: Path,
+) -> None:
+    result = _compile_low_level_boundary_variant(
+        tmp_path=tmp_path,
+        validation_profile="DEDICATED_RUNTIME_PROOF",
+    )
+    validate_executable_workflow(result.entry_result.validated_bundles[ENTRY_WORKFLOW_NAME].ir)
+    findings = [
+        item
+        for item in result.entry_result.retained_non_promotable_diagnostics
+        if item.code == "low_level_state_path_in_high_level_module"
+    ]
+    assert len(findings) == 1
+    _assert_low_level_boundary_diagnostic(findings[0])
+
+
+def test_shared_callable_default_lint_retains_low_level_boundary_variant(
+    tmp_path: Path,
+) -> None:
+    result = _compile_low_level_boundary_variant(
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+    findings = [
+        item
+        for item in result.entry_result.retained_non_promotable_diagnostics
+        if item.code == "low_level_state_path_in_high_level_module"
+    ]
+    assert len(findings) == 1
+    _assert_low_level_boundary_diagnostic(findings[0])
+
+
+def test_shared_callable_strict_lint_rejects_low_level_boundary_variant(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_low_level_boundary_variant(
+            tmp_path=tmp_path,
+            validate_shared=True,
+            lint_profile=LINT_PROFILE_STRICT,
+        )
+    findings = [
+        item
+        for item in excinfo.value.diagnostics
+        if item.code == "low_level_state_path_in_high_level_module"
+    ]
+    assert len(findings) == 1
+    _assert_low_level_boundary_diagnostic(findings[0])
+
+
+def test_dedicated_runtime_proof_strict_lint_rejects_low_level_boundary_variant(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_low_level_boundary_variant(
+            tmp_path=tmp_path,
+            validation_profile="DEDICATED_RUNTIME_PROOF",
+            lint_profile=LINT_PROFILE_STRICT,
+        )
+    findings = [
+        item
+        for item in excinfo.value.diagnostics
+        if item.code == "low_level_state_path_in_high_level_module"
+    ]
+    assert len(findings) == 1
+    _assert_low_level_boundary_diagnostic(findings[0])
+
+
+def test_runtime_proof_metadata_resolves_to_source_mapped_generated_owners(
+    tmp_path: Path,
+) -> None:
+    result = _compile_linked_fixture(
+        DRAIN_STDLIB_FIXTURE,
+        tmp_path=tmp_path,
+        validation_profile="DEDICATED_RUNTIME_PROOF",
+    )
+    lowered = _selected_lowered_workflow(result)
+    records = _source_mapped_owner_records(lowered)
+
+    assert lowered.runtime_proof_nested_structured_step_names
+    assert lowered.runtime_proof_shared_validation_parent_ref_allowances
+    assert lowered.runtime_proof_executable_parent_ref_allowances
+    for owner in lowered.runtime_proof_nested_structured_step_names:
+        _assert_generated_stdlib_owner(*records[owner])
+    for allowances in (
+        lowered.runtime_proof_shared_validation_parent_ref_allowances,
+        lowered.runtime_proof_executable_parent_ref_allowances,
+    ):
+        for owner, _ in allowances:
+            _assert_generated_stdlib_owner(*records[owner])
 
 
 def test_runtime_proof_profile_keeps_placeholder_command_boundaries_certified(
@@ -175,7 +401,7 @@ def test_runtime_proof_profile_keeps_placeholder_command_boundaries_certified(
         assert binding.fixture_ids
 
 
-def test_runtime_proof_profile_accepts_generated_nested_structured_steps_on_child_callable_route(
+def test_runtime_proof_profile_accepts_generated_nested_structured_steps_on_parent_owned_inline_route(
     tmp_path: Path,
 ) -> None:
     result = _compile_linked_fixture(
@@ -183,24 +409,26 @@ def test_runtime_proof_profile_accepts_generated_nested_structured_steps_on_chil
         tmp_path=tmp_path,
         validate_shared=False,
     )
-    lowered = _selected_child_lowered_workflow(result)
+    lowered = _selected_lowered_workflow(result)
     authored = deepcopy(lowered.authored_mapping)
-    repeat_steps = authored["steps"][2]["repeat_until"]["steps"]
-    nested_if = deepcopy(repeat_steps[5])
-    nested_if["name"] = "drain_stdlib_backlog_drain_stdlib::drain__runtime_proof_scope_guard"
-    nested_if["id"] = "drain_stdlib_backlog_drain_stdlib_drain__runtime_proof_scope_guard"
-    repeat_steps.append(nested_if)
+    _, repeat = _selected_inline_repeat(authored)
+    structured = [step for step in repeat["steps"] if "if" in step and "when" not in step]
+    assert len(structured) == 1
+    nested = deepcopy(structured[0])
+    nested["name"] = f"{ENTRY_WORKFLOW_NAME}__runtime_proof_scope_guard"
+    nested["id"] = "runtime_proof_scope_guard"
+    repeat["steps"].append(nested)
     mutated = replace(
         lowered,
         authored_mapping=authored,
         runtime_proof_nested_structured_step_names=(
             *lowered.runtime_proof_nested_structured_step_names,
-            "drain_stdlib_backlog_drain_stdlib::drain__runtime_proof_scope_guard",
+            nested["name"],
         ),
     )
 
     validate_lowered_workflows(
-        _replace_lowered_workflow(result, "std/drain::backlog-drain", mutated),
+        _replace_entry_workflow(result, mutated),
         workspace_root=tmp_path,
         imported_workflow_bundles=result.entry_result.workflow_catalog.imported_bundles_by_name,
         validation_profile=Stage3ValidationProfile.DEDICATED_RUNTIME_PROOF,
@@ -215,21 +443,23 @@ def test_runtime_proof_profile_rejects_authored_parent_scope_fallback_refs_even_
         tmp_path=tmp_path,
         validate_shared=False,
     )
-    lowered = _selected_child_lowered_workflow(result)
+    lowered = _selected_lowered_workflow(result)
     authored = deepcopy(lowered.authored_mapping)
-    repeat_steps = authored["steps"][2]["repeat_until"]["steps"]
-    blocked_steps = repeat_steps
-    blocked_steps.append(
+    repeat_owner, repeat = _selected_inline_repeat(authored)
+    authored_ref = (
+        f"parent.steps.{repeat_owner['name']}__current_loop_state."
+        "artifacts.acc__items-processed"
+    )
+    authored_owner = f"{ENTRY_WORKFLOW_NAME}__runtime_proof_parent_scope_guard"
+    repeat["steps"].append(
         {
-            "name": "drain_stdlib_backlog_drain_stdlib::drain__runtime_proof_parent_scope_guard",
-            "id": "drain_stdlib_backlog_drain_stdlib_drain__runtime_proof_parent_scope_guard",
+            "name": authored_owner,
+            "id": "runtime_proof_parent_scope_guard",
             "materialize_artifacts": {
                 "values": [
                     {
                         "name": "copied_items_processed",
-                        "source": {
-                            "ref": "parent.steps.std/drain::backlog-drain__current_loop_state.artifacts.acc__items-processed"
-                        },
+                        "source": {"ref": authored_ref},
                         "contract": {
                             "kind": "scalar",
                             "type": "integer",
@@ -238,12 +468,6 @@ def test_runtime_proof_profile_rejects_authored_parent_scope_fallback_refs_even_
                 ]
             },
         }
-    )
-    authored_ref = (
-        "parent.steps.std/drain::backlog-drain__current_loop_state.artifacts.acc__items-processed"
-    )
-    authored_owner = (
-        "drain_stdlib_backlog_drain_stdlib::drain__runtime_proof_parent_scope_guard"
     )
     mutated = replace(
         lowered,
@@ -260,17 +484,24 @@ def test_runtime_proof_profile_rejects_authored_parent_scope_fallback_refs_even_
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         validate_lowered_workflows(
-            _replace_lowered_workflow(result, "std/drain::backlog-drain", mutated),
+            _replace_entry_workflow(result, mutated),
             workspace_root=tmp_path,
             imported_workflow_bundles=result.entry_result.workflow_catalog.imported_bundles_by_name,
             validation_profile=Stage3ValidationProfile.DEDICATED_RUNTIME_PROOF,
         )
 
-    assert any(
-        diag.code == "workflow_boundary_type_invalid"
-        and "runtime_proof_parent_scope_guard" in diag.message
-        for diag in excinfo.value.diagnostics
-    )
+    matching = [
+        item
+        for item in excinfo.value.diagnostics
+        if item.code == "workflow_boundary_type_invalid"
+        and item.validation_pass == "shared_validation"
+        and item.authority_layer == "shared_validation"
+        and item.form_path[-2:] == ("defproc", "backlog-drain-proc")
+        and Path(item.span.start.path).as_posix().endswith(
+            "orchestrator/workflow_lisp/stdlib_modules/std/drain.orc"
+        )
+    ]
+    assert len(matching) == 1
 
 
 def test_validation_profile_accepts_serialized_enum_value(
