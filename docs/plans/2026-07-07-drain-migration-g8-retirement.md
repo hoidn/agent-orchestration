@@ -1168,7 +1168,7 @@ set (details, quantification, and repro in `.superpowers/sdd/task-1.6-report.md`
    `test_workflow_lisp_{route_readiness,stdlib_runtime_proof_boundary}.py`, same
    intrinsic-shape/registry classes, inventoried in the report §10.
 
-### Task 1.6 fix-wave record (2026-07-12, post-adjudication; Step 4 still OPEN — blocked solely on the PB3 re-adjudication below)
+### Task 1.6 fix-wave record (2026-07-12, post-adjudication; Step 4 still OPEN — PB3/PB4 closure patches landed, complete gate rerun pending)
 
 **(a) Adjudications applied (user, 2026-07-12).** (1) PB1 = dedupe bundle-graph walks per
 distinct bundle; (2) PB2 = fix the exhaustion-state recognizer + fail-fast on ambiguity;
@@ -1246,8 +1246,11 @@ reference-family conformance gate after the fact. Post-PB1 a full-target
 `migration-parity` run (all three families; single-target runs fail closed on the
 sibling reports' garbage-collected build manifests) completed and atomically rewrote
 reports+logs+index: `cycle_guard_demo` and `design_plan_impl_stack` non-regressive;
-`design_delta_parent_drain` recorded REGRESSIVE solely from its smoke evidence (the 4
-PB3 smokes). P2 compile green again.
+`design_delta_parent_drain` remained REGRESSIVE for two independent reasons: its smoke
+evidence retained 4 PB3 failures, and `parent_callable_compile` rejected the promoted
+parent-owned loop because `_parent_loop_control_reasons` still required the pre-swap hook
+aliases plus the retired `::project-selector-action.v1` alias (PB4). P2 compile green
+again.
 
 **(e) Step-4 state after the fix wave (fresh, nothing deselected).**
 Four suites: **7 failed / 312 passed** — drain_stdlib 63/63, census-alignment 10/10,
@@ -1256,6 +1259,15 @@ zero-write-terminal smokes; the CLI dry-run test passes. P2 compile exit 0,
 `diagnostic_count: 0`, fingerprint **`c5cf03b2755308a3`** (unchanged — the PB3 retype did
 not land, so no fingerprint change occurred), `g8_deletion_evidence` pass.
 migration-parity: completes post-PB1; `--require-non-regressive` remains red for
-`design_delta_parent_drain` pending PB3. The sanctioned final commit
+`design_delta_parent_drain` pending both PB3 result-extraction correction and PB4 promoted
+parent-loop recognition. The sanctioned final commit
 (`Move drain obligations to shared surfaces with parity evidence`) remains WITHHELD until
-PB3 lands and Step 4 goes green.
+the complete Step-4 gate goes green.
+
+**(f) F-N1 correction and closure-patch status (2026-07-12).** The earlier claim that
+migration parity was red solely from PB3 was a `stale_duplicate`: fresh review proved the
+PB4 `parent_callable_compile` failure was structural and PB3-independent. PB3 landed as
+`7812876c` (`Relax declared transition result extraction`); PB4 landed as `11f3b782`
+(`Recognize promoted drain hook ownership`). Focused suites and both mandatory canaries
+were green at each patch commit, but Task 1.6 Step 4 remains unchecked until the controller
+runs and records the complete gate.
