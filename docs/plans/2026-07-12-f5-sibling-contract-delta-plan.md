@@ -200,7 +200,9 @@ Expected: JSON parsing succeeds; both tests pass; CLI exits 0 with no missing re
 rg -c 'design_delta_loop_promoted_hook_phase_ctx' docs/workflow_lisp_route_readiness_registry.json
 ```
 
-Expected: `3` textual occurrences (evidence test, path, and `surface_id`), all within one row.
+Expected: `2` textual occurrences, owned by the row's `path` and `surface_id` fields. The
+independent evidence node uses `promoted_hook_carries_phase_ctx`, so it does not contain this
+fixture-identity substring.
 
 - [ ] **Step 5: Run the independent proving evidence and full registry module**
 
