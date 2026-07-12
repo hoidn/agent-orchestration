@@ -63,30 +63,57 @@ failure-to-error transition is visible:
 rg '^(FAILED|ERROR) ' tmp/f5-prechange-broad-baseline.txt \
   | sed -E 's/^(FAILED|ERROR) ([^ ]+).*/\1 \2/' \
   | sort -u > tmp/f5-prechange-failure-identities.txt
+printf '%s\n' \
+  'FAILED tests/test_workflow_lisp_route_readiness.py::test_checked_in_registry_loads_and_validates' \
+  'FAILED tests/test_workflow_lisp_route_readiness.py::test_cli_route_readiness_check_valid_registry' \
+  'FAILED tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py::test_shared_callable_profile_keeps_generated_structured_branch_guard_active' \
+  'FAILED tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py::test_runtime_proof_profile_records_non_promotable_boundary_evidence_and_source_map_lineage' \
+  'FAILED tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py::test_runtime_proof_profile_accepts_generated_nested_structured_steps_on_child_callable_route' \
+  'FAILED tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py::test_runtime_proof_profile_rejects_authored_parent_scope_fallback_refs_even_when_metadata_lists_them' \
+  | sort -u > tmp/f5-expected-resolved-identities.txt
 ```
 
-Require fail-closed baseline evidence:
+The expected-resolved file is an explicit contract: it contains the two route-readiness and
+four stale child-callable runtime-proof failures that F5 is intended to remove. `FAILED` is
+part of each identity. A category change to `ERROR` is not interchangeable.
+
+Require fail-closed baseline evidence, verify all six expected removals are actually present,
+and derive the only acceptable post-change failure set:
 
 ```bash
 pre_rc=$(cat tmp/f5-prechange-exit-code.txt)
 case "$pre_rc" in 0|1) ;; *) echo "abnormal prechange pytest exit: $pre_rc"; exit 1 ;; esac
 rg -q '[0-9]+ (passed|failed|error|errors)(,| in )' \
   tmp/f5-prechange-broad-baseline.txt
-if [ "$pre_rc" -eq 0 ] && [ -s tmp/f5-prechange-failure-identities.txt ]; then
-  echo "green prechange exit has FAILED/ERROR identities"
+if [ "$pre_rc" -ne 1 ]; then
+  echo "prechange run must contain the six expected F5 failures"
   exit 1
 fi
-if [ "$pre_rc" -eq 1 ] && [ ! -s tmp/f5-prechange-failure-identities.txt ]; then
+if [ ! -s tmp/f5-prechange-failure-identities.txt ]; then
   echo "red prechange run has no categorized pytest identities"
   exit 1
 fi
+if [ -n "$(comm -23 \
+  tmp/f5-expected-resolved-identities.txt \
+  tmp/f5-prechange-failure-identities.txt)" ]; then
+  echo "fresh baseline is missing an expected F5 failure identity"
+  comm -23 \
+    tmp/f5-expected-resolved-identities.txt \
+    tmp/f5-prechange-failure-identities.txt
+  exit 1
+fi
+comm -23 \
+  tmp/f5-prechange-failure-identities.txt \
+  tmp/f5-expected-resolved-identities.txt \
+  > tmp/f5-expected-postchange-failure-identities.txt
 ```
 
-Expected: normal pytest exit `0` or test-failure exit `1`, a normal completion summary, and
-at least one categorized identity whenever exit is `1`. Exit `2` (interrupt), `3` (internal
-error), `4` (usage), `5` (no tests), missing status, missing summary, crash, or OOM is not an
-acceptable baseline. A green suite yields an empty identity file and exit `0`. These
-ignored/local files are evidence, not implementation scope, and must not be staged.
+Expected: normal pytest test-failure exit `1`, a normal completion summary, all six exact F5
+identities present, and `tmp/f5-expected-postchange-failure-identities.txt` equal to the
+fresh baseline minus exactly those six rows. Exit `0`, `2` (interrupt), `3` (internal error),
+`4` (usage), `5` (no tests), missing status, missing summary, crash, or OOM is not an
+acceptable baseline. These ignored/local files are evidence, not implementation scope, and
+must not be staged.
 
 ## Task 1: Register The Promoted-Hook Fixture
 
@@ -786,36 +813,36 @@ case "$pre_rc" in 0|1) ;; *) echo "abnormal prechange pytest exit: $pre_rc"; exi
 case "$post_rc" in 0|1) ;; *) echo "abnormal postchange pytest exit: $post_rc"; exit 1 ;; esac
 rg -q '[0-9]+ (passed|failed|error|errors)(,| in )' \
   tmp/f5-postchange-broad-verification.txt
-if [ "$post_rc" -eq 0 ] && [ -s tmp/f5-postchange-failure-identities.txt ]; then
-  echo "green postchange exit has FAILED/ERROR identities"
+if [ -s tmp/f5-expected-postchange-failure-identities.txt ]; then
+  expected_post_rc=1
+else
+  expected_post_rc=0
+fi
+if [ "$post_rc" -ne "$expected_post_rc" ]; then
+  echo "postchange pytest exit does not match expected remaining failure set"
   exit 1
 fi
-if [ "$post_rc" -eq 1 ]; then
-  if [ ! -s tmp/f5-postchange-failure-identities.txt ]; then
-    echo "red postchange run has no categorized pytest identities"
-    exit 1
-  fi
-  if ! cmp -s \
-    tmp/f5-prechange-failure-identities.txt \
-    tmp/f5-postchange-failure-identities.txt; then
-    echo "postchange FAILED/ERROR identities differ from baseline"
-    diff -u \
-      tmp/f5-prechange-failure-identities.txt \
-      tmp/f5-postchange-failure-identities.txt
-    exit 1
-  fi
+if ! cmp -s \
+  tmp/f5-expected-postchange-failure-identities.txt \
+  tmp/f5-postchange-failure-identities.txt; then
+  echo "postchange FAILED/ERROR identities do not equal baseline minus the six F5 failures"
+  diff -u \
+    tmp/f5-expected-postchange-failure-identities.txt \
+    tmp/f5-postchange-failure-identities.txt
+  exit 1
 fi
 ```
 
-Expected: both runs have normal pytest summaries and only exit `0` or `1`; a green baseline
-is accepted only with zero categorized identities; a red post-change run is accepted only
-when its non-empty, categorized `FAILED`/`ERROR` set exactly equals the fresh pre-change set.
-Thus a green baseline cannot become red, while a red baseline may become green but cannot
-change, add, or drop a failing identity/category and remain red. Any abnormal/no-summary
-termination, truncated output, missing exit file, crash, interrupt, signal, OOM, or identity
-diff leaves the broad gate red until fixed or the design is revised. Never weaken or
-silently accept it. Save both tmux commands, exit codes, totals, and identity files in the
-evidence record. Do not stage the ignored/local `tmp/` files.
+Expected: both runs have normal pytest summaries. The post-change categorized set must equal
+the pre-change set minus exactly the six named F5 failures—no additions, unrelated removals,
+or `FAILED`/`ERROR` category changes. Post-change exit must be `0` iff that expected set is
+empty, otherwise `1`. The generated-nested test is renamed during Task 2; its old failing
+node id is still one of the six expected removals, while its new passing node id does not
+enter any failure set. Any abnormal/no-summary termination, truncated output, missing exit
+file, crash, interrupt, signal, OOM, identity diff, or unexpected unrelated fix leaves the
+broad gate red until fixed or the design is revised. Never weaken or silently accept it.
+Save both tmux commands, exit codes, totals, and identity files in the evidence record. Do
+not stage the ignored/local `tmp/` files.
 
 - [ ] **Step 5: Audit the pinned implementation range for prohibited diffs**
 
