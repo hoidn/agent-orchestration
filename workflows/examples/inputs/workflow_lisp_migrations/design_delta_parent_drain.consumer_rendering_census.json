@@ -1827,11 +1827,11 @@
       "bridge": null,
       "command_boundary": null,
       "compiled_effect_match": {
-        "step_id_suffix": "__shared_drain_result__summary"
+        "step_id_suffix": "__materialize_view__drain_summary"
       },
       "consumer_lane": "retirement_candidate",
       "durability": "durable_timed_body",
-      "notes": "Shared backlog-drain summary remains a non-entry body materialization and is tracked as observability-side retirement evidence while the Design Delta parent publishes the typed terminal summary at the entry boundary.",
+      "notes": "Shared backlog-drain summary remains a non-entry body materialization and is tracked as observability-side retirement evidence; on the generic route it is expressed by the settle-drain-terminal match-terminal effects on the Design Delta parent surface while the parent publishes the typed terminal summary at the entry boundary.",
       "renderer": {
         "accepted_shape": "any_pure_value",
         "renderer_id": "canonical-json",
@@ -1864,7 +1864,7 @@
         }
       },
       "u0_row_id": "std_drain.materialized.shared_drain_result_summary",
-      "workflow_surface": "std/drain::backlog-drain"
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain"
     },
     {
       "bridge": {
@@ -2314,51 +2314,6 @@
       },
       "u0_row_id": "work_item.summary.summary_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
-    },
-    {
-      "bridge": null,
-      "command_boundary": null,
-      "compiled_effect_match": null,
-      "consumer_lane": "retirement_candidate",
-      "durability": "durable_bridge",
-      "notes": "Compiled boundary inventory mirror of the canonical item-summary path. Cleanup cannot retire this row independently because the checked bridge row still owns exact-path durability.",
-      "renderer": {
-        "accepted_shape": "any_pure_value",
-        "renderer_id": "canonical-json",
-        "renderer_version": 1
-      },
-      "replacement_target": "Track C exact-path summary bridge retirement",
-      "row_id": "c0.work_item_summary_summary_path_compiled_boundary",
-      "source_evidence": [
-        {
-          "kind": "u0_checked_row",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        },
-        {
-          "kind": "compiled_boundary_inventory",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        }
-      ],
-      "source_kind": "materialized_output",
-      "target_binding": {
-        "kind": "consumer_owned_target",
-        "target_labels": [
-          "artifacts/work/item_summary.json",
-          "artifacts/work/archive/item_summary.json"
-        ]
-      },
-      "track_c_decision": "BLOCKED",
-      "typed_value_source": {
-        "kind": "sample_value_document",
-        "value_document": {
-          "reason": "finished",
-          "terminal_route": "completed",
-          "work_item_id": "gap-1",
-          "work_item_source": "DESIGN_GAP"
-        }
-      },
-      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-selected-item-stdlib::return__summary-path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
     }
   ],
   "schema_version": "workflow_lisp_consumer_rendering_census.v1",
