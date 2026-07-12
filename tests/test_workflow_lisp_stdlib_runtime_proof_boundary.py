@@ -179,6 +179,85 @@ def _assert_low_level_boundary_diagnostic(diagnostic) -> None:
     assert diagnostic.span is not None
 
 
+def _runtime_proof_nested_structured_mutation(result, *, include_allowance: bool):
+    lowered = _selected_lowered_workflow(result)
+    authored = deepcopy(lowered.authored_mapping)
+    _, repeat = _selected_inline_repeat(authored)
+    generated_sources = [
+        step for step in repeat["steps"] if "if" in step and "when" not in step
+    ]
+    assert len(generated_sources) == 1
+    generated_source = generated_sources[0]
+    guarded_parents = [
+        step
+        for step in repeat["steps"]
+        if "if" in step
+        and "when" in step
+        and len(step["then"].get("steps", ())) == 1
+        and len(step["else"].get("steps", ())) == 1
+    ]
+    assert len(guarded_parents) == 1
+
+    nested_name = f"{generated_source['name']}__runtime_proof_scope_guard"
+    def marker_branch(branch_name: str, value: bool):
+        return {
+            "steps": [
+                {
+                    "name": f"{nested_name}__{branch_name}",
+                    "id": f"runtime_proof_scope_guard_{branch_name}",
+                    "materialize_artifacts": {
+                        "values": [
+                            {
+                                "name": "marker",
+                                "source": {"literal": value},
+                                "contract": {"kind": "scalar", "type": "bool"},
+                            }
+                        ]
+                    },
+                }
+            ]
+        }
+
+    nested = deepcopy(generated_source)
+    nested.update(
+        {
+            "name": nested_name,
+            "id": "runtime_proof_scope_guard",
+            "if": {"compare": {"left": 1, "op": "eq", "right": 1}},
+            "then": marker_branch("then", True),
+            "else": marker_branch("else", False),
+        }
+    )
+    guarded_parents[0]["then"]["steps"].append(nested)
+    generated_origin = lowered.origin_map.step_spans[generated_source["name"]]
+    origin_map = replace(
+        lowered.origin_map,
+        step_spans={
+            **lowered.origin_map.step_spans,
+            nested_name: generated_origin,
+            nested["id"]: generated_origin,
+        },
+    )
+    allowances = lowered.runtime_proof_nested_structured_step_names
+    if include_allowance:
+        allowances = (*allowances, nested_name)
+    return replace(
+        lowered,
+        authored_mapping=authored,
+        origin_map=origin_map,
+        runtime_proof_nested_structured_step_names=allowances,
+    )
+
+
+def _validate_runtime_proof_mutation(result, mutated, *, tmp_path: Path) -> None:
+    validate_lowered_workflows(
+        _replace_entry_workflow(result, mutated),
+        workspace_root=tmp_path,
+        imported_workflow_bundles=result.entry_result.workflow_catalog.imported_bundles_by_name,
+        validation_profile=Stage3ValidationProfile.DEDICATED_RUNTIME_PROOF,
+    )
+
+
 def test_dedicated_runtime_proof_profile_builds_validated_entry_bundle_for_imported_stdlib_drain(
     tmp_path: Path,
 ) -> None:
@@ -409,30 +488,36 @@ def test_runtime_proof_profile_accepts_generated_nested_structured_steps_on_pare
         tmp_path=tmp_path,
         validate_shared=False,
     )
-    lowered = _selected_lowered_workflow(result)
-    authored = deepcopy(lowered.authored_mapping)
-    _, repeat = _selected_inline_repeat(authored)
-    structured = [step for step in repeat["steps"] if "if" in step and "when" not in step]
-    assert len(structured) == 1
-    nested = deepcopy(structured[0])
-    nested["name"] = f"{ENTRY_WORKFLOW_NAME}__runtime_proof_scope_guard"
-    nested["id"] = "runtime_proof_scope_guard"
-    repeat["steps"].append(nested)
-    mutated = replace(
-        lowered,
-        authored_mapping=authored,
-        runtime_proof_nested_structured_step_names=(
-            *lowered.runtime_proof_nested_structured_step_names,
-            nested["name"],
-        ),
-    )
+    mutated = _runtime_proof_nested_structured_mutation(result, include_allowance=True)
 
-    validate_lowered_workflows(
-        _replace_entry_workflow(result, mutated),
-        workspace_root=tmp_path,
-        imported_workflow_bundles=result.entry_result.workflow_catalog.imported_bundles_by_name,
-        validation_profile=Stage3ValidationProfile.DEDICATED_RUNTIME_PROOF,
+    _validate_runtime_proof_mutation(result, mutated, tmp_path=tmp_path)
+
+
+def test_runtime_proof_profile_rejects_generated_nested_structured_step_without_metadata_allowance(
+    tmp_path: Path,
+) -> None:
+    result = _compile_linked_fixture(
+        DRAIN_STDLIB_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=False,
     )
+    mutated = _runtime_proof_nested_structured_mutation(result, include_allowance=False)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _validate_runtime_proof_mutation(result, mutated, tmp_path=tmp_path)
+
+    matching = [
+        item
+        for item in excinfo.value.diagnostics
+        if item.code == "workflow_boundary_type_invalid"
+        and item.validation_pass == "shared_validation"
+        and item.authority_layer == "shared_validation"
+        and item.form_path[-2:] == ("defproc", "backlog-drain-proc")
+        and Path(item.span.start.path).as_posix().endswith(
+            "orchestrator/workflow_lisp/stdlib_modules/std/drain.orc"
+        )
+    ]
+    assert len(matching) == 1
 
 
 def test_runtime_proof_profile_rejects_authored_parent_scope_fallback_refs_even_when_metadata_lists_them(
