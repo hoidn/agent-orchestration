@@ -1167,3 +1167,95 @@ set (details, quantification, and repro in `.superpowers/sdd/task-1.6-report.md`
    pre-dating its commits, 13 → 6 after the fixture conversions): 6 failures in
    `test_workflow_lisp_{route_readiness,stdlib_runtime_proof_boundary}.py`, same
    intrinsic-shape/registry classes, inventoried in the report §10.
+
+### Task 1.6 fix-wave record (2026-07-12, post-adjudication; Step 4 still OPEN — blocked solely on the PB3 re-adjudication below)
+
+**(a) Adjudications applied (user, 2026-07-12).** (1) PB1 = dedupe bundle-graph walks per
+distinct bundle; (2) PB2 = fix the exhaustion-state recognizer + fail-fast on ambiguity;
+(3) PB3 = retype `DrainOutcomeRequest.progress_report_path` to a non-must-exist path type
+(seed materialization and shared-transition-machinery relaxation explicitly NOT
+sanctioned); (4) the 6 out-of-lane failures stay a sibling task (untouched). Review
+finding F-1 (terminal-lane helper weaker than the intrinsic helper) ruled MUST FIX.
+
+**(b) Landed fixes (canaries identity 3/3 + composition/procedures 151 fresh at every
+commit; fresh at base `29f74d40` as well, resolving the reviewer's mid-chain canary ⚠️):**
+- `d16c8583` — F-1: `_assert_parent_uses_generic_shared_terminal_lane` now carries every
+  intrinsic-helper check on the generic lane: exact per-case request-binding refs
+  (computed from the loop step name, digest-free), exact recorded variants (EXHAUSTED
+  records "BLOCKED"), `has_blocker` True/False per case, `run_state` absence, finalize
+  `return__variant`/progress/blocker/items sourcing, no `return__run-state`, consume-lane
+  hidden write-root inputs, `record-drain-outcome-audit.jsonl` generated path, and
+  `state/drain-run-state.json` absence. Report §6's "equal or greater specificity" claim
+  corrected (F-2's `resource_stdlib` misattribution also corrected).
+- `0877dcf0` — PB2: `orchestrator/workflow/loops.py::_exhaustion_frame_artifacts` now
+  prefers the executed `…__continue__state` arm update (the branched generic-drain shape)
+  over the stale `…__body__state` iteration-entry binding, ignores skipped arms, keeps the
+  single-snapshot shape working, and RAISES `LoopStateIntegrityError` on ambiguous
+  executed candidates instead of silently reporting entry-frame state. TDD: new unit
+  module `tests/test_workflow_loops_exhaustion_state.py` (7 tests; RED before the fix)
+  plus the two adjudicated drain_stdlib exhaustion parametrizations RED→GREEN.
+  Exhaustion now reports iteration N's progress path (intrinsic semantics restored).
+- `2eb0e99a` — PB1: `orchestrator/workflow/linting.py` walk deduped per distinct bundle
+  (identity = provenance path + workflow name, object-id fallback; diamond-import TDD
+  test asserting warning multiplicity 1). Measured on the production drain bundle: lint
+  66,781,802 warnings/unbounded → **404 warnings in 0.001 s**. Second hotspot pinned and
+  fixed: `LoadedWorkflowBundle.__repr__` (dataclass auto-repr recursed imports once per
+  path; any failing bundle-graph assertion allocated tens of GB — the 123 GB OOM victim)
+  → bounded summary repr, TDD'd. The CLI dry-run test
+  (`…public_input_only_cli_dry_run…`) now PASSES with nothing deselected.
+- `0506e658` — parity-lane consumer fixes (the `artifact_parity` evidence selection,
+  outside the four-suite lane, pre-existing post-swap by mechanism): hidden-compat
+  fixtures converted to generic authorable shape (proc hooks cannot thread an unbound
+  bridge — the omission mechanism is defworkflow-only, so the hidden bridge moved to the
+  drain body's own omitted-binding call; scenario preserved: guard tests still fire
+  `workflow_boundary_authority_unclassified` on the publicly-authored bridge);
+  carried-context test re-keyed to `selector::select-next-work` (the adapter the hook
+  calls); derived child-phase-binding test re-keyed to the promoted
+  `%work_item.…run-selected-item-stdlib.v1` (source param `item-ctx`, run-anchor inputs
+  added); transitions-report artifact test gains the drain module + promoted gap-drafter
+  identity (D15/D8 class). `artifact_parity` selection: 94/94 green.
+
+**(c) PB3 — STOPPED for re-adjudication; the sanctioned retype cannot compile.**
+Attempted exactly as ruled (`WorkReportTarget` from std/phase — relpath, artifacts/work,
+must-exist false — on `DrainOutcomeRequest.progress_report_path`); patch preserved
+(scratchpad `pb3-retype-attempt.patch`), `std/drain.orc` restored byte-identical,
+identity suite 3/3 after restore. Two blocking facts:
+1. `type_refs_compatible` (type_env.py:961) requires identical `must_exist` on path
+   types — there is no in-language conversion between `WorkReport` and any non-must-exist
+   path type. Every partition of the outcome-record chain
+   (terminal → request → state → result → summary) crosses a WorkReport↔Target seam, and
+   pushing the seam outward reaches ONLY design-frozen vocabulary: the flagship
+   `initial-progress-report WorkReport` parameter, the `:where` `summary-path WorkReport`
+   clauses, and public `DrainResult`.
+2. New mechanism evidence: the runtime failure fires at the transition STEP's RESULT
+   extraction (`executor.py::_resource_transition_artifacts` validating the
+   `output_bundle` field spec derived from `DrainOutcomeResult`), NOT at request
+   validation (`coerce_transition_value` never checks existence). So even a compiling
+   request-side retype would not fix the smokes; the result-side contract is the gate.
+Re-adjudication options: (i) allow must-exist WIDENING in path-type compatibility
+(one-directional, type-system change); (ii) relax `must_exist_target` on transition
+result-extraction contracts (transition results record path VALUES; the step writes no
+files — the intrinsic lane's descriptors deliberately had no existence requirement;
+machinery change the prior ruling excluded, but chosen with the old request-side model);
+(iii) an in-language relpath retype form; (iv) other.
+
+**(d) Parity-evidence lane repaired + regenerated.** The 07-11/07-12 aborted parity runs
+had left `artifacts/work/review-parity-check/logs/*` inconsistent with the checked
+report (`evidence_refs.compile.stdout.sha256` mismatch), which failed the P2 compile's
+reference-family conformance gate after the fact. Post-PB1 a full-target
+`migration-parity` run (all three families; single-target runs fail closed on the
+sibling reports' garbage-collected build manifests) completed and atomically rewrote
+reports+logs+index: `cycle_guard_demo` and `design_plan_impl_stack` non-regressive;
+`design_delta_parent_drain` recorded REGRESSIVE solely from its smoke evidence (the 4
+PB3 smokes). P2 compile green again.
+
+**(e) Step-4 state after the fix wave (fresh, nothing deselected).**
+Four suites: **7 failed / 312 passed** — drain_stdlib 63/63, census-alignment 10/10,
+autonomous-drain runtime 149/149, feasibility 90 passed / 7 failed, ALL seven the PB3
+zero-write-terminal smokes; the CLI dry-run test passes. P2 compile exit 0,
+`diagnostic_count: 0`, fingerprint **`c5cf03b2755308a3`** (unchanged — the PB3 retype did
+not land, so no fingerprint change occurred), `g8_deletion_evidence` pass.
+migration-parity: completes post-PB1; `--require-non-regressive` remains red for
+`design_delta_parent_drain` pending PB3. The sanctioned final commit
+(`Move drain obligations to shared surfaces with parity evidence`) remains WITHHELD until
+PB3 lands and Step 4 goes green.
