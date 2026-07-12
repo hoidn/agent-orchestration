@@ -177,7 +177,7 @@ Commit: `Move drain obligations to shared surfaces with parity evidence` (explic
 
 ### Task 1.6a: F5 sibling contract-delta sweep (required before documentation sync)
 
-- [ ] Execute the approved [F5 sibling contract-delta design](2026-07-12-f5-sibling-contract-delta-design.md) through the detailed [F5 sibling contract-delta implementation plan](2026-07-12-f5-sibling-contract-delta-plan.md) using Subagent-Driven Development.
+- [x] Execute the approved [F5 sibling contract-delta design](2026-07-12-f5-sibling-contract-delta-design.md) through the detailed [F5 sibling contract-delta implementation plan](2026-07-12-f5-sibling-contract-delta-plan.md) using Subagent-Driven Development.
 - Scope is exact until closure documentation: add the one promoted-hook fixture row in `docs/workflow_lisp_route_readiness_registry.json` and retarget only `tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py` from the retired child-callable representation to the parent-owned inline generic route. No production, stdlib, fixture, frozen migration, baseline, parity-target/report, or generated-artifact edit is permitted.
 - Required gates: route-readiness registry plus CLI and cited feasibility evidence; full runtime-proof module with the four-case validation/lint matrix; the two directly affected modules; Task-1.6 four-suite gate; checkpoint identity; generic composition plus procedures; broad `pytest -q -n 16 --dist=worksteal` in tmux; prohibited-diff audit; spec and quality reviews.
 - Durable proof obligations: fail-closed unique structural selection of the inline repeat; normal-fixture empty retained diagnostics paired with an in-memory low-level-boundary variant; dedicated/default and shared/default retain the structured finding; shared/strict and dedicated/strict reject; compiler-owned generated metadata resolves to source-mapped owners; generated nested structure validates; authored parent-ref fallback remains rejected even if both allowance collections list it.
@@ -1301,3 +1301,29 @@ single-target migration-parity command exited 0 with `reports_written: 1`,
 `non_regressive: true`. Final canaries: identity **3 passed** and
 composition+procedures **151 passed**. The committed checkpoint-identity baselines were
 not regenerated or changed. Task 1.6 is complete; Step 4 is closed.
+
+**(h) Task 1.6a F5 sibling contract-delta closure (2026-07-12).** The reviewed
+implementation commits are `57c09c3e` (registry add), `106bd5e5` (registry order fix),
+`19a36e2e` (runtime-proof retarget), `c14737d3` (non-vacuity fix), and `b497140b`
+(diagnostic-policy pin); the final tested implementation tip was **`b497140b`**. The
+implementation changed exactly `docs/workflow_lisp_route_readiness_registry.json` and
+`tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py`. The prohibited production,
+stdlib, fixture, frozen, parity, baseline, and generated-artifact diff was empty.
+
+Fresh gate evidence: collect-only **15 collected**; the two affected modules **32 passed
+in 4.04s**; the cited feasibility selector **1 passed in 0.99s**; the Task-1.6 four-suite
+gate **319 passed in 386.25s**, with nothing deselected; checkpoint identity **3 passed in
+2.04s**; generic composition plus procedures **151 passed in 2.13s**. The broad normal
+baseline moved from exit 1 with **16 failed / 4268 passed / 11 skipped** to exit 1 with
+**10 failed / 4281 passed / 11 skipped in 112.00s**. Its exact expected ten-row identity
+set has SHA-256 `db2a609cfc7fc9910c1377a8d83962c3368b947067fbc3e712781883355c15bd`;
+the broad log has SHA-256
+`639eee2bbcd621dc134e9c9bd791642328feb4214cc51442f02ba3f7caaddb72`.
+
+The normal promoted fixture is boundary-clean. An explicit in-memory low-level-boundary
+variant retains the structured warning under default lint and is rejected under strict
+lint for both shared-callable and dedicated-runtime-proof profiles. The nested-structure
+allowance is load-bearing, generated owner metadata resolves correctly, and an authored
+parent reference remains rejected even when both allowance collections name it. Final
+review was **spec PASS with no findings** and **quality APPROVED after the fix loop**.
+Task 1.6a is complete. Task 1.7 is next; Gate P2 remains open.
