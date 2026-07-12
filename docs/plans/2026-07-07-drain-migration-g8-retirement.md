@@ -1338,10 +1338,44 @@ The literal plan command,
 `python -m orchestrator run workflows/examples/lisp_frontend_design_delta_drain.yaml
 --dry-run`, exited **2** with `Workflow input binding failed`, as expected for this
 input-required wrapper. The fresh replay used the exact `argv` binding set in
-`.orchestrate/runs/20260706T161146Z-j82v71/monitor_process.json`: replace that recorded
-Python script executable with `python -m orchestrator`, preserve its workflow path and
-every `--input NAME=VALUE` pair byte-for-byte (the recorded R46 progress/run-state and
-R48 drain/artifact roots included), drop `--stream-output`, and append `--dry-run`.
+`.orchestrate/runs/20260706T161146Z-j82v71/monitor_process.json`; the run id remains
+provenance, while this tracked command is the durable reproduction surface. It replaces
+the recorded Python script executable with `python -m orchestrator`, omits only the
+recorded `--stream-output`, adds `--dry-run`, and preserves every recorded
+`--input NAME=VALUE` pair byte-for-byte:
+
+```bash
+python -m orchestrator run \
+  workflows/examples/lisp_frontend_design_delta_drain.yaml \
+  --dry-run \
+  --input steering_path=docs/steering.md \
+  --input target_design_path=docs/design/workflow_lisp_runtime_native_drain_authoring.md \
+  --input baseline_design_path=docs/design/workflow_lisp_frontend_specification.md \
+  --input post_wcc_inventory_path=docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json \
+  --input command_adapter_contract_path=docs/design/workflow_command_adapter_contract.md \
+  --input backlog_root=docs/backlog/active \
+  --input progress_ledger_path=state/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R46/progress_ledger.json \
+  --input drain_state_root=state/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R48/drain \
+  --input run_state_target_path=state/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R46/drain/run_state.json \
+  --input drain_summary_target_path=artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R48/drain-summary.json \
+  --input artifact_work_root=artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R48 \
+  --input artifact_checks_root=artifacts/checks/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R48 \
+  --input artifact_review_root=artifacts/review/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R48 \
+  --input architecture_index_root=docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R21/design-gaps \
+  --input design_gap_draft_provider=codex \
+  --input design_gap_draft_model=gpt-5.5 \
+  --input design_gap_draft_effort=high \
+  --input blocked_design_revision_provider=claude \
+  --input blocked_design_revision_model=fable \
+  --input blocked_design_revision_effort=high \
+  --input selector_provider=claude \
+  --input selector_model=fable \
+  --input selector_effort=high \
+  --input implementation_execute_provider=codex \
+  --input implementation_review_provider=codex \
+  --input done_review_provider=codex
+```
+
 That current-checkout replay exited **0** with `Workflow validation successful`; it also
 reported the pre-existing `import-output-collision` warning for `drain_status` across
 `import:done_review` and `import:work_item`.
