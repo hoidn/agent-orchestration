@@ -1174,6 +1174,125 @@ def test_design_delta_parent_loop_control_rejects_missing_or_wrong_promoted_hook
     assert reasons == ["parent drain entrypoint does not own loop control"]
 
 
+def test_design_delta_parent_loop_control_rejects_promoted_hooks_split_across_repeat_nodes(
+    tmp_path: Path,
+) -> None:
+    module = _parity_module()
+    _, _, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = tmp_path / ".orchestrate" / "build" / "split-promoted-hook-owner"
+    build_root.mkdir(parents=True)
+    core_ast_path = build_root / "core_workflow_ast.json"
+    _write_json(
+        core_ast_path,
+        {
+            "schema_version": "workflow_lisp_core_workflow_ast.v1",
+            "workflow_name": "lisp_frontend_design_delta/drain::drain",
+            "body": [
+                {
+                    "kind": "repeat_until",
+                    "statements": [
+                        {
+                            "kind": "call",
+                            "call_alias": (
+                                "%stdlib_adapters.lisp_frontend_design_delta/"
+                                "stdlib_adapters::select-next-work-stdlib.v1"
+                            ),
+                        },
+                        {
+                            "kind": "call",
+                            "call_alias": (
+                                "%work_item.lisp_frontend_design_delta/"
+                                "work_item::run-selected-item-stdlib.v1"
+                            ),
+                        },
+                    ],
+                },
+                {
+                    "kind": "repeat_until",
+                    "statements": [
+                        {
+                            "kind": "call",
+                            "call_alias": (
+                                "%stdlib_adapters.lisp_frontend_design_delta/"
+                                "stdlib_adapters::draft-design-gap-stdlib.v1"
+                            ),
+                        },
+                    ],
+                },
+            ],
+        },
+    )
+
+    reasons = module._parent_loop_control_reasons(
+        target=target,
+        compile_payload={"build_root": str(build_root)},
+        build_manifest={"artifact_paths": {"core_workflow_ast": str(core_ast_path)}},
+        repo_root=tmp_path,
+    )
+
+    assert reasons == ["parent drain entrypoint does not own loop control"]
+
+
+def test_design_delta_parent_loop_control_rejects_legacy_selector_in_promoted_repeat(
+    tmp_path: Path,
+) -> None:
+    module = _parity_module()
+    _, _, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = tmp_path / ".orchestrate" / "build" / "legacy-promoted-hook-owner"
+    build_root.mkdir(parents=True)
+    core_ast_path = build_root / "core_workflow_ast.json"
+    _write_json(
+        core_ast_path,
+        {
+            "schema_version": "workflow_lisp_core_workflow_ast.v1",
+            "workflow_name": "lisp_frontend_design_delta/drain::drain",
+            "body": [
+                {
+                    "kind": "repeat_until",
+                    "statements": [
+                        {
+                            "kind": "call",
+                            "call_alias": (
+                                "%stdlib_adapters.lisp_frontend_design_delta/"
+                                "stdlib_adapters::select-next-work-stdlib.v1"
+                            ),
+                        },
+                        {
+                            "kind": "call",
+                            "call_alias": (
+                                "%work_item.lisp_frontend_design_delta/"
+                                "work_item::run-selected-item-stdlib.v1"
+                            ),
+                        },
+                        {
+                            "kind": "call",
+                            "call_alias": (
+                                "%stdlib_adapters.lisp_frontend_design_delta/"
+                                "stdlib_adapters::draft-design-gap-stdlib.v1"
+                            ),
+                        },
+                        {
+                            "kind": "call",
+                            "call_alias": (
+                                "lisp_frontend_design_delta/selector::select-next-action"
+                            ),
+                        },
+                    ],
+                }
+            ],
+        },
+    )
+
+    reasons = module._parent_loop_control_reasons(
+        target=target,
+        compile_payload={"build_root": str(build_root)},
+        build_manifest={"artifact_paths": {"core_workflow_ast": str(core_ast_path)}},
+        repo_root=tmp_path,
+    )
+
+    assert reasons == ["parent drain entrypoint does not own loop control"]
+
+
 def test_load_parity_targets_preserves_runtime_audit_artifacts(tmp_path: Path) -> None:
     module = _parity_module()
     payload = _valid_manifest_payload()

@@ -1597,21 +1597,22 @@ def _parent_loop_control_reasons(
         "%stdlib_adapters.lisp_frontend_design_delta/stdlib_adapters::draft-design-gap-stdlib.v1",
     }
     has_projection = any(str(alias).endswith("::project-selector-action.v1") for alias in loop_aliases)
+    has_pre_swap_owner_route = (
+        required_exact_aliases.issubset(loop_aliases)
+        and has_projection
+    )
     has_promoted_owner_route = any(
         promoted_exact_aliases.issubset(_core_ast_call_aliases(repeat_node))
         for repeat_node in repeat_nodes
     )
+    has_supported_owner_route = (
+        has_pre_swap_owner_route
+        or has_promoted_owner_route
+    )
     has_legacy_selector_action = (
         "lisp_frontend_design_delta/selector::select-next-action" in loop_aliases
     )
-    if (
-        (
-            not required_exact_aliases.issubset(loop_aliases)
-            or not has_projection
-        )
-        and not has_promoted_owner_route
-        or has_legacy_selector_action
-    ):
+    if not has_supported_owner_route or has_legacy_selector_action:
         return [reason]
     return []
 
