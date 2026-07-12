@@ -280,14 +280,19 @@
                   :returns WorkReport)))
          summary-path))))
   (defmacro backlog-drain (name ctx-key ctx selector-key selector run-item-key run-item gap-drafter-key gap-drafter max-key max)
-    (backlog-drain-callable-boundary name
-      :ctx ctx
-      :selector selector
-      :run-item run-item
-      :gap-drafter gap-drafter
-      :max-iterations max))
-  ; Generic drain loop body (dormant until the backlog-drain macro re-targets
-  ; onto it). Signature is the Tranche 2 flagship from
+    (let* ((terminal (std/drain/backlog-drain-proc
+                       ctx
+                       (proc-ref selector)
+                       (proc-ref run-item)
+                       (proc-ref gap-drafter)
+                       max
+                       (__generated-relpath-seed__
+                         std/resource/WorkReport
+                         "artifacts/work/drain-progress-report.md"
+                         "backlog_drain_progress_report_seed"))))
+      (std/drain/settle-drain-terminal terminal)))
+  ; Generic drain loop body (the backlog-drain macro above expands onto it).
+  ; Signature is the Tranche 2 flagship from
   ; docs/design/workflow_lisp_parametric_type_system.md (:where copied
   ; verbatim, including the G2 SelPayloadT field clauses). Reality anchors
   ; mirror the frozen intrinsic `_phase_stdlib_lower_backlog_drain_impl`

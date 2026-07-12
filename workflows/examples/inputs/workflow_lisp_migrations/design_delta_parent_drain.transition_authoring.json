@@ -43,6 +43,12 @@
       "classification": "low_level_library",
       "step_kind": "resource_transition",
       "step_id_contains": "std_resource_finalize_selected_item_proc_"
+    },
+    {
+      "row_id": "low_level.imported_drain_terminal_effects",
+      "classification": "low_level_library",
+      "step_kind": "resource_transition",
+      "step_id_contains": "std_drain_consume_drain_terminal_effects_"
     }
   ],
   "source_shape_assertions": [

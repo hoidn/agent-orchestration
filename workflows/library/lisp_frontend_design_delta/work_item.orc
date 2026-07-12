@@ -404,10 +404,23 @@
            :summary-path implementation_phase_result.progress-report
            :blocker-class blocked_recovery.blocker-class)))))
 
-  (defworkflow run-selected-item-stdlib
+  (defproc run-selected-item-stdlib
     ((item-ctx ItemCtx)
      (selection DesignDeltaSelectedItemPayload))
     -> SelectedItemResult
+    :effects ((calls-workflow lisp_frontend_design_delta/bootstrap::project-work-item-inputs)
+              (calls-workflow lisp_frontend_design_delta/implementation_phase::implementation-phase)
+              (calls-workflow lisp_frontend_design_delta/plan_phase::run-plan-phase)
+              (calls-workflow lisp_frontend_design_delta/projections::classify-work-item-terminal)
+              (calls-workflow lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery)
+              (calls-workflow lisp_frontend_design_delta/work_item::finalize-selected-item-from-blocked-implementation)
+              (calls-workflow lisp_frontend_design_delta/work_item::finalize-selected-item-from-completed-implementation)
+              (calls-workflow lisp_frontend_design_delta/work_item::project-selected-item-finalizer-approved-plan)
+              (calls-workflow lisp_frontend_design_delta/work_item::project-selected-item-finalizer-blocked-implementation)
+              (calls-workflow lisp_frontend_design_delta/work_item::project-selected-item-finalizer-completed-implementation)
+              (uses-command apply_resource_transition)
+              (uses-provider providers.work-item.recovery-classifier))
+    :lowering inline
     (let* ((selection-ctx
              (record SelectionCtx
                :state_root item-ctx.state-root
