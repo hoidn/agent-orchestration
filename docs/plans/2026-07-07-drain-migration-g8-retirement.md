@@ -166,7 +166,7 @@ Execute the 2026-07-06 plan's **Task 6** (obligation census; relocations; diagno
 - Prereq 5 rule (quoted): "census/boundary/provider-metadata obligations move to shared validation surfaces, not into the generic body." Any obligation whose only home would be inside the generic body is a design conflict — **raise it**.
 - Intrinsic-shape assertions in `tests/test_workflow_lisp_drain_stdlib.py` (for example, tests resolving the generated `std/drain::backlog-drain` child workflow) are reviewed contract deltas: rewrite them to assert the generic route's lowered shape and record each delta (`old assertion → new assertion, why`) in the census. Deleting a negative fixture outright requires showing its scenario is now impossible to author, not merely differently reported.
 
-- [ ] **Step 4 (the certification lane IS the parity gate — run it):**
+- [x] **Step 4 (the certification lane IS the parity gate — run it):**
 ```bash
 pytest tests/test_workflow_lisp_drain_stdlib.py tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py tests/test_workflow_lisp_parent_drain_census_alignment.py tests/test_lisp_frontend_autonomous_drain_runtime.py -q
 python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json
@@ -976,7 +976,7 @@ remain Task 1.6 work. Landed as `6a28ddd4`
 `stdlib_adapters.orc`/`work_item.orc` hook conversion + regenerated baseline + manifest row;
 `drain.orc` call site byte-stable, diff empty).
 
-### Task 1.6 obligation census + consumer-parity record (2026-07-12; Step 4 OPEN — three machinery-level parity breaks pending adjudication)
+### Task 1.6 obligation census + consumer-parity record (2026-07-12; historical round-1 state — superseded by the closure record below)
 
 **(a) Certification-lane state.** All six fail-closed census gates are GREEN on the generic
 route: P2 production compile exit 0, `diagnostic_count: 0`, **NEW production fingerprint
@@ -1168,7 +1168,7 @@ set (details, quantification, and repro in `.superpowers/sdd/task-1.6-report.md`
    `test_workflow_lisp_{route_readiness,stdlib_runtime_proof_boundary}.py`, same
    intrinsic-shape/registry classes, inventoried in the report §10.
 
-### Task 1.6 fix-wave record (2026-07-12, post-adjudication; Step 4 still OPEN — PB3/PB4 closure patches landed, complete gate rerun pending)
+### Task 1.6 fix-wave record (2026-07-12; historical pre-closure state — superseded by the closure record below)
 
 **(a) Adjudications applied (user, 2026-07-12).** (1) PB1 = dedupe bundle-graph walks per
 distinct bundle; (2) PB2 = fix the exhaustion-state recognizer + fail-fast on ambiguity;
@@ -1271,3 +1271,23 @@ PB4 `parent_callable_compile` failure was structural and PB3-independent. PB3 la
 (`Recognize promoted drain hook ownership`). Focused suites and both mandatory canaries
 were green at each patch commit, but Task 1.6 Step 4 remains unchecked until the controller
 runs and records the complete gate.
+
+**(g) Task 1.6 closure record (2026-07-12).** The approved PB3 ruling removes
+`must_exist_target` only from declared-transition result-extraction schemas, recursively
+through supported collection containers; request validation, named path types, and all
+non-transition contracts remain strict. The approved PB4 ruling recognizes the exact
+promoted selector/run-item/gap-drafter hook trio as one parent-owned repeat route without
+requiring the retired projection alias; split sibling repeats and the legacy selector
+remain rejected. The nested-path and nested-repeat quality fixes are included in the
+reviewed implementation range **`263a73fd..9bbc2290`**. Final review: **spec PASS** and
+**quality APPROVED**, with no findings after the fix loop.
+
+Fresh complete Step-4 evidence: the four suites passed **319 tests in 298.21s**, nothing
+deselected. Production compile exited 0 with `diagnostic_count: 0`, unchanged fingerprint
+**`c5cf03b2755308a3`**, and `g8_deletion_evidence` status `pass`. The required
+single-target migration-parity command exited 0 with `reports_written: 1`,
+`targets_processed: 1`, `non_regressive_targets: [design_delta_parent_drain]`,
+`regressive_targets: []`, and `overall_pass: true`; the report records
+`non_regressive: true`. Final canaries: identity **3 passed** and
+composition+procedures **151 passed**. The committed checkpoint-identity baselines were
+not regenerated or changed. Task 1.6 is complete; Step 4 is closed.
