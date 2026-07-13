@@ -5,11 +5,10 @@ runtime_plan.json, source_map.json, manifest.json, and the temporary G8 proof)
 from already-computed payloads. Content-addressed fingerprints
 and artifact bytes are byte-identical to the pre-split build.py.
 
-May import build_manifest_io; must not import build.
-Names that stay in build.py (e.g. `BUILD_SCHEMA_VERSION`, `_collect_materialize_view_effects`,
-`_iter_surface_steps`) are pulled in via a deferred, function-body `from .build
-import ...` to avoid an import-time cycle; type-only references to build.py
-dataclasses use a `TYPE_CHECKING` guard instead.
+May import build_manifest_io; must not import build at module import time.
+The remaining runtime references to `BUILD_SCHEMA_VERSION` and
+`FrontendBuildManifest` use function-body imports to avoid a cycle; type-only
+references to build.py dataclasses use a `TYPE_CHECKING` guard instead.
 """
 
 from __future__ import annotations

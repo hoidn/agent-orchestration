@@ -880,6 +880,8 @@ def _static_pytest_parameter_ids(
         return () if not parametrizations else None
 
     parametrization = parametrizations[0]
+    if len(parametrization.args) < 2:
+        return None
     explicit_ids = next(
         (
             keyword.value
@@ -890,15 +892,64 @@ def _static_pytest_parameter_ids(
     )
     if explicit_ids is not None:
         parameter_ids = _static_string_sequence(explicit_ids, module)
+        case_count = _static_pytest_case_count(
+            parametrization.args[1],
+            module,
+        )
+        if (
+            parameter_ids is None
+            or case_count is None
+            or len(parameter_ids) != case_count
+        ):
+            return None
         return _unique_static_parameter_ids(parameter_ids)
 
-    if len(parametrization.args) < 2:
-        return None
     parameter_names = _static_parameter_names(parametrization.args[0])
     if parameter_names is None or len(parameter_names) != 1:
         return None
     parameter_ids = _static_string_sequence(parametrization.args[1], module)
     return _unique_static_parameter_ids(parameter_ids)
+
+
+def _static_pytest_case_count(
+    node: ast.expr,
+    module: ast.Module,
+    *,
+    resolving: frozenset[str] = frozenset(),
+) -> int | None:
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return len(node.elts)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_characterization_cases_for_ids"
+        and len(node.args) == 1
+        and not node.keywords
+    ):
+        return _static_pytest_case_count(
+            node.args[0],
+            module,
+            resolving=resolving,
+        )
+    if not isinstance(node, ast.Name) or node.id in resolving:
+        return None
+
+    assignment_value = next(
+        (
+            statement.value
+            for statement in module.body
+            if isinstance(statement, (ast.Assign, ast.AnnAssign))
+            and _assignment_names(statement) == {node.id}
+        ),
+        None,
+    )
+    if assignment_value is None:
+        return None
+    return _static_pytest_case_count(
+        assignment_value,
+        module,
+        resolving=resolving | {node.id},
+    )
 
 
 def _unique_static_parameter_ids(

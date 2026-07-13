@@ -490,6 +490,39 @@ def test_registry_evidence_fails_closed_for_duplicate_static_parameter_ids(
     )
 
 
+def test_registry_evidence_fails_closed_for_static_parameter_id_count_mismatch(
+    tmp_path: Path,
+) -> None:
+    evidence_module = tmp_path / "tests" / "test_evidence.py"
+    evidence_module.parent.mkdir(parents=True)
+    evidence_module.write_text(
+        "import pytest\n"
+        "\n"
+        "@pytest.mark.parametrize('value', ('a', 'b'), ids=('only',))\n"
+        "def test_case(value):\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=[
+                        "tests/test_evidence.py::test_case[only]"
+                    ]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, tmp_path)
+
+    assert "route_readiness_evidence_selector_invalid" in _evidence_codes(
+        validation
+    )
+
+
 @pytest.mark.parametrize("path_kind", ("absolute", "escaping"))
 def test_registry_evidence_rejects_non_repo_relative_path(
     tmp_path: Path,
