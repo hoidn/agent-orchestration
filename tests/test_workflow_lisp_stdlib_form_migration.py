@@ -319,6 +319,25 @@ def test_retired_backlog_drain_g8_evidence_constants_match() -> None:
     assert migration_parity.DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS == expected
 
 
+def test_retired_backlog_drain_callable_boundary_is_not_exported(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_inline_module(
+            """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14")
+  (defmodule retired_callable_boundary_import)
+  (import std/drain :only (backlog-drain-callable-boundary)))""",
+            module_name="retired_callable_boundary_import",
+            tmp_path=tmp_path,
+        )
+
+    assert [diagnostic.code for diagnostic in excinfo.value.diagnostics] == [
+        "module_export_missing"
+    ]
+
+
 def test_g8_marks_public_with_phase_registry_head_as_compatibility_only() -> None:
     registry = _form_registry_module()
 
