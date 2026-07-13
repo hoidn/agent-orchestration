@@ -71,7 +71,8 @@ Record fresh command output under each gate before dispatching the phase. A gate
 6. **Intrinsic reachability shrunk to fixtures:** `grep -rln "backlog-drain-callable-boundary" workflows/` → empty (no production caller reaches the intrinsic; only `tests/fixtures/` hits remain, and they retire with Phase 2).
 
 **Status (reviewed 2026-07-12): SATISFIED.** The durable evidence is recorded in
-Phase 1 Ledger entry (k). Phase 2 Task 2.1 is the current selector.
+Phase 1 Ledger entry (k). Phase 2 Task 2.2 is the current selector after the
+reviewed completion of Task 2.1.
 
 **Gate P3 (entry to Phase 3):**
 1. Phase 2 Tasks 2.1–2.3 committed; name-blindness check (Task 2.3 Step 2) clean.
@@ -226,7 +227,7 @@ Deletion set authority (parametric design prereq 6, quoted): "the phase-drain lo
 | Inventory strings | `stdlib_contracts.py` — the `backlog-drain` / `BacklogDrainExpr` contract row. The drafting-time `stage7_metrics.py` hit is already absent in the current checkout and is not part of the live inventory |
 | Fixtures/tests | `tests/fixtures/workflow_lisp/valid/drain_stdlib_backlog_drain_callable_boundary*.orc` and direct-boundary tests: convert to the macro form if guarding distinct behavior, else delete with a one-line rationale per fixture in the commit message body |
 
-- [ ] **Step 1: Re-enumerate by grep (this output is the inventory of record):**
+- [x] **Step 1: Re-enumerate by grep (this output is the inventory of record):**
 ```bash
 grep -rn "BacklogDrain\|backlog_drain\|backlog.drain" orchestrator/workflow_lisp/ --include="*.py" | grep -v stdlib_modules
 grep -rln "backlog-drain-callable-boundary" orchestrator/ tests/ workflows/
@@ -234,10 +235,10 @@ grep -rn "drain_terminal\|phase_drain" orchestrator/ --include="*.py" | grep -v 
 rg -n "_selected_item_summary_pointer_path|from \.phase_drain import|_phase_drain_lower|_lower_backlog_drain" orchestrator/workflow_lisp/lowering orchestrator/workflow_lisp/wcc
 ```
 Record the diff against the table above in the Phase 2 Ledger. Any hit in `workflows/library/` outside fixtures → STOP (Gate P2.6 was not actually satisfied).
-- [ ] **Step 2: Preserve the non-intrinsic resource helper first.** Move `_selected_item_summary_pointer_path` byte-for-byte into `lowering/phase_resource.py`, its only live non-definition consumer, then remove that module's import from `phase_drain.py`. Run `rg -n "_selected_item_summary_pointer_path" orchestrator/workflow_lisp/lowering` and record one definition plus the resource-lane call, with no surviving cross-import; run `pytest tests/test_workflow_lisp_resource_stdlib.py -q` before any drain deletion. This is an ownership move with unchanged path semantics, not part of the deletion count.
-- [ ] **Step 3: Delete in dependency order** — drain dispatch/re-export sites (WCC route/elaborate/defunctionalize, `control_dispatch.py`, `core.py`, the drain compatibility re-export in `phase_helpers.py`, and only the drain import/wrapper in `phase_stdlib.py`) → only the `BacklogDrainExpr` import and dispatch branch in `typecheck_dispatch.py` → only `typecheck_backlog_drain_expr` and its proven-exclusive imports/helpers in `typecheck_drain_phase.py` → elaboration + route entry → AST node + spec dataclass → drain-only helpers in `typecheck_calls.py` (preserving any shared helper with a surviving caller) → lowering impl + monomorphizer → `drain_terminal.py` → import fallout. Do not delete `typecheck_drain_phase.py`: preserve `typecheck_phase_target_expr`, `typecheck_run_provider_phase_expr`, `typecheck_produce_one_of_expr`, `_expected_extern_operand`, and every import/helper they still consume. Re-run a symbol/caller inventory after removing the backlog-drain handler before deleting any `_require_union_variant_*` helper. Preserve all non-drain functions and exports in `phase_helpers.py`, `phase_stdlib.py`, and `phase_resource.py`. Verify between clusters with `python -c "import orchestrator.workflow_lisp" && pytest tests/ -q --collect-only > /dev/null && echo OK`; before deleting the `phase_drain.py` module, rerun the Step-1 import search and require zero surviving consumers. Multiple incremental commits, each staging its explicit file list, each compiling.
-- [ ] **Step 4: Add the permanent CI guard** (retirement design §17.2: "Add CI guards against reintroducing name-keyed context recognition"): a small structure-lock test (in `tests/test_workflow_lisp_stdlib_form_migration.py` or a sibling) asserting `grep`-level absence of `BacklogDrainExpr`/`backlog_drain` branches under `orchestrator/workflow_lisp/` outside the sanctioned residue (form-registry record, stdlib-contract rows, `std/drain.orc` itself). This test outlives Phase 4's deletion of the `DESIGN_DELTA_G8_GREP_GUARDS` constants.
-- [ ] **Step 5: Commit** (final commit of the sequence): `git commit -m "Retire the backlog-drain intrinsic lowering paths"`
+- [x] **Step 2: Preserve the non-intrinsic resource helper first.** Move `_selected_item_summary_pointer_path` byte-for-byte into `lowering/phase_resource.py`, its only live non-definition consumer, then remove that module's import from `phase_drain.py`. Run `rg -n "_selected_item_summary_pointer_path" orchestrator/workflow_lisp/lowering` and record one definition plus the resource-lane call, with no surviving cross-import; run `pytest tests/test_workflow_lisp_resource_stdlib.py -q` before any drain deletion. This is an ownership move with unchanged path semantics, not part of the deletion count.
+- [x] **Step 3: Delete in dependency order** — drain dispatch/re-export sites (WCC route/elaborate/defunctionalize, `control_dispatch.py`, `core.py`, the drain compatibility re-export in `phase_helpers.py`, and only the drain import/wrapper in `phase_stdlib.py`) → only the `BacklogDrainExpr` import and dispatch branch in `typecheck_dispatch.py` → only `typecheck_backlog_drain_expr` and its proven-exclusive imports/helpers in `typecheck_drain_phase.py` → elaboration + route entry → AST node + spec dataclass → drain-only helpers in `typecheck_calls.py` (preserving any shared helper with a surviving caller) → lowering impl + monomorphizer → `drain_terminal.py` → import fallout. Do not delete `typecheck_drain_phase.py`: preserve `typecheck_phase_target_expr`, `typecheck_run_provider_phase_expr`, `typecheck_produce_one_of_expr`, `_expected_extern_operand`, and every import/helper they still consume. Re-run a symbol/caller inventory after removing the backlog-drain handler before deleting any `_require_union_variant_*` helper. Preserve all non-drain functions and exports in `phase_helpers.py`, `phase_stdlib.py`, and `phase_resource.py`. Verify between clusters with `python -c "import orchestrator.workflow_lisp" && pytest tests/ -q --collect-only > /dev/null && echo OK`; before deleting the `phase_drain.py` module, rerun the Step-1 import search and require zero surviving consumers. Multiple incremental commits, each staging its explicit file list, each compiling.
+- [x] **Step 4: Add the permanent CI guard** (retirement design §17.2: "Add CI guards against reintroducing name-keyed context recognition"): a small structure-lock test (in `tests/test_workflow_lisp_stdlib_form_migration.py` or a sibling) asserting `grep`-level absence of `BacklogDrainExpr`/`backlog_drain` branches under `orchestrator/workflow_lisp/` outside the sanctioned residue (form-registry record, stdlib-contract rows, `std/drain.orc` itself). This test outlives Phase 4's deletion of the `DESIGN_DELTA_G8_GREP_GUARDS` constants.
+- [x] **Step 5: Commit** (final commit of the sequence): `git commit -m "Retire the backlog-drain intrinsic lowering paths"`
 
 ### Task 2.2: Registry reclassification + G8 evidence decision procedure
 
@@ -1470,7 +1471,7 @@ authority for the gate claim; a later clean wording pass may rename that test
 without reopening P2.
 
 **Routing effect:** Gate P2 closes Stage 2 and admits Stage 3. The current
-selector is **Phase 2 Task 2.1**, not typed result guidance. Execute the drain
+selector is **Phase 2 Task 2.2**, not typed result guidance. Execute the drain
 plan's remaining phases in gated order; typed result guidance remains the later
 Stage-5/post-drain wave defined by the governing procedure-first sequence.
 
@@ -1480,10 +1481,10 @@ Stage-5/post-drain wave defined by the governing procedure-first sequence.
 The candidate implementation range is **`b34e1cf4..b2f924dc`**: the
 dependency-ordered deletion sequence through `18e90977`, followed by the
 review-driven structure-guard and contract correction in `fd5aff6f` and the
-nested-dispatch guard corrections in `07d90364` and `b2f924dc`. Task 2.1
-remains the current selector and is **pending re-review**; its checklist is
-intentionally not closed. **Task 2.2 has not started**: the form-registry/export
-disposition and G8 imported-only classification decision remain untouched.
+nested-dispatch guard corrections in `07d90364` and `b2f924dc`. At this
+candidate point Task 2.1 remained the current selector pending re-review, and
+Task 2.2 had not started: the form-registry/export disposition and G8
+imported-only classification decision remained untouched.
 
 **Step-1 inventory diff.** The fresh inventory found every live deletion
 cluster listed in the drafting table: WCC, lowering dispatch/facades, typecheck
@@ -1541,6 +1542,25 @@ mapping `get`/`pop`/`setdefault` keys. Review of that correction found it also
 matched descriptive strings nested in arbitrary comparison calls and mapping
 default values; `b2f924dc` narrows recursion to literal comparison-container
 keys and mapping argument zero, with negative mutation cases preserving
-descriptive/default text. Fresh endpoint integration and broad-suite evidence
-is required before re-review. No Task 2.1 completion, Task 2.2 start, Task 2.3
-residue/parity, or Gate P3 claim is made.
+descriptive/default text. The final endpoint and re-review are recorded below.
+This candidate entry makes no Task 2.2 start, Task 2.3 residue/parity, or Gate
+P3 claim.
+
+**(b) Task 2.1 final verification, review, and closure (2026-07-12).** The final
+implementation endpoint is **`c810f17a`**. The permanent guard's mutation
+sequence proved both sides of its contextual contract: direct and
+container-keyed comparison/dispatch recognition plus mapping key lookup are
+rejected, while retired-looking descriptive call arguments and mapping default
+values remain allowed. The final changed-test collection ran from
+`2026-07-13T01:46:03Z` through `01:46:04Z` and collected **459 tests**; the
+five focused guard/contract checks ran from `01:45:56Z` through `01:45:58Z`
+and passed. The exact integration selector ran from `01:40:24Z` through
+`01:41:24Z` and passed **471 tests**. The broad 16-worker work-stealing suite
+ran from `01:41:33Z` through `01:43:20Z` and reported **4,237 passed, 8 failed,
+11 skipped**; sorted failure identities matched the established unrelated
+baseline exactly (`cmp` exit 0).
+
+Independent final review returned **PASS** for specification conformance and
+**APPROVED** for quality, with no remaining findings. The seven pre-existing
+user-dirty paths were preserved exactly, and no Task 2.2-owned surface was
+changed. **Task 2.1 is complete; Phase 2 Task 2.2 is the current selector.**
