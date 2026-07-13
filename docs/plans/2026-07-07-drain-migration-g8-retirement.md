@@ -2178,7 +2178,8 @@ gate-evaluation, projection/view, CLI, and two-family parity kernel remains.
 
 The implementation landed as `c258572c` (`Strip design delta lanes from
 migration parity`) and its guard-hardening follow-up `8072ac8a` (`Harden parity
-lane retirement guard`). The main deletion removed **431 production lines**;
+lane retirement guard`). The main deletion changed **431 production lines**
+(4 insertions, 427 deletions), a **423-line net reduction**;
 that commit records **1,150 deletions** overall while replacing the retired
 family-specific expectations with kernel-preservation coverage. The TDD RED
 absence check failed on all eight still-present retired symbols before the
