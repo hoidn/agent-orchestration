@@ -4,6 +4,7 @@ import copy
 import hashlib
 import importlib
 import json
+import os
 import re
 import shutil
 from datetime import date
@@ -8866,7 +8867,16 @@ def test_design_delta_parent_drain_build_emits_reference_family_conformance_prof
         REPO_ROOT / "artifacts" / "work" / "review-parity-check" / "index.json"
     )
     assert payload["completed_gap_reconciliation"]["missing_from_drain_summary"] == []
-    assert payload["parity_surface_reconciliation"]["derived_primary_surface"] == "orc"
+    expected_primary_surface = (
+        "yaml"
+        if os.environ.get("ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_FAMILY")
+        == "design_delta_parent_drain"
+        else "orc"
+    )
+    assert (
+        payload["parity_surface_reconciliation"]["derived_primary_surface"]
+        == expected_primary_surface
+    )
     assert {
         row["surface_id"] for row in payload["conformance_surfaces"]
     } == {
