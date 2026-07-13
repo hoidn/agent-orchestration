@@ -254,7 +254,11 @@ def test_design_delta_promotion_handoff_routes_to_independent_gate_p3_closure() 
         REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md",
         "lisp_frontend_design_delta_drain.yaml",
     )
+    assert "Family (YAML primary or retained twin)" in retirement_program
     assert "+ 6 `v214` library imports" in family_one_row
+    assert ".orc" in family_one_row
+    assert "recorded" in family_one_row
+    assert "Stage 6" in family_one_row
     assert retirement_program.count("lisp_frontend_design_delta_") >= 1
 
 
