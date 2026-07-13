@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ast
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,6 +53,7 @@ READINESS_LABELS = frozenset(
 
 DEFAULT_REGISTRY_RELPATH = "docs/workflow_lisp_route_readiness_registry.json"
 PARITY_TARGETS_RELPATH = "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
+PARITY_TARGETS_SCHEMA_VERSION = "workflow_lisp_migration_parity_targets.v1"
 LEAF_ONLY_READINESS_LABELS = frozenset({"leaf_compile_candidate", "leaf_runtime_candidate"})
 STALE_COPY_SAFETY_VALUES = frozenset({"stale", "not_copy_safe", "not_current_guidance"})
 SELF_REFERENTIAL_EVIDENCE_MARKERS = frozenset(
@@ -59,6 +62,8 @@ SELF_REFERENTIAL_EVIDENCE_MARKERS = frozenset(
         "workflow-lisp-route-readiness",
     }
 )
+DIAGNOSTIC_EVIDENCE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]*$")
+CLI_EVIDENCE_COMMAND_PATTERN = re.compile(r"^[A-Za-z0-9_.+-]+$")
 
 
 class RouteReadinessError(ValueError):
@@ -585,7 +590,35 @@ def _validate_evidence_reference(
     evidence: str,
     repo_root: Path,
 ) -> list[RouteReadinessIssue]:
-    evidence_path_text, separator, selector = evidence.partition("::")
+    evidence_kind, evidence_path_text, selector = _classify_evidence_reference(
+        evidence
+    )
+    if evidence_kind in {"cli_command", "diagnostic_name"}:
+        return []
+    if evidence_kind == "pytest_selector":
+        return _validate_pytest_evidence_reference(
+            entry,
+            evidence_path_text=evidence_path_text,
+            selector=selector or "",
+            repo_root=repo_root,
+        )
+    if evidence_kind == "parity_target_selector":
+        return _validate_parity_target_evidence_reference(
+            entry,
+            evidence_path_text=evidence_path_text,
+            selector=selector or "",
+            repo_root=repo_root,
+        )
+    if evidence_kind == "invalid":
+        return [
+            _issue(
+                "route_readiness_evidence_selector_invalid",
+                entry,
+                f"evidence reference `{evidence}` has unsupported selector syntax",
+                field="evidence",
+            )
+        ]
+
     evidence_path = repo_root / _normalize_path(evidence_path_text)
     if not evidence_path.is_file():
         return [
@@ -597,8 +630,134 @@ def _validate_evidence_reference(
             )
         ]
 
-    if not separator or evidence_path.suffix != ".json":
+    return []
+
+
+def _classify_evidence_reference(
+    evidence: str,
+) -> tuple[str, str, str | None]:
+    stripped = evidence.strip()
+    command_name = stripped.split(maxsplit=1)[0]
+    if (
+        command_name != stripped
+        and CLI_EVIDENCE_COMMAND_PATTERN.fullmatch(command_name)
+    ):
+        return "cli_command", stripped, None
+
+    parity_prefix = f"{PARITY_TARGETS_RELPATH}::"
+    if stripped.startswith(parity_prefix):
+        return (
+            "parity_target_selector",
+            PARITY_TARGETS_RELPATH,
+            stripped.removeprefix(parity_prefix),
+        )
+
+    pytest_path, separator, pytest_selector = stripped.partition("::")
+    if separator and pytest_path.endswith(".py"):
+        return "pytest_selector", pytest_path, pytest_selector
+    if separator:
+        return "invalid", stripped, None
+    if "/" in stripped or Path(stripped).suffix:
+        return "file_path", stripped, None
+    if DIAGNOSTIC_EVIDENCE_PATTERN.fullmatch(stripped):
+        return "diagnostic_name", stripped, None
+    return "invalid", stripped, None
+
+
+def _validate_pytest_evidence_reference(
+    entry: RouteReadinessEntry,
+    *,
+    evidence_path_text: str,
+    selector: str,
+    repo_root: Path,
+) -> list[RouteReadinessIssue]:
+    evidence_path = repo_root / _normalize_path(evidence_path_text)
+    if not evidence_path.is_file():
+        return [
+            _issue(
+                "route_readiness_evidence_path_unknown",
+                entry,
+                f"evidence path `{evidence_path_text}` does not exist",
+                field="evidence",
+            )
+        ]
+
+    selector_parts = selector.split("::")
+    selector_parts[-1] = selector_parts[-1].split("[", 1)[0]
+    if not all(selector_parts) or len(selector_parts) not in {1, 2}:
+        return [
+            _issue(
+                "route_readiness_evidence_selector_invalid",
+                entry,
+                f"pytest selector `{selector}` has unsupported node syntax",
+                field="evidence",
+            )
+        ]
+
+    try:
+        module = ast.parse(
+            evidence_path.read_text(encoding="utf-8"),
+            filename=evidence_path.as_posix(),
+        )
+    except (OSError, SyntaxError):
+        return [
+            _issue(
+                "route_readiness_evidence_selector_invalid",
+                entry,
+                f"pytest evidence module `{evidence_path_text}` cannot be parsed",
+                field="evidence",
+            )
+        ]
+
+    function_nodes = (ast.FunctionDef, ast.AsyncFunctionDef)
+    if len(selector_parts) == 1:
+        found = any(
+            isinstance(node, function_nodes) and node.name == selector_parts[0]
+            for node in module.body
+        )
+    else:
+        class_name, method_name = selector_parts
+        found = any(
+            isinstance(node, ast.ClassDef)
+            and node.name == class_name
+            and any(
+                isinstance(child, function_nodes) and child.name == method_name
+                for child in node.body
+            )
+            for node in module.body
+        )
+    if found:
         return []
+    return [
+        _issue(
+            "route_readiness_evidence_selector_unknown",
+            entry,
+            (
+                f"pytest selector `{selector}` does not name a test node in "
+                f"`{evidence_path_text}`"
+            ),
+            field="evidence",
+        )
+    ]
+
+
+def _validate_parity_target_evidence_reference(
+    entry: RouteReadinessEntry,
+    *,
+    evidence_path_text: str,
+    selector: str,
+    repo_root: Path,
+) -> list[RouteReadinessIssue]:
+    evidence_path = repo_root / _normalize_path(evidence_path_text)
+    if not evidence_path.is_file():
+        return [
+            _issue(
+                "route_readiness_evidence_path_unknown",
+                entry,
+                f"evidence path `{evidence_path_text}` does not exist",
+                field="evidence",
+            )
+        ]
 
     try:
         payload = json.loads(evidence_path.read_text(encoding="utf-8"))
@@ -612,9 +771,31 @@ def _validate_evidence_reference(
             )
         ]
 
-    targets = payload.get("targets") if isinstance(payload, Mapping) else None
+    if not isinstance(payload, Mapping) or payload.get("schema_version") != (
+        PARITY_TARGETS_SCHEMA_VERSION
+    ):
+        return [
+            _issue(
+                "route_readiness_evidence_selector_invalid",
+                entry,
+                (
+                    f"structured evidence `{evidence_path_text}` must use "
+                    f"schema `{PARITY_TARGETS_SCHEMA_VERSION}`"
+                ),
+                field="evidence",
+            )
+        ]
+
+    targets = payload.get("targets")
     if not isinstance(targets, list):
-        return []
+        return [
+            _issue(
+                "route_readiness_evidence_selector_invalid",
+                entry,
+                f"structured evidence `{evidence_path_text}` must declare `targets`",
+                field="evidence",
+            )
+        ]
     if any(
         isinstance(target, Mapping) and target.get("workflow_family") == selector
         for target in targets

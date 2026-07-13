@@ -117,6 +117,14 @@ def _codes(validation) -> set[str]:
     return {issue.code for issue in validation.issues}
 
 
+def _evidence_codes(validation) -> set[str]:
+    return {
+        issue.code
+        for issue in validation.issues
+        if issue.field == "evidence"
+    }
+
+
 def test_checked_in_registry_loads_and_validates() -> None:
     registry = load_route_readiness_registry(REGISTRY_PATH)
     validation = validate_route_readiness_registry(registry, REPO_ROOT)
@@ -190,7 +198,107 @@ def test_self_referential_registry_evidence_is_rejected(tmp_path: Path) -> None:
     assert "route_readiness_evidence_self_referential" in _codes(validation)
 
 
-def test_missing_registry_evidence_path_is_rejected(tmp_path: Path) -> None:
+def test_registry_evidence_accepts_cli_command(tmp_path: Path) -> None:
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=[
+                        "python -m pytest tests/test_workflow_lisp_examples.py -q",
+                        "git diff --check",
+                    ]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, REPO_ROOT)
+
+    assert _evidence_codes(validation) == set()
+
+
+def test_registry_evidence_accepts_diagnostic_name(tmp_path: Path) -> None:
+    registry = load_route_readiness_registry(
+        _write_registry(tmp_path, [_base_entry(evidence=["type_unknown"])])
+    )
+
+    validation = validate_route_readiness_registry(registry, REPO_ROOT)
+
+    assert _evidence_codes(validation) == set()
+
+
+def test_registry_evidence_accepts_existing_report_path(tmp_path: Path) -> None:
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=[
+                        "artifacts/work/review-parity-check/"
+                        "design_delta_parent_drain.md"
+                    ]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, REPO_ROOT)
+
+    assert _evidence_codes(validation) == set()
+
+
+def test_registry_evidence_accepts_parameterized_pytest_node(tmp_path: Path) -> None:
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=[
+                        "tests/test_workflow_lisp_wcc_characterization.py::"
+                        "test_m5_route_flip_corpus_compiles_under_default_wcc_route"
+                        "[design_delta_union_match_projection]"
+                    ]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, REPO_ROOT)
+
+    assert _evidence_codes(validation) == set()
+
+
+def test_registry_evidence_accepts_parameterized_pytest_class_method(
+    tmp_path: Path,
+) -> None:
+    evidence_module = tmp_path / "tests" / "test_evidence.py"
+    evidence_module.parent.mkdir(parents=True)
+    evidence_module.write_text(
+        "class TestEvidence:\n"
+        "    def test_case(self):\n"
+        "        pass\n",
+        encoding="utf-8",
+    )
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=[
+                        "tests/test_evidence.py::TestEvidence::test_case[case-a]"
+                    ]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, tmp_path)
+
+    assert _evidence_codes(validation) == set()
+
+
+def test_registry_evidence_rejects_missing_pytest_file(tmp_path: Path) -> None:
     registry = load_route_readiness_registry(
         _write_registry(
             tmp_path,
@@ -209,7 +317,53 @@ def test_missing_registry_evidence_path_is_rejected(tmp_path: Path) -> None:
     assert "route_readiness_evidence_path_unknown" in _codes(validation)
 
 
-def test_retired_parity_target_registry_evidence_is_rejected(tmp_path: Path) -> None:
+def test_registry_evidence_rejects_missing_pytest_node(tmp_path: Path) -> None:
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=[
+                        "tests/test_workflow_lisp_examples.py::"
+                        "test_route_readiness_node_does_not_exist"
+                    ]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, REPO_ROOT)
+
+    assert "route_readiness_evidence_selector_unknown" in _evidence_codes(
+        validation
+    )
+
+
+def test_registry_evidence_accepts_current_parity_target_selector(
+    tmp_path: Path,
+) -> None:
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=[
+                        "workflows/examples/inputs/workflow_lisp_migrations/"
+                        "parity_targets.json::cycle_guard_demo"
+                    ]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, REPO_ROOT)
+
+    assert _evidence_codes(validation) == set()
+
+
+def test_registry_evidence_rejects_retired_parity_target_selector(
+    tmp_path: Path,
+) -> None:
     registry = load_route_readiness_registry(
         _write_registry(
             tmp_path,
@@ -227,6 +381,41 @@ def test_retired_parity_target_registry_evidence_is_rejected(tmp_path: Path) -> 
     validation = validate_route_readiness_registry(registry, REPO_ROOT)
 
     assert "route_readiness_evidence_selector_unknown" in _codes(validation)
+
+
+def test_registry_evidence_does_not_infer_targets_from_arbitrary_json(
+    tmp_path: Path,
+) -> None:
+    evidence_path = tmp_path / "reports" / "unrelated.json"
+    evidence_path.parent.mkdir(parents=True)
+    evidence_path.write_text(
+        json.dumps(
+            {
+                "targets": [
+                    {"workflow_family": "not_a_parity_manifest"}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=[
+                        "reports/unrelated.json::not_a_parity_manifest"
+                    ]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, tmp_path)
+
+    assert "route_readiness_evidence_selector_invalid" in _evidence_codes(
+        validation
+    )
 
 
 def test_checked_in_registry_uses_proving_evidence_not_registry_self_validation() -> None:

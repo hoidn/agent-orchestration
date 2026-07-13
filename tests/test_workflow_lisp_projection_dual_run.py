@@ -18,6 +18,14 @@ from tests.workflow_bundle_helpers import bundle_context_dict
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LIBRARY_ROOT = REPO_ROOT / "workflows" / "library"
+DESIGN_DELTA_PROJECTION_RUNTIME_FIXTURE = (
+    REPO_ROOT
+    / "tests"
+    / "fixtures"
+    / "workflow_lisp"
+    / "valid"
+    / "design_delta_projection_runtime.orc"
+)
 REPORT_SCHEMA_VERSION = "workflow_lisp_projection_dual_run_report.v1"
 
 ADAPTER_SCRIPTS = {
@@ -519,6 +527,73 @@ def test_projection_dual_run_emits_declared_report_and_passes_all_vectors(tmp_pa
     assert set(report["adapters"]) == set(COMPARISON_MAPPINGS)
 
 
+def test_design_delta_projection_runtime_fixture_executes_directly(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_entrypoint(
+        DESIGN_DELTA_PROJECTION_RUNTIME_FIXTURE,
+        source_roots=(DESIGN_DELTA_PROJECTION_RUNTIME_FIXTURE.parent,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = result.validated_bundles_by_name[
+        "design_delta_projection_runtime::run-projection"
+    ]
+    selection_bundle = tmp_path / "state" / "selection.json"
+    selection_bundle.parent.mkdir(parents=True, exist_ok=True)
+    selection_bundle.write_text(
+        json.dumps({"selection": "runtime"}) + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_inputs = dict(workflow_runtime_input_contracts(bundle))
+    binding_inputs = {
+        input_name: contract
+        for input_name, contract in runtime_inputs.items()
+        if not input_name.startswith("__write_root__")
+    }
+    bound_inputs = bind_workflow_inputs(
+        binding_inputs,
+        {
+            "selection_bundle": "state/selection.json",
+            "selection_status": "SELECT_BACKLOG_ITEM",
+            "blocked_reason": "gap",
+            "implementation_state": "COMPLETED",
+            "implementation_review_decision": "APPROVE",
+            "work_item_source": "DESIGN_GAP",
+            "blocked_recovery_route": "TERMINAL_BLOCKED",
+            "blocked_recovery_reason": "user_decision_required",
+        },
+        tmp_path,
+    )
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="design-delta-projection-runtime",
+    )
+    state_manager.initialize(
+        DESIGN_DELTA_PROJECTION_RUNTIME_FIXTURE.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs=bound_inputs,
+    )
+
+    state = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        state_manager,
+        retry_delay_ms=0,
+    ).execute(on_error="stop")
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {
+        "return__selector_route": "SELECTED_ITEM",
+        "return__terminal_route": "COMPLETE",
+        "return__blocked_recovery_route": "TERMINAL_BLOCKED",
+        "return__blocked_recovery_reason": "user_decision_required",
+        "return__selection_bundle": "state/selection.json",
+    }
 
 
 def test_projection_dual_run_detects_expected_result_mismatch(tmp_path: Path) -> None:
