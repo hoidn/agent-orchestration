@@ -19,7 +19,7 @@ TASK_4_2_UNSTARTED_STATE = "task 4.2 has not started"
 CONTRADICTORY_TASK_4_2_START = re.compile(
     r"(?<!no )\b(?:"
     r"task 4\.2(?: (?:implementation|work|source deletion|deletion))?"
-    r"|g8 serializer(?: (?:implementation|work|source deletion|deletion))?"
+    r"|g8(?: serializer)?(?: (?:implementation|work|source deletion|deletion|removal))?"
     r") has (?:started|begun)\b"
 )
 
@@ -78,7 +78,10 @@ def _assert_task_4_2_temporary_pipeline_contract(surface: str, label: str) -> No
     assert "tests/test_workflow_lisp_stdlib_form_migration.py" in surface, label
     assert "fresh temporary build root" in normalized, label
     assert "artifact_paths" in surface, label
-    assert "repo-global" not in surface, label
+    assert "repo global code search" in normalized, label
+    assert "orchestrator/" in surface, label
+    assert "tests/" in surface, label
+    assert "intentional tests and guards" in normalized, label
     assert "consumer outside" in normalized, label
     assert "artifact gate or parity dependency" in normalized, label
     assert "stop" in normalized, label
@@ -106,12 +109,24 @@ def _assert_task_4_2_temporary_pipeline_contract(surface: str, label: str) -> No
             "Task 4.1 is complete and independently reviewed. "
             "Task 4.2 has not started. G8 serializer deletion has started."
         ),
+        (
+            "Gates P3 and P4 are independently reviewed and satisfied. "
+            "Task 4.1 is complete and independently reviewed. "
+            "Task 4.2 has not started. G8 deletion has started."
+        ),
+        (
+            "Gates P3 and P4 are independently reviewed and satisfied. "
+            "Task 4.1 is complete and independently reviewed. "
+            "Task 4.2 has not started. G8 removal has begun."
+        ),
     ],
     ids=[
         "weakened-gate-review",
         "missing-task-4-1-review",
         "contradictory-task-start",
         "contradictory-serializer-start",
+        "contradictory-g8-deletion-start",
+        "contradictory-g8-removal-start",
     ],
 )
 def test_task_4_1_closure_guard_rejects_weakened_or_contradictory_state(
