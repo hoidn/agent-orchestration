@@ -1,8 +1,8 @@
-"""Temporary G8 deletion-evidence plumbing retained through Task 4.2.
+"""Temporary G8 deletion-evidence plumbing retained pending Task 4.2 removal.
 
 The Design Delta certification lane was retired after the family moved to its
 generic Workflow Lisp route.  Only the temporary G8 producer/emitter remains
-here through Task 4.2; migration parity no longer consumes that artifact.
+pending removal by Task 4.2; migration parity no longer consumes that artifact.
 """
 
 from __future__ import annotations
