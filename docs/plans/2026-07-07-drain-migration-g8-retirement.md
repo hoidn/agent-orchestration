@@ -23,8 +23,8 @@ The 2026-07-07 line-number anchors below are drafting history only where they ar
 | Concern | Current owner and live symbols |
 | --- | --- |
 | Design Delta certification data and loading | `orchestrator/workflow_lisp/build_design_delta.py`: `DesignDeltaEvidence`, `load_design_delta_family_catalog`, `load_design_delta_evidence`, and the `_maybe_load_design_delta_*` loader family |
-| Design Delta report/G8 serialization | `orchestrator/workflow_lisp/build_design_delta.py`: `DesignDeltaReportPayloads`, `serialize_design_delta_reports`, `_serialize_design_delta_g8_deletion_evidence`, and `DESIGN_DELTA_G8_*` constants |
-| Build artifact persistence | `orchestrator/workflow_lisp/build_artifacts.py`: `_add_design_delta_artifacts` owns the Design Delta artifact export map and `_write_build_artifacts` owns payload writes; generic manifest/artifact writers remain preserved |
+| Design Delta G8 serialization | `orchestrator/workflow_lisp/build_design_delta.py`: `serialize_design_delta_g8_deletion_evidence` and `DESIGN_DELTA_G8_*` constants; Task 4.2 deletes the now-G8-only module |
+| Build artifact persistence | `orchestrator/workflow_lisp/build_artifacts.py`: `_write_build_artifacts` owns the temporary G8 artifact entry and payload writes; generic manifest/artifact writers remain preserved |
 | Public build pipeline and stage call sites | `orchestrator/workflow_lisp/build.py`: `build_frontend_bundle`, `_select_and_reattach`, and `_emit`; this module also retains `_reference_family_versioned_roots` / `_resolve_reference_family_evidence_paths` and compatibility re-exports, but does not own the moved Design Delta serializer bodies |
 | Drain expression typecheck owner | `orchestrator/workflow_lisp/typecheck_drain_phase.py`: `typecheck_backlog_drain_expr` |
 | Shared typecheck helpers and dispatch | `orchestrator/workflow_lisp/typecheck_calls.py`: `workflow_ref_signature`, `validate_selector_workflow_ref`, `validate_run_item_workflow_ref`, `validate_gap_drafter_workflow_ref`, `_backlog_drain_blocker_class_type`; `orchestrator/workflow_lisp/typecheck_dispatch.py`: the `BacklogDrainExpr` dispatch branch into `typecheck_backlog_drain_expr` |
@@ -75,14 +75,15 @@ Phase 1 Ledger entry (k). Gate P2 admitted the reviewed Phase 2 sequence. Phase
 2 Tasks 2.1–2.3 and the bounded Design Delta promotion handoff are now
 complete. Gate P3 is also satisfied by the later independent joint proof
 recorded in Phase 2 Ledger entry (f). Phase 3 Tasks 3.1–3.4 are complete and
-reviewed. Gates P3 and P4 are independently reviewed and satisfied. The current
-selector is **Phase 4 Task 4.1: strip design-delta constants and lanes from
-migration parity**. Task 4.1 has not started, and no Phase-4 source deletion has
-begun. Stage 5 typed result guidance and Stage 6 YAML archive remain later work.
+reviewed. Gates P3 and P4 are independently reviewed and satisfied. Task 4.1 is
+complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. The
+current selector is **Phase 4 Task 4.2: strip the G8 serializer**. Task 4.2 has
+not started, and no Task-4.2 deletion has begun. Stage 5 typed result guidance
+and Stage 6 YAML archive remain later work.
 
 **Gate P3 (entry to Phase 3):**
 1. Phase 2 Tasks 2.1–2.3 committed; name-blindness check (Task 2.3 Step 2) clean.
-2. Certification lane still green **after** the deletion: production compile exits 0; freshest `g8_deletion_evidence.json` still `"status": "pass"` (now via the `spec is None` / imported-only branches of `_serialize_design_delta_g8_deletion_evidence` in `build_design_delta.py` — Task 2.2 decides which).
+2. Certification lane still green **after** the deletion: production compile exits 0; freshest `g8_deletion_evidence.json` still `"status": "pass"` (now via the `spec is None` / imported-only branches of `serialize_design_delta_g8_deletion_evidence` in `build_design_delta.py` — Task 2.2 decides which).
 3. Final parity regeneration (same command as P2.5) → exit 0, `"non_regressive": true`; `promotion_eligibility` recorded in the Phase-2 ledger entry. This is the "G7 + promotion evidence -> G8" sequencing obligation discharged and recorded.
 4. Promotion handoff completed and recorded (steering, user, 2026-07-07; governing sequence Stage 3): YAML-retirement Task 5 family 1 has run only through registration, fresh non-regressive parity, the `.orc` primary flip, and fresh end-to-end evidence. The `.orc` entry `lisp_frontend_design_delta/drain::drain` is the primary production route; Task 5's archive bullet has **not** run, and the YAML twin remains for Stage 6.
 
@@ -92,10 +93,11 @@ fresh joint verification of conditions 1–4 at base HEAD
 `c82d150286248661bbfe2d8cb338715f47a02d36`. This status-and-routing closure
 does not alter the verified implementation or evidence surfaces. Gate P3 is
 satisfied and now admits Phase 3. Tasks 3.1–3.4 are complete and reviewed.
-Gates P3 and P4 are independently reviewed and satisfied. The current selector
-is **Phase 4 Task 4.1: strip design-delta constants and lanes from migration
-parity**. Task 4.1 has not started, and no Phase-4 source deletion has begun.
-Stage 5 typed result guidance and Stage 6 YAML archive remain later work.
+Gates P3 and P4 are independently reviewed and satisfied. Task 4.1 is complete
+and independently reviewed, with SPEC PASS and CODE QUALITY PASS. The current
+selector is **Phase 4 Task 4.2: strip the G8 serializer**. Task 4.2 has not
+started, and no Task-4.2 deletion has begun. Stage 5 typed result guidance and
+Stage 6 YAML archive remain later work.
 
 **Gate P4 (entry to Phase 4):**
 1. Phase 3 Tasks 3.1–3.4 committed.
@@ -110,10 +112,11 @@ production compile without the retired family-certification block and the
 two-family non-regressive parity run. The target manifest and generated index
 contain only `cycle_guard_demo` and `design_plan_impl_stack`; the retired
 `design_delta_parent_drain` target is absent. Gates P3 and P4 are independently
-reviewed and satisfied. The current selector is **Phase 4 Task 4.1: strip
-design-delta constants and lanes from migration parity**. Task 4.1 has not
-started, and no Task-4.1 deletion has begun. Stage 5 typed result guidance and
-Stage 6 YAML archive remain later work.
+reviewed and satisfied. Task 4.1 is complete and independently reviewed, with
+SPEC PASS and CODE QUALITY PASS. The current selector is **Phase 4 Task 4.2:
+strip the G8 serializer**. Task 4.2 has not started, and no Task-4.2 deletion
+has begun. Stage 5 typed result guidance and Stage 6 YAML archive remain later
+work.
 
 ---
 
@@ -273,7 +276,7 @@ Record the diff against the table above in the Phase 2 Ledger. Any hit in `workf
 
 **Files:** `orchestrator/workflow_lisp/form_registry.py`; possibly `orchestrator/workflow_lisp/build_design_delta.py` + `orchestrator/workflow_lisp/migration_parity.py` (one owning constant each — see the decision procedure; `build.py` only compatibility-re-exports the moved build symbol); `orchestrator/workflow_lisp/stdlib_modules/std/drain.orc` (export list, if the boundary form's export is removed).
 
-Background: `build_design_delta.py`'s removed-heads check (`_serialize_design_delta_g8_deletion_evidence`) passes a head in `DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS` = `("with-phase", "finalize-selected-item", "backlog-drain")` only when its spec is deleted (`get_form_spec(...) is None`), OR tagged `compatibility_route_only`, OR listed in `DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS` with `macro_bindable=True` (the `with-phase` precedent). `migration_parity._validated_design_delta_g8_deleted_rows` cross-checks the same constants. `with-phase` and `finalize-selected-item` are **out of scope** — they keep their current tags/handling.
+Background: `build_design_delta.py`'s removed-heads check (`serialize_design_delta_g8_deletion_evidence`) passes a head in `DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS` = `("with-phase", "finalize-selected-item", "backlog-drain")` only when its spec is deleted (`get_form_spec(...) is None`), OR tagged `compatibility_route_only`, OR listed in `DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS` with `macro_bindable=True` (the `with-phase` precedent). `migration_parity._validated_design_delta_g8_deleted_rows` cross-checks the same constants. `with-phase` and `finalize-selected-item` are **out of scope** — they keep their current tags/handling.
 
 - [x] **Step 1: Delete the `backlog-drain-callable-boundary` spec from `form_registry.py` outright.** It is not in the removed-heads constant, so no evidence-machinery interaction; its `std/drain.orc` export and macro-alias plumbing go with it (reviewed contract delta per the old plan's Task 7 Step 1).
 - [x] **Step 2: Decide `backlog-drain`'s registry disposition by this rule:**
@@ -384,21 +387,21 @@ reviewed).**
 - `_validated_design_delta_g8_deleted_rows` and its callers.
 - The Design Delta fold inside `_resource_transition_parity_evidence`: G8-evidence threading, deleted-helper rows, and the `DESIGN_DELTA_G8_RESOURCE_TRANSITION_HELPERS` loop. Preserve `_runtime_audit_transition_parity_evidence` whenever a remaining target uses that generic core.
 
-- [ ] **Step 1 (decision procedure for the fold):** determine whether the remaining targets exercise the `resource_transition_parity` role: `python - <<'EOF'` reading `parity_targets.json` roles/config for `cycle_guard_demo` and `design_plan_impl_stack`, plus `grep -n "resource_transition_parity" orchestrator/workflow_lisp/migration_parity.py`. If the role is design-delta-only → delete `_resource_transition_parity_evidence` and its role wiring entirely. If shared → strip only the g8/deleted-helper logic, keeping the `_runtime_audit_transition_parity_evidence` core. Record which in the Phase 4 Ledger.
-- [ ] **Step 2:** Delete the inventory; `pyflakes orchestrator/workflow_lisp/migration_parity.py` → no new unused/undefined names.
-- [ ] **Step 3:** Update `tests/test_workflow_lisp_migration_parity.py`: remove/rewrite tests pinning the deleted lanes; keep every kernel test. `pytest --collect-only tests/test_workflow_lisp_migration_parity.py -q && pytest tests/test_workflow_lisp_migration_parity.py -q` → PASS.
-- [ ] **Step 4: Commit:** `git add orchestrator/workflow_lisp/migration_parity.py tests/test_workflow_lisp_migration_parity.py && git commit -m "Strip design delta lanes from migration parity"`
+- [x] **Step 1 (decision procedure for the fold):** determine whether the remaining targets exercise the `resource_transition_parity` role: `python - <<'EOF'` reading `parity_targets.json` roles/config for `cycle_guard_demo` and `design_plan_impl_stack`, plus `grep -n "resource_transition_parity" orchestrator/workflow_lisp/migration_parity.py`. If the role is design-delta-only → delete `_resource_transition_parity_evidence` and its role wiring entirely. If shared → strip only the g8/deleted-helper logic, keeping the `_runtime_audit_transition_parity_evidence` core. Record which in the Phase 4 Ledger.
+- [x] **Step 2:** Delete the inventory; `pyflakes orchestrator/workflow_lisp/migration_parity.py` → no new unused/undefined names.
+- [x] **Step 3:** Update `tests/test_workflow_lisp_migration_parity.py`: remove/rewrite tests pinning the deleted lanes; keep every kernel test. `pytest --collect-only tests/test_workflow_lisp_migration_parity.py -q && pytest tests/test_workflow_lisp_migration_parity.py -q` → PASS.
+- [x] **Step 4: Commit:** `git add orchestrator/workflow_lisp/migration_parity.py tests/test_workflow_lisp_migration_parity.py && git commit -m "Strip design delta lanes from migration parity"`
 
 ### Task 4.2: Strip the G8 serializer, artifact entry, and compatibility re-exports
 
-**Files:** `orchestrator/workflow_lisp/build_design_delta.py`; `orchestrator/workflow_lisp/build_artifacts.py`; `orchestrator/workflow_lisp/build.py` only for surviving compatibility re-exports/imports; `tests/test_workflow_lisp_build_artifacts.py` for reviewed expectation updates.
+**Files:** delete `orchestrator/workflow_lisp/build_design_delta.py`; modify `orchestrator/workflow_lisp/build_artifacts.py` and `orchestrator/workflow_lisp/build.py` only for the temporary G8 pipeline/import/re-export removal; modify `orchestrator/workflow_lisp/build_manifest_io.py` only if its stale module-dependency docstring requires synchronization; update `tests/test_workflow_lisp_build_artifacts.py` and `tests/test_workflow_lisp_stdlib_form_migration.py` for reviewed expectation/ownership changes.
 
-**Deletion inventory (dead code since Task 3.3 deleted the sole caller — verify):** `_serialize_design_delta_g8_deletion_evidence` and `DESIGN_DELTA_G8_REMOVED_MANIFEST_ROWS`, `DESIGN_DELTA_G8_REMOVED_SCRIPT_PATHS`, `DESIGN_DELTA_G8_REMOVED_PYTHON_SYMBOLS`, `DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS`, `DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS`, `DESIGN_DELTA_G8_RETAINED_BRIDGES`, `DESIGN_DELTA_G8_PRECONDITION_EVIDENCE_REFS`, `DESIGN_DELTA_G8_GREP_GUARDS`, and `DESIGN_DELTA_G8_VERIFICATION_COMMANDS` in `build_design_delta.py`; the `g8_deletion_evidence` entry in `_add_design_delta_artifacts` and any now-empty payload plumbing in `build_artifacts.py`; compatibility imports/re-exports in `build.py`; and any orphaned `DESIGN_DELTA_PARENT_DRAIN_*` path constants proven unused by current symbol search.
+**Deletion inventory (the temporary G8 artifact pipeline intentionally preserved through Task 4.1):** `serialize_design_delta_g8_deletion_evidence` and `DESIGN_DELTA_G8_REMOVED_MANIFEST_ROWS`, `DESIGN_DELTA_G8_REMOVED_SCRIPT_PATHS`, `DESIGN_DELTA_G8_REMOVED_PYTHON_SYMBOLS`, `DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS`, `DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS`, `DESIGN_DELTA_G8_RETAINED_BRIDGES`, `DESIGN_DELTA_G8_PRECONDITION_EVIDENCE_REFS`, `DESIGN_DELTA_G8_GREP_GUARDS`, and `DESIGN_DELTA_G8_VERIFICATION_COMMANDS` in `build_design_delta.py`; the `build_frontend_bundle` import/call and payload threading in `build.py`; the `g8_deletion_evidence` payload/entry in `_write_build_artifacts` and any now-empty payload plumbing in `build_artifacts.py`; compatibility imports/re-exports in `build.py`; and any orphaned `DESIGN_DELTA_PARENT_DRAIN_*` path constants proven unused by current symbol search. Removing this inventory leaves `build_design_delta.py` empty, so delete the module rather than retaining an empty compatibility shell.
 
-- [ ] **Step 1:** `rg -n "DESIGN_DELTA_G8|g8_deletion" orchestrator/workflow_lisp/build*.py` → confirm every hit is a definition, compatibility re-export/import, payload field, or artifact-map entry with no surviving serializer caller. A surviving caller means Task 3.3 was incomplete — STOP, fix there first.
-- [ ] **Step 2:** Delete from the owning modules; run `pyflakes orchestrator/workflow_lisp/build.py orchestrator/workflow_lisp/build_design_delta.py orchestrator/workflow_lisp/build_artifacts.py` with no new unused/undefined names; production compile (P2 form) → exit 0 (no `g8_deletion_evidence.json` emitted — expected; the Task 2.1 Step 4 CI guard now carries the §17 reintroduction protection).
-- [ ] **Step 3:** `pytest tests/test_workflow_lisp_build_artifacts.py -q` → PASS (update any test pinning the artifact's existence — reviewed delta, noted in commit message).
-- [ ] **Step 4: Commit:** `git add orchestrator/workflow_lisp/build.py orchestrator/workflow_lisp/build_design_delta.py orchestrator/workflow_lisp/build_artifacts.py tests/test_workflow_lisp_build_artifacts.py && git commit -m "Delete G8 deletion evidence serializer from build"`
+- [ ] **Step 1:** `rg -n "DESIGN_DELTA_G8|g8_deletion" orchestrator/workflow_lisp/build*.py` → confirm every hit is confined to the temporary G8 artifact pipeline (serializer definition, `build_frontend_bundle` import/call, payload field/threading, artifact-map entry/emission, constants, or compatibility re-export). A consumer outside that pipeline, or any surviving artifact gate or parity dependency, means the inventory is incomplete — STOP and resolve it before deletion. The temporary serializer caller is expected here and does not reopen Task 3.3.
+- [ ] **Step 2:** Delete from the owning modules, including `git rm orchestrator/workflow_lisp/build_design_delta.py`; run `pyflakes orchestrator/workflow_lisp/build.py orchestrator/workflow_lisp/build_artifacts.py` (plus `orchestrator/workflow_lisp/build_manifest_io.py` only if its docstring is updated) with no new unused/undefined names. Production compile (P2 form) → exit 0. `FrontendBuildResult.artifact_paths` plus the emitted manifest are authoritative for the current build; verify they omit G8 evidence, and assert physical `g8_deletion_evidence.json` absence only under a fresh temporary build root. Reused build roots are not pruned, so do not add a G8-specific cleanup path or a broad filesystem-absence gate. The Task 2.1 Step 4 CI guard now carries the §17 reintroduction protection.
+- [ ] **Step 3:** `pytest tests/test_workflow_lisp_build_artifacts.py tests/test_workflow_lisp_stdlib_form_migration.py -q` → PASS (update tests pinning the artifact or temporary module ownership — reviewed deltas, noted in the commit message).
+- [ ] **Step 4: Commit:** `git add orchestrator/workflow_lisp/build.py orchestrator/workflow_lisp/build_artifacts.py orchestrator/workflow_lisp/build_manifest_io.py tests/test_workflow_lisp_build_artifacts.py tests/test_workflow_lisp_stdlib_form_migration.py && git commit -m "Delete G8 deletion evidence serializer from build"` (omit `build_manifest_io.py` from `git add` if unchanged; the `git rm` is already staged).
 
 ### Task 4.3: Final verification and closeout
 
@@ -411,7 +414,7 @@ reviewed).**
 
 ## Contradictions & Findings (flagged at drafting, 2026-07-07 — do not resolve silently)
 
-1. **Registry residue vs. G8 removed-heads check.** The parametric design sanctions a surviving registry entry as migration residue (review-loop precedent: `FormKind.STDLIB_EXTENSION`, `macro_bindable=True`, no compatibility tag), but `_serialize_design_delta_g8_deletion_evidence` in `build_design_delta.py` fails the compile for any surviving `backlog-drain` spec lacking the `compatibility_route_only` tag and absent from `DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS`. The prior retirement-safety judgment's "no gate-machinery changes needed to land the deletion" holds only for the full-registry-deletion variant; the sanctioned-residue variant needs a two-constant edit (the `with-phase` imported-only precedent). Task 2.2 codifies the decision procedure; the executor must flag the chosen route.
+1. **Registry residue vs. G8 removed-heads check.** The parametric design sanctions a surviving registry entry as migration residue (review-loop precedent: `FormKind.STDLIB_EXTENSION`, `macro_bindable=True`, no compatibility tag), but `serialize_design_delta_g8_deletion_evidence` in `build_design_delta.py` fails the compile for any surviving `backlog-drain` spec lacking the `compatibility_route_only` tag and absent from `DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS`. The prior retirement-safety judgment's "no gate-machinery changes needed to land the deletion" holds only for the full-registry-deletion variant; the sanctioned-residue variant needs a two-constant edit (the `with-phase` imported-only precedent). Task 2.2 codifies the decision procedure; the executor must flag the chosen route.
 2. **Prior-plan sequencing.** `2026-07-06-backlog-drain-generic-migration-plan.md` bundles intrinsic retirement (its Task 7) into the migration plan; this plan re-gates it behind Gate P2. This plan governs; the old plan gets no edit (single-file constraint) — the supersession is recorded here only.
 3. **Codified G8 evidence under-approximates the doc's gate.** The retirement design says G8 "must not be selected until evidence from G2 through G7 proves every removed path is unused", yet every codified `g8_deletion_evidence` row already passes while the intrinsic inline expansion runs on every production schema-2 compile (child `std/drain::backlog-drain` lowered with `preserve_owner_boundary=False`, `_callable_backlog_drain_enabled` → False → inline branch; proven by `tests/test_workflow_lisp_drain_stdlib.py` WCC_M4 tests). The codified rows track manifest rows/adapters/registry heads, not the lowering lane. The real gate is Phase 1 (Tranche 2); Gate P2 encodes that. Consider (out of scope here) a doc note aligning §17's acceptance rows with the lowering-lane evidence.
 4. **Minor historical correction:** `resume_plumbing_retirement.py`'s fingerprint-mismatch gate raises `ValueError`, not `LispFrontendCompileError` as earlier context stated — same fail-closed effect; recorded for provenance without retaining a mutable line anchor.
@@ -2160,3 +2163,44 @@ satisfied. The current selector is **Phase 4 Task 4.1: strip design-delta
 constants and lanes from migration parity**. Task 4.1 has not started, and no
 Task-4.1 deletion has begun. Stage 5 typed result guidance and Stage 6 YAML
 archive remain later work.
+
+## Phase 4 Ledger
+
+### (a) Task 4.1 parity-lane strip (2026-07-13; independently reviewed and closed)
+
+The target-role decision procedure found that neither `cycle_guard_demo` nor
+`design_plan_impl_stack` declares `required_family_evidence_roles`,
+`runtime_audit_artifacts`, or `family_evidence_artifacts`.
+`resource_transition_parity` was therefore a Design-Delta-only role, so Task
+4.1 deleted that evaluator and its wiring rather than retaining an unexercised
+runtime-audit sub-lane. The permanent target-loading, report/markdown/index,
+gate-evaluation, projection/view, CLI, and two-family parity kernel remains.
+
+The implementation landed as `c258572c` (`Strip design delta lanes from
+migration parity`) and its guard-hardening follow-up `8072ac8a` (`Harden parity
+lane retirement guard`). The main deletion removed **431 production lines**;
+that commit records **1,150 deletions** overall while replacing the retired
+family-specific expectations with kernel-preservation coverage. The TDD RED
+absence check failed on all eight still-present retired symbols before the
+deletion. GREEN verification passed **87 migration-parity tests**, **16
+adjacent stdlib-form-migration tests**, **26 key-migration tests**, **58
+route/readiness plus stdlib tests**, and **6 migration-parity CLI tests**. The
+strict two-family parity command exited 0 with overall pass and classified both
+remaining targets as non-regressive. After the quality follow-up, the focused
+guard slice passed **11 tests** and the complete touched slice passed **111
+tests**; `pyflakes` and `py_compile` were clean.
+
+Independent review returned **SPEC PASS** and **CODE QUALITY PASS** with no
+open findings. The consistency pass also resolved a Task-4.2
+`semantic_conflict`: Task 3.3 intentionally retained the temporary G8 artifact
+pipeline, including its `build_frontend_bundle` serializer caller, through
+Phase 4. Task 4.2 therefore expects that bounded call/payload/emission path and
+stops only for a consumer outside the temporary pipeline or a surviving
+artifact gate or parity dependency. This correction changes no Task-4.2 scope
+and makes no production/build edit.
+
+Gates P3 and P4 are independently reviewed and satisfied. Task 4.1 is complete
+and independently reviewed, with SPEC PASS and CODE QUALITY PASS. The current
+selector is **Phase 4 Task 4.2: strip the G8 serializer**. Task 4.2 has not
+started, and no Task-4.2 deletion has begun. Stage 5 typed result guidance and
+Stage 6 YAML archive remain later work.

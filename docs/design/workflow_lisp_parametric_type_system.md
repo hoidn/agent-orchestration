@@ -629,11 +629,13 @@ primary-promotion handoff and independent joint proof are recorded in
 `docs/plans/2026-07-07-drain-migration-g8-retirement.md`. Phase 3 Task 3.1
 re-homed the focused parent-drain smoke, Task 3.2 retired the promoted parity
 target while preserving its historical report, Task 3.3 retired the ordered
-certification bundle, and Task 3.4 closed Phase-3 verification. Gates P3 and P4
-are independently reviewed and satisfied. The current selector is drain Phase
-4 Task 4.1: strip design-delta constants and lanes from migration parity. Task
-4.1 has not started, and no Task-4.1 deletion has begun. Stage 5 typed result
-guidance and Stage 6 YAML archive remain later work.
+certification bundle, Task 3.4 closed Phase-3 verification, and Task 4.1 stripped
+the Design-Delta-only parity lanes while preserving the permanent kernel. Gates
+P3 and P4 are independently reviewed and satisfied. Task 4.1 is complete and
+independently reviewed, with SPEC PASS and CODE QUALITY PASS. The current
+selector is drain Phase 4 Task 4.2: strip the G8 serializer. Task 4.2 has not
+started, and no Task-4.2 deletion has begun. Stage 5 typed result guidance and
+Stage 6 YAML archive remain later work.
 
 Expected residue on the order of the review loop's (registry entry, stdlib
 contract, output-contract shaping). Residue materially above that is a signal
