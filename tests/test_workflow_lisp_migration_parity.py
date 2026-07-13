@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib
+import inspect
 import json
+from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
 
@@ -11,6 +14,49 @@ import pytest
 
 def _parity_module():
     return importlib.import_module("orchestrator.workflow_lisp.migration_parity")
+
+
+_RETIRED_PARITY_MODULE_SYMBOLS = (
+    "DESIGN_DELTA_G8_DELETION_EVIDENCE_SCHEMA_VERSION",
+    "DESIGN_DELTA_G8_DELETED_MANIFEST_ROWS",
+    "DESIGN_DELTA_G8_RESOURCE_TRANSITION_HELPERS",
+    "DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS",
+    "DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS",
+    "_resource_transition_parity_evidence",
+    "_runtime_audit_transition_parity_evidence",
+    "_validated_design_delta_g8_deleted_rows",
+)
+_RETIRED_PARITY_IDENTIFIERS = frozenset(
+    (*_RETIRED_PARITY_MODULE_SYMBOLS, "g8_deletion_evidence", "resource_transition_parity")
+)
+_RETIRED_PARITY_STRING_CONSTANTS = frozenset(
+    {"g8_deletion_evidence", "resource_transition_parity"}
+)
+
+
+def _retired_parity_lane_references(source: str) -> set[str]:
+    references: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        identifier: str | None = None
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            identifier = node.name
+        elif isinstance(node, ast.arg):
+            identifier = node.arg
+        elif isinstance(node, ast.Name):
+            identifier = node.id
+        elif isinstance(node, ast.Attribute):
+            identifier = node.attr
+        elif isinstance(node, ast.keyword):
+            identifier = node.arg
+        if identifier in _RETIRED_PARITY_IDENTIFIERS:
+            references.add(identifier)
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value in _RETIRED_PARITY_STRING_CONSTANTS
+        ):
+            references.add(node.value)
+    return references
 
 
 def _write_json(path: Path, payload: object) -> Path:
@@ -2410,7 +2456,7 @@ def test_gate_evaluation_marks_stale_reused_report_invalid(
     )
     payload["targets"].append(second_target)
     manifest_path = _write_json(tmp_path / "parity_targets.json", payload)
-    targets = module.load_parity_targets(manifest_path)
+    module.load_parity_targets(manifest_path)
 
     for target_entry in payload["targets"]:
         _write_text(tmp_path / str(target_entry["candidate"]), "(workflow-lisp)\n")
@@ -2735,24 +2781,47 @@ def test_promoted_design_delta_target_is_retired_but_historical_report_is_preser
 
 def test_migration_parity_source_has_no_retired_design_delta_lane() -> None:
     module = _parity_module()
-    source = Path(module.__file__).read_text(encoding="utf-8")
+    source = inspect.getsource(module)
 
-    retired_symbols = (
-        "DESIGN_DELTA_G8_DELETION_EVIDENCE_SCHEMA_VERSION",
-        "DESIGN_DELTA_G8_DELETED_MANIFEST_ROWS",
-        "DESIGN_DELTA_G8_RESOURCE_TRANSITION_HELPERS",
-        "DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS",
-        "DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS",
-        "_resource_transition_parity_evidence",
-        "_runtime_audit_transition_parity_evidence",
-        "_validated_design_delta_g8_deleted_rows",
-    )
-
-    assert [name for name in retired_symbols if hasattr(module, name)] == []
-    assert "g8_deletion_evidence" not in source
-    assert 'role == "resource_transition_parity"' not in source
+    assert [
+        name for name in _RETIRED_PARITY_MODULE_SYMBOLS if hasattr(module, name)
+    ] == []
+    assert _retired_parity_lane_references(source) == set()
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        (
+            'if "resource_transition_parity" == role:\n    wire_role()\n',
+            "resource_transition_parity",
+        ),
+        (
+            'match role:\n    case "resource_transition_parity":\n        wire_role()\n',
+            "resource_transition_parity",
+        ),
+        (
+            'roles = {"resource_transition_parity": wire_role}\n',
+            "resource_transition_parity",
+        ),
+        (
+            "def _resource_transition_parity_evidence():\n    pass\n",
+            "_resource_transition_parity_evidence",
+        ),
+        ("def wire(g8_deletion_evidence):\n    pass\n", "g8_deletion_evidence"),
+        ("g8_deletion_evidence = None\n", "g8_deletion_evidence"),
+        (
+            "retired = parity._validated_design_delta_g8_deleted_rows\n",
+            "_validated_design_delta_g8_deleted_rows",
+        ),
+        ("wire(g8_deletion_evidence=None)\n", "g8_deletion_evidence"),
+    ),
+)
+def test_retirement_guard_detects_structurally_equivalent_wiring(
+    source: str,
+    expected: str,
+) -> None:
+    assert _retired_parity_lane_references(source) == {expected}
 
 
 def test_retired_design_delta_command_boundary_manifest_omits_deleted_helpers() -> None:
