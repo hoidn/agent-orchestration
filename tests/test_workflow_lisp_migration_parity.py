@@ -2829,6 +2829,21 @@ def test_promoted_design_delta_target_is_retired_but_historical_report_is_preser
     for name, expected_hash in expected_hashes.items():
         assert _sha256_file(historical_report_root / name) == expected_hash
 
+    historical_report = json.loads(
+        (historical_report_root / "design_delta_parent_drain.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert historical_report["workflow_family"] == "design_delta_parent_drain"
+    assert historical_report["non_regressive"] is True
+    assert historical_report["promotion_eligibility"] == {
+        "eligible_for_primary_surface": True
+    }
+    assert historical_report["route_identity"]["readiness_label"] == (
+        "promotion_eligible"
+    )
+    assert historical_report["route_identity"]["lowering_route"] == "wcc_m4"
+
 
 
 
