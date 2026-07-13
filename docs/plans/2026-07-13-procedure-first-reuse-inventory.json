@@ -1,0 +1,3142 @@
+{
+  "schema_version": "procedure_first_reuse_inventory.v1",
+  "source_commit": "a2a95cf23f4b4b0372ff74d403a3a204acac6096",
+  "historical_baseline_commit": "f6da1b89bd7d3fa11281ec57a38b9188e7c51b6e",
+  "generated_at": "2026-07-13",
+  "scope": {
+    "roots": [
+      "workflows",
+      "docs/workflow_lisp_route_readiness_registry.json",
+      "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
+    ],
+    "excluded_roots": [
+      "docs/plans",
+      "docs/reports",
+      "tests/fixtures"
+    ],
+    "historical_docs_are_live_evidence": false,
+    "extraction_commands": [
+      "rg -n --glob '*.orc' '\\(call\\s+' workflows | sort",
+      "rg -n --glob '*.yaml' --glob '*.yml' '^[[:space:]-]*call:[[:space:]]' workflows | sort"
+    ],
+    "note": "The extraction captures authored direct call tokens. Classification and public-entry evidence are reviewed semantic annotations, not inferred solely from syntax.",
+    "id_policy": "Internal-call IDs use source path, callee token, and the same-callee ordinal in numeric source-line order. Source lines are non-identity locators, so unrelated edits above a call do not change its ID. Public-entry IDs use the stable entry identity."
+  },
+  "records": [
+    {
+      "id": "internal-call:workflows/examples/design_plan_impl_review_stack_v2_call.orc:tracked-design-phase:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+      "source_line": 232,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "tracked-design-phase",
+      "resolution": "authored-direct-call",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/design_plan_impl_review_stack_v2_call.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/design_plan_impl_review_stack_v2_call.orc:tracked-plan-phase:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+      "source_line": 237,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "tracked-plan-phase",
+      "resolution": "authored-direct-call",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/design_plan_impl_review_stack_v2_call.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/design_plan_impl_review_stack_v2_call.orc:design-plan-impl-implementation-phase:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+      "source_line": 242,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "design-plan-impl-implementation-phase",
+      "resolution": "authored-direct-call",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/design_plan_impl_review_stack_v2_call.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/same_file_record_call_binding.orc:build-checks:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/examples/same_file_record_call_binding.orc",
+      "source_line": 29,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "build-checks",
+      "resolution": "authored-direct-call",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/same_file_record_call_binding.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/design_gap_architect.orc:project-design-gap-architecture-targets:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+      "source_line": 124,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "project-design-gap-architecture-targets",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/design_gap_architect.orc:project-design-gap-architecture-targets-stdlib:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+      "source_line": 160,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "project-design-gap-architecture-targets-stdlib",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/design_gap_architect.orc:project-design-gap-architecture-targets:2",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+      "source_line": 191,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "project-design-gap-architecture-targets",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/design_gap_architect.orc:project-design-gap-architecture-targets-stdlib:2",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+      "source_line": 219,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "project-design-gap-architecture-targets-stdlib",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/drain.orc:build-drain-runtime-owned:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/drain.orc",
+      "source_line": 51,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "build-drain-runtime-owned",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/drain.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc:select-next-work:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc",
+      "source_line": 32,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "select-next-work",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc:draft-design-gap-architecture-stdlib:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc",
+      "source_line": 72,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "draft-design-gap-architecture-stdlib",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc:validate-design-gap-architecture-stdlib:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc",
+      "source_line": 80,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "validate-design-gap-architecture-stdlib",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:project-selected-item-finalizer-approved-plan:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 152,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "project-selected-item-finalizer-approved-plan",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:project-selected-item-finalizer-completed-implementation:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 155,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "project-selected-item-finalizer-completed-implementation",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:project-selected-item-finalizer-approved-plan:2",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 171,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "project-selected-item-finalizer-approved-plan",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:project-selected-item-finalizer-blocked-implementation:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 174,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "project-selected-item-finalizer-blocked-implementation",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:classify-blocked-implementation-recovery:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 298,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "classify-blocked-implementation-recovery",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:finalize-selected-item-from-blocked-implementation:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 313,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "finalize-selected-item-from-blocked-implementation",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:project-work-item-inputs:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 435,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "project-work-item-inputs",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:run-plan-phase:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 439,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "run-plan-phase",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:implementation-phase:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 451,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "implementation-phase",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:classify-work-item-terminal:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 463,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "classify-work-item-terminal",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:finalize-selected-item-from-blocked-implementation:2",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 477,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "finalize-selected-item-from-blocked-implementation",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:finalize-selected-item-from-blocked-implementation:3",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 481,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "finalize-selected-item-from-blocked-implementation",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:finalize-selected-item-from-completed-implementation:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 485,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "finalize-selected-item-from-completed-implementation",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:run-work-item-pending:1",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 506,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "run-work-item-pending",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:project-work-item-inputs:2",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 544,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "project-work-item-inputs",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:run-plan-phase:2",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 548,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "run-plan-phase",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:implementation-phase:2",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 561,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "implementation-phase",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:classify-work-item-terminal:2",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 574,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "classify-work-item-terminal",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:finalize-selected-item-from-blocked-implementation:4",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 590,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "finalize-selected-item-from-blocked-implementation",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:finalize-selected-item-from-blocked-implementation:5",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 600,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "finalize-selected-item-from-blocked-implementation",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta/work_item.orc:finalize-selected-item-from-completed-implementation:2",
+      "record_kind": "internal-call",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 610,
+      "caller": null,
+      "caller_kind": "workflow-or-procedure",
+      "call_alias": null,
+      "callee_path": null,
+      "callee": "finalize-selected-item-from-completed-implementation",
+      "resolution": "authored-direct-call",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "procedure-candidate",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/backlog_priority_design_plan_impl_stack_v2_call.yaml:item_stack:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/backlog_priority_design_plan_impl_stack_v2_call.yaml",
+      "source_line": 135,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "item_stack",
+      "callee_path": null,
+      "callee": "item_stack",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/backlog_priority_design_plan_impl_stack_v2_call.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/call_subworkflow_demo.yaml:review_loop:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/call_subworkflow_demo.yaml",
+      "source_line": 14,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "review_loop",
+      "callee_path": null,
+      "callee": "review_loop",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/call_subworkflow_demo.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/depends_on_inject_imported_v2_call.yaml:imported_review:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/depends_on_inject_imported_v2_call.yaml",
+      "source_line": 30,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "imported_review",
+      "callee_path": null,
+      "callee": "imported_review",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/depends_on_inject_imported_v2_call.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/design_plan_impl_review_stack_v2_call.yaml:plan_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/design_plan_impl_review_stack_v2_call.yaml",
+      "source_line": 111,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "plan_phase",
+      "callee_path": null,
+      "callee": "plan_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/design_plan_impl_review_stack_v2_call.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/design_plan_impl_review_stack_v2_call.yaml:implementation_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/design_plan_impl_review_stack_v2_call.yaml",
+      "source_line": 123,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "implementation_phase",
+      "callee_path": null,
+      "callee": "implementation_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/design_plan_impl_review_stack_v2_call.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/design_plan_impl_review_stack_v2_call.yaml:design_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/design_plan_impl_review_stack_v2_call.yaml",
+      "source_line": 99,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "design_phase",
+      "callee_path": null,
+      "callee": "design_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/design_plan_impl_review_stack_v2_call.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml:plan_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml",
+      "source_line": 112,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "plan_phase",
+      "callee_path": null,
+      "callee": "plan_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml:implementation_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml",
+      "source_line": 122,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "implementation_phase",
+      "callee_path": null,
+      "callee": "implementation_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/lisp_frontend_autonomous_drain.yaml:selector:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/lisp_frontend_autonomous_drain.yaml",
+      "source_line": 201,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "selector",
+      "callee_path": null,
+      "callee": "selector",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/lisp_frontend_autonomous_drain.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/lisp_frontend_autonomous_drain.yaml:work_item:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/lisp_frontend_autonomous_drain.yaml",
+      "source_line": 235,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "work_item",
+      "callee_path": null,
+      "callee": "work_item",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/lisp_frontend_autonomous_drain.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/lisp_frontend_autonomous_drain.yaml:design_gap_architect:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/lisp_frontend_autonomous_drain.yaml",
+      "source_line": 276,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "design_gap_architect",
+      "callee_path": null,
+      "callee": "design_gap_architect",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/lisp_frontend_autonomous_drain.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/lisp_frontend_autonomous_drain.yaml:work_item:2",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/lisp_frontend_autonomous_drain.yaml",
+      "source_line": 296,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "work_item",
+      "callee_path": null,
+      "callee": "work_item",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/lisp_frontend_autonomous_drain.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/lisp_frontend_design_delta_drain.yaml:work_item:3",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/lisp_frontend_design_delta_drain.yaml",
+      "source_line": 1809,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "work_item",
+      "callee_path": null,
+      "callee": "work_item",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/lisp_frontend_design_delta_drain.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/lisp_frontend_design_delta_drain.yaml:selector:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/lisp_frontend_design_delta_drain.yaml",
+      "source_line": 580,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "selector",
+      "callee_path": null,
+      "callee": "selector",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/lisp_frontend_design_delta_drain.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/lisp_frontend_design_delta_drain.yaml:work_item:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/lisp_frontend_design_delta_drain.yaml",
+      "source_line": 782,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "work_item",
+      "callee_path": null,
+      "callee": "work_item",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/lisp_frontend_design_delta_drain.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/lisp_frontend_design_delta_drain.yaml:design_gap_architect:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/lisp_frontend_design_delta_drain.yaml",
+      "source_line": 823,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "design_gap_architect",
+      "callee_path": null,
+      "callee": "design_gap_architect",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/lisp_frontend_design_delta_drain.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/lisp_frontend_design_delta_drain.yaml:work_item:2",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/lisp_frontend_design_delta_drain.yaml",
+      "source_line": 855,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "work_item",
+      "callee_path": null,
+      "callee": "work_item",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/lisp_frontend_design_delta_drain.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/lisp_frontend_design_delta_drain.yaml:done_review:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/lisp_frontend_design_delta_drain.yaml",
+      "source_line": 961,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "done_review",
+      "callee_path": null,
+      "callee": "done_review",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/lisp_frontend_design_delta_drain.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml:proc_ref_delta_drain:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml",
+      "source_line": 103,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "proc_ref_delta_drain",
+      "callee_path": null,
+      "callee": "proc_ref_delta_drain",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/major_project_tranche_continue_from_approved_design_v2_call.yaml:approved_design_tranche_stack:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/major_project_tranche_continue_from_approved_design_v2_call.yaml",
+      "source_line": 157,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "approved_design_tranche_stack",
+      "callee_path": null,
+      "callee": "approved_design_tranche_stack",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/major_project_tranche_continue_from_approved_design_v2_call.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/major_project_tranche_design_plan_impl_stack_v2_call.yaml:tranche_stack:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/major_project_tranche_design_plan_impl_stack_v2_call.yaml",
+      "source_line": 239,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "tranche_stack",
+      "callee_path": null,
+      "callee": "tranche_stack",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/major_project_tranche_design_plan_impl_stack_v2_call.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/major_project_tranche_design_plan_impl_stack_v2_call.yaml:roadmap_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/major_project_tranche_design_plan_impl_stack_v2_call.yaml",
+      "source_line": 49,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "roadmap_phase",
+      "callee_path": null,
+      "callee": "roadmap_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/major_project_tranche_design_plan_impl_stack_v2_call.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/major_project_tranche_drain_from_manifest_v2_call.yaml:drain_iteration:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/major_project_tranche_drain_from_manifest_v2_call.yaml",
+      "source_line": 146,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "drain_iteration",
+      "callee_path": null,
+      "callee": "drain_iteration",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/major_project_tranche_drain_from_manifest_v2_call.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/major_project_tranche_drain_stack_v2_call.yaml:drain_iteration:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/major_project_tranche_drain_stack_v2_call.yaml",
+      "source_line": 165,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "drain_iteration",
+      "callee_path": null,
+      "callee": "drain_iteration",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/major_project_tranche_drain_stack_v2_call.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/major_project_tranche_drain_stack_v2_call.yaml:roadmap_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/major_project_tranche_drain_stack_v2_call.yaml",
+      "source_line": 63,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "roadmap_phase",
+      "callee_path": null,
+      "callee": "roadmap_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/major_project_tranche_drain_stack_v2_call.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml:tranche_selector:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml",
+      "source_line": 179,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "tranche_selector",
+      "callee_path": null,
+      "callee": "tranche_selector",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml:plan_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml",
+      "source_line": 285,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "plan_phase",
+      "callee_path": null,
+      "callee": "plan_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml:implementation_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml",
+      "source_line": 302,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "implementation_phase",
+      "callee_path": null,
+      "callee": "implementation_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/neurips_steered_backlog_drain.legacy.yaml:selector:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/neurips_steered_backlog_drain.legacy.yaml",
+      "source_line": 390,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "selector",
+      "callee_path": null,
+      "callee": "selector",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/neurips_steered_backlog_drain.legacy.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/neurips_steered_backlog_drain.legacy.yaml:gap_drafter:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/neurips_steered_backlog_drain.legacy.yaml",
+      "source_line": 444,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "gap_drafter",
+      "callee_path": null,
+      "callee": "gap_drafter",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/neurips_steered_backlog_drain.legacy.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/neurips_steered_backlog_drain.legacy.yaml:selected_item:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/neurips_steered_backlog_drain.legacy.yaml",
+      "source_line": 561,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "selected_item",
+      "callee_path": null,
+      "callee": "selected_item",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/neurips_steered_backlog_drain.legacy.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/neurips_steered_backlog_drain.yaml:selector:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/neurips_steered_backlog_drain.yaml",
+      "source_line": 393,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "selector",
+      "callee_path": null,
+      "callee": "selector",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/neurips_steered_backlog_drain.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/neurips_steered_backlog_drain.yaml:gap_drafter:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/neurips_steered_backlog_drain.yaml",
+      "source_line": 447,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "gap_drafter",
+      "callee_path": null,
+      "callee": "gap_drafter",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/neurips_steered_backlog_drain.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/neurips_steered_backlog_drain.yaml:selected_item:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/neurips_steered_backlog_drain.yaml",
+      "source_line": 564,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "selected_item",
+      "callee_path": null,
+      "callee": "selected_item",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/neurips_steered_backlog_drain.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/repeat_until_demo.yaml:review_loop:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/repeat_until_demo.yaml",
+      "source_line": 53,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "review_loop",
+      "callee_path": null,
+      "callee": "review_loop",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/repeat_until_demo.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/revision_study_priority_design_plan_impl_stack_v2_call.yaml:revision_priority_stack:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/revision_study_priority_design_plan_impl_stack_v2_call.yaml",
+      "source_line": 20,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "revision_priority_stack",
+      "callee_path": null,
+      "callee": "revision_priority_stack",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/revision_study_priority_design_plan_impl_stack_v2_call.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/examples/typed_workflow_ast_ir_pipeline_finish_item0.yaml:implementation_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/examples/typed_workflow_ast_ir_pipeline_finish_item0.yaml",
+      "source_line": 30,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "implementation_phase",
+      "callee_path": null,
+      "callee": "implementation_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "example",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/examples/typed_workflow_ast_ir_pipeline_finish_item0.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/backlog_item_design_plan_impl_stack.yaml:plan_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/backlog_item_design_plan_impl_stack.yaml",
+      "source_line": 102,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "plan_phase",
+      "callee_path": null,
+      "callee": "plan_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/backlog_item_design_plan_impl_stack.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/backlog_item_design_plan_impl_stack.yaml:implementation_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/backlog_item_design_plan_impl_stack.yaml",
+      "source_line": 118,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "implementation_phase",
+      "callee_path": null,
+      "callee": "implementation_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/backlog_item_design_plan_impl_stack.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/backlog_item_design_plan_impl_stack.yaml:design_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/backlog_item_design_plan_impl_stack.yaml",
+      "source_line": 86,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "design_phase",
+      "callee_path": null,
+      "callee": "design_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/backlog_item_design_plan_impl_stack.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta_done_review.v214.yaml:design_gap_architect:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/lisp_frontend_design_delta_done_review.v214.yaml",
+      "source_line": 258,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "design_gap_architect",
+      "callee_path": null,
+      "callee": "design_gap_architect",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta_done_review.v214.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta_done_review.v214.yaml:work_item:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/lisp_frontend_design_delta_done_review.v214.yaml",
+      "source_line": 284,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "work_item",
+      "callee_path": null,
+      "callee": "work_item",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta_done_review.v214.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta_work_item.v214.yaml:plan_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml",
+      "source_line": 222,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "plan_phase",
+      "callee_path": null,
+      "callee": "plan_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_design_delta_work_item.v214.yaml:implementation_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml",
+      "source_line": 255,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "implementation_phase",
+      "callee_path": null,
+      "callee": "implementation_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_work_item.v214.yaml:plan_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/lisp_frontend_work_item.v214.yaml",
+      "source_line": 172,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "plan_phase",
+      "callee_path": null,
+      "callee": "plan_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_work_item.v214.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/lisp_frontend_work_item.v214.yaml:implementation_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/lisp_frontend_work_item.v214.yaml",
+      "source_line": 199,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "implementation_phase",
+      "callee_path": null,
+      "callee": "implementation_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_work_item.v214.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/major_project_tranche_design_plan_impl_stack.yaml:big_design_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/major_project_tranche_design_plan_impl_stack.yaml",
+      "source_line": 179,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "big_design_phase",
+      "callee_path": null,
+      "callee": "big_design_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/major_project_tranche_design_plan_impl_stack.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/major_project_tranche_design_plan_impl_stack.yaml:plan_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/major_project_tranche_design_plan_impl_stack.yaml",
+      "source_line": 261,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "plan_phase",
+      "callee_path": null,
+      "callee": "plan_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/major_project_tranche_design_plan_impl_stack.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/major_project_tranche_design_plan_impl_stack.yaml:implementation_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/major_project_tranche_design_plan_impl_stack.yaml",
+      "source_line": 331,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "implementation_phase",
+      "callee_path": null,
+      "callee": "implementation_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/major_project_tranche_design_plan_impl_stack.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/major_project_tranche_drain_iteration.yaml:tranche_stack:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/major_project_tranche_drain_iteration.yaml",
+      "source_line": 200,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "tranche_stack",
+      "callee_path": null,
+      "callee": "tranche_stack",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/major_project_tranche_drain_iteration.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/major_project_tranche_drain_iteration.yaml:roadmap_revision_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/major_project_tranche_drain_iteration.yaml",
+      "source_line": 489,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "roadmap_revision_phase",
+      "callee_path": null,
+      "callee": "roadmap_revision_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/major_project_tranche_drain_iteration.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/major_project_tranche_plan_impl_from_approved_design_stack.yaml:phase_complete_tranche_stack:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/major_project_tranche_plan_impl_from_approved_design_stack.yaml",
+      "source_line": 52,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "phase_complete_tranche_stack",
+      "callee_path": null,
+      "callee": "phase_complete_tranche_stack",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/major_project_tranche_plan_impl_from_approved_design_stack.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/neurips_selected_backlog_item.v214.yaml:roadmap_sync_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/neurips_selected_backlog_item.v214.yaml",
+      "source_line": 182,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "roadmap_sync_phase",
+      "callee_path": null,
+      "callee": "roadmap_sync_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/neurips_selected_backlog_item.v214.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/neurips_selected_backlog_item.v214.yaml:plan_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/neurips_selected_backlog_item.v214.yaml",
+      "source_line": 322,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "plan_phase",
+      "callee_path": null,
+      "callee": "plan_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/neurips_selected_backlog_item.v214.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/neurips_selected_backlog_item.v214.yaml:implementation_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/neurips_selected_backlog_item.v214.yaml",
+      "source_line": 501,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "implementation_phase",
+      "callee_path": null,
+      "callee": "implementation_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/neurips_selected_backlog_item.v214.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/neurips_selected_backlog_item.yaml:roadmap_sync_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/neurips_selected_backlog_item.yaml",
+      "source_line": 176,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "roadmap_sync_phase",
+      "callee_path": null,
+      "callee": "roadmap_sync_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/neurips_selected_backlog_item.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/neurips_selected_backlog_item.yaml:plan_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/neurips_selected_backlog_item.yaml",
+      "source_line": 316,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "plan_phase",
+      "callee_path": null,
+      "callee": "plan_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/neurips_selected_backlog_item.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/neurips_selected_backlog_item.yaml:implementation_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/neurips_selected_backlog_item.yaml",
+      "source_line": 495,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "implementation_phase",
+      "callee_path": null,
+      "callee": "implementation_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "effect-adapter",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
+      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "uncertainty": {
+        "level": "medium",
+        "notes": [
+          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/neurips_selected_backlog_item.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/revision_study_design_plan_impl_stack.yaml:design_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/revision_study_design_plan_impl_stack.yaml",
+      "source_line": 108,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "design_phase",
+      "callee_path": null,
+      "callee": "design_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/revision_study_design_plan_impl_stack.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/revision_study_design_plan_impl_stack.yaml:plan_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/revision_study_design_plan_impl_stack.yaml",
+      "source_line": 122,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "plan_phase",
+      "callee_path": null,
+      "callee": "plan_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/revision_study_design_plan_impl_stack.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/revision_study_design_plan_impl_stack.yaml:implementation_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/revision_study_design_plan_impl_stack.yaml",
+      "source_line": 136,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "implementation_phase",
+      "callee_path": null,
+      "callee": "implementation_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/revision_study_design_plan_impl_stack.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/revision_study_priority_design_plan_impl_stack.yaml:item_stack:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/revision_study_priority_design_plan_impl_stack.yaml",
+      "source_line": 207,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "item_stack",
+      "callee_path": null,
+      "callee": "item_stack",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/revision_study_priority_design_plan_impl_stack.yaml"
+      ]
+    },
+    {
+      "id": "internal-call:workflows/library/seeded_design_plan_impl_stack.yaml:implementation_phase:1",
+      "record_kind": "internal-call",
+      "frontend": "yaml",
+      "source_path": "workflows/library/seeded_design_plan_impl_stack.yaml",
+      "source_line": 620,
+      "caller": null,
+      "caller_kind": "yaml-workflow",
+      "call_alias": "implementation_phase",
+      "callee_path": null,
+      "callee": "implementation_phase",
+      "resolution": "yaml-import-alias",
+      "source_class": "library",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
+      "effect_summary": [
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [],
+      "named_substrate_gap": null,
+      "reason": "This compatibility, legacy, or example-only call should retire with its importing family instead of being translated mechanically.",
+      "uncertainty": {
+        "level": "low",
+        "notes": [
+          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+        ]
+      },
+      "evidence_paths": [
+        "workflows/library/seeded_design_plan_impl_stack.yaml"
+      ]
+    },
+    {
+      "id": "public-entry:lisp_frontend_design_delta/drain::drain",
+      "record_kind": "public-entry",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/drain.orc",
+      "source_line": 32,
+      "caller": "external",
+      "caller_kind": "external",
+      "call_alias": null,
+      "callee_path": "workflows/library/lisp_frontend_design_delta/drain.orc",
+      "callee": "lisp_frontend_design_delta/drain::drain",
+      "resolution": "manifest-entry",
+      "source_class": "production",
+      "live_status": "live",
+      "classification": "public-boundary",
+      "effect_summary": [
+        "publication",
+        "transition",
+        "procedure-composition"
+      ],
+      "public_boundary_evidence": [
+        "exported entry",
+        "promoted route-readiness identity",
+        "public inputs and typed output",
+        "terminal publication policy",
+        "operator run/resume boundary"
+      ],
+      "named_substrate_gap": null,
+      "reason": "The promoted Design Delta drain owns external invocation, run/resume identity, public contracts, and DONE/BLOCKED/EXHAUSTED publication.",
+      "uncertainty": {
+        "level": "low",
+        "notes": []
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/drain.orc",
+        "docs/workflow_lisp_route_readiness_registry.json",
+        "workflows/README.md"
+      ]
+    },
+    {
+      "id": "public-entry:cycle-guard-demo",
+      "record_kind": "public-entry",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/examples/cycle_guard_demo.orc",
+      "source_line": 11,
+      "caller": "external",
+      "caller_kind": "external",
+      "call_alias": null,
+      "callee_path": "workflows/examples/cycle_guard_demo.orc",
+      "callee": "cycle-guard-demo",
+      "resolution": "manifest-entry",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "public-boundary",
+      "effect_summary": [],
+      "public_boundary_evidence": [
+        "exported entry",
+        "migration parity manifest entry"
+      ],
+      "named_substrate_gap": null,
+      "reason": "The demo entry remains its externally selected workflow boundary even though it is not primary-promotion eligible.",
+      "uncertainty": {
+        "level": "low",
+        "notes": []
+      },
+      "evidence_paths": [
+        "workflows/examples/cycle_guard_demo.orc",
+        "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
+      ]
+    },
+    {
+      "id": "public-entry:examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+      "record_kind": "public-entry",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+      "source_line": 222,
+      "caller": "external",
+      "caller_kind": "external",
+      "call_alias": null,
+      "callee_path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+      "callee": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+      "resolution": "manifest-entry",
+      "source_class": "example",
+      "live_status": "live",
+      "classification": "public-boundary",
+      "effect_summary": [
+        "provider",
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [
+        "exported entry",
+        "promotion-eligible parity manifest entry",
+        "public typed input/output contract"
+      ],
+      "named_substrate_gap": null,
+      "reason": "The public stack entry remains a workflow while its three internal phases are procedure candidates.",
+      "uncertainty": {
+        "level": "low",
+        "notes": []
+      },
+      "evidence_paths": [
+        "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+        "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json",
+        "docs/workflow_lisp_route_readiness_registry.json"
+      ]
+    }
+  ],
+  "counts": {
+    "raw_authored_call_sites": {
+      "yaml": 67,
+      "workflow_lisp": 35,
+      "total": 102
+    },
+    "actionable_internal_calls": {
+      "total": 96,
+      "by_classification": {
+        "procedure-candidate": 33,
+        "effect-adapter": 25,
+        "legacy-retire": 38,
+        "public-boundary": 0
+      }
+    },
+    "separate_public_entries": 3,
+    "excluded_from_actionable_population": {
+      "total": 6,
+      "by_reason": {
+        "template_call_sites": 4,
+        "runtime_fixture_call_sites": 2
+      }
+    },
+    "out_of_scope_test_fixture_observations": {
+      "total": 175,
+      "workflow_lisp_call_sites": 174,
+      "yaml_call_sites": 1,
+      "extraction_commands": [
+        "rg -n --glob '*.orc' '\\(call\\s+' tests/fixtures | wc -l",
+        "rg -n --glob '*.yaml' --glob '*.yml' '^[[:space:]-]*call:[[:space:]]' tests/fixtures | wc -l"
+      ]
+    }
+  }
+}
