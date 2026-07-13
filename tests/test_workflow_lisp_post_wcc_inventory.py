@@ -103,8 +103,15 @@ def test_checked_in_inventory_loads_and_validates() -> None:
     inventory_module = _inventory_module()
     inventory = inventory_module.load_post_wcc_inventory(INVENTORY_PATH)
     validation = inventory_module.validate_post_wcc_inventory(inventory, REPO_ROOT)
+    surfaces = {surface.surface_id: surface for surface in inventory.surfaces}
 
     assert inventory.schema_version == inventory_module.POST_WCC_INVENTORY_SCHEMA_VERSION
+    assert surfaces[
+        "workflow-lisp-parent-backlog-drain-composition-parity"
+    ].status == "completed_post_wcc"
+    assert surfaces[
+        "workflow-lisp-yaml-primary-promotion-gate"
+    ].status == "completed_post_wcc"
     assert validation.overall_pass is True
     assert validation.issues == ()
 

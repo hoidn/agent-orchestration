@@ -598,12 +598,12 @@ def _validate_route_registry_ref(
                 )
             )
     if surface.surface_id == "workflow-lisp-parent-backlog-drain-composition-parity":
-        if entry.readiness_label != "parent_callable_candidate":
+        if entry.readiness_label != "promotion_eligible":
             issues.append(
                 _issue(
                     "post_wcc_inventory_registry_mismatch",
                     surface,
-                    "parent backlog-drain parity requires parent_callable_candidate registry evidence",
+                    "parent backlog-drain parity requires promotion_eligible registry evidence",
                     field="readiness_label",
                 )
             )
@@ -688,12 +688,12 @@ def _validate_parity_ref(
         eligible = None
         if isinstance(promotion, Mapping):
             eligible = promotion.get("eligible_for_primary_surface")
-        if eligible is not False:
+        if eligible is not True:
             issues.append(
                 _issue(
                     "post_wcc_inventory_parity_mismatch",
                     surface,
-                    "promotion gate row requires eligible_for_primary_surface=false",
+                    "completed promotion gate requires eligible_for_primary_surface=true",
                     field="promotion_eligibility.eligible_for_primary_surface",
                 )
             )

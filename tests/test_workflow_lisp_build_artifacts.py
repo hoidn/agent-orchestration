@@ -8866,7 +8866,7 @@ def test_design_delta_parent_drain_build_emits_reference_family_conformance_prof
         REPO_ROOT / "artifacts" / "work" / "review-parity-check" / "index.json"
     )
     assert payload["completed_gap_reconciliation"]["missing_from_drain_summary"] == []
-    assert payload["parity_surface_reconciliation"]["derived_primary_surface"] == "yaml"
+    assert payload["parity_surface_reconciliation"]["derived_primary_surface"] == "orc"
     assert {
         row["surface_id"] for row in payload["conformance_surfaces"]
     } == {
@@ -9014,8 +9014,8 @@ def test_design_delta_parent_drain_build_rejects_reference_family_parity_surface
             / "review-parity-check"
             / "design_delta_parent_drain.md"
         ).read_text(encoding="utf-8").replace(
-            "- Primary surface: `yaml`",
             "- Primary surface: `orc`",
+            "- Primary surface: `yaml`",
         ),
         encoding="utf-8",
     )

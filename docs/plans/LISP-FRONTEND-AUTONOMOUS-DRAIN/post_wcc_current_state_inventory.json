@@ -1,6 +1,6 @@
 {
   "schema_version": "workflow_lisp_post_wcc_current_state_inventory.v1",
-  "updated": "2026-06-10",
+  "updated": "2026-07-12",
   "target_design_path": "docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md",
   "surfaces": [
     {
@@ -301,7 +301,7 @@
         "lowering_route": "wcc_m4",
         "lowering_schema_version": 2
       },
-      "selector_guidance": "This family now has parent-callable route identity and machine-computed non-regressive parity evidence. YAML-primary promotion remains separate.",
+      "selector_guidance": "Preserve the promoted parent-callable route identity and strict machine-computed promotable parity evidence.",
       "evidence": [
         {
           "kind": "run_state_completion",
@@ -351,13 +351,14 @@
         "11.2 Required labels",
         "29. Success Criteria"
       ],
-      "status": "deferred_promotion_gate",
+      "status": "completed_post_wcc",
       "blocks_done": false,
+      "owning_design_gap_id": "workflow-lisp-parent-backlog-drain-composition-parity",
       "route_identity": {
         "lowering_route": "wcc_m4",
         "lowering_schema_version": 2
       },
-      "selector_guidance": "Keep YAML-primary replacement blocked until `--require-promotable` passes. This is a promotion gate, not a remaining implementation gap for DONE.",
+      "selector_guidance": "The strict `--require-promotable` gate passes for the `.orc` primary; preserve that evidence while independent Gate P3 closure remains pending.",
       "evidence": [
         {
           "kind": "migration_parity_report",

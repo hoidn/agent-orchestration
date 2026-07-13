@@ -1,7 +1,7 @@
 # Post-WCC Reconciliation Index
 
 Status: selector guard view
-Updated: 2026-06-10
+Updated: 2026-07-12
 Target design: `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
 Inventory authority: `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json`
 
@@ -27,9 +27,9 @@ This file is a selector-facing markdown view over
 | Selector bundle typed projection | `completed_post_wcc` | The typed selector projection lane is complete for current-state purposes; downstream consumers must continue to treat typed selection state as authority, not pointer/report text. |
 | Certified adapter declarations | `completed_post_wcc` | Adapter declarations are complete enough for this target state. Preserve typed declarations and helper classification rather than treating adapter work as still missing. |
 | Resource-transition ownership | `completed_post_wcc` | Treat resource-transition ownership as satisfied by the completed family parity slice and its recorded helper classifications; do not keep it remaining in stale prose. |
-| Parent backlog-drain composition and parity | `completed_post_wcc` | This family now has parent-callable route identity and machine-computed non-regressive parity evidence. YAML-primary promotion remains separate. |
+| Parent backlog-drain composition and parity | `completed_post_wcc` | Preserve the promoted parent-callable route identity and strict machine-computed promotable parity evidence. |
 | Route/readiness classification registry | `completed_post_wcc` | Use the checked-in route/readiness registry as the authority for current route identity and readiness labels. |
-| YAML-primary promotion gate | `deferred_promotion_gate` | Keep YAML-primary replacement blocked until `--require-promotable` passes. This is a promotion gate, not a remaining implementation gap for DONE. |
+| YAML-primary promotion gate | `completed_post_wcc` | The strict `--require-promotable` gate passes for the `.orc` primary; preserve that evidence while independent Gate P3 closure remains pending. |
 
 Selector rule:
 
