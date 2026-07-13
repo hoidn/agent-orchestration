@@ -53,6 +53,17 @@ def _retired_backlog_drain_structure_sites(package_root: Path) -> list[str]:
                 f"{source_path.relative_to(package_root)}:{node.lineno}:{kind}:{key}"
             )
 
+    def comparison_key_values(node: ast.AST):
+        if isinstance(node, ast.Constant):
+            yield node.value
+        elif isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            for element in node.elts:
+                yield from comparison_key_values(element)
+        elif isinstance(node, ast.Dict):
+            for key_node in node.keys:
+                if key_node is not None:
+                    yield from comparison_key_values(key_node)
+
     for source_path in sorted(package_root.rglob("*.py")):
         if source_path in sanctioned_residue:
             continue
@@ -74,11 +85,8 @@ def _retired_backlog_drain_structure_sites(package_root: Path) -> list[str]:
                 continue
             if isinstance(node, ast.Compare):
                 for operand in (node.left, *node.comparators):
-                    for nested in ast.walk(operand):
-                        if isinstance(nested, ast.Constant):
-                            record_string_key(
-                                source_path, node, "comparison-key", nested.value
-                            )
+                    for value in comparison_key_values(operand):
+                        record_string_key(source_path, node, "comparison-key", value)
             elif isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
                 record_string_key(source_path, node, "subscript-key", node.slice.value)
             elif isinstance(node, ast.Dict):
@@ -92,9 +100,8 @@ def _retired_backlog_drain_structure_sites(package_root: Path) -> list[str]:
                 and isinstance(node.func, ast.Attribute)
                 and node.func.attr in {"get", "pop", "setdefault"}
             ):
-                for argument in node.args:
-                    if isinstance(argument, ast.Constant):
-                        record_string_key(source_path, node, "call-key", argument.value)
+                if node.args and isinstance(node.args[0], ast.Constant):
+                    record_string_key(source_path, node, "call-key", node.args[0].value)
 
     return sorted(
         forbidden_nodes,
@@ -118,6 +125,8 @@ def test_retired_backlog_drain_guard_rejects_string_keyed_dispatch(tmp_path: Pat
         "    dispatch_table = {'backlog_drain': handlers['default']}\n"
         "    if head in ('backlog_drain',):\n"
         "        return handlers.get('backlog-drain')\n"
+        "    if describe('backlog-drain') == head:\n"
+        "        return handlers.setdefault('description', 'backlog-drain compatibility')\n"
         "    return dispatch_table\n",
         encoding="utf-8",
     )
