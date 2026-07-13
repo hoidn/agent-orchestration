@@ -29,10 +29,7 @@ from orchestrator.workflow_lisp.workflows import (
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 VALID_PLAN_GATE_FIXTURE = FIXTURES / "valid" / "neurips_plan_gate_resume.orc"
 VALID_SELECTED_ITEM_FIXTURE = FIXTURES / "valid" / "neurips_selected_item.orc"
-VALID_DRAIN_FIXTURE = FIXTURES / "valid" / "neurips_remaining_drain.orc"
 INVALID_PLAN_GATE_FIXTURE = FIXTURES / "invalid" / "neurips_plan_gate_resume_contract_invalid.orc"
-INVALID_SELECTED_ITEM_FIXTURE = FIXTURES / "invalid" / "neurips_selected_item_signature_invalid.orc"
-INVALID_DRAIN_FIXTURE = FIXTURES / "invalid" / "neurips_remaining_drain_ref_invalid.orc"
 
 
 def _build_syntax_module(path: Path):
@@ -242,50 +239,8 @@ def test_neurips_selected_item_compiles_and_validates(tmp_path: Path) -> None:
     )
 
 
-def test_neurips_remaining_drain_compiles_and_validates(tmp_path: Path) -> None:
-    result = _compile(
-        VALID_DRAIN_FIXTURE,
-        tmp_path=tmp_path,
-        validate_shared=True,
-        lowering_route="legacy",
-    )
-    authored = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "drain"
-    )
-    repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
-    body_steps = list(_iter_nested_steps(repeat_step["repeat_until"]["steps"]))
-    call_targets = {step.get("call") for step in body_steps if isinstance(step.get("call"), str)}
-
-    assert any(target and target.startswith("selector-run") for target in call_targets)
-    assert any(target and target.endswith("run-selected-item") for target in call_targets)
-    assert any(target and target.startswith("gap-draft") for target in call_targets)
-
-
 def test_neurips_plan_gate_resume_contract_invalid(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(INVALID_PLAN_GATE_FIXTURE, tmp_path=tmp_path, validate_shared=False)
 
     assert excinfo.value.diagnostics[0].code == "resume_or_start_contract_invalid"
-
-
-def test_neurips_selected_item_run_item_boundary_invalid() -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typecheck_fixture(INVALID_SELECTED_ITEM_FIXTURE)
-
-    assert excinfo.value.diagnostics[0].code == "backlog_drain_contract_invalid"
-
-
-def test_neurips_remaining_drain_ref_invalid() -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typecheck_fixture(INVALID_DRAIN_FIXTURE)
-
-    assert excinfo.value.diagnostics[0].code == "backlog_drain_contract_invalid"
-
-
-def test_run_item_boundary_stays_exactly_two_parameters() -> None:
-    typed = _typecheck_fixture(VALID_DRAIN_FIXTURE)
-    run_selected_item = next(workflow for workflow in typed if workflow.definition.name == "run-selected-item")
-
-    assert len(run_selected_item.signature.params) == 2

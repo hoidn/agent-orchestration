@@ -20,27 +20,6 @@ class ItemLayout:
     phase_root_prefix: str
 
 
-@dataclass(frozen=True)
-class DrainLayout:
-    """Derived paths for the intrinsic backlog-drain compatibility lane."""
-
-    run_state_bundle_path: str
-    run_state_temp_bundle_path: str
-    iteration_root_prefix: str
-    summary_target_path: str
-    gap_request_path: str
-
-
-@dataclass(frozen=True)
-class DrainAccumulator:
-    """Runtime accumulator fields projected through the generated drain loop."""
-
-    items_processed: int
-    last_run_state_path: str | None = None
-    blocked_stage: str | None = None
-    blocked_reason: str | None = None
-
-
 def ensure_item_context_type(
     type_ref: TypeRef,
     *,
@@ -68,40 +47,6 @@ def ensure_item_context_type(
     _require_record_field(type_ref, "state-root", expected_under="state", code="item_context_invalid", span=span, form_path=form_path)
     _require_record_field(type_ref, "artifact-root", expected_under="artifacts", code="item_context_invalid", span=span, form_path=form_path)
     _require_record_field(type_ref, "ledger", expected_under="state", code="item_context_invalid", span=span, form_path=form_path)
-
-
-def ensure_drain_context_type(
-    type_ref: TypeRef,
-    *,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-) -> None:
-    """Validate the record shape required for `backlog-drain` contexts."""
-
-    if not isinstance(type_ref, RecordTypeRef):
-        _raise_context_error(
-            code="drain_context_invalid",
-            message="`backlog-drain` requires a `DrainCtx` record",
-            span=span,
-            form_path=form_path,
-        )
-    run_type = _record_field_type(
-        type_ref,
-        "run",
-        code="drain_context_invalid",
-        span=span,
-        form_path=form_path,
-    )
-    _require_run_context_shape(
-        run_type,
-        field_name=f"{type_ref.name}.run",
-        code="drain_context_invalid",
-        span=span,
-        form_path=form_path,
-    )
-    _require_record_field(type_ref, "state-root", expected_under="state", code="drain_context_invalid", span=span, form_path=form_path)
-    _require_record_field(type_ref, "manifest", expected_under="state", code="drain_context_invalid", span=span, form_path=form_path)
-    _require_record_field(type_ref, "ledger", expected_under="state", code="drain_context_invalid", span=span, form_path=form_path)
 
 
 def ensure_resource_transition_members(
@@ -264,18 +209,6 @@ def item_layout_for_ref(ctx_ref: str) -> ItemLayout:
         outcome_bundle_path=f"{ctx_ref}__outcome_bundle_path",
         summary_target_path=f"{ctx_ref}__summary_target_path",
         phase_root_prefix=f"{ctx_ref}__phase_root_prefix",
-    )
-
-
-def drain_layout_for_ref(ctx_ref: str) -> DrainLayout:
-    """Derive drain-scoped generated field names from a context reference."""
-
-    return DrainLayout(
-        run_state_bundle_path=f"{ctx_ref}__run_state_bundle_path",
-        run_state_temp_bundle_path=f"{ctx_ref}__run_state_temp_bundle_path",
-        iteration_root_prefix=f"{ctx_ref}__iteration_root_prefix",
-        summary_target_path=f"{ctx_ref}__summary_target_path",
-        gap_request_path=f"{ctx_ref}__gap_request_path",
     )
 
 

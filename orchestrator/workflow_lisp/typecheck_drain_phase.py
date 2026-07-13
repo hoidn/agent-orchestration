@@ -238,4 +238,3 @@ def _expected_extern_operand(expr, *, expected_primitive, context, recurse, type
             effect=EMPTY_EFFECT_SUMMARY,
         )
     return recurse(expr)
-

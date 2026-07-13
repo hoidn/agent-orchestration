@@ -442,7 +442,7 @@ def _render_repeat_until_max_iterations(expr: Any, *, local_values: Mapping[str,
         return int(value.value)
     raise _compile_error(
         code="workflow_return_not_exportable",
-        message="`backlog-drain :max-iterations` must lower from a literal integer",
+        message="`loop/recur :max-iterations` must lower from a literal integer",
         span=expr.span,
         form_path=expr.form_path,
     )
