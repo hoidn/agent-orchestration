@@ -1992,9 +1992,14 @@ versus current SHA
 `5cda1470b0ae0afb743f67b7cf3cb32ef7bcdb6abfa97072cfc3caedd6305535`),
 and three stale tests that still selected the retired live target. The Task-3.2
 corrective follow-up retargets those three tests to the surviving family or
-the tracked historical report; a fresh broad rerun must therefore contain
-only the established and planned certification failures before closure is
-re-approved.
+the tracked historical report. That follow-up landed as `b7fe457c` (`Retire
+remaining live parity target assumptions`); its focused selectors passed **3
+tests**, and the route-readiness, focused-smoke, and migration-parity modules
+passed **121 tests** under 16-worker work stealing. A fresh broad rerun then
+reported **4,186 passed, 58 failed, 11 skipped**. Its failures are exactly the
+eight established baseline identities plus the 50 planned certification
+failures above; no live-target lookup failure remains. This is the intended
+fail-closed boundary that Task 3.3 consumes.
 The artifacts must not be weakened or rewritten; Task 3.3 removes the
 still-live certification block that consumes this retired target identity.
 
