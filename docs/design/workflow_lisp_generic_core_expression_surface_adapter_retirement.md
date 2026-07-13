@@ -1268,9 +1268,11 @@ Current G6 status note:
   `tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py` on
   `validation_profile="DEDICATED_RUNTIME_PROOF"` rather than by shared
   parent-callable validation; and
-- the G7 family-cleanup prerequisite evidence and the Phase 1 generic route
-  are landed on the checked owner lanes; G8 intrinsic deletion is not landed
-  and remains gated behind Phase 2 / Gate P2 in
+- the G7 family-cleanup prerequisite evidence and the generic route are landed
+  on the checked owner lanes; the G8 drain lowering and name-keyed recognition
+  rows are discharged by the completed Phase 2 intrinsic retirement. The
+  broader family certification bundle and G8 evidence inventory intentionally
+  remain until Phases 3–4 of
   `docs/plans/2026-07-07-drain-migration-g8-retirement.md`.
 
 ### 15.3 Acceptance
@@ -1365,15 +1367,18 @@ acceptance vehicle for this substrate.
 
 ### 16.4 Current Checkout Status
 
-The current checkout now lands G7 on the checked Design Delta parent-family
-route. `drain.orc`, `work_item.orc`, and `design_gap_architect.orc` keep only
+The current checkout lands G7 on the checked Design Delta parent-family route
+and discharges the G8 drain-lowering/name-keyed-recognition deletion rows.
+`drain.orc`, `work_item.orc`, and `design_gap_architect.orc` keep only
 the authored and labeled-bridge boundary values public, use typed projections
 for selector and recovery routing, commit terminal state through declared
 transitions, and materialize the drain/work-item summaries as views. The
 certified adapter rows for terminal work-item recording, blocked-recovery
 recording, drain-status writing, and drain-summary finalization remain checked
-for migration evidence, but compiled liveness is `unreferenced`; deletion stays
-deferred to G8.
+for migration evidence, but compiled liveness is `unreferenced`. Their broader
+certification/G8 evidence inventory is intentionally retained for the gated
+Phase 3 certification-bundle retirement and Phase 4 parity-lane strip; the
+bounded Design Delta primary-promotion handoff is current before either phase.
 
 ## 17. Tranche G8: Evidence-Gated Legacy Deletion
 

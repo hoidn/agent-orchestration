@@ -7,7 +7,7 @@
 > now pass. At this plan's completion checkpoint, the next active roadmap work
 > was drain migration Phase 1 Task 1.1. That selector is historical and
 > superseded; `docs/index.md` and the governing drain plan now route current
-> execution to Phase 2 Task 2.3.
+> execution to the bounded Design Delta promotion handoff required by Gate P3.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

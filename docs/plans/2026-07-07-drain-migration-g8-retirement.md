@@ -71,9 +71,9 @@ Record fresh command output under each gate before dispatching the phase. A gate
 6. **Intrinsic reachability shrunk to fixtures:** `grep -rln "backlog-drain-callable-boundary" workflows/` → empty (no production caller reaches the intrinsic; only `tests/fixtures/` hits remain, and they retire with Phase 2).
 
 **Status (reviewed 2026-07-12): SATISFIED.** The durable evidence is recorded in
-Phase 1 Ledger entry (k). Gate P2 admitted the reviewed Phase 2 sequence. Task
-2.2 subsequently completed under the residue-precedent route; Phase 2 Task 2.3
-is now the current selector.
+Phase 1 Ledger entry (k). Gate P2 admitted the reviewed Phase 2 sequence. Phase
+2 Tasks 2.1–2.3 are now complete. Gate P3 is **not** satisfied: the bounded
+Design Delta promotion handoff below is the current selector.
 
 **Gate P3 (entry to Phase 3):**
 1. Phase 2 Tasks 2.1–2.3 committed; name-blindness check (Task 2.3 Step 2) clean.
@@ -262,16 +262,16 @@ Expected: exit 0, `pass`. A `design_delta_g8_removed_registry_head_present` comp
 
 ### Task 2.3: Phase-2 verification, residue audit, and final promotion evidence
 
-- [ ] **Step 1: Full suites:**
+- [x] **Step 1: Full suites:**
 ```bash
 pytest tests/test_workflow_lisp_drain_stdlib.py tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py tests/test_workflow_lisp_procedures.py tests/test_workflow_lisp_generic_stdlib_composition.py tests/test_workflow_lisp_build_artifacts.py tests/test_lisp_frontend_autonomous_drain_runtime.py -q
 pytest tests/test_workflow_lisp_checkpoint_identity_comparison.py -v
 ```
 Expected: at Phase-1 baselines; identity tests still pass (retirement must not perturb the generic route's identities).
-- [ ] **Step 2: Name-blindness check:** `grep -rn "backlog.drain\|backlog_drain\|BacklogDrain" orchestrator/workflow_lisp/ | grep -v stdlib_modules | grep -v README` → expected: the Task-2.2 registry record and stdlib-contract inventory rows only. Anything else is unfinished retirement.
-- [ ] **Step 3: Residue audit** (design: "Residue materially above that is a signal to stop and reassess against the per-form migration test rather than push through"): compare surviving lines against the review-loop precedent (registry entry, stdlib contract, output-contract shaping); record counts + the `line_count_delta`/`hook_surface_delta` from the fresh `g8_deletion_evidence.json` in the Phase 2 Ledger (§17.3: "Deletion evidence reports line-count and hook-surface reduction"). Materially more residue → STOP and escalate.
-- [ ] **Step 4: Final parity regeneration (the Gate P3 promotion evidence):** run the P2.5 parity command; record `non_regressive` and `promotion_eligibility` in the ledger.
-- [ ] **Step 5: Docs:** update `docs/capability_status_matrix.md` (backlog-drain: library-provided via `std/drain` generic; intrinsic: retired) and the two design docs' status notes (prereq 6 landed; G8 drain rows discharged). Commit: `Record intrinsic drain retirement evidence`.
+- [x] **Step 2: Name-blindness check:** `grep -rn "backlog.drain\|backlog_drain\|BacklogDrain" orchestrator/workflow_lisp/ | grep -v stdlib_modules | grep -v README` → expected: the Task-2.2 registry record and stdlib-contract inventory rows only. Anything else is unfinished retirement.
+- [x] **Step 3: Residue audit** (design: "Residue materially above that is a signal to stop and reassess against the per-form migration test rather than push through"): compare surviving lines against the review-loop precedent (registry entry, stdlib contract, output-contract shaping); record counts + the `line_count_delta`/`hook_surface_delta` from the fresh `g8_deletion_evidence.json` in the Phase 2 Ledger (§17.3: "Deletion evidence reports line-count and hook-surface reduction"). Materially more residue → STOP and escalate.
+- [x] **Step 4: Final parity regeneration (the Gate P3 promotion evidence):** run the P2.5 parity command; record `non_regressive` and `promotion_eligibility` in the ledger.
+- [x] **Step 5: Docs:** update `docs/capability_status_matrix.md` (backlog-drain: library-provided via `std/drain` generic; intrinsic: retired) and the two design docs' status notes (prereq 6 landed; G8 drain rows discharged). Commit: `Record intrinsic drain retirement evidence`.
 
 ### Design Delta promotion handoff (Gate P3 transition)
 
@@ -1473,10 +1473,11 @@ without reopening P2.
 
 **Historical routing effect at the Gate P2 checkpoint:** Gate P2 closed Stage 2
 and admitted Stage 3; the selector at that checkpoint was **Phase 2 Task 2.1**,
-not typed result guidance. Tasks 2.1–2.2 have since completed and been reviewed,
-so the current selector is **Phase 2 Task 2.3**. Execute the drain plan's
-remaining phases in gated order; typed result guidance remains the later
-Stage-5/post-drain wave defined by the governing procedure-first sequence.
+not typed result guidance. Phase 2 Tasks 2.1–2.3 have since completed. The
+current selector is the bounded Design Delta promotion handoff required to
+close Gate P3. Execute the drain plan's remaining phases in gated order; typed
+result guidance remains the later Stage-5/post-drain wave defined by the
+governing procedure-first sequence.
 
 ## Phase 2 Ledger
 
@@ -1619,6 +1620,81 @@ the final parity regeneration and current-checkout promotion evidence; Task
 
 Independent final re-review returned **PASS** for specification compliance and
 **APPROVED** for quality after the export-boundary guard landed. The seven
-pre-existing user-dirty paths remain preserved. **Task 2.2 is complete; Phase
-2 Task 2.3 is the current selector.** No Task 2.3 work, Phase-2 completion, or
-Gate P3 claim is made here.
+pre-existing user-dirty paths remain preserved. **At that checkpoint Task 2.2
+was complete and Phase 2 Task 2.3 was the selector.** No Task 2.3 work,
+Phase-2 completion, or Gate P3 claim was made by entry (c); entry (d)
+supersedes that historical routing state.
+
+**(d) Task 2.3 verification, residue audit, and promotion-evidence closure
+(2026-07-12).** Task 2.3 was executed at **`0b051f22`**. It completes Phase 2
+without satisfying Gate P3: the report truthfully leaves primary promotion
+ineligible, so the bounded Design Delta promotion handoff is the next selector.
+
+**Artifact bootstrap and ordinary compile.** The checked parity report initially
+contained the pre-Task-2.2 G8 hash, so current-checkout compilation correctly
+failed closed before a new report could be produced. The executor used the
+canonical guarded regeneration environment
+(`ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_FAMILY`,
+`ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_REPORT`, and
+`ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_MARKDOWN`) for one preliminary
+single-target parity regeneration. This was a supported bootstrap-order
+deviation, not a validation bypass: the complete pre-bootstrap artifact set and
+hash inventory are preserved under ignored
+`tmp/task23-artifact-bootstrap-pre-0b051f22/`; no artifact was manually edited
+and no validation rule was weakened. The final ordinary production compile,
+with no regeneration environment, exited **0** with zero diagnostics, lowering
+route `wcc_m4`, and fingerprint `c5cf03b2755308a3`; its log SHA-256 is
+`500927780b1cfb06e493aedf22323f19a5d98afc4397c798f7830ac08d6cbafe`.
+
+**Suites and name-blindness.** The exact six-suite command completed with
+**611 passed and one failed** in 698.33 seconds. The sole failure is the
+established
+`test_design_delta_parent_call_work_item_boundary_projection_records_derived_work_item_phase_binding`
+`StopIteration` identity; no new failure identity appeared. This is not an
+all-green claim. The log SHA-256 is
+`94701d3038db12c21373484fc7a1efcfad278b612348b54faab7b6e03099118a`.
+The checkpoint-identity selector passed **3 tests** (log SHA-256
+`290158fbdec31e2d3d9eff8245ec0ebce3741388103aba8097010835b057553d`).
+The raw name search produced 15 lines: 12 frozen later-phase evidence/inventory
+lines, three sanctioned true-residue lines (registry, stdlib contract, and
+transition/output shaping), and zero unexpected intrinsic-lane lines. Its log
+SHA-256 is
+`a21302b211b99d0b2a2af6151c6d70233860791f26a97e1bfbccb3db6add747a`;
+the permanent structure guard passed **2 tests** (log SHA-256
+`313103f234941842aac08b7e638591433cdd0e4a9b3f72bff37bfe1b9a3bf00c`).
+
+**Residue and G8 evidence.** The review-loop precedent has ten Python
+name-bearing lines, compared with three true `backlog-drain` residue lines; the
+residue is therefore not materially above the precedent. The fresh
+`g8_deletion_evidence.json` reports `status: pass`, SHA-256
+`8b6e1bbe4f966cb2dacaa19022ae594ac22e09f5a202db68608005c88e83711c`,
+and `line_count_delta` counts of six removed manifest rows, five removed Python
+symbols, three removed registry heads, and zero removed scripts. Its
+`hook_surface_delta` records imported-only heads `with-phase` and
+`backlog-drain`, removed heads `with-phase`, `finalize-selected-item`, and
+`backlog-drain`, plus both `literal_executor_family_allowlist_removed` and
+`name_lane_fallback_removed` as true.
+
+**Final parity and promotion boundary.** The ordinary P2.5 single-target command
+exited **0** with `overall_pass: true`, `non_regressive: true`, and all 17
+evidence roles passing or contractually dry-run-waived. The command log SHA-256
+is `2b5e6fc8452bac612a18271e44b4332115994413f140d95f38c1243f6672b9b0`.
+The report was generated at `2026-07-13T02:49:19Z`; its
+`promotion_eligibility.eligible_for_primary_surface` is **false** with the exact
+blocked reason `parent-family candidate only; YAML primary replacement requires
+strict promotable family evidence`. The report SHA-256 is
+`c85aa06f7aac3e471e2b2b776d3d2e6abbac09ed374af827a073a73df30162a3`,
+its Markdown view is
+`f507d147d8e5b163c7a674e6b570a34bfbd06ff3d8cbd5c75014b1c9f8f5c289`,
+the index is
+`d0bf4babc9941583e688769f6a9423921f0e77d8471f6bf452789f0669861f3f`,
+and the passing gate evaluation is
+`628ea6f8f1fb86a9179cca7ee0304a0afb21e6d020e0ee9dc8f86e2c97a30d97`.
+
+**Routing effect.** Phase 2 Tasks 2.1–2.3 and parametric prerequisite 6 are
+complete. Gate P3 remains open because condition 4 still requires the handoff;
+the recorded false promotion eligibility makes that boundary explicit. Execute
+`docs/plans/2026-07-07-yaml-retirement-program.md` Task 5 for family 1 only
+through registration, fresh strict parity, the `.orc` primary flip, and fresh
+end-to-end evidence; stop before its archive bullet. Do not enter Phase 3 or
+select typed result guidance yet.
