@@ -19,9 +19,10 @@ The promotion handoff now has strict promotable parity plus fresh ordinary
 compile, input-complete CLI dry-run, and parent-smoke evidence. This record did
 not satisfy Gate P3 by itself; the later independent joint proof recorded in
 the governing drain plan verified all four conditions and satisfied Gate P3.
-The current selector is drain Phase 3 Task 3.1: re-home one parent-drain smoke
-into parity evidence commands. Task 3.2+, Phase 4, typed result guidance, and
-YAML archive are not current.
+Phase 3 Task 3.1 subsequently re-homed the focused parent-drain smoke with
+reviewed parity evidence. The current selector is drain Phase 3 Task 3.2:
+remove the `design_delta_parent_drain` parity target (promotion decision). Task 3.3+, Phase
+4, typed result guidance, and YAML archive are not current.
 
 The remaining sections preserve the June migration inventory and baseline as
 dated provenance. They do not override the current registry, parity target, or

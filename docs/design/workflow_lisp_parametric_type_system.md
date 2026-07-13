@@ -627,8 +627,10 @@ only the sanctioned registry/contract/output-shaping residue, and recorded
 fresh non-regressive parity. The separately bounded Design Delta
 primary-promotion handoff and independent joint proof are recorded in
 `docs/plans/2026-07-07-drain-migration-g8-retirement.md`; Gate P3 is satisfied.
-The current selector is drain Phase 3 Task 3.1. Task 3.2+, Phase 4, typed result
-guidance, and YAML archive remain later work.
+Phase 3 Task 3.1 has re-homed the focused parent-drain smoke with reviewed
+parity evidence. The current selector is drain Phase 3 Task 3.2: remove the
+`design_delta_parent_drain` parity target (promotion decision). Task 3.3+,
+Phase 4, typed result guidance, and YAML archive remain later work.
 
 Expected residue on the order of the review loop's (registry entry, stdlib
 contract, output-contract shaping). Residue materially above that is a signal

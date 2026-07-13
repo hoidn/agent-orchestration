@@ -75,7 +75,8 @@ Phase 1 Ledger entry (k). Gate P2 admitted the reviewed Phase 2 sequence. Phase
 2 Tasks 2.1–2.3 and the bounded Design Delta promotion handoff are now
 complete. Gate P3 is also satisfied by the later independent joint proof
 recorded in Phase 2 Ledger entry (f). The current selector is **Phase 3 Task
-3.1: re-home one parent-drain smoke into parity evidence commands**.
+3.2: remove the promoted Design Delta parent-drain parity target**. Task 3.1
+is complete and reviewed.
 
 **Gate P3 (entry to Phase 3):**
 1. Phase 2 Tasks 2.1–2.3 committed; name-blindness check (Task 2.3 Step 2) clean.
@@ -88,10 +89,11 @@ recorded in Phase 2 Ledger entry (f). The current selector is **Phase 3 Task
 fresh joint verification of conditions 1–4 at base HEAD
 `c82d150286248661bbfe2d8cb338715f47a02d36`. This status-and-routing closure
 does not alter the verified implementation or evidence surfaces. Gate P3 is
-satisfied and now admits Phase 3, whose current selector is **Phase 3 Task 3.1: re-home one parent-drain
-smoke into parity evidence commands**. Do not select Task 3.2 or later Phase-3
-work, Phase 4, typed result guidance, or YAML archive before Task 3.1 and its
-own checks are complete.
+satisfied and now admits Phase 3. Task 3.1 is complete and reviewed; the
+current selector is **Phase 3 Task 3.2: remove the
+`design_delta_parent_drain` parity target (promotion decision)**. Do not select Task 3.3 or later Phase-3 work,
+Phase 4, typed result guidance, or YAML archive before Task 3.2 and its own
+checks are complete.
 
 **Gate P4 (entry to Phase 4):**
 1. Phase 3 Tasks 3.1–3.4 committed.
@@ -313,10 +315,10 @@ After Task 2.3 and before recording Gate P3 as satisfied, execute `docs/plans/20
 
 `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py` (6,353 lines / 93 tests) supplies the parity target's smoke evidence commands; it may be retired **only after** one parent-drain smoke lives elsewhere.
 
-- [ ] **Step 1:** Extract the minimal parent-drain smoke (the `-k "smoke"` subset's compile-the-production-entry path) into `tests/test_workflow_lisp_design_delta_smoke.py`, reusing the feasibility module's loader helpers by import or by copy (prefer import while the module still exists; inline the helper when the module is deleted in Task 3.3).
-- [ ] **Step 2:** `pytest --collect-only tests/test_workflow_lisp_design_delta_smoke.py -q && pytest tests/test_workflow_lisp_design_delta_smoke.py -q` → PASS.
-- [ ] **Step 3:** Point the two `parity_targets.json` evidence-command refs at the new module; run the P2.5 parity command → exit 0.
-- [ ] **Step 4: Commit:** `git add tests/test_workflow_lisp_design_delta_smoke.py workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json && git commit -m "Re-home parent drain smoke outside the feasibility suite"`
+- [x] **Step 1:** Extract the minimal parent-drain smoke (the `-k "smoke"` subset's compile-the-production-entry path) into `tests/test_workflow_lisp_design_delta_smoke.py`, reusing the feasibility module's loader helpers by import or by copy (prefer import while the module still exists; inline the helper when the module is deleted in Task 3.3).
+- [x] **Step 2:** `pytest --collect-only tests/test_workflow_lisp_design_delta_smoke.py -q && pytest tests/test_workflow_lisp_design_delta_smoke.py -q` → PASS.
+- [x] **Step 3:** Point the two `parity_targets.json` evidence-command refs at the new module; run the P2.5 parity command → exit 0.
+- [x] **Step 4: Commit:** `git add tests/test_workflow_lisp_design_delta_smoke.py workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json && git commit -m "Re-home parent drain smoke outside the feasibility suite"`
 
 ### Task 3.2: Remove the `design_delta_parent_drain` parity target (promotion decision)
 
@@ -1873,6 +1875,71 @@ Independent evidence/quality review returned **APPROVED**, including the
 artifact freshness, strict/ordinary parity distinction, name-blindness
 classification, and archive boundary. There is no machine-readable task
 selector for this prose-led plan; the routing authority is the synchronized
-plan/index/status surface. Gate P3 is therefore **SATISFIED** and the sole
-current selection is **Phase 3 Task 3.1**. This closure does not start Task
-3.1, Task 3.2+, Phase 4, typed result guidance, or YAML archive.
+plan/index/status surface. Gate P3 is therefore **SATISFIED**. At this
+historical Gate-P3 closure checkpoint, the sole current selection was **Phase
+3 Task 3.1**; Phase 3 Ledger entry (a) supersedes that selector after recording
+Task 3.1 completion. This closure did not start Task 3.1, Task 3.2+, Phase 4,
+typed result guidance, or YAML archive.
+
+## Phase 3 Ledger
+
+### (a) Task 3.1 parent-drain smoke re-home and parity refresh (2026-07-13)
+
+Task 3.1 landed as `c14b77d4` (`Re-home parent drain smoke outside the
+feasibility suite`). The new
+`tests/test_workflow_lisp_design_delta_smoke.py` compiles the checked-in
+`lisp_frontend_design_delta/drain::drain` production entry through the existing
+feasibility loader, asserts the schema-2 validated and lowered entry, and
+records the Task-3.3 obligation to inline that minimal loader before the
+feasibility module is deleted. A behavioral manifest test requires both
+`smoke_or_integration` and `terminal_state_parity` to run this focused module
+and rejects the old feasibility-module route. TDD evidence was one passing and
+one failing test before the two manifest references moved, then **2 passed**;
+fresh closure evidence collected two tests and passed both in 1.89 seconds.
+
+Changing the whole parity manifest identity produced the expected fail-closed
+bootstrap cycle. An ordinary production compile first exited 2 with
+`reference_family_parity_report_invalid`. A first selected refresh then exited
+2 because the unselected sibling reports still carried the old whole-manifest
+SHA; an all-target attempt refreshed those sibling identities but truthfully
+left Design Delta regressive because its unguarded dry-run still consumed the
+stale report. Exactly one preliminary selected regeneration therefore used the
+documented four path-matched
+`ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_*` variables for the whole command;
+it exited 0 and wrote one non-regressive report. No validation rule or artifact
+was edited by hand.
+
+All subsequent commands were ordinary. The all-target refresh exited 0 with
+three reports written and all three families non-regressive. The exact selected
+P2.5 command exited 0 with one non-regressive Design Delta target, and the final
+selected `--require-promotable` command exited 0 with `overall_pass: true`.
+The final manifest SHA-256 is
+`49a39c9ed86bde9c13f1b5f2e8426490cd1ba3646142b5ea3b3f1a32e24ded8d`;
+canonical hashes are report
+`26ba415a25334175430dcd98195fe97c500baef6fa26b02e6a221a9b499b86a4`,
+Markdown
+`f808a0ea319e9ad4ceb1471bff99c71b2c9bd60f99786498f783ffa29c3cd8ba`,
+index
+`f10ed53c3ad6583560ee5f6a9dc1bb395c011ed756ea6ec3845d5fb39858d476`,
+and strict gate
+`833874c61afd09e9c4f903a5c523824a4ff1e0a26d27937c8f5bcb30ae48e889`.
+The final row is report-valid, evidence-complete, non-regressive,
+promotion-eligible, and `primary_surface: orc`; independent review matched all
+**77** declared path/hash references.
+
+An independent unguarded production dry-run exited 0 and ended with
+`Workflow validation successful`; its complete stderr log SHA-256 is
+`6dbcc05db174b9425ea9d4c89ac6c1c391a17fe59aebb06e1aaf37b22287c77a`
+(existing lint warnings only). The repository-required broad run
+`pytest -q -n 16 --dist=worksteal` recorded **4,244 passed, 8 failed, 11
+skipped** in 103.35 seconds; all eight failure identities exactly match the
+latest Gate-P3 baseline, and the log SHA-256 is
+`72d36cfcb3853b69027fd08b7f8db1e55836edbe60b9470fbb826869f97b7236`.
+
+Independent specification review returned **PASS** with no findings.
+Independent quality/evidence review returned **APPROVED**, with no Critical or
+Important findings and one non-blocking static-typing precision note. The
+seven pre-existing user-dirty paths remain preserved. Task 3.1 is complete;
+the sole current selection is **Phase 3 Task 3.2: remove the
+`design_delta_parent_drain` parity target (promotion decision)**. This closure does not start Task 3.2,
+Task 3.3+, Phase 4, typed result guidance, or YAML archive.

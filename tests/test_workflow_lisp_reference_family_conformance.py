@@ -153,16 +153,20 @@ def _normalized_routing_text(text: str) -> str:
     )
 
 
-def _assert_phase_3_task_3_1_is_current(surface: str, label: str) -> None:
+def _assert_phase_3_task_3_2_is_current(surface: str, label: str) -> None:
     normalized = _normalized_routing_text(surface)
     clauses = re.findall(
         r"(?:current selector|active step|next active selection)\s*(?:is|:)\s*((?:\d+\.\d+|[^.,;|])+)",
         normalized,
     )
     assert clauses, label
-    assert any("phase 3 task 3.1" in clause for clause in clauses), (label, clauses)
+    expected_selector = (
+        "phase 3 task 3.2: remove the design_delta_parent_drain parity target "
+        "(promotion decision)"
+    )
+    assert any(expected_selector in clause for clause in clauses), (label, clauses)
     forbidden = re.compile(
-        r"task 3\.(?:[2-9]|[1-9][0-9]+)|phase 4|typed result guidance|yaml archive"
+        r"task 3\.(?:1|[3-9]|[1-9][0-9]+)|phase 4|typed result guidance|yaml archive"
     )
     for clause in clauses:
         assert forbidden.search(clause) is None, (label, clause)
@@ -186,7 +190,7 @@ def test_design_delta_promotion_routes_current_docs_to_orc_primary() -> None:
     assert "Primary" in orc_catalog_row
     assert "Gate P3" in orc_catalog_row
     assert "satisfied" in orc_catalog_row
-    _assert_phase_3_task_3_1_is_current(orc_catalog_row, "workflow catalog")
+    _assert_phase_3_task_3_2_is_current(orc_catalog_row, "workflow catalog")
     assert "Compatibility" in _markdown_table_row(
         REPO_ROOT / "workflows" / "README.md", yaml_path
     )
@@ -228,7 +232,7 @@ def test_design_delta_promotion_routes_current_docs_to_orc_primary() -> None:
     assert "Gate P3" in current_surface
 
 
-def test_gate_p3_authorities_route_to_phase_3_task_3_1() -> None:
+def test_gate_p3_authorities_route_to_phase_3_task_3_2() -> None:
     drain_plan = (
         REPO_ROOT
         / "docs"
@@ -337,15 +341,26 @@ def test_gate_p3_authorities_route_to_phase_3_task_3_1() -> None:
         normalized = _normalized_routing_text(surface)
         assert "p3" in normalized, label
         assert "satisfied" in normalized, label
-        _assert_phase_3_task_3_1_is_current(surface, label)
+        _assert_phase_3_task_3_2_is_current(surface, label)
 
     mutated_docs_index = docs_index_routing.replace(
-        "Phase 3 Task 3.1", "Phase 3 Task 3.2", 1
+        "Phase 3 Task 3.2", "Phase 3 Task 3.3", 1
     )
     assert mutated_docs_index != docs_index_routing
     with pytest.raises(AssertionError):
-        _assert_phase_3_task_3_1_is_current(
+        _assert_phase_3_task_3_2_is_current(
             mutated_docs_index, "mutated docs-index selector"
+        )
+
+    mutated_docs_index_title = docs_index_routing.replace(
+        "remove the `design_delta_parent_drain` parity target (promotion decision)",
+        "perform unrelated cleanup",
+        1,
+    )
+    assert mutated_docs_index_title != docs_index_routing
+    with pytest.raises(AssertionError):
+        _assert_phase_3_task_3_2_is_current(
+            mutated_docs_index_title, "mutated docs-index selector title"
         )
 
     workflow_lisp_readme = (
@@ -361,7 +376,7 @@ def test_gate_p3_authorities_route_to_phase_3_task_3_1() -> None:
 
     normalized_guidance = _normalized_routing_text(typed_guidance_row)
     guidance_order = normalized_guidance.split("current order", 1)[1]
-    assert guidance_order.index("phase 3 task 3.1") < guidance_order.index(
+    assert guidance_order.index("phase 3 task 3.2") < guidance_order.index(
         "phases 3 4"
     )
     assert guidance_order.index("phases 3 4") < guidance_order.index("stage 5")
