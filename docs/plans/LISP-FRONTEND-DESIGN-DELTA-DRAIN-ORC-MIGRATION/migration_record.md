@@ -21,12 +21,13 @@ compile, input-complete CLI dry-run, and parent-smoke evidence. This record did
 not satisfy Gate P3 by itself; the later independent joint proof recorded in
 the governing drain plan verified all four conditions and satisfied Gate P3.
 Phase 3 Task 3.1 subsequently re-homed the focused parent-drain smoke with
-reviewed parity evidence, and Task 3.2 retired the promoted parity target while
-preserving its historical promotion report. The current selector is drain
-Phase 3 Task 3.4: Phase-3 verification. Task 3.3 retired the ordered
-certification bundle. Task 3.4 evidence is recorded and pending independent
-review and closure; Phase 4, Stage 5 typed result guidance, and Stage 6 YAML
-archive remain later work.
+reviewed parity evidence, Task 3.2 retired the promoted parity target while
+preserving its historical promotion report, Task 3.3 retired the ordered
+certification bundle, and Task 3.4 closed Phase-3 verification. Gates P3 and P4
+are independently reviewed and satisfied. The current selector is drain Phase
+4 Task 4.1: strip design-delta constants and lanes from migration parity. Task
+4.1 has not started, and no Task-4.1 deletion has begun. Stage 5 typed result
+guidance and Stage 6 YAML archive remain later work.
 
 The remaining sections preserve the June migration inventory and baseline as
 dated provenance. They do not override the current registry, retired

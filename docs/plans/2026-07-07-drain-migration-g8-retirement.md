@@ -74,11 +74,11 @@ Record fresh command output under each gate before dispatching the phase. A gate
 Phase 1 Ledger entry (k). Gate P2 admitted the reviewed Phase 2 sequence. Phase
 2 Tasks 2.1–2.3 and the bounded Design Delta promotion handoff are now
 complete. Gate P3 is also satisfied by the later independent joint proof
-recorded in Phase 2 Ledger entry (f). Phase 3 Tasks 3.1–3.3 are complete and
-reviewed. The current selector is **Phase 3 Task 3.4: Phase-3 verification**.
-Task 3.4 evidence is recorded and pending independent review and closure;
-Phase 4, Stage 5 typed result guidance, and Stage 6 YAML archive remain later
-work.
+recorded in Phase 2 Ledger entry (f). Phase 3 Tasks 3.1–3.4 are complete and
+reviewed. Gates P3 and P4 are independently reviewed and satisfied. The current
+selector is **Phase 4 Task 4.1: strip design-delta constants and lanes from
+migration parity**. Task 4.1 has not started, and no Phase-4 source deletion has
+begun. Stage 5 typed result guidance and Stage 6 YAML archive remain later work.
 
 **Gate P3 (entry to Phase 3):**
 1. Phase 2 Tasks 2.1–2.3 committed; name-blindness check (Task 2.3 Step 2) clean.
@@ -91,16 +91,29 @@ work.
 fresh joint verification of conditions 1–4 at base HEAD
 `c82d150286248661bbfe2d8cb338715f47a02d36`. This status-and-routing closure
 does not alter the verified implementation or evidence surfaces. Gate P3 is
-satisfied and now admits Phase 3. Tasks 3.1–3.3 are complete and reviewed; the
-current selector is **Phase 3 Task 3.4: Phase-3 verification**. Task 3.4
-evidence is recorded and pending independent review and closure; Phase 4,
-Stage 5 typed result guidance, and Stage 6 YAML archive remain later work.
+satisfied and now admits Phase 3. Tasks 3.1–3.4 are complete and reviewed.
+Gates P3 and P4 are independently reviewed and satisfied. The current selector
+is **Phase 4 Task 4.1: strip design-delta constants and lanes from migration
+parity**. Task 4.1 has not started, and no Phase-4 source deletion has begun.
+Stage 5 typed result guidance and Stage 6 YAML archive remain later work.
 
 **Gate P4 (entry to Phase 4):**
 1. Phase 3 Tasks 3.1–3.4 committed.
 2. `design_delta_parent_drain` absent from `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json`; parity index regenerated without it.
 3. Production compile of the `.orc` entry green **without** the family-gated certification block (Task 3.4 Step 1 output recorded).
 4. `python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/review-parity-check --require-non-regressive` → exit 0 over the remaining targets (`cycle_guard_demo`, `design_plan_impl_stack`).
+
+**Status (independently reviewed 2026-07-13): SATISFIED.** Phase 3 Tasks
+3.1–3.4 are committed and reviewed. Task 3.4 received **SPEC PASS** and **CODE
+QUALITY PASS** with no open findings. Its ledger entry records the exact green
+production compile without the retired family-certification block and the
+two-family non-regressive parity run. The target manifest and generated index
+contain only `cycle_guard_demo` and `design_plan_impl_stack`; the retired
+`design_delta_parent_drain` target is absent. Gates P3 and P4 are independently
+reviewed and satisfied. The current selector is **Phase 4 Task 4.1: strip
+design-delta constants and lanes from migration parity**. Task 4.1 has not
+started, and no Task-4.1 deletion has begun. Stage 5 typed result guidance and
+Stage 6 YAML archive remain later work.
 
 ---
 
@@ -356,7 +369,8 @@ After Task 2.3 and before recording Gate P3 as satisfied, execute `docs/plans/20
 
 ## Phase 4 — Design-delta lane strip from the parity machinery
 
-**Gate: P4 (all four conditions recorded).**
+**Gate: P4 (SATISFIED; all four conditions recorded and independently
+reviewed).**
 
 **Permanent-kernel boundary (NOT deleted, now or later):** `ParityTarget` loading, report/report-markdown/index generation, gate evaluation (`REPORT_SCHEMA_VERSION`/`INDEX_SCHEMA_VERSION`/`GATE_EVALUATION_SCHEMA_VERSION` machinery), `run_migration_parity`, the CLI command and its registration (`orchestrator/cli/commands/migration_parity.py`, `orchestrator/cli/main.py`), and everything `cycle_guard_demo` + `design_plan_impl_stack` exercise. The parity kernel is a permanent product surface, not migration debt.
 
@@ -2076,7 +2090,7 @@ archive YAML, or begin Stage 5/Stage 6. The sole current selector is **Phase 3
 Task 3.4: Phase-3 verification**; Task 3.4 has not started. Phase 4, Stage 5
 typed result guidance, and Stage 6 YAML archive remain later work.
 
-### (d) Task 3.4 Phase-3 verification (2026-07-13; pending independent review and closure)
+### (d) Task 3.4 Phase-3 verification (2026-07-13; independently reviewed and closed)
 
 The exact P2-form production compile exited 0 on the promoted
 `workflows/library/lisp_frontend_design_delta/drain.orc` entry with WCC M4,
@@ -2138,7 +2152,11 @@ validated **14/14** surfaces, and the focused routing/documentation modules
 passed **59 tests** after the machine-readable `current selector is` grammar
 was preserved.
 
-The current selector is **Phase 3 Task 3.4: Phase-3 verification**. Task 3.4
-evidence is recorded and pending independent review and closure. Phase 4
-deletion, Stage 5 typed result guidance, and Stage 6 YAML archive have not
-started.
+Task 3.4 received **SPEC PASS** and **CODE QUALITY PASS** with no open findings.
+Its exact compile and two-family parity evidence satisfy Gate P4 conditions 3
+and 4; the committed Task 3.1–3.4 sequence and retired target/index state
+satisfy conditions 1 and 2. Gates P3 and P4 are independently reviewed and
+satisfied. The current selector is **Phase 4 Task 4.1: strip design-delta
+constants and lanes from migration parity**. Task 4.1 has not started, and no
+Task-4.1 deletion has begun. Stage 5 typed result guidance and Stage 6 YAML
+archive remain later work.

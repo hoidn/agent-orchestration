@@ -8,10 +8,10 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CURRENT_SELECTOR = "phase 3 task 3.4: phase 3 verification"
-REVIEW_PENDING_STATE = (
-    "task 3.4 evidence is recorded and pending independent review and closure"
+CURRENT_SELECTOR = (
+    "phase 4 task 4.1: strip design delta constants and lanes from migration parity"
 )
+TASK_4_1_UNSTARTED_STATE = "task 4.1 has not started"
 
 
 def _markdown_table_row(path: Path, key: str) -> str:
@@ -43,16 +43,20 @@ def _assert_current_selector(surface: str, label: str) -> None:
     assert clauses, label
     assert any(CURRENT_SELECTOR in clause for clause in clauses), (label, clauses)
     forbidden = re.compile(
-        r"task 3\.(?:[123]|[5-9]|[1-9][0-9]+)|phase 4|typed result guidance|yaml archive"
+        r"phase 3|task 4\.(?:[2-9]|[1-9][0-9]+)|stage 5|typed result guidance|yaml archive"
     )
     for clause in clauses:
         assert forbidden.search(clause) is None, (label, clause)
 
 
-def _assert_review_pending_state(surface: str, label: str) -> None:
+def _assert_gate_p4_closure_state(surface: str, label: str) -> None:
     normalized = _normalized_routing_text(surface)
-    assert "task 3.4 has not started" not in normalized, label
-    assert REVIEW_PENDING_STATE in normalized, label
+    assert re.search(
+        r"gates? p3(?: and gate)? and p4 (?:are|is) "
+        r"(?:independently reviewed and )?satisfied",
+        normalized,
+    ), label
+    assert TASK_4_1_UNSTARTED_STATE in normalized, label
 
 
 def test_design_delta_primary_and_archive_deferral_remain_routed() -> None:
@@ -91,9 +95,9 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
     drain_plan = (
         REPO_ROOT / "docs" / "plans" / "2026-07-07-drain-migration-g8-retirement.md"
     ).read_text(encoding="utf-8")
-    gate_p3_status = drain_plan.split(
-        "**Status (independently reviewed 2026-07-12): SATISFIED.**", 1
-    )[1].split("**Gate P4 (entry to Phase 4):**", 1)[0]
+    gate_p4_status = drain_plan.split("**Gate P4 (entry to Phase 4):**", 1)[1].split(
+        "---", 1
+    )[0]
     capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
     backlog_drain_row = _markdown_table_row(
         capability_matrix_path, "`backlog-drain` generic stdlib route"
@@ -170,7 +174,7 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
         "YAML-primary promotion gate",
     )
     routing_surfaces = {
-        "drain plan": gate_p3_status,
+        "drain plan": gate_p4_status,
         "backlog drain": backlog_drain_row,
         "design delta": design_delta_row,
         "typed guidance": typed_guidance_row,
@@ -186,13 +190,14 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
     }
     assert len(routing_surfaces) == 13
     for label, surface in routing_surfaces.items():
-        normalized = _normalized_routing_text(surface)
-        assert "p3" in normalized, label
-        assert "satisfied" in normalized, label
         _assert_current_selector(surface, label)
-        _assert_review_pending_state(surface, label)
+        _assert_gate_p4_closure_state(surface, label)
 
-    mutated = docs_index_routing.replace("Phase-3 verification", "unrelated cleanup", 1)
+    mutated = docs_index_routing.replace(
+        "strip design-delta constants and lanes from migration parity",
+        "unrelated cleanup",
+        1,
+    )
     with pytest.raises(AssertionError):
         _assert_current_selector(mutated, "mutated selector title")
 
@@ -208,7 +213,6 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
     assert "ordinary specialization and WCC lowering" in drain_owner
 
     order = _normalized_routing_text(typed_guidance_row).split("current order", 1)[1]
-    assert order.index("phase 3 task 3.4") < order.index("phase 4")
-    assert order.index("phase 4") < order.index("stage 5")
+    assert order.index("phase 4 task 4.1") < order.index("stage 5")
     assert "+ 6 `v214` library imports" in family_one_row
     assert "Stage 6" in family_one_row

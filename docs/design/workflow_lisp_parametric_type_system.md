@@ -626,14 +626,14 @@ specialization, AST/typecheck dispatch, and name-keyed validators, preserved
 only the sanctioned registry/contract/output-shaping residue, and recorded
 fresh non-regressive parity. The separately bounded Design Delta
 primary-promotion handoff and independent joint proof are recorded in
-`docs/plans/2026-07-07-drain-migration-g8-retirement.md`; Gate P3 is satisfied.
-Phase 3 Task 3.1 has re-homed the focused parent-drain smoke with reviewed
-parity evidence, and Task 3.2 retired the promoted parity target while
-preserving the historical promotion report. The current selector is drain
-Phase 3 Task 3.4: Phase-3 verification. Task 3.3 retired the ordered
-certification bundle. Task 3.4 evidence is recorded and pending independent
-review and closure; Phase 4, Stage 5 typed result guidance, and Stage 6 YAML
-archive remain later work.
+`docs/plans/2026-07-07-drain-migration-g8-retirement.md`. Phase 3 Task 3.1
+re-homed the focused parent-drain smoke, Task 3.2 retired the promoted parity
+target while preserving its historical report, Task 3.3 retired the ordered
+certification bundle, and Task 3.4 closed Phase-3 verification. Gates P3 and P4
+are independently reviewed and satisfied. The current selector is drain Phase
+4 Task 4.1: strip design-delta constants and lanes from migration parity. Task
+4.1 has not started, and no Task-4.1 deletion has begun. Stage 5 typed result
+guidance and Stage 6 YAML archive remain later work.
 
 Expected residue on the order of the review loop's (registry entry, stdlib
 contract, output-contract shaping). Residue materially above that is a signal
