@@ -1473,3 +1473,65 @@ without reopening P2.
 selector is **Phase 2 Task 2.1**, not typed result guidance. Execute the drain
 plan's remaining phases in gated order; typed result guidance remains the later
 Stage-5/post-drain wave defined by the governing procedure-first sequence.
+
+## Phase 2 Ledger
+
+**(a) Task 2.1 deletion inventory and implementation candidate (2026-07-12).**
+The candidate implementation range is **`b34e1cf4..fd5aff6f`**: the
+dependency-ordered deletion sequence through `18e90977`, followed by the
+review-driven structure-guard and contract correction in `fd5aff6f`. Task 2.1
+remains the current selector and is **pending re-review**; its checklist is
+intentionally not closed. **Task 2.2 has not started**: the form-registry/export
+disposition and G8 imported-only classification decision remain untouched.
+
+**Step-1 inventory diff.** The fresh inventory found every live deletion
+cluster listed in the drafting table: WCC, lowering dispatch/facades, typecheck
+dispatch and handler, elaboration/AST/traversal, procedure specialization, the
+form-specific monomorphizer, and the intrinsic terminal/lowering modules.
+`stage7_metrics.py` was absent as the re-anchor predicted. The
+`backlog-drain-callable-boundary` search found no production or
+`workflows/library/` hit; its source hits were the expected registry record, one
+test module, and three fixtures. Additional name-bearing hits occurred in the
+frozen Design Delta/parity and post-WCC inventory lanes plus transition
+authoring. The `resource.py` context helpers were separately proved drain-only
+and deleted as inventory fallout. The surviving form-keyed stdlib contract and
+registry/evidence residue is reserved for Task 2.2 and later Phase-2
+verification.
+
+The selected-item summary helper had one definition, one resource-lane caller,
+and one cross-import. Commit `3873c321` moved it unchanged into
+`lowering/phase_resource.py`; the post-move search showed one local definition,
+one resource caller, and no `phase_drain` import. The remaining deletion then
+proceeded in dependency order through commits `6db9ab7c`, `d8bd4e29`,
+`0a4a687a`, `0f2fda63`, `4743d3ea`, `53588875`, `c37c6ad5`, and
+`18e90977`. Relative to `b34e1cf4`, the initial candidate changed 43 files,
+with 239 insertions and 6,609 deletions, including deletion of
+`drain_stdlib.py`, `lowering/drain_terminal.py`, and
+`lowering/phase_drain.py`. Non-drain handlers and facade behavior were
+preserved.
+
+**Fixture disposition.** The ordinary callable-boundary fixture was deleted
+because the canonical public-macro fixture covers the surviving generic route.
+The bare intrinsic and intrinsic-`DrainCtx` fixtures were deleted with their
+retired handlers while historical exemplar evidence remained untouched. The
+rich-GAP fixture was renamed and converted to imported macro/procedure hooks,
+and the non-record GAP fixture was converted likewise, preserving its generic
+`parametric_constraint_unsatisfied` rejection. Stage-7 fixtures and tests whose
+only contract was the removed name-keyed validator/lowerer were deleted; the
+retained Stage-7 plan-gate/selected-item tests and generic production suites
+cover surviving behavior.
+
+**Verification and review boundary.** The initial endpoint collected 275
+changed tests, passed the exact integration selector with **470 passed**, and
+passed the post-amend focused selector with **55 passed**. The broad
+work-stealing suite reported **4,236 passed, 8 failed, 11 skipped**; the eight
+failure identities matched the established unrelated baseline. Review then
+identified a structure-guard coverage gap and stale ownership/diagnostic
+metadata in the form-keyed stdlib contract. Commit `fd5aff6f` adds contextual
+AST checks for string-keyed comparisons, dictionaries, subscripts, and match
+values while explicitly preserving the sanctioned registry/contract and frozen
+evidence/inventory lanes. Its mutation proof first failed with zero detected
+sites, then detected all three injected comparison/subscript/dictionary sites;
+the corrected contract plus both guard tests pass together. Fresh endpoint
+integration and broad-suite evidence is required before re-review. No Task 2.1
+completion, Task 2.2 start, Task 2.3 residue/parity, or Gate P3 claim is made.
