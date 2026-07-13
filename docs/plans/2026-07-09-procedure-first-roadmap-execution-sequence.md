@@ -37,6 +37,8 @@ design, or the runtime specifications.
   procedure-first generalization work.
 - `docs/plans/2026-07-07-refactoring-dead-code-and-lowering-consolidation.md`
   supplies the original refactoring roadmap.
+- `docs/design/workflow_lisp_language_server.md` owns the `.orc` language
+  server contract implemented by Stage 7 (added by the 2026-07-13 amendment).
 - The component execution plans named below govern their own tasks and checks.
 
 If these work instructions disagree with a semantic design or normative spec,
@@ -388,6 +390,53 @@ Use the procedure-first model as the target authoring architecture:
 Do not port a YAML family into a reusable `.orc` workflow when Stage 4
 classifies that unit as a procedure candidate.
 
+### Stage 7: Deliver The `.orc` Language Server
+
+Stage 7 is the final stage (added by the 2026-07-13 amendment). It implements
+`docs/design/workflow_lisp_language_server.md`: a stdio LSP server that is a
+pure consumer of the existing compile entry points per frontend specification
+§76.1, delivering save-driven diagnostics, go-to-definition, document symbols,
+and completion for `.orc` authoring.
+
+It runs last deliberately: the server's navigation and completion surfaces
+should target the settled procedure-first stdlib and the `.orc`-primary
+authoring estate rather than chase Stage 5-6 surface churn, and its v1
+provides no substrate capability any earlier stage needs.
+
+Entry conditions:
+
+1. The language-server design has passed independent design review, with any
+   direction changes folded into the design doc before planning.
+2. A component execution plan exists under `docs/plans/` following the
+   design's three-phase implementation handoff.
+
+Execution follows the design's phases:
+
+1. Diagnostics core — translation layer, serialized compile driver, stdio
+   server, CLI diagnostic-parity test. The design's feasibility items F1-F3
+   are verified and recorded here; adverse F2/F3 outcomes route to the
+   design's stop/revise criteria rather than ad-hoc workarounds.
+2. Navigation — compile-snapshot retention, span interval index,
+   go-to-definition, document symbols, completion.
+3. Packaging and docs — `lsp` optional-dependency extra, editor-setup
+   documentation, capability matrix row, routing updates.
+
+Gate S7 (the design's success criteria):
+
+- all of the design's verification-strategy checks pass with fresh output,
+  including the stdio integration tests, the CLI diagnostic-parity test, and
+  the end-to-end check against a real repository workflow;
+- the default-install dependency set is unchanged;
+- F1-F3 outcomes are recorded with the implementation evidence;
+- the capability matrix and documentation routing reflect implemented status.
+
+Scope guard: Stage 7 covers only the design's v1 (save-driven diagnostics
+plus navigation). The deferred frontend prerequisites P1-P5 (diagnostic
+accumulation, reader error recovery, hover type sidecar, source overlay,
+compile caching) are each a separate frontend change requiring its own design
+treatment and an explicit amendment to this roadmap; Stage 7 must not absorb
+them.
+
 ## Concurrency Rules
 
 - Stages 0-1 use serial commits in the shared checkout. Their broad test suites
@@ -399,6 +448,9 @@ classifies that unit as a procedure candidate.
 - Stage 5 implementation and Stage 6 code changes are serial at shared
   validation/lowering/runtime boundaries. Independent documentation or estate
   inventory may proceed separately.
+- Stage 7 is additive at `orchestrator/lsp/` and packaging metadata and does
+  not contend with earlier-stage code surfaces; its deferred P1-P5 frontend
+  prerequisites are out of its scope and must not be started from Stage 7.
 
 ## Verification Ladder
 
@@ -431,7 +483,9 @@ This roadmap sequence is complete when:
 - compatibility workflow-as-function paths have explicit remaining owners or
   are retired;
 - YAML retirement proceeds against the procedure-first model rather than
-  recreating reusable workflow wrappers.
+  recreating reusable workflow wrappers;
+- the `.orc` language server v1 has shipped through Gate S7, with editor
+  diagnostics proven at parity with the CLI compile path.
 
 ## Stop And Revise Conditions
 

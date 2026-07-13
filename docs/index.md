@@ -147,7 +147,7 @@ document owns the answer.
 **Use this when:** Deciding whether content belongs in specs/design docs, body-of-work instructions, work items, workflow YAML, or run artifacts.
 
 ### [Procedure-First Roadmap Execution Sequence](plans/2026-07-09-procedure-first-roadmap-execution-sequence.md)
-**Description:** Governing cross-plan work order for closing the active refactors, executing the parametric drain migration and retirement gates, designing and implementing broader procedure-first reuse, and then resuming YAML authoring-surface retirement.
+**Description:** Governing cross-plan work order for closing the active refactors, executing the parametric drain migration and retirement gates, designing and implementing broader procedure-first reuse, resuming YAML authoring-surface retirement, and finally delivering the `.orc` language server (Stage 7).
 **Keywords:** workflow-lisp, roadmap, sequencing, parametric-types, procedure-first, refactoring, yaml-retirement
 **Use this when:** Choosing which remaining refactor or Workflow Lisp migration plan to execute next, or checking the required handoff gates between them.
 
@@ -253,7 +253,7 @@ document owns the answer.
 ### [Workflow Lisp Language Server](design/workflow_lisp_language_server.md)
 **Description:** Proposed design for an `.orc` LSP server: a stdio server that is a pure consumer of the existing compile entry points (per frontend spec §76.1), delivering diagnostics on save, go-to-definition, document symbols, and completion in v1, with error-tolerance, hover, and as-you-type checking deferred behind named frontend prerequisites.
 **Keywords:** lisp-frontend, lsp, editor-tooling, diagnostics, go-to-definition, language-server
-**Use this when:** Reviewing or extending the `.orc` editor-tooling direction; not implementable until the design is accepted and given an explicit roadmap slot.
+**Use this when:** Reviewing or extending the `.orc` editor-tooling direction; scheduled as the procedure-first roadmap's final stage (Stage 7), implementable once design review is accepted and the sequence reaches that stage.
 
 ### [Workflow Lisp Parametric Type System](design/workflow_lisp_parametric_type_system.md)
 **Description:** Single-owner design for the parametric type-system direction: generic `defproc` with `:forall`/`:where`, the structural-constraint vocabulary (including type-parameter constraint field types and subset semantics), the instantiate-then-typecheck specialization pipeline, diagnostics contract, and the permanent-primitive vs migration-destined form classification with the per-form migration test. Supersedes the two 2026-06-02 parametric drafts.

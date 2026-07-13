@@ -20,8 +20,10 @@
   - `docs/design/workflow_language_design_principles.md`
   - `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
     (governing roadmap; see Dependencies And Sequencing)
-- **Implementation target:** not scheduled; requires an explicit amendment to
-  the procedure-first roadmap (see Dependencies And Sequencing)
+- **Implementation target:** scheduled as Stage 7 (final stage) of
+  `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md` by its
+  2026-07-13 amendment; implementation start remains gated on independent
+  design review acceptance and on the sequence reaching Stage 7
 
 ## Summary
 
@@ -336,14 +338,14 @@ treatment (amendment to this document or a follow-on) plus a roadmap slot:
     representative workflows). If it is not, the two-phase publishing open
     question is resolved before proceeding; caching (P5) is not designed
     speculatively.
-- **Roadmap sequencing:** v1 touches no compiler, executor, build, typecheck,
-  or lowering surfaces, so it does not contend with procedure-first Stage 5
-  wave work at shared surfaces. It is nonetheless discretionary work:
-  scheduling requires an explicit amendment to the procedure-first roadmap
-  execution sequence; this document does not make it selectable. The Tier-2
-  prerequisites P1–P5 **do** touch reader/typecheck/module-resolution
-  surfaces and must respect the roadmap's concurrency rules (serial with
-  Stage 5/6 changes at shared surfaces) when they are eventually scheduled.
+- **Roadmap sequencing:** scheduled as Stage 7, the final stage of the
+  procedure-first roadmap execution sequence (2026-07-13 amendment), entered
+  after Stage 6 with independent design review acceptance as an entry
+  condition. v1 touches no compiler, executor, build, typecheck, or lowering
+  surfaces, so it does not contend with earlier-stage work at shared
+  surfaces. The Tier-2 prerequisites P1–P5 are explicitly outside Stage 7's
+  scope: they touch reader/typecheck/module-resolution surfaces, and each
+  requires its own design treatment and a further roadmap amendment.
 - Work that can proceed independently: independent design review of this
   document; a syntax-highlighting grammar; editor client packaging
   decisions.
