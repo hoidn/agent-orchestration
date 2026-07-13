@@ -263,7 +263,7 @@ def test_newer_progress_ledger_event_overrides_older_status_sources(
                 {
                     "surface_id": "workflow-lisp-parent-backlog-drain-composition-parity",
                     "status": "remaining_post_wcc",
-                    "recorded_at": "2026-06-11T00:00:00Z",
+                    "recorded_at": "2099-01-01T00:00:00Z",
                 }
             ],
         },
