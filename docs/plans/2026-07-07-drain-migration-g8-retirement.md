@@ -346,10 +346,10 @@ After Task 2.3 and before recording Gate P3 as satisfied, execute `docs/plans/20
 
 ### Task 3.4: Phase-3 verification
 
-- [ ] **Step 1:** Production compile (P2 form) → exit 0; `pytest tests/test_workflow_lisp_design_delta_smoke.py tests/test_workflow_lisp_drain_stdlib.py tests/test_lisp_frontend_autonomous_drain_runtime.py tests/test_workflow_lisp_build_artifacts.py -q` → PASS.
-- [ ] **Step 2:** `pytest tests/ -q --collect-only > /dev/null && echo COLLECT_OK` → `COLLECT_OK`; then full suite in tmux: `pytest -q` (compare against a pre-Phase-3 capture).
-- [ ] **Step 3:** Record in the Phase 3 Ledger: the state dirs `state/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R*` are no longer compile-evidence inputs (the Design Delta consumer of `_resolve_reference_family_evidence_paths` died with the block) but remain untouchable under this plan; YAML-twin deletion (`workflows/examples/lisp_frontend_design_delta_drain.yaml`) is deferred to procedure-first Stage 6 — note the pointer, do not delete here.
-- [ ] **Step 4:** Docs sync: `docs/capability_status_matrix.md` rows for the certification lane → retired; `docs/index.md`/`docs/design/README.md` routing entries for the retired lane updated. Commit: `Record certification bundle retirement`.
+- [x] **Step 1:** Production compile (P2 form) → exit 0; `pytest tests/test_workflow_lisp_design_delta_smoke.py tests/test_workflow_lisp_drain_stdlib.py tests/test_lisp_frontend_autonomous_drain_runtime.py tests/test_workflow_lisp_build_artifacts.py -q` → PASS.
+- [x] **Step 2:** `pytest tests/ -q --collect-only > /dev/null && echo COLLECT_OK` → `COLLECT_OK`; then full suite in tmux: `pytest -q` (compare against a pre-Phase-3 capture).
+- [x] **Step 3:** Record in the Phase 3 Ledger: the state dirs `state/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R*` are no longer compile-evidence inputs (the Design Delta consumer of `_resolve_reference_family_evidence_paths` died with the block) but remain untouchable under this plan; YAML-twin deletion (`workflows/examples/lisp_frontend_design_delta_drain.yaml`) is deferred to procedure-first Stage 6 — note the pointer, do not delete here.
+- [x] **Step 4:** Docs sync: `docs/capability_status_matrix.md` rows for the certification lane → retired; `docs/index.md`/`docs/design/README.md` routing entries for the retired lane updated. Commit: `Record certification bundle retirement`.
 
 ---
 
@@ -2074,3 +2074,70 @@ certification capability-status/evidence rows, strip the Phase-4 parity lanes,
 archive YAML, or begin Stage 5/Stage 6. The sole current selector is **Phase 3
 Task 3.4: Phase-3 verification**; Task 3.4 has not started. Phase 4, Stage 5
 typed result guidance, and Stage 6 YAML archive remain later work.
+
+### (d) Task 3.4 Phase-3 verification (2026-07-13; pending independent review and closure)
+
+The exact P2-form production compile exited 0 on the promoted
+`workflows/library/lisp_frontend_design_delta/drain.orc` entry with WCC M4,
+lowering schema 2, fingerprint `ad5a84000ed20a84`, and the seven known generic
+lint diagnostics. The surviving Phase-4-owned G8 deletion-evidence artifact
+reports `status: pass`. The required focused selector passed **274 tests in
+222.28s**. Full collection then found **3,918 tests in 1.77s**.
+
+The exact serial `pytest -q` command ran to completion in the isolated tmux
+session `drain-t34-full`, exited 1, and reported **3,901 passed, 6 failed, 11
+skipped in 379.35s**. An exact sorted-set comparison matched all six failure
+node IDs, with no additions or omissions, against the surviving established
+Task-3.3 baseline:
+
+- `tests/test_workflow_output_contract_integration.py::test_provider_valid_output_bundle_overrides_raw_nonzero_exit`
+- `tests/test_workflow_semantic_ir.py::test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence`
+- `tests/test_workflow_semantic_ir.py::test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys`
+- `tests/test_workflow_semantic_ir.py::test_compiled_bundle_semantic_ir_preserves_command_boundary_classification`
+- `tests/test_provider_role_routing.py::test_design_delta_drain_defaults_route_work_to_codex_gpt54`
+- `tests/test_neurips_steered_backlog_runtime.py::test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch`
+
+The compiler source contains no reference to
+`_resolve_reference_family_evidence_paths`,
+`_reference_family_versioned_roots`, or the
+`LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R` prefix. The deleted Design Delta
+consumer therefore cannot feed those historical run roots into compilation.
+All **28** matching state directories remain present and untouched; their
+cleanup is outside this plan. The retained
+`workflows/examples/lisp_frontend_design_delta_drain.yaml` twin also remains
+present and untouched. Procedure-first Stage 6 owns any later archive decision
+and must use the preserved historical promotion report plus then-fresh compile,
+smoke, and end-to-end evidence; it must not recreate the retired parity target
+or certification bundle.
+
+The Gate-P4 two-family evidence command exited 0 with overall pass, wrote two
+reports, and classified `cycle_guard_demo` plus `design_plan_impl_stack` as
+non-regressive. Fresh SHA-256 values are
+`3989d7f1cf89c0011cd5adc4e0153133f54a4e700d0f13309949bfdacbef3ece`
+for `index.json`,
+`58d87c89b0dc9e67f8ea6656c30569ee11b32b03d7cd26208407e76e6d10e89e`
+for `gate_evaluation.json`,
+`35a41d87ab8b6a997e7c7703f183b9734a54806cd2f0a81526d814d3795a31d1`
+for `cycle_guard_demo.json`, and
+`106f9825dcc2a2046106c3212f03499bbb7263f4bbf2c63d6a95588e911f182c`
+for `design_plan_impl_stack.json`. This is recorded for later Gate-P4 closure;
+it does not begin Phase 4.
+
+The documentation consistency pass classified the stale live references as
+`stale_duplicate` plus `discoverability_gap`. It removed all active routing
+references to the **32** Task-3.3-deleted paths, added an explicit retired
+certification-bundle capability row, and routed current claims to direct owner
+tests, route readiness, production compile/runtime evidence, and the preserved
+historical promotion report. The broader audit found the remaining references
+only in **63** design, plan, execution-ledger, and report provenance surfaces
+outside the Task-3.4-owned active routing set; those surfaces were deliberately
+preserved. JSON parsing passed, the
+route-readiness CLI validated **54/54** surfaces, the post-WCC inventory CLI
+validated **14/14** surfaces, and the focused routing/documentation modules
+passed **59 tests** after the machine-readable `current selector is` grammar
+was preserved.
+
+The current selector is **Phase 3 Task 3.4: Phase-3 verification** while this
+evidence awaits independent specification and quality review plus closure.
+Phase 4 deletion, Stage 5 typed result guidance, and Stage 6 YAML archive have
+not started.
