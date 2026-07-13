@@ -4,7 +4,7 @@
 
 **Goal:** Make the approved procedure-first roadmap executable by reconciling the existing component plans with landed commits, tracking and routing the governing plan set, re-anchoring stale ownership paths, and establishing a verified component-plan handoff.
 
-**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, and current routing selects drain Phase 1 Task 1.7 review and Gate P2 closure.
+**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, drain Phase 1 Task 1.7 is complete, and current routing selects Gate P2 verification and closure.
 
 > **Current execution amendment (updated 2026-07-12):** The case 5 design and
 > implementation are complete, and the boundary final gate passed. The
@@ -17,10 +17,11 @@
 > Task 1.5 on the blocker wave 1 resolved. Wave 1 is landed
 > (compiler-internal; DSL v2.15 stays an unreleased private preview), and the
 > drain plan has since landed its generic route, reviewed identity remap,
-> consumer parity, and F5 sibling contract. Next active selection:
-> `docs/plans/2026-07-07-drain-migration-g8-retirement.md` Phase 1 Task 1.7
-> review and Gate P2 closure. Typed result guidance (wave 2) follows that drain
-> review/gate closure; G8 intrinsic deletion remains later Phase 2 work. The
+> consumer parity, F5 sibling contract, and Task 1.7 documentation/integration
+> evidence and review. Next active selection:
+> `docs/plans/2026-07-07-drain-migration-g8-retirement.md` Gate P2 verification
+> and closure. Typed result guidance (wave 2) follows Gate P2 closure; G8
+> intrinsic deletion remains later Phase 2 work. The
 > semantic-migration freeze remains in force and neither wave changes the
 > current Stage 1-3 selection.
 
@@ -537,8 +538,9 @@ historical. The runtime union-field lineage plan and boundary-report final gate
 subsequently completed. Drain migration Phase 1 then paused at Task 1.5
 pending native-return wave 1 (2026-07-10 roadmap amendment); wave 1 landed
 2026-07-11, and the generic route, reviewed identity remap, consumer parity,
-and F5 sibling contract subsequently landed. Current routing now executes
-`docs/plans/2026-07-07-drain-migration-g8-retirement.md` Phase 1 Task 1.7
-review and Gate P2 closure, as recorded by `docs/index.md` and the governing
-execution sequence; typed result guidance follows that drain gate, G8 deletion
+and F5 sibling contract subsequently landed. Task 1.7 documentation/integration
+evidence and review are complete. Current routing now executes
+`docs/plans/2026-07-07-drain-migration-g8-retirement.md` Gate P2 verification
+and closure, as recorded by `docs/index.md` and the governing execution
+sequence; typed result guidance follows Gate P2 closure, G8 deletion
 remains Phase 2 work, and the semantic-migration freeze remains in force.

@@ -149,12 +149,13 @@ executor, build, typecheck, or lowering refactors until Stage 3 completes.
 
 **Current next selection (2026-07-12):** Drain Phase 1 has landed the generic
 route, reviewed checkpoint remap, consumer parity, and F5 sibling contract.
-The active step is Task 1.7 documentation/integration evidence review and Gate
-P2 closure in `2026-07-07-drain-migration-g8-retirement.md`; neither Task 1.7
-nor Gate P2 is complete until that review closes. Typed result guidance (wave
-2, `2026-07-10-workflow-lisp-typed-result-guidance-plan.md`) follows the drain
-Phase 1 review/gate closure per the accepted ordering. G8 intrinsic deletion
-remains later Phase 2 work, and the semantic-migration freeze remains in force.
+Task 1.7 documentation/integration evidence and review are complete. The active
+step is Gate P2 verification and closure in
+`2026-07-07-drain-migration-g8-retirement.md`; Gate P2 remains open until all
+six conditions pass with fresh evidence. Typed result guidance (wave 2,
+`2026-07-10-workflow-lisp-typed-result-guidance-plan.md`) follows Gate P2
+closure per the accepted ordering. G8 intrinsic deletion remains later Phase 2
+work, and the semantic-migration freeze remains in force.
 
 Re-anchor and execute `2026-07-07-drain-migration-g8-retirement.md` Phase 1:
 
@@ -165,7 +166,7 @@ Re-anchor and execute `2026-07-07-drain-migration-g8-retirement.md` Phase 1:
    initially dormant.
 5. Task 1.5 macro retarget plus checkpoint-identity comparison.
 6. Task 1.6 consumer parity and obligation relocation.
-7. Task 1.7 documentation and integration evidence.
+7. Task 1.7 documentation and integration evidence — complete (2026-07-12).
 
 Gate S2 is the drain plan's Gate P2. Do not proceed merely because the generic
 procedure compiles. Required evidence includes:
