@@ -260,6 +260,11 @@ document owns the answer.
 **Keywords:** lisp-frontend, prompt-queue, provider-session, multi-turn, output-contract
 **Use this when:** Reviewing or extending the multi-turn provider invocation direction; not implementable until the design is accepted and given an explicit roadmap slot.
 
+### [Workflow Lisp Provider Live Binding](design/workflow_lisp_provider_live_binding.md)
+**Description:** Proposed design for tmux-hosted provider invocations (1:1 invocation-to-pane) plus `with-live-providers`, a call-site structured-concurrency form running N provider calls in one atomic step where members receive peers' live tmux targets by declaration and interact free-form via their own tools — e.g. one provider supervising and steering another mid-flight.
+**Keywords:** lisp-frontend, live-binding, tmux, provider-supervision, structured-concurrency, agent-to-agent, send-keys
+**Use this when:** Reviewing or extending the live agent-to-agent interaction direction; not implementable until the design is accepted and given an explicit roadmap slot.
+
 ### [Workflow Lisp Language Server](design/workflow_lisp_language_server.md)
 **Description:** Proposed design for an `.orc` LSP server: a stdio server that is a pure consumer of the existing compile entry points (per frontend spec §76.1), delivering diagnostics on save, go-to-definition, document symbols, and completion in v1, with error-tolerance, hover, and as-you-type checking deferred behind named frontend prerequisites.
 **Keywords:** lisp-frontend, lsp, editor-tooling, diagnostics, go-to-definition, language-server
