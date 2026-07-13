@@ -81,6 +81,13 @@ Design Delta promotion handoff below is the current selector.
 3. Final parity regeneration (same command as P2.5) → exit 0, `"non_regressive": true`; `promotion_eligibility` recorded in the Phase-2 ledger entry. This is the "G7 + promotion evidence -> G8" sequencing obligation discharged and recorded.
 4. Promotion handoff completed and recorded (steering, user, 2026-07-07; governing sequence Stage 3): YAML-retirement Task 5 family 1 has run only through registration, fresh non-regressive parity, the `.orc` primary flip, and fresh end-to-end evidence. The `.orc` entry `lisp_frontend_design_delta/drain::drain` is the primary production route; Task 5's archive bullet has **not** run, and the YAML twin remains for Stage 6.
 
+**Status (promotion handoff recorded 2026-07-12): PENDING INDEPENDENT FULL
+VERIFICATION.** Phase 2 Ledger entry (e) records condition 4 and its strict
+promotion evidence. That bounded handoff is not by itself a fresh joint check
+of conditions 1–4. The current selector is Gate P3 all-four-condition
+verification and closure; do not enter Phase 3 until that independent gate
+passes and is recorded.
+
 **Gate P4 (entry to Phase 4):**
 1. Phase 3 Tasks 3.1–3.4 committed.
 2. `design_delta_parent_drain` absent from `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json`; parity index regenerated without it.
@@ -1704,3 +1711,88 @@ the recorded false promotion eligibility makes that boundary explicit. Execute
 through registration, fresh strict parity, the `.orc` primary flip, and fresh
 end-to-end evidence; stop before its archive bullet. Do not enter Phase 3 or
 select typed result guidance yet.
+
+**(e) Gate P3 condition-4 promotion handoff evidence (2026-07-12).** The
+bounded YAML-retirement Task-5 family-1 handoff is committed in
+**`2f80eb14`** (`Register Design Delta drain for primary promotion`) and
+**`17d66bf6`** (`Promote Design Delta workflow routing to orc`). The first
+commit changes the checked target and route-readiness entry from
+parent-callable candidate metadata to the strict `promotion_eligible` /
+`wcc_default` contract with no accepted differences. The second makes
+`workflows/library/lisp_frontend_design_delta/drain.orc` the documented
+primary while retaining the YAML twin as compatibility/reference material.
+
+**Strict parity evidence.** The selected-family command was:
+
+```bash
+python -m orchestrator migration-parity \
+  --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json \
+  --output-root artifacts/work/review-parity-check \
+  --target design_delta_parent_drain \
+  --require-promotable
+```
+
+It exited **0** with `gate_mode: require_promotable`, `overall_pass: true`, one
+report written, one target processed, and no regressive target. The canonical
+report was generated at `2026-07-13T03:56:35Z`; its SHA-256 is
+`6c840461b2510042fe6ebb1ee36c16433104564250f514f89d7f6f775f0a3082`,
+the Markdown view is
+`75e92ba522b8207bfb66602ef834a6d81cbd8309be1ffae861e780f52f309579`,
+the index is
+`b5e41a3177725f99cdced228dc813029bdd8a5e660759939941c813677b0cfe8`,
+and the passing gate evaluation is
+`a040f098e0cd4d403b927beead39b3bfb3d62cfb699d8ac683e389ac1d59978c`.
+The selected-family command log SHA-256 is
+`96634aa2418c37e5c4e161079d88cc7b23b79d7749d86dec84ad98b491c932c0`.
+All 17 evidence roles pass except the contractually waived dry-run role; all
+eight required family roles pass. The canonical gate row is `report_valid:
+true`, `evidence_complete: true`, `non_regressive: true`,
+`eligible_for_primary_surface: true`, and `primary_surface: orc`. A fresh
+post-smoke audit matched all **37** path/hash references in the report.
+
+**Fresh compile and launch evidence.** The ordinary production compile was
+run before and after the parent smoke with the checked provider, prompt, and
+command manifests. Both runs exited **0**, emitted zero diagnostics, retained
+the `wcc_m4` / schema-2 route and fingerprint `c5cf03b2755308a3`, and produced
+byte-identical logs with SHA-256
+`3b21344aba8bac48ddae46222918ae404baa5053740971fc17d521d28492f97a`.
+The final build manifest SHA-256 is
+`43772ef4ca53c187086e53c4546e8eed8f8a05a791d36b48a0d5a2db6ad7a9a1`;
+the final `g8_deletion_evidence.json` reports `status: pass` and has SHA-256
+`8b6e1bbe4f966cb2dacaa19022ae594ac22e09f5a202db68608005c88e83711c`.
+The exact parent-smoke selector ran under 16-worker work stealing and passed
+**6 tests in 8.14 seconds**; its log SHA-256 is
+`55258d0e290a0daee2513645e577314e2f34f33b07deec3dc34045802760d6ba`.
+
+The requested literal 12-binding CLI dry-run correctly failed closed first.
+Systematic binding inspection showed that `manifest_path`,
+`progress_ledger_path`, and `architecture_bundle_path` are declared source
+inputs but compiler-hidden runtime-context inputs; the CLI binds the nine-entry
+`workflow_public_input_contracts` surface and reported those three as exactly
+the unknown inputs. A second diagnostic pass showed that four supplied public
+paths violated their nominal roots. The successful input-complete CLI dry-run
+therefore retained all nine user-bindable inputs and used these existing,
+semantically aligned paths:
+
+- `architecture_targets__architecture_path=docs/plans/2026-07-07-drain-migration-g8-retirement.md`
+- `architecture_targets__work_item_context_path=artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/section14-parent-dry-run/work_item_context.md`
+- `architecture_targets__check_commands_path=state/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/drain/iterations/4/design-gap-architect/check_commands.json`
+- `architecture_targets__plan_target_path=docs/plans/2026-07-07-yaml-retirement-program.md`
+- `existing_architecture_index_path=artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/section14-parent-dry-run/existing-architecture-index.md`
+
+That `.orc`-primary dry-run exited **0** with `Workflow validation successful`.
+It emitted the existing redundant-relpath and imported-output-collision lint
+categories; its complete log SHA-256 is
+`08e18063e61479c62eeca0cbfb39536103dcf774a236169a3b430aace4660a8c`.
+No source or workflow file was changed to obtain this result.
+
+**Archive boundary and routing effect.** A content diff against `17d66bf6`
+was empty for `workflows/examples/lisp_frontend_design_delta_drain.yaml` and
+all six currently present Design Delta `v214` library twins
+(`design_gap_architect`, `done_review`, `implementation_phase`, `plan_phase`,
+`selector`, and `work_item`). All seven files still exist. The YAML-retirement
+Task-5 table's stale `+ 5` count was corrected to `+ 6`; no YAML or `v214`
+archive step ran. Condition 4 is now recorded, but Gate P3 remains **pending**
+until an independent command set verifies and closes all four conditions
+together. The next selector is that Gate P3 verification, not Phase 3 and not
+typed result guidance.

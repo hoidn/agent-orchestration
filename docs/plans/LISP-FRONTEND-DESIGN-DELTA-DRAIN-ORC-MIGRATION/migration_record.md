@@ -3,7 +3,7 @@
 Workflow family: Lisp frontend design delta drain
 Primary `.orc`: `workflows/library/lisp_frontend_design_delta/drain.orc`
 Compatibility YAML twin: `workflows/examples/lisp_frontend_design_delta_drain.yaml`
-Status: `primary-flipped; Gate P3 end-to-end evidence pending`
+Status: `primary-flipped; promotion evidence recorded; Gate P3 verification pending`
 Created: 2026-06-09
 Plan: `docs/plans/2026-06-09-lisp-frontend-design-delta-drain-orc-migration-plan.md`
 
@@ -15,10 +15,11 @@ family. The route-readiness registry labels it `wcc_default` /
 migration target is eligible for the primary surface. The YAML twin remains in
 place only as compatibility/reference evidence until the Stage 6 archive gate.
 
-This authority flip does not satisfy Gate P3 by itself. Fresh end-to-end launch
-evidence and the reviewed promotion decision are still required before the
-roadmap advances, and the current selector remains Gate P3 verification and
-closure.
+The promotion handoff now has strict promotable parity plus fresh ordinary
+compile, input-complete CLI dry-run, and parent-smoke evidence. This record does
+not satisfy Gate P3 by itself: the current selector is independent verification
+and closure across all four Gate P3 conditions. Gate P3 remains pending, and the
+roadmap must not enter Phase 3 before that full verification passes.
 
 The remaining sections preserve the June migration inventory and baseline as
 dated provenance. They do not override the current registry, parity target, or

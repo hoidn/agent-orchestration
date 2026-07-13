@@ -156,7 +156,7 @@ Uniform checklist, one family at a time, using the promotion machinery. Family o
 
 | # | Family (YAML primary today) | Gate |
 |---|---|---|
-| 1 | `lisp_frontend_design_delta_drain.yaml` (+ 5 `v214` library imports) | Drain-migration plan Phase 1–2 complete; promotion is that plan's Phase 3 precondition — coordinate, do not duplicate |
+| 1 | `lisp_frontend_design_delta_drain.yaml` (+ 6 `v214` library imports) | Drain-migration plan Phase 1–2 complete; promotion is that plan's Phase 3 precondition — coordinate, do not duplicate |
 | 2 | `verified_iteration_drain.yaml` | Record the port-vs-absorb decision first (one paragraph in the triage doc); if port: after family 1 |
 | 3 | `lisp_frontend_autonomous_drain.yaml` | After family 1 (shares the drain stdlib surface) |
 | 4 | `neurips_steered_backlog_drain.yaml` | After family 1; `.legacy.yaml` twin is deleted, not ported (triage class `delete`) |

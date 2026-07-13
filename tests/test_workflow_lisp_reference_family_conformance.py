@@ -196,6 +196,68 @@ def test_design_delta_promotion_routes_current_docs_to_orc_primary() -> None:
     assert "Gate P3" in current_surface
 
 
+def test_design_delta_promotion_handoff_routes_to_independent_gate_p3_closure() -> None:
+    routing_surfaces = {
+        "docs index": (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8").split(
+            "**Later procedure-first substrate:**", 1
+        )[0],
+        "procedure-first sequence": (
+            REPO_ROOT
+            / "docs"
+            / "plans"
+            / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
+        ).read_text(encoding="utf-8").split("The completed Phase 1 execution order was:", 1)[0],
+        "activation plan": (
+            REPO_ROOT
+            / "docs"
+            / "plans"
+            / "2026-07-09-procedure-first-roadmap-activation-plan.md"
+        ).read_text(encoding="utf-8").split("## Task 1:", 1)[0],
+        "capability matrix": "\n".join(
+            (
+                _markdown_table_row(
+                    REPO_ROOT / "docs" / "capability_status_matrix.md",
+                    "`backlog-drain` generic stdlib route",
+                ),
+                _markdown_table_row(
+                    REPO_ROOT / "docs" / "capability_status_matrix.md",
+                    "Design Delta parent-family boundary",
+                ),
+            )
+        ),
+        "migration record": (
+            REPO_ROOT
+            / "docs"
+            / "plans"
+            / "LISP-FRONTEND-DESIGN-DELTA-DRAIN-ORC-MIGRATION"
+            / "migration_record.md"
+        ).read_text(encoding="utf-8").split("## Historical YAML Baseline", 1)[0],
+    }
+
+    for label, surface in routing_surfaces.items():
+        normalized = " ".join(surface.lower().replace("-", " ").split())
+        assert "gate p3" in normalized, label
+        assert "all four" in normalized, label
+        assert "verification" in normalized, label
+        assert "pending" in normalized or "not satisfied" in normalized, label
+        assert "phase 3" in normalized, label
+        assert (
+            "do not enter" in normalized
+            or "must not enter" in normalized
+            or "before phase 3" in normalized
+        ), label
+
+    retirement_program = (
+        REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md"
+    ).read_text(encoding="utf-8")
+    family_one_row = _markdown_table_row(
+        REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md",
+        "lisp_frontend_design_delta_drain.yaml",
+    )
+    assert "+ 6 `v214` library imports" in family_one_row
+    assert retirement_program.count("lisp_frontend_design_delta_") >= 1
+
+
 def _reference_family_module():
     return importlib.import_module(
         "orchestrator.workflow_lisp.reference_family_conformance"

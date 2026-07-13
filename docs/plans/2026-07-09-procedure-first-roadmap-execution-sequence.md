@@ -76,7 +76,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-07-executor-decomposition.md` | Completed through Task 9. Its targeted executor surface and Design Delta smoke pass; the full-suite failure identities match the pre-Task-2 baseline. |
 | `2026-07-08-boundary-report-followups.md` | Completed through Task 6 and its final gate. Case 5 now has production runtime/source-map attribution evidence. |
 | `2026-07-09-runtime-union-field-lineage-plan.md` | Completed through Task 6. The post-fix full suite retains exactly the six recorded baseline failures. |
-| `2026-07-07-drain-migration-g8-retirement.md` | Phase 1 Tasks 1.1–1.7 and Phase 2 Tasks 2.1–2.3 are complete. Gate P2 is satisfied; Gate P3 remains open for the bounded Design Delta promotion handoff, which is the current selector. |
+| `2026-07-07-drain-migration-g8-retirement.md` | Phase 1 Tasks 1.1–1.7 and Phase 2 Tasks 2.1–2.3 are complete. Gate P2 is satisfied. The bounded Design Delta promotion handoff is recorded without archive; Gate P3 remains pending independent all-four-condition verification, which is the current selector. Do not enter Phase 3 before it passes. |
 | `2026-07-10-workflow-lisp-native-transportable-returns-plan.md` | Stage-5 wave 1 landed ahead of Gates S3/S4 under the 2026-07-10 amendment. Treat it as a completed historical prerequisite; do not re-execute it. |
 | `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Accepted and reviewed Stage-5 wave 2 plan. Gate P2 and landed native returns satisfy its two prerequisites, but it remains a later post-drain Stage-5 wave rather than the current selector. It adds root/field guidance and owns the combined v2.15 promotion gate. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
@@ -152,12 +152,12 @@ route, reviewed identity migration with an empty persisted-record remap,
 consumer parity, and F5 sibling contract. Task 1.7 documentation/integration
 evidence and review are complete, and Gate P2 has passed its reviewed
 six-condition verification. Phase 2 Tasks 2.1–2.3 and parametric prerequisite 6
-are complete. Gate P3 remains open because the fresh non-regressive report is
-correctly not promotion-eligible. The active step is the **Design Delta
-promotion handoff**: execute `2026-07-07-yaml-retirement-program.md` Task 5 for
-family 1 only through registration and strict parity, the `.orc` primary flip,
-and fresh end-to-end evidence; stop before archive. Do not enter drain Phase 3
-until the handoff closes Gate P3. Typed result guidance (wave 2,
+are complete. The bounded Design Delta promotion handoff has now registered
+strict promotable parity, flipped the `.orc` primary, and recorded fresh
+compile, dry-run, and parent-smoke evidence while preserving the YAML twin.
+The active step is **independent Gate P3 verification and closure across all
+four conditions**. Gate P3 remains pending; do not enter drain Phase 3 before
+that full verification passes. Typed result guidance (wave 2,
 `2026-07-10-workflow-lisp-typed-result-guidance-plan.md`) has its P2
 prerequisite satisfied but remains a later Stage-5/post-drain wave. The
 semantic-migration freeze remains in force.
