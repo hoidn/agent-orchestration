@@ -70,6 +70,9 @@ Record fresh command output under each gate before dispatching the phase. A gate
 5. **Parity report:** `python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/review-parity-check --target design_delta_parent_drain --require-non-regressive` → exit 0; `artifacts/work/review-parity-check/design_delta_parent_drain.json` has `"non_regressive": true`.
 6. **Intrinsic reachability shrunk to fixtures:** `grep -rln "backlog-drain-callable-boundary" workflows/` → empty (no production caller reaches the intrinsic; only `tests/fixtures/` hits remain, and they retire with Phase 2).
 
+**Status (reviewed 2026-07-12): SATISFIED.** The durable evidence is recorded in
+Phase 1 Ledger entry (k). Phase 2 Task 2.1 is the current selector.
+
 **Gate P3 (entry to Phase 3):**
 1. Phase 2 Tasks 2.1–2.3 committed; name-blindness check (Task 2.3 Step 2) clean.
 2. Certification lane still green **after** the deletion: production compile exits 0; freshest `g8_deletion_evidence.json` still `"status": "pass"` (now via the `spec is None` / imported-only branches of `_serialize_design_delta_g8_deletion_evidence` in `build_design_delta.py` — Task 2.2 decides which).
@@ -1398,6 +1401,75 @@ durability of the 58-token command reproduction and all 26 inputs, cross-documen
 routing consistency, and the absence of completion overclaim. Both results are from
 the final re-review after **`a3095f76`**, with no findings. The integration and test
 evidence is recorded in the preceding entry; this closure does not restate or broaden
-those claims. **Gate P2 is the next open selector** and still requires its own fresh
-six-condition verification. No Gate P2 pass, intrinsic-retirement, or Phase 2
-completion claim is made here.
+those claims. **At this Task-1.7 review point, Gate P2 was the next open
+selector** and still required its own fresh six-condition verification. This
+historical entry makes no Gate P2 pass, intrinsic-retirement, or Phase 2
+completion claim; entry (k) records the later gate result.
+
+**(k) Gate P2 redundancy proof and reviewed closure (2026-07-12).** Gate P2 is
+**SATISFIED** on reviewed HEAD
+**`44560e99807fa5fbbbb3c5c4529ba2a906516249`**. All evidence below was produced
+from that checkout under `tmp/gate-p2-44560e99/`; timestamps are UTC.
+
+1. **Committed Phase 1:** ancestry verification found the closure commits for
+   Tasks 1.1–1.7, including Task 1.6a: `c5d5e21b`, `971597f7`, `8e2f8fcc`,
+   `49f221f1`, `6a28ddd4`, `74fa51e7`, `5bfd7ebe`, and `6e7eb1e7`
+   (Task 1.7 implementation begins at `d883f5da`; routing cleanup ends at the
+   reviewed HEAD). Condition 1 passed.
+2. **Reviewed identity migration:**
+   `pytest tests/test_workflow_lisp_checkpoint_identity_comparison.py -v`
+   passed **3 tests in 2.01s** from `2026-07-13T00:08:09Z` through
+   `00:08:11Z`; log SHA-256
+   `57757302d838b5b54d464da96c4688f5aa87e4b73bad9eb958c7a67d238e7626`.
+   This is not a literal-identity claim. Commit `6a28ddd4` and the adjudication
+   ledger at `47481f95` record the reviewed identity migration; the
+   zero-exposure scan found no vanished identity in persisted checkpoint state,
+   so the persisted-record remap is empty.
+3. **Consumer parity:** the exact Gate-P2 three-suite selector passed
+   **309 tests in 329.08s** from `2026-07-13T00:08:22Z` through `00:13:51Z`,
+   with nothing deselected; log SHA-256
+   `8036a64095f75f13891902d80055e073108d032977d691a7c47fb15871b546c0`.
+   This is the Task-1.1 aggregate baseline after the reviewed Phase-1 contract
+   deltas.
+4. **Generic-route certification:** the production compile ran from
+   `2026-07-13T00:14:08Z` through `00:14:10Z` and exited 0 with zero
+   diagnostics, `wcc_m4`, schema 2, and fingerprint `c5cf03b2755308a3`;
+   compile-log SHA-256
+   `3b21344aba8bac48ddae46222918ae404baa5053740971fc17d521d28492f97a`.
+   The freshest certification artifact was regenerated at
+   `.orchestrate/build/c5cf03b2755308a3/g8_deletion_evidence.json` at
+   `2026-07-13T00:14:49.395567518Z`; it reports `status: pass` and has SHA-256
+   `a3eefb08edf48118f2853efc42e45a9c0711c10cf5351aaea7fd436066230667`.
+5. **Fresh migration parity:** the exact single-target command ran from
+   `2026-07-13T00:14:46Z` through `00:20:54Z`, exited 0, wrote one report for
+   one target, and reported `design_delta_parent_drain` non-regressive with
+   overall gate pass and no regressions; CLI-log SHA-256
+   `7f71f42a416a2bfde0f084880a67e414ed1500a3491a486b5d3b0b9937393a59`.
+   The report was generated at `2026-07-13T00:20:54Z`, is contract-valid and
+   evidence-complete, and all 14 evidence-reference hashes match. Its SHA-256
+   is `06b9111b540c2f072f07ce61ace9f0b10703a2b0f69aca340f183e51ea496c39`;
+   the passing gate-evaluation SHA-256 is
+   `99f736dd240a58d9aa94bbbec547709621b25d7655b0f07e2246a4d6f9e154d7`.
+6. **Intrinsic reachability:** the production-workflow grep returned no hits
+   (expected grep exit 1); its empty log was written at
+   `2026-07-13T00:20:54.657427228Z` and has SHA-256
+   `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+   The independent fixture search found exactly three sanctioned hits under
+   `tests/fixtures/`; its log was written at
+   `2026-07-13T00:20:54.674427489Z` and has SHA-256
+   `651b570f0e21223e174e409ef0f84d81f9116609a239fb1cce8f500d92468e9e`.
+
+Independent final review agreed with the evidence boundary:
+`/root/gate_p2_spec_review` returned **PASS overall. No findings.** and
+`/root/gate_p2_quality_review` returned **APPROVED** after independently
+verifying all 37 referenced parity hashes. Its one non-blocking consistency
+note is intentionally not folded into this gate: the identity test's historical
+name/comments still say “intrinsic route” even though `6a28ddd4` intentionally
+regenerated the baseline for the generic route. The ledger wording above is the
+authority for the gate claim; a later clean wording pass may rename that test
+without reopening P2.
+
+**Routing effect:** Gate P2 closes Stage 2 and admits Stage 3. The current
+selector is **Phase 2 Task 2.1**, not typed result guidance. Execute the drain
+plan's remaining phases in gated order; typed result guidance remains the later
+Stage-5/post-drain wave defined by the governing procedure-first sequence.
