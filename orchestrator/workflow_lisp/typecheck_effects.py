@@ -214,6 +214,13 @@ def typecheck_provider_result_expr(
         span=expr.span,
         form_path=expr.form_path,
     )
+    from .result_guidance import validate_result_guidance_example
+
+    validate_result_guidance_example(
+        expr.return_spec.guidance,
+        expected_type=return_type,
+        type_env=context.type_env,
+    )
     if not is_transportable_result_type(return_type):
         raise_error(
             f"`provider-result` must return a transportable result type, got `{expr.returns_type_name}`",
@@ -397,6 +404,13 @@ def typecheck_command_result_expr(
         expr.returns_type_name,
         span=expr.span,
         form_path=expr.form_path,
+    )
+    from .result_guidance import validate_result_guidance_example
+
+    validate_result_guidance_example(
+        expr.return_spec.guidance,
+        expected_type=return_type,
+        type_env=context.type_env,
     )
     if not is_transportable_result_type(return_type):
         raise_error(

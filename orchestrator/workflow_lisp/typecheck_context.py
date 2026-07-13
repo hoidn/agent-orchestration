@@ -266,6 +266,8 @@ def _literal_type_name(literal_kind: str) -> str:
         return "Int"
     if literal_kind == "bool":
         return "Bool"
+    if literal_kind == "float":
+        return "Float"
     raise ValueError(f"unsupported literal kind: {literal_kind}")
 
 

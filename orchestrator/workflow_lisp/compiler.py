@@ -132,6 +132,7 @@ from .procedure_specialization import (
     procedure_catalog_with_specializations as _procedure_catalog_with_specializations_owner,
 )
 from .reader import read_sexpr_file
+from .result_guidance import validate_module_result_guidance
 from .spans import SourcePosition, SourceSpan
 from .source_map import build_source_map_document
 from .syntax import (
@@ -1544,6 +1545,14 @@ def _run_stage3_validation_pipeline(
         function_defs = elaborate_function_definitions(state.expanded_syntax_module)
         procedure_defs = elaborate_procedure_definitions(state.expanded_syntax_module)
         _validate_local_callable_name_collisions(function_defs, procedure_defs)
+        validate_module_result_guidance(
+            module,
+            type_env=type_env,
+            function_defs=function_defs,
+            procedure_defs=procedure_defs,
+            workflow_defs=workflow_defs,
+            workspace=workspace_root,
+        )
         workflow_catalog = build_workflow_catalog(
             module,
             workflow_defs,
@@ -2325,6 +2334,14 @@ def _compile_stage3_graph(
             import_scope,
             local_raw_names=frozenset(workflow.name for workflow in raw_workflow_defs),
             external_workflow_names=frozenset(effective_imported_bundles),
+        )
+        validate_module_result_guidance(
+            definition_module,
+            type_env=type_env,
+            function_defs=function_defs,
+            procedure_defs=procedure_defs,
+            workflow_defs=workflow_defs,
+            workspace=workspace_root,
         )
         typed_functions = typecheck_function_definitions(
             function_defs,

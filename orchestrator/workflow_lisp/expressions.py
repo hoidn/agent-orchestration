@@ -56,7 +56,7 @@ class NameExpr:
 class LiteralExpr:
     """One primitive literal."""
 
-    value: str | int | bool
+    value: str | int | float | bool
     literal_kind: str
     span: SourceSpan
     form_path: tuple[str, ...]
@@ -604,6 +604,7 @@ _ACTIVE_FUNCTION_NAMES = frozenset()
 _ACTIVE_LOCAL_PROC_NAMES = frozenset()
 _ACTIVE_LOOP_BODY_DEPTH = 0
 _ACTIVE_LET_PROC_DEPTH = 0
+_ACTIVE_GUIDANCE_EXAMPLE = False
 
 _ElaborationRouteHandler = Callable[
     [SyntaxList, tuple[str, ...], frozenset[str], frozenset[str]],
@@ -620,11 +621,12 @@ def elaborate_expression(
     function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
+    guidance_example: bool = False,
 ) -> ExprNode:
     """Elaborate one syntax node into a supported Workflow Lisp expression."""
 
     global _ACTIVE_FUNCTION_NAME_RESOLVER, _ACTIVE_FUNCTION_NAMES, _ACTIVE_PROCEDURE_NAME_RESOLVER, _ACTIVE_WORKFLOW_NAME_RESOLVER
-    global _ACTIVE_LOCAL_PROC_NAMES, _ACTIVE_LET_PROC_DEPTH
+    global _ACTIVE_LOCAL_PROC_NAMES, _ACTIVE_LET_PROC_DEPTH, _ACTIVE_GUIDANCE_EXAMPLE
 
     previous_function_resolver = _ACTIVE_FUNCTION_NAME_RESOLVER
     previous_function_names = _ACTIVE_FUNCTION_NAMES
@@ -632,12 +634,14 @@ def elaborate_expression(
     previous_workflow_resolver = _ACTIVE_WORKFLOW_NAME_RESOLVER
     previous_local_proc_names = _ACTIVE_LOCAL_PROC_NAMES
     previous_let_proc_depth = _ACTIVE_LET_PROC_DEPTH
+    previous_guidance_example = _ACTIVE_GUIDANCE_EXAMPLE
     _ACTIVE_FUNCTION_NAME_RESOLVER = function_name_resolver
     _ACTIVE_FUNCTION_NAMES = function_names
     _ACTIVE_PROCEDURE_NAME_RESOLVER = procedure_name_resolver
     _ACTIVE_WORKFLOW_NAME_RESOLVER = workflow_name_resolver
     _ACTIVE_LOCAL_PROC_NAMES = frozenset()
     _ACTIVE_LET_PROC_DEPTH = 0
+    _ACTIVE_GUIDANCE_EXAMPLE = guidance_example
     try:
         return _elaborate(
             syntax_node_datum(node),
@@ -652,6 +656,7 @@ def elaborate_expression(
         _ACTIVE_WORKFLOW_NAME_RESOLVER = previous_workflow_resolver
         _ACTIVE_LOCAL_PROC_NAMES = previous_local_proc_names
         _ACTIVE_LET_PROC_DEPTH = previous_let_proc_depth
+        _ACTIVE_GUIDANCE_EXAMPLE = previous_guidance_example
 
 
 def _elaborate(
@@ -686,6 +691,14 @@ def _elaborate(
             expansion_stack=datum.expansion_stack,
         )
     if isinstance(datum, SyntaxFloat):
+        if _ACTIVE_GUIDANCE_EXAMPLE:
+            return LiteralExpr(
+                value=datum.value,
+                literal_kind="float",
+                span=datum.span,
+                form_path=form_path,
+                expansion_stack=datum.expansion_stack,
+            )
         _raise_error(
             "float literals are only supported in `defworkflow` parameter defaults",
             span=datum.span,

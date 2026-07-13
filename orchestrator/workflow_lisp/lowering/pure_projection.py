@@ -63,23 +63,69 @@ class LoweredPureProjection:
     output_refs: dict[str, str]
 
 
-def is_pure_projection_expr(expr: Any) -> bool:
+def is_pure_projection_expr(
+    expr: Any,
+    *,
+    allow_generated_relpath_seed: bool = False,
+) -> bool:
     """Return whether one frontend expression can lower through pure projection."""
 
-    if isinstance(expr, (LiteralExpr, EnumMemberExpr, NameExpr, FieldAccessExpr, PureOpExpr, RecordUpdateExpr)):
+    if isinstance(
+        expr,
+        (
+            LiteralExpr,
+            EnumMemberExpr,
+            NameExpr,
+            FieldAccessExpr,
+            PureOpExpr,
+            RecordUpdateExpr,
+        ),
+    ):
         return True
+    if isinstance(expr, GeneratedRelpathSeedExpr):
+        return allow_generated_relpath_seed
     if isinstance(expr, RecordExpr):
-        return all(is_pure_projection_expr(field_expr) for _, field_expr in expr.fields)
+        return all(
+            is_pure_projection_expr(
+                field_expr,
+                allow_generated_relpath_seed=allow_generated_relpath_seed,
+            )
+            for _, field_expr in expr.fields
+        )
     if isinstance(expr, UnionVariantExpr):
-        return all(is_pure_projection_expr(field_expr) for _, field_expr in expr.fields)
+        return all(
+            is_pure_projection_expr(
+                field_expr,
+                allow_generated_relpath_seed=allow_generated_relpath_seed,
+            )
+            for _, field_expr in expr.fields
+        )
     if isinstance(expr, IfExpr):
         return (
-            is_pure_projection_expr(expr.condition_expr)
-            and is_pure_projection_expr(expr.then_expr)
-            and is_pure_projection_expr(expr.else_expr)
+            is_pure_projection_expr(
+                expr.condition_expr,
+                allow_generated_relpath_seed=allow_generated_relpath_seed,
+            )
+            and is_pure_projection_expr(
+                expr.then_expr,
+                allow_generated_relpath_seed=allow_generated_relpath_seed,
+            )
+            and is_pure_projection_expr(
+                expr.else_expr,
+                allow_generated_relpath_seed=allow_generated_relpath_seed,
+            )
         )
     if isinstance(expr, LetStarExpr):
-        return all(is_pure_projection_expr(binding_expr) for _, binding_expr in expr.bindings) and is_pure_projection_expr(expr.body)
+        return all(
+            is_pure_projection_expr(
+                binding_expr,
+                allow_generated_relpath_seed=allow_generated_relpath_seed,
+            )
+            for _, binding_expr in expr.bindings
+        ) and is_pure_projection_expr(
+            expr.body,
+            allow_generated_relpath_seed=allow_generated_relpath_seed,
+        )
     return False
 
 
@@ -109,6 +155,50 @@ def try_evaluate_static_pure_expr(
             form_path=expr.form_path,
             expansion_stack=getattr(expr, "expansion_stack", ()),
         )
+
+
+def evaluate_closed_pure_expr(
+    expr: Any,
+    *,
+    result_type: TypeRef,
+    type_env: FrontendTypeEnvironment,
+) -> Any:
+    """Evaluate one already-typechecked expression with no runtime bindings."""
+
+    context = type(
+        "GuidancePureProjectionContext",
+        (),
+        {"type_env": type_env, "local_type_bindings": {}},
+    )()
+    payload, binding_refs = build_pure_projection_payload(
+        expr,
+        result_type=result_type,
+        context=context,
+        local_values={},
+    )
+    if binding_refs:
+        raise ValueError("closed pure expression unexpectedly required runtime bindings")
+    return evaluate_pure_expr(payload, resolved_bindings={})
+
+
+def evaluate_typed_constant(
+    value: Any,
+    *,
+    result_type: TypeRef,
+    type_env: FrontendTypeEnvironment,
+) -> Any:
+    """Normalize JSON-native compile-time data through the shared evaluator."""
+
+    descriptor = _type_descriptor(result_type, type_env=type_env)
+    return evaluate_pure_expr(
+        {
+            "pure_expr_schema_version": 1,
+            "result_type": descriptor,
+            "bindings": {},
+            "expr": {"kind": "literal", "type": descriptor, "value": value},
+        },
+        resolved_bindings={},
+    )
 
 
 def lower_pure_projection_step(
@@ -407,6 +497,13 @@ def _payload_expr(
             "type": _type_descriptor(type_ref, type_env=context.type_env),
             "value": expr.value,
         }, type_ref
+    if isinstance(expr, GeneratedRelpathSeedExpr):
+        type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
+        return {
+            "kind": "literal",
+            "type": _type_descriptor(type_ref, type_env=context.type_env),
+            "value": expr.literal_path,
+        }, type_ref
     if isinstance(expr, EnumMemberExpr):
         type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
         return {
@@ -631,7 +728,11 @@ def _infer_expr_type(
             return PrimitiveTypeRef(name="Bool")
         if expr.literal_kind == "int":
             return PrimitiveTypeRef(name="Int")
+        if expr.literal_kind == "float":
+            return PrimitiveTypeRef(name="Float")
         return PrimitiveTypeRef(name="String")
+    if isinstance(expr, GeneratedRelpathSeedExpr):
+        return expr.target_type_ref
     if isinstance(expr, EnumMemberExpr):
         return context.type_env.resolve_type(
             expr.enum_name,

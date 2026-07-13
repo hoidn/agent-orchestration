@@ -23,6 +23,8 @@ from orchestrator.workflow_lisp.diagnostics import (
 )
 from orchestrator.workflow_lisp.expressions import elaborate_expression
 from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
+from orchestrator.workflow_lisp import result_guidance as result_guidance_module
+from orchestrator.workflow_lisp.result_guidance import ResultGuidance, ReturnSpec
 from orchestrator.workflow_lisp.syntax import SyntaxNode, WorkflowLispSyntaxModule, build_syntax_module
 from orchestrator.workflow_lisp.type_env import (
     FrontendTypeEnvironment,
@@ -188,6 +190,285 @@ def _expression_syntax(source: str) -> SyntaxNode:
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
     assert excinfo.value.diagnostics[0].code == code
+
+
+@pytest.mark.parametrize(
+    ("type_name", "source", "expected"),
+    [
+        ("Bool", "true", True),
+        ("Int", "(+ 1 2)", 3),
+        ("Float", "0.91", 0.91),
+        ("BlockerClass", "BlockerClass.missing_resource", "missing_resource"),
+        ("Optional[Bool]", "true", True),
+        ("WorkReport", '"artifacts/work/example.md"', "artifacts/work/example.md"),
+        (
+            "ChecksResult",
+            '(record ChecksResult :status "ok" :report "artifacts/work/checks.md")',
+            {"status": "ok", "report": "artifacts/work/checks.md"},
+        ),
+        (
+            "ImplementationState",
+            "(variant ImplementationState BLOCKED "
+            ':progress_report "artifacts/work/progress.md" '
+            ":blocker_class BlockerClass.missing_resource)",
+            {
+                "variant": "BLOCKED",
+                "progress_report": "artifacts/work/progress.md",
+                "blocker_class": "missing_resource",
+            },
+        ),
+    ],
+)
+def test_guidance_example_validates_source_constant_families(
+    type_name: str,
+    source: str,
+    expected: object,
+) -> None:
+    type_env = _build_type_env()
+    syntax = _expression_syntax(source)
+    type_ref = type_env.resolve_type(type_name, span=syntax.span, form_path=syntax.form_path)
+
+    assert result_guidance_module.validate_result_guidance_example(
+        ResultGuidance(example_expr=syntax),
+        expected_type=type_ref,
+        type_env=type_env,
+    ) == expected
+
+
+@pytest.mark.parametrize(
+    ("type_name", "value", "expected"),
+    [
+        ("Optional[Bool]", None, None),
+        ("List[Int]", [1, 2], [1, 2]),
+        ("Map[String, Float]", {"clarity": 0.87}, {"clarity": 0.87}),
+    ],
+)
+def test_guidance_example_validates_json_native_collection_constants(
+    type_name: str,
+    value: object,
+    expected: object,
+) -> None:
+    type_env = _build_type_env()
+    syntax = _expression_syntax("true")
+    type_ref = type_env.resolve_type(type_name, span=syntax.span, form_path=syntax.form_path)
+
+    assert result_guidance_module.validate_typed_guidance_constant(
+        value,
+        expected_type=type_ref,
+        type_env=type_env,
+        example_node=syntax,
+    ) == expected
+
+
+def test_guidance_path_example_does_not_require_existing_target(tmp_path: Path) -> None:
+    type_env = _build_type_env()
+    syntax = _expression_syntax('"artifacts/work/not-created.md"')
+    path_type = type_env.resolve_type("WorkReport", span=syntax.span, form_path=syntax.form_path)
+
+    assert not (tmp_path / "artifacts/work/not-created.md").exists()
+    assert result_guidance_module.validate_result_guidance_example(
+        ResultGuidance(example_expr=syntax),
+        expected_type=path_type,
+        type_env=type_env,
+        workspace=tmp_path,
+    ) == "artifacts/work/not-created.md"
+
+
+def test_guidance_example_type_mismatch_has_stable_source_mapped_diagnostic(tmp_path: Path) -> None:
+    path = FIXTURES / "invalid" / "result_guidance_example_type_mismatch.orc"
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(path, validate_shared=False, workspace_root=tmp_path)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "result_guidance_example_type_mismatch"
+    assert diagnostic.message == "result guidance example does not match declared type `Bool`"
+    assert diagnostic.span.start.path.endswith("result_guidance_example_type_mismatch.orc")
+    assert diagnostic.span.start.line == 5
+
+
+def test_guidance_example_effect_has_stable_source_mapped_diagnostic(tmp_path: Path) -> None:
+    path = FIXTURES / "invalid" / "result_guidance_example_effectful.orc"
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(path, validate_shared=False, workspace_root=tmp_path)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "result_guidance_example_not_constant"
+    assert diagnostic.message == "result guidance example must be an effect-free compile-time constant"
+    assert diagnostic.span.start.path.endswith("result_guidance_example_effectful.orc")
+    assert diagnostic.span.start.line == 6
+
+
+def test_guidance_example_rejects_runtime_binding_with_same_constant_diagnostic(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "result_guidance_example_binding.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defworkflow binding-example ((input Bool))",
+                "    -> (result Bool :example input)",
+                "    input))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(path, validate_shared=False, workspace_root=tmp_path)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "result_guidance_example_not_constant"
+    assert diagnostic.message == "result guidance example must be an effect-free compile-time constant"
+    assert diagnostic.span.start.line == 5
+
+
+def test_guidance_example_validates_annotated_record_fields_during_compile(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "result_guidance_field_mismatch.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                '  (defrecord ReviewResult (approved Bool :example "yes"))',
+                "  (defworkflow review () -> Bool true))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(path, validate_shared=False, workspace_root=tmp_path)
+
+    assert excinfo.value.diagnostics[0].code == "result_guidance_example_type_mismatch"
+
+
+def test_guidance_example_valid_module_compiles_through_stage3(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "result_guidance_examples_valid.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defrecord ReviewResult",
+                '    (approved Bool :example true)',
+                '    (score Float :example 0.91))',
+                "  (defworkflow review ()",
+                '    -> (result Bool :description "No blockers." :example (not false))',
+                "    true))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(path, validate_shared=False, workspace_root=tmp_path)
+
+    assert result.typed_workflows[0].signature.return_type_ref == PrimitiveTypeRef(name="Bool")
+
+
+def test_result_guidance_is_neutral_to_return_identity_and_runtime_validation() -> None:
+    syntax = _expression_syntax("true")
+    guided = ReturnSpec(
+        type_name="Bool",
+        guidance=ResultGuidance(description="No blockers.", example_expr=syntax),
+        span=syntax.span,
+    )
+    plain = ReturnSpec(type_name="Bool", guidance=None, span=syntax.span)
+
+    assert guided == plain
+    assert hash(guided) == hash(plain)
+    assert {guided: "same"}[plain] == "same"
+
+    type_env = _build_type_env()
+    bool_type = type_env.resolve_type("Bool", span=syntax.span, form_path=syntax.form_path)
+    contract = derive_structured_result_contract(
+        bool_type,
+        workflow_name="identity-neutral",
+        step_id="identity-neutral__result",
+    )
+    field_spec = dict(contract.payload["fields"][0])
+    from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
+
+    assert validate_contract_value(True, field_spec, workspace=Path.cwd()) is True
+    with pytest.raises(OutputContractError):
+        validate_contract_value("not-a-bool", field_spec, workspace=Path.cwd())
+
+
+def test_field_guidance_is_neutral_to_type_specialization_and_contract_fingerprint() -> None:
+    from orchestrator.workflow_lisp.contracts import _strip_contract_provenance_for_fingerprint
+    from orchestrator.workflow_lisp.definitions import RecordDef, RecordField
+    from orchestrator.workflow_lisp.procedures import parametric_specialization_name
+    from orchestrator.workflow_lisp.type_env import type_refs_compatible
+
+    syntax = _expression_syntax("true")
+    plain_field = RecordField(name="approved", type_name="Bool", span=syntax.span)
+    guided_field = RecordField(
+        name="approved",
+        type_name="Bool",
+        span=syntax.span,
+        guidance=ResultGuidance(description="No blockers.", example_expr=syntax),
+    )
+    plain_type = RecordTypeRef(
+        name="ReviewResult",
+        definition=RecordDef(name="ReviewResult", fields=(plain_field,), span=syntax.span),
+        field_types={"approved": PrimitiveTypeRef(name="Bool")},
+    )
+    guided_type = RecordTypeRef(
+        name="ReviewResult",
+        definition=RecordDef(name="ReviewResult", fields=(guided_field,), span=syntax.span),
+        field_types={"approved": PrimitiveTypeRef(name="Bool")},
+    )
+
+    assert plain_field == guided_field
+    assert type_refs_compatible(plain_type, guided_type)
+    assert parametric_specialization_name("identity", {"T": plain_type}) == parametric_specialization_name(
+        "identity", {"T": guided_type}
+    )
+    plain_contract = derive_structured_result_contract(
+        plain_type,
+        workflow_name="identity-neutral",
+        step_id="identity-neutral__record",
+    )
+    guided_contract = derive_structured_result_contract(
+        guided_type,
+        workflow_name="identity-neutral",
+        step_id="identity-neutral__record",
+    )
+    assert _strip_contract_provenance_for_fingerprint(
+        plain_contract.payload
+    ) == _strip_contract_provenance_for_fingerprint(
+        guided_contract.payload
+    )
+
+
+def test_guidance_example_validates_effect_boundary_occurrence(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "result_guidance_effect_boundary_mismatch.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defworkflow review () -> Bool",
+                "    (provider-result providers.review",
+                "      :prompt prompts.review",
+                "      :inputs ()",
+                '      :returns (result Bool :example "yes"))))',
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            provider_externs={"providers.review": "test-provider"},
+            prompt_externs={"prompts.review": "prompts/review.md"},
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "result_guidance_example_type_mismatch"
 
 
 def _strip_contract_source_metadata(value: object) -> object:
