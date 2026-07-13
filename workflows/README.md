@@ -1,14 +1,28 @@
 # Workflow Index
 
 This file is an informative catalog of workflow YAML and Workflow Lisp `.orc`
-examples under `workflows/`. YAML files remain the source of truth for exact
-runtime behavior unless a `.orc` entry explicitly says it has shared-validation
-and runtime parity evidence.
+examples under `workflows/`. A promoted `.orc` entry with shared-validation,
+runtime, and parity evidence is the primary surface for its family. Otherwise,
+the retained YAML surface remains the exact-behavior authority until its own
+promotion gate closes.
 
 Run workflows from the repo root:
 
 ```bash
 python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
+```
+
+The promoted Design Delta primary uses the Workflow Lisp launch route. Supply
+all of its declared typed inputs with `--input` or `--input-file`; the fully
+input-complete invocation is recorded by the Gate P3 evidence step.
+
+```bash
+python -m orchestrator run workflows/library/lisp_frontend_design_delta/drain.orc \
+  --entry-workflow lisp_frontend_design_delta/drain::drain \
+  --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json \
+  --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json \
+  --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json \
+  --input-file <design-delta-inputs.json>
 ```
 
 Some workflows declare required typed inputs. For those, pass fixture inputs explicitly:
@@ -25,8 +39,11 @@ python -m orchestrator run workflows/examples/dsl_follow_on_plan_impl_review_loo
 
 Fresh preferred starting points:
 
-- For current target-design / design-gap drain work, start with
-  `workflows/examples/lisp_frontend_design_delta_drain.yaml`.
+- For current target-design / design-gap drain work, start with the promoted
+  Workflow Lisp primary at
+  `workflows/library/lisp_frontend_design_delta/drain.orc`. Its YAML twin is
+  retained only as compatibility/reference evidence until the Stage 6 archive
+  gate.
 - For a generic `.orc` review/fix loop over a target design doc plus optional
   context docs, start with `workflows/examples/review_revise_design_docs.orc`.
 - For the real-life-tested `.orc` review/fix path that revised the parametric
@@ -128,7 +145,8 @@ The prompt map reports missing paths; a missing path may indicate a stale exampl
 | `workflows/examples/major_project_tranche_drain_from_manifest_v2_call.yaml` | Reusable call-based; input-required | `2.7` | `major-project-tranche-drain-from-manifest-v2-call` | Continuation driver for an already-approved roadmap: consumes an existing project brief, project roadmap, and tranche manifest, then starts directly at the reusable manifest-drain iteration loop. |
 | `workflows/examples/generic_run_watchdog.yaml` | Current structured; input-required | `2.14` | `generic-run-watchdog-v214` | Generic one-pass watchdog for any orchestrator run id: probes persisted run state, writes an evidence bundle, skips provider work for healthy or completed runs, and calls a repair provider for failed/stalled/unknown runs with a required final resume/relaunch/restart/decline action. Intended to be invoked by cron, systemd timer, tmux loop, or another scheduler every N minutes. |
 | `workflows/examples/lisp_frontend_autonomous_drain.yaml` | Current structured; reusable call-based; input-required | `2.14` | `lisp-frontend-autonomous-drain-v214` | Local Lisp frontend drain without roadmap phase gating: each loop builds a backlog manifest, lets the selector choose an active backlog item or an unimplemented design gap, drafts a design-gap implementation architecture when needed, normalizes both sources into one work item, and calls the Lisp plan/implementation stack. |
-| `workflows/examples/lisp_frontend_design_delta_drain.yaml` | Current structured; reusable call-based; input-required | `2.14` | `lisp-frontend-design-delta-drain-v214` | Design-delta wrapper over isolated target/baseline library variants for selector, design-gap architect, work-item, plan, and implementation phases; preserves the autonomous full/MVP stack as a separate caller path. |
+| `workflows/library/lisp_frontend_design_delta/drain.orc` | Workflow Lisp production primary; reusable library; input-required | `2.14` | `lisp_frontend_design_delta/drain::drain` | Primary Design Delta target/baseline drain. Its route-readiness entry is `wcc_default` / `promotion_eligible` with preferred-current-guidance copy safety, and strict migration parity constrains the family contract. Gate P3 still requires fresh end-to-end evidence before the roadmap advances. |
+| `workflows/examples/lisp_frontend_design_delta_drain.yaml` | Compatibility/reference twin; retained until Stage 6 | `2.14` | `lisp-frontend-design-delta-drain-v214` | Former Design Delta primary retained for one verification cycle and historical contract comparison. Do not use it as the current launch or authoring surface; archive it only at the Stage 6 gate. |
 | `workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml` | Current structured; reusable call-based; input-required | `2.14` | `lisp-frontend-proc-refs-partial-application-drain-v214` | Focused successor drain for the ProcRef / `bind-proc` design delta: calls the design-delta target/baseline stack with the ProcRef delta as the active target, the full frontend spec as baseline context, and separate ProcRef state, artifact, and plan namespaces. |
 | `workflows/examples/kiss_backlog_item.orc` | Workflow Lisp shared-validation example; input-required | `2.14` | `run-backlog-item` | Minimal `.orc` single-backlog-item stack: typed backlog item inputs, plan provider result, plan review/revise loop, implementation provider result, implementation review/fix loop, and final structured summary output. It compiles through shared validation and dry-runs through the `.orc` runtime bridge; it is a single-item authoring example, not a production queue drain or parity replacement for the mature YAML stacks. |
 | `workflows/examples/cycle_guard_demo.orc` | Workflow Lisp migration tranche; input-required | `2.14` | `cycle-guard-demo` | Migration-tranche `.orc` surface for the cycle-guard YAML example. Uses a certified command boundary to emit structured guard status for compile/dry-run/runtime bridge checks and parity reporting. |

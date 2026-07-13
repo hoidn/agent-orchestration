@@ -35,7 +35,7 @@ Machine-readable migration state should graduate into the route-readiness regist
 | workflows/examples/injection_demo.yaml | 2026-04-12 | 0 | no | no | example — port one exemplar or archive |
 | workflows/examples/library/repeat_until_review_loop.yaml | 2026-03-10 | 1 | no | no | library — retires with its importing family |
 | workflows/examples/lisp_frontend_autonomous_drain.yaml | 2026-07-01 | 0 | no | yes | production — needs .orc port + promotion evidence |
-| workflows/examples/lisp_frontend_design_delta_drain.yaml | 2026-07-06 | 1 | no | yes | production — needs .orc port + promotion evidence |
+| workflows/examples/lisp_frontend_design_delta_drain.yaml | 2026-07-06 | 1 | yes | yes | compatibility — .orc primary; retain through Stage 6 archive |
 | workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml | 2026-05-28 | 0 | no | yes | production — needs .orc port + promotion evidence |
 | workflows/examples/major_project_tranche_continue_from_approved_design_v2_call.yaml | 2026-04-28 | 0 | no | no | example — port one exemplar or archive |
 | workflows/examples/major_project_tranche_design_plan_impl_stack_v2_call.yaml | 2026-04-28 | 0 | no | no | example — port one exemplar or archive |
@@ -121,4 +121,5 @@ Machine-readable migration state should graduate into the route-readiness regist
 - delete: 1
 - example — port one exemplar or archive: 51
 - library — retires with its importing family: 29
-- production — needs .orc port + promotion evidence: 28
+- compatibility — .orc primary; retain through Stage 6 archive: 1
+- production — needs .orc port + promotion evidence: 27

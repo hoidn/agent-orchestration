@@ -1,22 +1,30 @@
 # Lisp Frontend Design Delta Drain .orc Migration Record
 
 Workflow family: Lisp frontend design delta drain
-YAML source of truth: `workflows/examples/lisp_frontend_design_delta_drain.yaml`
-Candidate `.orc`: not created yet
-Status: `inventory`
+Primary `.orc`: `workflows/library/lisp_frontend_design_delta/drain.orc`
+Compatibility YAML twin: `workflows/examples/lisp_frontend_design_delta_drain.yaml`
+Status: `primary-flipped; Gate P3 end-to-end evidence pending`
 Created: 2026-06-09
 Plan: `docs/plans/2026-06-09-lisp-frontend-design-delta-drain-orc-migration-plan.md`
 
 ## Authority
 
-YAML remains authoritative for this workflow family. The `.orc` candidate may
-become primary only after migration parity tooling computes that it is
-non-regressive and `--require-promotable` succeeds.
+The `.orc` workflow is now the primary launch and routing surface for this
+family. The route-readiness registry labels it `wcc_default` /
+`promotion_eligible` with preferred-current-guidance copy safety, and the
+migration target is eligible for the primary surface. The YAML twin remains in
+place only as compatibility/reference evidence until the Stage 6 archive gate.
 
-Compile, shared validation, and dry-run are required evidence, but they are not
-sufficient promotion evidence by themselves.
+This authority flip does not satisfy Gate P3 by itself. Fresh end-to-end launch
+evidence and the reviewed promotion decision are still required before the
+roadmap advances, and the current selector remains Gate P3 verification and
+closure.
 
-## Current Baseline
+The remaining sections preserve the June migration inventory and baseline as
+dated provenance. They do not override the current registry, parity target, or
+catalog routing above.
+
+## Historical YAML Baseline (2026-06-09)
 
 Representative completed YAML run:
 
@@ -39,7 +47,7 @@ Baseline evidence checked during inventory:
 - `python -m orchestrator report --run-id 20260609T003338Z-iroxpc`
 - `baseline_evidence.md`
 
-## Migration Status
+## Historical Inventory Status (2026-06-09)
 
 | Evidence area | Status | Evidence |
 | --- | --- | --- |
@@ -60,7 +68,7 @@ Baseline evidence checked during inventory:
 | `--require-non-regressive` | not started | none |
 | `--require-promotable` | not started | none |
 
-## Required Evidence Before Promotion
+## Historical Promotion Checklist
 
 - `.orc` family parses, typechecks, lowers, and passes shared validation.
 - Fake-provider tests cover normal completion, done, blocked, plan revise,
@@ -77,11 +85,11 @@ Baseline evidence checked during inventory:
 - `migration-parity --require-promotable` succeeds.
 - The user explicitly accepts promotion from YAML primary to `.orc` primary.
 
-## Accepted Differences
+## Historical Accepted Differences (2026-06-09)
 
 None yet.
 
-## Open Migration Risks
+## Historical Open Migration Risks (2026-06-09)
 
 - Parent drain recovery is not equivalent to the simple design-doc review/revise
   `.orc` workflow; it needs typed recovery routing and resource-state mutation.
@@ -133,7 +141,7 @@ None yet.
 - Resume parity must exercise stale prerequisite/recovery edges, not just
   ordinary happy-path resume.
 
-## Next Checkpoint
+## Historical Next Checkpoint (2026-06-09)
 
 Proceed to the plan phase `.orc` candidate. Do not translate the parent drain
 until selector, gap architect, work item, plan phase, implementation phase,

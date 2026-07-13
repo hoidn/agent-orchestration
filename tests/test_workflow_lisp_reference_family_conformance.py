@@ -132,6 +132,70 @@ CHECKED_MANIFEST_SOURCE_PATHS = {
 }
 
 
+def _markdown_table_row(path: Path, key: str) -> str:
+    return next(
+        line
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.startswith("|") and key in line
+    )
+
+
+def test_design_delta_promotion_routes_current_docs_to_orc_primary() -> None:
+    orc_path = "workflows/library/lisp_frontend_design_delta/drain.orc"
+    yaml_path = "workflows/examples/lisp_frontend_design_delta_drain.yaml"
+
+    workflow_catalog = (REPO_ROOT / "workflows" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    preferred_section = workflow_catalog.split(
+        "Fresh preferred starting points:", 1
+    )[1].split("Reference corpus:", 1)[0]
+    assert orc_path in preferred_section
+    assert yaml_path not in preferred_section
+    assert "Primary" in _markdown_table_row(
+        REPO_ROOT / "workflows" / "README.md", orc_path
+    )
+    assert "Compatibility" in _markdown_table_row(
+        REPO_ROOT / "workflows" / "README.md", yaml_path
+    )
+
+    docs_index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    fast_triage = docs_index.split("## Fast Triage", 1)[1].split(
+        "## Clarifications", 1
+    )[0]
+    assert orc_path in fast_triage
+
+    triage_path = REPO_ROOT / "docs" / "workflow_yaml_estate_triage.md"
+    triage_row = _markdown_table_row(triage_path, yaml_path)
+    assert "| yes |" in triage_row
+    assert ".orc primary" in triage_row
+    assert "Stage 6" in triage_row
+    triage_text = triage_path.read_text(encoding="utf-8")
+    assert "- compatibility — .orc primary; retain through Stage 6 archive: 1" in triage_text
+    assert "- production — needs .orc port + promotion evidence: 27" in triage_text
+
+    capability_matrix = REPO_ROOT / "docs" / "capability_status_matrix.md"
+    yaml_surface_row = _markdown_table_row(capability_matrix, "YAML DSL v2.x")
+    assert "Preferred fresh starting point" not in yaml_surface_row
+    design_delta_row = _markdown_table_row(
+        capability_matrix, "Design Delta parent-family boundary"
+    )
+    assert orc_path in design_delta_row
+    assert "primary" in design_delta_row.lower()
+
+    migration_record = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "LISP-FRONTEND-DESIGN-DELTA-DRAIN-ORC-MIGRATION"
+        / "migration_record.md"
+    ).read_text(encoding="utf-8")
+    current_surface = migration_record.split("## Historical YAML Baseline", 1)[0]
+    assert orc_path in current_surface
+    assert "primary" in current_surface.lower()
+    assert "Gate P3" in current_surface
+
+
 def _reference_family_module():
     return importlib.import_module(
         "orchestrator.workflow_lisp.reference_family_conformance"
