@@ -1477,13 +1477,13 @@ Stage-5/post-drain wave defined by the governing procedure-first sequence.
 ## Phase 2 Ledger
 
 **(a) Task 2.1 deletion inventory and implementation candidate (2026-07-12).**
-The candidate implementation range is **`b34e1cf4..07d90364`**: the
+The candidate implementation range is **`b34e1cf4..b2f924dc`**: the
 dependency-ordered deletion sequence through `18e90977`, followed by the
 review-driven structure-guard and contract correction in `fd5aff6f` and the
-nested-dispatch guard correction in `07d90364`. Task 2.1 remains the current
-selector and is **pending re-review**; its checklist is intentionally not
-closed. **Task 2.2 has not started**: the form-registry/export disposition and
-G8 imported-only classification decision remain untouched.
+nested-dispatch guard corrections in `07d90364` and `b2f924dc`. Task 2.1
+remains the current selector and is **pending re-review**; its checklist is
+intentionally not closed. **Task 2.2 has not started**: the form-registry/export
+disposition and G8 imported-only classification decision remain untouched.
 
 **Step-1 inventory diff.** The fresh inventory found every live deletion
 cluster listed in the drafting table: WCC, lowering dispatch/facades, typecheck
@@ -1537,6 +1537,10 @@ the corrected contract plus both guard tests pass together. Independent quality
 review then found that tuple/set membership and mapping `.get(...)` dispatch
 could bypass those direct-node checks. Commit `07d90364` extends the same
 mutation proof to five sites and recursively checks comparison containers plus
-mapping `get`/`pop`/`setdefault` keys. Fresh endpoint integration and broad-suite
-evidence is required before re-review. No Task 2.1 completion, Task 2.2 start,
-Task 2.3 residue/parity, or Gate P3 claim is made.
+mapping `get`/`pop`/`setdefault` keys. Review of that correction found it also
+matched descriptive strings nested in arbitrary comparison calls and mapping
+default values; `b2f924dc` narrows recursion to literal comparison-container
+keys and mapping argument zero, with negative mutation cases preserving
+descriptive/default text. Fresh endpoint integration and broad-suite evidence
+is required before re-review. No Task 2.1 completion, Task 2.2 start, Task 2.3
+residue/parity, or Gate P3 claim is made.
