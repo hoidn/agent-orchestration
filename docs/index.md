@@ -250,6 +250,11 @@ document owns the answer.
 **Keywords:** lisp-frontend, prompt-queue, provider-session, multi-turn, output-contract
 **Use this when:** Reviewing or extending the multi-turn provider invocation direction; not implementable until the design is accepted and given an explicit roadmap slot.
 
+### [Workflow Lisp Language Server](design/workflow_lisp_language_server.md)
+**Description:** Proposed design for an `.orc` LSP server: a stdio server that is a pure consumer of the existing compile entry points (per frontend spec §76.1), delivering diagnostics on save, go-to-definition, document symbols, and completion in v1, with error-tolerance, hover, and as-you-type checking deferred behind named frontend prerequisites.
+**Keywords:** lisp-frontend, lsp, editor-tooling, diagnostics, go-to-definition, language-server
+**Use this when:** Reviewing or extending the `.orc` editor-tooling direction; not implementable until the design is accepted and given an explicit roadmap slot.
+
 ### [Workflow Lisp Parametric Type System](design/workflow_lisp_parametric_type_system.md)
 **Description:** Single-owner design for the parametric type-system direction: generic `defproc` with `:forall`/`:where`, the structural-constraint vocabulary (including type-parameter constraint field types and subset semantics), the instantiate-then-typecheck specialization pipeline, diagnostics contract, and the permanent-primitive vs migration-destined form classification with the per-form migration test. Supersedes the two 2026-06-02 parametric drafts.
 **Keywords:** lisp-frontend, parametric, type-system, structural-constraints, specialization, generics, form-migration, backlog-drain
