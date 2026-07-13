@@ -11,7 +11,16 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CURRENT_SELECTOR = (
     "phase 4 task 4.1: strip design delta constants and lanes from migration parity"
 )
+GATE_P4_REVIEWED_STATE = (
+    "gates p3 and p4 are independently reviewed and satisfied"
+)
 TASK_4_1_UNSTARTED_STATE = "task 4.1 has not started"
+CONTRADICTORY_PHASE_4_START = re.compile(
+    r"(?<!no )\b(?:"
+    r"task 4\.1(?: (?:implementation|work|source deletion|deletion))?"
+    r"|phase 4(?: (?:implementation|work|source deletion|deletion))?"
+    r") has (?:started|begun)\b"
+)
 
 
 def _markdown_table_row(path: Path, key: str) -> str:
@@ -51,12 +60,34 @@ def _assert_current_selector(surface: str, label: str) -> None:
 
 def _assert_gate_p4_closure_state(surface: str, label: str) -> None:
     normalized = _normalized_routing_text(surface)
-    assert re.search(
-        r"gates? p3(?: and gate)? and p4 (?:are|is) "
-        r"(?:independently reviewed and )?satisfied",
-        normalized,
-    ), label
+    assert GATE_P4_REVIEWED_STATE in normalized, label
     assert TASK_4_1_UNSTARTED_STATE in normalized, label
+    assert CONTRADICTORY_PHASE_4_START.search(normalized) is None, label
+
+
+@pytest.mark.parametrize(
+    "mutated_state",
+    [
+        (
+            "Gates P3 and P4 are satisfied. "
+            "Task 4.1 has not started, and no Task-4.1 deletion has begun."
+        ),
+        (
+            "Gates P3 and P4 are independently reviewed and satisfied. "
+            "Task 4.1 has not started. Task 4.1 has started."
+        ),
+        (
+            "Gates P3 and P4 are independently reviewed and satisfied. "
+            "Task 4.1 has not started. Phase 4 implementation has begun."
+        ),
+    ],
+    ids=["weakened-review", "contradictory-started", "contradictory-begun"],
+)
+def test_gate_p4_closure_guard_rejects_weakened_or_contradictory_state(
+    mutated_state: str,
+) -> None:
+    with pytest.raises(AssertionError):
+        _assert_gate_p4_closure_state(mutated_state, "mutated Gate P4 state")
 
 
 def test_design_delta_primary_and_archive_deferral_remain_routed() -> None:
