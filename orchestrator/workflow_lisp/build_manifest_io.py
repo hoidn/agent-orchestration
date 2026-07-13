@@ -768,10 +768,17 @@ def _json_data(value: Any) -> Any:
     if isinstance(value, list):
         return [_json_data(item) for item in value]
     if is_dataclass(value):
-        return {
-            field.name: _json_data(getattr(value, field.name))
-            for field in fields(value)
-        }
+        payload: dict[str, Any] = {}
+        for field in fields(value):
+            item = getattr(value, field.name)
+            if field.metadata.get("json_omit_if_none") and item is None:
+                continue
+            value_attr = field.metadata.get("json_value_attr")
+            if isinstance(value_attr, str):
+                item = getattr(item, value_attr)
+            name = field.metadata.get("json_name", field.name)
+            payload[str(name)] = _json_data(item)
+        return payload
     if hasattr(value, "__dict__"):
         return {
             key: _json_data(item)

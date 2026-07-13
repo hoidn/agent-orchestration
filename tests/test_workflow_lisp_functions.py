@@ -1,6 +1,6 @@
 import importlib
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 
 import pytest
@@ -149,6 +149,29 @@ def test_elaborate_function_return_spec(return_source: str, has_guidance: bool) 
         assert guidance.description == "True only when no blockers remain."
         assert guidance.format_hint == "JSON boolean."
         assert guidance.example_expr.datum.value is True
+
+
+def test_function_definition_stores_only_canonical_return_spec() -> None:
+    (function_def,) = _elaborate_inline_functions(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defun approved () -> Bool true))",
+            ]
+        )
+    )
+
+    stored_names = {field.name for field in fields(function_def)}
+    assert "return_spec" in stored_names
+    assert "return_type_name" not in stored_names
+    assert function_def.return_type_name == function_def.return_spec.type_name
+
+    changed = replace(function_def, return_type_name="String")
+    assert changed.return_type_name == "String"
+    assert changed.return_spec.type_name == "String"
+    assert changed != function_def
 
 
 def test_elaborate_function_rejects_result_annotation_in_parameter_position() -> None:

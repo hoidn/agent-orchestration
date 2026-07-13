@@ -13,6 +13,8 @@ import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage1_entrypoint, compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from orchestrator.workflow_lisp.definitions import RecordField
+from orchestrator.workflow_lisp.functions import FunctionDef
 from orchestrator.workflow_lisp.modules import resolve_module_graph
 from orchestrator.workflow_lisp.source_map import build_source_map_document
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
@@ -51,6 +53,33 @@ RUNTIME_CLOSURE_MARKERS = (
     "Closure[",
     "runtime_closure",
 )
+
+
+def test_json_data_keeps_plain_return_and_field_dataclasses_legacy_compatible() -> None:
+    span = SourceSpan(
+        start=SourcePosition(path="plain.orc", line=1, column=1, offset=0),
+        end=SourcePosition(path="plain.orc", line=1, column=2, offset=1),
+    )
+    function_def = FunctionDef(
+        name="approved",
+        params=(),
+        return_type_name="Bool",
+        body=True,
+        span=span,
+        form_path=("workflow-lisp", "defun", "approved"),
+    )
+    field = RecordField(name="approved", type_name="Bool", span=span)
+
+    function_payload = _build_module()._json_data(function_def)
+    field_payload = _build_module()._json_data(field)
+
+    assert function_payload["return_type_name"] == "Bool"
+    assert "return_spec" not in function_payload
+    assert field_payload == {
+        "name": "approved",
+        "type_name": "Bool",
+        "span": _build_module()._json_data(span),
+    }
 
 
 def _build_module():

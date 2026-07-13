@@ -7,7 +7,7 @@ the full intended language surface.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
@@ -355,21 +355,34 @@ class ProviderResultExpr:
     provider: "ExprNode"
     prompt: "ExprNode"
     inputs: tuple["ExprNode", ...]
-    returns_type_name: str
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
-    return_spec: ReturnSpec | None = field(default=None, repr=False, compare=False)
+    return_spec: ReturnSpec | None = field(
+        default=None,
+        repr=False,
+        metadata={"json_name": "returns_type_name", "json_value_attr": "type_name"},
+    )
+    returns_type_name: InitVar[str | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, returns_type_name: str | None) -> None:
         if self.return_spec is None:
+            if returns_type_name is None:
+                raise TypeError("provider results require a return spec")
             object.__setattr__(
                 self,
                 "return_spec",
-                ReturnSpec(type_name=self.returns_type_name, guidance=None, span=self.span),
+                ReturnSpec(type_name=returns_type_name, guidance=None, span=self.span),
             )
-        elif self.return_spec.type_name != self.returns_type_name:
-            raise ValueError("provider return spec must match returns_type_name")
+        elif returns_type_name is not None and self.return_spec.type_name != returns_type_name:
+            object.__setattr__(
+                self,
+                "return_spec",
+                ReturnSpec(type_name=returns_type_name, guidance=None, span=self.return_spec.span),
+            )
+
+
+ProviderResultExpr.returns_type_name = property(lambda self: self.return_spec.type_name)
 
 
 @dataclass(frozen=True)
@@ -391,21 +404,34 @@ class CommandResultExpr:
     argv: tuple["ExprNode", ...]
     adapter_name: str | None
     adapter_inputs: tuple[tuple[str, "ExprNode"], ...]
-    returns_type_name: str
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
-    return_spec: ReturnSpec | None = field(default=None, repr=False, compare=False)
+    return_spec: ReturnSpec | None = field(
+        default=None,
+        repr=False,
+        metadata={"json_name": "returns_type_name", "json_value_attr": "type_name"},
+    )
+    returns_type_name: InitVar[str | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, returns_type_name: str | None) -> None:
         if self.return_spec is None:
+            if returns_type_name is None:
+                raise TypeError("command results require a return spec")
             object.__setattr__(
                 self,
                 "return_spec",
-                ReturnSpec(type_name=self.returns_type_name, guidance=None, span=self.span),
+                ReturnSpec(type_name=returns_type_name, guidance=None, span=self.span),
             )
-        elif self.return_spec.type_name != self.returns_type_name:
-            raise ValueError("command return spec must match returns_type_name")
+        elif returns_type_name is not None and self.return_spec.type_name != returns_type_name:
+            object.__setattr__(
+                self,
+                "return_spec",
+                ReturnSpec(type_name=returns_type_name, guidance=None, span=self.return_spec.span),
+            )
+
+
+CommandResultExpr.returns_type_name = property(lambda self: self.return_spec.type_name)
 
 
 @dataclass(frozen=True)

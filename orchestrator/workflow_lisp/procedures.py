@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import InitVar, dataclass, field, replace
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -120,7 +120,6 @@ class ProcedureDef:
 
     name: str
     params: tuple[ProcedureParam, ...]
-    return_type_name: str
     declared_effects: frozenset[EffectAtom]
     requested_lowering_mode: ProcedureLoweringMode
     body: SyntaxNode
@@ -130,16 +129,23 @@ class ProcedureDef:
     type_params: tuple[ProcedureTypeParam, ...] = ()
     where_clauses: tuple[ProcedureConstraintSyntax, ...] = ()
     generated_local_procedure: "GeneratedLocalProcedure | None" = None
-    return_spec: ReturnSpec | None = field(default=None, repr=False, compare=False)
+    return_spec: ReturnSpec | None = field(
+        default=None,
+        repr=False,
+        metadata={"json_name": "return_type_name", "json_value_attr": "type_name"},
+    )
+    return_type_name: InitVar[str | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, return_type_name: str | None) -> None:
         if self.return_spec is None:
+            if return_type_name is None:
+                raise TypeError("procedure definitions require a return spec")
             object.__setattr__(
                 self,
                 "return_spec",
-                ReturnSpec(type_name=self.return_type_name, guidance=None, span=self.span),
+                ReturnSpec(type_name=return_type_name, guidance=None, span=self.span),
             )
-        elif self.return_spec.type_name != self.return_type_name:
+        elif return_type_name is not None and self.return_spec.type_name != return_type_name:
             # Existing specialization reconstructs definitions with a substituted
             # return type. Task 4 owns preservation of authored metadata through
             # that reconstruction; keep the Task 2 carrier internally coherent.
@@ -147,11 +153,14 @@ class ProcedureDef:
                 self,
                 "return_spec",
                 ReturnSpec(
-                    type_name=self.return_type_name,
+                    type_name=return_type_name,
                     guidance=None,
                     span=self.return_spec.span,
                 ),
             )
+
+
+ProcedureDef.return_type_name = property(lambda self: self.return_spec.type_name)
 
 
 @dataclass(frozen=True)

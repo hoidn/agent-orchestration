@@ -14,7 +14,7 @@ the planned syntax-neutral workflow representation.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from typing import TYPE_CHECKING, Literal
 
 from orchestrator.workflow.loaded_bundle import (
@@ -335,23 +335,36 @@ class WorkflowDef:
 
     name: str
     params: tuple[WorkflowParam, ...]
-    return_type_name: str
     body: SyntaxNode
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
     publication_policy: EntryPublicationPolicy | None = None
-    return_spec: ReturnSpec | None = field(default=None, repr=False, compare=False)
+    return_spec: ReturnSpec | None = field(
+        default=None,
+        repr=False,
+        metadata={"json_name": "return_type_name", "json_value_attr": "type_name"},
+    )
+    return_type_name: InitVar[str | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, return_type_name: str | None) -> None:
         if self.return_spec is None:
+            if return_type_name is None:
+                raise TypeError("workflow definitions require a return spec")
             object.__setattr__(
                 self,
                 "return_spec",
-                ReturnSpec(type_name=self.return_type_name, guidance=None, span=self.span),
+                ReturnSpec(type_name=return_type_name, guidance=None, span=self.span),
             )
-        elif self.return_spec.type_name != self.return_type_name:
-            raise ValueError("workflow return spec must match return_type_name")
+        elif return_type_name is not None and self.return_spec.type_name != return_type_name:
+            object.__setattr__(
+                self,
+                "return_spec",
+                ReturnSpec(type_name=return_type_name, guidance=None, span=self.return_spec.span),
+            )
+
+
+WorkflowDef.return_type_name = property(lambda self: self.return_spec.type_name)
 
 
 

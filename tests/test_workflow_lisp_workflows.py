@@ -1,4 +1,5 @@
 import importlib
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -136,6 +137,30 @@ def test_elaborate_workflow_carries_guided_return_spec() -> None:
     assert workflow_def.return_spec.type_name == "Bool"
     assert workflow_def.return_spec.guidance.format_hint == "JSON boolean."
     assert workflow_def.return_spec.guidance.example_expr.datum.value is True
+
+
+def test_workflow_definition_stores_only_canonical_return_spec() -> None:
+    from orchestrator.workflow_lisp.reader import read_sexpr_text
+
+    syntax_module = build_syntax_module(
+        read_sexpr_text(
+            "\n".join(
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.15")',
+                    "  (defworkflow approved () -> Bool true))",
+                ]
+            ),
+            source_path="inline_workflow_return_authority.orc",
+        )
+    )
+
+    (workflow_def,) = elaborate_workflow_definitions(syntax_module)
+    stored_names = {field.name for field in fields(workflow_def)}
+    assert "return_spec" in stored_names
+    assert "return_type_name" not in stored_names
+    assert workflow_def.return_type_name == workflow_def.return_spec.type_name
 
 
 def _inline_span(path: str = "inline_workflow_expression.orc") -> SourceSpan:

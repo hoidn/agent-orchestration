@@ -1,6 +1,7 @@
 import inspect
 import importlib
 import ast
+from dataclasses import fields
 from pathlib import Path
 from typing import get_args
 
@@ -122,6 +123,31 @@ def test_elaborate_effect_result_carries_guided_return_spec(source: str, expecte
     assert expr.returns_type_name == "Bool"
     assert expr.return_spec.type_name == "Bool"
     assert expr.return_spec.guidance.example_expr.datum.value is True
+
+
+@pytest.mark.parametrize(
+    ("source", "legacy_name"),
+    [
+        (
+            "(provider-result providers.review :prompt prompts.review :inputs () :returns Bool)",
+            "returns_type_name",
+        ),
+        (
+            "(command-result run_checks :argv () :returns Bool)",
+            "returns_type_name",
+        ),
+    ],
+)
+def test_effect_result_stores_only_canonical_return_spec(source: str, legacy_name: str) -> None:
+    expr = elaborate_expression(
+        _expression_syntax(source),
+        bound_names=frozenset({"providers.review", "prompts.review"}),
+    )
+
+    stored_names = {field.name for field in fields(expr)}
+    assert "return_spec" in stored_names
+    assert legacy_name not in stored_names
+    assert getattr(expr, legacy_name) == expr.return_spec.type_name
 
 
 @pytest.mark.parametrize(

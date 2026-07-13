@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourceSpan
@@ -30,8 +30,8 @@ class ReturnSpec:
     """One return type occurrence plus its optional authored guidance."""
 
     type_name: str
-    guidance: ResultGuidance | None
-    span: SourceSpan
+    guidance: ResultGuidance | None = field(compare=False)
+    span: SourceSpan = field(compare=False)
 
 
 def parse_return_spec(

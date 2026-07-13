@@ -43,7 +43,12 @@ class RecordField:
     name: str
     type_name: str
     span: SourceSpan
-    guidance: ResultGuidance | None = field(default=None, repr=False, compare=False)
+    guidance: ResultGuidance | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        metadata={"json_omit_if_none": True},
+    )
 
 
 @dataclass(frozen=True)

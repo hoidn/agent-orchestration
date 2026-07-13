@@ -1,7 +1,7 @@
 import ast
 import importlib
 import json
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -221,6 +221,15 @@ def test_elaborate_procedure_carries_guided_return_spec() -> None:
     assert procedure_def.return_spec.type_name == "Bool"
     assert procedure_def.return_spec.guidance.description == "No blockers remain."
     assert procedure_def.return_spec.guidance.example_expr.datum.value is True
+
+
+def test_procedure_definition_stores_only_canonical_return_spec() -> None:
+    (procedure_def,) = _elaborate_inline_procedures("Bool")
+
+    stored_names = {field.name for field in fields(procedure_def)}
+    assert "return_spec" in stored_names
+    assert "return_type_name" not in stored_names
+    assert procedure_def.return_type_name == procedure_def.return_spec.type_name
 
 
 @pytest.mark.parametrize(
