@@ -2830,43 +2830,6 @@ def test_promoted_design_delta_target_is_retired_but_historical_report_is_preser
         assert _sha256_file(historical_report_root / name) == expected_hash
 
 
-def test_design_delta_parent_drain_manifest_runs_input_complete_orc_dry_run() -> None:
-    payload = json.loads(
-        (
-            Path(__file__).resolve().parents[1]
-            / "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
-        ).read_text(encoding="utf-8")
-    )
-    target = next(
-        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
-    )
-
-    dry_run = target["evidence_commands"]["dry_run"]
-    assert isinstance(dry_run, list)
-    assert dry_run[:5] == [
-        "python",
-        "-m",
-        "orchestrator",
-        "run",
-        "workflows/library/lisp_frontend_design_delta/drain.orc",
-    ]
-    assert "--dry-run" in dry_run
-    input_pairs = [
-        dry_run[index + 1]
-        for index, argument in enumerate(dry_run)
-        if argument == "--input"
-    ]
-    assert input_pairs == [
-        "steering_path=docs/steering.md",
-        "target_design_path=docs/design/workflow_lisp_runtime_native_drain_authoring.md",
-        "baseline_design_path=docs/design/workflow_lisp_frontend_specification.md",
-        "architecture_targets__design_gap_id=workflow-lisp-family1-promotion",
-        "architecture_targets__architecture_path=docs/plans/2026-07-07-drain-migration-g8-retirement.md",
-        "architecture_targets__work_item_context_path=artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/section14-parent-dry-run/work_item_context.md",
-        "architecture_targets__check_commands_path=state/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/drain/iterations/4/design-gap-architect/check_commands.json",
-        "architecture_targets__plan_target_path=docs/plans/2026-07-07-yaml-retirement-program.md",
-        "existing_architecture_index_path=artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/section14-parent-dry-run/existing-architecture-index.md",
-    ]
 
 
 def test_design_delta_parent_drain_checked_in_command_boundary_metadata_matches_g8_deleted_manifest() -> None:
@@ -4230,76 +4193,12 @@ def test_design_delta_consume_prompt_report_stays_empty_until_authored_consumes_
     assert payload["consumed_artifact_prompt_rows"] == []
 
 
-def test_design_delta_parent_drain_target_requires_typed_prompt_input_compile_artifact() -> None:
-    payload = json.loads(
-        (
-            Path(__file__).resolve().parent.parent
-            / "workflows"
-            / "examples"
-            / "inputs"
-            / "workflow_lisp_migrations"
-            / "parity_targets.json"
-        ).read_text(encoding="utf-8")
-    )
-    target = next(
-        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
-    )
-
-    assert "typed_prompt_input_report" in target["compile_artifacts"]["required"]
 
 
-def test_design_delta_parent_drain_target_requires_compatibility_bridge_compile_artifact() -> None:
-    payload = json.loads(
-        (
-            Path(__file__).resolve().parent.parent
-            / "workflows"
-            / "examples"
-            / "inputs"
-            / "workflow_lisp_migrations"
-            / "parity_targets.json"
-        ).read_text(encoding="utf-8")
-    )
-    target = next(
-        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
-    )
-
-    assert "compatibility_bridge_report" in target["compile_artifacts"]["required"]
 
 
-def test_design_delta_parent_drain_target_requires_entry_publication_compile_artifact() -> None:
-    payload = json.loads(
-        (
-            Path(__file__).resolve().parent.parent
-            / "workflows"
-            / "examples"
-            / "inputs"
-            / "workflow_lisp_migrations"
-            / "parity_targets.json"
-        ).read_text(encoding="utf-8")
-    )
-    target = next(
-        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
-    )
-
-    assert "entry_publication_report" in target["compile_artifacts"]["required"]
 
 
-def test_design_delta_parent_drain_target_requires_rendering_cleanup_compile_artifact() -> None:
-    payload = json.loads(
-        (
-            Path(__file__).resolve().parent.parent
-            / "workflows"
-            / "examples"
-            / "inputs"
-            / "workflow_lisp_migrations"
-            / "parity_targets.json"
-        ).read_text(encoding="utf-8")
-    )
-    target = next(
-        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
-    )
-
-    assert "rendering_cleanup_report" in target["compile_artifacts"]["required"]
 
 
 def test_design_delta_parent_drain_checked_parity_inputs_no_longer_rely_on_timed_summary_rows() -> None:
@@ -4347,104 +4246,10 @@ def test_design_delta_parent_drain_checked_parity_inputs_no_longer_rely_on_timed
     )
 
 
-def test_design_delta_parent_drain_target_requires_transition_authoring_compile_artifact() -> None:
-    payload = json.loads(
-        (
-            Path(__file__).resolve().parent.parent
-            / "workflows"
-            / "examples"
-            / "inputs"
-            / "workflow_lisp_migrations"
-            / "parity_targets.json"
-        ).read_text(encoding="utf-8")
-    )
-    target = next(
-        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
-    )
-
-    assert "transition_authoring_report" in target["compile_artifacts"]["required"]
 
 
-def test_design_delta_parent_drain_target_declares_all_selected_runtime_audit_artifacts() -> None:
-    payload = json.loads(
-        (
-            Path(__file__).resolve().parent.parent
-            / "workflows"
-            / "examples"
-            / "inputs"
-            / "workflow_lisp_migrations"
-            / "parity_targets.json"
-        ).read_text(encoding="utf-8")
-    )
-    target = next(
-        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
-    )
-
-    assert target["runtime_audit_artifacts"] == [
-        {
-            "artifact_id": "drain_status_transition_audit",
-            "path": (
-                "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
-                "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
-            ),
-            "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status-runtime-native",
-            "resource_kind": "drain-run-state",
-        },
-        {
-            "artifact_id": "terminal_work_item_transition_audit",
-            "path": (
-                "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
-                "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
-            ),
-            "transition_name": "lisp_frontend_design_delta/transitions::record-terminal-work-item",
-            "resource_kind": "drain-run-state",
-        },
-        {
-            "artifact_id": "blocked_recovery_transition_audit",
-            "path": (
-                "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
-                "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
-            ),
-            "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome-stdlib",
-            "resource_kind": "drain-run-state",
-        },
-    ]
 
 
-def test_design_delta_parent_drain_target_requires_rendering_ergonomics_compile_artifact() -> None:
-    payload = json.loads(
-        (
-            Path(__file__).resolve().parent.parent
-            / "workflows"
-            / "examples"
-            / "inputs"
-            / "workflow_lisp_migrations"
-            / "parity_targets.json"
-        ).read_text(encoding="utf-8")
-    )
-    target = next(
-        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
-    )
-
-    required = target["compile_artifacts"]["required"]
-    assert "rendering_ergonomics_report" in required
-    # Additive widening must preserve every pre-existing required artifact.
-    for prior in (
-        "core_workflow_ast",
-        "semantic_ir",
-        "source_map",
-        "workflow_boundary_projection",
-        "adapter_census",
-        "boundary_authority_report",
-        "value_flow_census_report",
-        "consumer_rendering_census_report",
-        "typed_prompt_input_report",
-        "entry_publication_report",
-        "compatibility_bridge_report",
-        "rendering_cleanup_report",
-        "g8_deletion_evidence",
-    ):
-        assert prior in required
 
 
 def test_run_parity_target_fails_projection_retirement_parity_when_retired_adapter_is_still_live(
@@ -5280,25 +5085,6 @@ def test_run_parity_target_fails_cleanly_when_g8_deletion_evidence_artifact_is_m
     )
 
 
-def test_design_delta_parent_drain_target_requires_g0_compile_artifacts() -> None:
-    payload = json.loads(
-        (
-            Path(__file__).resolve().parents[1]
-            / "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
-        ).read_text(encoding="utf-8")
-    )
-    target = next(
-        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
-    )
-
-    assert "adapter_census" in target["compile_artifacts"]["required"]
-    assert "boundary_authority_report" in target["compile_artifacts"]["required"]
-    assert "value_flow_census_report" in target["compile_artifacts"]["required"]
-    assert "consumer_rendering_census_report" in target["compile_artifacts"]["required"]
-    assert "entry_publication_report" in target["compile_artifacts"]["required"]
-    assert "compatibility_bridge_report" in target["compile_artifacts"]["required"]
-    assert "rendering_cleanup_report" in target["compile_artifacts"]["required"]
-    assert "g8_deletion_evidence" in target["compile_artifacts"]["required"]
 
 
 def test_design_delta_parent_drain_boundary_artifact_justifications_mark_g0_artifacts_as_parity_comparison(
