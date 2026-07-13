@@ -197,55 +197,123 @@ def test_design_delta_promotion_routes_current_docs_to_orc_primary() -> None:
 
 
 def test_design_delta_promotion_handoff_routes_to_independent_gate_p3_closure() -> None:
+    drain_plan = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "2026-07-07-drain-migration-g8-retirement.md"
+    ).read_text(encoding="utf-8")
+    gate_p2_status = drain_plan.split(
+        "**Status (reviewed 2026-07-12): SATISFIED.**", 1
+    )[1].split("**Gate P3 (entry to Phase 3):**", 1)[0]
+    historical_gate_p2_routing = drain_plan.split(
+        "**Historical routing effect at the Gate P2 checkpoint:**", 1
+    )[1].split("## Phase 2 Ledger", 1)[0]
+    typed_guidance_row = _markdown_table_row(
+        REPO_ROOT / "docs" / "capability_status_matrix.md",
+        "Workflow Lisp typed result guidance",
+    )
+    docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
+        encoding="utf-8"
+    ).split("**Component-plan routing:**", 1)[1].split(
+        "**Later procedure-first substrate:**", 1
+    )[0]
+    procedure_sequence_routing = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
+    ).read_text(encoding="utf-8").split(
+        "**Current next selection (2026-07-12):**", 1
+    )[1].split("The completed Phase 1 execution order was:", 1)[0]
+    activation_amendment = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "2026-07-09-procedure-first-roadmap-activation-plan.md"
+    ).read_text(encoding="utf-8").split(
+        "> **Current execution amendment (updated 2026-07-12):**", 1
+    )[1].split("**Tech Stack:**", 1)[0]
+    migration_record_routing = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "LISP-FRONTEND-DESIGN-DELTA-DRAIN-ORC-MIGRATION"
+        / "migration_record.md"
+    ).read_text(encoding="utf-8").split(
+        "The promotion handoff now has strict promotable parity", 1
+    )[1].split("The remaining sections preserve the June migration inventory", 1)[0]
     routing_surfaces = {
-        "docs index": (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8").split(
-            "**Later procedure-first substrate:**", 1
-        )[0],
-        "procedure-first sequence": (
-            REPO_ROOT
-            / "docs"
-            / "plans"
-            / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
-        ).read_text(encoding="utf-8").split("The completed Phase 1 execution order was:", 1)[0],
-        "activation plan": (
-            REPO_ROOT
-            / "docs"
-            / "plans"
-            / "2026-07-09-procedure-first-roadmap-activation-plan.md"
-        ).read_text(encoding="utf-8").split("## Task 1:", 1)[0],
-        "capability matrix": "\n".join(
-            (
-                _markdown_table_row(
-                    REPO_ROOT / "docs" / "capability_status_matrix.md",
-                    "`backlog-drain` generic stdlib route",
-                ),
-                _markdown_table_row(
-                    REPO_ROOT / "docs" / "capability_status_matrix.md",
-                    "Design Delta parent-family boundary",
-                ),
-            )
+        "drain plan Gate P2 status": (gate_p2_status, "current selector"),
+        "drain plan historical Gate P2 routing": (
+            historical_gate_p2_routing,
+            "current selector",
         ),
-        "migration record": (
-            REPO_ROOT
-            / "docs"
-            / "plans"
-            / "LISP-FRONTEND-DESIGN-DELTA-DRAIN-ORC-MIGRATION"
-            / "migration_record.md"
-        ).read_text(encoding="utf-8").split("## Historical YAML Baseline", 1)[0],
+        "typed-guidance capability row": (typed_guidance_row, "current selector"),
+        "docs index component-plan routing": (docs_index_routing, "current selector"),
+        "procedure-first current selection": (
+            procedure_sequence_routing,
+            "active step is",
+        ),
+        "activation current amendment": (
+            activation_amendment,
+            "next active selection:",
+        ),
+        "migration-record current authority": (
+            migration_record_routing,
+            "current selector",
+        ),
     }
 
-    for label, surface in routing_surfaces.items():
-        normalized = " ".join(surface.lower().replace("-", " ").split())
-        assert "gate p3" in normalized, label
-        assert "all four" in normalized, label
-        assert "verification" in normalized, label
-        assert "pending" in normalized or "not satisfied" in normalized, label
-        assert "phase 3" in normalized, label
+    for label, (surface, selector_marker) in routing_surfaces.items():
+        normalized = " ".join(
+            surface.lower()
+            .replace("-", " ")
+            .replace("–", " ")
+            .replace(">", " ")
+            .split()
+        )
+        selector_target = normalized.split(selector_marker, 1)[1].split(".", 1)[0]
+        assert "gate p3" in selector_target, label
+        assert "all four" in selector_target, label
+        assert "verif" in selector_target, label
         assert (
-            "do not enter" in normalized
-            or "must not enter" in normalized
-            or "before phase 3" in normalized
+            "promotion handoff" not in selector_target.split("gate p3", 1)[0]
         ), label
+
+    completed_handoff_surfaces = {
+        "drain plan Gate P2 status": gate_p2_status,
+        "drain plan historical Gate P2 routing": historical_gate_p2_routing,
+    }
+    for label, surface in completed_handoff_surfaces.items():
+        normalized = " ".join(surface.lower().replace("-", " ").split())
+        assert "promotion handoff" in normalized, label
+        assert "complet" in normalized, label
+
+    normalized_history = " ".join(
+        historical_gate_p2_routing.lower()
+        .replace("-", " ")
+        .replace("–", " ")
+        .split()
+    )
+    assert "at that checkpoint" in normalized_history
+    assert "superseded" in normalized_history
+    assert "phase 2 ledger entry (e)" in normalized_history
+
+    normalized_guidance = " ".join(
+        typed_guidance_row.lower().replace("-", " ").replace("–", " ").split()
+    )
+    guidance_selector_sentence = next(
+        sentence
+        for sentence in normalized_guidance.split(".")
+        if "current selector" in sentence
+    )
+    assert guidance_selector_sentence.index("gate p3") < guidance_selector_sentence.index(
+        "phases 3 4"
+    )
+    assert guidance_selector_sentence.index(
+        "phases 3 4"
+    ) < guidance_selector_sentence.index("stage 5")
 
     retirement_program = (
         REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md"

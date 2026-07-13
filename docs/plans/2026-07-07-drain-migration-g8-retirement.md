@@ -72,8 +72,9 @@ Record fresh command output under each gate before dispatching the phase. A gate
 
 **Status (reviewed 2026-07-12): SATISFIED.** The durable evidence is recorded in
 Phase 1 Ledger entry (k). Gate P2 admitted the reviewed Phase 2 sequence. Phase
-2 Tasks 2.1–2.3 are now complete. Gate P3 is **not** satisfied: the bounded
-Design Delta promotion handoff below is the current selector.
+2 Tasks 2.1–2.3 and the bounded Design Delta promotion handoff are now
+complete. Gate P3 is **not** satisfied. The current selector is independent
+all-four-condition Gate P3 verification and closure.
 
 **Gate P3 (entry to Phase 3):**
 1. Phase 2 Tasks 2.1–2.3 committed; name-blindness check (Task 2.3 Step 2) clean.
@@ -1480,11 +1481,13 @@ without reopening P2.
 
 **Historical routing effect at the Gate P2 checkpoint:** Gate P2 closed Stage 2
 and admitted Stage 3; the selector at that checkpoint was **Phase 2 Task 2.1**,
-not typed result guidance. Phase 2 Tasks 2.1–2.3 have since completed. The
-current selector is the bounded Design Delta promotion handoff required to
-close Gate P3. Execute the drain plan's remaining phases in gated order; typed
-result guidance remains the later Stage-5/post-drain wave defined by the
-governing procedure-first sequence.
+not typed result guidance. After Phase 2 Tasks 2.1–2.3 completed, the bounded
+Design Delta promotion handoff became the next selector. That historical
+routing statement is superseded by Phase 2 Ledger entry (e), which records the
+handoff's later completion. The current selector is independent
+all-four-condition Gate P3 verification and closure. Execute the drain plan's
+remaining phases in gated order; typed result guidance remains the later
+Stage-5/post-drain wave defined by the governing procedure-first sequence.
 
 ## Phase 2 Ledger
 
