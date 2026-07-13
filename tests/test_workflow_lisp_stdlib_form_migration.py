@@ -32,7 +32,6 @@ def _retired_backlog_drain_structure_sites(package_root: Path) -> list[str]:
         package_root / "stdlib_contracts.py",
     }
     frozen_evidence_and_inventory = {
-        package_root / "build_design_delta.py",
         package_root / "migration_parity.py",
         package_root / "post_wcc_inventory.py",
     }
@@ -303,22 +302,6 @@ def test_retired_backlog_drain_registry_uses_imported_stdlib_classification() ->
     assert spec.remove_by is None
     assert "compatibility_route_only" not in spec.feature_tags
     assert registry.get_form_spec("backlog-drain-callable-boundary") is None
-
-
-def test_g8_imported_only_registry_heads_stay_owned_by_build_until_serializer_retirement() -> None:
-    build_design_delta = importlib.import_module(
-        "orchestrator.workflow_lisp.build_design_delta"
-    )
-    migration_parity = importlib.import_module(
-        "orchestrator.workflow_lisp.migration_parity"
-    )
-
-    expected = ("with-phase", "backlog-drain")
-    assert build_design_delta.DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS == expected
-    assert not hasattr(
-        migration_parity,
-        "DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS",
-    )
 
 
 def test_retired_backlog_drain_callable_boundary_is_not_exported(

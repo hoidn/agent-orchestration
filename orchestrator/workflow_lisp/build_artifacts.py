@@ -1,8 +1,8 @@
 """Artifact fingerprinting, writing, and serialization for the Workflow Lisp build.
 
 Extracted from build.py. Produces the on-disk build tree (frontend_ast.json,
-runtime_plan.json, source_map.json, manifest.json, and the temporary G8 proof)
-from already-computed payloads. Content-addressed fingerprints
+runtime_plan.json, source_map.json, and manifest.json) from already-computed
+payloads. Content-addressed fingerprints
 and artifact bytes are byte-identical to the pre-split build.py.
 
 May import build_manifest_io; must not import build at module import time.
@@ -99,7 +99,6 @@ def _write_build_artifacts(
     semantic_ir_payload: Mapping[str, object] | None = None,
     source_map_payload: Mapping[str, object],
     workflow_boundary_projection_payload: Mapping[str, object],
-    g8_deletion_evidence: Mapping[str, object] | None = None,
 ) -> Mapping[str, Path]:
     debug_yaml_path = build_root / "expanded.debug.yaml"
     artifact_paths = {
@@ -149,9 +148,6 @@ def _write_build_artifacts(
         "workflow_boundary_projection": _json_data(workflow_boundary_projection_payload),
         "diagnostics": serialize_diagnostics(diagnostics),
     }
-    if g8_deletion_evidence is not None:
-        artifact_paths["g8_deletion_evidence"] = build_root / "g8_deletion_evidence.json"
-        payloads["g8_deletion_evidence"] = _json_data(g8_deletion_evidence)
     for name, path in artifact_paths.items():
         path.write_text(json.dumps(payloads[name], indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if emit_debug_yaml:

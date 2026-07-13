@@ -1,7 +1,7 @@
 """Stateless request/manifest loaders, field validators, and io leaf helpers for the Workflow Lisp build.
 
 Extracted from build.py. Pure functions — no design-delta coupling, no build-state.
-Imported by build.py, build_design_delta.py, and build_artifacts.py; imports nothing from them.
+Imported by build.py and build_artifacts.py; imports nothing from them.
 
 Contract: see docs/plans/2026-07-07-build-module-split.md (build.py split). Behavior is
 byte-identical to the pre-split build.py definitions.

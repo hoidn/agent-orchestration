@@ -27,7 +27,6 @@ from .build_manifest_io import (
     _resolve_request,
     _sha256_path,
 )
-from .build_design_delta import serialize_design_delta_g8_deletion_evidence
 from .build_artifacts import (
     _build_manifest,
     _checkpoint_program_identity,
@@ -274,14 +273,6 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     semantic_ir_payload = workflow_semantic_ir_to_json(reattached.validated_bundle.semantic_ir)
     executable_ir_payload = workflow_executable_ir_to_json(reattached.validated_bundle.ir)
 
-    g8_deletion_evidence = (
-        serialize_design_delta_g8_deletion_evidence(
-            command_boundary_manifest=command_boundary_manifest,
-        )
-        if entry_selection.canonical_name == "lisp_frontend_design_delta/drain::drain"
-        else None
-    )
-
     return _emit(
         reattached.validated_bundle,
         build_root=reattached.build_root,
@@ -294,7 +285,6 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         executable_ir_payload=executable_ir_payload,
         source_map_payload=reattached.source_map_payload,
         workflow_boundary_projection_payload=reattached.workflow_boundary_projection_payload,
-        g8_deletion_evidence=g8_deletion_evidence,
     )
 
 
@@ -441,7 +431,6 @@ def _emit(
     executable_ir_payload: Mapping[str, object],
     source_map_payload: Mapping[str, object],
     workflow_boundary_projection_payload: Mapping[str, object],
-    g8_deletion_evidence: Mapping[str, object] | None,
 ) -> FrontendBuildResult:
     """Write build artifacts and the manifest, and assemble the build result.
 
@@ -462,7 +451,6 @@ def _emit(
         semantic_ir_payload=semantic_ir_payload,
         source_map_payload=source_map_payload,
         workflow_boundary_projection_payload=workflow_boundary_projection_payload,
-        g8_deletion_evidence=g8_deletion_evidence,
     )
     manifest = _build_manifest(
         request=resolved_request,

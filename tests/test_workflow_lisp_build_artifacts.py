@@ -3528,73 +3528,24 @@ def test_source_map_validator_rejects_missing_core_node_lineage_when_coverage_cl
 
 
 
-def test_design_delta_parent_drain_build_emits_g8_deletion_evidence_artifact(
+def test_design_delta_parent_drain_build_omits_retired_certification_artifacts(
     tmp_path: Path,
 ) -> None:
     build = _build_module()
     result = build.build_frontend_bundle(_design_delta_parent_drain_request(tmp_path))
 
-    assert "g8_deletion_evidence" in result.artifact_paths
-    assert result.manifest.artifact_status["g8_deletion_evidence"] == "emitted"
-    assert not {
+    retired_artifact_names = {
+        "g8_deletion_evidence",
         "adapter_census",
         "boundary_authority_report",
         "value_flow_census_report",
         "consumer_rendering_census_report",
         "reference_family_conformance_profile",
-    }.intersection(result.artifact_paths)
-    payload = json.loads(result.artifact_paths["g8_deletion_evidence"].read_text(encoding="utf-8"))
-
-    assert payload["schema_version"] == "workflow_lisp_design_delta_g8_deletion_evidence.v1"
-    assert payload["workflow_family"] == "design_delta_parent_drain"
-    assert payload["status"] == "pass"
-    assert set(payload["removed_manifest_rows"]) == {
-        "classify_lisp_frontend_work_item_terminal",
-        "select_lisp_frontend_blocked_recovery_route",
-        "record_terminal_work_item",
-        "record_blocked_recovery_outcome",
-        "write_lisp_frontend_drain_status",
-        "finalize_lisp_frontend_drain_summary",
     }
-    assert payload["removed_registry_heads"] == [
-        "with-phase",
-        "finalize-selected-item",
-        "backlog-drain",
-    ]
-    assert payload["hook_surface_delta"]["imported_only_registry_heads"] == [
-        "with-phase",
-        "backlog-drain",
-    ]
-    assert payload["retained_bridges"] == ["materialize_lisp_frontend_work_item_inputs"]
-
-
-def test_design_delta_parent_drain_build_rejects_removed_registry_heads_still_present(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    build = _build_module()
-    build_design_delta = importlib.import_module(
-        "orchestrator.workflow_lisp.build_design_delta"
-    )
-    monkeypatch.setattr(
-        build_design_delta,
-        "get_form_spec",
-        lambda head_name: object() if head_name == "with-phase" else None,
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        build.build_frontend_bundle(
-            _design_delta_parent_drain_request(tmp_path),
-        )
-
-    diagnostics = excinfo.value.diagnostics
-    assert len(diagnostics) == 1
-    diagnostic = diagnostics[0]
-    assert diagnostic.code == "design_delta_g8_removed_registry_head_present"
-    assert "with-phase" in diagnostic.message
-    assert diagnostic.span.start.path == str(
-        DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.commands.json"
-    )
+    assert retired_artifact_names.isdisjoint(result.artifact_paths)
+    assert retired_artifact_names.isdisjoint(result.manifest.artifact_paths)
+    assert retired_artifact_names.isdisjoint(result.manifest.artifact_status)
+    assert not (result.build_root / "g8_deletion_evidence.json").exists()
 
 
 
