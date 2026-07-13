@@ -3166,7 +3166,6 @@ class WorkflowExecutor:
         self._persist_workflow_boundary_state(state)
         self.state_manager.update_status(terminal_status)
         persisted_state = self.state_manager.load().to_dict()
-        self._emit_typed_terminal_summary(persisted_state)
 
         # Preserve historical behavior for stop-on-error returns, which include
         # in-memory step payloads that may not have been mirrored to state.json.
@@ -3410,131 +3409,6 @@ class WorkflowExecutor:
             self.summary_observer.emit(step_name, snapshot, summary_kind=summary_kind)
         except Exception as exc:
             logger.warning("Summary emission failed for %s: %s", step_name, exc)
-
-    def _emit_typed_terminal_summary(self, state: Dict[str, Any]) -> None:
-        """Emit one deterministic observability-only terminal summary when possible."""
-        if hasattr(self.state_manager, "parent_manager"):
-            return
-        if self.summary_observer is None:
-            return
-        manifest_path = self._observability_summary_manifest_path()
-        if manifest_path is None:
-            return
-        validated_terminal_projection = self._validated_terminal_projection_for_observability(state)
-        workflow_outputs = state.get("workflow_outputs")
-        if (
-            not isinstance(workflow_outputs, dict)
-            or not workflow_outputs
-        ) and validated_terminal_projection is None:
-            return
-        try:
-            from orchestrator.workflow_lisp.observability_summaries import (
-                DESIGN_DELTA_PARENT_DRAIN_TARGET_FAMILY,
-                DESIGN_DELTA_PARENT_DRAIN_WORKFLOW_SURFACE,
-                build_observability_summary,
-            )
-
-            if self.workflow_name != DESIGN_DELTA_PARENT_DRAIN_WORKFLOW_SURFACE:
-                return
-            payload, markdown, _index_entry, report = build_observability_summary(
-                run_root=self.state_manager.run_root,
-                workflow_family=DESIGN_DELTA_PARENT_DRAIN_TARGET_FAMILY,
-                workflow_surface=self.workflow_name,
-                state=state,
-                manifest_path=manifest_path,
-                audit_paths=self._transition_audit_paths(),
-                old_writer_paths=self._observability_old_writer_paths(),
-                validated_terminal_projection=validated_terminal_projection,
-            )
-            self.summary_observer.emit_typed_terminal_summary(
-                payload=payload,
-                markdown=markdown,
-                report=report,
-            )
-        except Exception as exc:
-            logger.warning("Typed terminal summary emission failed: %s", exc)
-
-    def _observability_summary_manifest_path(self) -> Optional[Path]:
-        manifest_path = (
-            Path(__file__).resolve().parents[2]
-            / "workflows"
-            / "examples"
-            / "inputs"
-            / "workflow_lisp_migrations"
-            / "design_delta_parent_drain.consumer_rendering_census.json"
-        )
-        return manifest_path if manifest_path.exists() else None
-
-    def _transition_audit_paths(self) -> list[Path]:
-        candidates: dict[str, Path] = {}
-        for path in self.state_manager.run_root.rglob("*transition_audit*.jsonl"):
-            candidates[str(path.resolve())] = path
-        return [candidates[key] for key in sorted(candidates)]
-
-    def _observability_old_writer_paths(self) -> Dict[str, Path]:
-        manifest_path = self._observability_summary_manifest_path()
-        if manifest_path is None:
-            return {}
-        try:
-            from orchestrator.workflow_lisp.observability_summaries import (
-                DESIGN_DELTA_PARENT_DRAIN_WORKFLOW_SURFACE,
-                select_observability_rows,
-            )
-
-            if self.workflow_name != DESIGN_DELTA_PARENT_DRAIN_WORKFLOW_SURFACE:
-                return {}
-            rows = select_observability_rows(
-                manifest_path,
-                workflow_surface=self.workflow_name,
-            )
-        except Exception:
-            return {}
-        old_writer_paths: Dict[str, Path] = {}
-        for row in rows:
-            row_id = row.get("row_id")
-            if not isinstance(row_id, str) or not row_id:
-                continue
-            relative_path = self._observability_old_writer_relative_path(row)
-            if relative_path is None:
-                continue
-            candidate = self.state_manager.run_root / relative_path
-            if candidate.exists():
-                old_writer_paths[row_id] = candidate
-        return old_writer_paths
-
-    def _observability_old_writer_relative_path(self, row: Mapping[str, Any]) -> Optional[Path]:
-        typed_value_source = row.get("typed_value_source")
-        if not isinstance(typed_value_source, Mapping):
-            return None
-        value_document = typed_value_source.get("value_document")
-        if isinstance(value_document, str) and value_document:
-            return Path(value_document)
-        if isinstance(value_document, Mapping):
-            path_value = value_document.get("path")
-            if isinstance(path_value, str) and path_value:
-                return Path(path_value)
-        return None
-
-    def _validated_terminal_projection_for_observability(
-        self,
-        state: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
-        workflow_outputs = state.get("workflow_outputs")
-        if isinstance(workflow_outputs, dict) and workflow_outputs:
-            return None
-        output_specs = self.executable_ir.outputs
-        if not output_specs:
-            return None
-        try:
-            projection = resolve_workflow_outputs(
-                output_specs,
-                state,
-                workspace=self.workspace,
-                resolve_source=self._resolve_runtime_value,
-            )
-        except WorkflowSignatureError:
-            return None
-        return projection if projection else None
 
     def _summary_profile(self) -> str:
         if not isinstance(self.observability, dict):

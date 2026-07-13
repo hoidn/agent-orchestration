@@ -8,6 +8,10 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.workflow_lisp.consumer_rendering_census import (
+    CONSUMER_RENDERING_CENSUS_SCHEMA_VERSION,
+)
+
 from orchestrator.workflow.transition_contract import serialize_transition_audit_record
 
 
@@ -729,3 +733,10 @@ def test_build_observability_pair_report_rejects_accepted_absence_while_writer_e
     } == {"observability_summary_old_writer_effect_still_live"}
     assert report["pair_results"][0]["status"] == "fail"
     assert report["pair_results"][0]["old_writer_effect_live"] is True
+
+
+def test_observability_summary_retains_consumer_census_schema_kernel() -> None:
+    assert (
+        CONSUMER_RENDERING_CENSUS_SCHEMA_VERSION
+        == "workflow_lisp_consumer_rendering_census.v1"
+    )
