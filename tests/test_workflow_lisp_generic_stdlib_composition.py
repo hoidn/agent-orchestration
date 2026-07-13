@@ -414,31 +414,24 @@ def test_minimal_caller_satisfies_backlog_drain_proc_declared_constraints(tmp_pa
     # docs/plans/2026-07-06-backlog-drain-generic-migration-plan.md and must
     # emit this same let*-bound shape).
     #
-    # Reality anchors mirrored from the frozen intrinsic
-    # `_phase_stdlib_lower_backlog_drain_impl`
-    # (orchestrator/workflow_lisp/lowering/phase_drain.py) — read, not
-    # invented:
+    # Contract anchors preserved by the generic procedure:
     # - G2 selection-payload projection: the item context is built from
     #   selection `item-id` and `item-state-root` plus ctx `run`/`ledger`
-    #   and run `artifact-root` (item_ctx_value, phase_drain.py:602-608).
+    #   and run `artifact-root`.
     # - G4 selector-BLOCKED mapping: the selector's BLOCKED `reason` is
     #   dropped and the terminal blocker class is the constant
-    #   `user_decision_required`
-    #   (selector_blocked_compatibility_blocker, phase_drain.py:653,
-    #   applied at the mark_selector_blocked markers, phase_drain.py:1496-1518).
+    #   `user_decision_required`.
     # - Exhaustion class: `on_exhausted` forces loop-status EXHAUSTED with
-    #   blocker class `unrecoverable_after_fix_attempt`
-    #   (phase_drain.py:1704-1709); items/progress stay at accumulator state.
+    #   blocker class `unrecoverable_after_fix_attempt`; items/progress stay
+    #   at accumulator state.
     # - Progress-report seeding: the intrinsic seeds the accumulator
     #   progress path with the literal
-    #   `artifacts/work/drain-progress-report.md`
-    #   (seed_progress_literal, phase_drain.py:654); the generic proc takes
+    #   `artifacts/work/drain-progress-report.md`; the generic proc takes
     #   it as the `initial-progress-report` parameter, which this fixture
     #   (and Task 5's macro) supplies via the `__generated-relpath-seed__`
     #   pattern with that same literal.
     # - EMPTY vs COMPLETED: an EMPTY selection terminates as EMPTY only when
-    #   zero items were processed, otherwise COMPLETED
-    #   (empty_route_step, phase_drain.py:1256-1306).
+    #   zero items were processed, otherwise COMPLETED.
     assert (
         _compile_module_fixture(
             FIXTURES / "valid" / "minimal_caller_backlog_drain.orc",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib
 import re
 from pathlib import Path
@@ -23,7 +24,35 @@ PHASE_SCOPE_STDLIB_FIXTURE = VALID_FIXTURES / "phase_scope_stdlib_targets.orc"
 RESOURCE_STDLIB_FIXTURE = VALID_FIXTURES / "resource_stdlib_finalize_selected_item_stdlib.orc"
 DRAIN_STDLIB_FIXTURE = VALID_FIXTURES / "drain_stdlib_backlog_drain_stdlib.orc"
 RESOURCE_INTRINSIC_FIXTURE = VALID_FIXTURES / "resource_stdlib_finalize_selected_item.orc"
-DRAIN_INTRINSIC_FIXTURE = VALID_FIXTURES / "drain_stdlib_backlog_drain.orc"
+
+
+def test_retired_backlog_drain_has_no_name_keyed_compiler_structure() -> None:
+    package_root = Path(__file__).parents[1] / "orchestrator" / "workflow_lisp"
+    sanctioned_residue = {
+        package_root / "form_registry.py",
+        package_root / "stdlib_contracts.py",
+    }
+    forbidden_nodes: list[str] = []
+
+    for source_path in sorted(package_root.rglob("*.py")):
+        if source_path in sanctioned_residue:
+            continue
+        tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+        for node in ast.walk(tree):
+            names: tuple[str, ...] = ()
+            if isinstance(node, (ast.Name, ast.Attribute)):
+                names = (node.id if isinstance(node, ast.Name) else node.attr,)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names = (node.name,)
+            elif isinstance(node, ast.arg):
+                names = (node.arg,)
+            for name in names:
+                if "backlog_drain" in name or "BacklogDrain" in name:
+                    forbidden_nodes.append(
+                        f"{source_path.relative_to(package_root)}:{node.lineno}:{name}"
+                    )
+
+    assert forbidden_nodes == []
 
 
 def _form_registry_module():
@@ -290,18 +319,7 @@ def test_backlog_drain_stdlib_vector_compiles_on_promoted_route(tmp_path: Path) 
     assert result.entry_result.typed_workflows
 
 
-@pytest.mark.parametrize(
-    ("intrinsic_fixture", "expected_form_name"),
-    (
-        (RESOURCE_INTRINSIC_FIXTURE, "finalize-selected-item"),
-        (DRAIN_INTRINSIC_FIXTURE, "backlog-drain"),
-    ),
-)
-def test_legacy_intrinsic_fixtures_use_compatibility_intrinsic_accounting(
-    tmp_path: Path,
-    intrinsic_fixture: Path,
-    expected_form_name: str,
-) -> None:
+def test_legacy_resource_fixture_uses_compatibility_intrinsic_accounting(tmp_path: Path) -> None:
     dispatch = _control_dispatch_module()
     reset_counts = getattr(dispatch, "reset_intrinsic_form_lowering_counts", None)
     read_counts = getattr(dispatch, "intrinsic_form_lowering_counts", None)
@@ -311,17 +329,15 @@ def test_legacy_intrinsic_fixtures_use_compatibility_intrinsic_accounting(
 
     reset_counts()
     result = compile_stage3_module(
-        intrinsic_fixture,
-        command_boundaries=_command_boundary_environment(
-            gap_output_type_name="GapDraftResult" if intrinsic_fixture == DRAIN_INTRINSIC_FIXTURE else "GapResult"
-        ).bindings_by_name,
+        RESOURCE_INTRINSIC_FIXTURE,
+        command_boundaries=_command_boundary_environment().bindings_by_name,
         validate_shared=False,
-        workspace_root=tmp_path / intrinsic_fixture.stem,
+        workspace_root=tmp_path / RESOURCE_INTRINSIC_FIXTURE.stem,
         lowering_route="legacy",
     )
 
     assert result.typed_workflows
-    assert read_counts().get(expected_form_name) == 1
+    assert read_counts().get("finalize-selected-item") == 1
 
 
 @pytest.mark.parametrize(

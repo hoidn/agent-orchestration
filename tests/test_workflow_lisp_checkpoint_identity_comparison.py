@@ -8,16 +8,13 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.family_profiles import load_workflow_family_profile_catalog
-from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding, ExternalToolBinding
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
 FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_shadow_points.orc")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINES = REPO_ROOT / "tests" / "baselines" / "drain_checkpoint_identity"
-DRAIN_EXEMPLAR_FIXTURE = (
-    REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "valid" / "drain_stdlib_backlog_drain.orc"
-)
 DESIGN_DELTA_DRAIN_SOURCE = (
     REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc"
 )
@@ -81,14 +78,15 @@ def test_checkpoint_identity_stable_across_recompiles(tmp_path: Path) -> None:
     assert checkpoint_identity_map(first) == checkpoint_identity_map(second)
 
 
-# --- Intrinsic-route drain checkpoint-identity baselines ---------------------
+# --- Drain checkpoint-identity baselines ------------------------------------
 #
-# Snapshots of the intrinsic `backlog-drain` route recorded BEFORE the macro is
-# re-targeted onto the generic proc (drain-migration plan
+# Snapshots recorded before the macro was re-targeted onto the generic proc
+# (drain-migration plan
 # docs/plans/2026-07-07-drain-migration-g8-retirement.md Task 1.3; component
 # plan 2026-07-06-backlog-drain-generic-migration-plan.md Task 3). Task 1.5's
-# gate diffs the generic-route compile against these baselines; resume runs of
-# consuming workflows depend on these checkpoint ids staying stable.
+# gate diffed the generic-route compile against these baselines. The standalone
+# intrinsic exemplar is now retired and retained only as historical JSON;
+# resume runs of the production family still depend on the recorded ids.
 #
 # The map spans every validated bundle the compile produces (entry workflow,
 # helper workflows, and the macro-generated `std/drain::backlog-drain` child)
@@ -98,37 +96,6 @@ def test_checkpoint_identity_stable_across_recompiles(tmp_path: Path) -> None:
 # carries two effect-boundary checkpoints (a `call` and a `resource_transition`)
 # with identical origin keys but distinct checkpoint ids, so the two-part key
 # would silently drop a row.
-
-
-def _drain_exemplar_adapter(name: str, output_type_name: str) -> CertifiedAdapterBinding:
-    # Mirrors tests/test_workflow_lisp_drain_stdlib.py::_command_boundaries.
-    return CertifiedAdapterBinding(
-        name=name,
-        stable_command=("python", f"scripts/{name}.py"),
-        input_contract={"type": "object"},
-        output_type_name=output_type_name,
-        effects=("structured_result",),
-        path_safety={"kind": "workspace_relpath"},
-        source_map_behavior="step",
-        fixture_ids=(f"{name}_ok",),
-        negative_fixture_ids=(f"{name}_bad",),
-    )
-
-
-def _exemplar_validated_bundles(tmp_path: Path):
-    result = compile_stage3_module(
-        DRAIN_EXEMPLAR_FIXTURE,
-        command_boundaries={
-            "select_next_item": _drain_exemplar_adapter("select_next_item", "SelectionResult"),
-            "execute_selected_item": _drain_exemplar_adapter(
-                "execute_selected_item", "SelectedItemResult"
-            ),
-            "draft_gap_item": _drain_exemplar_adapter("draft_gap_item", "GapDraftResult"),
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-    return result.validated_bundles
 
 
 def _design_delta_parent_drain_provider_externs() -> dict[str, str]:
@@ -223,11 +190,9 @@ def _identity_map_for(source_path: Path, tmp_path: Path) -> dict[str, str]:
     """`{workflow}::{origin}::{step_kind}` -> checkpoint_id across all bundles."""
     if source_path == DESIGN_DELTA_DRAIN_SOURCE:
         bundles = _design_delta_drain_validated_bundles(tmp_path)
-    elif source_path == DRAIN_EXEMPLAR_FIXTURE:
-        bundles = _exemplar_validated_bundles(tmp_path)
     else:
-        raise ValueError(f"no intrinsic-route compile recipe for {source_path}")
-    state_manager = StateManager(tmp_path, run_id="drain-intrinsic-identity-baseline")
+        raise ValueError(f"no generic-route compile recipe for {source_path}")
+    state_manager = StateManager(tmp_path, run_id="drain-identity-baseline")
     rows: dict[str, str] = {}
     for _name, bundle in sorted(bundles.items()):
         executor = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0)
@@ -243,13 +208,13 @@ def _identity_map_for(source_path: Path, tmp_path: Path) -> dict[str, str]:
     return rows
 
 
-def test_exemplar_intrinsic_route_matches_baseline(tmp_path: Path) -> None:
-    live = _identity_map_for(DRAIN_EXEMPLAR_FIXTURE, tmp_path)
+def test_retired_intrinsic_exemplar_baseline_remains_historical_evidence() -> None:
     recorded = json.loads((BASELINES / "exemplar.json").read_text(encoding="utf-8"))
-    assert live == recorded
+    assert recorded
+    assert all(isinstance(key, str) and isinstance(value, str) for key, value in recorded.items())
 
 
-def test_design_delta_drain_intrinsic_route_matches_baseline(tmp_path: Path) -> None:
+def test_design_delta_drain_generic_route_matches_baseline(tmp_path: Path) -> None:
     live = _identity_map_for(DESIGN_DELTA_DRAIN_SOURCE, tmp_path)
     recorded = json.loads((BASELINES / "design_delta_drain.json").read_text(encoding="utf-8"))
     assert live == recorded

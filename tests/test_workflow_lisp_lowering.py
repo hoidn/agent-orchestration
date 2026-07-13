@@ -904,7 +904,6 @@ def test_lowering_second_level_owner_modules_exist_for_control_and_phase_familie
         "phase_scope",
         "phase_flow",
         "phase_resource",
-        "phase_drain",
     ):
         assert _lowering_owner_source_path(name).is_file()
 
@@ -951,7 +950,6 @@ def test_lowering_full_family_owner_map_moves_non_procedure_owners_out_of_core()
         "_lower_resume_or_start",
         "_lower_resource_transition",
         "_lower_finalize_selected_item",
-        "_lower_backlog_drain",
     ) == {
         "LoweringOrigin": 0,
         "_raise_remapped_validation_error": 0,
@@ -979,7 +977,6 @@ def test_lowering_full_family_owner_map_moves_non_procedure_owners_out_of_core()
         "_lower_resume_or_start": 0,
         "_lower_resource_transition": 0,
         "_lower_finalize_selected_item": 0,
-        "_lower_backlog_drain": 0,
     }
     assert not _function_imports_from_module(
         _lowering_owner_source_path("effects"),
@@ -1013,7 +1010,6 @@ def test_lowering_full_family_owner_map_moves_non_procedure_owners_out_of_core()
         "_lower_resume_or_start",
         "_lower_resource_transition",
         "_lower_finalize_selected_item",
-        "_lower_backlog_drain",
     ):
         assert not _function_imports_from_module(
             _lowering_owner_source_path("phase_stdlib"),
@@ -1065,7 +1061,6 @@ def test_lowering_full_family_owners_receive_real_implementations() -> None:
         "_lower_resume_or_start",
         "_lower_resource_transition",
         "_lower_finalize_selected_item",
-        "_lower_backlog_drain",
     ) == {
         "_lower_with_phase": 1,
         "_lower_run_provider_phase": 1,
@@ -1073,7 +1068,6 @@ def test_lowering_full_family_owners_receive_real_implementations() -> None:
         "_lower_resume_or_start": 1,
         "_lower_resource_transition": 1,
         "_lower_finalize_selected_item": 1,
-        "_lower_backlog_drain": 1,
     }
 
 
@@ -1091,7 +1085,6 @@ def test_lowering_control_and_phase_facades_stop_being_large_owner_sinks() -> No
         "_phase_stdlib_lower_resume_or_start_impl",
         "_phase_stdlib_lower_resource_transition_impl",
         "_phase_stdlib_lower_finalize_selected_item_impl",
-        "_phase_stdlib_lower_backlog_drain_impl",
     ) == {
         "_phase_stdlib_lower_with_phase_impl": 0,
         "_phase_stdlib_lower_run_provider_phase_impl": 0,
@@ -1099,7 +1092,6 @@ def test_lowering_control_and_phase_facades_stop_being_large_owner_sinks() -> No
         "_phase_stdlib_lower_resume_or_start_impl": 0,
         "_phase_stdlib_lower_resource_transition_impl": 0,
         "_phase_stdlib_lower_finalize_selected_item_impl": 0,
-        "_phase_stdlib_lower_backlog_drain_impl": 0,
     }
 
 
@@ -1248,14 +1240,6 @@ def test_workflow_extern_requirements_descend_through_with_phase_inside_same_fil
         "_lower_resource_transition": 1,
         "_lower_finalize_selected_item": 1,
     }
-    assert _top_level_definition_counts(
-        _lowering_owner_source_path("phase_drain"),
-        "_lower_backlog_drain",
-    ) == {
-        "_lower_backlog_drain": 1,
-    }
-
-
 def test_lowering_control_impl_is_no_longer_a_real_owner_sink() -> None:
     control_impl_path = _lowering_owner_source_path("control_impl")
 
@@ -1308,7 +1292,6 @@ def test_lowering_phase_helpers_is_no_longer_a_real_owner_sink() -> None:
         "_phase_stdlib_lower_resume_or_start_impl",
         "_phase_stdlib_lower_resource_transition_impl",
         "_phase_stdlib_lower_finalize_selected_item_impl",
-        "_phase_stdlib_lower_backlog_drain_impl",
     ) == {
         "_phase_stdlib_lower_with_phase_impl": 0,
         "_lower_composed_with_phase": 0,
@@ -1320,7 +1303,6 @@ def test_lowering_phase_helpers_is_no_longer_a_real_owner_sink() -> None:
         "_phase_stdlib_lower_resume_or_start_impl": 0,
         "_phase_stdlib_lower_resource_transition_impl": 0,
         "_phase_stdlib_lower_finalize_selected_item_impl": 0,
-        "_phase_stdlib_lower_backlog_drain_impl": 0,
     }
 
 
@@ -5925,61 +5907,6 @@ def test_compile_stage3_entrypoint_allows_transitive_proof_wrapper_after_project
     assert workflow_boundary_projection(compat_bundle).private_compatibility_bridge_inputs == ()
 
 
-def test_compile_stage3_entrypoint_imported_selector_ctx_carried_sources(
-    tmp_path: Path,
-) -> None:
-    result = _compile_design_delta_parent_drain_entrypoint(tmp_path)
-
-    selector_bundle = result.validated_bundles_by_name[
-        "lisp_frontend_design_delta/stdlib_adapters::select-next-work-stdlib"
-    ]
-    boundary = workflow_boundary_projection(selector_bundle)
-
-    assert len(boundary.private_runtime_context_bindings) == 1
-    binding = boundary.private_runtime_context_bindings[0]
-    assert binding.binding_id == "ctx"
-    assert binding.source_param_name == "ctx"
-    assert binding.context_family == "DrainCtx"
-    assert binding.bridge_class == "imported_adapter_carried_context"
-    assert binding.generated_input_names == (
-        "ctx__run__run-id",
-        "ctx__run__state-root",
-        "ctx__run__artifact-root",
-        "ctx__state-root",
-        "ctx__manifest",
-        "ctx__ledger",
-        "ctx__steering_path",
-        "ctx__target_design_path",
-        "ctx__baseline_design_path",
-        "ctx__progress_ledger_path",
-        "ctx__existing_architecture_index_path",
-    )
-    assert binding.projection_hints == {
-        "context_binding_schema_version": 1,
-        "context_input_roles": {
-            "ctx__run__run-id": "run_anchor:run-id",
-            "ctx__run__state-root": "run_anchor:state-root",
-            "ctx__run__artifact-root": "run_anchor:artifact-root",
-        },
-        "carried_input_sources": {
-            "ctx__run__run-id": ("ctx", "run", "run-id"),
-            "ctx__run__state-root": ("ctx", "run", "state-root"),
-            "ctx__run__artifact-root": ("ctx", "run", "artifact-root"),
-            "ctx__state-root": ("ctx", "state-root"),
-            "ctx__manifest": ("ctx", "manifest"),
-            "ctx__ledger": ("ctx", "ledger"),
-            "ctx__steering_path": ("ctx", "steering_path"),
-            "ctx__target_design_path": ("ctx", "target_design_path"),
-            "ctx__baseline_design_path": ("ctx", "baseline_design_path"),
-            "ctx__progress_ledger_path": ("ctx", "progress_ledger_path"),
-            "ctx__existing_architecture_index_path": (
-                "ctx",
-                "existing_architecture_index_path",
-            ),
-        },
-    }
-
-
 def test_carry_callee_private_exec_context_bindings_preserves_full_projection_metadata_for_prebound_inputs() -> None:
     workflow_calls = importlib.import_module(
         "orchestrator.workflow_lisp.lowering.workflow_calls"
@@ -6075,44 +6002,36 @@ def test_carry_callee_private_exec_context_bindings_preserves_full_projection_me
     assert carried_binding.projection_hints == binding.projection_hints
 
 
-def test_compile_stage3_entrypoint_item_ctx_child_phase_reuse_imported_backlog_drain_carries_derived_phase_context_bindings(
+def test_compile_stage3_entrypoint_generic_drain_carries_derived_phase_context_bindings(
     tmp_path: Path,
 ) -> None:
     result = _compile_design_delta_parent_drain_entrypoint(tmp_path)
 
-    imported_drain = result.validated_bundles_by_name["std/drain::backlog-drain"]
-    boundary = workflow_boundary_projection(imported_drain)
+    run_item = result.validated_bundles_by_name[
+        "%work_item.lisp_frontend_design_delta/work_item::run-selected-item-stdlib.v1"
+    ]
+    boundary = workflow_boundary_projection(run_item)
     lowered = next(
         workflow
         for workflow in result.entry_result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
+        if workflow.typed_workflow.definition.name == "lisp_frontend_design_delta/drain::drain"
     )
     call_step = next(
         step
         for step in _walk_lowered_steps(lowered.authored_mapping["steps"])
-        if step.get("call") == "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+        if step.get("call")
+        == "%work_item.lisp_frontend_design_delta/work_item::run-selected-item-stdlib.v1"
     )
 
-    assert {
-        name: call_step["with"][name]
-        for name in (
-            "phase-ctx__plan__run__run-id",
-            "phase-ctx__plan__run__state-root",
-            "phase-ctx__plan__run__artifact-root",
-            "phase-ctx__implementation__run__run-id",
-            "phase-ctx__implementation__run__state-root",
-            "phase-ctx__implementation__run__artifact-root",
-        )
-    } == {
-        "phase-ctx__plan__run__run-id": {"ref": "inputs.ctx__run__run-id"},
-        "phase-ctx__plan__run__state-root": {"ref": "inputs.ctx__run__state-root"},
-        "phase-ctx__plan__run__artifact-root": {"ref": "inputs.ctx__run__artifact-root"},
-        "phase-ctx__implementation__run__run-id": {"ref": "inputs.ctx__run__run-id"},
-        "phase-ctx__implementation__run__state-root": {"ref": "inputs.ctx__run__state-root"},
-        "phase-ctx__implementation__run__artifact-root": {
-            "ref": "inputs.ctx__run__artifact-root"
-        },
-    }
+    runtime_owned_ref = (
+        "parent.steps.lisp_frontend_design_delta/drain::drain__runtime-owned__call_"
+        "lisp_frontend_design_delta/drain::build-drain-runtime-owned.artifacts.return__run__"
+    )
+    for phase_name in ("plan", "implementation"):
+        for field_name in ("run-id", "state-root", "artifact-root"):
+            assert call_step["with"][f"phase-ctx__{phase_name}__run__{field_name}"] == {
+                "ref": f"{runtime_owned_ref}{field_name}"
+            }
     assert {
         binding.binding_id: binding.projection_hints
         for binding in boundary.private_runtime_context_bindings
@@ -6128,14 +6047,14 @@ def test_compile_stage3_entrypoint_item_ctx_child_phase_reuse_imported_backlog_d
                 "phase-ctx__implementation__artifact-root": "compile_time_default",
             },
             "carried_input_sources": {
-                "phase-ctx__implementation__run__run-id": ("ctx", "run", "run-id"),
+                "phase-ctx__implementation__run__run-id": ("item-ctx", "run", "run-id"),
                 "phase-ctx__implementation__run__state-root": (
-                    "ctx",
+                    "item-ctx",
                     "run",
                     "state-root",
                 ),
                 "phase-ctx__implementation__run__artifact-root": (
-                    "ctx",
+                    "item-ctx",
                     "run",
                     "artifact-root",
                 ),
@@ -6152,9 +6071,9 @@ def test_compile_stage3_entrypoint_item_ctx_child_phase_reuse_imported_backlog_d
                 "phase-ctx__plan__artifact-root": "compile_time_default",
             },
             "carried_input_sources": {
-                "phase-ctx__plan__run__run-id": ("ctx", "run", "run-id"),
-                "phase-ctx__plan__run__state-root": ("ctx", "run", "state-root"),
-                "phase-ctx__plan__run__artifact-root": ("ctx", "run", "artifact-root"),
+                "phase-ctx__plan__run__run-id": ("item-ctx", "run", "run-id"),
+                "phase-ctx__plan__run__state-root": ("item-ctx", "run", "state-root"),
+                "phase-ctx__plan__run__artifact-root": ("item-ctx", "run", "artifact-root"),
             },
         },
     }

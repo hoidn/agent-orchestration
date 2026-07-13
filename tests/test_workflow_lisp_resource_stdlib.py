@@ -47,7 +47,6 @@ VALID_STDLIB_FINALIZE_FIXTURE = FIXTURES / "valid" / "resource_stdlib_finalize_s
 VALID_STDLIB_DRAIN_FIXTURE = FIXTURES / "valid" / "drain_stdlib_backlog_drain_stdlib.orc"
 VALID_DECLARED_TRANSITION_FIXTURE = FIXTURES / "valid" / "resource_transition_declared_runtime.orc"
 INVALID_ITEM_CTX_FIXTURE = FIXTURES / "invalid" / "item_ctx_contract_invalid.orc"
-INVALID_DRAIN_CTX_FIXTURE = FIXTURES / "invalid" / "drain_ctx_contract_invalid.orc"
 INVALID_UNCERTIFIED_FIXTURE = FIXTURES / "invalid" / "resource_transition_uncertified_adapter.orc"
 INVALID_CERTIFIED_ADAPTER_BYPASS_FIXTURE = FIXTURES / "invalid" / "certified_adapter_semantic_bypass.orc"
 INVALID_STDLIB_DRAIN_NON_SYMBOL_CALLEE_FIXTURE = (
@@ -589,13 +588,6 @@ def test_typecheck_rejects_item_ctx_contract() -> None:
     assert excinfo.value.diagnostics[0].code == "item_context_invalid"
 
 
-def test_typecheck_rejects_drain_ctx_contract() -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typecheck_fixture(INVALID_DRAIN_CTX_FIXTURE)
-
-    assert excinfo.value.diagnostics[0].code == "drain_context_invalid"
-
-
 def test_typecheck_rejects_resource_transition_adapter_authored_as_raw_command_result(
     tmp_path: Path,
 ) -> None:
@@ -714,23 +706,6 @@ def test_typecheck_rejects_item_ctx_with_non_runctx_run(tmp_path: Path) -> None:
         _typecheck_fixture(path)
 
     assert excinfo.value.diagnostics[0].code == "item_context_invalid"
-
-
-def test_typecheck_rejects_drain_ctx_with_non_runctx_run(tmp_path: Path) -> None:
-    path = tmp_path / "drain_ctx_bad_run_shape.orc"
-    source = (FIXTURES / "valid" / "drain_stdlib_backlog_drain.orc").read_text()
-    source = source.replace(
-        "(defrecord RunCtx\n    (run-id RunId)\n    (state-root Path.state-root)\n    (artifact-root Path.artifact-root))",
-        "(defrecord RunCtx\n    (run-id RunId)\n    (state-root Path.state-root)\n    (artifact-root Path.artifact-root))\n  (defrecord BadRunCtx\n    (bogus String))",
-        1,
-    )
-    source = source.replace("(run RunCtx)", "(run BadRunCtx)", 1)
-    path.write_text(source)
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typecheck_fixture(path)
-
-    assert excinfo.value.diagnostics[0].code == "drain_context_invalid"
 
 
 def test_promoted_entry_ItemCtx_hidden_binding_reports_unsupported_private_exec_bootstrap(

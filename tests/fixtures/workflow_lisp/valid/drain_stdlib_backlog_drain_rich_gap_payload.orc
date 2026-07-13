@@ -1,11 +1,12 @@
 (workflow-lisp
   (:language "0.1")
   (:target-dsl "2.14")
-  (defmodule drain_stdlib_backlog_drain_callable_boundary_rich_gap_payload)
-  ; Shared-route fixture that proves imported std/drain backlog-drain can
-  ; carry a richer typed GAP payload across the fixed gap-drafter boundary.
+  (defmodule drain_stdlib_backlog_drain_rich_gap_payload)
+  ; Generic stdlib fixture proving imported backlog-drain carries a richer
+  ; typed GAP payload across the fixed gap-drafter boundary.
   (import std/context :only (DrainCtx ItemCtx))
   (import std/resource :only (BlockerClass SelectedItemResult))
+  (import std/drain :only (backlog-drain))
   (export drain)
   (defpath WorkReport
     :kind relpath
@@ -29,7 +30,7 @@
     :must-exist false)
   (defrecord SelectionPayload
     (item-id String)
-    (item-state-root StateFile))
+    (item-state-root Path.state-root))
   (defrecord GapPayload
     (work-item-id String)
     (plan-target-path PlanTargetPath)
@@ -54,23 +55,29 @@
       (blocker-class BlockerClass))
     (COMPLETED
       (items-processed Int)))
-  (defworkflow selector-run
+  (defproc selector-run
     ((ctx DrainCtx))
     -> SelectionResult
+    :effects ((uses-command select_next_item))
+    :lowering inline
     (command-result select_next_item
       :argv ("python" "scripts/select_next_item.py" ctx.manifest)
       :returns SelectionResult))
-  (defworkflow run-selected-item
+  (defproc run-selected-item
     ((item-ctx ItemCtx)
      (selection SelectionPayload))
     -> SelectedItemResult
+    :effects ((uses-command execute_selected_item))
+    :lowering inline
     (command-result execute_selected_item
       :argv ("python" "scripts/execute_selected_item.py" selection.item-id)
       :returns SelectedItemResult))
-  (defworkflow gap-draft
+  (defproc gap-draft
     ((ctx DrainCtx)
      (gap GapPayload))
     -> GapResult
+    :effects ((uses-command draft_gap_item))
+    :lowering inline
     (command-result draft_gap_item
       :argv ("python"
              "scripts/draft_gap_item.py"
@@ -82,7 +89,7 @@
     ((ctx DrainCtx)
      (max-iterations Int))
     -> DrainResult
-    (backlog-drain-callable-boundary neurips
+             (backlog-drain neurips
       :ctx ctx
       :selector selector-run
       :run-item run-selected-item

@@ -331,7 +331,6 @@ def test_promoted_lowering_modules_classify_covered_surface_form_branches() -> N
         "orchestrator/workflow_lisp/lowering/phase_scope.py",
         "orchestrator/workflow_lisp/lowering/phase_flow.py",
         "orchestrator/workflow_lisp/lowering/phase_resource.py",
-        "orchestrator/workflow_lisp/lowering/phase_drain.py",
         "orchestrator/workflow_lisp/lowering/procedures.py",
     ]
     allowed_markers = ("schema1_compatibility", "emitter")

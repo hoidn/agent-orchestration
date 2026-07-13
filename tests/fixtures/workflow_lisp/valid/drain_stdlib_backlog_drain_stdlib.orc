@@ -2,8 +2,7 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule drain_stdlib_backlog_drain_stdlib)
-  ; Stdlib-route fixture paired with
-  ; tests/fixtures/workflow_lisp/valid/drain_stdlib_backlog_drain.orc.
+  ; Canonical generic stdlib drain fixture after intrinsic retirement.
   (import std/context :only (DrainCtx ItemCtx))
   (import std/resource :only (BlockerClass SelectedItemResult))
   (import std/drain :only

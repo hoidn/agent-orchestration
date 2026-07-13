@@ -4,6 +4,7 @@
   (defmodule backlog_drain_gap_drafter_non_record_payload_invalid)
   (import std/context :only (DrainCtx ItemCtx))
   (import std/resource :only (BlockerClass SelectedItemResult))
+  (import std/drain :only (backlog-drain))
   (defpath WorkReport
     :kind relpath
     :under "artifacts/work"
@@ -18,7 +19,7 @@
     :must-exist false)
   (defrecord SelectionPayload
     (item-id String)
-    (item-state-root StateFile))
+    (item-state-root Path.state-root))
   (defrecord GapPayload
     (gap-id String))
   (defunion SelectionResult
@@ -45,23 +46,29 @@
     (COMPLETED
       (items-processed Int)
       (run-state StateExisting)))
-  (defworkflow selector-run
+  (defproc selector-run
     ((ctx DrainCtx))
     -> SelectionResult
+    :effects ((uses-command select_next_item))
+    :lowering inline
     (command-result select_next_item
       :argv ("python" "scripts/select_next_item.py" ctx.manifest)
       :returns SelectionResult))
-  (defworkflow run-selected-item
+  (defproc run-selected-item
     ((item-ctx ItemCtx)
      (selection SelectionPayload))
     -> SelectedItemResult
+    :effects ((uses-command execute_selected_item))
+    :lowering inline
     (command-result execute_selected_item
       :argv ("python" "scripts/execute_selected_item.py" selection.item-id)
       :returns SelectedItemResult))
-  (defworkflow gap-draft
+  (defproc gap-draft
     ((ctx DrainCtx)
      (gap String))
     -> GapResult
+    :effects ((uses-command draft_gap_item))
+    :lowering inline
     (command-result draft_gap_item
       :argv ("python" "scripts/draft_gap_item.py" gap)
       :returns GapResult))
@@ -69,7 +76,7 @@
     ((ctx DrainCtx)
      (max-iterations Int))
     -> DrainResult
-    (backlog-drain-callable-boundary neurips
+    (backlog-drain neurips
       :ctx ctx
       :selector selector-run
       :run-item run-selected-item
