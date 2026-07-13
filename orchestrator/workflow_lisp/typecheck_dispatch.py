@@ -18,7 +18,6 @@ from .effects import (
     merge_effect_summaries,
 )
 from .expressions import (
-    BacklogDrainExpr,
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
@@ -89,7 +88,6 @@ from .typecheck_context import (
     _unify_loop_control_types,
 )
 from .typecheck_drain_phase import (
-    typecheck_backlog_drain_expr,
     typecheck_phase_target_expr,
     typecheck_produce_one_of_expr,
     typecheck_run_provider_phase_expr,
@@ -1107,13 +1105,6 @@ def _typecheck(
         )
     if isinstance(expr, FinalizeSelectedItemExpr):
         return typecheck_finalize_selected_item_expr(
-            expr,
-            context=context,
-            recurse=recurse,
-            typed_factory=_typed,
-        )
-    if isinstance(expr, BacklogDrainExpr):
-        return typecheck_backlog_drain_expr(
             expr,
             context=context,
             recurse=recurse,
