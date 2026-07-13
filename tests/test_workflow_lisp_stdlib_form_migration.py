@@ -35,7 +35,6 @@ def _retired_backlog_drain_structure_sites(package_root: Path) -> list[str]:
         package_root / "build_design_delta.py",
         package_root / "migration_parity.py",
         package_root / "post_wcc_inventory.py",
-        package_root / "transition_authoring.py",
     }
     forbidden_nodes: list[str] = []
 

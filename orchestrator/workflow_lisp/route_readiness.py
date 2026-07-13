@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import shlex
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,14 +57,13 @@ PARITY_TARGETS_RELPATH = "workflows/examples/inputs/workflow_lisp_migrations/par
 PARITY_TARGETS_SCHEMA_VERSION = "workflow_lisp_migration_parity_targets.v1"
 LEAF_ONLY_READINESS_LABELS = frozenset({"leaf_compile_candidate", "leaf_runtime_candidate"})
 STALE_COPY_SAFETY_VALUES = frozenset({"stale", "not_copy_safe", "not_current_guidance"})
-SELF_REFERENTIAL_EVIDENCE_MARKERS = frozenset(
-    {
-        "tests/test_workflow_lisp_route_readiness.py",
-        "workflow-lisp-route-readiness",
-    }
+SELF_REFERENTIAL_EVIDENCE_PATHS = frozenset(
+    {"tests/test_workflow_lisp_route_readiness.py"}
+)
+SELF_REFERENTIAL_EVIDENCE_COMMANDS = frozenset(
+    {"workflow-lisp-route-readiness"}
 )
 DIAGNOSTIC_EVIDENCE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]*$")
-CLI_EVIDENCE_COMMAND_PATTERN = re.compile(r"^[A-Za-z0-9_.+-]+$")
 
 
 class RouteReadinessError(ValueError):
@@ -564,7 +564,7 @@ def _validate_entry(entry: RouteReadinessEntry, *, repo_root: Path) -> list[Rout
             )
         )
     for evidence in entry.evidence:
-        if any(marker in evidence for marker in SELF_REFERENTIAL_EVIDENCE_MARKERS):
+        if _is_self_referential_evidence(evidence, repo_root=repo_root):
             issues.append(
                 _issue(
                     "route_readiness_evidence_self_referential",
@@ -619,7 +619,13 @@ def _validate_evidence_reference(
             )
         ]
 
-    evidence_path = repo_root / _normalize_path(evidence_path_text)
+    canonical_path = _canonical_evidence_path(
+        evidence_path_text,
+        repo_root=repo_root,
+    )
+    if canonical_path is None:
+        return [_invalid_evidence_path_issue(entry, evidence_path_text)]
+    _, evidence_path = canonical_path
     if not evidence_path.is_file():
         return [
             _issue(
@@ -637,24 +643,14 @@ def _classify_evidence_reference(
     evidence: str,
 ) -> tuple[str, str, str | None]:
     stripped = evidence.strip()
-    command_name = stripped.split(maxsplit=1)[0]
-    if (
-        command_name != stripped
-        and CLI_EVIDENCE_COMMAND_PATTERN.fullmatch(command_name)
-    ):
+    if _is_supported_cli_command(stripped):
         return "cli_command", stripped, None
 
-    parity_prefix = f"{PARITY_TARGETS_RELPATH}::"
-    if stripped.startswith(parity_prefix):
-        return (
-            "parity_target_selector",
-            PARITY_TARGETS_RELPATH,
-            stripped.removeprefix(parity_prefix),
-        )
-
-    pytest_path, separator, pytest_selector = stripped.partition("::")
-    if separator and pytest_path.endswith(".py"):
-        return "pytest_selector", pytest_path, pytest_selector
+    selector_path, separator, selector = stripped.partition("::")
+    if separator and Path(selector_path).suffix == ".py":
+        return "pytest_selector", selector_path, selector
+    if separator and Path(selector_path).suffix == ".json":
+        return "parity_target_selector", selector_path, selector
     if separator:
         return "invalid", stripped, None
     if "/" in stripped or Path(stripped).suffix:
@@ -664,6 +660,85 @@ def _classify_evidence_reference(
     return "invalid", stripped, None
 
 
+def _is_supported_cli_command(command: str) -> bool:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+    if len(tokens) < 2:
+        return False
+    if tokens[0] in {"python", "python3"} and len(tokens) >= 4:
+        return tokens[1:3] in (["-m", "pytest"], ["-m", "orchestrator"])
+    if tokens[0] == "pytest":
+        return True
+    if tokens[:2] == ["git", "diff"]:
+        return True
+    if tokens[0] == "orchestrator":
+        return True
+    return False
+
+
+def _is_self_referential_evidence(evidence: str, *, repo_root: Path) -> bool:
+    try:
+        tokens = shlex.split(evidence)
+    except ValueError:
+        tokens = [evidence]
+    if any(token in SELF_REFERENTIAL_EVIDENCE_COMMANDS for token in tokens):
+        return True
+
+    evidence_kind, evidence_path_text, _ = _classify_evidence_reference(evidence)
+    path_candidates = (
+        tokens
+        if evidence_kind == "cli_command"
+        else [evidence_path_text]
+    )
+    for candidate in path_candidates:
+        path_text = candidate.partition("::")[0]
+        if "/" not in path_text and not Path(path_text).suffix:
+            continue
+        canonical_path = _canonical_evidence_path(path_text, repo_root=repo_root)
+        if (
+            canonical_path is not None
+            and canonical_path[0] in SELF_REFERENTIAL_EVIDENCE_PATHS
+        ):
+            return True
+    return False
+
+
+def _canonical_evidence_path(
+    path_text: str,
+    *,
+    repo_root: Path,
+) -> tuple[str, Path] | None:
+    relative_path = Path(path_text)
+    if relative_path.is_absolute():
+        return None
+    try:
+        resolved_root = repo_root.resolve()
+        resolved_path = (resolved_root / relative_path).resolve()
+    except (OSError, RuntimeError):
+        return None
+    try:
+        canonical_relpath = resolved_path.relative_to(resolved_root).as_posix()
+    except ValueError:
+        return None
+    return canonical_relpath, resolved_path
+
+
+def _invalid_evidence_path_issue(
+    entry: RouteReadinessEntry,
+    path_text: str,
+) -> RouteReadinessIssue:
+    return _issue(
+        "route_readiness_evidence_path_invalid",
+        entry,
+        (
+            f"evidence path `{path_text}` must resolve within the repository"
+        ),
+        field="evidence",
+    )
+
+
 def _validate_pytest_evidence_reference(
     entry: RouteReadinessEntry,
     *,
@@ -671,7 +746,13 @@ def _validate_pytest_evidence_reference(
     selector: str,
     repo_root: Path,
 ) -> list[RouteReadinessIssue]:
-    evidence_path = repo_root / _normalize_path(evidence_path_text)
+    canonical_path = _canonical_evidence_path(
+        evidence_path_text,
+        repo_root=repo_root,
+    )
+    if canonical_path is None:
+        return [_invalid_evidence_path_issue(entry, evidence_path_text)]
+    _, evidence_path = canonical_path
     if not evidence_path.is_file():
         return [
             _issue(
@@ -713,25 +794,29 @@ def _validate_pytest_evidence_reference(
     function_nodes = (ast.FunctionDef, ast.AsyncFunctionDef)
     test_node: ast.FunctionDef | ast.AsyncFunctionDef | None = None
     if len(selector_parts) == 1:
-        test_node = next(
-            (
-                node
-                for node in module.body
-                if isinstance(node, function_nodes)
-                and node.name == selector_parts[0]
-            ),
-            None,
-        )
+        if selector_parts[0].startswith("test_"):
+            test_node = next(
+                (
+                    node
+                    for node in module.body
+                    if isinstance(node, function_nodes)
+                    and node.name == selector_parts[0]
+                ),
+                None,
+            )
     else:
         class_name, method_name = selector_parts
-        class_node = next(
-            (
-                node
-                for node in module.body
-                if isinstance(node, ast.ClassDef) and node.name == class_name
-            ),
-            None,
-        )
+        class_node = None
+        if class_name.startswith("Test") and method_name.startswith("test_"):
+            class_node = next(
+                (
+                    node
+                    for node in module.body
+                    if isinstance(node, ast.ClassDef)
+                    and node.name == class_name
+                ),
+                None,
+            )
         if class_node is not None:
             test_node = next(
                 (
@@ -804,14 +889,24 @@ def _static_pytest_parameter_ids(
         None,
     )
     if explicit_ids is not None:
-        return _static_string_sequence(explicit_ids, module)
+        parameter_ids = _static_string_sequence(explicit_ids, module)
+        return _unique_static_parameter_ids(parameter_ids)
 
     if len(parametrization.args) < 2:
         return None
     parameter_names = _static_parameter_names(parametrization.args[0])
     if parameter_names is None or len(parameter_names) != 1:
         return None
-    return _static_string_sequence(parametrization.args[1], module)
+    parameter_ids = _static_string_sequence(parametrization.args[1], module)
+    return _unique_static_parameter_ids(parameter_ids)
+
+
+def _unique_static_parameter_ids(
+    parameter_ids: tuple[str, ...] | None,
+) -> tuple[str, ...] | None:
+    if parameter_ids is None or len(parameter_ids) != len(set(parameter_ids)):
+        return None
+    return parameter_ids
 
 
 def _is_pytest_parametrize_call(node: ast.expr) -> bool:
@@ -887,7 +982,25 @@ def _validate_parity_target_evidence_reference(
     selector: str,
     repo_root: Path,
 ) -> list[RouteReadinessIssue]:
-    evidence_path = repo_root / _normalize_path(evidence_path_text)
+    canonical_path = _canonical_evidence_path(
+        evidence_path_text,
+        repo_root=repo_root,
+    )
+    if canonical_path is None:
+        return [_invalid_evidence_path_issue(entry, evidence_path_text)]
+    canonical_relpath, evidence_path = canonical_path
+    if canonical_relpath != PARITY_TARGETS_RELPATH:
+        return [
+            _issue(
+                "route_readiness_evidence_selector_invalid",
+                entry,
+                (
+                    f"structured evidence selectors are supported only for "
+                    f"`{PARITY_TARGETS_RELPATH}`"
+                ),
+                field="evidence",
+            )
+        ]
     if not evidence_path.is_file():
         return [
             _issue(

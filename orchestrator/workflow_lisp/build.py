@@ -338,17 +338,15 @@ def _compile_entry(
 class _SelectAndReattachResult:
     """Return bundle for `_select_and_reattach`.
 
-    A plain tuple would exceed the ~5-element readability threshold (7 fields),
-    so this groups them; see `build_frontend_bundle`'s stage-pipeline docstring.
+    The dataclass keeps the five stage outputs named at the pipeline boundary;
+    see `build_frontend_bundle`'s stage-pipeline docstring.
     """
 
     validated_bundle: LoadedWorkflowBundle
-    validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle]
     source_map_payload: Mapping[str, object]
     workflow_boundary_projection_payload: Mapping[str, object]
     build_root: Path
     fingerprint: str
-    provenance: WorkflowProvenance
 
 
 def _select_and_reattach(
@@ -407,7 +405,6 @@ def _select_and_reattach(
         bundle=selected_bundle,
         provenance=provenance,
     )
-    validated_bundles_by_name = dict(compile_result.validated_bundles_by_name)
     runtime_plan = enrich_workflow_runtime_plan(
         validated_bundle.runtime_plan,
         command_boundary_metadata=_command_boundary_metadata_for_workflow(
@@ -422,18 +419,12 @@ def _select_and_reattach(
         encoding="utf-8",
     )
     validated_bundle = _reattach_bundle_semantic_ir(validated_bundle)
-    validated_bundles_by_name = {
-        **dict(validated_bundles_by_name),
-        entry_selection.canonical_name: validated_bundle,
-    }
     return _SelectAndReattachResult(
         validated_bundle=validated_bundle,
-        validated_bundles_by_name=validated_bundles_by_name,
         source_map_payload=source_map_payload,
         workflow_boundary_projection_payload=workflow_boundary_projection_payload,
         build_root=build_root,
         fingerprint=fingerprint,
-        provenance=provenance,
     )
 
 

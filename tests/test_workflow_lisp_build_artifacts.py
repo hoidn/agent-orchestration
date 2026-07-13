@@ -1280,7 +1280,7 @@ def test_build_rejects_invalid_command_boundary_manifest_entries(
     assert diagnostic.message == expected_message
 
 
-def test_build_emits_required_artifacts_and_deferred_status_entries(tmp_path: Path) -> None:
+def test_build_emits_required_artifacts_and_emitted_status_entries(tmp_path: Path) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
 

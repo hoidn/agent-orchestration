@@ -6,6 +6,8 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from orchestrator.workflow_lisp.migration_parity import (
     load_parity_targets,
     validate_parity_targets_against_route_readiness,
@@ -218,6 +220,27 @@ def test_registry_evidence_accepts_cli_command(tmp_path: Path) -> None:
     assert _evidence_codes(validation) == set()
 
 
+def test_registry_evidence_rejects_unknown_multi_token_command(
+    tmp_path: Path,
+) -> None:
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=["this-is-not-a-command whatever"]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, REPO_ROOT)
+
+    assert "route_readiness_evidence_selector_invalid" in _evidence_codes(
+        validation
+    )
+
+
 def test_registry_evidence_accepts_diagnostic_name(tmp_path: Path) -> None:
     registry = load_route_readiness_registry(
         _write_registry(tmp_path, [_base_entry(evidence=["type_unknown"])])
@@ -342,6 +365,71 @@ def test_registry_evidence_rejects_missing_pytest_node(tmp_path: Path) -> None:
     )
 
 
+def test_registry_evidence_rejects_non_collectable_pytest_helper(
+    tmp_path: Path,
+) -> None:
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=[
+                        "tests/test_workflow_lisp_design_delta_smoke.py::"
+                        "_write_smoke_family_profile"
+                    ]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, REPO_ROOT)
+
+    assert "route_readiness_evidence_selector_unknown" in _evidence_codes(
+        validation
+    )
+
+
+@pytest.mark.parametrize(
+    "selector",
+    (
+        "HelperEvidence::test_case",
+        "TestEvidence::helper_case",
+    ),
+)
+def test_registry_evidence_rejects_non_collectable_pytest_class_or_method(
+    tmp_path: Path,
+    selector: str,
+) -> None:
+    evidence_module = tmp_path / "tests" / "test_evidence.py"
+    evidence_module.parent.mkdir(parents=True)
+    evidence_module.write_text(
+        "class HelperEvidence:\n"
+        "    def test_case(self):\n"
+        "        pass\n"
+        "\n"
+        "class TestEvidence:\n"
+        "    def helper_case(self):\n"
+        "        pass\n",
+        encoding="utf-8",
+    )
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=[f"tests/test_evidence.py::{selector}"]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, tmp_path)
+
+    assert "route_readiness_evidence_selector_unknown" in _evidence_codes(
+        validation
+    )
+
+
 def test_registry_evidence_rejects_missing_pytest_parameter_id(
     tmp_path: Path,
 ) -> None:
@@ -363,6 +451,95 @@ def test_registry_evidence_rejects_missing_pytest_parameter_id(
     validation = validate_route_readiness_registry(registry, REPO_ROOT)
 
     assert "route_readiness_evidence_selector_unknown" in _evidence_codes(
+        validation
+    )
+
+
+@pytest.mark.parametrize("parameter_id", ("dup", "dup0", "dup1"))
+def test_registry_evidence_fails_closed_for_duplicate_static_parameter_ids(
+    tmp_path: Path,
+    parameter_id: str,
+) -> None:
+    evidence_module = tmp_path / "tests" / "test_evidence.py"
+    evidence_module.parent.mkdir(parents=True)
+    evidence_module.write_text(
+        "import pytest\n"
+        "\n"
+        "@pytest.mark.parametrize('value', ('a', 'b'), ids=('dup', 'dup'))\n"
+        "def test_case(value):\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=[
+                        f"tests/test_evidence.py::test_case[{parameter_id}]"
+                    ]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, tmp_path)
+
+    assert "route_readiness_evidence_selector_invalid" in _evidence_codes(
+        validation
+    )
+
+
+@pytest.mark.parametrize("path_kind", ("absolute", "escaping"))
+def test_registry_evidence_rejects_non_repo_relative_path(
+    tmp_path: Path,
+    path_kind: str,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    inside_report = repo_root / "report.md"
+    inside_report.write_text("inside\n", encoding="utf-8")
+    outside_report = tmp_path / "outside.md"
+    outside_report.write_text("outside\n", encoding="utf-8")
+    evidence = (
+        inside_report.as_posix()
+        if path_kind == "absolute"
+        else "../outside.md"
+    )
+    registry = load_route_readiness_registry(
+        _write_registry(
+            repo_root,
+            [_base_entry(evidence=[evidence])],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, repo_root)
+
+    assert "route_readiness_evidence_path_invalid" in _evidence_codes(
+        validation
+    )
+
+
+def test_registry_evidence_canonicalizes_path_before_self_reference_check(
+    tmp_path: Path,
+) -> None:
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=[
+                        "tests/./test_workflow_lisp_route_readiness.py::"
+                        "test_checked_in_registry_loads_and_validates"
+                    ]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, REPO_ROOT)
+
+    assert "route_readiness_evidence_self_referential" in _evidence_codes(
         validation
     )
 
