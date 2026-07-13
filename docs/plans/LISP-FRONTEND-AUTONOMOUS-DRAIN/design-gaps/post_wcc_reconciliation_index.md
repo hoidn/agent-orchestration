@@ -1,7 +1,7 @@
 # Post-WCC Reconciliation Index
 
 Status: selector guard view
-Updated: 2026-07-12
+Updated: 2026-07-13
 Target design: `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
 Inventory authority: `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json`
 
