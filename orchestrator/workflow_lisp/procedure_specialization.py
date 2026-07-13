@@ -12,7 +12,6 @@ from .contracts import derive_workflow_boundary_fields
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .expression_traversal import iter_child_exprs
 from .expressions import (
-    BacklogDrainExpr,
     CallExpr,
     CommandResultExpr,
     FieldAccessExpr,
@@ -255,12 +254,6 @@ def _private_workflow_result_type_for_expr(
             span=expr.span,
             form_path=expr.form_path,
         )
-    if isinstance(expr, BacklogDrainExpr):
-        return type_env.resolve_type(
-            "DrainResult",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
     if isinstance(expr, ProcedureCallExpr):
         proc_ref_type = local_type_bindings.get(expr.callee_name)
         if isinstance(proc_ref_type, ProcRefTypeRef):
@@ -472,7 +465,6 @@ def _private_workflow_binding_local_value(
             ResumeOrStartExpr,
             ResourceTransitionExpr,
             FinalizeSelectedItemExpr,
-            BacklogDrainExpr,
         ),
     ):
         return None
@@ -544,7 +536,6 @@ def _private_workflow_body_exports_step_backed_outputs(
             ResumeOrStartExpr,
             ResourceTransitionExpr,
             FinalizeSelectedItemExpr,
-            BacklogDrainExpr,
         ),
     ):
         return True

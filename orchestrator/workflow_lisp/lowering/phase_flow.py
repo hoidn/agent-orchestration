@@ -17,7 +17,6 @@ from orchestrator.workflow.surface_ast import SurfaceStep
 from ..contracts import derive_reusable_state_contract_metadata, derive_structured_result_contract, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import (
-    BacklogDrainExpr,
     BindProcExpr,
     CallExpr,
     CommandResultExpr,

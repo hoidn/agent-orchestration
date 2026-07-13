@@ -20,10 +20,6 @@ from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import elaborate_expression
 from orchestrator.workflow_lisp.lowering import _managed_write_root_bindings, _observed_statement_families
-from orchestrator.workflow_lisp.lowering.phase_drain import (
-    _specialize_imported_bundle_provider_metadata,
-    _specialize_same_file_lowered_workflow_provider_metadata,
-)
 from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
 from orchestrator.workflow_lisp.stdlib_contracts import STDLIB_LOWERING_CONTRACTS_BY_FORM
 from orchestrator.workflow_lisp.syntax import SyntaxNode, build_syntax_module

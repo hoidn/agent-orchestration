@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
 
-from .drain_stdlib import BacklogDrainSpec
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .form_registry import FormKind, get_form_spec
 from .phase_stdlib import (
@@ -510,16 +509,6 @@ class FinalizeSelectedItemExpr:
     expansion_stack: ExpansionStack = ()
 
 
-@dataclass(frozen=True)
-class BacklogDrainExpr:
-    """One supported compile-time drain loop form."""
-
-    spec: BacklogDrainSpec
-    span: SourceSpan
-    form_path: tuple[str, ...]
-    expansion_stack: ExpansionStack = ()
-
-
 ExprNode = (
     NameExpr
     | LiteralExpr
@@ -556,7 +545,6 @@ ExprNode = (
     | ResourceTransitionExpr
     | MaterializeViewExpr
     | FinalizeSelectedItemExpr
-    | BacklogDrainExpr
 )
 
 
@@ -979,7 +967,6 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "resource_transition": _elaborate_resource_transition,
         "materialize_view": _elaborate_materialize_view,
         "finalize_selected_item": _elaborate_finalize_selected_item,
-        "backlog_drain": _elaborate_backlog_drain,
     }
 
 
@@ -3118,76 +3105,6 @@ def _elaborate_finalize_selected_item(
                 bound_names=bound_names,
                 procedure_names=procedure_names,
             ),
-        ),
-        span=datum.span,
-        form_path=form_path,
-        expansion_stack=datum.expansion_stack,
-    )
-
-
-def _elaborate_backlog_drain(
-    datum: SyntaxList,
-    *,
-    form_path: tuple[str, ...],
-    bound_names: frozenset[str],
-    procedure_names: frozenset[str],
-) -> BacklogDrainExpr:
-    head = syntax_head(datum)
-    head_name = head.resolved_name if head is not None else "backlog-drain"
-    form_label = f"`{head_name}`"
-    if len(datum.items) < 7:
-        _raise_error(
-            f"{form_label} requires a drain name plus :ctx, :selector, :run-item, :gap-drafter, and :max-iterations",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
-    drain_identifier = syntax_identifier(datum.items[1])
-    if drain_identifier is None:
-        _raise_error(
-            f"{form_label} drain name must be a symbol",
-            span=datum.items[1].span,
-            form_path=form_path,
-            expansion_stack=datum.items[1].expansion_stack,
-        )
-    sections = _keyword_sections(datum.items[2:], form_path=form_path, label=form_label)
-    required = (":ctx", ":selector", ":run-item", ":gap-drafter", ":max-iterations")
-    if any(sections.get(keyword) is None for keyword in required):
-        _raise_error(
-            f"{form_label} requires :ctx, :selector, :run-item, :gap-drafter, and :max-iterations",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
-    selector_identifier = syntax_identifier(sections[":selector"])
-    run_item_identifier = syntax_identifier(sections[":run-item"])
-    gap_drafter_identifier = syntax_identifier(sections[":gap-drafter"])
-    if selector_identifier is None or run_item_identifier is None or gap_drafter_identifier is None:
-        _raise_error(
-            f"{form_label} workflow refs must be symbols",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
-    return BacklogDrainExpr(
-        spec=BacklogDrainSpec(
-            drain_name=drain_identifier.resolved_name,
-            ctx_expr=_elaborate(sections[":ctx"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
-            selector_name=selector_identifier.resolved_name,
-            run_item_name=run_item_identifier.resolved_name,
-            gap_drafter_name=gap_drafter_identifier.resolved_name,
-            providers_expr=(
-                _elaborate(sections[":providers"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names)
-                if sections.get(":providers") is not None
-                else None
-            ),
-            max_iterations_expr=_elaborate(
-                sections[":max-iterations"],
-                form_path=form_path,
-                bound_names=bound_names,
-                procedure_names=procedure_names,
-            ),
-            preserve_owner_boundary=True,
         ),
         span=datum.span,
         form_path=form_path,

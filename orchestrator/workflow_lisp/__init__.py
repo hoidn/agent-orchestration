@@ -40,7 +40,6 @@ from .effects import (
     WriteEffect,
 )
 from .expressions import (
-    BacklogDrainExpr,
     CallExpr,
     CommandResultExpr,
     ContinueExpr,
@@ -115,7 +114,6 @@ __all__ = [
     "ConditionShape",
     "ContinueExpr",
     "BoolAtom",
-    "BacklogDrainExpr",
     "CallsWorkflowEffect",
     "DefinitionNode",
     "EffectSummary",

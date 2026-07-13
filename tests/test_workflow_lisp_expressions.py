@@ -8,10 +8,8 @@ import pytest
 
 from orchestrator.workflow_lisp.compiler import PRELUDE_TYPE_NAMES, compile_stage1_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from orchestrator.workflow_lisp.drain_stdlib import BacklogDrainSpec
 from orchestrator.workflow_lisp.parametric_constraints import SharedUnionFieldCapability
 from orchestrator.workflow_lisp.expressions import (
-    BacklogDrainExpr,
     BindProcBinding,
     BindProcExpr,
     CommandResultExpr,
@@ -183,7 +181,7 @@ def test_typecheck_facade_reexports_public_entrypoints_after_owner_split() -> No
     assert "typecheck_resume_or_start_expr(" in dispatch_source
     assert "def _require_resume_binding(" not in dispatch_source
     assert (package_dir / "typecheck_drain_phase.py").is_file()
-    assert "typecheck_backlog_drain_expr(" in dispatch_source
+    assert "typecheck_backlog_drain_expr(" not in dispatch_source
     assert "def _require_union_variant_field(" not in dispatch_source
     assert (package_dir / "typecheck_resource_view.py").is_file()
     assert "typecheck_resource_transition_expr(" in dispatch_source
@@ -763,7 +761,6 @@ def test_expression_traversal_direct_child_classification_matches_exprnode_union
         ResumeOrStartExpr,
         ResourceTransitionExpr,
         FinalizeSelectedItemExpr,
-        BacklogDrainExpr,
     }
 
     expr_types = set(get_args(expressions.ExprNode))
@@ -907,24 +904,6 @@ def test_expression_traversal_direct_child_classification_matches_exprnode_union
                 "spec.implementation_expr",
             ),
             id="finalize-selected-item",
-        ),
-        pytest.param(
-            BacklogDrainExpr(
-                spec=BacklogDrainSpec(
-                    drain_name="drain",
-                    ctx_expr=_name("ctx"),
-                    selector_name="selector",
-                    run_item_name="runner",
-                    gap_drafter_name="drafter",
-                    providers_expr=_name("providers"),
-                    max_iterations_expr=_literal(5),
-                    preserve_owner_boundary=True,
-                ),
-                span=_test_span("backlog-drain"),
-                form_path=FORM_PATH,
-            ),
-            ("spec.ctx_expr", "spec.providers_expr", "spec.max_iterations_expr"),
-            id="backlog-drain",
         ),
     ],
 )

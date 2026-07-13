@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .expression_traversal import walk_expr
 from .expressions import (
-    BacklogDrainExpr,
     CallExpr,
     CommandResultExpr,
     ContinueExpr,
@@ -48,7 +47,6 @@ from .spans import SourceSpan
 from .syntax import (
     ExpansionStack,
     HelperExpansionFrame,
-    SyntaxIdentifier,
     SyntaxList,
     SyntaxNode,
     WorkflowLispSyntaxModule,
@@ -822,8 +820,6 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
         return "materialize-view"
     if isinstance(expr, FinalizeSelectedItemExpr):
         return "finalize-selected-item"
-    if isinstance(expr, BacklogDrainExpr):
-        return "backlog-drain"
     if isinstance(expr, LoopRecurExpr):
         return "loop/recur"
     if isinstance(expr, FieldAccessExpr | NameExpr | LiteralExpr | EnumMemberExpr):

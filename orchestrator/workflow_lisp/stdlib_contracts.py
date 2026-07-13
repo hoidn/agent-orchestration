@@ -8,7 +8,6 @@ from types import MappingProxyType
 from typing import Any
 
 from .expressions import (
-    BacklogDrainExpr,
     CommandResultExpr,
     FinalizeSelectedItemExpr,
     ProduceOneOfExpr,
@@ -39,6 +38,10 @@ class StdlibLoweringContract:
     helper_owner_modules: tuple[str, ...]
     adapter_binding_names: tuple[str, ...]
     test_surfaces: tuple[str, ...]
+
+
+class _ImportedBacklogDrainContract:
+    """Non-AST key for the imported stdlib drain contract inventory row."""
 
 
 STDLIB_LOWERING_CONTRACTS: tuple[StdlibLoweringContract, ...] = (
@@ -242,7 +245,7 @@ STDLIB_LOWERING_CONTRACTS: tuple[StdlibLoweringContract, ...] = (
     ),
     StdlibLoweringContract(
         form_name="backlog-drain",
-        expr_type=BacklogDrainExpr,
+        expr_type=_ImportedBacklogDrainContract,
         family="resource_finalize_drain",
         backend_kinds=("workflow_call", "runtime_native"),
         required_statement_families=(

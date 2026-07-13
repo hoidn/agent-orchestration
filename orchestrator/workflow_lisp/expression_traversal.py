@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from .drain_stdlib import BacklogDrainSpec
 from .expressions import (
-    BacklogDrainExpr,
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
@@ -94,14 +92,6 @@ def _finalize_selected_item_children(spec: FinalizeSelectedItemSpec) -> tuple[Ex
     )
 
 
-def _backlog_drain_children(spec: BacklogDrainSpec) -> tuple[ExprNode, ...]:
-    children: list[ExprNode] = [spec.ctx_expr]
-    if spec.providers_expr is not None:
-        children.append(spec.providers_expr)
-    children.append(spec.max_iterations_expr)
-    return tuple(children)
-
-
 def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
     """Return the direct child expressions for one authored expression node."""
 
@@ -183,8 +173,6 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return tuple(children)
     if isinstance(expr, FinalizeSelectedItemExpr):
         return _finalize_selected_item_children(expr.spec)
-    if isinstance(expr, BacklogDrainExpr):
-        return _backlog_drain_children(expr.spec)
     raise TypeError(f"unsupported expression traversal node: {type(expr)!r}")
 
 

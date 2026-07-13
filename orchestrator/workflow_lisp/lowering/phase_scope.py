@@ -17,7 +17,6 @@ from ..contracts import derive_reusable_state_contract_metadata, derive_structur
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expression_traversal import iter_child_exprs
 from ..expressions import (
-    BacklogDrainExpr,
     BindProcExpr,
     CallExpr,
     CommandResultExpr,

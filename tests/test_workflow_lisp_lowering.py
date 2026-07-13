@@ -29,7 +29,6 @@ from orchestrator.workflow_lisp.compiler import (
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 from orchestrator.workflow_lisp.expressions import (
-    BacklogDrainExpr,
     CommandResultExpr,
     FinalizeSelectedItemExpr,
     NameExpr,
@@ -1481,7 +1480,6 @@ def test_stdlib_contract_inventory_covers_supported_frontend_forms() -> None:
         ResumeOrStartExpr,
         ResourceTransitionExpr,
         FinalizeSelectedItemExpr,
-        BacklogDrainExpr,
     }
 
     assert len(STDLIB_LOWERING_CONTRACTS) == 9

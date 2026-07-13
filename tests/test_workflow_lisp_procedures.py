@@ -17,12 +17,10 @@ from orchestrator.workflow_lisp.compiler import (
     _validate_procedure_effects_and_cycles,
     compile_stage3_module as _compile_stage3_module,
 )
-from orchestrator.workflow_lisp.drain_stdlib import BacklogDrainSpec
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 from orchestrator.workflow_lisp.effects import CallsWorkflowEffect, UsesCommandEffect, UsesProviderEffect
 from orchestrator.workflow_lisp.expressions import (
-    BacklogDrainExpr,
     BindProcBinding,
     BindProcExpr,
     FinalizeSelectedItemExpr,
@@ -1980,21 +1978,6 @@ def _wrap_proc_ref_discovery_expr(case_name: str, nested_expr: LetStarExpr, *, s
                 roadmap_expr=placeholder,
                 plan_expr=nested_expr,
                 implementation_expr=placeholder,
-            ),
-            span=span,
-            form_path=form_path,
-        )
-    if case_name == "backlog_drain":
-        return BacklogDrainExpr(
-            spec=BacklogDrainSpec(
-                drain_name="neurips",
-                ctx_expr=placeholder,
-                selector_name="selector-run",
-                run_item_name="run-selected-item",
-                gap_drafter_name="gap-draft",
-                providers_expr=nested_expr,
-                max_iterations_expr=LiteralExpr(value=4, literal_kind="int", span=span, form_path=form_path),
-                preserve_owner_boundary=True,
             ),
             span=span,
             form_path=form_path,
@@ -5092,7 +5075,6 @@ def test_stage3_materializes_proc_ref_specializations_before_lowering_and_preser
         "resume_or_start",
         "resource_transition",
         "finalize_selected_item",
-        "backlog_drain",
     ],
 )
 def test_stage3_discovery_walks_nested_proc_ref_specializations_in_owner_forms(
