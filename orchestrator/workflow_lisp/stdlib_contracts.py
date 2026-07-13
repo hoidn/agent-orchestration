@@ -24,7 +24,7 @@ from .workflows import CertifiedAdapterBinding
 @dataclass(frozen=True)
 class StdlibLoweringContract:
     form_name: str
-    expr_type: type[Any]
+    expr_type: type[Any] | None
     family: str
     backend_kinds: tuple[str, ...]
     required_statement_families: tuple[str, ...]
@@ -38,10 +38,6 @@ class StdlibLoweringContract:
     helper_owner_modules: tuple[str, ...]
     adapter_binding_names: tuple[str, ...]
     test_surfaces: tuple[str, ...]
-
-
-class _ImportedBacklogDrainContract:
-    """Non-AST key for the imported stdlib drain contract inventory row."""
 
 
 STDLIB_LOWERING_CONTRACTS: tuple[StdlibLoweringContract, ...] = (
@@ -245,7 +241,7 @@ STDLIB_LOWERING_CONTRACTS: tuple[StdlibLoweringContract, ...] = (
     ),
     StdlibLoweringContract(
         form_name="backlog-drain",
-        expr_type=_ImportedBacklogDrainContract,
+        expr_type=None,
         family="resource_finalize_drain",
         backend_kinds=("workflow_call", "runtime_native"),
         required_statement_families=(
@@ -340,7 +336,11 @@ STDLIB_LOWERING_CONTRACTS_BY_FORM: Mapping[str, StdlibLoweringContract] = Mappin
     {contract.form_name: contract for contract in STDLIB_LOWERING_CONTRACTS}
 )
 _STDLIB_LOWERING_CONTRACTS_BY_EXPR: Mapping[type[Any], StdlibLoweringContract] = MappingProxyType(
-    {contract.expr_type: contract for contract in STDLIB_LOWERING_CONTRACTS}
+    {
+        contract.expr_type: contract
+        for contract in STDLIB_LOWERING_CONTRACTS
+        if contract.expr_type is not None
+    }
 )
 
 

@@ -1486,13 +1486,23 @@ def test_stdlib_contract_inventory_covers_supported_frontend_forms() -> None:
     assert {contract.form_name for contract in STDLIB_LOWERING_CONTRACTS} == expected_forms
     assert set(STDLIB_LOWERING_CONTRACTS_BY_FORM) == expected_forms
     assert expected_expr_types <= {contract.expr_type for contract in STDLIB_LOWERING_CONTRACTS}
-    assert all(contract.expr_type.__name__ != "StdlibSpecializationExpr" for contract in STDLIB_LOWERING_CONTRACTS)
+    assert all(
+        contract.expr_type is None or contract.expr_type.__name__ != "StdlibSpecializationExpr"
+        for contract in STDLIB_LOWERING_CONTRACTS
+    )
 
     review_loop_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["review-revise-loop"]
     assert review_loop_contract.expr_type is ProcedureCallExpr
     assert "phase_stdlib" not in review_loop_contract.helper_owner_modules
 
-    for expr_type in {contract.expr_type for contract in STDLIB_LOWERING_CONTRACTS}:
+    imported_drain_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["backlog-drain"]
+    assert imported_drain_contract.expr_type is None
+
+    for expr_type in {
+        contract.expr_type
+        for contract in STDLIB_LOWERING_CONTRACTS
+        if contract.expr_type is not None
+    }:
         contract = stdlib_contract_for_expr(expr_type)
         assert contract.expr_type is expr_type
         assert STDLIB_LOWERING_CONTRACTS_BY_FORM[contract.form_name] is contract
