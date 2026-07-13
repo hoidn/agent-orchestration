@@ -1640,12 +1640,13 @@ canonical guarded regeneration environment
 `ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_INDEX`) for one preliminary
 single-target parity regeneration. This was a supported bootstrap-order
 deviation, not a validation bypass. The ignored
-`tmp/task23-artifact-bootstrap-pre-0b051f22/` snapshot contains the top-level
-parity report, Markdown view, index, and gate artifacts plus a SHA-256 inventory
-of the full pre-bootstrap parity-output tree. The logs were hashed and listed in
-that inventory but were not copied into the snapshot; neither the build root nor
-the parity log tree is claimed as snapshotted. No artifact was manually edited
-and no validation rule was weakened. The final ordinary production compile,
+`tmp/task23-artifact-bootstrap-pre-0b051f22/` snapshot contains a full copy of
+the pre-bootstrap canonical parity-output tree—top-level report, Markdown view,
+index, and gate artifacts plus all target logs—and a separate SHA-256 inventory
+of that tree. A fresh unrestricted inventory found 51 files (42 target-log
+files; `du -sh` reported `1.3M`). The compile build root was not copied. No
+artifact was manually edited and no validation rule was weakened. The final
+ordinary production compile,
 with no regeneration environment, exited **0** with zero diagnostics, lowering
 route `wcc_m4`, and fingerprint `c5cf03b2755308a3`; its log SHA-256 is
 `500927780b1cfb06e493aedf22323f19a5d98afc4397c798f7830ac08d6cbafe`.
