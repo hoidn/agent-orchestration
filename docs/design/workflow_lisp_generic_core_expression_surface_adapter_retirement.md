@@ -1270,10 +1270,12 @@ Current G6 status note:
   parent-callable validation; and
 - the G7 family-cleanup prerequisite evidence and the generic route are landed
   on the checked owner lanes; the G8 drain lowering and name-keyed recognition
-  rows are discharged by the completed Phase 2 intrinsic retirement. The
-  broader family certification bundle and G8 evidence inventory intentionally
-  remain until Phases 3–4 of
-  `docs/plans/2026-07-07-drain-migration-g8-retirement.md`.
+  rows are discharged by the completed Phase 2 intrinsic retirement. Phase 3
+  retired the broader family certification bundle, and Phase 4 deleted the G8
+  evidence serializer plus the Design-Delta-only parity lanes. The permanent
+  generic parity kernel remains for the two live migration targets; direct
+  owner tests, route readiness, ordinary compile/runtime evidence, and the
+  preserved historical promotion report now own the Design Delta evidence.
 
 ### 15.3 Acceptance
 
@@ -1373,12 +1375,13 @@ and discharges the G8 drain-lowering/name-keyed-recognition deletion rows.
 the authored and labeled-bridge boundary values public, use typed projections
 for selector and recovery routing, commit terminal state through declared
 transitions, and materialize the drain/work-item summaries as views. The
-certified adapter rows for terminal work-item recording, blocked-recovery
-recording, drain-status writing, and drain-summary finalization remain checked
-for migration evidence, but compiled liveness is `unreferenced`. Their broader
-certification/G8 evidence inventory is intentionally retained for the gated
-Phase 3 certification-bundle retirement and Phase 4 parity-lane strip; the
-bounded Design Delta primary-promotion handoff is current before either phase.
+terminal work-item, blocked-recovery, drain-status, and drain-summary adapter
+rows were retired with the family-specific certification bundle after their
+compiled liveness was proved `unreferenced`. The G8 evidence inventory and
+Design-Delta-only parity lanes are also deleted. The generic parity kernel,
+direct production-owner tests, route-readiness evidence, and preserved
+historical promotion report remain; the YAML twin stays compatibility-only
+until the separate Stage 6 archive gate.
 
 ## 17. Tranche G8: Evidence-Gated Legacy Deletion
 

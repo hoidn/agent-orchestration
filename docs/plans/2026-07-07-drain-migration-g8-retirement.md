@@ -77,11 +77,12 @@ complete. Gate P3 is also satisfied by the later independent joint proof
 recorded in Phase 2 Ledger entry (f). Phase 3 Tasks 3.1–3.4 are complete and
 reviewed. Gates P3 and P4 are independently reviewed and satisfied. Task 4.1 is
 complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS.
-Task 4.2 is complete and independently reviewed, with
-SPEC PASS and CODE QUALITY PASS. The current selector is **Phase 4 Task 4.3:
-final verification and closeout**. Task 4.3 has not started. Final verification
-and final closeout have not begun. Stage 5 typed result guidance and Stage 6
-YAML archive remain later work.
+Task 4.2 is complete and independently reviewed, with SPEC PASS and CODE
+QUALITY PASS. Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied.
+The semantic-migration freeze is lifted. The current selector is
+**Procedure-First Roadmap Stage 4: Design The Broader Procedure-First
+Contract**. Stage 5 typed result guidance and Stage 6 YAML archive remain later
+work.
 
 **Gate P3 (entry to Phase 3):**
 1. Phase 2 Tasks 2.1–2.3 committed; name-blindness check (Task 2.3 Step 2) clean.
@@ -98,10 +99,11 @@ satisfied and now admits Phase 3. Tasks 3.1–3.4 are complete and reviewed.
 Gates P3 and P4 are independently reviewed and satisfied. Task 4.1 is complete
 and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is
 complete and independently reviewed, with SPEC PASS and CODE
-QUALITY PASS. The current selector is **Phase 4 Task 4.3: final verification
-and closeout**. Task 4.3 has not started. Final verification and final closeout
-have not begun. Stage 5 typed result guidance and Stage 6 YAML archive remain
-later work.
+QUALITY PASS. Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied.
+The semantic-migration freeze is lifted. The current selector is
+**Procedure-First Roadmap Stage 4: Design The Broader Procedure-First
+Contract**. Stage 5 typed result guidance and Stage 6 YAML archive remain later
+work.
 
 **Gate P4 (entry to Phase 4):**
 1. Phase 3 Tasks 3.1–3.4 committed.
@@ -118,10 +120,11 @@ contain only `cycle_guard_demo` and `design_plan_impl_stack`; the retired
 `design_delta_parent_drain` target is absent. Gates P3 and P4 are independently
 reviewed and satisfied. Task 4.1 is complete and independently reviewed, with
 SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and independently
-reviewed, with SPEC PASS and CODE QUALITY PASS. The current selector is **Phase
-4 Task 4.3: final verification and closeout**. Task 4.3 has not started. Final
-verification and final closeout have not begun. Stage 5 typed result guidance
-and Stage 6 YAML archive remain later work.
+reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.3 is complete. Phase 4
+is complete. Gate S3 is satisfied. The semantic-migration freeze is lifted.
+The current selector is **Procedure-First Roadmap Stage 4: Design The Broader
+Procedure-First Contract**. Stage 5 typed result guidance and Stage 6 YAML
+archive remain later work.
 
 ---
 
@@ -410,10 +413,10 @@ reviewed).**
 
 ### Task 4.3: Final verification and closeout
 
-- [ ] **Step 1:** `python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/review-parity-check --require-non-regressive` → exit 0 over the two remaining families.
-- [ ] **Step 2:** Full suite in tmux: `pytest -q`; production compile + a dry-run/launch through the promoted `.orc` primary as the orchestrator smoke. The retained YAML twin is not the primary launch path and remains untouched for Stage 6.
-- [ ] **Step 3:** Docs: capability matrix + design-doc status notes (G8 drain rows: deleted; parity lane: kernel-only). Commit: `Record parity lane strip and closeout evidence`.
-- [ ] **Step 4:** Report: per-phase line-count deltas, gate evidence summary, residue-vs-precedent comparison, and every flagged contradiction's disposition. Do not push; leave commits local for review.
+- [x] **Step 1:** `python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/review-parity-check --require-non-regressive` → exit 0 over the two remaining families.
+- [x] **Step 2:** Full suite in tmux: `pytest -q`; production compile + a dry-run/launch through the promoted `.orc` primary as the orchestrator smoke. The retained YAML twin is not the primary launch path and remains untouched for Stage 6.
+- [x] **Step 3:** Docs: capability matrix + design-doc status notes (G8 drain rows: deleted; parity lane: kernel-only). Commit: `Record parity lane strip and closeout evidence`.
+- [x] **Step 4:** Report: per-phase line-count deltas, gate evidence summary, residue-vs-precedent comparison, and every flagged contradiction's disposition. Do not push; leave commits local for review.
 
 ---
 
@@ -2235,7 +2238,138 @@ hidden behind a G8-specific cleanup path.
 
 Independent review returned **SPEC PASS** and **CODE QUALITY PASS** with no
 open findings. Gates P3 and P4 remain independently reviewed and satisfied.
-Tasks 4.1 and 4.2 are complete and independently reviewed. The current selector
-is **Phase 4 Task 4.3: final verification and closeout**. Task 4.3 has not
-started, and no Task-4.3 verification or final closeout has begun. Stage 5 typed
-result guidance and Stage 6 YAML archive remain later work.
+Tasks 4.1 and 4.2 are complete and independently reviewed.
+
+### (c) Task 4.3 final verification and Gate S3 closeout (2026-07-13)
+
+Task 4.3 ran from base `3b6fb0a5bd765440435334768fc83527727a05c9`.
+The exact strict two-family command exited **0**, wrote two reports, reported
+`overall_pass: true`, and classified both `cycle_guard_demo` and
+`design_plan_impl_stack` as evidence-complete and non-regressive. Fresh
+SHA-256 values are
+`77f8e6083996575571ad8810936a3385a8f6e59420191dc35898621d30e04b1c`
+for `index.json`,
+`e06def3a14b3f45f8865d4747a2a7ec0bbd4b55e53951ab55225799427518380`
+for `gate_evaluation.json`,
+`79beca943b68741827f6a3edecdcaf063a2a3e5a49bf7c83a32315ea9e41fc54`
+for `cycle_guard_demo.json`, and
+`51add85cf99acc5077ba9208d2588bb2e81174990f821456a6bf010266a3d048`
+for `design_plan_impl_stack.json`. These generated kernel outputs remain
+ignored runtime evidence; the tracked Design Delta historical report was not
+regenerated or staged.
+
+The exact serial `pytest -q` command first ran to completion in the isolated
+tmux session `drain-t43-full`, exited **1**, and reported **3,905 passed, 6
+failed, 11 skipped in 401.63s**. After the final routing-guard additions, the
+same exact command ran again from the final tree in tmux session
+`drain-t43-serial-final` and reported **3,909 passed, the same 6 failures, and
+11 skipped in 404.33s**. The sorted failure set is exactly the six established
+post-Task-3.4 baseline node IDs, with no additions or omissions:
+
+- `tests/test_workflow_output_contract_integration.py::test_provider_valid_output_bundle_overrides_raw_nonzero_exit`
+- `tests/test_workflow_semantic_ir.py::test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence`
+- `tests/test_workflow_semantic_ir.py::test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys`
+- `tests/test_workflow_semantic_ir.py::test_compiled_bundle_semantic_ir_preserves_command_boundary_classification`
+- `tests/test_provider_role_routing.py::test_design_delta_drain_defaults_route_work_to_codex_gpt54`
+- `tests/test_neurips_steered_backlog_runtime.py::test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch`
+
+The exact P2-form production compile of the promoted
+`lisp_frontend_design_delta/drain::drain` entry exited **0** with fingerprint
+`ad5a84000ed20a84`, WCC route M4, lowering schema 2, zero error diagnostics,
+and the seven established generic low-level-path warnings. Its CLI artifact
+set has 14 paths including the manifest; the manifest advertises the 13
+current products and no G8 evidence. The reused fingerprint directory still
+contains an unadvertised historical `g8_deletion_evidence.json`, which is the
+explicitly accepted non-pruning behavior, not a current artifact. The checked
+promoted-`.orc` dry-run used the nine public inputs recorded by the boundary
+projection, exited **0**, and ended with `Workflow validation successful`.
+The compatibility YAML twin was neither launched nor modified.
+
+Fresh closeout checks passed the route-readiness CLI at **54/54** surfaces and
+the post-WCC inventory CLI at **14/14** surfaces. The focused
+routing/readiness/post-WCC/build/stdlib/parity/Design-Delta-smoke slice passed
+**279 tests** before the documentation update. The routing change was TDD'd:
+the new Stage-4 selector/closeout guard first failed against the old Task-4.3
+selector and then passed after all 13 live authorities moved together. The
+final-tree focused slice passed **283 tests** after adding the hardened
+closeout and conflicting-selector mutation cases. The repository-required
+final-tree command `pytest -q -n 16 --dist=worksteal` reported **3,908 passed,
+7 failed, and 11 skipped in 100.98s**. Its one additional identity,
+`tests/test_adjudicated_provider_runtime.py::test_deadline_expiring_during_promotion_starts_no_terminal_ledger`,
+failed because the one-second provider deadline expired before pending-ledger
+materialization under parallel full-suite load. The exact node then passed all
+**14** isolated serial reruns (0.34--0.38s each), and the final-tree serial
+suite above restored exactly the established six-failure set. No runtime code
+was changed or test weakened for this non-reproducing load-sensitive failure.
+
+#### Per-phase textual line-count delta
+
+LOC is Git textual additions/deletions between reviewed gate boundaries;
+"production" means `orchestrator/` plus `workflows/library/`. The Phase-4 row
+is the direct endpoint diff, not summed per-commit churn, and excludes the
+seven user-dirty paths explicitly enumerated in the Phase-3 preservation
+record and reconfirmed below.
+
+| Phase boundary | Production additions/deletions (net) | Overall additions/deletions (net) |
+| --- | ---: | ---: |
+| Phase 1, `c5d5e21b^..b34e1cf4` | +1,154 / -142 (**+1,012**) | +14,348 / -1,317 (**+13,031**) |
+| Phase 2, `b34e1cf4..9f22f333` | +36 / -3,791 (**-3,755**) | +1,344 / -6,794 (**-5,450**) |
+| Phase 3, `9f22f333..0d73a6c3` | +620 / -12,568 (**-11,948**) | +22,293 / -45,482 (**-23,189**) |
+| Phase 4 closeout, `0d73a6c3..Task-4.3 tree` | +7 / -624 (**-617**) | +594 / -1,537 (**-943**) |
+
+Phase 1 includes the roadmap-authorized native-return wave-1 interlude, which
+accounts for +546 production and +4,876 overall net; the other Phase-1
+intervals account for +466 production net. Phase 3's additions include the
+preserved 19,270-line historical promotion report. Through the Task-4.2 base,
+the four phase snapshots are net **-15,308 production lines** and **-16,701
+lines overall**. The large decrease is the intended deletion of replaced
+special-case machinery: the Phase-2 intrinsic lane, the Phase-3 certification
+modules/suites/manifests, and the Phase-4 Design-Delta-only parity/serializer
+lanes. The generic drain route and permanent parity kernel remain.
+
+#### Residue, contradictions, and preservation
+
+The final residue comparison remains below the accepted precedent: the
+review-loop precedent has ten Python name-bearing lines, while `backlog-drain`
+has three true sanctioned residue rows (the macro-bindable registry record and
+stdlib contract/output-shaping ownership). No compiler dispatch or
+consumer-name branch was reintroduced. Every drafting-time contradiction has
+an explicit disposition:
+
+1. The registry conflict took the reviewed **residue-precedent route**:
+   `backlog-drain` remains a macro-bindable `STDLIB_EXTENSION` like
+   `review-revise-loop`; the callable-boundary record is absent. The temporary
+   imported-only evidence constants used during retirement are now deleted.
+2. The prior-plan sequencing conflict was resolved by explicit supersession:
+   this plan governed, and the July-6 plan's intrinsic-retirement task stayed
+   historical until Gate P2 admitted the Phase-2 deletion.
+3. The G8 artifact's under-approximation was not treated as admission
+   evidence. Gate P2's Phase-1 reachability/redundancy proof was the real gate;
+   deletion occurred only after it passed, and the temporary artifact is now
+   retired.
+4. The exception-type correction remains accurate provenance: the old
+   fingerprint mismatch raised `ValueError` with the same fail-closed effect.
+   Its owning certification module was later deleted in Phase 3.
+5. The concurrent-plan drift used the live inventory: `stage7_metrics.py` had
+   already been deleted before this plan's execution and was not counted or
+   deleted again in Phase 2.
+
+All **28** protected historical
+`state/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R*` directories remain. The
+YAML twin's Git blob remains `a3f4663d458248d20ef76a810bf917dd874376eb`,
+identical to `HEAD`. The tracked historical Design Delta promotion report and
+Markdown remain at SHA-256
+`26ba415a25334175430dcd98195fe97c500baef6fa26b02e6a221a9b499b86a4`
+and
+`f808a0ea319e9ad4ceb1471bff99c71b2c9bd60f99786498f783ffa29c3cd8ba`.
+The seven pre-existing user-dirty paths were byte-preserved and never staged.
+
+**Gate S3 disposition: SATISFIED.** Production and fixture-only routes remain
+distinguished, the permanent name-blindness and residue guards pass, and both
+remaining parity targets pass after Design-Delta lane removal. Task 4.3 is
+complete. Phase 4 is complete. Gate S3 is satisfied. The semantic-migration
+freeze is lifted. The current selector is **Procedure-First Roadmap Stage 4:
+Design The Broader Procedure-First Contract**. Stage 4 owns the frontend-spec
+delta jointly resolving recommendations 9 and 11 plus the reviewed reusable
+workflow-call classification inventory. Stage 5 typed result guidance and
+Stage 6 YAML archive remain later work; neither starts in this closeout.

@@ -9,22 +9,35 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CURRENT_SELECTOR = (
-    "phase 4 task 4.3: final verification and closeout"
+    "procedure first roadmap stage 4: design the broader procedure first contract"
 )
 GATE_P4_REVIEWED_STATE = (
     "gates p3 and p4 are independently reviewed and satisfied"
 )
 TASK_4_1_REVIEWED_STATE = "task 4.1 is complete and independently reviewed"
 TASK_4_2_REVIEWED_STATE = "task 4.2 is complete and independently reviewed"
-TASK_4_3_UNSTARTED_STATE = "task 4.3 has not started"
-CONTRADICTORY_TASK_4_3_START = re.compile(
-    r"(?<!no )\b(?:"
-    r"task 4\.3(?: (?:implementation|work|verification|closeout))?"
-    r"|final verification(?: and final closeout)?(?: (?:work|execution))?"
-    r"|final closeout(?: (?:work|execution))?"
-    r") (?:"
-    r"(?:has|have|is|are) (?:started|begun|underway)"
-    r"|started|began"
+TASK_4_3_COMPLETE_STATE = "task 4.3 is complete"
+PHASE_4_COMPLETE_STATE = "phase 4 is complete"
+GATE_S3_SATISFIED_STATE = "gate s3 is satisfied"
+SEMANTIC_FREEZE_LIFTED_STATE = "semantic migration freeze is lifted"
+VALID_TASK_4_3_CLOSEOUT_STATE = (
+    "Gates P3 and P4 are independently reviewed and satisfied. "
+    "Task 4.1 is complete and independently reviewed. "
+    "Task 4.2 is complete and independently reviewed. "
+    "Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. "
+    "The semantic-migration freeze is lifted."
+)
+CONTRADICTORY_CLOSEOUT_STATE = re.compile(
+    r"\b(?:"
+    r"task 4\.3 has not started"
+    r"|task 4\.3 is not complete"
+    r"|task 4\.3 (?:remains|is) (?:open|pending|in progress|underway)"
+    r"|phase 4 is not complete"
+    r"|phase 4 (?:remains|is) (?:open|pending|in progress|underway)"
+    r"|gate s3 (?:failed|has failed)"
+    r"|gate s3 (?:remains|is) (?:open|pending|unsatisfied|not satisfied)"
+    r"|semantic migration freeze is not lifted"
+    r"|semantic migration freeze (?:remains|is) (?:in force|active)"
     r")\b"
 )
 
@@ -52,32 +65,27 @@ def _normalized_routing_text(text: str) -> str:
 def _assert_current_selector(surface: str, label: str) -> None:
     normalized = _normalized_routing_text(surface)
     clauses = re.findall(
-        r"(?:current selector|active step|next active selection)\s*(?:is|:)\s*((?:\d+\.\d+|[^.,;|])+)",
+        r"(?:current selector|active step|next active selection|next selector)\s*(?:is|:)\s*((?:\d+\.\d+|[^.,;|])+)",
         normalized,
     )
-    assert clauses, label
-    assert any(CURRENT_SELECTOR in clause for clause in clauses), (label, clauses)
+    assert clauses == [CURRENT_SELECTOR], (label, clauses)
     forbidden = re.compile(
-        r"phase 3|task 4\.[12]|task 4\.(?:[4-9]|[1-9][0-9]+)|stage 5|typed result guidance|yaml archive"
+        r"drain phase|phase 4|task 4\.[1-9]|stage 5|typed result guidance|yaml archive"
     )
     for clause in clauses:
         assert forbidden.search(clause) is None, (label, clause)
 
 
-def _assert_task_4_2_closure_state(surface: str, label: str) -> None:
+def _assert_task_4_3_closeout_state(surface: str, label: str) -> None:
     normalized = _normalized_routing_text(surface)
     assert GATE_P4_REVIEWED_STATE in normalized, label
     assert TASK_4_1_REVIEWED_STATE in normalized, label
     assert TASK_4_2_REVIEWED_STATE in normalized, label
-    assert TASK_4_3_UNSTARTED_STATE in normalized, label
-    normalized_without_explicit_negative = normalized.replace(
-        "task 4.3 has not started, and no task 4.3 verification or final closeout has begun",
-        TASK_4_3_UNSTARTED_STATE,
-    )
-    assert (
-        CONTRADICTORY_TASK_4_3_START.search(normalized_without_explicit_negative)
-        is None
-    ), label
+    assert TASK_4_3_COMPLETE_STATE in normalized, label
+    assert PHASE_4_COMPLETE_STATE in normalized, label
+    assert GATE_S3_SATISFIED_STATE in normalized, label
+    assert SEMANTIC_FREEZE_LIFTED_STATE in normalized, label
+    assert CONTRADICTORY_CLOSEOUT_STATE.search(normalized) is None, label
 
 
 def _assert_task_4_2_temporary_pipeline_contract(surface: str, label: str) -> None:
@@ -103,76 +111,51 @@ def _assert_task_4_2_temporary_pipeline_contract(surface: str, label: str) -> No
 @pytest.mark.parametrize(
     "mutated_state",
     [
-        (
-            "Gates P3 and P4 are satisfied. "
-            "Task 4.1 is complete and independently reviewed. "
-            "Task 4.2 is complete and independently reviewed. "
-            "Task 4.3 has not started."
+        VALID_TASK_4_3_CLOSEOUT_STATE.replace(
+            "independently reviewed and satisfied", "satisfied", 1
         ),
-        (
-            "Gates P3 and P4 are independently reviewed and satisfied. "
-            "Task 4.2 is complete and independently reviewed. "
-            "Task 4.3 has not started."
+        VALID_TASK_4_3_CLOSEOUT_STATE.replace(
+            "Task 4.1 is complete and independently reviewed. ", "", 1
         ),
-        (
-            "Gates P3 and P4 are independently reviewed and satisfied. "
-            "Task 4.1 is complete and independently reviewed. "
-            "Task 4.3 has not started."
+        VALID_TASK_4_3_CLOSEOUT_STATE.replace(
+            "Task 4.2 is complete and independently reviewed. ", "", 1
         ),
-        (
-            "Gates P3 and P4 are independently reviewed and satisfied. "
-            "Task 4.1 is complete and independently reviewed. "
-            "Task 4.2 is complete and independently reviewed. "
-            "Task 4.3 has not started. Task 4.3 verification has begun."
+        VALID_TASK_4_3_CLOSEOUT_STATE.replace("Task 4.3 is complete. ", "", 1),
+        VALID_TASK_4_3_CLOSEOUT_STATE.replace("Phase 4 is complete. ", "", 1),
+        VALID_TASK_4_3_CLOSEOUT_STATE.replace("Gate S3 is satisfied. ", "", 1),
+        VALID_TASK_4_3_CLOSEOUT_STATE.replace(
+            "The semantic-migration freeze is lifted.", "", 1
         ),
-        (
-            "Gates P3 and P4 are independently reviewed and satisfied. "
-            "Task 4.1 is complete and independently reviewed. "
-            "Task 4.2 is complete and independently reviewed. "
-            "Task 4.3 has not started. Final verification has started."
-        ),
-        (
-            "Gates P3 and P4 are independently reviewed and satisfied. "
-            "Task 4.1 is complete and independently reviewed. "
-            "Task 4.2 is complete and independently reviewed. "
-            "Task 4.3 has not started. Final closeout work has begun."
-        ),
-        (
-            "Gates P3 and P4 are independently reviewed and satisfied. "
-            "Task 4.1 is complete and independently reviewed. "
-            "Task 4.2 is complete and independently reviewed. "
-            "Task 4.3 has not started. Task 4.3 verification is underway."
-        ),
-        (
-            "Gates P3 and P4 are independently reviewed and satisfied. "
-            "Task 4.1 is complete and independently reviewed. "
-            "Task 4.2 is complete and independently reviewed. "
-            "Task 4.3 has not started. Final verification and final closeout have begun."
-        ),
-        (
-            "Gates P3 and P4 are independently reviewed and satisfied. "
-            "Task 4.1 is complete and independently reviewed. "
-            "Task 4.2 is complete and independently reviewed. "
-            "Task 4.3 has not started. Final verification started."
-        ),
+        VALID_TASK_4_3_CLOSEOUT_STATE + " Task 4.3 has not started.",
+        VALID_TASK_4_3_CLOSEOUT_STATE + " Phase 4 is not complete.",
+        VALID_TASK_4_3_CLOSEOUT_STATE + " Gate S3 failed.",
+        VALID_TASK_4_3_CLOSEOUT_STATE
+        + " The semantic-migration freeze is not lifted.",
+        VALID_TASK_4_3_CLOSEOUT_STATE + " Gate S3 remains open.",
+        VALID_TASK_4_3_CLOSEOUT_STATE
+        + " The semantic-migration freeze remains in force.",
     ],
     ids=[
         "weakened-gate-review",
         "missing-task-4-1-review",
         "missing-task-4-2-review",
-        "contradictory-task-4-3-start",
-        "contradictory-final-verification-start",
-        "contradictory-final-closeout-start",
-        "contradictory-task-4-3-underway",
-        "contradictory-plural-closeout-begun",
-        "contradictory-simple-past-verification-start",
+        "missing-task-4-3-complete",
+        "missing-phase-4-complete",
+        "missing-gate-s3-satisfied",
+        "missing-semantic-freeze-lifted",
+        "contradictory-task-4-3-unstarted",
+        "contradictory-phase-4-incomplete",
+        "contradictory-gate-s3-failed",
+        "contradictory-semantic-freeze-not-lifted",
+        "contradictory-gate-s3-open",
+        "contradictory-semantic-freeze-active",
     ],
 )
-def test_task_4_2_closure_guard_rejects_weakened_or_contradictory_state(
+def test_task_4_3_closeout_guard_rejects_weakened_or_contradictory_state(
     mutated_state: str,
 ) -> None:
     with pytest.raises(AssertionError):
-        _assert_task_4_2_closure_state(mutated_state, "mutated Task 4.2 state")
+        _assert_task_4_3_closeout_state(mutated_state, "mutated Task 4.3 state")
 
 
 def test_design_delta_primary_and_archive_deferral_remain_routed() -> None:
@@ -330,25 +313,40 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
     assert len(routing_surfaces) == 13
     for label, surface in routing_surfaces.items():
         _assert_current_selector(surface, label)
-        _assert_task_4_2_closure_state(surface, label)
+        _assert_task_4_3_closeout_state(surface, label)
     _assert_task_4_2_temporary_pipeline_contract(task_4_2_plan, "Task 4.2 plan")
 
     mutated = docs_index_routing.replace(
-        "final verification and closeout",
+        "Design The Broader Procedure-First Contract",
         "unrelated cleanup",
         1,
     )
     with pytest.raises(AssertionError):
         _assert_current_selector(mutated, "mutated selector title")
 
+    duplicated = (
+        docs_index_routing
+        + " The current selector is Procedure-First Roadmap Stage 4: "
+        "unrelated duplicate."
+    )
+    with pytest.raises(AssertionError):
+        _assert_current_selector(duplicated, "duplicate selector")
+
+    conflicting_next = (
+        docs_index_routing + " The next selector is Stage 5: typed result guidance."
+    )
+    with pytest.raises(AssertionError):
+        _assert_current_selector(conflicting_next, "conflicting next selector")
+
     for forbidden_selector in (
+        "drain phase 4 task 4.3: final verification and closeout",
         "phase 4 task 4.2: strip the g8 serializer",
         "phase 4 task 4.4: post closeout cleanup",
         "stage 5: typed result guidance",
         "stage 6: yaml archive",
     ):
         mutated = docs_index_routing.replace(
-            "drain Phase 4 Task 4.3: final verification and closeout",
+            "Procedure-First Roadmap Stage 4: Design The Broader Procedure-First Contract",
             forbidden_selector,
             1,
         )
@@ -366,7 +364,7 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
     assert "imported generic" in drain_owner
     assert "ordinary specialization and WCC lowering" in drain_owner
 
-    order = _normalized_routing_text(typed_guidance_row).split("current order", 1)[1]
-    assert order.index("phase 4 task 4.3") < order.index("stage 5")
+    order = _normalized_routing_text(typed_guidance_row)
+    assert order.index(CURRENT_SELECTOR) < order.index("guidance remains stage 5")
     assert "+ 6 `v214` library imports" in family_one_row
     assert "Stage 6" in family_one_row

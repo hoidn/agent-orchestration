@@ -37,6 +37,13 @@ remaining effectful composition gaps, shared validation, and runtime
 command/output handling needed before promoting key `.orc` workflow
 replacements over YAML primaries.
 
+Current checkout status (2026-07-13): the permanent target-loading,
+report/Markdown/index, gate-evaluation, and CLI kernel remains active for
+`cycle_guard_demo` and `design_plan_impl_stack`. The promoted Design Delta
+family is no longer a live target; its Design-Delta-only evidence roles and G8
+artifact dependency are deleted, while its immutable historical promotion
+report remains the Stage-6 decision record.
+
 ## Summary
 
 The first key-workflow migration pass proved that Workflow Lisp can compile and

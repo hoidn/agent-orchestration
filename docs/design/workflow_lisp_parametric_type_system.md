@@ -633,10 +633,11 @@ certification bundle, Task 3.4 closed Phase-3 verification, and Task 4.1 strippe
 the Design-Delta-only parity lanes while preserving the permanent kernel. Gates
 P3 and P4 are independently reviewed and satisfied. Task 4.1 is complete and
 independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is
-complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. The
-current selector is drain Phase 4 Task 4.3: final verification and closeout.
-Task 4.3 has not started. Final verification and final closeout have not begun.
-Stage 5 typed result guidance and Stage 6 YAML archive remain later work.
+complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS.
+Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The
+semantic-migration freeze is lifted. The current selector is Procedure-First
+Roadmap Stage 4: Design The Broader Procedure-First Contract. Stage 5 typed
+result guidance and Stage 6 YAML archive remain later work.
 
 Expected residue on the order of the review loop's (registry entry, stdlib
 contract, output-contract shaping). Residue materially above that is a signal
