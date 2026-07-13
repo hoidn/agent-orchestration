@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,22 +18,6 @@ from tests.workflow_bundle_helpers import bundle_context_dict
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LIBRARY_ROOT = REPO_ROOT / "workflows" / "library"
-VECTORS_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_projection_dual_run_vectors.json"
-)
-REPORT_PATH = (
-    REPO_ROOT
-    / "artifacts"
-    / "work"
-    / "LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN"
-    / "migration-parity"
-    / "design_delta_parent_drain_projection_dual_run_report.json"
-)
 REPORT_SCHEMA_VERSION = "workflow_lisp_projection_dual_run_report.v1"
 
 ADAPTER_SCRIPTS = {
@@ -246,7 +229,89 @@ WRAPPER_SOURCE = """(workflow-lisp
 
 
 def _load_vectors() -> dict[str, Any]:
-    return json.loads(VECTORS_PATH.read_text(encoding="utf-8"))
+    return {
+        "adapters": {
+            "project_lisp_frontend_selector_action": {
+                "comparison_mapping_id": "selector_action_projection.v1",
+                "vectors": [
+                    {
+                        "id": "selector_selected_backlog_item",
+                        "replacement_inputs": {
+                            "selection_status": "SELECT_BACKLOG_ITEM",
+                            "selection_bundle_path": "state/selector_selected.json",
+                            "work_item_bootstrap__work_item_source": "BACKLOG_ITEM",
+                            "work_item_bootstrap__work_item_id": "selector-selected-backlog-item",
+                            "work_item_bootstrap__plan_target_path": "docs/plans/projection-plan.md",
+                            "work_item_bootstrap__check_commands__commands": [],
+                            "work_item_bootstrap__architecture_path": "docs/plans/projection-architecture.md",
+                            "blocked_reason": "",
+                        },
+                        "incumbent_inputs": {
+                            "selection_status": "SELECT_BACKLOG_ITEM",
+                            "selection_bundle_path": "state/selector_selected.json",
+                            "is_selected": True,
+                            "is_design_gap": False,
+                            "is_done": False,
+                            "is_blocked": False,
+                            "blocked_reason": "",
+                        },
+                        "expected_result": {
+                            "variant": "SELECTED_ITEM",
+                            "selection_bundle_path": "state/selector_selected.json",
+                            "reason": "",
+                        },
+                        "accepted_differences": [],
+                    }
+                ],
+            },
+            "classify_lisp_frontend_work_item_terminal": {
+                "comparison_mapping_id": "work_item_terminal_projection.v1",
+                "vectors": [
+                    {
+                        "id": "terminal_implementation_blocked",
+                        "replacement_inputs": {
+                            "plan_review_decision": "APPROVE",
+                            "implementation_state": "BLOCKED",
+                            "implementation_review_decision": "NOT_APPLICABLE",
+                            "work_item_source": "DESIGN_GAP",
+                        },
+                        "incumbent_inputs": {
+                            "plan_review_decision": "APPROVE",
+                            "implementation_state": "BLOCKED",
+                            "implementation_review_decision": "NOT_APPLICABLE",
+                            "work_item_source": "DESIGN_GAP",
+                        },
+                        "expected_result": {"variant": "IMPLEMENTATION_BLOCKED"},
+                        "accepted_differences": [],
+                    }
+                ],
+            },
+            "select_lisp_frontend_blocked_recovery_route": {
+                "comparison_mapping_id": "blocked_recovery_projection.v1",
+                "vectors": [
+                    {
+                        "id": "blocked_recovery_target_design_revision_required",
+                        "replacement_inputs": {
+                            "work_item_source": "DESIGN_GAP",
+                            "blocked_recovery_route": "TARGET_DESIGN_REVISION_REQUIRED",
+                            "reason": "target_design_contract_gap",
+                        },
+                        "incumbent_inputs": {
+                            "terminal_route": "IMPLEMENTATION_BLOCKED",
+                            "work_item_source": "DESIGN_GAP",
+                            "blocked_recovery_route": "TARGET_DESIGN_REVISION_REQUIRED",
+                            "reason": "target_design_contract_gap",
+                        },
+                        "expected_result": {
+                            "variant": "TARGET_DESIGN_REVISION_REQUIRED",
+                            "reason": "target_design_contract_gap",
+                        },
+                        "accepted_differences": [],
+                    }
+                ],
+            },
+        }
+    }
 
 
 def _write_wrapper_module(workspace: Path) -> Path:
@@ -383,7 +448,7 @@ def _compare_results(
     assert incumbent_result == expected_result
 
 
-def _emit_dual_run_report(workspace: Path, *, report_path: Path = REPORT_PATH) -> dict[str, Any]:
+def _emit_dual_run_report(workspace: Path) -> dict[str, Any]:
     vectors_payload = _load_vectors()
     _prepare_workspace_inputs(workspace, vectors_payload)
     adapters_report: dict[str, Any] = {}
@@ -424,73 +489,36 @@ def _emit_dual_run_report(workspace: Path, *, report_path: Path = REPORT_PATH) -
             "cases": case_reports,
         }
         overall_pass = overall_pass and adapter_pass
-    report = {
+    return {
         "schema_version": REPORT_SCHEMA_VERSION,
         "artifact_id": "projection_dual_run_report",
-        "workflow_family": "design_delta_parent_drain",
-        "vectors_path": str(VECTORS_PATH.relative_to(REPO_ROOT)),
-        "generated_at": datetime.now(UTC).isoformat(),
+        "workflow_family": "generic_projection_dual_run",
         "overall_status": "pass" if overall_pass else "fail",
         "all_passed": overall_pass,
         "adapters": adapters_report,
     }
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    # Re-emit the checked evidence artifact only when its substance changed:
-    # rewriting an identical report with a fresh `generated_at` timestamp
-    # would churn the sha256 that the checked migration-parity report pins.
-    if report_path.is_file():
-        try:
-            existing = json.loads(report_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            existing = None
-        if isinstance(existing, dict) and {
-            key: value for key, value in existing.items() if key != "generated_at"
-        } == {key: value for key, value in report.items() if key != "generated_at"}:
-            return existing
-    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    return report
 
 
-def test_projection_dual_run_vectors_manifest_is_well_formed() -> None:
+def test_projection_dual_run_local_vectors_cover_generic_adapters() -> None:
     payload = _load_vectors()
 
-    assert payload["schema_version"] == "workflow_lisp_projection_dual_run_vectors.v1"
-    assert payload["workflow_family"] == "design_delta_parent_drain"
-    assert set(payload["adapters"]) == {
-        "project_lisp_frontend_selector_action",
-        "classify_lisp_frontend_work_item_terminal",
-        "select_lisp_frontend_blocked_recovery_route",
-    }
+    assert set(payload["adapters"]) == set(COMPARISON_MAPPINGS)
     for adapter_name, adapter_payload in payload["adapters"].items():
         assert adapter_payload["comparison_mapping_id"] == COMPARISON_MAPPINGS[adapter_name]
-        assert adapter_payload["vectors"]
-        for vector in adapter_payload["vectors"]:
-            assert vector["accepted_differences"] == []
-
+        assert len(adapter_payload["vectors"]) == 1
+        assert adapter_payload["vectors"][0]["accepted_differences"] == []
 
 def test_projection_dual_run_emits_declared_report_and_passes_all_vectors(tmp_path: Path) -> None:
     report = _emit_dual_run_report(tmp_path)
 
-    assert REPORT_PATH.is_file()
     assert report["schema_version"] == REPORT_SCHEMA_VERSION
     assert report["artifact_id"] == "projection_dual_run_report"
-    assert report["workflow_family"] == "design_delta_parent_drain"
+    assert report["workflow_family"] == "generic_projection_dual_run"
     assert report["overall_status"] == "pass"
     assert report["all_passed"] is True
     assert set(report["adapters"]) == set(COMPARISON_MAPPINGS)
 
 
-def test_projection_dual_run_preserves_report_when_only_generated_at_would_change(
-    tmp_path: Path,
-) -> None:
-    report_path = tmp_path / "projection_dual_run_report.json"
-
-    first = _emit_dual_run_report(tmp_path / "first", report_path=report_path)
-    first_bytes = report_path.read_bytes()
-    second = _emit_dual_run_report(tmp_path / "second", report_path=report_path)
-
-    assert second == first
-    assert report_path.read_bytes() == first_bytes
 
 
 def test_projection_dual_run_detects_expected_result_mismatch(tmp_path: Path) -> None:

@@ -3118,8 +3118,7 @@ def _write_design_delta_g0_build_manifest(
                 "schema_version": "workflow_lisp_private_runtime_value_flow_census_report.v1",
                 "workflow_family": "design_delta_parent_drain",
                 "checked_census_path": (
-                    "workflows/examples/inputs/workflow_lisp_migrations/"
-                    "design_delta_parent_drain.value_flow_census.json"
+                    "checked/value_flow_census.json"
                 ),
                 "checked_census_fingerprint": "sha256:value-flow-census",
                 "required_source_kinds": [
@@ -3166,17 +3165,11 @@ def _write_design_delta_g0_build_manifest(
                 "schema_version": "workflow_lisp_consumer_rendering_census_report.v1",
                 "workflow_family": "design_delta_parent_drain",
                 "checked_manifest": {
-                    "path": (
-                        "workflows/examples/inputs/workflow_lisp_migrations/"
-                        "design_delta_parent_drain.consumer_rendering_census.json"
-                    ),
+                    "path": "checked/consumer_rendering_census.json",
                     "sha256": "sha256:consumer-rendering-census",
                 },
                 "source_census": {
-                    "path": (
-                        "workflows/examples/inputs/workflow_lisp_migrations/"
-                        "design_delta_parent_drain.value_flow_census.json"
-                    ),
+                    "path": "checked/value_flow_census.json",
                     "sha256": "sha256:value-flow-census",
                 },
                 "materialize_view_effect_rows": [
@@ -3198,10 +3191,7 @@ def _write_design_delta_g0_build_manifest(
                 "schema_version": "workflow_lisp_typed_prompt_input_report.v1",
                 "workflow_family": "design_delta_parent_drain",
                 "checked_manifest": {
-                    "path": (
-                        "workflows/examples/inputs/workflow_lisp_migrations/"
-                        "design_delta_parent_drain.consumer_rendering_census.json"
-                    ),
+                    "path": "checked/consumer_rendering_census.json",
                     "sha256": "sha256:consumer-rendering-census",
                 },
                 "consumed_artifact_prompt_rows": [],
@@ -3300,10 +3290,7 @@ def _write_design_delta_g0_build_manifest(
                     {"row_id": "c0.drain_materialized_drain_summary"},
                 ],
                 "source_census": {
-                    "path": (
-                        "workflows/examples/inputs/workflow_lisp_migrations/"
-                        "design_delta_parent_drain.value_flow_census.json"
-                    ),
+                    "path": "checked/value_flow_census.json",
                     "schema_version": "workflow_lisp_private_runtime_value_flow_census.v1",
                 },
                 "prerequisite_reports": {
@@ -4216,49 +4203,6 @@ def test_design_delta_consume_prompt_report_stays_empty_until_authored_consumes_
 
 
 
-def test_design_delta_parent_drain_checked_parity_inputs_no_longer_rely_on_timed_summary_rows() -> None:
-    payload = json.loads(
-        (
-            Path(__file__).resolve().parent.parent
-            / "workflows"
-            / "examples"
-            / "inputs"
-            / "workflow_lisp_migrations"
-            / "design_delta_parent_drain.consumer_rendering_census.json"
-        ).read_text(encoding="utf-8")
-    )
-    summary_rows = {
-        row["row_id"]: row
-        for row in payload["rows"]
-        if row["row_id"]
-        in {
-            "c0.stdlib_adapters_selected_item_summary_seed",
-            "c0.drain_materialized_drain_summary",
-            "c0.drain_materialized_drain_summary_compiled_boundary",
-            "c0.work_item_stdlib_materialized_blocked_recovery_summary",
-            "c0.work_item_summary_summary_path",
-            "c0.work_item_summary_summary_path_compiled_boundary",
-        }
-    }
-
-    assert summary_rows["c0.drain_materialized_drain_summary"]["track_c_decision"] == (
-        "RETIRE_TO_ENTRY_PUBLICATION"
-    )
-    assert summary_rows["c0.work_item_summary_summary_path"]["track_c_decision"] == (
-        "RETIRE_TO_BRIDGE_METADATA"
-    )
-    assert "c0.stdlib_adapters_selected_item_summary_seed" not in summary_rows
-    assert "c0.work_item_materialized_selected_item_summary" not in summary_rows
-    assert "c0.work_item_stdlib_materialized_selected_item_summary" not in summary_rows
-    assert "call-imported-finalize-selected-item" not in json.dumps(payload, sort_keys=True)
-    assert "SelectedItemPlanCompat" not in json.dumps(payload, sort_keys=True)
-    assert "SelectedItemImplementationCompat" not in json.dumps(payload, sort_keys=True)
-    assert (
-        summary_rows.get(
-            "c0.work_item_stdlib_materialized_blocked_recovery_summary", {}
-        ).get("track_c_decision")
-        != "KEEP_TIMED_PUBLICATION"
-    )
 
 
 

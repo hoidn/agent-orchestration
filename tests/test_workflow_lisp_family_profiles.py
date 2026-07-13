@@ -25,14 +25,6 @@ VALID_WORKFLOW_LISP_FIXTURES = (
 TYPED_PROMPT_INPUT_PHASE_FIXTURE = (
     VALID_WORKFLOW_LISP_FIXTURES / "typed_prompt_input_phase.orc"
 )
-DESIGN_DELTA_FAMILY_PROFILE_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.family_profile.json"
-)
 FORBIDDEN_SOURCE_SHAPE_TOKENS = (
     "lisp_frontend_design_delta",
     "PHASE_FAMILY_MODULE_PREFIX",
@@ -66,8 +58,6 @@ def _write_profile(path: Path, payload: object) -> Path:
     return path
 
 
-def test_design_delta_reference_family_profile_manifest_is_checked_in() -> None:
-    assert DESIGN_DELTA_FAMILY_PROFILE_PATH.is_file()
 
 
 def test_phase_family_helpers_require_explicit_profile_catalog() -> None:

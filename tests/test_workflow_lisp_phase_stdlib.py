@@ -61,17 +61,77 @@ from orchestrator.workflow_lisp.workflows import (
     typecheck_workflow_definitions,
 )
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
-from tests.test_workflow_lisp_design_delta_drain_migration_feasibility import (
-    _design_delta_command_boundaries,
-    _design_delta_prompt_externs,
-    _design_delta_provider_externs,
-)
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW_LIBRARY_ROOT = REPO_ROOT / "workflows" / "library"
 STDLIB_MODULE_ROOT = REPO_ROOT / "orchestrator" / "workflow_lisp" / "stdlib_modules"
+
+
+def _design_delta_provider_externs() -> dict[str, str]:
+    return {
+        "providers.implementation.execute": "fake-execute",
+        "providers.implementation.review": "fake-review",
+        "providers.implementation.fix": "fake-fix",
+    }
+
+
+def _design_delta_prompt_externs() -> dict[str, str]:
+    return {
+        "prompts.implementation.execute": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md",
+        "prompts.implementation.review": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md",
+        "prompts.implementation.fix": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md",
+    }
+
+
+def _g0_retirement_metadata(
+    *,
+    name: str,
+    retirement_class: str,
+    retirement_label: str,
+    replacement_surface: str,
+) -> dict[str, object]:
+    return {
+        "retirement_class": retirement_class,
+        "retirement_label": retirement_label,
+        "replacement_surface": replacement_surface,
+        "bridge_owner": "workflow-lisp",
+        "expiry_condition": f"test-{name}-metadata",
+        "evidence_refs": (f"{name}_evidence",),
+    }
+
+
+def _design_delta_command_boundaries() -> dict[str, ExternalToolBinding]:
+    return {
+        "run_neurips_backlog_checks": ExternalToolBinding(
+            name="run_neurips_backlog_checks",
+            stable_command=(
+                "python",
+                "workflows/library/scripts/run_neurips_backlog_checks.py",
+            ),
+            **_g0_retirement_metadata(
+                name="run_neurips_backlog_checks",
+                retirement_class="genuine_system",
+                retirement_label="keep_certified_system",
+                replacement_surface="bounded repo-local checks",
+            ),
+        ),
+        "validate_review_findings_v1": ExternalToolBinding(
+            name="validate_review_findings_v1",
+            stable_command=(
+                "python",
+                "-m",
+                "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+            ),
+            **_g0_retirement_metadata(
+                name="validate_review_findings_v1",
+                retirement_class="validation",
+                retirement_label="keep_certified_system",
+                replacement_surface="typed review findings validation",
+            ),
+        ),
+    }
 VALID_RUN_PROVIDER_FIXTURE = FIXTURES / "valid" / "phase_stdlib_run_provider_phase.orc"
 VALID_PHASE_SNAPSHOT_EFFECTS_FIXTURE = FIXTURES / "valid" / "phase_snapshot_effects.orc"
 VALID_POINTER_MATERIALIZATION_EFFECTS_FIXTURE = FIXTURES / "valid" / "pointer_materialization_effects.orc"

@@ -8520,7 +8520,7 @@ def test_blocked_recovery_materializer_rejects_prerequisite_route_without_struct
         "The proposed prerequisite is "
         "`workflow-lisp-runtime-native-drain-design-delta-parent-transition-authoring-stale-allowed-origins`, "
         "because the current blocker is the repo-local "
-        "`design_delta_parent_drain.transition_authoring.json` `stale_allowed_origins` failure, "
+        "transition-authoring contract failure, "
         "not a terminal external dependency.\n",
         encoding="utf-8",
     )

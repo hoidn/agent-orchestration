@@ -68,7 +68,7 @@ DESIGN_DELTA_G8_VERIFICATION_COMMANDS = (
     "python -m pytest tests/test_workflow_lisp_context_classification.py -q",
     "python -m pytest tests/test_workflow_lisp_stdlib_form_migration.py -q",
     'python -m pytest tests/test_workflow_lisp_build_artifacts.py -k "design_delta_parent_drain or boundary_authority or adapter_census" -q',
-    'python -m pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -k "design_delta_parent_family_commands_use_production_adapter_interfaces or design_delta_parent_drain" -q',
+    "python -m pytest tests/test_workflow_lisp_design_delta_smoke.py -q",
     'python -m pytest tests/test_workflow_lisp_migration_parity.py -k "design_delta_parent_drain or adapter_census or boundary_authority" -q',
     'python -m pytest tests/test_workflow_lisp_command_adapters.py -k "design_delta_parent_drain or retirement" -q',
     "python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json",

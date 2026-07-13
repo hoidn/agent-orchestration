@@ -7,7 +7,6 @@ from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
-from orchestrator.workflow_lisp.family_profiles import load_workflow_family_profile_catalog
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
@@ -25,14 +24,6 @@ DESIGN_DELTA_PARENT_DRAIN_COMMANDS = (
     / "inputs"
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.commands.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.family_profile.json"
 )
 
 
@@ -99,9 +90,7 @@ def test_checkpoint_identity_stable_across_recompiles(tmp_path: Path) -> None:
 
 
 def _design_delta_parent_drain_provider_externs() -> dict[str, str]:
-    # Copied from tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py
-    # (parent-drain loader); inlined so this module survives that suite's
-    # planned retirement.
+    # Kept local so checkpoint-identity coverage owns its compile inputs.
     return {
         "providers.plan.draft": "fake-plan-draft",
         "providers.plan.review": "fake-plan-review",
@@ -179,9 +168,6 @@ def _design_delta_drain_validated_bundles(tmp_path: Path):
         ),
         validate_shared=True,
         workspace_root=tmp_path,
-        family_profile_catalog=load_workflow_family_profile_catalog(
-            (DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,)
-        ),
     )
     return result.validated_bundles_by_name
 

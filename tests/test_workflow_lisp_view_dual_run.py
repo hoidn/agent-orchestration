@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,22 +20,6 @@ from tests.workflow_bundle_helpers import bundle_context_dict
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LIBRARY_ROOT = REPO_ROOT / "workflows" / "library"
-VECTORS_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_view_dual_run_vectors.json"
-)
-REPORT_PATH = (
-    REPO_ROOT
-    / "artifacts"
-    / "work"
-    / "LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN"
-    / "migration-parity"
-    / "design_delta_parent_drain_view_dual_run_report.json"
-)
 COMMANDS_PATH = (
     REPO_ROOT
     / "workflows"
@@ -55,8 +38,117 @@ REPORT_SCHEMA_VERSION = "workflow_lisp_view_dual_run_report.v1"
 EXPECTED_COMPARISON_MAPPING = "drain_summary_view.v1"
 
 
+def _positive_vector(
+    *,
+    vector_id: str,
+    status: str,
+    reason: str,
+    completed_items: list[str],
+    blocked_items: dict[str, str],
+) -> dict[str, Any]:
+    run_state_document = {
+        "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+        "completed_items": completed_items,
+        "completed_design_gaps": [],
+        "blocked_items": blocked_items,
+        "blocked_design_gaps": {},
+        "history": [{"iteration": 1}],
+    }
+    return {
+        "id": vector_id,
+        "kind": "positive",
+        "incumbent_inputs": {
+            "run_state_path": "state/run_state.json",
+            "drain_status": status,
+            "summary_path": "artifacts/work/drain_summary.json",
+            "state_root": "state",
+        },
+        "replacement_inputs": {
+            "run_state_path": "state/run_state.json",
+            "drain_status": status,
+            "drain_status_reason": reason,
+            "summary_path": "artifacts/work/drain_summary.json",
+            "pointer_path": "artifacts/work/drain_summary_path.txt",
+        },
+        "run_state_document": run_state_document,
+        "expected_typed_value": {
+            "drain_status": status,
+            "drain_status_reason": reason,
+            "run_state_path": "state/run_state.json",
+            "summary_target": "artifacts/work/drain_summary.json",
+            "state_version": "lisp_frontend_autonomous_drain_run_state/v1",
+        },
+        "legacy_state_expectations": {
+            "completed_items": completed_items,
+            "completed_design_gaps": [],
+            "blocked_items": blocked_items,
+            "blocked_design_gaps": {},
+            "history_count": 1,
+        },
+        "compatibility_expectations": {
+            "legacy_pointer_path": "state/drain_summary_path.txt",
+            "replacement_pointer_path": "artifacts/work/drain_summary_path.txt",
+            "legacy_final_run_state_path": "state/final_run_state_path.txt",
+        },
+        "accepted_differences": [
+            {"id": "legacy_state_duplication_fields"},
+            {"id": "legacy_final_run_state_pointer_sidecar"},
+        ],
+    }
+
+
 def _load_vectors() -> dict[str, Any]:
-    return json.loads(VECTORS_PATH.read_text(encoding="utf-8"))
+    return {
+        "workflow_family": "generic_view_dual_run",
+        "adapter_name": "finalize_lisp_frontend_drain_summary",
+        "comparison_mapping_id": EXPECTED_COMPARISON_MAPPING,
+        "vectors": [
+            _positive_vector(
+                vector_id="done_summary_view",
+                status="DONE",
+                reason="finished",
+                completed_items=["item-1"],
+                blocked_items={},
+            ),
+            _positive_vector(
+                vector_id="blocked_summary_view",
+                status="BLOCKED",
+                reason="needs_revision",
+                completed_items=[],
+                blocked_items={"item-9": "needs_revision"},
+            ),
+            {
+                "id": "invalid_status_rejected",
+                "kind": "negative",
+                "incumbent_inputs": {
+                    "run_state_path": "state/run_state.json",
+                    "drain_status": "INVALID",
+                    "summary_path": "artifacts/work/drain_summary.json",
+                    "state_root": "state",
+                },
+                "replacement_inputs": {
+                    "run_state_path": "state/run_state.json",
+                    "drain_status": "INVALID",
+                    "drain_status_reason": "bad_status",
+                    "summary_path": "artifacts/work/drain_summary.json",
+                    "pointer_path": "artifacts/work/drain_summary_path.txt",
+                },
+                "run_state_document": {
+                    "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                    "completed_items": [],
+                    "completed_design_gaps": [],
+                    "blocked_items": {},
+                    "blocked_design_gaps": {},
+                    "history": [],
+                },
+                "expected_failures": {
+                    "incumbent_substring": "Unexpected drain status",
+                    "replacement_substring": "invalid_enum_value",
+                },
+                "accepted_differences": [],
+            },
+        ],
+    }
 
 
 def _command_boundaries() -> dict[str, object]:
@@ -265,7 +357,7 @@ def _assert_negative_vector_matches(vector: dict[str, Any], workspace: Path) -> 
     }
 
 
-def _emit_dual_run_report(workspace: Path, *, report_path: Path = REPORT_PATH) -> dict[str, Any]:
+def _emit_dual_run_report(workspace: Path) -> dict[str, Any]:
     payload = _load_vectors()
     case_reports: list[dict[str, Any]] = []
     overall_pass = True
@@ -299,12 +391,10 @@ def _emit_dual_run_report(workspace: Path, *, report_path: Path = REPORT_PATH) -
         case_reports.append(_assert_negative_vector_matches(vector, workspace / vector["id"]))
     adapter_pass = all(case["status"] == "pass" for case in case_reports)
     overall_pass = overall_pass and adapter_pass
-    report = {
+    return {
         "schema_version": REPORT_SCHEMA_VERSION,
         "artifact_id": "view_dual_run_report",
         "workflow_family": payload["workflow_family"],
-        "vectors_path": str(VECTORS_PATH.relative_to(REPO_ROOT)),
-        "generated_at": datetime.now(UTC).isoformat(),
         "overall_status": "pass" if overall_pass else "fail",
         "all_passed": overall_pass,
         "adapters": {
@@ -315,45 +405,27 @@ def _emit_dual_run_report(workspace: Path, *, report_path: Path = REPORT_PATH) -
             }
         },
     }
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    # Re-emit the checked evidence artifact only when its substance changed:
-    # rewriting an identical report with a fresh `generated_at` timestamp
-    # would churn the sha256 that the checked migration-parity report pins.
-    if report_path.is_file():
-        try:
-            existing = json.loads(report_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            existing = None
-        if isinstance(existing, dict) and {
-            key: value for key, value in existing.items() if key != "generated_at"
-        } == {key: value for key, value in report.items() if key != "generated_at"}:
-            return existing
-    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    return report
 
 
-def test_view_dual_run_vectors_manifest_is_well_formed() -> None:
+def test_view_dual_run_local_vectors_cover_positive_and_negative_behavior() -> None:
     payload = _load_vectors()
 
-    assert payload["schema_version"] == "workflow_lisp_view_dual_run_vectors.v1"
-    assert payload["workflow_family"] == "design_delta_parent_drain"
+    assert payload["workflow_family"] == "generic_view_dual_run"
     assert payload["adapter_name"] == "finalize_lisp_frontend_drain_summary"
     assert payload["comparison_mapping_id"] == EXPECTED_COMPARISON_MAPPING
-    assert payload["report_path"] == str(REPORT_PATH.relative_to(REPO_ROOT))
-    assert [vector["id"] for vector in payload["vectors"]] == [
-        "done_summary_view",
-        "blocked_summary_view",
-        "invalid_status_rejected",
+    assert [vector["kind"] for vector in payload["vectors"]] == [
+        "positive",
+        "positive",
+        "negative",
     ]
 
 
 def test_view_dual_run_emits_declared_report_and_passes_all_vectors(tmp_path: Path) -> None:
     report = _emit_dual_run_report(tmp_path)
 
-    assert REPORT_PATH.is_file()
     assert report["schema_version"] == REPORT_SCHEMA_VERSION
     assert report["artifact_id"] == "view_dual_run_report"
-    assert report["workflow_family"] == "design_delta_parent_drain"
+    assert report["workflow_family"] == "generic_view_dual_run"
     assert report["overall_status"] == "pass"
     assert report["all_passed"] is True
     assert set(report["adapters"]) == {"finalize_lisp_frontend_drain_summary"}

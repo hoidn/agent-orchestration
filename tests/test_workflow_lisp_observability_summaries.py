@@ -21,14 +21,54 @@ def _module():
     return importlib.import_module("orchestrator.workflow_lisp.observability_summaries")
 
 
-def _manifest_path() -> Path:
-    return (
-        Path(__file__).resolve().parents[1]
-        / "workflows"
-        / "examples"
-        / "inputs"
-        / "workflow_lisp_migrations"
-        / "design_delta_parent_drain.consumer_rendering_census.json"
+def _manifest_path(tmp_path: Path) -> Path:
+    renderer = {
+        "accepted_shape": "any_pure_value",
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+    }
+    return _write_json(
+        tmp_path / "checked" / "consumer_rendering_census.json",
+        {
+            "schema_version": CONSUMER_RENDERING_CENSUS_SCHEMA_VERSION,
+            "target_family": "observability_summary_tests",
+            "rows": [
+                {
+                    "row_id": "c0.drain_summary_report_target_final_summary_view",
+                    "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+                    "consumer_lane": "human_observability",
+                    "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+                    "source_kind": "summary_report_target",
+                    "durability": "durable_publication",
+                    "renderer": {
+                        "accepted_shape": "path_value",
+                        "renderer_id": "posix-path-line",
+                        "renderer_version": 1,
+                    },
+                },
+                {
+                    "row_id": "c0.implementation_phase_materialized_return_checks_report",
+                    "workflow_surface": _checks_report_workflow_surface(),
+                    "consumer_lane": "retirement_candidate",
+                    "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+                    "source_kind": "materialized_output",
+                    "durability": "durable_timed_body",
+                    "renderer": renderer,
+                    "compiled_effect_match": {
+                        "step_id_suffix": _checks_report_old_writer_suffix()
+                    },
+                },
+                {
+                    "row_id": "c0.implementation_phase_materialized_return_checks_report_compiled_boundary",
+                    "workflow_surface": _checks_report_workflow_surface(),
+                    "consumer_lane": "retirement_candidate",
+                    "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+                    "source_kind": "materialized_output",
+                    "durability": "durable_timed_body",
+                    "renderer": renderer,
+                },
+            ],
+        },
     )
 
 
@@ -200,16 +240,16 @@ def _summary_inputs(tmp_path: Path) -> dict[str, object]:
         "workflow_family": "lisp_frontend_design_delta_parent_drain",
         "workflow_surface": "lisp_frontend_design_delta/drain::drain",
         "state": state,
-        "manifest_path": _manifest_path(),
+        "manifest_path": _manifest_path(tmp_path),
         "audit_paths": [audit_path],
         "old_writer_paths": {"c0.drain_summary_report_target_final_summary_view": legacy_path},
     }
 
 
-def test_select_observability_rows_uses_checked_c0_manifest() -> None:
+def test_select_observability_rows_uses_local_c0_manifest(tmp_path: Path) -> None:
     module = _module()
 
-    rows = module.select_observability_rows(_manifest_path())
+    rows = module.select_observability_rows(_manifest_path(tmp_path))
     row_ids = {row["row_id"] for row in rows}
 
     assert "c0.drain_summary_report_target_final_summary_view" in row_ids
@@ -220,11 +260,13 @@ def test_select_observability_rows_uses_checked_c0_manifest() -> None:
     )
 
 
-def test_select_observability_rows_can_scope_to_one_workflow_surface() -> None:
+def test_select_observability_rows_can_scope_to_one_workflow_surface(
+    tmp_path: Path,
+) -> None:
     module = _module()
 
     rows = module.select_observability_rows(
-        _manifest_path(),
+        _manifest_path(tmp_path),
         workflow_surface="lisp_frontend_design_delta/drain::drain",
     )
 
@@ -378,11 +420,13 @@ def test_build_summary_requires_old_writer_comparison_for_retirement_rows(tmp_pa
     }
 
 
-def test_old_writer_contract_evidence_is_not_required_for_timed_observability_rows() -> None:
+def test_old_writer_contract_evidence_is_not_required_for_timed_observability_rows(
+    tmp_path: Path,
+) -> None:
     module = _module()
     rows = {
         row["row_id"]: row
-        for row in json.loads(_manifest_path().read_text(encoding="utf-8"))["rows"]
+        for row in json.loads(_manifest_path(tmp_path).read_text(encoding="utf-8"))["rows"]
     }
 
     assert module.row_requires_old_writer_contract_evidence(
@@ -413,7 +457,7 @@ def test_load_old_writer_pair_manifest_accepts_linked_checks_report_rows(tmp_pat
 
     payload = module.load_old_writer_pair_manifest(
         manifest_path,
-        consumer_rendering_manifest_path=_manifest_path(),
+        consumer_rendering_manifest_path=_manifest_path(tmp_path),
     )
 
     row_pair = payload["row_pairs"][0]
@@ -445,7 +489,7 @@ def test_load_old_writer_pair_manifest_resolves_legacy_payload_path_relative_to_
 
     payload = module.load_old_writer_pair_manifest(
         manifest_path,
-        consumer_rendering_manifest_path=_manifest_path(),
+        consumer_rendering_manifest_path=_manifest_path(tmp_path),
     )
 
     assert payload["row_pairs"][0]["comparison_inputs"]["old_writer_payload"] == (
@@ -465,7 +509,7 @@ def test_load_old_writer_pair_manifest_rejects_self_authenticated_legacy_payload
     with pytest.raises(ValueError, match="observability_summary_old_writer_used_as_state"):
         module.load_old_writer_pair_manifest(
             manifest_path,
-            consumer_rendering_manifest_path=_manifest_path(),
+            consumer_rendering_manifest_path=_manifest_path(tmp_path),
         )
 
 
@@ -519,7 +563,7 @@ def test_load_old_writer_pair_manifest_rejects_fabricated_selected_item_payload_
     with pytest.raises(ValueError, match="observability_summary_old_writer_evidence_stale"):
         module.load_old_writer_pair_manifest(
             manifest_path,
-            consumer_rendering_manifest_path=_manifest_path(),
+            consumer_rendering_manifest_path=_manifest_path(tmp_path),
         )
 
 
@@ -536,7 +580,7 @@ def test_load_old_writer_pair_manifest_rejects_missing_comparison_digest_fields(
     with pytest.raises(ValueError, match="observability_summary_old_writer_evidence_stale"):
         module.load_old_writer_pair_manifest(
             manifest_path,
-            consumer_rendering_manifest_path=_manifest_path(),
+            consumer_rendering_manifest_path=_manifest_path(tmp_path),
         )
 
 
@@ -553,7 +597,7 @@ def test_load_old_writer_pair_manifest_rejects_missing_compiled_boundary_mirror(
     with pytest.raises(ValueError, match="observability_summary_old_writer_mirror_missing"):
         module.load_old_writer_pair_manifest(
             manifest_path,
-            consumer_rendering_manifest_path=_manifest_path(),
+            consumer_rendering_manifest_path=_manifest_path(tmp_path),
         )
 
 
@@ -569,7 +613,7 @@ def test_load_old_writer_pair_manifest_rejects_stale_writer_suffix(tmp_path: Pat
     with pytest.raises(ValueError, match="observability_summary_old_writer_evidence_stale"):
         module.load_old_writer_pair_manifest(
             stale_old_writer,
-            consumer_rendering_manifest_path=_manifest_path(),
+            consumer_rendering_manifest_path=_manifest_path(tmp_path),
         )
 
 
@@ -598,7 +642,7 @@ def test_load_old_writer_pair_manifest_rejects_inline_payload_drift_from_authori
     with pytest.raises(ValueError, match="observability_summary_old_writer_evidence_stale"):
         module.load_old_writer_pair_manifest(
             manifest_path,
-            consumer_rendering_manifest_path=_manifest_path(),
+            consumer_rendering_manifest_path=_manifest_path(tmp_path),
         )
 
 
@@ -609,9 +653,9 @@ def test_build_observability_pair_report_selects_primary_and_mirror_together(
     manifest_path = _write_old_writer_pair_manifest(tmp_path, module)
     pair_manifest = module.load_old_writer_pair_manifest(
         manifest_path,
-        consumer_rendering_manifest_path=_manifest_path(),
+        consumer_rendering_manifest_path=_manifest_path(tmp_path),
     )
-    consumer_manifest = json.loads(_manifest_path().read_text(encoding="utf-8"))
+    consumer_manifest = json.loads(_manifest_path(tmp_path).read_text(encoding="utf-8"))
     report = module.build_observability_pair_report(
         consumer_rendering_census=consumer_manifest,
         pair_manifest=pair_manifest,
@@ -637,9 +681,9 @@ def test_build_observability_pair_report_rejects_progress_report_path_drift(
     )
     pair_manifest = module.load_old_writer_pair_manifest(
         manifest_path,
-        consumer_rendering_manifest_path=_manifest_path(),
+        consumer_rendering_manifest_path=_manifest_path(tmp_path),
     )
-    consumer_manifest = json.loads(_manifest_path().read_text(encoding="utf-8"))
+    consumer_manifest = json.loads(_manifest_path(tmp_path).read_text(encoding="utf-8"))
 
     report = module.build_observability_pair_report(
         consumer_rendering_census=consumer_manifest,
@@ -672,9 +716,9 @@ def test_build_observability_pair_report_rejects_blocker_class_drift(
     )
     pair_manifest = module.load_old_writer_pair_manifest(
         manifest_path,
-        consumer_rendering_manifest_path=_manifest_path(),
+        consumer_rendering_manifest_path=_manifest_path(tmp_path),
     )
-    consumer_manifest = json.loads(_manifest_path().read_text(encoding="utf-8"))
+    consumer_manifest = json.loads(_manifest_path(tmp_path).read_text(encoding="utf-8"))
 
     report = module.build_observability_pair_report(
         consumer_rendering_census=consumer_manifest,
@@ -706,9 +750,9 @@ def test_build_observability_pair_report_rejects_accepted_absence_while_writer_e
     _write_json(manifest_path, manifest_payload)
     pair_manifest = module.load_old_writer_pair_manifest(
         manifest_path,
-        consumer_rendering_manifest_path=_manifest_path(),
+        consumer_rendering_manifest_path=_manifest_path(tmp_path),
     )
-    consumer_manifest = json.loads(_manifest_path().read_text(encoding="utf-8"))
+    consumer_manifest = json.loads(_manifest_path(tmp_path).read_text(encoding="utf-8"))
 
     report = module.build_observability_pair_report(
         consumer_rendering_census=consumer_manifest,

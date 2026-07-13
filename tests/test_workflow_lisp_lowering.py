@@ -164,14 +164,6 @@ DESIGN_DELTA_PARENT_DRAIN_PROMPTS = (
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.prompts.json"
 )
-DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.family_profile.json"
-)
 
 
 def compile_stage3_entrypoint(*args, **kwargs):
@@ -184,8 +176,41 @@ def compile_stage3_module(*args, **kwargs):
     return _compile_stage3_module(*args, **kwargs)
 
 
-def _design_delta_parent_drain_family_profile_catalog():
-    return load_workflow_family_profile_catalog((DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,))
+def _design_delta_parent_drain_family_profile_catalog(tmp_path: Path):
+    profile_path = tmp_path / "phase_context_family_profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_family_profile.v1",
+                "family_id": "phase_context_lowering",
+                "workflow_name_prefixes": [
+                    "lisp_frontend_design_delta/",
+                ],
+                "target_workflows": [
+                    "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+                    "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+                ],
+                "boundary_authority_registry": None,
+                "checked_public_inputs": {},
+                "entry_phase_identities": {},
+                "hidden_context_rules": [
+                    {
+                        "workflow_name": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+                        "parameter_name": "phase-ctx",
+                        "phase_identity": "implementation",
+                    },
+                    {
+                        "workflow_name": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+                        "parameter_name": "phase-ctx",
+                        "phase_identity": "plan",
+                    },
+                ],
+                "typed_prompt_input_rows": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return load_workflow_family_profile_catalog((profile_path,))
 
 
 def _design_delta_parent_drain_command_boundaries():
@@ -5192,7 +5217,7 @@ def test_compile_stage3_entrypoint_rejects_missing_derived_phase_context_source(
             validate_shared=False,
             lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
-            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(),
+            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(tmp_path),
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -5221,7 +5246,7 @@ def test_compile_stage3_entrypoint_rejects_direct_entry_derived_phase_context_om
             validate_shared=True,
             lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
-            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(),
+            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(tmp_path),
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -5334,7 +5359,7 @@ def test_compile_stage3_entrypoint_rejects_non_item_ctx_root_derived_phase_conte
             validate_shared=False,
             lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
-            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(),
+            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(tmp_path),
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -5363,7 +5388,7 @@ def test_compile_stage3_entrypoint_rejects_ambiguous_derived_phase_context(
             validate_shared=False,
             lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
-            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(),
+            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(tmp_path),
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -5392,7 +5417,7 @@ def test_compile_stage3_entrypoint_rejects_derived_phase_context_public_run_leav
             validate_shared=False,
             lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
-            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(),
+            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(tmp_path),
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -5421,7 +5446,7 @@ def test_compile_stage3_entrypoint_rejects_derived_phase_context_from_compatibil
             validate_shared=False,
             lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
-            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(),
+            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(tmp_path),
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -5450,7 +5475,7 @@ def test_compile_stage3_entrypoint_rejects_derived_phase_context_reread(
             validate_shared=False,
             lowering_route=LoweringRoute.WCC_M4.value,
             workspace_root=tmp_path,
-            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(),
+            family_profile_catalog=_design_delta_parent_drain_family_profile_catalog(tmp_path),
         )
 
     diagnostic = excinfo.value.diagnostics[0]

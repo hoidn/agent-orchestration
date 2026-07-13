@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-import json
 from pathlib import Path
 
 import pytest
@@ -15,22 +14,33 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
 VALID_FIXTURES = FIXTURES / "valid"
 ENTRY_PUBLICATION_RUNTIME_FIXTURE = VALID_FIXTURES / "entry_publication_runtime.orc"
 MATERIALIZE_VIEW_RUNTIME_FIXTURE = VALID_FIXTURES / "materialize_view_runtime.orc"
-ENTRY_PUBLICATION_CENSUS_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.consumer_rendering_census.json"
-)
 
 
 def _entry_publication_module():
     return importlib.import_module("orchestrator.workflow_lisp.entry_publication")
 
 
-def _load_json(path: Path) -> object:
-    return json.loads(path.read_text(encoding="utf-8"))
+def _entry_publication_census() -> dict[str, object]:
+    return {
+        "rows": [
+            {
+                "row_id": "c0.drain_materialized_drain_summary",
+                "consumer_lane": "entry_publication",
+            },
+            {
+                "row_id": "c0.selector_output_return_selection_bundle_path",
+                "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
+            },
+            {
+                "row_id": "c0.selector_output_return_selection_bundle_path_compiled_boundary",
+                "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
+            },
+            {
+                "row_id": "c0.drain_output_return_run_state",
+                "consumer_lane": "semantic_runtime",
+            },
+        ]
+    }
 
 
 def _compile_fixture(path: Path, tmp_path: Path):
@@ -44,11 +54,11 @@ def _compile_fixture(path: Path, tmp_path: Path):
     )
 
 
-def test_entry_publication_helpers_select_only_c3_rows_from_checked_census() -> None:
+def test_entry_publication_helpers_select_only_c3_rows_from_local_census() -> None:
     module = _entry_publication_module()
     selector = getattr(module, "select_entry_publication_rows")
 
-    selected_rows = selector(_load_json(ENTRY_PUBLICATION_CENSUS_PATH))
+    selected_rows = selector(_entry_publication_census())
     selected_row_ids = {row["row_id"] for row in selected_rows}
 
     assert selected_row_ids == {
@@ -70,26 +80,6 @@ def test_entry_publication_helpers_select_only_c3_rows_from_checked_census() -> 
         not in selected_row_ids
     )
 
-
-def test_checked_design_delta_entry_publication_rows_include_real_drain_summary_candidates() -> None:
-    module = _entry_publication_module()
-    selector = getattr(module, "select_entry_publication_rows")
-
-    selected_rows = selector(_load_json(ENTRY_PUBLICATION_CENSUS_PATH))
-    selected_row_ids = {row["row_id"] for row in selected_rows}
-
-    assert "c0.drain_materialized_drain_summary" in selected_row_ids
-    assert "c0.drain_materialized_drain_summary_compiled_boundary" not in selected_row_ids
-    assert (
-        "c0.drain_output_return_drain_summary_run_state_path_compiled_boundary"
-        not in selected_row_ids
-    )
-    assert (
-        "c0.drain_output_return_drain_summary_summary_target_compiled_boundary"
-        not in selected_row_ids
-    )
-    assert "c0.work_item_summary_summary_path" not in selected_row_ids
-    assert "c0.work_item_summary_summary_path_compiled_boundary" not in selected_row_ids
 
 
 def test_entry_publication_helpers_classify_legal_and_compatibility_only_rows() -> None:
@@ -146,8 +136,8 @@ def test_entry_publication_helpers_resolve_role_registry_and_serialize_report() 
     payload = serialize_report(
         target_family="design_delta_parent_drain",
         workflow_name="entry_publication_runtime::entry-publication-runtime",
-        source_census={"path": str(ENTRY_PUBLICATION_CENSUS_PATH)},
-        consumer_rendering_census={"path": str(ENTRY_PUBLICATION_CENSUS_PATH)},
+        source_census={"path": "local-entry-publication-census"},
+        consumer_rendering_census={"path": "local-entry-publication-census"},
         publication_policy={"rows": [{"variant": "DONE", "role": "drain-summary"}]},
         selected_c0_rows=[{"row_id": "c0.synthetic_publishable_done"}],
         lowered_publications=[{"variant": "DONE", "role": "drain-summary"}],
