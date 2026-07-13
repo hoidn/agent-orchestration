@@ -20,9 +20,12 @@ TASK_4_3_UNSTARTED_STATE = "task 4.3 has not started"
 CONTRADICTORY_TASK_4_3_START = re.compile(
     r"(?<!no )\b(?:"
     r"task 4\.3(?: (?:implementation|work|verification|closeout))?"
-    r"|final verification(?: (?:work|execution))?"
+    r"|final verification(?: and final closeout)?(?: (?:work|execution))?"
     r"|final closeout(?: (?:work|execution))?"
-    r") has (?:started|begun)\b"
+    r") (?:"
+    r"(?:has|have|is|are) (?:started|begun|underway)"
+    r"|started|began"
+    r")\b"
 )
 
 
@@ -134,6 +137,24 @@ def _assert_task_4_2_temporary_pipeline_contract(surface: str, label: str) -> No
             "Task 4.2 is complete and independently reviewed. "
             "Task 4.3 has not started. Final closeout work has begun."
         ),
+        (
+            "Gates P3 and P4 are independently reviewed and satisfied. "
+            "Task 4.1 is complete and independently reviewed. "
+            "Task 4.2 is complete and independently reviewed. "
+            "Task 4.3 has not started. Task 4.3 verification is underway."
+        ),
+        (
+            "Gates P3 and P4 are independently reviewed and satisfied. "
+            "Task 4.1 is complete and independently reviewed. "
+            "Task 4.2 is complete and independently reviewed. "
+            "Task 4.3 has not started. Final verification and final closeout have begun."
+        ),
+        (
+            "Gates P3 and P4 are independently reviewed and satisfied. "
+            "Task 4.1 is complete and independently reviewed. "
+            "Task 4.2 is complete and independently reviewed. "
+            "Task 4.3 has not started. Final verification started."
+        ),
     ],
     ids=[
         "weakened-gate-review",
@@ -142,6 +163,9 @@ def _assert_task_4_2_temporary_pipeline_contract(surface: str, label: str) -> No
         "contradictory-task-4-3-start",
         "contradictory-final-verification-start",
         "contradictory-final-closeout-start",
+        "contradictory-task-4-3-underway",
+        "contradictory-plural-closeout-begun",
+        "contradictory-simple-past-verification-start",
     ],
 )
 def test_task_4_2_closure_guard_rejects_weakened_or_contradictory_state(
