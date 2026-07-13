@@ -1471,9 +1471,11 @@ regenerated the baseline for the generic route. The ledger wording above is the
 authority for the gate claim; a later clean wording pass may rename that test
 without reopening P2.
 
-**Routing effect:** Gate P2 closes Stage 2 and admits Stage 3. The current
-selector is **Phase 2 Task 2.2**, not typed result guidance. Execute the drain
-plan's remaining phases in gated order; typed result guidance remains the later
+**Historical routing effect at the Gate P2 checkpoint:** Gate P2 closed Stage 2
+and admitted Stage 3; the selector at that checkpoint was **Phase 2 Task 2.1**,
+not typed result guidance. Tasks 2.1–2.2 have since completed and been reviewed,
+so the current selector is **Phase 2 Task 2.3**. Execute the drain plan's
+remaining phases in gated order; typed result guidance remains the later
 Stage-5/post-drain wave defined by the governing procedure-first sequence.
 
 ## Phase 2 Ledger

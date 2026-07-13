@@ -4,8 +4,10 @@
 > case 2 landed in `be6596ae`, case 3 landed in `02f38549`, and the separate
 > runtime union-field lineage implementation closed case 5 in `194ad866` with
 > the exact subject identity pinned in `962daa2d`. Task 6 and the final gate
-> now pass. The next active roadmap work is the drain migration Phase 1 Task
-> 1.1.
+> now pass. At this plan's completion checkpoint, the next active roadmap work
+> was drain migration Phase 1 Task 1.1. That selector is historical and
+> superseded; `docs/index.md` and the governing drain plan now route current
+> execution to Phase 2 Task 2.3.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
