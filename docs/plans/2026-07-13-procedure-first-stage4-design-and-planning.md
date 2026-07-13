@@ -8,6 +8,11 @@
 
 **Tech Stack:** Markdown design/specification documents, JSON inventory, Workflow Lisp `.orc` sources, Python/pytest verification, existing route-readiness and migration-parity tooling.
 
+**Status (2026-07-13):** Tasks 1–3 are committed and independently reviewed.
+Holistic Gate S4 review returned `GATE S4 SPEC PASS` and `GATE S4 QUALITY
+PASS`. The closeout advances the current selector to typed result guidance;
+only the post-commit protected-tree guard remains after this roadmap commit.
+
 ---
 
 ## Locked decisions and constraints
@@ -32,18 +37,18 @@
 - Create: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
 - Create: `docs/plans/2026-07-13-procedure-first-reuse-inventory.md`
 
-- [ ] **Step 1: Generate inventory records from current authored `workflows/` sources**
+- [x] **Step 1: Generate inventory records from current authored `workflows/` sources**
 
 Record internal calls separately from public entries. Exclude templates, runtime fixtures, generated sources, and test fixtures from actionable totals while retaining exclusion counts.
 Record `git rev-parse HEAD` as `source_commit`, the exact `rg`/structured-parser
 extraction commands, included roots, and excluded roots. If the source commit
 changes before review, regenerate rather than preserving old totals.
 
-- [ ] **Step 2: Classify every actionable internal call**
+- [x] **Step 2: Classify every actionable internal call**
 
 Use exactly `procedure-candidate`, `effect-adapter`, or `legacy-retire` for internal calls. Use `public-boundary` only on separate public-entry records. Every effect adapter must name the missing proof/substrate obligation.
 
-- [ ] **Step 3: Validate the JSON and reconcile totals**
+- [x] **Step 3: Validate the JSON and reconcile totals**
 
 Run:
 
@@ -57,11 +62,11 @@ exit 0, with 96 actionable/retained internal calls: 33 procedure candidates,
 the recorded extraction output; a later source commit may change the totals if
 the report explains the delta rather than forcing the historical count.
 
-- [ ] **Step 4: Document feasibility cases and uncertainty**
+- [x] **Step 4: Document feasibility cases and uncertainty**
 
 The report must include `backlog-drain-proc`, an ordinary non-drain positive candidate, and a negative public boundary. It must identify which classifications are conservative and what evidence can reclassify them.
 
-- [ ] **Step 5: Obtain specification and quality reviews and resolve findings**
+- [x] **Step 5: Obtain specification and quality reviews and resolve findings**
 
 The specification review checks every actionable source row, classification
 vocabulary, public-entry separation, feasibility case, exclusion, count, and
@@ -69,7 +74,7 @@ provenance field. The quality review checks reproducibility, schema clarity,
 stable IDs, uncertainty, and routing usefulness. Rerun both whole reviews after
 fixes until both pass.
 
-- [ ] **Step 6: Commit the reviewed inventory only**
+- [x] **Step 6: Commit the reviewed inventory only**
 
 ```bash
 git add docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md
@@ -85,23 +90,23 @@ git commit -m "Inventory procedure-first reuse boundaries"
 - Modify: `docs/lisp_workflow_drafting_guide.md`
 - Modify: `docs/design/README.md`
 
-- [ ] **Step 1: Write the focused frontend delta**
+- [x] **Step 1: Write the focused frontend delta**
 
 Define boundary roles, typed-return compatibility, direct versus transitive effects, supported composed effects, lowering/identity policy, migration tests, non-candidates, feasibility evidence, acceptance, and non-goals.
 
-- [ ] **Step 2: Merge stable rules into the parent frontend specification**
+- [x] **Step 2: Merge stable rules into the parent frontend specification**
 
 Update the lifecycle/companion list, `defproc`/`defworkflow` boundary roles, composition/effect rules, elaboration/checkpoint ownership, and procedure-lowering policy. Remove the stale open `WorkflowRef` choice by retaining compile-time-only refs.
 
-- [ ] **Step 3: Reconcile stale companion authority**
+- [x] **Step 3: Reconcile stale companion authority**
 
 Clarify that generic procedure declarations retain direct body effects while specialization recomputes caller-visible transitive effects. Revise the drafting guide so reusable/library code does not imply `defworkflow`, and document explicit lowering choices for identity-sensitive routes.
 
-- [ ] **Step 4: Update design routing**
+- [x] **Step 4: Update design routing**
 
 Add the accepted delta to `docs/design/README.md` and make the frontend specification the durable semantic owner.
 
-- [ ] **Step 5: Run focused consistency checks**
+- [x] **Step 5: Run focused consistency checks**
 
 ```bash
 rg -n "another workflow should call|belongs in a reusable workflow library|Need decide whether workflow references|not folded into the generic.*summar" docs/design/workflow_lisp_frontend_specification.md docs/design/workflow_lisp_parametric_type_system.md docs/lisp_workflow_drafting_guide.md
@@ -110,7 +115,7 @@ git diff --check -- docs/design/workflow_lisp_procedure_first_reuse_contract.md 
 
 Expected: no stale rule remains; the scoped whitespace check exits 0.
 
-- [ ] **Step 6: Obtain specification and quality reviews and resolve findings**
+- [x] **Step 6: Obtain specification and quality reviews and resolve findings**
 
 The specification review checks the complete Stage 4 contract, authority
 placement, effect algebra, identity rules, migration/non-candidate tests, and
@@ -118,7 +123,7 @@ native-return compatibility. The quality review checks coherence, duplication,
 stale wording, and drafting-guide usability. Rerun both whole reviews after
 fixes until both pass.
 
-- [ ] **Step 7: Commit the accepted contract only**
+- [x] **Step 7: Commit the accepted contract only**
 
 ```bash
 git add docs/design/workflow_lisp_procedure_first_reuse_contract.md docs/design/workflow_lisp_frontend_specification.md docs/design/workflow_lisp_parametric_type_system.md docs/lisp_workflow_drafting_guide.md docs/design/README.md
@@ -133,19 +138,19 @@ git commit -m "Define the procedure-first reuse contract"
 - Create conditionally: `docs/plans/2026-07-13-procedure-first-substrate-gaps-plan.md`
 - Inspect: `docs/plans/2026-07-10-workflow-lisp-typed-result-guidance-plan.md`
 
-- [ ] **Step 1: Rebaseline the existing typed-guidance substrate plan**
+- [x] **Step 1: Rebaseline the existing typed-guidance substrate plan**
 
 Confirm it remains the first pending Stage 5 implementation wave and that no Stage 4 decision changes direct-root or guidance semantics. Record any owner-anchor updates in the roadmap rather than duplicating its tasks.
 
-- [ ] **Step 2: Write the pilot implementation plan**
+- [x] **Step 2: Write the pilot implementation plan**
 
 Use one small non-public `.orc` workflow family with real effects and typed returns. Require TDD, explicit `:lowering inline`, output/artifact/source-map/effect/checkpoint comparison, compile plus dry-run, an end-to-end usage check, and preservation of the public wrapper.
 
-- [ ] **Step 3: Write the migration-waves plan**
+- [x] **Step 3: Write the migration-waves plan**
 
 Consume inventory records in order: pure/library procedure candidates, effect-adapter reclassification, production families, then compatibility retirement. Each family must have computed migration parity and public-boundary negative coverage.
 
-- [ ] **Step 4: Audit and separately plan any proven substrate gaps**
+- [x] **Step 4: Audit and separately plan any proven substrate gaps**
 
 Compare each `effect-adapter` obligation with implemented procedure effect
 joining, lowering, source-map, checkpoint, publication, and child-workflow
@@ -155,11 +160,11 @@ that land before the pilot. If no code gap remains, record a path-by-path
 evidence table in the migration-waves plan and explicitly select no Stage 5
 step-3 implementation wave; do not manufacture substrate work from stale prose.
 
-- [ ] **Step 5: Review plan independence and exact commands**
+- [x] **Step 5: Review plan independence and exact commands**
 
 Each plan must name exact files, tests, red/green steps, parity evidence, commit boundaries, and stop conditions. Do not combine shared compiler substrate changes with a family migration.
 
-- [ ] **Step 6: Obtain specification and quality reviews and resolve findings**
+- [x] **Step 6: Obtain specification and quality reviews and resolve findings**
 
 The specification review checks Stage 5 ordering, substrate disposition,
 public-wrapper preservation, exact family scope, and all migration evidence.
@@ -167,7 +172,7 @@ The quality review checks task granularity, runnable commands, TDD ordering,
 commit scope, and handoff usability. Rerun both whole reviews after fixes until
 both pass.
 
-- [ ] **Step 7: Commit the reviewed Stage 5 plans only**
+- [x] **Step 7: Commit the reviewed Stage 5 plans only**
 
 ```bash
 git add docs/plans/2026-07-13-procedure-first-pilot-plan.md docs/plans/2026-07-13-procedure-first-migration-waves-plan.md
@@ -183,26 +188,26 @@ git commit -m "Plan procedure-first pilot and migration waves"
 - Modify: `docs/index.md`
 - Modify: `docs/capability_status_matrix.md`
 
-- [ ] **Step 1: Obtain final independent specification and quality reviews**
+- [x] **Step 1: Obtain final independent specification and quality reviews**
 
 Review the committed delta, parent merge, inventory, and implementation plans
 against every Gate S4 clause. This is a holistic gate review in addition to the
 pre-commit task reviews. Resolve issues in explicit review-fix commits scoped
 to the affected Task 1–3 files, then rerun both full reviews until both pass.
 
-- [ ] **Step 2: Record the reviewed Gate S4 evidence**
+- [x] **Step 2: Record the reviewed Gate S4 evidence**
 
 Mark Tasks 1–3 complete only from committed files and fresh validation. Record review results, exact inventory totals, compatibility with native returns/guidance, and any intentional deferred substrate work.
 
-- [ ] **Step 3: Advance the current selector**
+- [x] **Step 3: Advance the current selector**
 
 Set the live selector to Stage 5 wave 2, typed result guidance. Do not select the pilot before the guidance plan completion gate.
 
-- [ ] **Step 4: Update routing and capability status**
+- [x] **Step 4: Update routing and capability status**
 
 Route the accepted procedure-first contract and inventory from `docs/index.md`; add or update the capability matrix row to distinguish accepted language contract from family adoption.
 
-- [ ] **Step 5: Run final documentation and routing checks**
+- [x] **Step 5: Run final documentation and routing checks**
 
 ```bash
 python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >/dev/null
@@ -214,7 +219,7 @@ Expected: S4 is consistently satisfied, the current selector is typed result
 guidance, and the four closeout files pass the scoped whitespace check before
 staging.
 
-- [ ] **Step 6: Commit the S4 closeout only**
+- [x] **Step 6: Commit the S4 closeout only**
 
 ```bash
 git add docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md docs/plans/2026-07-13-procedure-first-stage4-design-and-planning.md docs/index.md docs/capability_status_matrix.md

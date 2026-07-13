@@ -78,9 +78,9 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-07-executor-decomposition.md` | Completed through Task 9. Its targeted executor surface and Design Delta smoke pass; the full-suite failure identities match the pre-Task-2 baseline. |
 | `2026-07-08-boundary-report-followups.md` | Completed through Task 6 and its final gate. Case 5 now has production runtime/source-map attribution evidence. |
 | `2026-07-09-runtime-union-field-lineage-plan.md` | Completed through Task 6. The post-fix full suite retains exactly the six recorded baseline failures. |
-| `2026-07-07-drain-migration-g8-retirement.md` | Phase 1 through Phase 4 are complete. Gates P3 and P4 are independently reviewed and satisfied. The bounded Design Delta promotion handoff is recorded without archive, its historical parity artifact remains tracked after target retirement, and the ordered certification bundle plus temporary G8 build serializer are deleted. Task 4.1 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The semantic-migration freeze is lifted. The current selector is Procedure-First Roadmap Stage 4: Design The Broader Procedure-First Contract. Stage 5 typed result guidance and Stage 6 YAML archive remain later work. |
+| `2026-07-07-drain-migration-g8-retirement.md` | Phase 1 through Phase 4 are complete. Gates P3 and P4 are independently reviewed and satisfied. The bounded Design Delta promotion handoff is recorded without archive, its historical parity artifact remains tracked after target retirement, and the ordered certification bundle plus temporary G8 build serializer are deleted. Task 4.1 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The semantic-migration freeze is lifted. Gate S4 is also satisfied; the current selector is Stage 5 wave 2, typed result guidance. Stage 6 YAML archive remains later work. |
 | `2026-07-10-workflow-lisp-native-transportable-returns-plan.md` | Stage-5 wave 1 landed ahead of Gates S3/S4 under the 2026-07-10 amendment. Treat it as a completed historical prerequisite; do not re-execute it. |
-| `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Accepted and reviewed Stage-5 wave 2 plan. Gate P2 and landed native returns satisfy its two prerequisites, but it remains a later post-drain Stage-5 wave rather than the current selector. It adds root/field guidance and owns the combined v2.15 promotion gate. |
+| `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Accepted and reviewed Stage-5 wave 2 plan and the current selector. Gate P2, landed native returns, completed drain Stages 3–4, and Gate S4 satisfy its prerequisites. It adds root/field guidance and owns the combined v2.15 promotion gate. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
 | `2026-07-07-yaml-retirement-program.md` | Task 1 may inform later design. Its Design Delta family promotion is coordinated between drain Phases 2 and 3; other code-changing and promotion tasks wait until the procedure-first pilot is accepted. |
 
@@ -167,13 +167,11 @@ Gates P3 and P4 are independently reviewed and satisfied. Task 4.1 is complete
 and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is
 complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS.
 Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The
-semantic-migration freeze is lifted. The active step is **Procedure-First
-Roadmap Stage 4: Design The Broader Procedure-First Contract**. Stage 5 typed
-result guidance and Stage 6 YAML archive remain later.
-Typed result guidance (wave 2,
-`2026-07-10-workflow-lisp-typed-result-guidance-plan.md`) has its P2
-prerequisite satisfied but remains a later Stage-5/post-drain wave. The
-Stage-4 design gate remains ahead of that implementation wave.
+semantic-migration freeze is lifted. Gate S4 passed holistic specification and
+quality review on 2026-07-13. The active step is **Stage 5 wave 2: Typed Result
+Guidance**, governed by
+`2026-07-10-workflow-lisp-typed-result-guidance-plan.md`. Stage 6 YAML archive
+remains later.
 
 The completed Phase 1 execution order was:
 
@@ -234,7 +232,8 @@ Gate S3:
 generic-route residue audit, two-family non-regressive parity, exact baseline
 full-suite comparison, promoted `.orc` compile/dry-run evidence, and preserved
 historical state/YAML twin. The semantic-migration freeze is lifted and Stage 4
-is the next selector.
+was the next selector at Gate S3; it is now complete, and Stage 5 wave 2 typed
+result guidance is current.
 
 ### Stage 4: Design The Broader Procedure-First Contract
 
@@ -330,6 +329,16 @@ Gate S4:
   prerequisite, and wave 2 is eligible for its owner rebaseline when Stage 5
   selects it now that drain Gate P2 is closed.
 
+**Gate S4 completed 2026-07-13.** The accepted frontend delta is
+`docs/design/workflow_lisp_procedure_first_reuse_contract.md`; the reviewed
+inventory contains 96 active internal calls (33 `procedure-candidate`, 25
+`effect-adapter`, and 38 `legacy-retire`) plus three separate
+`public-boundary` entries. Independent holistic review returned `GATE S4 SPEC
+PASS` and `GATE S4 QUALITY PASS`. The three independently executable follow-on
+plans are the effect-substrate, tracked-plan pilot, and migration-wave plans
+dated 2026-07-13. Typed result guidance is compatible and is now the current
+selector.
+
 ### Stage 5: Implement Procedure-First Reuse In Waves
 
 Execute only accepted plans, in this order:
@@ -341,24 +350,29 @@ Execute only accepted plans, in this order:
    transportable type; v2.15 is not promoted yet.
 2. **Typed result-guidance substrate.** Execute
    `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` when this Stage-5
-   step is reached. Wave 1 has landed and drain Gate P2 has closed, satisfying
-   its prerequisites; the Design Delta handoff, remaining drain phases, and
-   intervening stages still precede this selection. Its completion gate jointly promotes the v2.15 native-return
-   and guidance contract.
-3. **Remaining substrate wave.** Land only type, return, effect, lowering,
-   source-map, or runtime-contract capabilities proven missing by Stage 4.
-   Reuse the shared parametric specialization pipeline; do not add
-   consumer-name branches.
-4. **Pilot wave.** Convert a small non-public workflow family with real effects
-   and typed returns. Preserve a public workflow wrapper only where an external
-   run/resume boundary is required.
-5. **Library/stdlib wave.** Convert reusable internal families with the same
+   step is reached. It is now the current selector: wave 1, drain Gate P2, the
+   Design Delta handoff, remaining drain phases, and Gate S4 are complete. Its
+   completion gate jointly promotes the v2.15 native-return and guidance
+   contract.
+3. **Resolved-effect substrate wave.** Execute
+   `2026-07-13-procedure-first-substrate-gaps-plan.md`. Separate body-local
+   direct effects from caller-visible transitive effects and recompute the
+   latter after generic/`ProcRef` specialization; do not change a workflow
+   family in this wave.
+4. **Pilot wave.** Execute
+   `2026-07-13-procedure-first-pilot-plan.md` for only the internal
+   `tracked-plan-phase`, preserving its public design-stack wrapper.
+5. **Small/library wave.** Execute Tasks 1–3 of
+   `2026-07-13-procedure-first-migration-waves-plan.md` with the recorded
    classification and parity gates.
-6. **Production-family wave.** Convert eligible internal reuse only after
-   output, artifact, effect, resume, and checkpoint parity is computed.
-7. **Compatibility retirement.** Delete workflow-as-function shims only after
-   the last consumer has migrated and negative coverage proves public workflow
-   boundaries remain intact.
+6. **Effect-adapter evidence wave.** Execute Task 4 of that migration plan
+   before production-family conversion. YAML adapter rows are audited, not
+   translated into `.orc` procedure candidates.
+7. **Production-family wave.** Execute Tasks 5–6 only after output, artifact,
+   effect, resume, and checkpoint parity is computed.
+8. **Compatibility retirement handoff.** Execute Tasks 7–8; delete no YAML
+   family here, and advance to Stage 6 only through its existing retirement
+   gates.
 
 Every wave must pass:
 
