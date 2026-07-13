@@ -919,18 +919,6 @@ def _static_pytest_case_count(
 ) -> int | None:
     if isinstance(node, (ast.List, ast.Tuple)):
         return len(node.elts)
-    if (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "_characterization_cases_for_ids"
-        and len(node.args) == 1
-        and not node.keywords
-    ):
-        return _static_pytest_case_count(
-            node.args[0],
-            module,
-            resolving=resolving,
-        )
     if not isinstance(node, ast.Name) or node.id in resolving:
         return None
 

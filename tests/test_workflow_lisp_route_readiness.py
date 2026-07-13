@@ -523,6 +523,44 @@ def test_registry_evidence_fails_closed_for_static_parameter_id_count_mismatch(
     )
 
 
+def test_registry_evidence_does_not_trust_named_parameter_case_helper(
+    tmp_path: Path,
+) -> None:
+    evidence_module = tmp_path / "tests" / "test_evidence.py"
+    evidence_module.parent.mkdir(parents=True)
+    evidence_module.write_text(
+        "import pytest\n"
+        "\n"
+        "def _characterization_cases_for_ids(case_ids):\n"
+        "    return ()\n"
+        "\n"
+        "@pytest.mark.parametrize(\n"
+        "    'case',\n"
+        "    _characterization_cases_for_ids(('a',)),\n"
+        "    ids=('a',),\n"
+        ")\n"
+        "def test_case(case):\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=["tests/test_evidence.py::test_case[a]"]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, tmp_path)
+
+    assert "route_readiness_evidence_selector_invalid" in _evidence_codes(
+        validation
+    )
+
+
 @pytest.mark.parametrize("path_kind", ("absolute", "escaping"))
 def test_registry_evidence_rejects_non_repo_relative_path(
     tmp_path: Path,

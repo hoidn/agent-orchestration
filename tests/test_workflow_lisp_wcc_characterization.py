@@ -47,12 +47,12 @@ BEHAVIOR_CASE_IDS = (
 )
 
 
-def _characterization_cases_for_ids(case_ids: tuple[str, ...]):
+def _characterization_case(case_id: str):
     cases_by_id = {
         case.case_id: case
         for case in load_characterization_cases()
     }
-    return tuple(cases_by_id[case_id] for case_id in case_ids)
+    return cases_by_id[case_id]
 
 
 def _allowed_m5_diagnostics(case_id: str) -> set[str]:
@@ -248,11 +248,11 @@ def test_characterization_parameter_id_groups_match_manifest_filters() -> None:
 
 
 @pytest.mark.parametrize(
-    "case",
-    _characterization_cases_for_ids(M5_ROUTE_FLIP_CASE_IDS),
-    ids=M5_ROUTE_FLIP_CASE_IDS,
+    "case_id",
+    M5_ROUTE_FLIP_CASE_IDS,
 )
-def test_m5_route_flip_corpus_compiles_under_wcc_candidate_route(tmp_path: Path, case) -> None:
+def test_m5_route_flip_corpus_compiles_under_wcc_candidate_route(tmp_path: Path, case_id: str) -> None:
+    case = _characterization_case(case_id)
     actual = build_structural_snapshot(case, tmp_path / case.case_id, lowering_route=LoweringRoute.WCC_M4)
 
     assert {diagnostic["code"] for diagnostic in actual["diagnostics"]} <= _allowed_m5_diagnostics(case.case_id)
@@ -260,11 +260,11 @@ def test_m5_route_flip_corpus_compiles_under_wcc_candidate_route(tmp_path: Path,
 
 
 @pytest.mark.parametrize(
-    "case",
-    _characterization_cases_for_ids(M5_ROUTE_FLIP_CASE_IDS),
-    ids=M5_ROUTE_FLIP_CASE_IDS,
+    "case_id",
+    M5_ROUTE_FLIP_CASE_IDS,
 )
-def test_m5_route_flip_corpus_compiles_under_default_wcc_route(tmp_path: Path, case) -> None:
+def test_m5_route_flip_corpus_compiles_under_default_wcc_route(tmp_path: Path, case_id: str) -> None:
+    case = _characterization_case(case_id)
     actual = build_structural_snapshot(case, tmp_path / case.case_id, lowering_route=None)
 
     assert {diagnostic["code"] for diagnostic in actual["diagnostics"]} <= _allowed_m5_diagnostics(case.case_id)
@@ -474,11 +474,11 @@ def test_wcc_m4_nested_fixture_cases_compile_under_wcc_m4(tmp_path: Path, case_i
 
 
 @pytest.mark.parametrize(
-    "case",
-    _characterization_cases_for_ids(WCC_IFEXPR_CASE_IDS),
-    ids=WCC_IFEXPR_CASE_IDS,
+    "case_id",
+    WCC_IFEXPR_CASE_IDS,
 )
-def test_wcc_ifexpr_cases_compile_under_wcc_m4_and_default_route(tmp_path: Path, case) -> None:
+def test_wcc_ifexpr_cases_compile_under_wcc_m4_and_default_route(tmp_path: Path, case_id: str) -> None:
+    case = _characterization_case(case_id)
     wcc_actual = build_structural_snapshot(case, tmp_path / f"{case.case_id}.wcc_m4", lowering_route="wcc_m4")
     default_actual = build_structural_snapshot(case, tmp_path / f"{case.case_id}.default", lowering_route=None)
 
@@ -560,11 +560,11 @@ def test_compare_structural_snapshots_distinguishes_identity_rename_and_divergen
 
 
 @pytest.mark.parametrize(
-    "case",
-    _characterization_cases_for_ids(BEHAVIOR_CASE_IDS),
-    ids=BEHAVIOR_CASE_IDS,
+    "case_id",
+    BEHAVIOR_CASE_IDS,
 )
-def test_characterization_behavior_cases_match_golden(tmp_path: Path, case) -> None:
+def test_characterization_behavior_cases_match_golden(tmp_path: Path, case_id: str) -> None:
+    case = _characterization_case(case_id)
     lowering_route = None if case.case_id == "wcc_m4_implementation_phase_full_fixture" else "legacy"
     actual = build_behavior_observation(case, tmp_path, lowering_route=lowering_route)
     golden = json.loads((Path.cwd() / case.golden_behavior).read_text(encoding="utf-8"))
