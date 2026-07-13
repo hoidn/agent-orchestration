@@ -327,15 +327,19 @@ def validate_module_result_guidance(
 
     for definition in (*function_defs, *procedure_defs, *workflow_defs):
         return_spec = getattr(definition, "return_spec", None)
-        if return_spec is None or return_spec.guidance is None:
+        if (
+            return_spec is None
+            or return_spec.guidance is None
+            or return_spec.guidance.example_expr is None
+        ):
             continue
         return_type = type_env.resolve_type(
             return_spec.type_name,
             span=return_spec.span,
-            form_path=return_spec.guidance.example_expr.form_path
-            if return_spec.guidance.example_expr is not None
-            else getattr(definition, "form_path", ("workflow-lisp",)),
-            local_type_params=frozenset(getattr(definition, "type_params", ())),
+            form_path=return_spec.guidance.example_expr.form_path,
+            local_type_params=frozenset(
+                param.name for param in getattr(definition, "type_params", ())
+            ),
         )
         if type(return_type).__name__ == "TypeParamRef":
             continue

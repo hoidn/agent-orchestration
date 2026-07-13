@@ -622,6 +622,56 @@ def test_build_procedure_catalog_resolves_type_param_refs(tmp_path: Path) -> Non
     assert signature.return_type_ref.name == "T"
 
 
+def test_compile_generic_identity_with_description_only_return_guidance(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_identity_description_guidance.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.15")',
+            "  (defproc identity",
+            "    :forall (T)",
+            "    ((value T))",
+            '    -> (result T :description "Return the input unchanged.")',
+            "    :effects ()",
+            "    :lowering inline",
+            "    value))",
+        ],
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+
+    signature = result.procedure_catalog.signatures_by_name["identity"]
+    assert type(signature.return_type_ref).__name__ == "TypeParamRef"
+
+
+def test_compile_generic_identity_defers_example_until_type_param_specialization(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "generic_identity_example_guidance.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.15")',
+            "  (defproc identity",
+            "    :forall (T)",
+            "    ((value T))",
+            '    -> (result T :description "Return the input unchanged." :example true)',
+            "    :effects ()",
+            "    :lowering inline",
+            "    value))",
+        ],
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+
+    definition = result.procedure_catalog.definitions_by_name["identity"]
+    return_type = result.procedure_catalog.signatures_by_name["identity"].return_type_ref
+    assert type(return_type).__name__ == "TypeParamRef"
+    assert definition.return_spec.guidance.example_expr.datum.value is True
+
+
 def test_type_param_substitution_rewrites_nested_proc_ref_and_workflow_ref_types(
     tmp_path: Path,
 ) -> None:
