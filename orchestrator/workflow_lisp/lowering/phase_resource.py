@@ -64,7 +64,6 @@ from .context import (
 )
 from .effects import _lower_provider_result
 from .generated_paths import allocate_generated_result_bundle, allocate_materialized_value_view, allocate_private_generated_path
-from .phase_drain import _selected_item_summary_pointer_path
 from .phase_flow import _build_match_projection_anchor_step
 from .origins import (
     LoweringOrigin,
@@ -88,6 +87,12 @@ from .values import (
     _resolve_inline_expr_value,
 )
 from .workflow_calls import _render_boolean_predicate
+
+
+def _selected_item_summary_pointer_path(workflow_name: str) -> str:
+    """Return the compatibility pointer path for selected-item summaries."""
+
+    return f".orchestrate/workflow_lisp/{workflow_name}/selected_item_summary.txt"
 
 
 def _template_for_ref(ref: str) -> str:

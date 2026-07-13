@@ -1940,12 +1940,6 @@ def _required_output_contract(
     return contract
 
 
-def _selected_item_summary_pointer_path(workflow_name: str) -> str:
-    """Return the compatibility pointer path for selected-item summaries."""
-
-    return f".orchestrate/workflow_lisp/{workflow_name}/selected_item_summary.txt"
-
-
 def _validate_backlog_drain_provider_metadata(
     expr: BacklogDrainExpr,
     *,
