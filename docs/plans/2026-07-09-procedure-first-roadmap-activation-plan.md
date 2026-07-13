@@ -4,7 +4,7 @@
 
 **Goal:** Make the approved procedure-first roadmap executable by reconciling the existing component plans with landed commits, tracking and routing the governing plan set, re-anchoring stale ownership paths, and establishing a verified component-plan handoff.
 
-**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, drain Phase 1 Task 1.7 and Phase 2 Task 2.1 are complete, Gate P2 is reviewed and satisfied, and current routing selects drain Phase 2 Task 2.2.
+**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, drain Phase 1 Task 1.7 and Phase 2 Tasks 2.1–2.2 are complete, Gate P2 is reviewed and satisfied, and current routing selects drain Phase 2 Task 2.3.
 
 > **Current execution amendment (updated 2026-07-12):** The case 5 design and
 > implementation are complete, and the boundary final gate passed. The
@@ -21,7 +21,7 @@
 > consumer parity, F5 sibling contract, and Task 1.7 documentation/integration
 > evidence and review. Gate P2 is reviewed and satisfied. Next active
 > selection: `docs/plans/2026-07-07-drain-migration-g8-retirement.md` Phase 2
-> Task 2.2 after reviewed Task 2.1 completion. Execute drain Phase 2+ before the later Stage-5 typed-result-guidance
+> Task 2.3 after reviewed Task 2.2 completion. Execute drain Phase 2+ before the later Stage-5 typed-result-guidance
 > wave; P2 satisfies a prerequisite but does not make guidance the current
 > selector. The
 > semantic-migration freeze remains in force and neither wave changes the
@@ -544,7 +544,7 @@ persisted-record remap, consumer parity,
 and F5 sibling contract subsequently landed. Task 1.7 documentation/integration
 evidence and review are complete. Gate P2 is reviewed and satisfied. Current
 routing now executes
-`docs/plans/2026-07-07-drain-migration-g8-retirement.md` Phase 2 Task 2.2, as
+`docs/plans/2026-07-07-drain-migration-g8-retirement.md` Phase 2 Task 2.3, as
 recorded by `docs/index.md` and the governing execution sequence. Typed result
 guidance remains a later Stage-5/post-drain wave, and the semantic-migration
 freeze remains in force.

@@ -71,8 +71,9 @@ Record fresh command output under each gate before dispatching the phase. A gate
 6. **Intrinsic reachability shrunk to fixtures:** `grep -rln "backlog-drain-callable-boundary" workflows/` → empty (no production caller reaches the intrinsic; only `tests/fixtures/` hits remain, and they retire with Phase 2).
 
 **Status (reviewed 2026-07-12): SATISFIED.** The durable evidence is recorded in
-Phase 1 Ledger entry (k). Phase 2 Task 2.2 is the current selector after the
-reviewed completion of Task 2.1.
+Phase 1 Ledger entry (k). Gate P2 admitted the reviewed Phase 2 sequence. Task
+2.2 subsequently completed under the residue-precedent route; Phase 2 Task 2.3
+is now the current selector.
 
 **Gate P3 (entry to Phase 3):**
 1. Phase 2 Tasks 2.1–2.3 committed; name-blindness check (Task 2.3 Step 2) clean.
@@ -246,18 +247,18 @@ Record the diff against the table above in the Phase 2 Ledger. Any hit in `workf
 
 Background: `build_design_delta.py`'s removed-heads check (`_serialize_design_delta_g8_deletion_evidence`) passes a head in `DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS` = `("with-phase", "finalize-selected-item", "backlog-drain")` only when its spec is deleted (`get_form_spec(...) is None`), OR tagged `compatibility_route_only`, OR listed in `DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS` with `macro_bindable=True` (the `with-phase` precedent). `migration_parity._validated_design_delta_g8_deleted_rows` cross-checks the same constants. `with-phase` and `finalize-selected-item` are **out of scope** — they keep their current tags/handling.
 
-- [ ] **Step 1: Delete the `backlog-drain-callable-boundary` spec from `form_registry.py` outright.** It is not in the removed-heads constant, so no evidence-machinery interaction; its `std/drain.orc` export and macro-alias plumbing go with it (reviewed contract delta per the old plan's Task 7 Step 1).
-- [ ] **Step 2: Decide `backlog-drain`'s registry disposition by this rule:**
+- [x] **Step 1: Delete the `backlog-drain-callable-boundary` spec from `form_registry.py` outright.** It is not in the removed-heads constant, so no evidence-machinery interaction; its `std/drain.orc` export and macro-alias plumbing go with it (reviewed contract delta per the old plan's Task 7 Step 1).
+- [x] **Step 2: Decide `backlog-drain`'s registry disposition by this rule:**
   - **Default (residue-precedent route):** reclassify the spec to mirror the current `review-revise-loop` `FormKind.STDLIB_EXTENSION` record: `kind=FormKind.STDLIB_EXTENSION`, `elaboration_route=None`, `macro_bindable=True`, drop the `compatibility_route_only` tag and the `remove_by` obligation. The parametric design sanctions exactly this residue ("registry entry, stdlib contract, output-contract shaping"). This route **requires** adding `"backlog-drain"` to `DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS` in both owning modules, `build_design_delta.py` and `migration_parity.py` — the `with-phase` "imported-only + macro-bindable" branch is the honest classification for a head that now reaches the compiler only via imported stdlib expansion.
   - **Alternative (full-deletion route):** delete the spec entirely — the check passes via `spec is None` with zero machinery changes — **only if** Step 3 proves nothing requires a registry record for a macro-bindable stdlib name (`review-revise-loop`'s existence, and the `_validate_form_specs` invariant pinning it, suggest the record is load-bearing for stdlib surfaces; verify, don't assume).
   - Record which route was taken and why in the Phase 2 Ledger. See Contradictions & Findings item 1 — this decision point is a known documentation/machinery conflict; flag it in the execution report either way.
-- [ ] **Step 3: Verify the evidence check under the chosen route:**
+- [x] **Step 3: Verify the evidence check under the chosen route:**
 ```bash
 python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json
 python -c "import json,glob,os; p=max(glob.glob('.orchestrate/build/*/g8_deletion_evidence.json'), key=os.path.getmtime); d=json.load(open(p)); print(d['status'], d['hook_surface_delta']['imported_only_registry_heads'])"
 ```
 Expected: exit 0, `pass`. A `design_delta_g8_removed_registry_head_present` compile error means the disposition and the constants disagree — fix the classification, never weaken the check.
-- [ ] **Step 4: Commit:** `git add orchestrator/workflow_lisp/form_registry.py orchestrator/workflow_lisp/stdlib_modules/std/drain.orc <constants files if touched> && git commit -m "Reclassify backlog-drain registry head after intrinsic retirement"`
+- [x] **Step 4: Commit:** `git add orchestrator/workflow_lisp/form_registry.py orchestrator/workflow_lisp/stdlib_modules/std/drain.orc <constants files if touched> && git commit -m "Reclassify backlog-drain registry head after intrinsic retirement"`
 
 ### Task 2.3: Phase-2 verification, residue audit, and final promotion evidence
 
@@ -1563,4 +1564,59 @@ baseline exactly (`cmp` exit 0).
 Independent final review returned **PASS** for specification conformance and
 **APPROVED** for quality, with no remaining findings. The seven pre-existing
 user-dirty paths were preserved exactly, and no Task 2.2-owned surface was
-changed. **Task 2.1 is complete; Phase 2 Task 2.2 is the current selector.**
+changed. **At that Task-2.1 closure checkpoint, Task 2.1 was complete and Phase
+2 Task 2.2 was current.**
+
+**(c) Task 2.2 registry reclassification, evidence limitation, and closure
+(2026-07-12).** The reviewed implementation is commits **`6fc50c3f`**
+(`Reclassify backlog-drain registry head after intrinsic retirement`) and
+**`a92db6ec`** (`Guard retired backlog-drain callable export`). The decision
+procedure selected the **residue-precedent route**: `review-revise-loop`
+demonstrates that a public imported stdlib macro keeps a load-bearing
+`FormKind.STDLIB_EXTENSION` record, and the parametric design explicitly
+sanctions the same registry/stdlib-contract/output-shaping residue for
+`backlog-drain`. The surviving record is therefore macro-bindable, has no
+elaboration route, compatibility tag, or removal obligation, and reaches the
+compiler only through imported stdlib expansion. The obsolete
+`backlog-drain-callable-boundary` registry spec was deleted; fresh search found
+no production `.orc` export or macro alias to remove. Both owning
+`DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS` constants now contain exactly
+`("with-phase", "backlog-drain")`; no other frozen build or parity machinery
+changed. This is the recorded disposition of Contradictions & Findings item 1.
+
+**TDD and focused verification.** The initial five-test RED run failed on all
+five intended boundaries: old intrinsic classification, both old evidence
+constants, old emitted evidence, and parity's failure to require the new
+imported-only head. The corresponding GREEN run passed **5 tests**. The
+registry/form/build/parity slice then passed **42 tests**. Specification review
+found that the first candidate guarded only the Python registry and not the
+`.orc` export boundary; `a92db6ec` added a behavioral import test that requests
+`backlog-drain-callable-boundary` from `std/drain` and requires the sole
+`module_export_missing` diagnostic. Its exact check passed **1 test**, and the
+expanded focused slice passed **43 tests**. Changed-module collection was
+successful (339 tests before the added export check; 340 after it).
+
+**G8 evidence and the fail-closed current-checkout limitation.** Before the
+implementation commit advanced `HEAD`, the exact production compile exited
+**0** with zero diagnostics, lowering route `wcc_m4`, and fingerprint
+`c5cf03b2755308a3`. Its freshly written
+`.orchestrate/build/c5cf03b2755308a3/g8_deletion_evidence.json` reported
+`"status": "pass"` and imported-only heads
+`["with-phase", "backlog-drain"]`; the artifact SHA-256 was
+`8b6e1bbe4f966cb2dacaa19022ae594ac22e09f5a202db68608005c88e83711c`.
+After `HEAD` advanced, the same current-checkout compile correctly failed
+closed with `reference_family_parity_report_invalid`: the checked parity
+report's required G8 artifact hash no longer matches the newly emitted
+artifact. The 16-worker four-module sweep reported **290 passed, 49 failed**;
+independent review separated **48** failures intercepted by that stale checked
+parity/G8 hash from one pre-existing `StopIteration` identity already recorded
+in `tmp/f5-prechange-failure-identities.txt`. This entry deliberately does
+**not** claim that the current compile or parity gate is green. Task 2.3 owns
+the final parity regeneration and current-checkout promotion evidence; Task
+2.2 does not mutate that artifact or weaken the fail-closed check.
+
+Independent final re-review returned **PASS** for specification compliance and
+**APPROVED** for quality after the export-boundary guard landed. The seven
+pre-existing user-dirty paths remain preserved. **Task 2.2 is complete; Phase
+2 Task 2.3 is the current selector.** No Task 2.3 work, Phase-2 completion, or
+Gate P3 claim is made here.
