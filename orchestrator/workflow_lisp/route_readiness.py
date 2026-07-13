@@ -683,7 +683,8 @@ def _validate_pytest_evidence_reference(
         ]
 
     selector_parts = selector.split("::")
-    selector_parts[-1] = selector_parts[-1].split("[", 1)[0]
+    node_name, parameter_id = _split_pytest_node_name(selector_parts[-1])
+    selector_parts[-1] = node_name
     if not all(selector_parts) or len(selector_parts) not in {1, 2}:
         return [
             _issue(
@@ -710,24 +711,55 @@ def _validate_pytest_evidence_reference(
         ]
 
     function_nodes = (ast.FunctionDef, ast.AsyncFunctionDef)
+    test_node: ast.FunctionDef | ast.AsyncFunctionDef | None = None
     if len(selector_parts) == 1:
-        found = any(
-            isinstance(node, function_nodes) and node.name == selector_parts[0]
-            for node in module.body
+        test_node = next(
+            (
+                node
+                for node in module.body
+                if isinstance(node, function_nodes)
+                and node.name == selector_parts[0]
+            ),
+            None,
         )
     else:
         class_name, method_name = selector_parts
-        found = any(
-            isinstance(node, ast.ClassDef)
-            and node.name == class_name
-            and any(
-                isinstance(child, function_nodes) and child.name == method_name
-                for child in node.body
-            )
-            for node in module.body
+        class_node = next(
+            (
+                node
+                for node in module.body
+                if isinstance(node, ast.ClassDef) and node.name == class_name
+            ),
+            None,
         )
-    if found:
+        if class_node is not None:
+            test_node = next(
+                (
+                    child
+                    for child in class_node.body
+                    if isinstance(child, function_nodes)
+                    and child.name == method_name
+                ),
+                None,
+            )
+    if test_node is not None and parameter_id is None:
         return []
+    if test_node is not None:
+        parameter_ids = _static_pytest_parameter_ids(test_node, module)
+        if parameter_ids is None:
+            return [
+                _issue(
+                    "route_readiness_evidence_selector_invalid",
+                    entry,
+                    (
+                        f"pytest selector `{selector}` uses unsupported dynamic "
+                        "parameter IDs"
+                    ),
+                    field="evidence",
+                )
+            ]
+        if parameter_id in parameter_ids:
+            return []
     return [
         _issue(
             "route_readiness_evidence_selector_unknown",
@@ -739,6 +771,113 @@ def _validate_pytest_evidence_reference(
             field="evidence",
         )
     ]
+
+
+def _split_pytest_node_name(node_name: str) -> tuple[str, str | None]:
+    base_name, separator, parameter_suffix = node_name.partition("[")
+    if not separator:
+        return node_name, None
+    if not parameter_suffix.endswith("]"):
+        return "", None
+    return base_name, parameter_suffix[:-1]
+
+
+def _static_pytest_parameter_ids(
+    test_node: ast.FunctionDef | ast.AsyncFunctionDef,
+    module: ast.Module,
+) -> tuple[str, ...] | None:
+    parametrizations = [
+        decorator
+        for decorator in test_node.decorator_list
+        if _is_pytest_parametrize_call(decorator)
+    ]
+    if len(parametrizations) != 1:
+        return () if not parametrizations else None
+
+    parametrization = parametrizations[0]
+    explicit_ids = next(
+        (
+            keyword.value
+            for keyword in parametrization.keywords
+            if keyword.arg == "ids"
+        ),
+        None,
+    )
+    if explicit_ids is not None:
+        return _static_string_sequence(explicit_ids, module)
+
+    if len(parametrization.args) < 2:
+        return None
+    parameter_names = _static_parameter_names(parametrization.args[0])
+    if parameter_names is None or len(parameter_names) != 1:
+        return None
+    return _static_string_sequence(parametrization.args[1], module)
+
+
+def _is_pytest_parametrize_call(node: ast.expr) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    function = node.func
+    return (
+        isinstance(function, ast.Attribute)
+        and function.attr == "parametrize"
+        and isinstance(function.value, ast.Attribute)
+        and function.value.attr == "mark"
+        and isinstance(function.value.value, ast.Name)
+        and function.value.value.id == "pytest"
+    )
+
+
+def _static_parameter_names(node: ast.expr) -> tuple[str, ...] | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return tuple(name.strip() for name in node.value.split(","))
+    if isinstance(node, (ast.List, ast.Tuple)) and all(
+        isinstance(element, ast.Constant) and isinstance(element.value, str)
+        for element in node.elts
+    ):
+        return tuple(element.value for element in node.elts)
+    return None
+
+
+def _static_string_sequence(
+    node: ast.expr,
+    module: ast.Module,
+    *,
+    resolving: frozenset[str] = frozenset(),
+) -> tuple[str, ...] | None:
+    if isinstance(node, (ast.List, ast.Tuple)) and all(
+        isinstance(element, ast.Constant) and isinstance(element.value, str)
+        for element in node.elts
+    ):
+        return tuple(element.value for element in node.elts)
+    if not isinstance(node, ast.Name) or node.id in resolving:
+        return None
+
+    assignment_value = next(
+        (
+            statement.value
+            for statement in module.body
+            if isinstance(statement, (ast.Assign, ast.AnnAssign))
+            and _assignment_names(statement) == {node.id}
+        ),
+        None,
+    )
+    if assignment_value is None:
+        return None
+    return _static_string_sequence(
+        assignment_value,
+        module,
+        resolving=resolving | {node.id},
+    )
+
+
+def _assignment_names(statement: ast.Assign | ast.AnnAssign) -> set[str]:
+    targets = (
+        statement.targets
+        if isinstance(statement, ast.Assign)
+        else [statement.target]
+    )
+    return {target.id for target in targets if isinstance(target, ast.Name)}
 
 
 def _validate_parity_target_evidence_reference(

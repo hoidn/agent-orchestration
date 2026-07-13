@@ -275,8 +275,11 @@ def test_registry_evidence_accepts_parameterized_pytest_class_method(
     evidence_module = tmp_path / "tests" / "test_evidence.py"
     evidence_module.parent.mkdir(parents=True)
     evidence_module.write_text(
+        "import pytest\n"
+        "\n"
         "class TestEvidence:\n"
-        "    def test_case(self):\n"
+        "    @pytest.mark.parametrize('value', ('a',), ids=('case-a',))\n"
+        "    def test_case(self, value):\n"
         "        pass\n",
         encoding="utf-8",
     )
@@ -326,6 +329,31 @@ def test_registry_evidence_rejects_missing_pytest_node(tmp_path: Path) -> None:
                     evidence=[
                         "tests/test_workflow_lisp_examples.py::"
                         "test_route_readiness_node_does_not_exist"
+                    ]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, REPO_ROOT)
+
+    assert "route_readiness_evidence_selector_unknown" in _evidence_codes(
+        validation
+    )
+
+
+def test_registry_evidence_rejects_missing_pytest_parameter_id(
+    tmp_path: Path,
+) -> None:
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=[
+                        "tests/test_workflow_lisp_design_delta_smoke.py::"
+                        "test_registered_design_delta_fixture_compiles_directly"
+                        "[does-not-exist]"
                     ]
                 )
             ],

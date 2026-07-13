@@ -16,6 +16,45 @@ from tests.workflow_lisp_characterization import (
 from orchestrator.workflow_lisp.wcc.route import LoweringRoute
 
 
+M5_ROUTE_FLIP_CASE_IDS = (
+    "value_only_minimal_module",
+    "straight_line_provider_phase",
+    "wcc_m2_straight_line_effects",
+    "proc_ref_bind_proc_forwarding",
+    "top_level_match_attempt",
+    "top_level_loop_recur",
+    "stdlib_review_revise_loop",
+    "wcc_m4_loop_under_case",
+    "wcc_m4_implementation_phase_full_fixture",
+    "module_graph_imported_bundle_mix",
+    "design_delta_union_match_projection",
+    "wcc_m3_nested_non_tail_match",
+    "wcc_ifexpr_tail",
+    "wcc_ifexpr_non_tail_binding",
+    "wcc_ifexpr_loop_body",
+)
+WCC_IFEXPR_CASE_IDS = (
+    "wcc_ifexpr_tail",
+    "wcc_ifexpr_non_tail_binding",
+    "wcc_ifexpr_loop_body",
+)
+BEHAVIOR_CASE_IDS = (
+    "straight_line_provider_phase",
+    "top_level_match_attempt",
+    "top_level_loop_recur",
+    "stdlib_review_revise_loop",
+    "wcc_m4_implementation_phase_full_fixture",
+)
+
+
+def _characterization_cases_for_ids(case_ids: tuple[str, ...]):
+    cases_by_id = {
+        case.case_id: case
+        for case in load_characterization_cases()
+    }
+    return tuple(cases_by_id[case_id] for case_id in case_ids)
+
+
 def _allowed_m5_diagnostics(case_id: str) -> set[str]:
     if case_id == "wcc_m4_loop_under_case":
         return {"variant_output_without_variant_specific_fields"}
@@ -184,17 +223,34 @@ def test_retired_characterization_sources_are_not_active_wcc_evidence() -> None:
 
 
 def test_m5_route_flip_corpus_has_no_normal_exclusions() -> None:
-    for case in load_characterization_cases():
+    cases = load_characterization_cases()
+    for case in cases:
         if case.historical_legacy_fixture:
             assert not case.route_flip_corpus
         else:
             assert case.route_flip_corpus, f"{case.case_id} is a normal corpus case and cannot be excluded from M5"
 
 
+def test_characterization_parameter_id_groups_match_manifest_filters() -> None:
+    cases = load_characterization_cases()
+
+    assert tuple(
+        case.case_id for case in cases if case.route_flip_corpus
+    ) == M5_ROUTE_FLIP_CASE_IDS
+    assert tuple(
+        case.case_id for case in cases if "ifexpr" in case.tags
+    ) == WCC_IFEXPR_CASE_IDS
+    assert tuple(
+        case.case_id
+        for case in cases
+        if case.evidence_mode == "structural_and_behavioral"
+    ) == BEHAVIOR_CASE_IDS
+
+
 @pytest.mark.parametrize(
     "case",
-    [case for case in load_characterization_cases() if case.route_flip_corpus],
-    ids=lambda case: case.case_id,
+    _characterization_cases_for_ids(M5_ROUTE_FLIP_CASE_IDS),
+    ids=M5_ROUTE_FLIP_CASE_IDS,
 )
 def test_m5_route_flip_corpus_compiles_under_wcc_candidate_route(tmp_path: Path, case) -> None:
     actual = build_structural_snapshot(case, tmp_path / case.case_id, lowering_route=LoweringRoute.WCC_M4)
@@ -205,8 +261,8 @@ def test_m5_route_flip_corpus_compiles_under_wcc_candidate_route(tmp_path: Path,
 
 @pytest.mark.parametrize(
     "case",
-    [case for case in load_characterization_cases() if case.route_flip_corpus],
-    ids=lambda case: case.case_id,
+    _characterization_cases_for_ids(M5_ROUTE_FLIP_CASE_IDS),
+    ids=M5_ROUTE_FLIP_CASE_IDS,
 )
 def test_m5_route_flip_corpus_compiles_under_default_wcc_route(tmp_path: Path, case) -> None:
     actual = build_structural_snapshot(case, tmp_path / case.case_id, lowering_route=None)
@@ -419,8 +475,8 @@ def test_wcc_m4_nested_fixture_cases_compile_under_wcc_m4(tmp_path: Path, case_i
 
 @pytest.mark.parametrize(
     "case",
-    [case for case in load_characterization_cases() if "ifexpr" in case.tags],
-    ids=lambda case: case.case_id,
+    _characterization_cases_for_ids(WCC_IFEXPR_CASE_IDS),
+    ids=WCC_IFEXPR_CASE_IDS,
 )
 def test_wcc_ifexpr_cases_compile_under_wcc_m4_and_default_route(tmp_path: Path, case) -> None:
     wcc_actual = build_structural_snapshot(case, tmp_path / f"{case.case_id}.wcc_m4", lowering_route="wcc_m4")
@@ -505,8 +561,8 @@ def test_compare_structural_snapshots_distinguishes_identity_rename_and_divergen
 
 @pytest.mark.parametrize(
     "case",
-    [case for case in load_characterization_cases() if case.evidence_mode == "structural_and_behavioral"],
-    ids=lambda case: case.case_id,
+    _characterization_cases_for_ids(BEHAVIOR_CASE_IDS),
+    ids=BEHAVIOR_CASE_IDS,
 )
 def test_characterization_behavior_cases_match_golden(tmp_path: Path, case) -> None:
     lowering_route = None if case.case_id == "wcc_m4_implementation_phase_full_fixture" else "legacy"
