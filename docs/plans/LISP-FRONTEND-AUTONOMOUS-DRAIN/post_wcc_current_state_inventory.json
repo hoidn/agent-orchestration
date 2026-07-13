@@ -358,7 +358,7 @@
         "lowering_route": "wcc_m4",
         "lowering_schema_version": 2
       },
-      "selector_guidance": "The strict `--require-promotable` gate passes for the `.orc` primary; preserve that evidence while independent Gate P3 closure remains pending.",
+      "selector_guidance": "The strict `--require-promotable` gate passes for the `.orc` primary, and independent joint verification satisfied Gate P3. Preserve that evidence. The current selector is drain Phase 3 Task 3.1; Task 3.2+, Phase 4, typed result guidance, and YAML archive remain later work.",
       "evidence": [
         {
           "kind": "migration_parity_report",

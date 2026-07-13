@@ -29,7 +29,7 @@ This file is a selector-facing markdown view over
 | Resource-transition ownership | `completed_post_wcc` | Treat resource-transition ownership as satisfied by the completed family parity slice and its recorded helper classifications; do not keep it remaining in stale prose. |
 | Parent backlog-drain composition and parity | `completed_post_wcc` | Preserve the promoted parent-callable route identity and strict machine-computed promotable parity evidence. |
 | Route/readiness classification registry | `completed_post_wcc` | Use the checked-in route/readiness registry as the authority for current route identity and readiness labels. |
-| YAML-primary promotion gate | `completed_post_wcc` | The strict `--require-promotable` gate passes for the `.orc` primary; preserve that evidence while independent Gate P3 closure remains pending. |
+| YAML-primary promotion gate | `completed_post_wcc` | The strict `--require-promotable` gate passes for the `.orc` primary, and independent joint verification satisfied Gate P3. Preserve that evidence. The current selector is drain Phase 3 Task 3.1; Task 3.2+, Phase 4, typed result guidance, and YAML archive remain later work. |
 
 Selector rule:
 

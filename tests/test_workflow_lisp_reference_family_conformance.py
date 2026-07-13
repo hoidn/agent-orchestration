@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib
 import json
+import re
 import shutil
 from datetime import date
 from pathlib import Path
@@ -140,6 +141,33 @@ def _markdown_table_row(path: Path, key: str) -> str:
     )
 
 
+def _normalized_routing_text(text: str) -> str:
+    return " ".join(
+        text.lower()
+        .replace("-", " ")
+        .replace("–", " ")
+        .replace(">", " ")
+        .replace("*", "")
+        .replace("`", "")
+        .split()
+    )
+
+
+def _assert_phase_3_task_3_1_is_current(surface: str, label: str) -> None:
+    normalized = _normalized_routing_text(surface)
+    clauses = re.findall(
+        r"(?:current selector|active step|next active selection)\s*(?:is|:)\s*((?:\d+\.\d+|[^.,;|])+)",
+        normalized,
+    )
+    assert clauses, label
+    assert any("phase 3 task 3.1" in clause for clause in clauses), (label, clauses)
+    forbidden = re.compile(
+        r"task 3\.(?:[2-9]|[1-9][0-9]+)|phase 4|typed result guidance|yaml archive"
+    )
+    for clause in clauses:
+        assert forbidden.search(clause) is None, (label, clause)
+
+
 def test_design_delta_promotion_routes_current_docs_to_orc_primary() -> None:
     orc_path = "workflows/library/lisp_frontend_design_delta/drain.orc"
     yaml_path = "workflows/examples/lisp_frontend_design_delta_drain.yaml"
@@ -152,9 +180,13 @@ def test_design_delta_promotion_routes_current_docs_to_orc_primary() -> None:
     )[1].split("Reference corpus:", 1)[0]
     assert orc_path in preferred_section
     assert yaml_path not in preferred_section
-    assert "Primary" in _markdown_table_row(
+    orc_catalog_row = _markdown_table_row(
         REPO_ROOT / "workflows" / "README.md", orc_path
     )
+    assert "Primary" in orc_catalog_row
+    assert "Gate P3" in orc_catalog_row
+    assert "satisfied" in orc_catalog_row
+    _assert_phase_3_task_3_1_is_current(orc_catalog_row, "workflow catalog")
     assert "Compatibility" in _markdown_table_row(
         REPO_ROOT / "workflows" / "README.md", yaml_path
     )
@@ -251,43 +283,83 @@ def test_gate_p3_authorities_route_to_phase_3_task_3_1() -> None:
         REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md",
         "lisp_frontend_design_delta_drain.yaml",
     )
+    workflow_catalog_row = _markdown_table_row(
+        REPO_ROOT / "workflows" / "README.md",
+        "workflows/library/lisp_frontend_design_delta/drain.orc",
+    )
+    parametric_status = (
+        REPO_ROOT / "docs" / "design" / "workflow_lisp_parametric_type_system.md"
+    ).read_text(encoding="utf-8").split(
+        "Current status (2026-07-12):", 1
+    )[1].split("## Acceptance Checks", 1)[0]
+    inventory_payload = json.loads(
+        (
+            REPO_ROOT
+            / "docs"
+            / "plans"
+            / "LISP-FRONTEND-AUTONOMOUS-DRAIN"
+            / "post_wcc_current_state_inventory.json"
+        ).read_text(encoding="utf-8")
+    )
+    promotion_surface = next(
+        surface
+        for surface in inventory_payload["surfaces"]
+        if surface["surface_id"] == "workflow-lisp-yaml-primary-promotion-gate"
+    )
+    inventory_selector_guidance = promotion_surface["selector_guidance"]
+    reconciliation_row = _markdown_table_row(
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "LISP-FRONTEND-AUTONOMOUS-DRAIN"
+        / "design-gaps"
+        / "post_wcc_reconciliation_index.md",
+        "YAML-primary promotion gate",
+    )
     routing_surfaces = {
         "drain plan Gate P3 status": gate_p3_status,
-        "capability matrix": " ".join(
-            (backlog_drain_row, design_delta_row, typed_guidance_row)
-        ),
+        "capability backlog-drain row": backlog_drain_row,
+        "capability Design Delta row": design_delta_row,
+        "capability typed-guidance row": typed_guidance_row,
         "docs index component-plan routing": docs_index_routing,
         "procedure-first current selection": procedure_sequence_routing,
         "activation current amendment": activation_amendment,
         "migration-record current authority": migration_record_routing,
         "YAML-retirement family-1 row": family_one_row,
+        "workflow catalog Design Delta row": workflow_catalog_row,
+        "parametric design current status": parametric_status,
+        "post-WCC inventory selector guidance": inventory_selector_guidance,
+        "post-WCC reconciliation row": reconciliation_row,
     }
 
-    assert len(routing_surfaces) == 7
+    assert len(routing_surfaces) == 13
     for label, surface in routing_surfaces.items():
-        normalized = " ".join(
-            surface.lower()
-            .replace("-", " ")
-            .replace("–", " ")
-            .replace(">", " ")
-            .split()
-        )
+        normalized = _normalized_routing_text(surface)
         assert "p3" in normalized, label
         assert "satisfied" in normalized, label
-        assert "phase 3 task 3.1" in normalized, label
-        for forbidden_current in (
-            "current selector is typed result guidance",
-            "current selector is yaml archive",
-            "current selector is phase 4",
-            "current selector is task 3.2",
-            "active step is typed result guidance",
-            "next active selection: typed result guidance",
-        ):
-            assert forbidden_current not in normalized, (label, forbidden_current)
+        _assert_phase_3_task_3_1_is_current(surface, label)
 
-    normalized_guidance = " ".join(
-        typed_guidance_row.lower().replace("-", " ").replace("–", " ").split()
+    mutated_docs_index = docs_index_routing.replace(
+        "Phase 3 Task 3.1", "Phase 3 Task 3.2", 1
     )
+    assert mutated_docs_index != docs_index_routing
+    with pytest.raises(AssertionError):
+        _assert_phase_3_task_3_1_is_current(
+            mutated_docs_index, "mutated docs-index selector"
+        )
+
+    workflow_lisp_readme = (
+        REPO_ROOT / "orchestrator" / "workflow_lisp" / "README.md"
+    ).read_text(encoding="utf-8")
+    assert "`drain_stdlib.py`" not in workflow_lisp_readme
+    assert workflow_lisp_readme.count("`stdlib_modules/std/drain.orc`") == 1
+    drain_owner = workflow_lisp_readme.split(
+        "`stdlib_modules/std/drain.orc`", 1
+    )[1].split("\n- ", 1)[0]
+    assert "imported generic" in drain_owner
+    assert "ordinary specialization and WCC lowering" in drain_owner
+
+    normalized_guidance = _normalized_routing_text(typed_guidance_row)
     guidance_order = normalized_guidance.split("current order", 1)[1]
     assert guidance_order.index("phase 3 task 3.1") < guidance_order.index(
         "phases 3 4"
