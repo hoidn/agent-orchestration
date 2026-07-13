@@ -12,8 +12,9 @@ Plan: `docs/plans/2026-06-09-lisp-frontend-design-delta-drain-orc-migration-plan
 The `.orc` workflow is now the primary launch and routing surface for this
 family. The route-readiness registry labels it `wcc_default` /
 `promotion_eligible` with preferred-current-guidance copy safety, and the
-migration target is eligible for the primary surface. The YAML twin remains in
-place only as compatibility/reference evidence until the Stage 6 archive gate.
+retained historical promotion report records that the former migration target
+was eligible for the primary surface. The YAML twin remains in place only as
+compatibility/reference evidence until the Stage 6 archive gate.
 
 The promotion handoff now has strict promotable parity plus fresh ordinary
 compile, input-complete CLI dry-run, and parent-smoke evidence. This record did
@@ -26,8 +27,8 @@ Phase 3 Task 3.3: ordered bundle deletion. Task 3.4, Phase 4, typed result
 guidance, and YAML archive are not current.
 
 The remaining sections preserve the June migration inventory and baseline as
-dated provenance. They do not override the current registry, parity target, or
-catalog routing above.
+dated provenance. They do not override the current registry, retired
+parity-target state, or catalog routing above.
 
 ## Historical YAML Baseline (2026-06-09)
 

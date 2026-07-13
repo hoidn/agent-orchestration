@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from orchestrator.workflow_lisp.migration_parity import (
@@ -26,6 +27,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_PATH = REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json"
 PARITY_TARGETS_PATH = (
     REPO_ROOT / "workflows" / "examples" / "inputs" / "workflow_lisp_migrations" / "parity_targets.json"
+)
+HISTORICAL_DESIGN_DELTA_REPORT_PATH = (
+    REPO_ROOT
+    / "artifacts"
+    / "work"
+    / "review-parity-check"
+    / "design_delta_parent_drain.json"
 )
 
 INITIAL_REQUIRED_PATHS = {
@@ -228,7 +236,18 @@ def test_malformed_registry_raises_loader_error(tmp_path: Path) -> None:
 
 def test_migration_target_identity_mismatch_codes(tmp_path: Path) -> None:
     targets = load_parity_targets(PARITY_TARGETS_PATH)
-    target = next(target for target in targets if target.workflow_family == "design_delta_parent_drain")
+    target = next(
+        target
+        for target in targets
+        if target.workflow_family == "design_plan_impl_stack"
+    )
+    target = replace(
+        target,
+        readiness_label="promotion_eligible",
+        lowering_route="wcc_m4",
+        lowering_schema_version=2,
+        required_family_evidence_roles=("parent_callable_compile",),
+    )
     entry = _base_entry(
         surface_id="workflows.library.lisp_frontend_design_delta.drain",
         path=target.candidate,
@@ -255,28 +274,28 @@ def test_current_parity_targets_and_checked_in_registry_agree() -> None:
     assert validate_parity_targets_against_route_readiness(targets, registry, REPO_ROOT) == []
 
 
-def test_design_delta_parent_drain_is_registered_for_strict_primary_promotion() -> None:
+def test_design_delta_parent_drain_historical_promotion_matches_registry() -> None:
     targets = load_parity_targets(PARITY_TARGETS_PATH)
-    target = next(
-        target for target in targets if target.workflow_family == "design_delta_parent_drain"
+    assert "design_delta_parent_drain" not in {
+        target.workflow_family for target in targets
+    }
+    report = json.loads(
+        HISTORICAL_DESIGN_DELTA_REPORT_PATH.read_text(encoding="utf-8")
     )
     registry = load_route_readiness_registry(REGISTRY_PATH)
-    entry = registry_entry_for_path(registry, target.candidate)
+    entry = registry_entry_for_path(registry, report["candidate"])
 
     assert entry is not None
-    assert target.readiness_label == "promotion_eligible"
-    assert target.promotion_eligibility == {"eligible_for_primary_surface": True}
-    assert target.accepted_differences == ()
-    assert all(
-        "yaml primary" not in statement.lower() and "candidate" not in statement.lower()
-        for statements in target.baseline_characterization.values()
-        for statement in statements
-    )
+    assert report["non_regressive"] is True
+    assert report["promotion_eligibility"] == {
+        "eligible_for_primary_surface": True
+    }
+    assert report["route_identity"]["readiness_label"] == "promotion_eligible"
+    assert report["route_identity"]["lowering_route"] == "wcc_m4"
     assert entry.readiness_label == "promotion_eligible"
     assert entry.route_label == "wcc_default"
     assert entry.copy_safety == "preferred_current_guidance"
     assert entry.parity_constrained is True
-    assert validate_migration_targets_against_route_readiness([target], registry, REPO_ROOT) == []
 
 
 def test_cli_route_readiness_check_valid_registry() -> None:

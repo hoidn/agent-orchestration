@@ -9,13 +9,12 @@ from tests.test_workflow_lisp_design_delta_drain_migration_feasibility import (
 )
 
 
-PARITY_TARGETS_PATH = (
+HISTORICAL_PARITY_REPORT_PATH = (
     REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "parity_targets.json"
+    / "artifacts"
+    / "work"
+    / "review-parity-check"
+    / "design_delta_parent_drain.json"
 )
 FOCUSED_SMOKE_MODULE = "tests/test_workflow_lisp_design_delta_smoke.py"
 FEASIBILITY_MODULE = (
@@ -25,15 +24,6 @@ PARENT_DRAIN_EVIDENCE_ROLES = (
     "smoke_or_integration",
     "terminal_state_parity",
 )
-
-
-def _design_delta_parent_drain_target() -> dict[str, object]:
-    payload = json.loads(PARITY_TARGETS_PATH.read_text(encoding="utf-8"))
-    return next(
-        target
-        for target in payload["targets"]
-        if target["workflow_family"] == "design_delta_parent_drain"
-    )
 
 
 def test_design_delta_parent_drain_smoke_compiles_production_entry(
@@ -51,9 +41,8 @@ def test_design_delta_parent_drain_smoke_compiles_production_entry(
     assert "lisp_frontend_design_delta/drain::drain" in lowered_by_name
 
 
-def test_design_delta_parent_drain_parity_roles_use_focused_smoke_module() -> None:
-    target = _design_delta_parent_drain_target()
-    evidence_commands = target["evidence_commands"]
+def test_design_delta_parent_drain_historical_parity_records_focused_smoke() -> None:
+    report = json.loads(HISTORICAL_PARITY_REPORT_PATH.read_text(encoding="utf-8"))
     expected_command = [
         "python",
         "-m",
@@ -63,6 +52,9 @@ def test_design_delta_parent_drain_parity_roles_use_focused_smoke_module() -> No
     ]
 
     for role in PARENT_DRAIN_EVIDENCE_ROLES:
-        command = evidence_commands[role]
+        evidence = report["evidence"][role]
+        command = evidence["argv"]
         assert command == expected_command
+        assert evidence["exit_code"] == 0
+        assert evidence["status"] == "pass"
         assert FEASIBILITY_MODULE not in command

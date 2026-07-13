@@ -1983,13 +1983,18 @@ passed **1 test**, and the full module passed **101 tests**. Independent
 specification review returned **PASS** and independent quality/evidence review
 returned **APPROVED**. The repository-required broad command
 `pytest -q -n 16 --dist=worksteal` exited 1 with **4,183 passed, 61 failed, 11
-skipped**. This is the planned fail-closed inter-task window: eight failures
-are the established baseline and 53 are current-manifest-versus-immutable-
-promotion-report certification failures rooted at
+skipped**. Review classified that initial result as eight established baseline
+failures, 50 current-manifest-versus-immutable-promotion-report certification
+failures rooted at
 `reference_family_parity_report_invalid` (historical manifest SHA
 `49a39c9ed86bde9c13f1b5f2e8426490cd1ba3646142b5ea3b3f1a32e24ded8d`
 versus current SHA
-`5cda1470b0ae0afb743f67b7cf3cb32ef7bcdb6abfa97072cfc3caedd6305535`).
+`5cda1470b0ae0afb743f67b7cf3cb32ef7bcdb6abfa97072cfc3caedd6305535`),
+and three stale tests that still selected the retired live target. The Task-3.2
+corrective follow-up retargets those three tests to the surviving family or
+the tracked historical report; a fresh broad rerun must therefore contain
+only the established and planned certification failures before closure is
+re-approved.
 The artifacts must not be weakened or rewritten; Task 3.3 removes the
 still-live certification block that consumes this retired target identity.
 
