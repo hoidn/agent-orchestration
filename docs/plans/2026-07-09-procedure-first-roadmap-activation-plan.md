@@ -4,9 +4,9 @@
 
 **Goal:** Make the approved procedure-first roadmap executable by reconciling the existing component plans with landed commits, tracking and routing the governing plan set, re-anchoring stale ownership paths, and establishing a verified component-plan handoff.
 
-**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, drain Phase 1 Task 1.7, Phase 2 Tasks 2.1–2.3, and Phase 3 Task 3.1 are complete, and Gates P2 and P3 are independently reviewed and satisfied. The bounded Design Delta promotion handoff is recorded without archive. Current routing selects drain Phase 3 Task 3.2: remove the `design_delta_parent_drain` parity target (promotion decision); Task 3.3+, Phase 4, typed result guidance, and YAML archive are not current.
+**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, drain Phase 1 Task 1.7, Phase 2 Tasks 2.1–2.3, and Phase 3 Tasks 3.1–3.2 are complete, and Gates P2 and P3 are independently reviewed and satisfied. The bounded Design Delta promotion handoff is recorded without archive, and its historical parity report is retained after target retirement. Current routing selects drain Phase 3 Task 3.3: ordered bundle deletion; Task 3.4, Phase 4, typed result guidance, and YAML archive are not current.
 
-> **Current execution amendment (updated 2026-07-12):** The case 5 design and
+> **Current execution amendment (updated 2026-07-13):** The case 5 design and
 > implementation are complete, and the boundary final gate passed. The
 > typed-return portion of Stage 4 is accepted in
 > `docs/design/workflow_lisp_native_transportable_returns.md`. Its reviewed
@@ -25,9 +25,10 @@
 > registration/parity, primary flip, and fresh end-to-end evidence, stopping
 > before archive. Independent joint verification has now satisfied all four
 > Gate P3 conditions. Task 3.1 then re-homed the focused parent-drain smoke
-> with reviewed parity evidence. Next active selection: drain Phase 3 Task 3.2:
-> remove the `design_delta_parent_drain` parity target (promotion decision). Do not select Task 3.3+,
-> Phase 4, typed result guidance, or YAML archive yet. Complete the remaining drain gates before the later
+> with reviewed parity evidence, and Task 3.2 retired the promoted parity
+> target while retaining its historical report. Next active selection: drain
+> Phase 3 Task 3.3: ordered bundle deletion. Do not select Task 3.4, Phase 4,
+> typed result guidance, or YAML archive yet. Complete the remaining drain gates before the later
 > Stage-5 typed-result-guidance wave; P2 satisfies a prerequisite but does not
 > make guidance the current selector. The semantic-migration freeze remains in force and neither wave changes the
 > current Stage 1-3 selection.
@@ -551,9 +552,10 @@ evidence and review are complete. Gate P2 is reviewed and satisfied, and drain
 Phase 2 Tasks 2.1–2.3 are complete. The bounded Design Delta promotion handoff
 is recorded through registration/parity, primary flip, and fresh end-to-end
 evidence, stopping before archive. Independent joint verification then
-satisfied all four Gate P3 conditions. Current routing, as recorded by
-`docs/index.md` and the governing execution sequence, selects drain Phase 3
-Task 3.2: remove the `design_delta_parent_drain` parity target (promotion decision). Task
-3.3+, Phase 4, typed result guidance, and YAML archive are not current. Typed
+satisfied all four Gate P3 conditions. Task 3.1 re-homed the focused smoke and
+Task 3.2 retired the promoted parity target while preserving the historical
+promotion report. Current routing, as recorded by `docs/index.md` and the
+governing execution sequence, selects drain Phase 3 Task 3.3: ordered bundle
+deletion. Task 3.4, Phase 4, typed result guidance, and YAML archive are not current. Typed
 result guidance remains a later Stage-5/post-drain wave, and the
 semantic-migration freeze remains in force.

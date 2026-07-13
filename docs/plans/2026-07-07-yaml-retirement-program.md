@@ -156,7 +156,7 @@ Uniform checklist, one family at a time, using the promotion machinery. Family o
 
 | # | Family (YAML primary or retained twin) | Gate |
 |---|---|---|
-| 1 | `lisp_frontend_design_delta_drain.yaml` (+ 6 `v214` library imports) | Promotion handoff recorded, Gate P3 satisfied, and Phase 3 Task 3.1 smoke re-home complete; `.orc` is primary, YAML/`v214` archive remains deferred to Stage 6, and the current selector is drain Phase 3 Task 3.2: remove the `design_delta_parent_drain` parity target (promotion decision) rather than archive |
+| 1 | `lisp_frontend_design_delta_drain.yaml` (+ 6 `v214` library imports) | Promotion handoff recorded, Gate P3 satisfied, Phase 3 Task 3.1 smoke re-home complete, and Task 3.2 promoted-target retirement complete with the historical report preserved; `.orc` is primary, YAML/`v214` archive remains deferred to Stage 6, and the current selector is drain Phase 3 Task 3.3: ordered bundle deletion rather than archive |
 | 2 | `verified_iteration_drain.yaml` | Record the port-vs-absorb decision first (one paragraph in the triage doc); if port: after family 1 |
 | 3 | `lisp_frontend_autonomous_drain.yaml` | After family 1 (shares the drain stdlib surface) |
 | 4 | `neurips_steered_backlog_drain.yaml` | After family 1; `.legacy.yaml` twin is deleted, not ported (triage class `delete`) |

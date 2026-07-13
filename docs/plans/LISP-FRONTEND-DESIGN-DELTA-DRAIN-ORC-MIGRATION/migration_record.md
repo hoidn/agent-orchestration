@@ -3,7 +3,7 @@
 Workflow family: Lisp frontend design delta drain
 Primary `.orc`: `workflows/library/lisp_frontend_design_delta/drain.orc`
 Compatibility YAML twin: `workflows/examples/lisp_frontend_design_delta_drain.yaml`
-Status: `primary-flipped; promotion evidence recorded; Gate P3 satisfied`
+Status: `primary-flipped; promotion evidence recorded; Gate P3 satisfied; promoted parity target retired`
 Created: 2026-06-09
 Plan: `docs/plans/2026-06-09-lisp-frontend-design-delta-drain-orc-migration-plan.md`
 
@@ -20,9 +20,10 @@ compile, input-complete CLI dry-run, and parent-smoke evidence. This record did
 not satisfy Gate P3 by itself; the later independent joint proof recorded in
 the governing drain plan verified all four conditions and satisfied Gate P3.
 Phase 3 Task 3.1 subsequently re-homed the focused parent-drain smoke with
-reviewed parity evidence. The current selector is drain Phase 3 Task 3.2:
-remove the `design_delta_parent_drain` parity target (promotion decision). Task 3.3+, Phase
-4, typed result guidance, and YAML archive are not current.
+reviewed parity evidence, and Task 3.2 retired the promoted parity target while
+preserving its historical promotion report. The current selector is drain
+Phase 3 Task 3.3: ordered bundle deletion. Task 3.4, Phase 4, typed result
+guidance, and YAML archive are not current.
 
 The remaining sections preserve the June migration inventory and baseline as
 dated provenance. They do not override the current registry, parity target, or

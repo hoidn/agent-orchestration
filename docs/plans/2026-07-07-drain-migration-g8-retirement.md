@@ -74,9 +74,9 @@ Record fresh command output under each gate before dispatching the phase. A gate
 Phase 1 Ledger entry (k). Gate P2 admitted the reviewed Phase 2 sequence. Phase
 2 Tasks 2.1–2.3 and the bounded Design Delta promotion handoff are now
 complete. Gate P3 is also satisfied by the later independent joint proof
-recorded in Phase 2 Ledger entry (f). The current selector is **Phase 3 Task
-3.2: remove the promoted Design Delta parent-drain parity target**. Task 3.1
-is complete and reviewed.
+recorded in Phase 2 Ledger entry (f). Phase 3 Tasks 3.1 and 3.2 are complete
+and reviewed. The current selector is **Phase 3 Task 3.3: ordered bundle
+deletion**.
 
 **Gate P3 (entry to Phase 3):**
 1. Phase 2 Tasks 2.1–2.3 committed; name-blindness check (Task 2.3 Step 2) clean.
@@ -89,11 +89,10 @@ is complete and reviewed.
 fresh joint verification of conditions 1–4 at base HEAD
 `c82d150286248661bbfe2d8cb338715f47a02d36`. This status-and-routing closure
 does not alter the verified implementation or evidence surfaces. Gate P3 is
-satisfied and now admits Phase 3. Task 3.1 is complete and reviewed; the
-current selector is **Phase 3 Task 3.2: remove the
-`design_delta_parent_drain` parity target (promotion decision)**. Do not select Task 3.3 or later Phase-3 work,
-Phase 4, typed result guidance, or YAML archive before Task 3.2 and its own
-checks are complete.
+satisfied and now admits Phase 3. Tasks 3.1 and 3.2 are complete and reviewed;
+the current selector is **Phase 3 Task 3.3: ordered bundle deletion**. Do not
+select Task 3.4, Phase 4, typed result guidance, or YAML archive before Task
+3.3 and its own checks are complete.
 
 **Gate P4 (entry to Phase 4):**
 1. Phase 3 Tasks 3.1–3.4 committed.
@@ -324,11 +323,11 @@ After Task 2.3 and before recording Gate P3 as satisfied, execute `docs/plans/20
 
 **Files:** `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json`; regenerated `artifacts/work/review-parity-check/index.json`.
 
-- [ ] **Step 1:** Confirm Gate P3.3/P3.4 ledger entries exist (final non-regressive report + recorded promotion decision). The last `design_delta_parent_drain.json` report stays in `artifacts/work/review-parity-check/` as the historical promotion record — do not delete it.
-- [ ] **Step 2:** Remove the `design_delta_parent_drain` target object from `parity_targets.json` (leaving `cycle_guard_demo`, `design_plan_impl_stack`).
-- [ ] **Step 3:** `python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/review-parity-check --require-non-regressive` → exit 0; regenerated index lists only the two remaining families.
-- [ ] **Step 4:** Record that later Stage-6 YAML archival must use the retained historical promotion artifact plus fresh preserved compile/smoke/end-to-end checks; it must not recreate the retired `design_delta_parent_drain` parity target.
-- [ ] **Step 5: Commit:** `git add workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json artifacts/work/review-parity-check/index.json && git commit -m "Remove promoted design delta family from parity targets"`
+- [x] **Step 1:** Confirm Gate P3.3/P3.4 ledger entries exist (final non-regressive report + recorded promotion decision). The last `design_delta_parent_drain.json` report stays in `artifacts/work/review-parity-check/` as the historical promotion record — do not delete it.
+- [x] **Step 2:** Remove the `design_delta_parent_drain` target object from `parity_targets.json` (leaving `cycle_guard_demo`, `design_plan_impl_stack`).
+- [x] **Step 3:** `python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/review-parity-check --require-non-regressive` → exit 0; regenerated index lists only the two remaining families.
+- [x] **Step 4:** Record that later Stage-6 YAML archival must use the retained historical promotion artifact plus fresh preserved compile/smoke/end-to-end checks; it must not recreate the retired `design_delta_parent_drain` parity target.
+- [x] **Step 5: Commit:** `git add workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json artifacts/work/review-parity-check/index.json && git commit -m "Remove promoted design delta family from parity targets"`
 
 ### Task 3.3: Ordered bundle deletion
 
@@ -1943,3 +1942,61 @@ seven pre-existing user-dirty paths remain preserved. Task 3.1 is complete;
 the sole current selection is **Phase 3 Task 3.2: remove the
 `design_delta_parent_drain` parity target (promotion decision)**. This closure does not start Task 3.2,
 Task 3.3+, Phase 4, typed result guidance, or YAML archive.
+
+### (b) Task 3.2 promoted parity-target retirement (2026-07-13)
+
+Task 3.2 is complete through `de193187` (`Remove promoted design delta family
+from parity targets`), `8e8cbbdc` (`Retire stale promoted target assertions`),
+and `91546530` (`Preserve promoted design delta parity record`). The TDD RED
+run added the retirement assertion and failed against the still-three-target
+manifest; GREEN followed removal of the promoted target. Subsequent tests
+retired now-stale target-specific assumptions while preserving the permanent
+parity-kernel coverage. The final
+`parity_targets.json` SHA-256 is
+`5cda1470b0ae0afb743f67b7cf3cb32ef7bcdb6abfa97072cfc3caedd6305535`
+and contains only `cycle_guard_demo` and `design_plan_impl_stack`.
+
+The exact ordinary parity command exited 0, wrote two reports for two targets,
+and classified both remaining families as non-regressive. The regenerated
+index SHA-256 is
+`c00a97a74ebfdddebe1b0d00d2fa7ab25b4ac6afa0b307e13237c93671b907ea`;
+the gate-evaluation SHA-256 is
+`481e196ae9ec97488d9e5ec3b70537ac5e635bf3f9a1234dab133598060cf078`;
+the remaining report SHA-256 values are
+`cdb401bd8a18ea7da464ddaf8723febf5d4a32e1ef58b39601056d628edc7317`
+for `cycle_guard_demo` and
+`76bc7e203a7b735f03e785289273737c638eb2173f75aed4b32942a0a8e463f3`
+for `design_plan_impl_stack`. Independent evidence review matched all **34**
+referenced paths and hashes with zero mismatches. The last historical Design
+Delta promotion report is now tracked and remains byte-identical: JSON
+SHA-256
+`26ba415a25334175430dcd98195fe97c500baef6fa26b02e6a221a9b499b86a4`
+and Markdown SHA-256
+`f808a0ea319e9ad4ceb1471bff99c71b2c9bd60f99786498f783ffa29c3cd8ba`.
+The regenerated index, gate, and command logs remain ignored runtime outputs
+by design; their hashes are recorded here while the immutable historical
+promotion reports are the durable Stage-6 decision evidence. The clean archive
+guard passed, and no YAML or `v214` twin was archived.
+
+Fresh module checks collected **101 tests**; the focused behavioral selector
+passed **1 test**, and the full module passed **101 tests**. Independent
+specification review returned **PASS** and independent quality/evidence review
+returned **APPROVED**. The repository-required broad command
+`pytest -q -n 16 --dist=worksteal` exited 1 with **4,183 passed, 61 failed, 11
+skipped**. This is the planned fail-closed inter-task window: eight failures
+are the established baseline and 53 are current-manifest-versus-immutable-
+promotion-report certification failures rooted at
+`reference_family_parity_report_invalid` (historical manifest SHA
+`49a39c9ed86bde9c13f1b5f2e8426490cd1ba3646142b5ea3b3f1a32e24ded8d`
+versus current SHA
+`5cda1470b0ae0afb743f67b7cf3cb32ef7bcdb6abfa97072cfc3caedd6305535`).
+The artifacts must not be weakened or rewritten; Task 3.3 removes the
+still-live certification block that consumes this retired target identity.
+
+Task 3.2 removed only the promoted parity target. It did not start Task 3.3,
+delete any certification module or manifest, alter the retained historical
+report, or archive the YAML family. The sole current selector is **Phase 3
+Task 3.3: ordered bundle deletion**. Later Stage 6 must use the retained
+historical promotion artifact together with fresh compile, smoke, and
+end-to-end evidence on the then-current checkout; it must never recreate the
+retired `design_delta_parent_drain` parity target.

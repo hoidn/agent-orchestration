@@ -358,7 +358,7 @@
         "lowering_route": "wcc_m4",
         "lowering_schema_version": 2
       },
-      "selector_guidance": "The strict `--require-promotable` gate passes for the `.orc` primary, independent joint verification satisfied Gate P3, and Phase 3 Task 3.1 re-homed the focused smoke with reviewed parity evidence. Preserve that evidence. The current selector is drain Phase 3 Task 3.2: remove the `design_delta_parent_drain` parity target (promotion decision); Task 3.3+, Phase 4, typed result guidance, and YAML archive remain later work.",
+      "selector_guidance": "The strict `--require-promotable` gate passes for the `.orc` primary, independent joint verification satisfied Gate P3, Phase 3 Task 3.1 re-homed the focused smoke, and Task 3.2 retired the promoted parity target while preserving its historical report. Preserve that evidence. The current selector is drain Phase 3 Task 3.3: ordered bundle deletion; Task 3.4, Phase 4, typed result guidance, and YAML archive remain later work.",
       "evidence": [
         {
           "kind": "migration_parity_report",

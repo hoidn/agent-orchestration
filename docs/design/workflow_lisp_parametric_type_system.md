@@ -617,7 +617,7 @@ Prerequisites, in order:
    `typecheck_dispatch.py`, which may be deleted immediately and
    independently of this tranche).
 
-Current status (2026-07-12): prerequisites 3–6 are landed. The authored
+Current status (2026-07-13): prerequisites 3–6 are landed. The authored
 `std/drain` generic body runs on the ordinary imported/specialized/WCC route,
 the reviewed checkpoint-identity remap is recorded, and consumer parity plus
 shared obligation relocation (including the F5 parent-owned inline-route
@@ -628,9 +628,10 @@ fresh non-regressive parity. The separately bounded Design Delta
 primary-promotion handoff and independent joint proof are recorded in
 `docs/plans/2026-07-07-drain-migration-g8-retirement.md`; Gate P3 is satisfied.
 Phase 3 Task 3.1 has re-homed the focused parent-drain smoke with reviewed
-parity evidence. The current selector is drain Phase 3 Task 3.2: remove the
-`design_delta_parent_drain` parity target (promotion decision). Task 3.3+,
-Phase 4, typed result guidance, and YAML archive remain later work.
+parity evidence, and Task 3.2 retired the promoted parity target while
+preserving the historical promotion report. The current selector is drain
+Phase 3 Task 3.3: ordered bundle deletion. Task 3.4, Phase 4, typed result
+guidance, and YAML archive remain later work.
 
 Expected residue on the order of the review loop's (registry entry, stdlib
 contract, output-contract shaping). Residue materially above that is a signal
