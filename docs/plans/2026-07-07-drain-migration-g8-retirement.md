@@ -1734,18 +1734,18 @@ python -m orchestrator migration-parity \
 
 It exited **0** with `gate_mode: require_promotable`, `overall_pass: true`, one
 report written, one target processed, and no regressive target. The canonical
-report was generated at `2026-07-13T03:56:35Z`; its SHA-256 is
-`6c840461b2510042fe6ebb1ee36c16433104564250f514f89d7f6f775f0a3082`,
+report was generated at `2026-07-13T04:58:48Z`; its SHA-256 is
+`fae2be568838d911a86a3b8862ebc573221a4e31d050d89acb797c82d87d41f9`,
 the Markdown view is
-`75e92ba522b8207bfb66602ef834a6d81cbd8309be1ffae861e780f52f309579`,
+`a53789c0b8b4e3474abc9b4c1244383013b4c2ae2ab6bf2d8ad699948b01367c`,
 the index is
-`b5e41a3177725f99cdced228dc813029bdd8a5e660759939941c813677b0cfe8`,
+`c89a7b4a6b2548d18e58adb5f9ac1f213b1586d6c723ee665b39f779a0b3e714`,
 and the passing gate evaluation is
-`a040f098e0cd4d403b927beead39b3bfb3d62cfb699d8ac683e389ac1d59978c`.
+`c1061d35a0152b6d0588aa9429f47fa72eb3b859da95d3a65029988f06d74cd6`.
 The selected-family command log SHA-256 is
 `96634aa2418c37e5c4e161079d88cc7b23b79d7749d86dec84ad98b491c932c0`.
-All 17 evidence roles pass except the contractually waived dry-run role; all
-eight required family roles pass. The canonical gate row is `report_valid:
+All 17 evidence roles pass, including the executed dry-run role; all eight
+required family roles pass. The canonical gate row is `report_valid:
 true`, `evidence_complete: true`, `non_regressive: true`,
 `eligible_for_primary_surface: true`, and `primary_surface: orc`. A fresh
 post-smoke audit matched all **37** path/hash references in the report.
@@ -1764,15 +1764,14 @@ The exact parent-smoke selector ran under 16-worker work stealing and passed
 **6 tests in 8.14 seconds**; its log SHA-256 is
 `55258d0e290a0daee2513645e577314e2f34f33b07deec3dc34045802760d6ba`.
 
-The requested literal 12-binding CLI dry-run correctly failed closed first.
-Systematic binding inspection showed that `manifest_path`,
-`progress_ledger_path`, and `architecture_bundle_path` are declared source
-inputs but compiler-hidden runtime-context inputs; the CLI binds the nine-entry
-`workflow_public_input_contracts` surface and reported those three as exactly
-the unknown inputs. A second diagnostic pass showed that four supplied public
-paths violated their nominal roots. The successful input-complete CLI dry-run
-therefore retained all nine user-bindable inputs and used these existing,
-semantically aligned paths:
+The parity target no longer waives dry-run evidence. Its checked command runs
+the `.orc` primary directly with the production entry and extern manifests,
+then binds exactly the nine-entry `workflow_public_input_contracts` surface.
+The first four inputs are `steering_path=docs/steering.md`,
+`target_design_path=docs/design/workflow_lisp_runtime_native_drain_authoring.md`,
+`baseline_design_path=docs/design/workflow_lisp_frontend_specification.md`, and
+`architecture_targets__design_gap_id=workflow-lisp-family1-promotion`; the
+remaining five use these existing, semantically aligned paths:
 
 - `architecture_targets__architecture_path=docs/plans/2026-07-07-drain-migration-g8-retirement.md`
 - `architecture_targets__work_item_context_path=artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/section14-parent-dry-run/work_item_context.md`
@@ -1780,11 +1779,15 @@ semantically aligned paths:
 - `architecture_targets__plan_target_path=docs/plans/2026-07-07-yaml-retirement-program.md`
 - `existing_architecture_index_path=artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/section14-parent-dry-run/existing-architecture-index.md`
 
-That `.orc`-primary dry-run exited **0** with `Workflow validation successful`.
-It emitted the existing redundant-relpath and imported-output-collision lint
-categories; its complete log SHA-256 is
-`08e18063e61479c62eeca0cbfb39536103dcf774a236169a3b430aace4660a8c`.
-No source or workflow file was changed to obtain this result.
+The canonical parity dry-run exited **0** in 2.737 seconds with status `pass`;
+its stderr and stdout SHA-256 values are respectively
+`f962f0ac0a523440c942d725668705e9d91087001a8b87f584132b1459a1063c`
+and `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+An independent invocation of the same `.orc` primary also exited **0** with
+`Workflow validation successful`. It emitted the existing redundant-relpath
+and imported-output-collision lint categories; its complete log SHA-256 is
+`ac85aff2358f87dac010a7fd575ce6400c7daeb61c24d579302ce9156464e693`.
+No source or workflow file was changed to obtain either result.
 
 **Archive boundary and routing effect.** A content diff against `17d66bf6`
 was empty for `workflows/examples/lisp_frontend_design_delta_drain.yaml` and
