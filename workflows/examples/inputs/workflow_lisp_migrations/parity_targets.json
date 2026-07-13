@@ -429,17 +429,40 @@
           "--command-boundaries-file",
           "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json"
         ],
-        "dry_run": {
-          "waiver": {
-            "owner": "workflow-lisp",
-            "justification": "CLI dry-run is not runnable for this parent-family slice because the parent drain runtime paths use fake-provider pytest harness inputs; fake-provider smokes are the bounded runtime evidence.",
-            "expiry": "2026-07-31",
-            "targeted_evidence": [
-              "smoke_or_integration",
-              "parent_callable_smoke"
-            ]
-          }
-        },
+        "dry_run": [
+          "python",
+          "-m",
+          "orchestrator",
+          "run",
+          "workflows/library/lisp_frontend_design_delta/drain.orc",
+          "--dry-run",
+          "--entry-workflow",
+          "lisp_frontend_design_delta/drain::drain",
+          "--provider-externs-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json",
+          "--prompt-externs-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json",
+          "--command-boundaries-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json",
+          "--input",
+          "steering_path=docs/steering.md",
+          "--input",
+          "target_design_path=docs/design/workflow_lisp_runtime_native_drain_authoring.md",
+          "--input",
+          "baseline_design_path=docs/design/workflow_lisp_frontend_specification.md",
+          "--input",
+          "architecture_targets__design_gap_id=workflow-lisp-family1-promotion",
+          "--input",
+          "architecture_targets__architecture_path=docs/plans/2026-07-07-drain-migration-g8-retirement.md",
+          "--input",
+          "architecture_targets__work_item_context_path=artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/section14-parent-dry-run/work_item_context.md",
+          "--input",
+          "architecture_targets__check_commands_path=state/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/drain/iterations/4/design-gap-architect/check_commands.json",
+          "--input",
+          "architecture_targets__plan_target_path=docs/plans/2026-07-07-yaml-retirement-program.md",
+          "--input",
+          "existing_architecture_index_path=artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/section14-parent-dry-run/existing-architecture-index.md"
+        ],
         "smoke_or_integration": [
           "python",
           "-m",

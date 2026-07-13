@@ -2804,7 +2804,7 @@ def test_design_plan_impl_stack_manifest_uses_defaulted_dry_run_and_family_speci
     assert "resume_or_start_plan_gate_reusable_state_parity_path" in resume_selector
 
 
-def test_design_delta_parent_drain_manifest_uses_explicit_dry_run_smoke_substitution() -> None:
+def test_design_delta_parent_drain_manifest_runs_input_complete_orc_dry_run() -> None:
     payload = json.loads(
         (
             Path(__file__).resolve().parents[1]
@@ -2816,11 +2816,31 @@ def test_design_delta_parent_drain_manifest_uses_explicit_dry_run_smoke_substitu
     )
 
     dry_run = target["evidence_commands"]["dry_run"]
-    assert isinstance(dry_run, dict)
-    assert "argv" not in dry_run
-    waiver = dry_run["waiver"]
-    assert waiver["targeted_evidence"] == ["smoke_or_integration", "parent_callable_smoke"]
-    assert "fake-provider smokes" in waiver["justification"]
+    assert isinstance(dry_run, list)
+    assert dry_run[:5] == [
+        "python",
+        "-m",
+        "orchestrator",
+        "run",
+        "workflows/library/lisp_frontend_design_delta/drain.orc",
+    ]
+    assert "--dry-run" in dry_run
+    input_pairs = [
+        dry_run[index + 1]
+        for index, argument in enumerate(dry_run)
+        if argument == "--input"
+    ]
+    assert input_pairs == [
+        "steering_path=docs/steering.md",
+        "target_design_path=docs/design/workflow_lisp_runtime_native_drain_authoring.md",
+        "baseline_design_path=docs/design/workflow_lisp_frontend_specification.md",
+        "architecture_targets__design_gap_id=workflow-lisp-family1-promotion",
+        "architecture_targets__architecture_path=docs/plans/2026-07-07-drain-migration-g8-retirement.md",
+        "architecture_targets__work_item_context_path=artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/section14-parent-dry-run/work_item_context.md",
+        "architecture_targets__check_commands_path=state/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/drain/iterations/4/design-gap-architect/check_commands.json",
+        "architecture_targets__plan_target_path=docs/plans/2026-07-07-yaml-retirement-program.md",
+        "existing_architecture_index_path=artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/section14-parent-dry-run/existing-architecture-index.md",
+    ]
 
 
 def test_design_delta_parent_drain_checked_in_command_boundary_metadata_matches_g8_deleted_manifest() -> None:
