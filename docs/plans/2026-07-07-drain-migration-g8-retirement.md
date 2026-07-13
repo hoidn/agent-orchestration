@@ -1388,10 +1388,16 @@ in 36.69s**; and `pytest tests/test_workflow_lisp_verification_gate.py -q` passe
 **20 tests in 7.49s**. Task 1.7 remains pending review. Gate P2 remains open, and this
 entry makes no intrinsic-retirement or Phase 2 completion claim.
 
-**(j) Task 1.7 closure (2026-07-12).** Task 1.7 is complete. The reviewed
-implementation and documentation commits are **`d883f5da`**, **`3b47838a`**, and
-**`a3095f76`**. The final review result was **spec PASS** and **quality APPROVED**
-with no findings. The integration and test evidence is recorded in the preceding
-entry; this closure does not restate or broaden those claims. **Gate P2 is the next
-open selector** and still requires its own fresh six-condition verification. No Gate
-P2 pass, intrinsic-retirement, or Phase 2 completion claim is made here.
+**(j) Task 1.7 closure and review record (2026-07-12).** Task 1.7 is complete.
+This ledger entry is the durable review record for the contiguous reviewed range
+**`d883f5da^..a3095f76`**, containing **`d883f5da`**, **`3b47838a`**, and
+**`a3095f76`**. The spec-compliance reviewer returned final **PASS** after verifying
+the routing, G8 boundary, integration-evidence mapping, and completion status. The
+documentation-quality reviewer returned final **APPROVED** after verifying the
+durability of the 58-token command reproduction and all 26 inputs, cross-document
+routing consistency, and the absence of completion overclaim. Both results are from
+the final re-review after **`a3095f76`**, with no findings. The integration and test
+evidence is recorded in the preceding entry; this closure does not restate or broaden
+those claims. **Gate P2 is the next open selector** and still requires its own fresh
+six-condition verification. No Gate P2 pass, intrinsic-retirement, or Phase 2
+completion claim is made here.

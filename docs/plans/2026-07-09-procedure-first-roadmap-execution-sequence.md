@@ -76,9 +76,9 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-07-executor-decomposition.md` | Completed through Task 9. Its targeted executor surface and Design Delta smoke pass; the full-suite failure identities match the pre-Task-2 baseline. |
 | `2026-07-08-boundary-report-followups.md` | Completed through Task 6 and its final gate. Case 5 now has production runtime/source-map attribution evidence. |
 | `2026-07-09-runtime-union-field-lineage-plan.md` | Completed through Task 6. The post-fix full suite retains exactly the six recorded baseline failures. |
-| `2026-07-07-drain-migration-g8-retirement.md` | Next active roadmap plan. Begin at Phase 1 Task 1.1; do not skip its re-baseline and anchor verification. |
-| `2026-07-10-workflow-lisp-native-transportable-returns-plan.md` | Accepted and reviewed Stage-5 wave 1 plan. Execute after Gates S3 and S4; it widens every current transportable return boundary and introduces the v2.15 direct-root contract without promoting v2.15. |
-| `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Accepted and reviewed Stage-5 wave 2 plan. Execute only after native returns; it adds root/field guidance and owns the combined v2.15 promotion gate. |
+| `2026-07-07-drain-migration-g8-retirement.md` | Phase 1 Tasks 1.1–1.7, including the Task 1.6a sibling sweep, are complete. Gate P2 verification is the current open selector. |
+| `2026-07-10-workflow-lisp-native-transportable-returns-plan.md` | Stage-5 wave 1 landed ahead of Gates S3/S4 under the 2026-07-10 amendment. Treat it as a completed historical prerequisite; do not re-execute it. |
+| `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Accepted and reviewed Stage-5 wave 2 plan. Execute only after drain Gate P2 closes; landed native returns remain its other prerequisite. It adds root/field guidance and owns the combined v2.15 promotion gate. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
 | `2026-07-07-yaml-retirement-program.md` | Task 1 may inform later design. Its Design Delta family promotion is coordinated between drain Phases 2 and 3; other code-changing and promotion tasks wait until the procedure-first pilot is accepted. |
 
@@ -157,7 +157,7 @@ six conditions pass with fresh evidence. Typed result guidance (wave 2,
 closure per the accepted ordering. G8 intrinsic deletion remains later Phase 2
 work, and the semantic-migration freeze remains in force.
 
-Re-anchor and execute `2026-07-07-drain-migration-g8-retirement.md` Phase 1:
+The completed Phase 1 execution order was:
 
 1. Task 1.1 re-baseline and anchor verification.
 2. Task 1.2 feasibility probes.
@@ -253,13 +253,17 @@ transportable type, compiler-owned `__result__` carriage, optional root and
 record/union-field guidance, exact v2.15 wire schemas, typed examples, and
 prompt-only guidance semantics. The independently reviewed execution plans are:
 
-6. `2026-07-10-workflow-lisp-native-transportable-returns-plan.md`; then
-7. `2026-07-10-workflow-lisp-typed-result-guidance-plan.md`.
+6. `2026-07-10-workflow-lisp-native-transportable-returns-plan.md` — completed
+   under the amendment below; and
+7. `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` — execute only after
+   landed wave 1 and drain Gate P2 closure.
 
-At the Stage-5 handoff after S3/S4, re-run each plan's Task 1 owner audit. Do not reopen
-the accepted typed-return decisions unless the broader procedure-first design
-finds a demonstrated conflict; record such a conflict as an explicit design
-amendment rather than silently changing an implementation plan.
+Wave 1 is a completed historical prerequisite and must not be replayed. Before
+executing wave 2, re-run only its Task 1 owner audit after drain Gate P2 closes;
+landed wave 1 and the closed drain gate are both prerequisites. Do not reopen the
+accepted typed-return decisions unless the broader procedure-first design finds a
+demonstrated conflict; record such a conflict as an explicit design amendment rather
+than silently changing an implementation plan.
 
 > **Amendment (2026-07-10, user adjudication):** Wave 1
 > (`2026-07-10-workflow-lisp-native-transportable-returns-plan.md`) executes
@@ -297,21 +301,23 @@ Gate S4:
 - separate implementation plans exist for substrate changes, the pilot, and
   migration waves when those scopes are independently testable;
 - the native-return and typed-guidance design remains compatible with the
-  accepted broader procedure-first delta, and both reviewed plans are ready for
-  their Stage-5 owner rebaseline.
+  accepted broader procedure-first delta; landed wave 1 remains the historical
+  prerequisite, and wave 2 is ready for its owner rebaseline only after drain
+  Gate P2 closes.
 
 ### Stage 5: Implement Procedure-First Reuse In Waves
 
 Execute only accepted plans, in this order:
 
-1. **Native transportable-return substrate.** Execute
-   `2026-07-10-workflow-lisp-native-transportable-returns-plan.md`. Keep direct
-   JSON roots and compiler-owned `__result__` carriage uniform across every
-   currently transportable type; do not promote v2.15 yet.
+1. **Native transportable-return substrate — completed historical
+   prerequisite.** `2026-07-10-workflow-lisp-native-transportable-returns-plan.md`
+   has landed under the 2026-07-10 amendment. Do not replay it. Direct JSON roots
+   and compiler-owned `__result__` carriage remain uniform across every currently
+   transportable type; v2.15 is not promoted yet.
 2. **Typed result-guidance substrate.** Execute
-   `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` only after wave 1.
-   Its completion gate jointly promotes the v2.15 native-return and guidance
-   contract.
+   `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` only after both wave 1
+   has landed and drain Gate P2 has closed. Its completion gate jointly promotes
+   the v2.15 native-return and guidance contract.
 3. **Remaining substrate wave.** Land only type, return, effect, lowering,
    source-map, or runtime-contract capabilities proven missing by Stage 4.
    Reuse the shared parametric specialization pipeline; do not add
