@@ -74,10 +74,11 @@ def _retired_backlog_drain_structure_sites(package_root: Path) -> list[str]:
                 continue
             if isinstance(node, ast.Compare):
                 for operand in (node.left, *node.comparators):
-                    if isinstance(operand, ast.Constant):
-                        record_string_key(
-                            source_path, node, "comparison-key", operand.value
-                        )
+                    for nested in ast.walk(operand):
+                        if isinstance(nested, ast.Constant):
+                            record_string_key(
+                                source_path, node, "comparison-key", nested.value
+                            )
             elif isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
                 record_string_key(source_path, node, "subscript-key", node.slice.value)
             elif isinstance(node, ast.Dict):
@@ -86,6 +87,14 @@ def _retired_backlog_drain_structure_sites(package_root: Path) -> list[str]:
                         record_string_key(source_path, node, "dict-key", key_node.value)
             elif isinstance(node, ast.MatchValue) and isinstance(node.value, ast.Constant):
                 record_string_key(source_path, node, "match-key", node.value.value)
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"get", "pop", "setdefault"}
+            ):
+                for argument in node.args:
+                    if isinstance(argument, ast.Constant):
+                        record_string_key(source_path, node, "call-key", argument.value)
 
     return sorted(
         forbidden_nodes,
@@ -106,7 +115,10 @@ def test_retired_backlog_drain_guard_rejects_string_keyed_dispatch(tmp_path: Pat
         "def dispatch(head, handlers):\n"
         "    if head == 'backlog_drain':\n"
         "        return handlers['backlog-drain']\n"
-        "    return {'backlog_drain': handlers['default']}\n",
+        "    dispatch_table = {'backlog_drain': handlers['default']}\n"
+        "    if head in ('backlog_drain',):\n"
+        "        return handlers.get('backlog-drain')\n"
+        "    return dispatch_table\n",
         encoding="utf-8",
     )
 
@@ -116,6 +128,8 @@ def test_retired_backlog_drain_guard_rejects_string_keyed_dispatch(tmp_path: Pat
         "mutated_dispatch.py:2:comparison-key:backlog_drain",
         "mutated_dispatch.py:3:subscript-key:backlog-drain",
         "mutated_dispatch.py:4:dict-key:backlog_drain",
+        "mutated_dispatch.py:5:comparison-key:backlog_drain",
+        "mutated_dispatch.py:6:call-key:backlog-drain",
     ]
 
 
