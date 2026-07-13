@@ -467,9 +467,7 @@
           "python",
           "-m",
           "pytest",
-          "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py",
-          "-k",
-          "design_delta_parent_drain_smokes",
+          "tests/test_workflow_lisp_design_delta_smoke.py",
           "-q"
         ],
         "output_contract_parity": [
@@ -484,9 +482,7 @@
           "python",
           "-m",
           "pytest",
-          "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py",
-          "-k",
-          "design_delta_parent_drain_smokes",
+          "tests/test_workflow_lisp_design_delta_smoke.py",
           "-q"
         ],
         "artifact_parity": [
