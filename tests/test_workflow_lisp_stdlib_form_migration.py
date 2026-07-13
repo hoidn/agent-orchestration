@@ -26,13 +26,32 @@ DRAIN_STDLIB_FIXTURE = VALID_FIXTURES / "drain_stdlib_backlog_drain_stdlib.orc"
 RESOURCE_INTRINSIC_FIXTURE = VALID_FIXTURES / "resource_stdlib_finalize_selected_item.orc"
 
 
-def test_retired_backlog_drain_has_no_name_keyed_compiler_structure() -> None:
-    package_root = Path(__file__).parents[1] / "orchestrator" / "workflow_lisp"
+def _retired_backlog_drain_structure_sites(package_root: Path) -> list[str]:
     sanctioned_residue = {
         package_root / "form_registry.py",
         package_root / "stdlib_contracts.py",
     }
+    frozen_evidence_and_inventory = {
+        package_root / "build_design_delta.py",
+        package_root / "migration_parity.py",
+        package_root / "post_wcc_inventory.py",
+        package_root / "transition_authoring.py",
+    }
     forbidden_nodes: list[str] = []
+
+    def retired_key(value: object) -> str | None:
+        if not isinstance(value, str):
+            return None
+        if re.search(r"backlog[-_]drain", value, flags=re.IGNORECASE):
+            return value
+        return None
+
+    def record_string_key(source_path: Path, node: ast.AST, kind: str, value: object) -> None:
+        key = retired_key(value)
+        if key is not None:
+            forbidden_nodes.append(
+                f"{source_path.relative_to(package_root)}:{node.lineno}:{kind}:{key}"
+            )
 
     for source_path in sorted(package_root.rglob("*.py")):
         if source_path in sanctioned_residue:
@@ -51,8 +70,53 @@ def test_retired_backlog_drain_has_no_name_keyed_compiler_structure() -> None:
                     forbidden_nodes.append(
                         f"{source_path.relative_to(package_root)}:{node.lineno}:{name}"
                     )
+            if source_path in frozen_evidence_and_inventory:
+                continue
+            if isinstance(node, ast.Compare):
+                for operand in (node.left, *node.comparators):
+                    if isinstance(operand, ast.Constant):
+                        record_string_key(
+                            source_path, node, "comparison-key", operand.value
+                        )
+            elif isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
+                record_string_key(source_path, node, "subscript-key", node.slice.value)
+            elif isinstance(node, ast.Dict):
+                for key_node in node.keys:
+                    if isinstance(key_node, ast.Constant):
+                        record_string_key(source_path, node, "dict-key", key_node.value)
+            elif isinstance(node, ast.MatchValue) and isinstance(node.value, ast.Constant):
+                record_string_key(source_path, node, "match-key", node.value.value)
 
-    assert forbidden_nodes == []
+    return sorted(
+        forbidden_nodes,
+        key=lambda site: (site.split(":", 2)[0], int(site.split(":", 2)[1]), site),
+    )
+
+
+def test_retired_backlog_drain_has_no_name_keyed_compiler_structure() -> None:
+    package_root = Path(__file__).parents[1] / "orchestrator" / "workflow_lisp"
+
+    assert _retired_backlog_drain_structure_sites(package_root) == []
+
+
+def test_retired_backlog_drain_guard_rejects_string_keyed_dispatch(tmp_path: Path) -> None:
+    package_root = tmp_path / "orchestrator" / "workflow_lisp"
+    package_root.mkdir(parents=True)
+    (package_root / "mutated_dispatch.py").write_text(
+        "def dispatch(head, handlers):\n"
+        "    if head == 'backlog_drain':\n"
+        "        return handlers['backlog-drain']\n"
+        "    return {'backlog_drain': handlers['default']}\n",
+        encoding="utf-8",
+    )
+
+    sites = _retired_backlog_drain_structure_sites(package_root)
+
+    assert sites == [
+        "mutated_dispatch.py:2:comparison-key:backlog_drain",
+        "mutated_dispatch.py:3:subscript-key:backlog-drain",
+        "mutated_dispatch.py:4:dict-key:backlog_drain",
+    ]
 
 
 def _form_registry_module():

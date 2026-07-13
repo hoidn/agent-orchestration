@@ -266,8 +266,11 @@ STDLIB_LOWERING_CONTRACTS: tuple[StdlibLoweringContract, ...] = (
             "generated_hidden_input_span",
             "generated_hidden_path_span",
         ),
-        primary_diagnostics=("backlog_drain_contract_invalid", "workflow_call_signature_erased"),
-        helper_owner_modules=("drain_stdlib", "typecheck", "lowering"),
+        primary_diagnostics=(
+            "parametric_constraint_unsatisfied",
+            "workflow_call_signature_erased",
+        ),
+        helper_owner_modules=("stdlib_modules/std/drain.orc",),
         adapter_binding_names=(),
         test_surfaces=("tests.test_workflow_lisp_drain_stdlib",),
     ),

@@ -1479,6 +1479,13 @@ def test_stdlib_contract_inventory_covers_supported_frontend_forms() -> None:
 
     imported_drain_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["backlog-drain"]
     assert imported_drain_contract.expr_type is None
+    assert imported_drain_contract.helper_owner_modules == (
+        "stdlib_modules/std/drain.orc",
+    )
+    assert imported_drain_contract.primary_diagnostics == (
+        "parametric_constraint_unsatisfied",
+        "workflow_call_signature_erased",
+    )
 
     for expr_type in {
         contract.expr_type
