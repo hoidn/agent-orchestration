@@ -158,7 +158,7 @@ def test_function_definition_stores_only_canonical_return_spec() -> None:
                 "(workflow-lisp",
                 '  (:language "0.1")',
                 '  (:target-dsl "2.15")',
-                "  (defun approved () -> Bool true))",
+                '  (defun approved () -> (result Bool :description "No blockers remain.") true))',
             ]
         )
     )
@@ -171,6 +171,7 @@ def test_function_definition_stores_only_canonical_return_spec() -> None:
     changed = replace(function_def, return_type_name="String")
     assert changed.return_type_name == "String"
     assert changed.return_spec.type_name == "String"
+    assert changed.return_spec.guidance == function_def.return_spec.guidance
     assert changed != function_def
 
 

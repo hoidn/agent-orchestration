@@ -146,6 +146,62 @@ def test_compile_stage1_entrypoint_imports_transitively_reexported_schemas_for_i
     ]
 
 
+def test_compile_stage1_entrypoint_preserves_guidance_through_schema_reexports(tmp_path: Path) -> None:
+    source_root = tmp_path / "schema_guidance_reexport"
+    entry_path = _write_module(
+        source_root / "demo" / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule demo/entry)",
+                "  (import demo/middle :only (ExtendedReviewFields))",
+                "  (defrecord ReviewResult",
+                "    (:include ExtendedReviewFields)))",
+            ]
+        ),
+    )
+    _write_module(
+        source_root / "demo" / "middle.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule demo/middle)",
+                "  (import demo/base :only (ReviewFields))",
+                "  (export ExtendedReviewFields)",
+                "  (defschema ExtendedReviewFields",
+                "    (:include ReviewFields)))",
+            ]
+        ),
+    )
+    _write_module(
+        source_root / "demo" / "base.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule demo/base)",
+                "  (export ReviewFields)",
+                "  (defschema ReviewFields",
+                '    (approved Bool :description "No blockers remain." :example true)))',
+            ]
+        ),
+    )
+
+    result = _compile_stage1_entrypoint(entry_path, source_root=source_root)
+    review_result = next(
+        definition for definition in result.entry_module.definitions if definition.name == "ReviewResult"
+    )
+    field = review_result.fields[0]
+
+    assert field.guidance.description == "No blockers remain."
+    assert field.guidance.example_expr.datum.value is True
+
+
 def test_compile_stage1_entrypoint_validates_export_surfaces() -> None:
     source_root = INVALID_FIXTURES / "missing_export"
     path = source_root / "neurips" / "entry.orc"

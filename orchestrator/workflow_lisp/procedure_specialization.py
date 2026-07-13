@@ -939,6 +939,10 @@ def specialize_typed_procedure(
                 for param in request.procedure.definition.params
                 if param.name not in bound_names
             ),
+            return_spec=replace(
+                request.procedure.definition.return_spec,
+                type_name=render_type_ref(substituted_return_type),
+            ),
             return_type_name=render_type_ref(substituted_return_type),
             type_params=(),
             where_clauses=(),

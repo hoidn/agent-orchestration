@@ -44,6 +44,7 @@ from orchestrator.workflow_lisp.procedures import (
     ProcedureLoweringMode,
     build_procedure_catalog,
     elaborate_procedure_definitions,
+    parametric_specialization_name,
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
@@ -1422,6 +1423,78 @@ def test_compile_stage3_validates_generic_where_workflow_bundle(tmp_path: Path) 
     assert specialized.signature.type_params == ()
     assert all(type(param_type).__name__ != "TypeParamRef" for _, param_type in specialized.signature.params)
     assert type(specialized.signature.return_type_ref).__name__ != "TypeParamRef"
+
+
+def test_generic_specialization_substitutes_return_type_and_preserves_guidance(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_return_guidance.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.15")',
+            "  (defproc identity",
+            "    :forall (T)",
+            "    ((value T))",
+            '    -> (result T :description "Return the value unchanged.")',
+            "    :effects ()",
+            "    :lowering inline",
+            "    value)",
+            "  (defproc use-bool",
+            "    ((value Bool))",
+            "    -> Bool",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (identity value)))",
+        ],
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+    specialized = next(
+        procedure
+        for procedure in result.typed_procedures
+        if getattr(procedure.specialization, "type_bindings", {})
+        and procedure.specialization.base_name == "identity"
+    )
+
+    assert specialized.definition.return_spec.type_name == "Bool"
+    assert specialized.signature.return_type_ref.name == "Bool"
+    assert specialized.definition.return_spec.guidance.description == "Return the value unchanged."
+
+
+def test_generic_specialization_identity_excludes_return_guidance(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_return_guidance_identity.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.15")',
+            "  (defproc identity",
+            "    :forall (T)",
+            "    ((value T))",
+            '    -> (result T :description "Prompt-only metadata.")',
+            "    :effects ()",
+            "    :lowering inline",
+            "    value)",
+            "  (defproc use-bool",
+            "    ((value Bool))",
+            "    -> Bool",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (identity value)))",
+        ],
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+    specialized = next(
+        procedure
+        for procedure in result.typed_procedures
+        if getattr(procedure.specialization, "type_bindings", {})
+        and procedure.specialization.base_name == "identity"
+    )
+
+    assert specialized.specialization.specialization_key == parametric_specialization_name(
+        "identity", specialized.specialization.type_bindings
+    )
 
 
 def test_compile_stage3_preserves_effect_visibility_for_constrained_generic_procref_fixture(

@@ -114,6 +114,52 @@ def test_elaborate_record_and_union_payload_field_guidance(tmp_path: Path) -> No
     assert union_field.guidance.example_expr.datum.value is True
 
 
+def test_schema_include_preserves_field_guidance(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "schema_include_guidance.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defschema ReviewFields",
+                '    (approved Bool :description "No blockers remain." :example true))',
+                "  (defrecord ReviewResult",
+                "    (:include ReviewFields)))",
+            ]
+        ),
+    )
+
+    module = _compile_definition_module(path)
+    field = module.definitions[0].fields[0]
+
+    assert field.guidance.description == "No blockers remain."
+    assert field.guidance.example_expr.datum.value is True
+
+
+def test_schema_include_guidance_does_not_override_duplicate_local_field(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "schema_include_guidance_duplicate.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defschema ReviewFields",
+                '    (approved Bool :description "Included guidance."))',
+                "  (defrecord ReviewResult",
+                "    (:include ReviewFields)",
+                '    (approved Bool :description "Local guidance.")))',
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_definition_module(path)
+
+    assert excinfo.value.diagnostics[0].code == "record_field_duplicate"
+
+
 @pytest.mark.parametrize(
     "field_source",
     [

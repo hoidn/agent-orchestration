@@ -146,17 +146,10 @@ class ProcedureDef:
                 ReturnSpec(type_name=return_type_name, guidance=None, span=self.span),
             )
         elif return_type_name is not None and self.return_spec.type_name != return_type_name:
-            # Existing specialization reconstructs definitions with a substituted
-            # return type. Task 4 owns preservation of authored metadata through
-            # that reconstruction; keep the Task 2 carrier internally coherent.
             object.__setattr__(
                 self,
                 "return_spec",
-                ReturnSpec(
-                    type_name=return_type_name,
-                    guidance=None,
-                    span=self.return_spec.span,
-                ),
+                replace(self.return_spec, type_name=return_type_name),
             )
 
 

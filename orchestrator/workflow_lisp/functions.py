@@ -105,7 +105,7 @@ class FunctionDef:
             object.__setattr__(
                 self,
                 "return_spec",
-                ReturnSpec(type_name=return_type_name, guidance=None, span=self.return_spec.span),
+                replace(self.return_spec, type_name=return_type_name),
             )
 
 
