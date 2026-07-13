@@ -2804,6 +2804,32 @@ def test_design_plan_impl_stack_manifest_uses_defaulted_dry_run_and_family_speci
     assert "resume_or_start_plan_gate_reusable_state_parity_path" in resume_selector
 
 
+def test_promoted_design_delta_target_is_retired_but_historical_report_is_preserved() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    manifest_path = (
+        repo_root
+        / "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
+    )
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert [entry["workflow_family"] for entry in payload["targets"]] == [
+        "cycle_guard_demo",
+        "design_plan_impl_stack",
+    ]
+
+    historical_report_root = repo_root / "artifacts/work/review-parity-check"
+    expected_hashes = {
+        "design_delta_parent_drain.json": (
+            "sha256:26ba415a25334175430dcd98195fe97c500baef6fa26b02e6a221a9b499b86a4"
+        ),
+        "design_delta_parent_drain.md": (
+            "sha256:f808a0ea319e9ad4ceb1471bff99c71b2c9bd60f99786498f783ffa29c3cd8ba"
+        ),
+    }
+    for name, expected_hash in expected_hashes.items():
+        assert _sha256_file(historical_report_root / name) == expected_hash
+
+
 def test_design_delta_parent_drain_manifest_runs_input_complete_orc_dry_run() -> None:
     payload = json.loads(
         (
