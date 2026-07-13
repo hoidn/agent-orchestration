@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import json
 import shutil
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow.runtime_plan import enrich_workflow_runtime_plan
 from orchestrator.workflow.semantic_ir import derive_workflow_semantic_ir, workflow_semantic_ir_to_json
-from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind, WorkflowProvenance
+from orchestrator.workflow.surface_ast import WorkflowProvenance
 
 from .build_manifest_io import (
     _cli_request_diagnostic,
@@ -28,58 +27,13 @@ from .build_manifest_io import (
     _resolve_request,
     _sha256_path,
 )
-from .build_design_delta import (
-    DesignDeltaEvidence,
-    DesignDeltaReportPayloads,
-    _allowed_resume_plumbing_retirement_registry_rows,
-    _augment_design_delta_compatibility_bridge_lineage,
-    _build_design_delta_observability_summary_prerequisite_report,
-    _build_slug,
-    _compatibility_bridge_manifest_value_document,
-    _compatibility_bridge_surface_step,
-    _compatibility_bridge_target_binding,
-    _compatibility_bridge_value_document,
-    _design_delta_contract_is_path_like,
-    _design_delta_generated_internal_entry_is_path_like,
-    _design_delta_prerequisite_report_paths,
-    _family_profile_metadata_for_entry,
-    _is_design_delta_family_profile_candidate,
-    _materialize_design_delta_compatibility_bridge_bundles,
-    _maybe_load_design_delta_boundary_authority_registry,
-    _maybe_load_design_delta_compatibility_bridge_manifest,
-    _maybe_load_design_delta_consumer_rendering_census,
-    _maybe_load_design_delta_family_profile_catalog,
-    _maybe_load_design_delta_observability_old_writer_pair_manifest,
-    _maybe_load_design_delta_rendering_cleanup_manifest,
-    _maybe_load_design_delta_rendering_ergonomics_manifest,
-    _maybe_load_design_delta_resume_plumbing_retirement_manifest,
-    _maybe_load_design_delta_transition_authoring_manifest,
-    _maybe_load_design_delta_value_flow_census,
-    _maybe_load_design_delta_view_dual_run_report,
-    _maybe_load_design_delta_view_dual_run_vectors,
-    _resume_plumbing_retirement_source_texts,
-    _serialize_design_delta_adapter_census,
-    _serialize_design_delta_boundary_authority_report,
-    _serialize_design_delta_g8_deletion_evidence,
-    _serialize_lexical_checkpoint_points_for_retirement,
-    _serialize_lexical_checkpoint_shadow_reports_for_retirement,
-    _surface_with_compatibility_bridge_steps,
-    _with_report_path,
-    load_design_delta_evidence,
-    load_design_delta_family_catalog,
-    serialize_design_delta_reports,
-)
+from .build_design_delta import serialize_design_delta_g8_deletion_evidence
 from .build_artifacts import (
-    _build_entry_publication_report,
     _build_manifest,
     _checkpoint_program_identity,
-    _collect_entry_publication_lowerings,
     _collect_origin_keys,
     _command_boundary_metadata_for_workflow,
     _display_workflow_name,
-    _entry_publication_policy_row_id,
-    _entry_publication_slug,
-    _entry_publication_source_map_step_ids,
     _fingerprint_build,
     _origin_payload,
     _public_runtime_plan_payload as _public_runtime_plan_payload_export,
@@ -92,7 +46,6 @@ from .build_artifacts import (
     _serialize_typed_frontend_ast,
     _serialize_workflow_boundary_projection,
     _validate_lexical_checkpoint_artifacts,
-    _validate_selected_workflow_hidden_compatibility_bridge_public_boundary,
     _write_build_artifacts,
 )
 
@@ -100,416 +53,29 @@ _public_runtime_plan_payload = _public_runtime_plan_payload_export
 
 from .command_boundaries import CertifiedAdapterBinding, ExternalToolBinding
 from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
-from .consumer_rendering_census import (
-    build_consumer_rendering_census_report,
-    extract_materialize_view_effects,
-)
-from .compatibility_bridges import build_compatibility_bridge_report
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .family_profiles import WorkflowFamilyProfileCatalog
-from .form_registry import get_form_spec
 from .lints import LINT_PROFILE_DEFAULT
-from .parent_drain_census_alignment import (
-    build_parent_drain_census_alignment_report,
-)
-from . import lexical_checkpoint_default_resume
-from . import resume_plumbing_retirement
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION
-from .typed_prompt_inputs import (
-    build_typed_prompt_input_report,
-    normalize_typed_prompt_input_entry,
-)
-from .reference_family_conformance import (
-    build_reference_family_conformance_profile,
-)
-from .rendering_cleanup import build_rendering_cleanup_report
-from .rendering_ergonomics import build_rendering_ergonomics_report
-from .transition_authoring import build_transition_authoring_report
-from .value_flow_census import reconcile_value_flow_census
 from .wcc.route import LoweringRoute
 
 
-# Names below are not referenced elsewhere in this module (they are read by
-# build_design_delta.py, either as re-exports or via a deferred, function-body
-# import; or by build_artifacts.py, whose serializers/writers are re-exported
-# here so test monkeypatches and deferred `from .build import ...` lookups of
-# `build.<name>` remain observable). They must stay resolvable as
-# `build.<name>`, which would otherwise read as unused imports.
+# Artifact helpers remain re-exported from this historical module boundary so
+# existing callers and monkeypatch-based tests do not depend on the file split.
 __all__ = [
-    "_allowed_resume_plumbing_retirement_registry_rows",
-    "_augment_design_delta_compatibility_bridge_lineage",
-    "_build_design_delta_observability_summary_prerequisite_report",
-    "_build_entry_publication_report",
-    "_build_slug",
     "_checkpoint_program_identity",
-    "_collect_entry_publication_lowerings",
     "_collect_origin_keys",
-    "_compatibility_bridge_manifest_value_document",
-    "_compatibility_bridge_surface_step",
-    "_compatibility_bridge_target_binding",
-    "_compatibility_bridge_value_document",
-    "_design_delta_contract_is_path_like",
-    "_design_delta_generated_internal_entry_is_path_like",
-    "_design_delta_prerequisite_report_paths",
     "_display_workflow_name",
-    "_entry_publication_policy_row_id",
-    "_entry_publication_slug",
-    "_entry_publication_source_map_step_ids",
-    "_family_profile_metadata_for_entry",
-    "_is_design_delta_family_profile_candidate",
-    "_maybe_load_design_delta_boundary_authority_registry",
-    "_maybe_load_design_delta_compatibility_bridge_manifest",
-    "_maybe_load_design_delta_consumer_rendering_census",
-    "_maybe_load_design_delta_family_profile_catalog",
-    "_maybe_load_design_delta_observability_old_writer_pair_manifest",
-    "_maybe_load_design_delta_rendering_cleanup_manifest",
-    "_maybe_load_design_delta_rendering_ergonomics_manifest",
-    "_maybe_load_design_delta_resume_plumbing_retirement_manifest",
-    "_maybe_load_design_delta_transition_authoring_manifest",
-    "_maybe_load_design_delta_value_flow_census",
-    "_maybe_load_design_delta_view_dual_run_report",
-    "_maybe_load_design_delta_view_dual_run_vectors",
     "_origin_payload",
-    "_resume_plumbing_retirement_source_texts",
-    "_serialize_design_delta_adapter_census",
-    "_serialize_design_delta_boundary_authority_report",
-    "_serialize_design_delta_g8_deletion_evidence",
     "_serialize_expanded_frontend_ast",
     "_serialize_frontend_ast",
     "_serialize_lexical_checkpoint_points",
-    "_serialize_lexical_checkpoint_points_for_retirement",
     "_serialize_lexical_checkpoint_shadow_report",
-    "_serialize_lexical_checkpoint_shadow_reports_for_retirement",
     "_serialize_lowered_workflows",
     "_serialize_typed_frontend_ast",
-    "_surface_with_compatibility_bridge_steps",
     "_validate_lexical_checkpoint_artifacts",
-    "_with_report_path",
-    "build_compatibility_bridge_report",
-    "build_consumer_rendering_census_report",
-    "build_parent_drain_census_alignment_report",
-    "build_reference_family_conformance_profile",
-    "build_rendering_cleanup_report",
-    "build_rendering_ergonomics_report",
-    "build_transition_authoring_report",
-    "build_typed_prompt_input_report",
-    "get_form_spec",
-    "lexical_checkpoint_default_resume",
-    "reconcile_value_flow_census",
-    "resume_plumbing_retirement",
 ]
 
-
 BUILD_SCHEMA_VERSION = "workflow_lisp_build.v1"
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DESIGN_DELTA_PARENT_DRAIN_COMMAND_BOUNDARIES_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.commands.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.family_profile.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.boundary_authority.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.value_flow_census.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_CONSUMER_RENDERING_CENSUS_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.consumer_rendering_census.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_COMPATIBILITY_BRIDGES_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.compatibility_bridges.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_RENDERING_CLEANUP_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.rendering_cleanup.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_RENDERING_ERGONOMICS_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.rendering_ergonomics.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_TRANSITION_AUTHORING_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.transition_authoring.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_VECTORS_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_view_dual_run_vectors.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_REPORT_PATH = (
-    REPO_ROOT
-    / "artifacts"
-    / "work"
-    / "LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN"
-    / "migration-parity"
-    / "design_delta_parent_drain_view_dual_run_report.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.resume_plumbing_retirement.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_OBSERVABILITY_OLD_WRITER_COMPARISONS_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.observability_old_writer_comparisons.json"
-)
-DESIGN_DELTA_PARENT_DRAIN_BLOCKED_IMPLEMENTATION_CHECKS_REPORT_LEGACY_PAYLOAD_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.blocked_implementation_checks_report.legacy_writer_payload.json"
-)
-REFERENCE_FAMILY_RUN_STATE_PATH = (
-    REPO_ROOT
-    / "state"
-    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-    / "drain"
-    / "run_state.json"
-)
-REFERENCE_FAMILY_DRAIN_SUMMARY_PATH = (
-    REPO_ROOT
-    / "artifacts"
-    / "work"
-    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-    / "drain-summary.json"
-)
-REFERENCE_FAMILY_DESIGN_GAP_SUMMARY_ROOT = (
-    REPO_ROOT
-    / "artifacts"
-    / "work"
-    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-    / "design-gaps"
-)
-REFERENCE_FAMILY_IMPLEMENTATION_ARCHITECTURE_ROOT = (
-    REPO_ROOT
-    / "docs"
-    / "plans"
-    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-    / "design-gaps"
-)
-REFERENCE_FAMILY_ARCHITECTURE_INDEX_PATH = (
-    REPO_ROOT
-    / "state"
-    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-    / "drain"
-    / "iterations"
-    / "12"
-    / "done-review"
-    / "design-gap-architect"
-    / "existing-architecture-index.md"
-)
-REFERENCE_FAMILY_TARGET_DESIGN_PATH = (
-    REPO_ROOT / "docs" / "design" / "workflow_lisp_runtime_native_drain_authoring.md"
-)
-REFERENCE_FAMILY_BASELINE_DESIGN_PATH = (
-    REPO_ROOT / "docs" / "design" / "workflow_lisp_frontend_specification.md"
-)
-REFERENCE_FAMILY_COMMAND_ADAPTER_CONTRACT_PATH = (
-    REPO_ROOT / "docs" / "design" / "workflow_command_adapter_contract.md"
-)
-REFERENCE_FAMILY_PARITY_TARGETS_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "parity_targets.json"
-)
-REFERENCE_FAMILY_PARITY_REPORT_JSON_PATH = (
-    REPO_ROOT
-    / "artifacts"
-    / "work"
-    / "review-parity-check"
-    / "design_delta_parent_drain.json"
-)
-REFERENCE_FAMILY_PARITY_REPORT_MARKDOWN_PATH = (
-    REPO_ROOT
-    / "artifacts"
-    / "work"
-    / "review-parity-check"
-    / "design_delta_parent_drain.md"
-)
-REFERENCE_FAMILY_PARITY_INDEX_PATH = (
-    REPO_ROOT / "artifacts" / "work" / "review-parity-check" / "index.json"
-)
-
-
-@dataclass(frozen=True)
-class ReferenceFamilyEvidencePaths:
-    run_state_path: Path
-    drain_summary_path: Path
-    design_gap_summary_root: Path
-    implementation_architecture_root: Path
-    architecture_index_path: Path
-    target_design_path: Path
-    baseline_design_path: Path
-    command_adapter_contract_path: Path
-    parity_targets_path: Path
-    parity_report_json_path: Path
-    parity_report_markdown_path: Path
-    parity_index_path: Path
-
-
-def _reference_family_versioned_roots() -> list[tuple[int, str, Path, Path]]:
-    candidates: list[tuple[int, str, Path, Path]] = []
-    for run_state_path in (REPO_ROOT / "state").glob(
-        "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R*/drain/run_state.json"
-    ):
-        root_name = run_state_path.parents[1].name
-        if "-R" not in root_name:
-            continue
-        try:
-            version = int(root_name.rsplit("-R", 1)[1])
-        except ValueError:
-            continue
-        artifact_root = REPO_ROOT / "artifacts" / "work" / root_name
-        drain_summary_path = artifact_root / "drain-summary.json"
-        design_gap_summary_root = artifact_root / "design-gaps"
-        if drain_summary_path.is_file() and design_gap_summary_root.is_dir():
-            candidates.append((version, root_name, run_state_path, artifact_root))
-    return sorted(candidates)
-
-
-def _reference_family_implementation_root_from_run_state(
-    run_state_payload: Mapping[str, object],
-    *,
-    default_root_name: str,
-) -> Path:
-    candidate_roots: list[Path] = []
-    stack: list[object] = [run_state_payload]
-    while stack:
-        current = stack.pop(0)
-        if isinstance(current, Mapping):
-            architecture_path = current.get("architecture_path")
-            if isinstance(architecture_path, str):
-                path_parts = Path(architecture_path).parts
-                if (
-                    len(path_parts) >= 4
-                    and path_parts[0] == "docs"
-                    and path_parts[1] == "plans"
-                    and path_parts[3] == "design-gaps"
-                ):
-                    candidate_roots.append(REPO_ROOT.joinpath(*path_parts[:4]))
-            stack.extend(current.values())
-        elif isinstance(current, list):
-            stack.extend(current)
-    for root in candidate_roots:
-        if root.is_dir():
-            return root
-    versioned_root = REPO_ROOT / "docs" / "plans" / default_root_name / "design-gaps"
-    if versioned_root.is_dir():
-        return versioned_root
-    return REFERENCE_FAMILY_IMPLEMENTATION_ARCHITECTURE_ROOT
-
-
-def _resolve_reference_family_architecture_index(root_name: str) -> Path:
-    versioned_iterations_root = REPO_ROOT / "state" / root_name / "drain" / "iterations"
-    candidates = sorted(
-        versioned_iterations_root.glob("*/done-review/design-gap-architect/existing-architecture-index.md")
-    )
-    if not candidates:
-        candidates = sorted(
-            versioned_iterations_root.glob("*/design-gap-architect/existing-architecture-index.md")
-        )
-    if candidates:
-        return candidates[-1]
-    if versioned_iterations_root.exists():
-        return versioned_iterations_root / "existing-architecture-index.md"
-    return REFERENCE_FAMILY_ARCHITECTURE_INDEX_PATH
-
-
-def _resolve_reference_family_evidence_paths() -> ReferenceFamilyEvidencePaths:
-    versioned_roots = _reference_family_versioned_roots()
-    if versioned_roots:
-        _version, root_name, run_state_path, artifact_root = versioned_roots[-1]
-        run_state_payload = json.loads(run_state_path.read_text(encoding="utf-8"))
-        implementation_architecture_root = _reference_family_implementation_root_from_run_state(
-            run_state_payload,
-            default_root_name=root_name,
-        )
-        return ReferenceFamilyEvidencePaths(
-            run_state_path=run_state_path,
-            drain_summary_path=artifact_root / "drain-summary.json",
-            design_gap_summary_root=artifact_root / "design-gaps",
-            implementation_architecture_root=implementation_architecture_root,
-            architecture_index_path=_resolve_reference_family_architecture_index(root_name),
-            target_design_path=REFERENCE_FAMILY_TARGET_DESIGN_PATH,
-            baseline_design_path=REFERENCE_FAMILY_BASELINE_DESIGN_PATH,
-            command_adapter_contract_path=REFERENCE_FAMILY_COMMAND_ADAPTER_CONTRACT_PATH,
-            parity_targets_path=REFERENCE_FAMILY_PARITY_TARGETS_PATH,
-            parity_report_json_path=REFERENCE_FAMILY_PARITY_REPORT_JSON_PATH,
-            parity_report_markdown_path=REFERENCE_FAMILY_PARITY_REPORT_MARKDOWN_PATH,
-            parity_index_path=REFERENCE_FAMILY_PARITY_INDEX_PATH,
-        )
-    return ReferenceFamilyEvidencePaths(
-        run_state_path=REFERENCE_FAMILY_RUN_STATE_PATH,
-        drain_summary_path=REFERENCE_FAMILY_DRAIN_SUMMARY_PATH,
-        design_gap_summary_root=REFERENCE_FAMILY_DESIGN_GAP_SUMMARY_ROOT,
-        implementation_architecture_root=REFERENCE_FAMILY_IMPLEMENTATION_ARCHITECTURE_ROOT,
-        architecture_index_path=REFERENCE_FAMILY_ARCHITECTURE_INDEX_PATH,
-        target_design_path=REFERENCE_FAMILY_TARGET_DESIGN_PATH,
-        baseline_design_path=REFERENCE_FAMILY_BASELINE_DESIGN_PATH,
-        command_adapter_contract_path=REFERENCE_FAMILY_COMMAND_ADAPTER_CONTRACT_PATH,
-        parity_targets_path=REFERENCE_FAMILY_PARITY_TARGETS_PATH,
-        parity_report_json_path=REFERENCE_FAMILY_PARITY_REPORT_JSON_PATH,
-        parity_report_markdown_path=REFERENCE_FAMILY_PARITY_REPORT_MARKDOWN_PATH,
-        parity_index_path=REFERENCE_FAMILY_PARITY_INDEX_PATH,
-    )
 FRONTEND_ARTIFACT_EXPORT_FILENAMES = {
     "executable_ir": "executable_ir.json",
     "core_workflow_ast": "core_workflow_ast.json",
@@ -518,7 +84,6 @@ FRONTEND_ARTIFACT_EXPORT_FILENAMES = {
     "source_map": "source_map.json",
     "lexical_checkpoint_points": "lexical_checkpoint_points.json",
     "lexical_checkpoint_shadow_report": "lexical_checkpoint_shadow_report.json",
-    "lexical_checkpoint_default_resume_report": "lexical_checkpoint_default_resume_report.json",
     "expanded_debug_yaml": "expanded.debug.yaml",
 }
 
@@ -604,11 +169,6 @@ class FrontendBuildManifest:
     source_map_schema_version: str | None = None
     source_map_coverage: Mapping[str, str] | None = None
     lowering_schema_version: int = 1
-    family_profile: Mapping[str, object] | None = None
-    boundary_authority_registry: Mapping[str, object] | None = None
-    value_flow_census: Mapping[str, object] | None = None
-    consumer_rendering_census: Mapping[str, object] | None = None
-    observability_old_writer_pair_evidence: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -665,9 +225,8 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
 
     Stage pipeline (each stage is a private helper defined immediately below):
     `_compile_entry` (manifest-fed compile + entry selection) ->
-    `_select_and_reattach` (bridge materialization, provenance/semantic-IR
-    reattach, fingerprint, build_root) -> `serialize_design_delta_reports` ->
-    `_emit` (artifact/manifest writes + `FrontendBuildResult` construction).
+    `_select_and_reattach` (provenance/semantic-IR reattach, fingerprint,
+    build_root) -> `_emit` (artifact/manifest writes + result construction).
     """
 
     resolved_request = _resolve_request(request)
@@ -696,59 +255,35 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         binding.canonical_key: binding.bundle
         for binding in imported_bindings
     }
-    family_profile_catalog = load_design_delta_family_catalog(
-        entry_workflow=resolved_request.entry_workflow,
-        source_path=resolved_request.source_path,
-    )
-
     compile_result, entry_selection = _compile_entry(
         resolved_request,
-        family_catalog=family_profile_catalog,
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
         imported_workflow_bundles=imported_workflow_bundles,
         command_boundaries=command_boundaries,
     )
-    design_delta = load_design_delta_evidence(
-        family_profile_catalog,
-        entry_workflow=resolved_request.entry_workflow,
-        canonical_entry_name=entry_selection.canonical_name,
-        source_path=resolved_request.source_path,
-        command_boundary_manifest=command_boundary_manifest,
-    )
-
     reattached = _select_and_reattach(
         compile_result,
         entry_selection,
         resolved_request=resolved_request,
-        design_delta=design_delta,
         imported_bindings=imported_bindings,
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
         command_boundary_manifest=command_boundary_manifest,
-        family_profile_catalog=family_profile_catalog,
     )
     semantic_ir_payload = workflow_semantic_ir_to_json(reattached.validated_bundle.semantic_ir)
     executable_ir_payload = workflow_executable_ir_to_json(reattached.validated_bundle.ir)
 
-    report_payloads = serialize_design_delta_reports(
-        design_delta,
-        compile_result=compile_result,
-        entry_selection=entry_selection,
-        validated_bundles_by_name=reattached.validated_bundles_by_name,
-        workflow_boundary_projection_payload=reattached.workflow_boundary_projection_payload,
-        source_map_payload=reattached.source_map_payload,
-        command_boundaries=command_boundaries,
-        command_boundary_manifest=command_boundary_manifest,
-        provider_externs=provider_externs,
-        prompt_externs=prompt_externs,
-        resolved_request=resolved_request,
-        build_root=reattached.build_root,
+    g8_deletion_evidence = (
+        serialize_design_delta_g8_deletion_evidence(
+            command_boundary_manifest=command_boundary_manifest,
+        )
+        if entry_selection.canonical_name == "lisp_frontend_design_delta/drain::drain"
+        else None
     )
 
     return _emit(
         reattached.validated_bundle,
-        report_payloads,
         build_root=reattached.build_root,
         compile_result=compile_result,
         entry_selection=entry_selection,
@@ -759,14 +294,13 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         executable_ir_payload=executable_ir_payload,
         source_map_payload=reattached.source_map_payload,
         workflow_boundary_projection_payload=reattached.workflow_boundary_projection_payload,
-        design_delta=design_delta,
+        g8_deletion_evidence=g8_deletion_evidence,
     )
 
 
 def _compile_entry(
     resolved_request: FrontendBuildRequest,
     *,
-    family_catalog: WorkflowFamilyProfileCatalog | None,
     provider_externs: Mapping[str, str],
     prompt_externs: Mapping[str, object],
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
@@ -790,7 +324,6 @@ def _compile_entry(
         workspace_root=resolved_request.workspace_root,
         lint_profile=resolved_request.lint_profile,
         lowering_route=resolved_request.lowering_route,
-        family_profile_catalog=family_catalog,
     )
 
     entry_selection = _select_entry_workflow(
@@ -823,21 +356,18 @@ def _select_and_reattach(
     entry_selection: FrontendEntrySelection,
     *,
     resolved_request: FrontendBuildRequest,
-    design_delta: DesignDeltaEvidence,
     imported_bindings: tuple[ImportedWorkflowBundleBinding, ...],
     provider_externs: Mapping[str, str],
     prompt_externs: Mapping[str, object],
     command_boundary_manifest: Mapping[str, object],
-    family_profile_catalog: WorkflowFamilyProfileCatalog | None,
 ) -> _SelectAndReattachResult:
-    """Materialize compatibility-bridge bundles and reattach provenance/semantic IR.
+    """Reattach provenance and semantic IR to the selected compiled bundle.
 
     Stage 2 of `build_frontend_bundle` (see its docstring for the full
     pipeline): selects the validated bundle for the entry workflow, serializes
     the source map and workflow-boundary projection, validates the
-    hidden-bridge public boundary, computes the content-addressed fingerprint
-    and build_root, materializes compatibility-bridge bundles, and reattaches
-    provenance/runtime-plan/semantic-IR to the validated bundle.
+    computes the content-addressed fingerprint and build root, and reattaches
+    provenance, runtime-plan metadata, and semantic IR.
     """
 
     selected_bundle = compile_result.validated_bundles_by_name[
@@ -850,13 +380,6 @@ def _select_and_reattach(
     workflow_boundary_projection_payload = _serialize_workflow_boundary_projection(
         compile_result,
         selected_name=entry_selection.canonical_name,
-        boundary_authority_registry=design_delta.boundary_authority_registry,
-    )
-    _validate_selected_workflow_hidden_compatibility_bridge_public_boundary(
-        workflow_boundary_projection_payload,
-        selected_name=entry_selection.canonical_name,
-        boundary_authority_registry=design_delta.boundary_authority_registry,
-        family_profile_catalog=family_profile_catalog,
     )
     fingerprint = _fingerprint_build(
         request=resolved_request,
@@ -866,12 +389,6 @@ def _select_and_reattach(
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
         command_boundary_manifest=command_boundary_manifest,
-        family_profile_catalog=family_profile_catalog,
-        boundary_authority_registry=design_delta.boundary_authority_registry,
-        value_flow_census=design_delta.value_flow_census,
-        consumer_rendering_census=design_delta.consumer_rendering_census,
-        observability_old_writer_pair_manifest=design_delta.observability_old_writer_pair_manifest,
-        resume_plumbing_retirement_manifest=design_delta.resume_plumbing_retirement_manifest,
     )
     build_root = resolved_request.workspace_root / ".orchestrate" / "build" / fingerprint
     build_root.mkdir(parents=True, exist_ok=True)
@@ -886,23 +403,11 @@ def _select_and_reattach(
         frontend_source_map_schema_version=SOURCE_MAP_SCHEMA_VERSION,
         frontend_source_map_coverage=dict(SOURCE_MAP_COVERAGE),
     )
-    validated_bundle, validated_bundles_by_name = (
-        _materialize_design_delta_compatibility_bridge_bundles(
-            selected_bundle=selected_bundle,
-            validated_bundles_by_name=compile_result.validated_bundles_by_name,
-            selected_provenance=replace(
-                provenance,
-                frontend_source_trace_path=None,
-                frontend_source_map_schema_version=None,
-                frontend_source_map_coverage=None,
-            ),
-            compatibility_bridge_manifest=design_delta.compatibility_bridge_manifest,
-        )
-    )
     validated_bundle = _reattach_bundle_provenance(
-        bundle=validated_bundle,
+        bundle=selected_bundle,
         provenance=provenance,
     )
+    validated_bundles_by_name = dict(compile_result.validated_bundles_by_name)
     runtime_plan = enrich_workflow_runtime_plan(
         validated_bundle.runtime_plan,
         command_boundary_metadata=_command_boundary_metadata_for_workflow(
@@ -934,7 +439,6 @@ def _select_and_reattach(
 
 def _emit(
     validated_bundle: LoadedWorkflowBundle,
-    report_payloads: DesignDeltaReportPayloads,
     *,
     build_root: Path,
     compile_result: LinkedStage3CompileResult,
@@ -946,7 +450,7 @@ def _emit(
     executable_ir_payload: Mapping[str, object],
     source_map_payload: Mapping[str, object],
     workflow_boundary_projection_payload: Mapping[str, object],
-    design_delta: DesignDeltaEvidence,
+    g8_deletion_evidence: Mapping[str, object] | None,
 ) -> FrontendBuildResult:
     """Write build artifacts and the manifest, and assemble the build result.
 
@@ -967,7 +471,7 @@ def _emit(
         semantic_ir_payload=semantic_ir_payload,
         source_map_payload=source_map_payload,
         workflow_boundary_projection_payload=workflow_boundary_projection_payload,
-        design_delta_reports=report_payloads,
+        g8_deletion_evidence=g8_deletion_evidence,
     )
     manifest = _build_manifest(
         request=resolved_request,
@@ -979,12 +483,6 @@ def _emit(
         diagnostics=diagnostics,
         build_root=build_root,
         emit_debug_yaml=resolved_request.emit_debug_yaml,
-        family_profile=design_delta.family_profile_metadata,
-        boundary_authority_registry=design_delta.boundary_authority_registry,
-        value_flow_census=design_delta.value_flow_census,
-        consumer_rendering_census=design_delta.consumer_rendering_census,
-        observability_old_writer_pair_manifest=design_delta.observability_old_writer_pair_manifest,
-        resume_plumbing_retirement_manifest=design_delta.resume_plumbing_retirement_manifest,
     )
     manifest_path = build_root / "manifest.json"
     manifest_path.write_text(
@@ -1268,201 +766,6 @@ def _select_entry_workflow(
         canonical_name=canonical_name,
         exported_names=exported_workflows,
     )
-
-
-def _collect_materialize_view_effects(
-    validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle],
-) -> list[dict[str, Any]]:
-    collected: list[dict[str, Any]] = []
-    seen_effect_ids: set[str] = set()
-    for bundle in validated_bundles_by_name.values():
-        semantic_ir_payload = workflow_semantic_ir_to_json(bundle.semantic_ir)
-        for effect in extract_materialize_view_effects(semantic_ir_payload):
-            effect_id = str(effect.get("effect_id", ""))
-            if effect_id:
-                if effect_id in seen_effect_ids:
-                    continue
-                seen_effect_ids.add(effect_id)
-            collected.append(effect)
-    return collected
-
-
-def _bundle_index_by_surface_name(
-    validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle],
-) -> dict[str, LoadedWorkflowBundle]:
-    indexed: dict[str, LoadedWorkflowBundle] = {}
-    visited_bundle_ids: set[int] = set()
-
-    def visit(bundle: LoadedWorkflowBundle) -> None:
-        bundle_id = id(bundle)
-        if bundle_id in visited_bundle_ids:
-            return
-        visited_bundle_ids.add(bundle_id)
-
-        surface_name = getattr(bundle.surface, "name", None)
-        if isinstance(surface_name, str) and surface_name:
-            indexed.setdefault(surface_name, bundle)
-
-        for imported_bundle in bundle.imports.values():
-            visit(imported_bundle)
-
-    for bundle in validated_bundles_by_name.values():
-        visit(bundle)
-    return indexed
-
-
-def _iter_surface_steps(steps: Sequence[SurfaceStep]) -> Sequence[SurfaceStep]:
-    flat_steps: list[SurfaceStep] = []
-
-    def visit(step: SurfaceStep) -> None:
-        flat_steps.append(step)
-
-        repeat_until = getattr(step, "repeat_until", None)
-        if repeat_until is not None:
-            for child in getattr(repeat_until, "steps", ()) or ():
-                visit(child)
-
-        then_branch = getattr(step, "then_branch", None)
-        if then_branch is not None:
-            for child in getattr(then_branch, "steps", ()) or ():
-                visit(child)
-
-        else_branch = getattr(step, "else_branch", None)
-        if else_branch is not None:
-            for child in getattr(else_branch, "steps", ()) or ():
-                visit(child)
-
-        for child in getattr(step, "for_each_steps", ()) or ():
-            visit(child)
-
-        match_cases = getattr(step, "match_cases", None)
-        if isinstance(match_cases, Mapping):
-            for case in match_cases.values():
-                for child in getattr(case, "steps", ()) or ():
-                    visit(child)
-
-    for step in steps:
-        visit(step)
-    return flat_steps
-
-
-def _provider_request_field_observation(
-    entry: Mapping[str, Any],
-) -> dict[str, Any]:
-    value_source = entry.get("value_source")
-    if not isinstance(value_source, Mapping):
-        return {}
-    binding = value_source.get("binding")
-    if not isinstance(binding, Mapping):
-        return {}
-    compiled_request_fields = (
-        dict(entry.get("request_fields", {}))
-        if isinstance(entry.get("request_fields"), Mapping)
-        else {}
-    )
-    field_names = [str(name) for name in binding if isinstance(name, str)]
-    subject = binding.get("subject")
-    targets = binding.get("targets")
-    observation = {
-        "field_names": sorted(field_names),
-        "has_subject": "subject" in binding,
-        "has_targets": "targets" in binding,
-        "semantic_field_count": len(subject) if isinstance(subject, Mapping) else 0,
-        "write_target_field_count": len(targets) if isinstance(targets, Mapping) else 0,
-    }
-    field_authority = (
-        dict(compiled_request_fields.get("field_authority", {}))
-        if isinstance(compiled_request_fields.get("field_authority"), Mapping)
-        else {}
-    )
-    hidden_bridge_fields = [
-        {
-            "field_path": field_path,
-            **{
-                key: value
-                for key, value in metadata.items()
-                if key
-                in {
-                    "authority_class",
-                    "source_binding",
-                    "bridge_field_name",
-                    "checked_row_id",
-                }
-            },
-        }
-        for field_path, metadata in sorted(field_authority.items())
-        if isinstance(field_path, str)
-        and isinstance(metadata, Mapping)
-        and metadata.get("authority_class") == "compatibility_bridge"
-    ]
-    if hidden_bridge_fields:
-        observation["hidden_bridge_fields"] = hidden_bridge_fields
-    for nested_type_key in ("subject_type_name", "targets_type_name"):
-        nested_type_name = compiled_request_fields.get(nested_type_key)
-        if isinstance(nested_type_name, str) and nested_type_name:
-            observation[nested_type_key] = nested_type_name
-    return observation
-
-
-def _collect_provider_input_shape_observations(
-    *,
-    validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle],
-    rendering_ergonomics_policy: Mapping[str, Any],
-) -> list[dict[str, Any]]:
-    slots = [
-        slot
-        for slot in rendering_ergonomics_policy.get("consumer_slots", [])
-        if isinstance(slot, Mapping)
-        and isinstance(slot.get("source_form"), Mapping)
-        and slot["source_form"].get("kind") == "provider_input"
-    ]
-    if not slots:
-        return []
-
-    bundle_index = _bundle_index_by_surface_name(validated_bundles_by_name)
-    observations: list[dict[str, Any]] = []
-    for slot in slots:
-        workflow_surface = str(slot.get("workflow_surface", ""))
-        c0_row_id = str(slot.get("c0_row_id", ""))
-        if not workflow_surface or not c0_row_id:
-            continue
-        bundle = bundle_index.get(workflow_surface)
-        if bundle is None:
-            continue
-        provider_call_locator = str(slot["source_form"].get("provider_call_locator", ""))
-        for step in _iter_surface_steps(bundle.surface.steps):
-            if getattr(step, "kind", None) is not SurfaceStepKind.PROVIDER:
-                continue
-            normalized_entries: list[dict[str, Any]] = []
-            for entry in getattr(step, "typed_prompt_inputs", ()) or ():
-                if not isinstance(entry, Mapping):
-                    continue
-                try:
-                    normalized_entries.append(normalize_typed_prompt_input_entry(entry))
-                except ValueError:
-                    continue
-            row_entries = [
-                entry for entry in normalized_entries if entry.get("c0_row_id") == c0_row_id
-            ]
-            if not row_entries:
-                continue
-            observations.append(
-                {
-                    "workflow_surface": workflow_surface,
-                    "provider_call_locator": provider_call_locator,
-                    "provider_step_id": str(getattr(step, "step_id", "")),
-                    "c0_row_id": c0_row_id,
-                    "binding_names": [
-                        str(entry.get("binding_name", "")) for entry in row_entries
-                    ],
-                    "binding_count": len(row_entries),
-                    "value_type_name": str(row_entries[0].get("value_type_name", "")),
-                    "request_fields": _provider_request_field_observation(row_entries[0])
-                    if len(row_entries) == 1
-                    else {},
-                }
-            )
-    return observations
 
 
 def _reattach_bundle_provenance(

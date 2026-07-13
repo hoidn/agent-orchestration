@@ -1,11 +1,11 @@
 """Artifact fingerprinting, writing, and serialization for the Workflow Lisp build.
 
 Extracted from build.py. Produces the on-disk build tree (frontend_ast.json,
-runtime_plan.json, source_map.json, manifest.json, and the optional design-delta
-report artifacts) from already-computed payloads. Content-addressed fingerprints
+runtime_plan.json, source_map.json, manifest.json, and the temporary G8 proof)
+from already-computed payloads. Content-addressed fingerprints
 and artifact bytes are byte-identical to the pre-split build.py.
 
-May import build_manifest_io and build_design_delta; must not import build.
+May import build_manifest_io; must not import build.
 Names that stay in build.py (e.g. `BUILD_SCHEMA_VERSION`, `_collect_materialize_view_effects`,
 `_iter_surface_steps`) are pulled in via a deferred, function-body `from .build
 import ...` to avoid an import-time cycle; type-only references to build.py
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -26,38 +26,18 @@ from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_b
 from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 
-from .build_manifest_io import _cli_request_diagnostic, _json_data, _sha256_path
-from .build_design_delta import (
-    DesignDeltaReportPayloads,
-    _boundary_authority_registry_provenance,
-    _consumer_rendering_census_provenance,
-    _family_profile_metadata_for_entry,
-    _observability_old_writer_pair_provenance,
-    _value_flow_census_provenance,
-)
+from .build_manifest_io import _json_data, _sha256_path
 from .compiler import LinkedStage3CompileResult
 from .debug_yaml import render_debug_yaml
-from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, serialize_diagnostics
-from .entry_publication import (
-    compatibility_reason_for_selected_row,
-    select_entry_publication_rows,
-    serialize_entry_publication_policy,
-    serialize_entry_publication_report,
-)
-from .family_profiles import WorkflowFamilyProfileCatalog
+from .diagnostics import LispFrontendDiagnostic, serialize_diagnostics
 from .lexical_checkpoints import (
     CHECKPOINT_POINTS_SCHEMA_VERSION,
     CHECKPOINT_RECORD_SCHEMA_VERSION,
     CHECKPOINT_SHADOW_REPORT_SCHEMA_VERSION,
     canonical_json_dumps,
 )
-from .phase_family_boundary import (
-    checked_design_delta_public_input_names,
-    is_structural_pure_projection_effect_summary,
-    is_design_delta_parent_drain_target_workflow,
-)
+from .phase_family_boundary import is_structural_pure_projection_effect_summary
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
-from .type_env import RecordTypeRef, UnionTypeRef
 from .workflows import prompt_extern_source_bindings_payload
 
 if TYPE_CHECKING:
@@ -69,362 +49,6 @@ if TYPE_CHECKING:
     )
 
 
-def _build_entry_publication_report(
-    *,
-    compile_result: LinkedStage3CompileResult,
-    entry_workflow_name: str,
-    workflow_boundary_projection_payload: Mapping[str, object],
-    source_map_payload: Mapping[str, object],
-    consumer_rendering_census: Mapping[str, object],
-) -> Mapping[str, object]:
-    # `_collect_entry_publication_lowerings` is defined below in this module,
-    # but is imported back from `.build` (its re-export) rather than called
-    # as a bare name so that tests monkeypatching `build.<name>` (as they did
-    # when both functions lived in build.py) still observe the patch.
-    from .build import _collect_entry_publication_lowerings, _collect_materialize_view_effects
-
-    target_family = str(consumer_rendering_census.get("target_family", ""))
-    typed_workflows_by_name = {
-        workflow.definition.name: workflow
-        for compiled_result in compile_result.compiled_results_by_name.values()
-        for workflow in compiled_result.typed_workflows
-    }
-    entry_workflow = typed_workflows_by_name.get(entry_workflow_name)
-    selected_rows = select_entry_publication_rows(consumer_rendering_census)
-    compatibility_reasons: list[dict[str, object]] = []
-    diagnostics: list[dict[str, object]] = []
-    lowered_publications = _collect_entry_publication_lowerings(
-        compile_result,
-        source_map_payload=source_map_payload,
-    )
-    materialize_view_effects = _collect_materialize_view_effects(
-        compile_result.validated_bundles_by_name
-    )
-    materialize_view_workflows = {
-        str(effect.get("workflow_surface", ""))
-        for effect in materialize_view_effects
-        if isinstance(effect.get("workflow_surface"), str)
-        and str(effect.get("authority_class", "materialized_view"))
-        == "materialized_view"
-    }
-    published_variants: set[str] = set()
-    policy_rows = ()
-    if entry_workflow is not None and entry_workflow.definition.publication_policy is not None:
-        policy_rows = entry_workflow.definition.publication_policy.rows
-        published_variants = {row.variant for row in policy_rows}
-    for row in selected_rows:
-        workflow_surface = row.get("workflow_surface")
-        workflow_name = workflow_surface if isinstance(workflow_surface, str) else None
-        typed_workflow = (
-            typed_workflows_by_name.get(workflow_name) if workflow_name is not None else None
-        )
-        return_kind = None
-        if typed_workflow is not None and isinstance(
-            typed_workflow.signature.return_type_ref, UnionTypeRef
-        ):
-            return_kind = "union"
-        elif typed_workflow is not None and not isinstance(
-            typed_workflow.signature.return_type_ref, RecordTypeRef
-        ):
-            return_kind = "root"
-        elif typed_workflow is not None:
-            return_kind = "non_union"
-        row_variant = row.get("variant")
-        row_is_legal_entry_candidate = (
-            workflow_name == entry_workflow_name
-            and return_kind == "union"
-            and row.get("typed_value_surface") == "terminal_result_variant"
-            and row.get("value_kind") == "union_variant"
-            and isinstance(row_variant, str)
-        )
-        if row_is_legal_entry_candidate and row_variant not in published_variants:
-            diagnostics.append(
-                {
-                    "code": "entry_publication_c0_row_missing",
-                    "row_id": str(row.get("row_id", "")),
-                    "u0_row_id": str(row.get("u0_row_id", "")),
-                    "workflow_name": workflow_name,
-                    "variant": row_variant,
-                    "message": (
-                        "selected C0 entry-publication row is legal for C3 but has no "
-                        "matching `:publish` policy row"
-                    ),
-                }
-            )
-            continue
-        if row_is_legal_entry_candidate:
-            continue
-        if (
-            workflow_name is not None
-            and workflow_name != entry_workflow_name
-            and workflow_name in materialize_view_workflows
-        ):
-            diagnostics.append(
-                {
-                    "code": "interior_publication",
-                    "row_id": str(row.get("row_id", "")),
-                    "u0_row_id": str(row.get("u0_row_id", "")),
-                    "workflow_name": workflow_name,
-                    "message": (
-                        "selected non-entry C3 candidate still lowers authored "
-                        "body-level materialize_view effects"
-                    ),
-                }
-            )
-        compatibility_reasons.append(
-            compatibility_reason_for_selected_row(
-                row,
-                workflow_surface=workflow_name,
-                is_entry_workflow=workflow_name == entry_workflow_name,
-                return_kind=return_kind,
-            )
-        )
-    omitted_variants: list[str] = []
-    if (
-        entry_workflow is not None
-        and entry_workflow.definition.publication_policy is not None
-        and isinstance(entry_workflow.signature.return_type_ref, UnionTypeRef)
-    ):
-        omitted_variants = [
-            variant.name
-            for variant in entry_workflow.signature.return_type_ref.definition.variants
-            if variant.name not in published_variants
-        ]
-        lowered_publications_for_entry = [
-            row
-            for row in lowered_publications
-            if row.get("workflow_name") == entry_workflow_name
-        ]
-        lowered_publication_row_ids = {
-            str(row.get("row_id", ""))
-            for row in lowered_publications_for_entry
-            if isinstance(row.get("row_id"), str)
-        }
-        source_map_generated_effect_step_ids = _entry_publication_source_map_step_ids(
-            source_map_payload,
-            workflow_name=entry_workflow_name,
-        )
-        for policy_row in policy_rows:
-            if policy_row.row_id not in lowered_publication_row_ids:
-                diagnostics.append(
-                    {
-                        "code": "entry_publication_lowering_missing",
-                        "row_id": policy_row.row_id,
-                        "workflow_name": entry_workflow_name,
-                        "variant": policy_row.variant,
-                        "role": policy_row.role,
-                        "message": "publication policy row did not lower to a generated materialize_view step",
-                    }
-                )
-                continue
-            matching_step_ids = {
-                str(row.get("step_id", ""))
-                for row in lowered_publications_for_entry
-                if row.get("row_id") == policy_row.row_id and isinstance(row.get("step_id"), str)
-            }
-            if not matching_step_ids or not matching_step_ids.issubset(source_map_generated_effect_step_ids):
-                diagnostics.append(
-                    {
-                        "code": "entry_publication_source_map_missing",
-                        "row_id": policy_row.row_id,
-                        "workflow_name": entry_workflow_name,
-                        "variant": policy_row.variant,
-                        "role": policy_row.role,
-                        "message": "publication policy row is missing generated source-map effect lineage",
-                    }
-                )
-        for lowered in lowered_publications_for_entry:
-            lowered_variant = lowered.get("variant")
-            if not isinstance(lowered_variant, str) or lowered_variant not in omitted_variants:
-                continue
-            diagnostics.append(
-                {
-                    "code": "entry_publication_omitted_variant_published",
-                    "row_id": str(lowered.get("row_id", "")),
-                    "workflow_name": entry_workflow_name,
-                    "variant": lowered_variant,
-                    "role": str(lowered.get("role", "")),
-                    "message": "omitted entry-publication variant lowered a publication view",
-                }
-            )
-    contract_isolation = {
-        "workflow_signature_unchanged": entry_workflow is None
-        or not hasattr(entry_workflow.signature, "publication_policy"),
-        "call_contract_unchanged": entry_workflow is None
-        or not hasattr(entry_workflow.signature, "publication_policy"),
-        "boundary_projection_public_inputs_unchanged": all(
-            "publication" not in input_name
-            for workflow in workflow_boundary_projection_payload.get("workflows", [])
-            if isinstance(workflow, Mapping)
-            for input_name in workflow.get("boundary", {}).get("public_input_names", [])
-            if isinstance(workflow.get("boundary", {}), Mapping) and isinstance(input_name, str)
-        ),
-        "semantic_call_edges_hide_publish_policy": all(
-            "publication" not in json.dumps(_json_data(bundle.semantic_ir.call_edges), sort_keys=True)
-            for bundle in compile_result.validated_bundles_by_name.values()
-        ),
-    }
-    for check_name, passed in contract_isolation.items():
-        if passed:
-            continue
-        diagnostics.append(
-            {
-                "code": "entry_publication_contract_leak",
-                "row_id": check_name,
-                "workflow_name": entry_workflow_name,
-                "message": f"publication policy leaked into `{check_name}`",
-            }
-        )
-    return {
-        **serialize_entry_publication_report(
-            target_family=target_family,
-            workflow_name=entry_workflow_name,
-            source_census=_json_data(consumer_rendering_census.get("source_census", {}))
-            if isinstance(consumer_rendering_census.get("source_census"), Mapping)
-            else {},
-            consumer_rendering_census={
-                "path": str(consumer_rendering_census.get("__manifest_path__", "")),
-                "sha256": (
-                    f"sha256:{consumer_rendering_census.get('__manifest_sha256__', '')}"
-                    if consumer_rendering_census.get("__manifest_sha256__")
-                    else ""
-                ),
-                "schema_version": str(consumer_rendering_census.get("schema_version", "")),
-            },
-            publication_policy=serialize_entry_publication_policy(
-                entry_workflow.definition.publication_policy if entry_workflow is not None else None
-            ),
-            selected_c0_rows=selected_rows,
-            lowered_publications=lowered_publications,
-            compatibility_reasons=compatibility_reasons,
-            omitted_variants=omitted_variants,
-            contract_isolation=contract_isolation,
-            diagnostics=diagnostics,
-        ),
-    }
-
-
-def _collect_entry_publication_lowerings(
-    compile_result: LinkedStage3CompileResult,
-    *,
-    source_map_payload: Mapping[str, object] | None = None,
-) -> list[dict[str, object]]:
-    from .build import _iter_surface_steps
-
-    collected: list[dict[str, object]] = []
-    for workflow_name, bundle in sorted(compile_result.validated_bundles_by_name.items()):
-        for step in _iter_surface_steps(bundle.surface.steps):
-            materialize_view = getattr(step, "materialize_view", None)
-            if not isinstance(materialize_view, Mapping):
-                continue
-            publication = materialize_view.get("publication")
-            if not isinstance(publication, Mapping):
-                continue
-            step_id = step.step_id
-            if step_id.startswith("root."):
-                step_id = step_id.rsplit(".", 1)[-1]
-            collected.append(
-                {
-                    "workflow_name": workflow_name,
-                    "step_id": step_id,
-                    "step_name": step.name,
-                    "row_id": str(publication.get("row_id", "")),
-                    "role": str(publication.get("role", "")),
-                    "variant": str(publication.get("variant", "")),
-                    "renderer_id": str(materialize_view.get("renderer_id", "")),
-                    "renderer_version": materialize_view.get("renderer_version"),
-                    "target_path": materialize_view.get("target_path"),
-                }
-            )
-    workflows = source_map_payload.get("workflows") if isinstance(source_map_payload, Mapping) else None
-    if isinstance(workflows, Mapping):
-        for workflow_name, workflow_payload in sorted(workflows.items()):
-            if not isinstance(workflow_name, str) or not isinstance(workflow_payload, Mapping):
-                continue
-            generated_effects = workflow_payload.get("generated_semantic_effects")
-            if not isinstance(generated_effects, list):
-                continue
-            for effect in generated_effects:
-                if not isinstance(effect, Mapping) or effect.get("effect_kind") != "materialize_view":
-                    continue
-                details = effect.get("details")
-                if not isinstance(details, Mapping):
-                    continue
-                role = details.get("publication_role")
-                value_type = details.get("value_type")
-                variant = value_type.get("variant") if isinstance(value_type, Mapping) else None
-                step_id = effect.get("step_id")
-                if not isinstance(role, str) or not role or not isinstance(variant, str) or not variant:
-                    continue
-                collected.append(
-                    {
-                        "workflow_name": workflow_name,
-                        "step_id": str(step_id or ""),
-                        "step_name": str(step_id or ""),
-                        "row_id": _entry_publication_policy_row_id(
-                            workflow_name=workflow_name,
-                            variant=variant,
-                            role=role,
-                        ),
-                        "role": role,
-                        "variant": variant,
-                        "renderer_id": str(details.get("renderer_id", "")),
-                        "renderer_version": details.get("renderer_version"),
-                        "target_path": details.get("target_path"),
-                    }
-                )
-    deduped: dict[tuple[str, str, str], dict[str, object]] = {}
-    for row in collected:
-        key = (
-            str(row.get("workflow_name", "")),
-            str(row.get("row_id", "")),
-            str(row.get("step_id", "")),
-        )
-        deduped[key] = row
-    return [deduped[key] for key in sorted(deduped)]
-
-
-def _entry_publication_policy_row_id(
-    *,
-    workflow_name: str,
-    variant: str,
-    role: str,
-) -> str:
-    workflow_slug_source = workflow_name.rsplit("::", 1)[-1]
-    return (
-        f"publish.{_entry_publication_slug(workflow_slug_source)}."
-        f"{variant.lower()}.{_entry_publication_slug(role)}"
-    )
-
-
-def _entry_publication_slug(value: str) -> str:
-    return "".join(character if character.isalnum() else "-" for character in value).strip("-")
-
-
-def _entry_publication_source_map_step_ids(
-    source_map_payload: Mapping[str, object],
-    *,
-    workflow_name: str,
-) -> set[str]:
-    workflows = source_map_payload.get("workflows")
-    if not isinstance(workflows, Mapping):
-        return set()
-    workflow_payload = workflows.get(workflow_name)
-    if not isinstance(workflow_payload, Mapping):
-        return set()
-    generated_effects = workflow_payload.get("generated_semantic_effects")
-    if not isinstance(generated_effects, list):
-        return set()
-    step_ids: set[str] = set()
-    for effect in generated_effects:
-        if not isinstance(effect, Mapping):
-            continue
-        step_id = effect.get("step_id")
-        if isinstance(step_id, str) and step_id:
-            step_ids.add(step_id)
-    return step_ids
-
-
 def _fingerprint_build(
     *,
     request: FrontendBuildRequest,
@@ -434,12 +58,6 @@ def _fingerprint_build(
     provider_externs: Mapping[str, str],
     prompt_externs: Mapping[str, object],
     command_boundary_manifest: Mapping[str, object],
-    family_profile_catalog: WorkflowFamilyProfileCatalog | None,
-    boundary_authority_registry: Mapping[str, object] | None,
-    value_flow_census: Mapping[str, object] | None,
-    consumer_rendering_census: Mapping[str, object] | None,
-    observability_old_writer_pair_manifest: Mapping[str, object] | None,
-    resume_plumbing_retirement_manifest: Mapping[str, object] | None,
 ) -> str:
     from .build import BUILD_SCHEMA_VERSION
 
@@ -465,127 +83,9 @@ def _fingerprint_build(
             }
             for binding in imported_bindings
         ],
-        "family_profile": _family_profile_metadata_for_entry(
-            family_profile_catalog,
-            entry_selection.canonical_name,
-        ),
-        "boundary_authority_registry": _json_data(boundary_authority_registry)
-        if boundary_authority_registry is not None
-        else None,
-        "value_flow_census": _json_data(value_flow_census)
-        if value_flow_census is not None
-        else None,
-        "consumer_rendering_census": _json_data(consumer_rendering_census)
-        if consumer_rendering_census is not None
-        else None,
-        "observability_old_writer_pair_manifest": _json_data(
-            observability_old_writer_pair_manifest
-        )
-        if observability_old_writer_pair_manifest is not None
-        else None,
-        "resume_plumbing_retirement_manifest": _json_data(
-            resume_plumbing_retirement_manifest
-        )
-        if resume_plumbing_retirement_manifest is not None
-        else None,
     }
     encoded = json.dumps(source_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:16]
-
-
-def _add_design_delta_artifacts(
-    artifact_paths: dict[str, Path],
-    payloads: dict[str, object],
-    build_root: Path,
-    reports: DesignDeltaReportPayloads,
-) -> None:
-    """Register the populated design-delta report artifacts (path + payload).
-
-    Isolated so a future retirement of the certification lane deletes it (and the
-    single call site) cleanly. Each entry mirrors a pre-split
-    ``if <payload> is not None:`` block; the emit order matches the pre-split source.
-    ``compatibility_bridge_generated_steps`` (folded into ``lowered_workflows``) and
-    the ``checkpoint_*_for_retirement`` fields are deliberately not emitted here.
-    """
-
-    design_delta_artifacts: tuple[tuple[str, str, Mapping[str, object] | None], ...] = (
-        ("adapter_census", "adapter_census.json", reports.adapter_census),
-        (
-            "boundary_authority_report",
-            "boundary_authority_report.json",
-            reports.boundary_authority_report,
-        ),
-        (
-            "value_flow_census_report",
-            "value_flow_census_report.json",
-            reports.value_flow_census_report,
-        ),
-        (
-            "consumer_rendering_census_report",
-            "consumer_rendering_census_report.json",
-            reports.consumer_rendering_census_report,
-        ),
-        (
-            "typed_prompt_input_report",
-            "typed_prompt_input_report.json",
-            reports.typed_prompt_input_report,
-        ),
-        (
-            "observability_summary_report",
-            "observability_summary_report.json",
-            reports.observability_summary_report,
-        ),
-        (
-            "entry_publication_report",
-            "entry_publication_report.json",
-            reports.entry_publication_report,
-        ),
-        (
-            "compatibility_bridge_report",
-            "compatibility_bridge_report.json",
-            reports.compatibility_bridge_report,
-        ),
-        (
-            "rendering_cleanup_report",
-            "rendering_cleanup_report.json",
-            reports.rendering_cleanup_report,
-        ),
-        (
-            "rendering_ergonomics_report",
-            "rendering_ergonomics_report.json",
-            reports.rendering_ergonomics_report,
-        ),
-        (
-            "transition_authoring_report",
-            "transition_authoring_report.json",
-            reports.transition_authoring_report,
-        ),
-        (
-            "resume_plumbing_retirement_report",
-            "resume_plumbing_retirement_report.json",
-            reports.resume_plumbing_retirement_report,
-        ),
-        (
-            "parent_drain_census_alignment_report",
-            "parent_drain_census_alignment_report.json",
-            reports.parent_drain_census_alignment_report,
-        ),
-        (
-            "reference_family_conformance_profile",
-            "reference_family_conformance_profile.json",
-            reports.reference_family_conformance_profile,
-        ),
-        (
-            "lexical_checkpoint_default_resume_report",
-            "lexical_checkpoint_default_resume_report.json",
-            reports.default_resume_report,
-        ),
-        ("g8_deletion_evidence", "g8_deletion_evidence.json", reports.g8_deletion_evidence),
-    )
-    for artifact_key, filename, payload in design_delta_artifacts:
-        if payload is not None:
-            artifact_paths[artifact_key] = build_root / filename
-            payloads[artifact_key] = _json_data(payload)
 
 
 def _write_build_artifacts(
@@ -600,9 +100,8 @@ def _write_build_artifacts(
     semantic_ir_payload: Mapping[str, object] | None = None,
     source_map_payload: Mapping[str, object],
     workflow_boundary_projection_payload: Mapping[str, object],
-    design_delta_reports: DesignDeltaReportPayloads | None = None,
+    g8_deletion_evidence: Mapping[str, object] | None = None,
 ) -> Mapping[str, Path]:
-    reports = design_delta_reports or DesignDeltaReportPayloads()
     debug_yaml_path = build_root / "expanded.debug.yaml"
     artifact_paths = {
         "frontend_ast": build_root / "frontend_ast.json",
@@ -631,7 +130,6 @@ def _write_build_artifacts(
         "typed_frontend_ast": _serialize_typed_frontend_ast(compile_result),
         "lowered_workflows": _serialize_lowered_workflows(
             compile_result,
-            extra_compatibility_bridge_steps=reports.compatibility_bridge_generated_steps,
         ),
         "executable_ir": executable_ir_payload,
         "core_workflow_ast": workflow_core_ast_to_json(validated_bundle.core_workflow_ast),
@@ -652,7 +150,9 @@ def _write_build_artifacts(
         "workflow_boundary_projection": _json_data(workflow_boundary_projection_payload),
         "diagnostics": serialize_diagnostics(diagnostics),
     }
-    _add_design_delta_artifacts(artifact_paths, payloads, build_root, reports)
+    if g8_deletion_evidence is not None:
+        artifact_paths["g8_deletion_evidence"] = build_root / "g8_deletion_evidence.json"
+        payloads["g8_deletion_evidence"] = _json_data(g8_deletion_evidence)
     for name, path in artifact_paths.items():
         path.write_text(json.dumps(payloads[name], indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if emit_debug_yaml:
@@ -671,8 +171,6 @@ def _write_build_artifacts(
 
 def _public_runtime_plan_payload(
     runtime_plan: Any,
-    *,
-    extra_compatibility_bridge_steps: Sequence[Mapping[str, object]] = (),
 ) -> Mapping[str, Any]:
     """Serialize runtime-plan build output without private checkpoint identity."""
 
@@ -703,77 +201,6 @@ def _public_runtime_plan_payload(
             "lexical_checkpoint_points": sanitized_points,
         }
 
-    workflow_name = payload.get("workflow_name")
-    if not isinstance(workflow_name, str) or not workflow_name:
-        return payload
-    nodes = payload.get("nodes")
-    if not isinstance(nodes, dict):
-        return payload
-    observability = payload.get("observability")
-    observability_nodes = (
-        observability.get("nodes")
-        if isinstance(observability, dict)
-        and isinstance(observability.get("nodes"), dict)
-        else None
-    )
-    ordered_node_ids = payload.get("ordered_node_ids")
-    if not isinstance(ordered_node_ids, list):
-        ordered_node_ids = []
-        payload["ordered_node_ids"] = ordered_node_ids
-    existing_step_ids = {
-        str(node.get("step_id", ""))
-        for node in nodes.values()
-        if isinstance(node, Mapping) and isinstance(node.get("step_id"), str)
-    }
-    execution_indexes = [
-        int(node.get("execution_index"))
-        for node in nodes.values()
-        if isinstance(node, Mapping) and isinstance(node.get("execution_index"), int)
-    ]
-    next_execution_index = max(execution_indexes) + 1 if execution_indexes else 0
-    for row in extra_compatibility_bridge_steps:
-        if not isinstance(row, Mapping) or row.get("workflow_name") != workflow_name:
-            continue
-        step_id = row.get("step_id")
-        node_id = row.get("node_id")
-        if not isinstance(step_id, str) or not isinstance(node_id, str):
-            continue
-        if step_id in existing_step_ids:
-            continue
-        display_name = step_id.replace("__", " ")
-        node_payload = {
-            "node_id": node_id,
-            "step_id": step_id,
-            "presentation_key": step_id,
-            "display_name": display_name,
-            "kind": "materialize_view",
-            "region": "top_level",
-            "execution_index": next_execution_index,
-            "lexical_scope": [],
-            "fallthrough_node_id": None,
-            "routed_transfer_targets": {},
-            "dependency_node_ids": [],
-            "nested_body_node_ids": [],
-            "call_alias": None,
-            "command_boundary_kind": None,
-            "command_boundary_name": None,
-        }
-        nodes[node_id] = node_payload
-        ordered_node_ids.append(node_id)
-        if observability_nodes is not None:
-            observability_nodes[node_id] = {
-                "node_id": node_id,
-                "step_id": step_id,
-                "presentation_key": step_id,
-                "display_name": display_name,
-                "kind": "materialize_view",
-                "region": "top_level",
-            }
-            top_level = observability.get("top_level_ordered_node_ids")
-            if isinstance(top_level, list):
-                top_level.append(node_id)
-        existing_step_ids.add(step_id)
-        next_execution_index += 1
     return payload
 
 
@@ -788,12 +215,6 @@ def _build_manifest(
     diagnostics: tuple[LispFrontendDiagnostic, ...],
     build_root: Path,
     emit_debug_yaml: bool,
-    family_profile: Mapping[str, object] | None,
-    boundary_authority_registry: Mapping[str, object] | None,
-    value_flow_census: Mapping[str, object] | None,
-    consumer_rendering_census: Mapping[str, object] | None,
-    observability_old_writer_pair_manifest: Mapping[str, object] | None,
-    resume_plumbing_retirement_manifest: Mapping[str, object] | None,
 ) -> FrontendBuildManifest:
     from .build import BUILD_SCHEMA_VERSION, FrontendBuildManifest
 
@@ -841,17 +262,6 @@ def _build_manifest(
         source_map_schema_version=SOURCE_MAP_SCHEMA_VERSION,
         source_map_coverage=dict(SOURCE_MAP_COVERAGE),
         lowering_schema_version=compile_result.entry_result.lowering_schema_version,
-        family_profile=family_profile,
-        boundary_authority_registry=_boundary_authority_registry_provenance(
-            boundary_authority_registry
-        ),
-        value_flow_census=_value_flow_census_provenance(value_flow_census),
-        consumer_rendering_census=_consumer_rendering_census_provenance(
-            consumer_rendering_census
-        ),
-        observability_old_writer_pair_evidence=_observability_old_writer_pair_provenance(
-            observability_old_writer_pair_manifest
-        ),
     )
 
 
@@ -1055,18 +465,7 @@ def _serialize_typed_frontend_ast(compile_result: LinkedStage3CompileResult) -> 
 
 def _serialize_lowered_workflows(
     compile_result: LinkedStage3CompileResult,
-    *,
-    extra_compatibility_bridge_steps: Sequence[Mapping[str, object]] = (),
 ) -> dict[str, object]:
-    step_ids_by_workflow: dict[str, set[str]] = {}
-    for row in extra_compatibility_bridge_steps:
-        if not isinstance(row, Mapping):
-            continue
-        workflow_name = row.get("workflow_name")
-        step_id = row.get("step_id")
-        if not isinstance(workflow_name, str) or not isinstance(step_id, str):
-            continue
-        step_ids_by_workflow.setdefault(workflow_name, set()).add(step_id)
     return {
         "modules": {
             module_name: {
@@ -1075,12 +474,7 @@ def _serialize_lowered_workflows(
                         "workflow_name": lowered.typed_workflow.definition.name,
                         "display_name": _display_workflow_name(lowered.typed_workflow.definition.name),
                         "authored_mapping": _json_data(lowered.authored_mapping),
-                        "step_ids": sorted(
-                            set(lowered.origin_map.step_spans)
-                            | step_ids_by_workflow.get(
-                                lowered.typed_workflow.definition.name, set()
-                            )
-                        ),
+                        "step_ids": sorted(lowered.origin_map.step_spans),
                     }
                     for lowered in compiled_result.lowered_workflows
                 ],
@@ -1108,7 +502,6 @@ def _serialize_workflow_boundary_projection(
     compile_result: LinkedStage3CompileResult,
     *,
     selected_name: str,
-    boundary_authority_registry: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     workflows: list[dict[str, object]] = []
     for compiled_result in compile_result.compiled_results_by_name.values():
@@ -1134,16 +527,10 @@ def _serialize_workflow_boundary_projection(
             )
             if bundle is not None:
                 boundary = workflow_boundary_projection(bundle)
-                checked_public_bridge_inputs = checked_design_delta_public_input_names(
-                    lowered.typed_workflow.definition.name,
-                    boundary_authority_registry=boundary_authority_registry,
-                    family_profile_catalog=compiled_result.workflow_catalog.family_profile_catalog,
-                )
                 private_compatibility_bridge_inputs = sorted(
                     name
                     for name in lowered.compatibility_bridge_inputs
                     if isinstance(name, str)
-                    and name not in checked_public_bridge_inputs
                 )
                 private_runtime_context_input_names = {
                     generated_name
@@ -1313,90 +700,6 @@ def _serialize_workflow_boundary_projection(
         "entry_workflow": selected_name,
         "workflows": workflows,
     }
-
-
-def _validate_selected_workflow_hidden_compatibility_bridge_public_boundary(
-    boundary_projection_payload: Mapping[str, object],
-    *,
-    selected_name: str,
-    boundary_authority_registry: Mapping[str, object] | None,
-    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
-) -> None:
-    if boundary_authority_registry is None:
-        # A missing registry only exempts workflows outside the
-        # design-delta-parent-drain family, which has no checked
-        # boundary-authority-registry concept to begin with. A design-delta
-        # target missing its registry must still fail closed.
-        if not is_design_delta_parent_drain_target_workflow(
-            selected_name, family_profile_catalog=family_profile_catalog
-        ):
-            return
-    elif (
-        boundary_authority_registry.get("workflow_family") != "design_delta_parent_drain"
-        and (
-            family_profile_catalog is None
-            or not family_profile_catalog.workflow_in_profile(selected_name)
-        )
-    ):
-        return
-    workflows = {
-        str(workflow["workflow_name"]): workflow
-        for workflow in boundary_projection_payload.get("workflows", [])
-        if isinstance(workflow, Mapping)
-        and isinstance(workflow.get("workflow_name"), str)
-    }
-    selected_workflow = workflows.get(selected_name)
-    if not isinstance(selected_workflow, Mapping):
-        return
-
-    params = {
-        str(param.get("name"))
-        for param in selected_workflow.get("params", [])
-        if isinstance(param, Mapping) and isinstance(param.get("name"), str)
-    }
-    private_bridge_inputs = {
-        str(name)
-        for name in selected_workflow.get("boundary", {}).get(
-            "private_compatibility_bridge_inputs", []
-        )
-        if isinstance(name, str)
-    }
-    if not private_bridge_inputs:
-        return
-
-    registry_path = None
-    if isinstance(boundary_authority_registry, Mapping):
-        raw_registry_path = boundary_authority_registry.get("__registry_path__")
-        if isinstance(raw_registry_path, (str, Path)) and str(raw_registry_path):
-            registry_path = Path(str(raw_registry_path))
-
-    allowed_public_bridge_inputs = {
-        str(row.get("field_name"))
-        for row in (boundary_authority_registry or {}).get("rows", [])
-        if isinstance(row, Mapping)
-        and row.get("workflow_name") == selected_name
-        and row.get("surface_kind") == "compatibility_bridge_input"
-        and row.get("authority_class") == "compatibility_bridge"
-        and isinstance(row.get("field_name"), str)
-    }
-    publicly_authored_hidden_bridges = sorted(
-        (params & private_bridge_inputs) - allowed_public_bridge_inputs
-    )
-    if not publicly_authored_hidden_bridges:
-        return
-    raise LispFrontendCompileError(
-        (
-            _cli_request_diagnostic(
-                code="workflow_boundary_authority_unclassified",
-                message=(
-                    "selected workflow publicly declares hidden compatibility bridge "
-                    "inputs without checked boundary-authority metadata: "
-                    f"{selected_name}: {', '.join(publicly_authored_hidden_bridges)}"
-                ),
-                path=registry_path,
-            ),
-        )
-    )
 
 
 def _origin_payload(origin: object) -> dict[str, object]:
