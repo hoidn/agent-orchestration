@@ -8,10 +8,10 @@
 
 **Tech Stack:** Markdown design/specification documents, JSON inventory, Workflow Lisp `.orc` sources, Python/pytest verification, existing route-readiness and migration-parity tooling.
 
-**Status (2026-07-13):** Tasks 1–3 are committed and independently reviewed.
-Holistic Gate S4 review returned `GATE S4 SPEC PASS` and `GATE S4 QUALITY
-PASS`. The closeout advances the current selector to typed result guidance;
-only the post-commit protected-tree guard remains after this roadmap commit.
+**Status (2026-07-13): complete.** Tasks 1–4 are committed and independently
+reviewed. Holistic Gate S4 review returned `GATE S4 SPEC PASS` and `GATE S4
+QUALITY PASS`; the post-closeout status guard matched exactly the seven
+protected user-owned paths. The current selector is typed result guidance.
 
 ---
 
@@ -227,7 +227,7 @@ git diff --cached --check
 git commit -m "Close procedure-first design gate"
 ```
 
-- [ ] **Step 7: Verify the post-commit protected-tree baseline**
+- [x] **Step 7: Verify the post-commit protected-tree baseline**
 
 ```bash
 git status --short
