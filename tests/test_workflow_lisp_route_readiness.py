@@ -255,6 +255,30 @@ def test_current_parity_targets_and_checked_in_registry_agree() -> None:
     assert validate_parity_targets_against_route_readiness(targets, registry, REPO_ROOT) == []
 
 
+def test_design_delta_parent_drain_is_registered_for_strict_primary_promotion() -> None:
+    targets = load_parity_targets(PARITY_TARGETS_PATH)
+    target = next(
+        target for target in targets if target.workflow_family == "design_delta_parent_drain"
+    )
+    registry = load_route_readiness_registry(REGISTRY_PATH)
+    entry = registry_entry_for_path(registry, target.candidate)
+
+    assert entry is not None
+    assert target.readiness_label == "promotion_eligible"
+    assert target.promotion_eligibility == {"eligible_for_primary_surface": True}
+    assert target.accepted_differences == ()
+    assert all(
+        "yaml primary" not in statement.lower() and "candidate" not in statement.lower()
+        for statements in target.baseline_characterization.values()
+        for statement in statements
+    )
+    assert entry.readiness_label == "promotion_eligible"
+    assert entry.route_label == "wcc_default"
+    assert entry.copy_safety == "preferred_current_guidance"
+    assert entry.parity_constrained is True
+    assert validate_migration_targets_against_route_readiness([target], registry, REPO_ROOT) == []
+
+
 def test_cli_route_readiness_check_valid_registry() -> None:
     result = subprocess.run(
         [

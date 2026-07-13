@@ -301,7 +301,7 @@
       "provider_externs_file": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json",
       "prompt_externs_file": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json",
       "command_boundaries_file": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json",
-      "readiness_label": "parent_callable_candidate",
+      "readiness_label": "promotion_eligible",
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
       "required_family_evidence_roles": [
@@ -340,19 +340,10 @@
           "drain summary"
         ],
         "resume_behavior": [
-          "parent-callable family evidence only; YAML primary remains authoritative"
+          "parent-callable family evidence covers resume and reuse behavior on the production route"
         ]
       },
-      "accepted_differences": [
-        {
-          "id": "parent-callable-candidate",
-          "description": "This target proves first parent-callable family evidence but does not replace the YAML primary."
-        },
-        {
-          "id": "parity-constrained-boundaries",
-          "description": "YAML-comparable child boundaries and artifacts remain labeled as migration constraints until promotable parity is intentionally produced."
-        }
-      ],
+      "accepted_differences": [],
       "deprecated_yaml_mechanics": [
         {
           "mechanic": "leaf-only compile/smoke evidence used as family proof",
@@ -364,8 +355,7 @@
         }
       ],
       "promotion_eligibility": {
-        "eligible_for_primary_surface": false,
-        "blocked_reason": "parent-family candidate only; YAML primary replacement requires strict promotable family evidence"
+        "eligible_for_primary_surface": true
       },
       "compile_artifacts": {
         "required": [

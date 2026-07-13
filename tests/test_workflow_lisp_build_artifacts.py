@@ -9100,19 +9100,20 @@ def test_design_delta_parent_drain_build_rejects_reference_family_malformed_pari
     )
     architecture_index_path = _aligned_reference_family_architecture_index(tmp_path)
     markdown_path = tmp_path / "design_delta_parent_drain.md"
-    markdown_path.write_text(
-        (
-            REPO_ROOT
-            / "artifacts"
-            / "work"
-            / "review-parity-check"
-            / "design_delta_parent_drain.md"
-        ).read_text(encoding="utf-8").replace(
-            "- Promotion eligible: `false`\n",
-            "",
-        ),
-        encoding="utf-8",
+    parity_markdown = (
+        REPO_ROOT
+        / "artifacts"
+        / "work"
+        / "review-parity-check"
+        / "design_delta_parent_drain.md"
+    ).read_text(encoding="utf-8")
+    malformed_markdown, replacement_count = re.subn(
+        r"(?m)^- Promotion eligible: `(?:true|false)`\n",
+        "",
+        parity_markdown,
     )
+    assert replacement_count == 1
+    markdown_path.write_text(malformed_markdown, encoding="utf-8")
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _build_design_delta_parent_drain(
