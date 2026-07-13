@@ -8,7 +8,7 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CURRENT_SELECTOR = "phase 3 task 3.3: ordered bundle deletion"
+CURRENT_SELECTOR = "phase 3 task 3.4: phase 3 verification"
 
 
 def _markdown_table_row(path: Path, key: str) -> str:
@@ -40,7 +40,7 @@ def _assert_current_selector(surface: str, label: str) -> None:
     assert clauses, label
     assert any(CURRENT_SELECTOR in clause for clause in clauses), (label, clauses)
     forbidden = re.compile(
-        r"task 3\.(?:[12]|[4-9]|[1-9][0-9]+)|phase 4|typed result guidance|yaml archive"
+        r"task 3\.(?:[123]|[5-9]|[1-9][0-9]+)|phase 4|typed result guidance|yaml archive"
     )
     for clause in clauses:
         assert forbidden.search(clause) is None, (label, clause)
@@ -182,7 +182,7 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
         assert "satisfied" in normalized, label
         _assert_current_selector(surface, label)
 
-    mutated = docs_index_routing.replace("ordered bundle deletion", "unrelated cleanup", 1)
+    mutated = docs_index_routing.replace("Phase-3 verification", "unrelated cleanup", 1)
     with pytest.raises(AssertionError):
         _assert_current_selector(mutated, "mutated selector title")
 
@@ -198,7 +198,7 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
     assert "ordinary specialization and WCC lowering" in drain_owner
 
     order = _normalized_routing_text(typed_guidance_row).split("current order", 1)[1]
-    assert order.index("phase 3 task 3.3") < order.index("phases 3 4")
-    assert order.index("phases 3 4") < order.index("stage 5")
+    assert order.index("phase 3 task 3.4") < order.index("phase 4")
+    assert order.index("phase 4") < order.index("stage 5")
     assert "+ 6 `v214` library imports" in family_one_row
     assert "Stage 6" in family_one_row

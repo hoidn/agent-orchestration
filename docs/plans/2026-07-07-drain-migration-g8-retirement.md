@@ -74,9 +74,10 @@ Record fresh command output under each gate before dispatching the phase. A gate
 Phase 1 Ledger entry (k). Gate P2 admitted the reviewed Phase 2 sequence. Phase
 2 Tasks 2.1–2.3 and the bounded Design Delta promotion handoff are now
 complete. Gate P3 is also satisfied by the later independent joint proof
-recorded in Phase 2 Ledger entry (f). Phase 3 Tasks 3.1 and 3.2 are complete
-and reviewed. The current selector is **Phase 3 Task 3.3: ordered bundle
-deletion**.
+recorded in Phase 2 Ledger entry (f). Phase 3 Tasks 3.1–3.3 are complete and
+reviewed. The current selector is **Phase 3 Task 3.4: Phase-3 verification**.
+Task 3.4 has not started; Phase 4, Stage 5 typed result guidance, and Stage 6
+YAML archive remain later work.
 
 **Gate P3 (entry to Phase 3):**
 1. Phase 2 Tasks 2.1–2.3 committed; name-blindness check (Task 2.3 Step 2) clean.
@@ -89,10 +90,10 @@ deletion**.
 fresh joint verification of conditions 1–4 at base HEAD
 `c82d150286248661bbfe2d8cb338715f47a02d36`. This status-and-routing closure
 does not alter the verified implementation or evidence surfaces. Gate P3 is
-satisfied and now admits Phase 3. Tasks 3.1 and 3.2 are complete and reviewed;
-the current selector is **Phase 3 Task 3.3: ordered bundle deletion**. Do not
-select Task 3.4, Phase 4, typed result guidance, or YAML archive before Task
-3.3 and its own checks are complete.
+satisfied and now admits Phase 3. Tasks 3.1–3.3 are complete and reviewed; the
+current selector is **Phase 3 Task 3.4: Phase-3 verification**. Task 3.4 has
+not started; Phase 4, Stage 5 typed result guidance, and Stage 6 YAML archive
+remain later work.
 
 **Gate P4 (entry to Phase 4):**
 1. Phase 3 Tasks 3.1–3.4 committed.
@@ -337,11 +338,11 @@ After Task 2.3 and before recording Gate P3 as satisfied, execute `docs/plans/20
 3. Their suites: `tests/test_workflow_lisp_consumer_rendering_census.py` (unless the preserved kernel keeps assertions — split, don't drop coverage), `test_workflow_lisp_value_flow_census.py`, `test_workflow_lisp_rendering_cleanup.py`, `test_workflow_lisp_rendering_ergonomics.py`, `test_workflow_lisp_compatibility_bridges.py`, `test_workflow_lisp_transition_authoring.py`, `test_workflow_lisp_resume_plumbing_retirement.py`, `test_workflow_lisp_parent_drain_census_alignment.py`, `test_workflow_lisp_reference_family_conformance.py`, `test_workflow_lisp_design_delta_bridge_adapter_compatibility.py`, and (last, after Task 3.1 landed) `test_workflow_lisp_design_delta_drain_migration_feasibility.py`.
 4. Certification manifests under `workflows/examples/inputs/workflow_lisp_migrations/`: the `design_delta_parent_drain.*` files **except** `{commands,providers,prompts}.json`, plus the dual-run vector files — each deleted only after Step 3's grep shows zero surviving loaders.
 
-- [ ] **Step 1:** Delete the family-specific region from `build_design_delta.py`, its orchestration/threading call sites in `build.py`, and its retired artifact-map entries/threading in `build_artifacts.py`; verify: production compile command (P2 form) exits 0 **without** reading any certification manifest (`strace`-free check: temporarily `mv` one manifest aside, compile, restore — expected: compile succeeds either way once the block is gone). Do not delete the generic `build_frontend_bundle` / `_emit` pipeline, generic `_write_build_artifacts` / `_build_manifest` machinery, or G8-only residue reserved for Phase 4.
-- [ ] **Step 2:** Delete modules + suites by explicit `git rm`, one commit per tier, verifying between tiers: `python -c "import orchestrator.workflow_lisp" && pytest tests/ -q --collect-only > /dev/null && echo OK`.
-- [ ] **Step 3 (preserve-list decision procedure):** before touching each preserve-list module: `grep -rn "<module>" orchestrator/ --include="*.py" | grep -v test` — enumerate live importers outside the deleted block. For `consumer_rendering_census.py`: keep exactly the schema kernel `observability_summaries.py` consumes (constant + payload shaping); move it into `observability_summaries.py` only if the remainder of the module is otherwise empty. For `phase_family_boundary.py`: no deletion of any symbol with a surviving importer (the runtime `loaded_bundle.py` use of `checked_design_delta_public_input_names` included).
-- [ ] **Step 4:** Delete manifests (tier 4) after `grep -rln "<filename>" orchestrator/ tests/ workflows/ | grep -v parity_targets` is empty per file.
-- [ ] **Step 5: Commits** (per tier): `Delete design delta certification gating in build`, `Delete certification census and retirement modules`, `Delete certification manifests and feasibility suite`.
+- [x] **Step 1:** Delete the family-specific region from `build_design_delta.py`, its orchestration/threading call sites in `build.py`, and its retired artifact-map entries/threading in `build_artifacts.py`; verify: production compile command (P2 form) exits 0 **without** reading any certification manifest (`strace`-free check: temporarily `mv` one manifest aside, compile, restore — expected: compile succeeds either way once the block is gone). Do not delete the generic `build_frontend_bundle` / `_emit` pipeline, generic `_write_build_artifacts` / `_build_manifest` machinery, or G8-only residue reserved for Phase 4.
+- [x] **Step 2:** Delete modules + suites by explicit `git rm`, one commit per tier, verifying between tiers: `python -c "import orchestrator.workflow_lisp" && pytest tests/ -q --collect-only > /dev/null && echo OK`.
+- [x] **Step 3 (preserve-list decision procedure):** before touching each preserve-list module: `grep -rn "<module>" orchestrator/ --include="*.py" | grep -v test` — enumerate live importers outside the deleted block. For `consumer_rendering_census.py`: keep exactly the schema kernel `observability_summaries.py` consumes (constant + payload shaping); move it into `observability_summaries.py` only if the remainder of the module is otherwise empty. For `phase_family_boundary.py`: no deletion of any symbol with a surviving importer (the runtime `loaded_bundle.py` use of `checked_design_delta_public_input_names` included).
+- [x] **Step 4:** Delete manifests (tier 4) after `grep -rln "<filename>" orchestrator/ tests/ workflows/ | grep -v parity_targets` is empty per file.
+- [x] **Step 5: Commits** (per tier): `Delete design delta certification gating in build`, `Delete certification census and retirement modules`, `Delete certification manifests and feasibility suite`.
 
 ### Task 3.4: Phase-3 verification
 
@@ -2010,3 +2011,66 @@ Task 3.3: ordered bundle deletion**. Later Stage 6 must use the retained
 historical promotion artifact together with fresh compile, smoke, and
 end-to-end evidence on the then-current checkout; it must never recreate the
 retired `design_delta_parent_drain` parity target.
+
+### (c) Task 3.3 ordered certification-bundle deletion (2026-07-13)
+
+Task 3.3 is complete through the ordered deletion commits `bdf87e61` (`Delete
+design delta certification gating in build`), `21598d34` (`Delete
+certification census and retirement modules`), and `0cbddb7b` (`Delete
+certification manifests and feasibility suite`). Permanent post-WCC inventory
+and route-readiness evidence was re-homed in `8112d61a` and `aafec532`.
+Evidence-reference validation and its direct production-owner proofs were then
+hardened through `f348cb71`, `43528925`, `36aa6c48`, `e044bc0d`, and
+`3fce6617`. The generic build/artifact kernels, the live
+`consumer_rendering_census.py` schema constant, every live
+`phase_family_boundary.py` symbol, the parity kernel, the three ordinary
+Design Delta compile-input externs, and the historical promotion report remain
+preserved. All 13 retired certification-manifest filenames have zero live
+references.
+
+Independent review of the complete Task-3.3 implementation returned **SPEC
+PASS** and **CODE QUALITY PASS**, with no open Critical or Important findings.
+Fresh controller verification passed **542 focused tests**. The active
+pointer-retirement backlog commands passed **14 tests** and **6 tests**, and
+the checked dry-run exited 0. The route-readiness registry validated all
+**54/54** surfaces and the post-WCC inventory validated all **14/14** surfaces
+with no issues. The exact production compile exited 0 with fingerprint
+`ad5a84000ed20a84`, emitted the surviving G8 artifact with pass status, and
+reported only the seven known generic lint warnings exposed by removal of the
+family-specific certification profile. Full collection found **3,918 tests**.
+
+The repository-required broad command `pytest -q -n 16 --dist=worksteal`
+reported **3,901 passed, 6 failed, 11 skipped**. The failure set is exactly the
+six surviving established identities:
+
+- `tests/test_workflow_output_contract_integration.py::test_provider_valid_output_bundle_overrides_raw_nonzero_exit`
+- `tests/test_workflow_semantic_ir.py::test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence`
+- `tests/test_workflow_semantic_ir.py::test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys`
+- `tests/test_workflow_semantic_ir.py::test_compiled_bundle_semantic_ir_preserves_command_boundary_classification`
+- `tests/test_provider_role_routing.py::test_design_delta_drain_defaults_route_work_to_codex_gpt54`
+- `tests/test_neurips_steered_backlog_runtime.py::test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch`
+
+The other two pre-Task-3.3 baseline failures were certification-only tests and
+were intentionally deleted with their owners: the value-flow census assertion
+left with `tests/test_workflow_lisp_value_flow_census.py`, while the Design
+Delta derived work-item boundary-projection assertion left the retained build
+artifact suite together with the certification projection it tested. Neither
+is counted as a repaired failure or recreated after its owner contract was
+deleted.
+
+The seven pre-existing user-dirty paths remained byte-preserved and were never
+staged:
+
+- `docs/plans/2026-06-20-workflow-step-back-non-progress-recovery-plan.md`
+- `docs/plans/2026-07-01-workflow-audit-tier-fixes.md`
+- `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/remaining-neurips-migration-experiment/migration_experiment_recommendation_report.md`
+- `state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt`
+- `tests/test_workflow_non_progress_step_back_demo.py`
+- `workflows/examples/non_progress_step_back_demo.yaml`
+- `workflows/library/prompts/workflow_step_back/diagnose_non_progress.md`
+
+Task 3.3 did not run Task 3.4 documentation synchronization, change the
+certification capability-status/evidence rows, strip the Phase-4 parity lanes,
+archive YAML, or begin Stage 5/Stage 6. The sole current selector is **Phase 3
+Task 3.4: Phase-3 verification**; Task 3.4 has not started. Phase 4, Stage 5
+typed result guidance, and Stage 6 YAML archive remain later work.
