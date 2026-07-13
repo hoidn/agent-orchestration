@@ -140,18 +140,25 @@ def test_review_revise_loop_not_reserved_core_macro_name() -> None:
     assert bridge is None
 
 
-def test_stdlib_compatibility_heads_are_macro_bindable_but_not_reserved() -> None:
+def test_stdlib_compatibility_and_imported_only_heads_are_macro_bindable_but_not_reserved() -> None:
     registry = importlib.import_module("orchestrator.workflow_lisp.form_registry")
 
     reserved = registry.reserved_macro_names()
 
-    for head_name in ("with-phase", "finalize-selected-item", "backlog-drain"):
+    for head_name in ("with-phase", "finalize-selected-item"):
         spec = registry.get_form_spec(head_name)
 
         assert spec is not None
         assert spec.macro_bindable is True
         assert "compatibility_route_only" in spec.feature_tags
         assert head_name not in reserved
+
+    backlog_drain = registry.get_form_spec("backlog-drain")
+    assert backlog_drain is not None
+    assert backlog_drain.kind is registry.FormKind.STDLIB_EXTENSION
+    assert backlog_drain.macro_bindable is True
+    assert "compatibility_route_only" not in backlog_drain.feature_tags
+    assert "backlog-drain" not in reserved
 
 
 def test_form_registry_does_not_publish_review_loop_bridge_metadata() -> None:

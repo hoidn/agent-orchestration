@@ -6597,7 +6597,10 @@ def test_design_delta_parent_drain_build_emits_g8_deletion_evidence_artifact(
         "finalize-selected-item",
         "backlog-drain",
     ]
-    assert payload["hook_surface_delta"]["imported_only_registry_heads"] == ["with-phase"]
+    assert payload["hook_surface_delta"]["imported_only_registry_heads"] == [
+        "with-phase",
+        "backlog-drain",
+    ]
     assert payload["retained_bridges"] == ["materialize_lisp_frontend_work_item_inputs"]
 
 

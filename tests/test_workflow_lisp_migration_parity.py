@@ -2900,7 +2900,8 @@ def _design_delta_g8_deletion_evidence_payload(
         "hook_surface_delta": {
             "removed_registry_heads": removed_registry_heads
             or ["with-phase", "finalize-selected-item", "backlog-drain"],
-            "imported_only_registry_heads": imported_only_registry_heads or ["with-phase"],
+            "imported_only_registry_heads": imported_only_registry_heads
+            or ["with-phase", "backlog-drain"],
         },
         "adapter_surface_delta": {
             "removed_manifest_row_count": 6,
@@ -4895,7 +4896,7 @@ def test_run_parity_target_fails_view_retirement_parity_when_g8_evidence_omits_f
     assert "deleted finalizer row" in " ".join(evidence.get("reasons", []))
 
 
-def test_run_parity_target_fails_when_g8_evidence_does_not_require_imported_only_with_phase(
+def test_run_parity_target_fails_when_g8_evidence_omits_imported_only_backlog_drain(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4912,8 +4913,12 @@ def test_run_parity_target_fails_when_g8_evidence_does_not_require_imported_only
     _write_json(
         build_root / "g8_deletion_evidence.json",
         _design_delta_g8_deletion_evidence_payload(
-            removed_registry_heads=["finalize-selected-item", "backlog-drain"],
-            imported_only_registry_heads=[],
+            removed_registry_heads=[
+                "with-phase",
+                "finalize-selected-item",
+                "backlog-drain",
+            ],
+            imported_only_registry_heads=["with-phase"],
         ),
     )
     _install_fake_run_command(module, monkeypatch, build_root=build_root)
@@ -4927,7 +4932,7 @@ def test_run_parity_target_fails_when_g8_evidence_does_not_require_imported_only
 
     evidence = report["evidence"]["resource_transition_parity"]
     assert evidence["status"] == "fail"
-    assert "with-phase" in " ".join(evidence.get("reasons", []))
+    assert "backlog-drain" in " ".join(evidence.get("reasons", []))
 
 
 def test_run_parity_target_fails_boundary_parity_when_g0_report_has_unclassified_or_public_leaks(

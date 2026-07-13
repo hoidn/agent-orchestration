@@ -41,7 +41,7 @@ DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS = (
     "finalize-selected-item",
     "backlog-drain",
 )
-DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS = ("with-phase",)
+DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS = ("with-phase", "backlog-drain")
 COMMAND_ROLES = (
     "compile",
     "dry_run",

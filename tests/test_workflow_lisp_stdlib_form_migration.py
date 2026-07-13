@@ -282,18 +282,41 @@ def test_intrinsic_form_route_accounting_api_starts_empty_and_is_deterministic()
     assert read_counts() == {}
 
 
-@pytest.mark.parametrize(
-    "form_name",
-    ("finalize-selected-item", "backlog-drain"),
-)
-def test_g8_marks_resource_and_drain_registry_heads_as_compatibility_only(form_name: str) -> None:
+def test_g8_marks_resource_registry_head_as_compatibility_only() -> None:
     registry = _form_registry_module()
 
-    spec = registry.get_form_spec(form_name)
+    spec = registry.get_form_spec("finalize-selected-item")
 
     assert spec is not None
     assert spec.macro_bindable is True
     assert "compatibility_route_only" in spec.feature_tags
+
+
+def test_retired_backlog_drain_registry_uses_imported_stdlib_classification() -> None:
+    registry = _form_registry_module()
+
+    spec = registry.get_form_spec("backlog-drain")
+
+    assert spec is not None
+    assert spec.kind is registry.FormKind.STDLIB_EXTENSION
+    assert spec.elaboration_route is None
+    assert spec.macro_bindable is True
+    assert spec.remove_by is None
+    assert "compatibility_route_only" not in spec.feature_tags
+    assert registry.get_form_spec("backlog-drain-callable-boundary") is None
+
+
+def test_retired_backlog_drain_g8_evidence_constants_match() -> None:
+    build_design_delta = importlib.import_module(
+        "orchestrator.workflow_lisp.build_design_delta"
+    )
+    migration_parity = importlib.import_module(
+        "orchestrator.workflow_lisp.migration_parity"
+    )
+
+    expected = ("with-phase", "backlog-drain")
+    assert build_design_delta.DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS == expected
+    assert migration_parity.DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS == expected
 
 
 def test_g8_marks_public_with_phase_registry_head_as_compatibility_only() -> None:
