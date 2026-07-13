@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY, EffectAtom, EffectSummary, parse_effect_clause, render_effect_set
+from .result_guidance import ReturnSpec, parse_return_spec
 from .spans import SourceSpan
 from .syntax import (
     ExpansionStack,
@@ -129,6 +130,28 @@ class ProcedureDef:
     type_params: tuple[ProcedureTypeParam, ...] = ()
     where_clauses: tuple[ProcedureConstraintSyntax, ...] = ()
     generated_local_procedure: "GeneratedLocalProcedure | None" = None
+    return_spec: ReturnSpec | None = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.return_spec is None:
+            object.__setattr__(
+                self,
+                "return_spec",
+                ReturnSpec(type_name=self.return_type_name, guidance=None, span=self.span),
+            )
+        elif self.return_spec.type_name != self.return_type_name:
+            # Existing specialization reconstructs definitions with a substituted
+            # return type. Task 4 owns preservation of authored metadata through
+            # that reconstruction; keep the Task 2 carrier internally coherent.
+            object.__setattr__(
+                self,
+                "return_spec",
+                ReturnSpec(
+                    type_name=self.return_type_name,
+                    guidance=None,
+                    span=self.return_spec.span,
+                ),
+            )
 
 
 @dataclass(frozen=True)
@@ -538,14 +561,11 @@ def _elaborate_procedure_definition(form: SyntaxNode) -> ProcedureDef:
             expansion_stack=form.expansion_stack,
         )
     return_type_node = datum.items[index + 1]
-    return_type_identifier = syntax_identifier(return_type_node)
-    if return_type_identifier is None:
-        _raise_parse_error(
-            "procedure return type must be a symbol",
-            span=return_type_node.span,
-            form_path=form.form_path,
-            expansion_stack=return_type_node.expansion_stack,
-        )
+    return_spec = parse_return_spec(
+        return_type_node,
+        form_path=form.form_path,
+        label="procedure return type",
+    )
 
     sections = list(datum.items[index + 2 :])
     if not sections:
@@ -612,7 +632,7 @@ def _elaborate_procedure_definition(form: SyntaxNode) -> ProcedureDef:
     return ProcedureDef(
         name=name_node.resolved_name,
         params=tuple(_elaborate_param(param, form.form_path) for param in params_node.items),
-        return_type_name=return_type_identifier.resolved_name,
+        return_type_name=return_spec.type_name,
         declared_effects=parse_effect_clause(
             raw_effects,
             span=raw_effects.span,
@@ -626,6 +646,7 @@ def _elaborate_procedure_definition(form: SyntaxNode) -> ProcedureDef:
         expansion_stack=form.expansion_stack,
         type_params=type_params,
         where_clauses=where_clauses,
+        return_spec=return_spec,
     )
 
 

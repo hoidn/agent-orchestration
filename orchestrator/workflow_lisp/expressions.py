@@ -7,7 +7,7 @@ the full intended language surface.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
@@ -21,6 +21,7 @@ from .phase_stdlib import (
 )
 from .procedures import ProcedureParam
 from .resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
+from .result_guidance import ReturnSpec, parse_return_spec
 from .spans import SourceSpan
 from .syntax import (
     ExpansionStack,
@@ -358,6 +359,17 @@ class ProviderResultExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    return_spec: ReturnSpec | None = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.return_spec is None:
+            object.__setattr__(
+                self,
+                "return_spec",
+                ReturnSpec(type_name=self.returns_type_name, guidance=None, span=self.span),
+            )
+        elif self.return_spec.type_name != self.returns_type_name:
+            raise ValueError("provider return spec must match returns_type_name")
 
 
 @dataclass(frozen=True)
@@ -383,6 +395,17 @@ class CommandResultExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    return_spec: ReturnSpec | None = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.return_spec is None:
+            object.__setattr__(
+                self,
+                "return_spec",
+                ReturnSpec(type_name=self.returns_type_name, guidance=None, span=self.span),
+            )
+        elif self.return_spec.type_name != self.returns_type_name:
+            raise ValueError("command return spec must match returns_type_name")
 
 
 @dataclass(frozen=True)
@@ -2411,14 +2434,11 @@ def _elaborate_provider_result(
             form_path=form_path,
             expansion_stack=inputs_node.expansion_stack,
         )
-    returns_identifier = syntax_identifier(returns_node)
-    if returns_identifier is None:
-        _raise_error(
-            "`provider-result :returns` must be a symbol",
-            span=returns_node.span,
-            form_path=form_path,
-            expansion_stack=returns_node.expansion_stack,
-        )
+    return_spec = parse_return_spec(
+        returns_node,
+        form_path=form_path,
+        label="`provider-result :returns`",
+    )
     return ProviderResultExpr(
         provider=provider,
         prompt=_elaborate(
@@ -2436,10 +2456,11 @@ def _elaborate_provider_result(
             )
             for item in inputs_node.items
         ),
-        returns_type_name=returns_identifier.resolved_name,
+        returns_type_name=return_spec.type_name,
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
+        return_spec=return_spec,
     )
 
 
@@ -2525,14 +2546,11 @@ def _elaborate_command_result(
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
         )
-    returns_identifier = syntax_identifier(returns_node)
-    if returns_identifier is None:
-        _raise_error(
-            "`command-result :returns` must be a symbol",
-            span=returns_node.span,
-            form_path=form_path,
-            expansion_stack=returns_node.expansion_stack,
-        )
+    return_spec = parse_return_spec(
+        returns_node,
+        form_path=form_path,
+        label="`command-result :returns`",
+    )
     if uses_raw_argv and uses_adapter:
         _raise_error(
             "`command-result` must use exactly one of :argv or :adapter/:inputs",
@@ -2562,10 +2580,11 @@ def _elaborate_command_result(
             ),
             adapter_name=None,
             adapter_inputs=(),
-            returns_type_name=returns_identifier.resolved_name,
+            returns_type_name=return_spec.type_name,
             span=datum.span,
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
+            return_spec=return_spec,
         )
     if adapter_node is None or inputs_node is None:
         _raise_error(
@@ -2638,10 +2657,11 @@ def _elaborate_command_result(
         argv=(),
         adapter_name=adapter_identifier.resolved_name,
         adapter_inputs=tuple(adapter_inputs),
-        returns_type_name=returns_identifier.resolved_name,
+        returns_type_name=return_spec.type_name,
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
+        return_spec=return_spec,
     )
 
 

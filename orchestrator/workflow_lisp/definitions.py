@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from typing import TYPE_CHECKING
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .result_guidance import ResultGuidance, parse_result_guidance
 from .spans import SourceSpan
 from .syntax import (
     ImportDirective,
@@ -42,6 +43,7 @@ class RecordField:
     name: str
     type_name: str
     span: SourceSpan
+    guidance: ResultGuidance | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -852,9 +854,9 @@ def _elaborate_field_member(
         )
     if isinstance(raw_field.items[0], SyntaxKeyword):
         return _elaborate_schema_include(raw_field, form_path)
-    if len(raw_field.items) != 2:
+    if len(raw_field.items) < 2:
         _raise_error(
-            "field entries must be two-item lists of `(name Type)`",
+            "field entries must start with `(name Type)`",
             code="schema_definition_invalid",
             span=raw_field.span,
             form_path=form_path,
@@ -881,6 +883,11 @@ def _elaborate_field_member(
         name=field_name_identifier.resolved_name,
         type_name=field_type_identifier.resolved_name,
         span=raw_field.span,
+        guidance=parse_result_guidance(
+            raw_field.items[2:],
+            form_path=form_path,
+            label=f"field `{field_name_identifier.resolved_name}`",
+        ),
     )
 
 

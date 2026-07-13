@@ -2005,6 +2005,7 @@ def _elaborate_effect_expr_to_binding_value(
             ),
             keyword_args=(),
             returns_type_name=expr.returns_type_name,
+            operation_payload={"return_spec": expr.return_spec},
         )
     if isinstance(expr, CommandResultExpr):
         adapter_inputs = tuple(
@@ -2050,6 +2051,7 @@ def _elaborate_effect_expr_to_binding_value(
             operation_payload={
                 "adapter_name": expr.adapter_name,
                 "adapter_inputs": adapter_inputs,
+                "return_spec": expr.return_spec,
             },
         )
     if isinstance(expr, RunProviderPhaseExpr):

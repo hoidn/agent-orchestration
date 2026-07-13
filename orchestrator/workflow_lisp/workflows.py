@@ -50,6 +50,7 @@ from .phase import (
 )
 from .procedure_refs import ProcRefResolutionContext
 from .procedures import ProcedureCatalog
+from .result_guidance import ReturnSpec, parse_return_spec
 from .spans import SourceSpan
 from .spans import SourcePosition
 from .syntax import (
@@ -340,6 +341,17 @@ class WorkflowDef:
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
     publication_policy: EntryPublicationPolicy | None = None
+    return_spec: ReturnSpec | None = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.return_spec is None:
+            object.__setattr__(
+                self,
+                "return_spec",
+                ReturnSpec(type_name=self.return_type_name, guidance=None, span=self.span),
+            )
+        elif self.return_spec.type_name != self.return_type_name:
+            raise ValueError("workflow return spec must match return_type_name")
 
 
 
@@ -2689,14 +2701,11 @@ def _elaborate_workflow_definition(form: SyntaxNode) -> WorkflowDef:
             expansion_stack=datum.items[3].expansion_stack,
         )
     return_type_node = datum.items[4]
-    return_type_identifier = syntax_identifier(return_type_node)
-    if return_type_identifier is None:
-        _raise_error(
-            "workflow return type must be a symbol",
-            span=return_type_node.span,
-            form_path=form.form_path,
-            expansion_stack=return_type_node.expansion_stack,
-        )
+    return_spec = parse_return_spec(
+        return_type_node,
+        form_path=form.form_path,
+        label="workflow return type",
+    )
     publication_policy = None
     if len(datum.items) not in {6, 7}:
         _raise_error(
@@ -2728,12 +2737,13 @@ def _elaborate_workflow_definition(form: SyntaxNode) -> WorkflowDef:
     return WorkflowDef(
         name=name_node.resolved_name,
         params=params,
-        return_type_name=return_type_identifier.resolved_name,
+        return_type_name=return_spec.type_name,
         body=body,
         span=form.span,
         form_path=form.form_path,
         expansion_stack=datum.expansion_stack,
         publication_policy=publication_policy,
+        return_spec=return_spec,
     )
 
 

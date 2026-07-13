@@ -111,6 +111,33 @@ def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileErr
     assert excinfo.value.diagnostics[0].code == code
 
 
+def test_elaborate_workflow_carries_guided_return_spec() -> None:
+    from orchestrator.workflow_lisp.reader import read_sexpr_text
+
+    syntax_module = build_syntax_module(
+        read_sexpr_text(
+            "\n".join(
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.15")',
+                    "  (defworkflow approved ()",
+                    '    -> (result Bool :format-hint "JSON boolean." :example true)',
+                    "    true))",
+                ]
+            ),
+            source_path="inline_workflow_guidance.orc",
+        )
+    )
+
+    (workflow_def,) = elaborate_workflow_definitions(syntax_module)
+
+    assert workflow_def.return_type_name == "Bool"
+    assert workflow_def.return_spec.type_name == "Bool"
+    assert workflow_def.return_spec.guidance.format_hint == "JSON boolean."
+    assert workflow_def.return_spec.guidance.example_expr.datum.value is True
+
+
 def _inline_span(path: str = "inline_workflow_expression.orc") -> SourceSpan:
     return SourceSpan(
         start=SourcePosition(path=path, line=1, column=0, offset=0),

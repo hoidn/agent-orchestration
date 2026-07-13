@@ -97,6 +97,67 @@ def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileErr
     assert excinfo.value.diagnostics[0].code == code
 
 
+@pytest.mark.parametrize(
+    ("source", "expected_type"),
+    [
+        (
+            "(provider-result providers.review :prompt prompts.review :inputs () "
+            ':returns (result Bool :description "No blockers." :example true))',
+            ProviderResultExpr,
+        ),
+        (
+            "(command-result run_checks :argv () "
+            ':returns (result Bool :format-hint "JSON boolean." :example true))',
+            CommandResultExpr,
+        ),
+    ],
+)
+def test_elaborate_effect_result_carries_guided_return_spec(source: str, expected_type: type) -> None:
+    expr = elaborate_expression(
+        _expression_syntax(source),
+        bound_names=frozenset({"providers.review", "prompts.review"}),
+    )
+
+    assert isinstance(expr, expected_type)
+    assert expr.returns_type_name == "Bool"
+    assert expr.return_spec.type_name == "Bool"
+    assert expr.return_spec.guidance.example_expr.datum.value is True
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "(provider-result providers.review :prompt prompts.review :inputs () "
+        ':returns (result Bool :description "No blockers."))',
+        "(command-result run_checks :argv () "
+        ':returns (result Bool :format-hint "JSON boolean."))',
+    ],
+)
+def test_wcc_effect_result_carries_same_return_spec(source: str) -> None:
+    from orchestrator.workflow_lisp.effects import EMPTY_EFFECT_SUMMARY
+    from orchestrator.workflow_lisp.wcc.elaborate import _elaborate_effect_expr_to_binding_value
+    from orchestrator.workflow_lisp.wcc.model import WccIdentityFactory, WccPerform
+
+    expr = elaborate_expression(
+        _expression_syntax(source),
+        bound_names=frozenset({"providers.review", "prompts.review"}),
+    )
+    perform = _elaborate_effect_expr_to_binding_value(
+        expr,
+        scope=WccIdentityFactory(owner_name="guidance-test"),
+        type_env=_build_type_env(),
+        value_env={},
+        workflow_return_types={},
+        procedure_return_types={},
+        effect_summary=EMPTY_EFFECT_SUMMARY,
+        procedure_edges_by_site={},
+        compile_time_bindings={},
+    )
+
+    assert isinstance(perform, WccPerform)
+    assert perform.operation_payload["return_spec"] is expr.return_spec
+
+
 def _test_span(path: str = "expression_traversal_test.orc") -> SourceSpan:
     start = SourcePosition(path=path, line=1, column=1, offset=0)
     end = SourcePosition(path=path, line=1, column=2, offset=1)

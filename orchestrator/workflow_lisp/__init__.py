@@ -65,6 +65,7 @@ from .expressions import (
 from .lowering import LoweredWorkflow, LoweringOriginMap, lower_workflow_definitions, validate_lowered_workflows
 from .phase import PhaseScope
 from .reader import read_sexpr_file, read_sexpr_text
+from .result_guidance import ResultGuidance, ReturnSpec
 from .sexpr import BoolAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
 from .spans import SourcePosition, SourceSpan
 from .syntax import SyntaxNode, WorkflowLispSyntaxModule, build_syntax_module
@@ -164,6 +165,8 @@ __all__ = [
     "RecordField",
     "RecordTypeRef",
     "ResourceTransitionExpr",
+    "ResultGuidance",
+    "ReturnSpec",
     "SExpr",
     "SourcePosition",
     "SourceSpan",

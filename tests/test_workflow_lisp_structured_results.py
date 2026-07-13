@@ -85,6 +85,90 @@ def _compile_definition_module(path: Path):
     return module
 
 
+def test_elaborate_record_and_union_payload_field_guidance(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "annotated_fields.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defrecord ReviewResult",
+                '    (approved Bool :description "No blockers remain." :example true))',
+                "  (defunion Decision",
+                "    (Approved",
+                '      (approved Bool :format-hint "JSON boolean." :example true))))',
+            ]
+        ),
+    )
+
+    module = _compile_definition_module(path)
+    record_field = module.definitions[0].fields[0]
+    union_field = module.definitions[1].variants[0].fields[0]
+
+    assert record_field.guidance.description == "No blockers remain."
+    assert record_field.guidance.example_expr.datum.value is True
+    assert union_field.guidance.format_hint == "JSON boolean."
+    assert union_field.guidance.example_expr.datum.value is True
+
+
+@pytest.mark.parametrize(
+    "field_source",
+    [
+        '(approved Bool :unknown "no")',
+        '(approved Bool :description "one" :description "two")',
+        '(approved Bool :description "")',
+        '(approved Bool :format-hint "")',
+    ],
+)
+def test_elaborate_field_rejects_invalid_guidance(tmp_path: Path, field_source: str) -> None:
+    path = _write_module(
+        tmp_path / "invalid_annotated_field.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                f"  (defrecord ReviewResult {field_source}))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError):
+        _compile_definition_module(path)
+
+
+def test_elaborate_rejects_enum_member_and_union_variant_guidance(tmp_path: Path) -> None:
+    enum_path = _write_module(
+        tmp_path / "annotated_enum_member.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                '  (defenum Decision (APPROVE :description "Approve.")))',
+            ]
+        ),
+    )
+    with pytest.raises(LispFrontendCompileError):
+        _compile_definition_module(enum_path)
+
+    union_path = _write_module(
+        tmp_path / "annotated_union_variant.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defunion Decision",
+                '    (Approved :description "Approve." (approved Bool))))',
+            ]
+        ),
+    )
+    with pytest.raises(LispFrontendCompileError):
+        _compile_definition_module(union_path)
+
+
 def _write_module(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path

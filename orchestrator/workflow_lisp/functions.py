@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -43,6 +43,7 @@ from .expressions import (
     WithPhaseExpr,
     elaborate_expression,
 )
+from .result_guidance import ReturnSpec, parse_return_spec
 from .spans import SourceSpan
 from .syntax import (
     ExpansionStack,
@@ -85,6 +86,17 @@ class FunctionDef:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    return_spec: ReturnSpec | None = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.return_spec is None:
+            object.__setattr__(
+                self,
+                "return_spec",
+                ReturnSpec(type_name=self.return_type_name, guidance=None, span=self.span),
+            )
+        elif self.return_spec.type_name != self.return_type_name:
+            raise ValueError("function return spec must match return_type_name")
 
 
 @dataclass(frozen=True)
@@ -934,18 +946,15 @@ def _elaborate_function_definition(form: SyntaxNode) -> FunctionDef:
             expansion_stack=datum.items[3].expansion_stack,
         )
     return_type_node = datum.items[4]
-    return_type_identifier = syntax_identifier(return_type_node)
-    if return_type_identifier is None:
-        _raise_parse_error(
-            "function return type must be a symbol",
-            span=return_type_node.span,
-            form_path=form.form_path,
-            expansion_stack=return_type_node.expansion_stack,
-        )
+    return_spec = parse_return_spec(
+        return_type_node,
+        form_path=form.form_path,
+        label="function return type",
+    )
     return FunctionDef(
         name=name_node.resolved_name,
         params=_elaborate_params(params_node, form_path=form.form_path),
-        return_type_name=return_type_identifier.resolved_name,
+        return_type_name=return_spec.type_name,
         body=SyntaxNode(
             datum=datum.items[5],
             span=datum.items[5].span,
@@ -955,6 +964,7 @@ def _elaborate_function_definition(form: SyntaxNode) -> FunctionDef:
         span=datum.span,
         form_path=form.form_path,
         expansion_stack=form.expansion_stack,
+        return_spec=return_spec,
     )
 
 

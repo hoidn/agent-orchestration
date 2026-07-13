@@ -193,6 +193,50 @@ def _definition_context(path: Path):
     return syntax_module, module, type_env
 
 
+def _elaborate_inline_procedures(return_source: str):
+    from orchestrator.workflow_lisp.reader import read_sexpr_text
+
+    syntax_module = build_syntax_module(
+        read_sexpr_text(
+            "\n".join(
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.15")',
+                    f"  (defproc approved () -> {return_source} :effects () true))",
+                ]
+            ),
+            source_path="inline_procedure_guidance.orc",
+        )
+    )
+    return elaborate_procedure_definitions(syntax_module)
+
+
+def test_elaborate_procedure_carries_guided_return_spec() -> None:
+    (procedure_def,) = _elaborate_inline_procedures(
+        '(result Bool :description "No blockers remain." :example true)'
+    )
+
+    assert procedure_def.return_type_name == "Bool"
+    assert procedure_def.return_spec.type_name == "Bool"
+    assert procedure_def.return_spec.guidance.description == "No blockers remain."
+    assert procedure_def.return_spec.guidance.example_expr.datum.value is True
+
+
+@pytest.mark.parametrize(
+    "return_source",
+    [
+        '(result Bool :unknown "no")',
+        '(result Bool :description "one" :description "two")',
+        '(result Bool :description "")',
+        '(result Bool :format-hint "")',
+    ],
+)
+def test_elaborate_procedure_rejects_invalid_return_guidance(return_source: str) -> None:
+    with pytest.raises(LispFrontendCompileError):
+        _elaborate_inline_procedures(return_source)
+
+
 def _typecheck_top_level_names() -> set[str]:
     source_path = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck").__file__)
     return _module_top_level_names(source_path)

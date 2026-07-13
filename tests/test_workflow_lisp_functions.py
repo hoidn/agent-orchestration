@@ -110,6 +110,61 @@ def _function_body_mentions_symbol(path: Path, function_name: str, symbol: str) 
     return False
 
 
+def _elaborate_inline_functions(source: str):
+    syntax_module = build_syntax_module(
+        read_sexpr_text(source, source_path="inline_function_guidance.orc")
+    )
+    return _functions_module().elaborate_function_definitions(syntax_module)
+
+
+@pytest.mark.parametrize(
+    ("return_source", "has_guidance"),
+    [
+        ("Bool", False),
+        ("(result Bool)", False),
+        (
+            '(result Bool :description "True only when no blockers remain." '
+            ':format-hint "JSON boolean." :example true)',
+            True,
+        ),
+    ],
+)
+def test_elaborate_function_return_spec(return_source: str, has_guidance: bool) -> None:
+    (function_def,) = _elaborate_inline_functions(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                f"  (defun approved () -> {return_source} true))",
+            ]
+        )
+    )
+
+    assert function_def.return_type_name == "Bool"
+    assert function_def.return_spec.type_name == "Bool"
+    assert (function_def.return_spec.guidance is not None) is has_guidance
+    if has_guidance:
+        guidance = function_def.return_spec.guidance
+        assert guidance.description == "True only when no blockers remain."
+        assert guidance.format_hint == "JSON boolean."
+        assert guidance.example_expr.datum.value is True
+
+
+def test_elaborate_function_rejects_result_annotation_in_parameter_position() -> None:
+    with pytest.raises(LispFrontendCompileError):
+        _elaborate_inline_functions(
+            "\n".join(
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.15")',
+                    "  (defun approved ((value (result Bool))) -> Bool value))",
+                ]
+            )
+        )
+
+
 @dataclass(frozen=True)
 class _UnsupportedExprContainer:
     span: SourceSpan
