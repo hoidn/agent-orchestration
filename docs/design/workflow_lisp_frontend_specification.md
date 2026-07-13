@@ -13,6 +13,7 @@ middle-end, runtime migration, and composition/stdlib behavior:
 [Workflow Lisp Core Calculus And Compiler Middle-End](workflow_lisp_core_calculus_middle_end.md),
 [Workflow Lisp Runtime Migration Foundation](workflow_lisp_runtime_migration_foundation.md),
 [Workflow Lisp Post-Foundation Composition And Stdlib Migration](workflow_lisp_post_foundation_composition_stdlib_migration.md),
+[Workflow Lisp Procedure-First Reuse Contract](workflow_lisp_procedure_first_reuse_contract.md),
 and
 [Workflow Lisp Native Transportable Returns And Typed Result Guidance](workflow_lisp_native_transportable_returns.md).
 
@@ -129,7 +130,7 @@ and [Workflow Lisp MVP Comparison](../workflow_lisp_mvp_comparison.md).
 | Understand macro safety | Part VII plus effect validation and source-map requirements. |
 | Understand compiler/runtime internals | Parts VIII-IX, then Parts X-XII. |
 | See the intended end-user shape | Part XV examples and the MVP comparison. |
-| Plan implementation work | Parts XVII-XIX: testing, staging, and open decisions. |
+| Plan implementation work | Parts XVII-XX: testing, staging, and resolved/open decisions. |
 
 ### Grouped Contents
 
@@ -146,7 +147,7 @@ and [Workflow Lisp MVP Comparison](../workflow_lisp_mvp_comparison.md).
 | Compiler intermediates and lowering | Parts VIII-IX, Sections 38-58. |
 | Validation, errors, source maps, observability, CLI | Parts X-XIII, Sections 59-80. |
 | Standard library sketch and examples | Parts XIV-XV, Sections 81-91. |
-| Lints, testing, staging, and open decisions | Parts XVI-XIX, Sections 92-110. |
+| Lints, testing, staging, and resolved/open decisions | Parts XVI-XX, Sections 92-110. |
 
 ## 0. Prerequisites, Boundaries, And Missing Internal Specs
 
@@ -334,6 +335,12 @@ The following component docs define the missing implementation contracts:
     convergence, entrypoint bootstrap/defaults, canonical `resume-or-start`
     validation, and staged adapter-lint inventory.
 
+18. [Workflow Lisp Procedure-First Reuse Contract](workflow_lisp_procedure_first_reuse_contract.md)
+    Accepted boundary-role, lowering-identity, transitive-effect, and
+    workflow-to-procedure migration contract. This specification owns the
+    durable language rules; the companion records rationale, feasibility
+    cases, migration tests, and non-candidate guidance.
+
 ### Implementation Gate
 
 Runtime-integrated implementation may begin only after the component contracts
@@ -370,6 +377,12 @@ Current companion contracts:
 - The composition/stdlib migration contract starts from the existing stdlib
   review/revise route, ProcRef specialization, loop exhaustion, structural
   constraints, and imported generic-loop evidence.
+- The procedure-first reuse contract makes workflows durable public
+  run/resume/invocation/publication boundaries and procedures the normal
+  internal reuse unit. Procedure-first migrations lower inline; a private
+  workflow requires a migration contract/evidence need for a private
+  state/resume/debug namespace; `auto`
+  is not a persisted identity promise.
 
 Current review/revise stdlib status:
 
@@ -892,8 +905,10 @@ WorkflowRef[SelectedItemInput -> SelectedItemResult]
 WorkflowRef[(DrainCtx SelectionState) -> SelectionResult]
 ```
 
-Workflow references are compile-time or module-level values, not runtime-loaded
-code.
+Workflow references are compile-time/module-link values, not runtime-loaded
+code or structured runtime inputs. They target named `defworkflow` boundaries,
+resolve before WCC and Core AST projection, and are erased before executable IR
+and runtime state.
 
 They are used for higher-order orchestration such as:
 
@@ -905,6 +920,13 @@ They are used for higher-order orchestration such as:
 ```
 
 The compiler checks signatures before lowering.
+
+Use `WorkflowRef` only when whole-workflow identity is part of static
+orchestration. Use `ProcRef` for normal internal reusable behavior.
+Compile-time formal WorkflowRef/ProcRef parameters are supported and erased;
+neither reference type may become a runtime-bound public workflow input
+contract or cross outputs, records, unions, artifacts, provider or command
+results, ledgers, or loop-carried runtime state.
 
 ### 7.8 Procedure References
 
@@ -1157,15 +1179,25 @@ Defines reusable effectful workflow procedure.
   ...)
 ```
 
-A `defproc` is not necessarily a separate callable workflow boundary.
+A `defproc` is the normal unit for reusable internal effectful behavior. It is
+not a public callable workflow boundary merely because another unit calls it
+or because it is exported from a library.
 
 It may lower by:
 
-- inlining into caller core AST
-- lowering to private generated subworkflow
-- lowering to certified runtime effect
+- inlining into caller core AST;
+- lowering to a private generated workflow when its migration contract and
+  evidence identify a private state, resume, or debug namespace; or
+- lowering to a certified runtime effect.
 
-The lowering choice must preserve source maps and effect transparency.
+Procedure-first workflow migrations select `:lowering inline` explicitly so
+the retained public workflow owns state and checkpoint identity.
+`:lowering private-workflow` creates a deterministic internal boundary, never a
+public invocation or publication surface. The namespace need is review
+evidence in the current slice, not a new source annotation. `:lowering auto` remains compatible
+for identity-free helpers, but the compiler-selected route is not a stable
+checkpoint, resume, state-path, or debug-identity promise. Every choice must
+preserve source maps and effect transparency.
 
 Generic procedures may add a compile-time parameter header and structural
 constraint header before their ordinary argument list. Illustrative shape:
@@ -1227,7 +1259,12 @@ Defines exported runtime-callable workflow.
   ...)
 ```
 
-A `defworkflow` maps to a callable workflow in core AST.
+A `defworkflow` maps to a callable workflow in core AST. Use it for a durable
+public run, resume, externally invocable workflow-entry registration, an
+independently addressable child-workflow identity, operator-visible lifecycle,
+public input/output, or artifact-publication boundary. Ordinary module export
+or an internal call does not establish that role. Internal reusable behavior
+belongs in typed `defproc` definitions beneath the retained boundary.
 
 Implemented parameter forms:
 
@@ -1261,6 +1298,10 @@ It has:
 - target DSL version
 
 Calls to it lower to existing workflow call IR and obey same-version call rules.
+Workflow calls preserve the callee's independent public identity. A call site
+that needs reuse but not that identity is a workflow-to-procedure migration
+candidate only after it passes the procedure-first migration test in Section
+105.4.
 
 ## Part II. Expression And Control Forms
 
@@ -1575,6 +1616,29 @@ Example:
 
 ### 16.1 Effect Checking
 
+Procedure effects have two views:
+
+- the **direct effect summary** contains effects introduced lexically by the
+  procedure body, excluding called procedure, selected ProcRef, and called
+  workflow bodies; and
+- the **caller-visible transitive effect summary** joins those direct effects
+  with every statically resolved procedure, ProcRef hook, and child workflow
+  reachable from the body.
+
+The accepted model requires generic declarations to retain their direct body
+effects. After type parameters and ProcRefs resolve, the specialized
+monomorphic helper must be authoritatively typechecked and its caller-visible
+transitive summary recomputed before lowering. Inline structural visibility
+supports effect evidence; it does not replace a truthful summary.
+
+This distinction is the accepted semantic model, not the shape of today's
+carrier fields. The current `procedure_typecheck.direct_effects` carrier
+conservatively includes callee transitive effects. A mandatory Stage 5
+substrate change must represent or derive a body-local direct view and
+recompute the caller-visible transitive view after specialization before the
+procedure-first pilot. Until that work lands, the carrier's name does not prove
+that the two semantic views are separately available.
+
 The compiler verifies:
 
 - pure forms have no effects
@@ -1584,6 +1648,8 @@ The compiler verifies:
 - resource transitions have resource capabilities
 - provider calls have output contracts
 - command calls have output validation
+- provider, command, transition, bridge, publication, and child-workflow
+  effects remain explicit on procedure-composed routes
 
 ### 16.2 Effect Transparency
 
@@ -1598,6 +1664,14 @@ caller-visible effect summary. A stdlib helper that calls provider-result,
 command-result, or a ProcRef whose body uses provider/command effects must
 expose those effects to typechecking, Semantic IR, shared validation, runtime
 planning, and explain/debug output.
+
+Supported procedure composition includes typed provider and command results,
+certified command adapters, declared reads/writes/state/snapshot/ledger/view
+effects, runtime-native resource transitions, statically resolved child
+workflow calls, and explicit bridge/compatibility effects when their ordinary
+lowering contract is preserved. Public artifact names and publication policy
+remain owned by the retained `defworkflow`; returning an artifact or value from
+a procedure never publishes it implicitly.
 
 ## 17. Artifact Authority
 
@@ -2937,15 +3011,23 @@ as a private workflow boundary before Core AST generation.
 
 Inline projection:
 
-- use when procedure is local
-- use when procedure body is small enough
-- use when no explicit runtime boundary is needed
+- required for workflow-to-procedure migrations;
+- use when the caller owns runtime state, checkpoint, resume, and debug
+  identity; and
+- preserve procedure-definition, specialization/ProcRef, and call-site source
+  provenance on generated nodes.
 
 Private subworkflow projection:
 
-- use when procedure is reused many times
-- use when procedure needs separate state namespace
-- use when procedure boundary aids resume/debugging
+- use only when migration contract/evidence identifies a private state
+  namespace or independently useful private resume/debug boundary;
+- keep the boundary internal and deterministic; and
+- do not replace a public workflow invocation or publication boundary.
+
+The current slice records that namespace need as reviewed evidence, not a new
+source annotation. `auto` may choose either projection only when that choice is identity-free. It
+does not promise stable persisted routing. Reuse count and body size may inform
+compiler cost decisions but do not by themselves justify a private identity.
 
 Generated private names are deterministic:
 
@@ -2958,6 +3040,12 @@ Imported private-subworkflow projections elaborate against the defining
 module's type environment. Specialized procedures use the defining module's
 environment for free-name resolution and extend it with specializing-unit
 concrete bindings for type arguments, ProcRefs, and values.
+
+After those bindings resolve, the accepted effect-validation route must
+recompute the specialized helper's caller-visible transitive effects before
+either projection is chosen. The chosen projection must preserve public-wrapper
+outputs, artifacts, publication ownership, state layout, checkpoint identity,
+and resume behavior.
 
 ## 52. `call` Elaboration
 
@@ -3276,6 +3364,10 @@ Checks:
 - function arguments match signatures
 - ProcRef arguments resolve to compile-time named procedures with matching
   signatures
+- WorkflowRef arguments resolve to compile-time/module-link named workflows
+  with matching signatures
+- neither ProcRef nor WorkflowRef escapes into a runtime-transported contract,
+  executable value, or state carrier
 - workflow call arguments match signatures
 - pattern matches are exhaustive or explicitly partial
 - return expressions match declared return type
@@ -3296,6 +3388,8 @@ Checks:
 - macros do not hide effects
 - procedures declare or infer effects
 - workflow effect summaries include nested effects
+- specialized procedures recompute caller-visible transitive effects after
+  concrete type and ProcRef resolution
 - resource transitions have capabilities
 - providers are declared provider values
 - commands are explicit command effects
@@ -3303,6 +3397,8 @@ Checks:
   their bodies
 - selected compile-time ProcRef bodies contribute their provider/command effects
   to the caller-visible effect summary
+- child-workflow, bridge, and publication effects remain explicit and
+  publication ownership remains on the public workflow boundary
 
 ## 62. Contract Validation
 
@@ -4373,18 +4469,49 @@ Typed result guidance (`(result T ...)`, field annotations, guidance wire
 keys) is a separate, not-yet-implemented wave; v2.15 capability promotion
 waits for it.
 
-## Part XIX. Open Design Decisions
+## 105.4 Procedure-First Reuse And Migration
 
-## 106. Procedure Lowering Policy
+Workflows are durable public run/resume/invocation/publication boundaries.
+Typed procedures are the normal internal reuse unit. A workflow-to-procedure
+migration keeps a public `defworkflow` wrapper and passes all of these tests:
 
-Need decide:
+Implementation prerequisite: before any pilot, a mandatory Stage 5 substrate
+plan must separate or derive body-local direct effects from the current
+conservative `procedure_typecheck.direct_effects` carrier, recompute
+caller-visible transitive effects after generic/ProcRef specialization, and
+feed the recomputed result to lowering and Semantic IR with focused tests.
 
-- always inline `defproc`
-- always private-subworkflow `defproc`
-- compiler chooses
-- author annotation controls
+1. the callee owns no independently required external invocation, run/resume,
+   publication, public output, or operator-visible identity;
+2. its typed signature and every direct/transitive effect are supported on the
+   procedure route;
+3. migrated definitions and calls select `:lowering inline` explicitly;
+4. specialization resolves type parameters and ProcRefs and recomputes the
+   caller-visible transitive effect summary before lowering;
+5. production WCC lowering and shared validation pass without a consumer-name
+   special case; and
+6. computed before/after evidence preserves public inputs/outputs, terminal
+   outcomes, artifacts/publications, source maps, state/write roots,
+   checkpoint identities, and resume/reuse behavior.
 
-Recommended:
+Compilation or dry-run alone is not promotion evidence. Keep a workflow when
+it is externally run or resumed, is an independently addressable child
+workflow, owns public publication/output lifecycle, requires a stable
+independent checkpoint namespace without an accepted remap, or uses an
+unproven procedure effect boundary. `:lowering private-workflow` is available
+only when migration contract/evidence identifies a private
+state/resume/debug namespace and does not turn a public boundary into an
+internal one. That need is review evidence in the current slice, not a new
+source annotation.
+
+Detailed rationale, feasibility cases, and verification requirements:
+[Workflow Lisp Procedure-First Reuse Contract](workflow_lisp_procedure_first_reuse_contract.md).
+
+## Part XIX. Resolved Design Decisions
+
+## 106. Procedure Lowering Policy (Resolved)
+
+The accepted policy is role-based and author-selectable:
 
 ```lisp
 (defproc foo ... :lowering inline ...)
@@ -4392,11 +4519,11 @@ Recommended:
 (defproc baz ... :lowering auto ...)
 ```
 
-Default:
-
-```text
-auto
-```
+`inline` is required for workflow-to-procedure migrations and other
+caller-owned identity-sensitive composition. `private-workflow` requires a
+review-evidenced internal state/resume/debug namespace need; the current slice
+adds no namespace source annotation. `auto` remains the compatible
+default for identity-free procedures but promises no stable persisted route.
 
 ## 107. Resource Transition Backend
 
@@ -4411,20 +4538,18 @@ runtime-native file-backed backend may provide single-resource atomic commit and
 fail-closed multi-resource sequencing with audit evidence; stronger
 transactionality requires a backend that actually supports it.
 
-## 108. Workflow Refs
+## 108. Workflow Refs (Resolved)
 
-Need decide whether workflow references are:
-
-- module-level compile-time only
-- or structured runtime inputs
-
-Recommended:
-
-```text
-compile-time only for v0.1
-```
+Workflow references are compile-time/module-link only. They are statically
+signature-checked references to named `defworkflow` boundaries and are erased
+before executable IR and runtime state. Compile-time formal WorkflowRef
+parameters are supported; WorkflowRefs cannot become runtime-bound public
+workflow input contracts and cannot be returned, persisted, published, or
+dynamically selected.
 
 Runtime workflow refs create dynamic loading/versioning problems.
+
+## Part XX. Open Design Decisions
 
 ## 109. Debug YAML
 

@@ -25,6 +25,7 @@ Design references:
 - [Workflow Lisp Macro Surface Contract](design/workflow_lisp_macro_surface_contract.md)
 - [Workflow Lisp Frontend Standard Library Lowering](design/workflow_lisp_stdlib_lowering.md)
 - [Workflow Lisp Parametric Type System](design/workflow_lisp_parametric_type_system.md)
+- [Workflow Lisp Procedure-First Reuse Contract](design/workflow_lisp_procedure_first_reuse_contract.md)
 - [Workflow Lisp Runtime Closures Boundary](design/workflow_lisp_runtime_closures_boundary.md)
 - [Workflow Lisp Unified Frontend Design](design/workflow_lisp_unified_frontend_design.md)
 - [Workflow Lisp Native Transportable Returns And Typed Result Guidance](design/workflow_lisp_native_transportable_returns.md)
@@ -148,7 +149,9 @@ backlog drains.
 
 ## Core Rule
 
-Author typed workflow procedures and structured results.
+Author narrow public workflow boundaries over typed procedures and structured
+results. Workflows own public run/resume/invocation/publication identity;
+procedures are the normal internal reuse unit.
 
 Do not author brittle gates, pointer plumbing, report parsers, candidate-path
 selectors, or manual state-file choreography.
@@ -260,7 +263,7 @@ Think in five layers.
 | Layer | Author concern | Typical `.orc` forms | Runtime/lowering concern |
 | --- | --- | --- | --- |
 | Types and contracts | What values exist? | `defpath`, `defenum`, `defrecord`, `defunion`, `defschema` | Contracts, path safety, artifact shapes |
-| Procedures and workflows | What behavior is reusable? | `defworkflow`, `defproc`, `defun`, `call`, `let*` | Graph structure, workflow calls, sequencing |
+| Procedures and workflows | Which boundary is public, and what behavior is internally reusable? | `defworkflow`, `defproc`, `defun`, `call`, `let*` | Public run/resume identity, graph structure, procedure lowering, workflow calls |
 | Structured results | What did a provider or command produce? | `provider-result`, `command-result`, `match` | Output validation, prompt contract, variant proof |
 | Transitions | What state changed? | `resume-or-start`, `resource-transition`, `review-revise-loop`, `backlog-drain` | Atomic commit, durable state, effects |
 | Runtime substrate | How is it executed? | Usually not hand-authored | Core AST, semantic IR, snapshots, bundles, artifacts |
@@ -287,7 +290,8 @@ Ask these first:
 
 - What typed input does this workflow receive?
 - What typed result does it return?
-- Is this reusable as a workflow, a procedure, or a pure helper?
+- Does this need durable public run/resume/invocation/publication identity, or
+  is it an internal procedure or pure helper?
 - Which provider, command, filesystem, state, or ledger effects occur?
 - Which result is fixed-shape state and which result is an outcome union?
 - Where should variant proof be established?
@@ -340,6 +344,9 @@ The currently implemented authoring surface includes:
 - `loop/recur`
 - `call`
 - `WorkflowRef[...]` and `(workflow-ref ...)`
+- native returns for every currently transportable type across workflows,
+  providers, commands, procedures, and workflow calls when targeting the
+  compiler-recognized DSL v2.15 preview
 - `provider-result`
 - `command-result`
 - `with-phase`
@@ -381,8 +388,6 @@ Current component-contract boundaries:
 
 Designed or future, but not current authoring:
 
-- native direct returns for every currently transportable type across
-  workflows, providers, commands, procedures, and workflow calls;
 - authored `(result T ...)` return guidance and record/union payload-field
   `:description`, `:format-hint`, and typed `:example` annotations;
 - runtime first-class procedures or closures
@@ -400,14 +405,13 @@ proves disabled-profile rejection and source-map diagnostics. Do not author
 runtime closure values, dynamic procedure dispatch, or procedure-valued runtime
 state.
 
-The first two bullets above are accepted, gated v2.15 design rather than an
-open-ended future idea, sequenced in two Stage-5 plans. Native returns
-(wave 1) is landed: a `.orc` source declaring `(:target-dsl "2.15")` may
+Native returns (wave 1) are landed: a `.orc` source declaring
+`(:target-dsl "2.15")` may
 return `Bool`, `Int`, `Float`, `String`, an enum, a declared path, an
 `Optional[T]`, a `List[T]`, or a `Map[String, T]` directly from
 `defworkflow`, `provider-result`, `command-result`, effectful `defproc`, and
 workflow calls, without wrapping it in a one-field record. Typed result
-guidance (wave 2) is not implemented: `(result T ...)` and annotated result
+guidance is accepted but not implemented: `(result T ...)` and annotated result
 fields still reject. This is still a private, compiler-recognized preview,
 not a promoted DSL version: ordinary loader entrypoints (CLI run/resume/
 report, dashboard, imported-bundle manifests) continue to reject
@@ -591,7 +595,7 @@ Use the smallest unit that represents the behavior truthfully.
 
 | Need | Use | Avoid |
 | --- | --- | --- |
-| Exported callable workflow | `defworkflow` | Giant monolith |
+| Durable public run/resume/invocation/publication boundary | `defworkflow` | Workflow solely for internal reuse |
 | Reusable effectful graph behavior | `defproc` | Copy-pasted steps |
 | Pure path/record/schema helper | `defun` | Command step |
 | Compile-time syntax abbreviation | `defmacro` | Effectful macro |
@@ -760,7 +764,7 @@ A schema is not a workflow. It is reusable contract structure.
 
 ### 6.1 `defworkflow`
 
-Use `defworkflow` for exported callable workflow boundaries.
+Use `defworkflow` for durable public workflow boundaries.
 
 ```lisp
 (defworkflow implementation/run
@@ -793,17 +797,28 @@ overrides the default.
 
 Use `defworkflow` when:
 
-- another workflow should call this unit;
-- the unit has a stable public input/output contract;
-- the unit should appear as a separate workflow boundary in run state;
-- the unit belongs in a reusable workflow library.
+- operators or external callers run or resume the unit directly;
+- the unit has an externally invocable CLI/API workflow-entry registration or
+  export contract;
+- the unit has an independently addressable child-workflow identity;
+- the unit owns stable public inputs, defaults, outputs, or terminal lifecycle;
+- the unit should appear as an operator-visible workflow boundary in run state;
+- the unit owns public artifact names or publication policy; or
+- callers depend on its independent checkpoint/state namespace.
 
 Keep workflow boundaries narrow. Pass typed inputs in and typed outputs out.
+Being called from another unit or belonging to a library does not by itself
+justify `defworkflow`; ordinary module export of a reusable procedure is not a
+workflow-entry export. Use `defproc` for internal reuse.
 
 ### 6.2 `defproc`
 
-Use `defproc` for reusable effectful graph behavior that need not be a public
-workflow boundary.
+Use `defproc` for reusable internal effectful graph behavior.
+
+Status boundary: the procedure-first migration and private-workflow adoption
+rules below are accepted design but remain Stage 5-gated. Do not promote a
+family on this guidance alone; use the capability matrix and procedure-first
+roadmap for current availability and pilot readiness.
 
 ```lisp
 (defproc ensure-approved-plan
@@ -823,18 +838,40 @@ workflow boundary.
   ...)
 ```
 
-A macro rewrites syntax. A procedure represents reusable workflow behavior. If
+A macro rewrites syntax. A procedure represents reusable internal workflow
+behavior. If
 the abstraction has effects, prefer `defproc` or a compiler-owned
 standard-library form over `defmacro`.
 
-Current implementation boundary: `defproc` is usable for provider-only helpers
-and reviewed-phase helpers that rely on `with-phase`,
-`review-revise-loop`, `match` fan-in, and the compiler-owned prompt or
-write-root transport those forms generate. Prefer `:lowering private-workflow`
-when a reviewed-phase helper should stay reusable across workflow boundaries;
-`:lowering auto` remains conservative and may still inline single-call-site
-helpers. Keep a `defworkflow` boundary when you want a public entrypoint or the
-workflow call shape itself is the authored API surface.
+Procedure-first migrations select `:lowering inline` explicitly. Inline
+lowering keeps runtime state, checkpoint, resume, and publication ownership on
+the retained public workflow. Use `:lowering private-workflow` only when the
+migration contract and evidence identify a private state, resume, or debug
+namespace; the generated boundary remains internal and does not replace a
+public workflow.
+In the current slice, that namespace need is recorded in migration evidence;
+it is not a new source annotation beyond choosing the
+`:lowering private-workflow` mode.
+`:lowering auto` remains available for identity-free helpers, but its selected
+route is not a stable persisted identity promise. Keep a `defworkflow`
+boundary whenever its public run/resume/invocation/publication identity is part
+of the contract.
+
+Procedure effects have two useful views. The direct summary covers effects
+introduced by the body. The caller-visible transitive summary also includes
+called procedures, selected ProcRef hooks, and child workflows. The accepted
+model requires generic specialization to recompute that transitive summary
+after type and ProcRef resolution and before lowering. Provider, command,
+transition, bridge,
+publication, and child-workflow effects must remain explicit. Returning a
+value or artifact from a procedure never publishes it implicitly; public
+publication stays on the workflow boundary.
+
+This is accepted semantics, not current carrier shape. Today
+`procedure_typecheck.direct_effects` conservatively includes callee transitive
+effects. Mandatory Stage 5 substrate work must establish a distinct body-local
+direct view and recompute the caller-visible transitive view after
+specialization before the pilot.
 
 Current parametric boundary: generic `defproc` headers with `:forall` are
 implemented for compile-time-only specialization. The compiler infers concrete
@@ -1678,11 +1715,12 @@ visible:
 
 ## 16. Reuse And Modularity
 
-Prefer reusable workflow/procedure structure over one-off monoliths.
+Prefer narrow public workflows over reusable procedures and pure helpers rather
+than one-off monoliths.
 
-Before drafting a new workflow, check the workflow library for:
+Before drafting a new unit, check the workflow and procedure libraries for:
 
-- existing phase workflow;
+- existing public phase boundary or internal phase procedure;
 - existing design/plan/implementation stack;
 - existing review loop;
 - existing selected-item runner;
@@ -1706,9 +1744,13 @@ Avoid:
 - caller/callee provider-template merging;
 - out-of-band pointer files.
 
-Use typed `WorkflowRef[...]` parameters for reusable orchestration strategies
-that abstract over whole workflows. Workflow refs resolve at compile/module-link
-time, not by runtime dynamic loading.
+Use typed `WorkflowRef[...]` parameters only for static orchestration strategies
+that abstract over whole public workflow boundaries whose independent identity
+matters. Workflow refs resolve at compile/module-link time, not by runtime
+dynamic loading. Compile-time formal WorkflowRef/ProcRef parameters are
+supported and erased. References cannot become runtime-bound public workflow
+input contracts or cross outputs, records, artifacts, provider or command
+results, or state. Prefer `ProcRef[...]` for internal behavior.
 
 Use `ProcRef[...]` for compile-time procedure composition: typed procedure
 parameters, explicit `(proc-ref name)` literals, keyword-only `bind-proc`
@@ -2268,7 +2310,7 @@ Before running a new `.orc` workflow, confirm:
 | Area | Check |
 | --- | --- |
 | Frontend choice | This belongs in `.orc`; YAML is needed only for compatibility or fixtures. |
-| Types | All boundary values are typed. In the current checkout, public workflow, provider-result, and command-result returns use record/union types; scalar and path inputs remain valid where their boundary contracts permit them. |
+| Types | All boundary values are typed. In the compiler-recognized DSL v2.15 preview, every currently transportable type is valid in function, procedure, provider-result, command-result, workflow-call, and public-workflow return positions; direct roots use compiler-owned `__result__` carriage and no authored wrapper. v2.14 and ordinary public loaders are not promoted to this surface yet. |
 | Paths | Path contracts are reusable `defpath` definitions. |
 | Authority | Structured bundles/artifacts are authority; reports are views. |
 | Providers | Provider decisions return structured state through `provider-result`. |
@@ -2278,7 +2320,7 @@ Before running a new `.orc` workflow, confirm:
 | Variants | Variant-specific fields are used only inside `match`. |
 | State | State paths are derived from contexts. |
 | Effects | Provider, command, write, move, ledger, state, and call effects are visible. |
-| Reuse | Repeated behavior is a `defworkflow`, `defproc`, or standard-library form. |
+| Reuse | Durable public run/resume/invocation/publication identity is a `defworkflow`; repeated internal effectful behavior is a `defproc`; pure behavior is a `defun`. |
 | Gates | Gates have been replaced by typed outcomes or transitions where possible. |
 | Prompts | Prompts describe domain work, not runtime mechanics. |
 | Lowering | Generated Core AST uses real shared statement families; Semantic IR derives from validated shared bundle data; Executable IR validates before runtime-facing use; source maps preserve authored/generated provenance. |

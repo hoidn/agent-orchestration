@@ -15,6 +15,7 @@ Related docs:
 - `docs/design/workflow_lisp_stdlib_lowering.md`
 - `docs/design/workflow_lisp_macro_surface_contract.md`
 - `docs/design/workflow_lisp_proc_refs_partial_application.md`
+- `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
 - `docs/design/workflow_lisp_runtime_native_drain_authoring.md` (owns the
   concrete drain hook shape contracts consumed by Tranche 2)
 - `docs/design/workflow_lisp_shared_owner_lane_prerequisites.md`
@@ -30,6 +31,9 @@ pipeline contract.
 
 Consuming docs must not restate the pipeline or invent parallel constraint
 spellings; they reference this document and own only their domain schemas.
+Current implementation and adoption status belongs in
+`docs/capability_status_matrix.md` and the procedure-first roadmap, not in this
+durable type-system design.
 
 ## Evidence Base
 
@@ -366,21 +370,29 @@ concrete unions.
 ## Effects of Generic Definitions
 
 A generic definition's declared effects cover its **body's direct effects
-only**. Hook effects belong to the resolved procedures the caller passes;
-they are not folded into the generic's declared or specialized summaries
-(specialization copies `direct_effect_summary`/`transitive_effect_summary`
-verbatim from the definition — `procedure_specialization.py`).
+only**. Hook and callee effects belong to the concrete procedures and workflows
+resolved for the caller. The accepted model requires the compiler to retain the
+declaration's direct body effects, then authoritatively typecheck the
+monomorphic specialized body and recompute its **caller-visible transitive
+effect summary** after type-parameter and ProcRef resolution and before
+lowering.
 
-The mechanism that keeps effect visibility and census truthful anyway is
-**inline lowering**: specialized procedures lower with
-`resolved_lowering_mode = INLINE`, so the resolved hooks' concrete
-provider/command calls surface structurally in the lowered artifact, and
-census, effect visibility, and parity gates see reality rather than
-summaries. This is normative, not incidental: effectful generic definitions
-are inline-lowered, and any future non-inline lowering mode for generics
-must add an explicit effect-summary join (folding resolved hook summaries
-into the specialization) before it is admissible. `std/phase.orc`
-`review-revise-loop-proc` (`:lowering inline`) is the shipped precedent.
+This is the accepted semantic model. The current
+`procedure_typecheck.direct_effects` carrier is conservative: it already
+includes callee transitive effects and therefore does not expose a distinct
+body-local direct view. A mandatory Stage 5 substrate plan must establish that
+direct view and recompute the caller-visible transitive view after
+specialization before the procedure-first pilot.
+
+Inline lowering remains required for procedure-first migrations and is useful
+structural evidence: the selected hooks' concrete provider, command,
+transition, child-workflow, and other effects remain visible in the lowered
+artifact. Structural visibility is not a substitute for recomputing the
+summary. Any lowering route that copies a generic definition's pre-resolution
+transitive summary verbatim is inadmissible. `std/phase.orc`
+`review-revise-loop-proc` (`:lowering inline`) is the shipped precedent for the
+route, while the recomputed transitive summary is the accepted semantic
+contract.
 
 ## Interaction With Macros and ProcRef
 
@@ -617,27 +629,9 @@ Prerequisites, in order:
    `typecheck_dispatch.py`, which may be deleted immediately and
    independently of this tranche).
 
-Current status (2026-07-13): prerequisites 3–6 are landed. The authored
-`std/drain` generic body runs on the ordinary imported/specialized/WCC route,
-the reviewed checkpoint-identity remap is recorded, and consumer parity plus
-shared obligation relocation (including the F5 parent-owned inline-route
-contract) are green. Phase 2 retired the intrinsic lowering, form-specific
-specialization, AST/typecheck dispatch, and name-keyed validators, preserved
-only the sanctioned registry/contract/output-shaping residue, and recorded
-fresh non-regressive parity. The separately bounded Design Delta
-primary-promotion handoff and independent joint proof are recorded in
-`docs/plans/2026-07-07-drain-migration-g8-retirement.md`. Phase 3 Task 3.1
-re-homed the focused parent-drain smoke, Task 3.2 retired the promoted parity
-target while preserving its historical report, Task 3.3 retired the ordered
-certification bundle, Task 3.4 closed Phase-3 verification, and Task 4.1 stripped
-the Design-Delta-only parity lanes while preserving the permanent kernel. Gates
-P3 and P4 are independently reviewed and satisfied. Task 4.1 is complete and
-independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is
-complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS.
-Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The
-semantic-migration freeze is lifted. The current selector is Procedure-First
-Roadmap Stage 4: Design The Broader Procedure-First Contract. Stage 5 typed
-result guidance and Stage 6 YAML archive remain later work.
+Implementation, migration-gate, and next-work status is routed to
+`docs/capability_status_matrix.md` and
+`docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`.
 
 Expected residue on the order of the review loop's (registry entry, stdlib
 contract, output-contract shaping). Residue materially above that is a signal
@@ -656,10 +650,14 @@ through.
   root, and refinements survive substitution into specialized bodies.
 - Repeat type-parameter bindings require exact semantic agreement;
   conflicting bindings fail with `parametric_type_binding_ambiguous`.
-- Effectful generic definitions lower inline; census and effect-visibility
-  surfaces for a consuming workflow are equivalent to those of the
-  hand-monomorphized program (no hook effect hidden behind a copied
-  summary).
+- A specialized generic semantically retains a body-local direct view and
+  recomputes caller-visible transitive effects after concrete ProcRef
+  resolution. The current conservative `direct_effects` carrier must be split
+  or supplemented before the pilot. Effectful procedure-first migrations
+  lower inline; census and
+  effect-visibility surfaces for a consuming workflow are equivalent to those
+  of the hand-monomorphized program, with no hook effect hidden behind a copied
+  summary.
 - Subset semantics: a caller union with additional variants/fields satisfies
   the corresponding constraints; no exact-shape checking exists in Python for
   migrated forms.
