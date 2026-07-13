@@ -272,7 +272,7 @@ Expected: PASS except only established unrelated failures with fresh isolated re
 - [ ] **Step 3: Review scope and public-negative preservation**
 
 ```bash
-git diff --check
+git diff --check HEAD~4..HEAD
 git diff HEAD~4..HEAD -- workflows/examples/design_plan_impl_review_stack_v2_call.orc
 rg -n '^  \(export|^  \(defworkflow|^  \(defproc tracked-plan-phase|\(call tracked-plan-phase' workflows/examples/design_plan_impl_review_stack_v2_call.orc
 ```

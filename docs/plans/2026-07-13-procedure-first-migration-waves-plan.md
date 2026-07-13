@@ -136,7 +136,7 @@ gates, not compile or dry-run aliases.
 
 ```bash
 pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'public_boundary or inventory or procedure_first_design_delta_public_wrapper'
-git diff --check
+git diff --check -- docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md tests/test_workflow_lisp_procedure_first_migrations.py
 git add docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md tests/test_workflow_lisp_procedure_first_migrations.py
 git commit -m "Rebaseline procedure-first migration inventory"
 ```
@@ -226,7 +226,7 @@ same-file exported wrapper protected by its behavioral negative test.
 
 ```bash
 python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >/dev/null
-git diff --check
+git diff --check -- docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json
 ```
 
 - [ ] **Step 6: Commit the reviewed inventory evidence**
@@ -323,7 +323,7 @@ five source commit hashes and evidence, then recompute active/history counts.
 
 ```bash
 python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >/dev/null
-git diff --check
+git diff --check -- docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md
 git add docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md
 git commit -m "Record Design Delta library procedure evidence"
 ```
@@ -377,7 +377,7 @@ must never use `public-boundary`.
 ```bash
 python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >/dev/null
 pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'inventory or public_boundary or effect_adapter'
-git diff --check
+git diff --check -- docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md tests/test_workflow_lisp_procedure_first_migrations.py
 ```
 
 - [ ] **Step 4: Commit each audited family group separately**
@@ -585,7 +585,7 @@ Update the YAML retirement plan/triage with bounded family queues and prerequisi
 rg -n 'workflows/(examples|library)/.*\.yaml' docs workflows tests README.md
 pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'legacy_retire or retirement_handoff'
 python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >/dev/null
-git diff --check
+git diff --check -- docs/plans/2026-07-07-yaml-retirement-program.md docs/workflow_yaml_estate_triage.md docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md tests/test_workflow_lisp_procedure_first_migrations.py
 ```
 
 - [ ] **Step 4: Commit the handoff**

@@ -293,10 +293,11 @@ Expected: PASS except only already-established unrelated failures, which must be
 
 ```bash
 git diff --name-only HEAD~4..HEAD -- workflows
-git diff --check
+git diff --check HEAD~4..HEAD
 ```
 
-Expected: the first command prints nothing; `git diff --check` exits 0.
+Expected: the first command prints nothing; the committed-range whitespace
+check exits 0 without inspecting protected working-tree changes.
 
 - [ ] **Step 5: Commit documentation only if needed**
 

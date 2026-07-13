@@ -105,10 +105,10 @@ Add the accepted delta to `docs/design/README.md` and make the frontend specific
 
 ```bash
 rg -n "another workflow should call|belongs in a reusable workflow library|Need decide whether workflow references|not folded into the generic.*summar" docs/design/workflow_lisp_frontend_specification.md docs/design/workflow_lisp_parametric_type_system.md docs/lisp_workflow_drafting_guide.md
-git diff --check
+git diff --check -- docs/design/workflow_lisp_procedure_first_reuse_contract.md docs/design/workflow_lisp_frontend_specification.md docs/design/workflow_lisp_parametric_type_system.md docs/lisp_workflow_drafting_guide.md docs/design/README.md
 ```
 
-Expected: no stale rule remains; `git diff --check` exits 0.
+Expected: no stale rule remains; the scoped whitespace check exits 0.
 
 - [ ] **Step 6: Obtain specification and quality reviews and resolve findings**
 
@@ -207,15 +207,27 @@ Route the accepted procedure-first contract and inventory from `docs/index.md`; 
 ```bash
 python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >/dev/null
 rg -n "current selector|Stage 4|Stage 5|procedure-first" docs/index.md docs/capability_status_matrix.md docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md
-git diff --check
-git status --short
+git diff --check -- docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md docs/plans/2026-07-13-procedure-first-stage4-design-and-planning.md docs/index.md docs/capability_status_matrix.md
 ```
 
-Expected: S4 is consistently satisfied; the current selector is typed result guidance; only the seven protected unrelated paths remain unstaged/dirty after the roadmap commit.
+Expected: S4 is consistently satisfied, the current selector is typed result
+guidance, and the four closeout files pass the scoped whitespace check before
+staging.
 
 - [ ] **Step 6: Commit the S4 closeout only**
 
 ```bash
 git add docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md docs/plans/2026-07-13-procedure-first-stage4-design-and-planning.md docs/index.md docs/capability_status_matrix.md
+git diff --cached --check
 git commit -m "Close procedure-first design gate"
 ```
+
+- [ ] **Step 7: Verify the post-commit protected-tree baseline**
+
+```bash
+git status --short
+```
+
+Expected: the four closeout files are absent and the output matches the initial
+guard baseline exactly: only the seven protected user-owned paths remain
+unstaged/dirty. Do not restore or rewrite them.
