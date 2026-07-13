@@ -196,21 +196,25 @@ def test_design_delta_promotion_routes_current_docs_to_orc_primary() -> None:
     assert "Gate P3" in current_surface
 
 
-def test_design_delta_promotion_handoff_routes_to_independent_gate_p3_closure() -> None:
+def test_gate_p3_authorities_route_to_phase_3_task_3_1() -> None:
     drain_plan = (
         REPO_ROOT
         / "docs"
         / "plans"
         / "2026-07-07-drain-migration-g8-retirement.md"
     ).read_text(encoding="utf-8")
-    gate_p2_status = drain_plan.split(
-        "**Status (reviewed 2026-07-12): SATISFIED.**", 1
-    )[1].split("**Gate P3 (entry to Phase 3):**", 1)[0]
-    historical_gate_p2_routing = drain_plan.split(
-        "**Historical routing effect at the Gate P2 checkpoint:**", 1
-    )[1].split("## Phase 2 Ledger", 1)[0]
+    gate_p3_status = drain_plan.split(
+        "**Status (independently reviewed 2026-07-12): SATISFIED.**", 1
+    )[1].split("**Gate P4 (entry to Phase 4):**", 1)[0]
+    capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
+    backlog_drain_row = _markdown_table_row(
+        capability_matrix_path, "`backlog-drain` generic stdlib route"
+    )
+    design_delta_row = _markdown_table_row(
+        capability_matrix_path, "Design Delta parent-family boundary"
+    )
     typed_guidance_row = _markdown_table_row(
-        REPO_ROOT / "docs" / "capability_status_matrix.md",
+        capability_matrix_path,
         "Workflow Lisp typed result guidance",
     )
     docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
@@ -243,29 +247,24 @@ def test_design_delta_promotion_handoff_routes_to_independent_gate_p3_closure() 
     ).read_text(encoding="utf-8").split(
         "The promotion handoff now has strict promotable parity", 1
     )[1].split("The remaining sections preserve the June migration inventory", 1)[0]
+    family_one_row = _markdown_table_row(
+        REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md",
+        "lisp_frontend_design_delta_drain.yaml",
+    )
     routing_surfaces = {
-        "drain plan Gate P2 status": (gate_p2_status, "current selector"),
-        "drain plan historical Gate P2 routing": (
-            historical_gate_p2_routing,
-            "current selector",
+        "drain plan Gate P3 status": gate_p3_status,
+        "capability matrix": " ".join(
+            (backlog_drain_row, design_delta_row, typed_guidance_row)
         ),
-        "typed-guidance capability row": (typed_guidance_row, "current selector"),
-        "docs index component-plan routing": (docs_index_routing, "current selector"),
-        "procedure-first current selection": (
-            procedure_sequence_routing,
-            "active step is",
-        ),
-        "activation current amendment": (
-            activation_amendment,
-            "next active selection:",
-        ),
-        "migration-record current authority": (
-            migration_record_routing,
-            "current selector",
-        ),
+        "docs index component-plan routing": docs_index_routing,
+        "procedure-first current selection": procedure_sequence_routing,
+        "activation current amendment": activation_amendment,
+        "migration-record current authority": migration_record_routing,
+        "YAML-retirement family-1 row": family_one_row,
     }
 
-    for label, (surface, selector_marker) in routing_surfaces.items():
+    assert len(routing_surfaces) == 7
+    for label, surface in routing_surfaces.items():
         normalized = " ".join(
             surface.lower()
             .replace("-", " ")
@@ -273,55 +272,31 @@ def test_design_delta_promotion_handoff_routes_to_independent_gate_p3_closure() 
             .replace(">", " ")
             .split()
         )
-        selector_target = normalized.split(selector_marker, 1)[1].split(".", 1)[0]
-        assert "gate p3" in selector_target, label
-        assert "all four" in selector_target, label
-        assert "verif" in selector_target, label
-        assert (
-            "promotion handoff" not in selector_target.split("gate p3", 1)[0]
-        ), label
-
-    completed_handoff_surfaces = {
-        "drain plan Gate P2 status": gate_p2_status,
-        "drain plan historical Gate P2 routing": historical_gate_p2_routing,
-    }
-    for label, surface in completed_handoff_surfaces.items():
-        normalized = " ".join(surface.lower().replace("-", " ").split())
-        assert "promotion handoff" in normalized, label
-        assert "complet" in normalized, label
-
-    normalized_history = " ".join(
-        historical_gate_p2_routing.lower()
-        .replace("-", " ")
-        .replace("–", " ")
-        .split()
-    )
-    assert "at that checkpoint" in normalized_history
-    assert "superseded" in normalized_history
-    assert "phase 2 ledger entry (e)" in normalized_history
+        assert "p3" in normalized, label
+        assert "satisfied" in normalized, label
+        assert "phase 3 task 3.1" in normalized, label
+        for forbidden_current in (
+            "current selector is typed result guidance",
+            "current selector is yaml archive",
+            "current selector is phase 4",
+            "current selector is task 3.2",
+            "active step is typed result guidance",
+            "next active selection: typed result guidance",
+        ):
+            assert forbidden_current not in normalized, (label, forbidden_current)
 
     normalized_guidance = " ".join(
         typed_guidance_row.lower().replace("-", " ").replace("–", " ").split()
     )
-    guidance_selector_sentence = next(
-        sentence
-        for sentence in normalized_guidance.split(".")
-        if "current selector" in sentence
-    )
-    assert guidance_selector_sentence.index("gate p3") < guidance_selector_sentence.index(
+    guidance_order = normalized_guidance.split("current order", 1)[1]
+    assert guidance_order.index("phase 3 task 3.1") < guidance_order.index(
         "phases 3 4"
     )
-    assert guidance_selector_sentence.index(
-        "phases 3 4"
-    ) < guidance_selector_sentence.index("stage 5")
+    assert guidance_order.index("phases 3 4") < guidance_order.index("stage 5")
 
     retirement_program = (
         REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md"
     ).read_text(encoding="utf-8")
-    family_one_row = _markdown_table_row(
-        REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md",
-        "lisp_frontend_design_delta_drain.yaml",
-    )
     assert "Family (YAML primary or retained twin)" in retirement_program
     assert "+ 6 `v214` library imports" in family_one_row
     assert ".orc" in family_one_row

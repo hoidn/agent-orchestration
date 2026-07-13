@@ -203,7 +203,9 @@ evidence.
   helpers behind the current phase/std-resource compatibility surfaces.
 - `lowering/phase_resource.py`: `resource-transition` and
   `finalize-selected-item` lowering ownership.
-- `lowering/phase_drain.py`: `backlog-drain` lowering ownership.
+- `stdlib_modules/std/drain.orc`: imported generic `backlog-drain` procedure
+  and macro ownership; ordinary specialization and WCC lowering handle the
+  expanded parent-owned loop without a drain-specific lowering module.
 
 ## Component Design Docs
 

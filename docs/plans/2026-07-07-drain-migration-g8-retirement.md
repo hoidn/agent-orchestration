@@ -73,8 +73,9 @@ Record fresh command output under each gate before dispatching the phase. A gate
 **Status (reviewed 2026-07-12): SATISFIED.** The durable evidence is recorded in
 Phase 1 Ledger entry (k). Gate P2 admitted the reviewed Phase 2 sequence. Phase
 2 Tasks 2.1–2.3 and the bounded Design Delta promotion handoff are now
-complete. Gate P3 is **not** satisfied. The current selector is independent
-all-four-condition Gate P3 verification and closure.
+complete. Gate P3 is also satisfied by the later independent joint proof
+recorded in Phase 2 Ledger entry (f). The current selector is **Phase 3 Task
+3.1: re-home one parent-drain smoke into parity evidence commands**.
 
 **Gate P3 (entry to Phase 3):**
 1. Phase 2 Tasks 2.1–2.3 committed; name-blindness check (Task 2.3 Step 2) clean.
@@ -82,12 +83,15 @@ all-four-condition Gate P3 verification and closure.
 3. Final parity regeneration (same command as P2.5) → exit 0, `"non_regressive": true`; `promotion_eligibility` recorded in the Phase-2 ledger entry. This is the "G7 + promotion evidence -> G8" sequencing obligation discharged and recorded.
 4. Promotion handoff completed and recorded (steering, user, 2026-07-07; governing sequence Stage 3): YAML-retirement Task 5 family 1 has run only through registration, fresh non-regressive parity, the `.orc` primary flip, and fresh end-to-end evidence. The `.orc` entry `lisp_frontend_design_delta/drain::drain` is the primary production route; Task 5's archive bullet has **not** run, and the YAML twin remains for Stage 6.
 
-**Status (promotion handoff recorded 2026-07-12): PENDING INDEPENDENT FULL
-VERIFICATION.** Phase 2 Ledger entry (e) records condition 4 and its strict
-promotion evidence. That bounded handoff is not by itself a fresh joint check
-of conditions 1–4. The current selector is Gate P3 all-four-condition
-verification and closure; do not enter Phase 3 until that independent gate
-passes and is recorded.
+**Status (independently reviewed 2026-07-12): SATISFIED.** Phase 2 Ledger entry
+(e) records the bounded promotion handoff, and entry (f) records the later
+fresh joint verification of conditions 1–4 at base HEAD
+`c82d150286248661bbfe2d8cb338715f47a02d36`. This status-and-routing closure
+does not alter the verified implementation or evidence surfaces. Gate P3 is
+satisfied and now admits Phase 3, whose current selector is **Phase 3 Task 3.1: re-home one parent-drain
+smoke into parity evidence commands**. Do not select Task 3.2 or later Phase-3
+work, Phase 4, typed result guidance, or YAML archive before Task 3.1 and its
+own checks are complete.
 
 **Gate P4 (entry to Phase 4):**
 1. Phase 3 Tasks 3.1–3.4 committed.
@@ -276,7 +280,7 @@ pytest tests/test_workflow_lisp_drain_stdlib.py tests/test_workflow_lisp_design_
 pytest tests/test_workflow_lisp_checkpoint_identity_comparison.py -v
 ```
 Expected: at Phase-1 baselines; identity tests still pass (retirement must not perturb the generic route's identities).
-- [x] **Step 2: Name-blindness check:** `grep -rn "backlog.drain\|backlog_drain\|BacklogDrain" orchestrator/workflow_lisp/ | grep -v stdlib_modules | grep -v README` → expected: the Task-2.2 registry record and stdlib-contract inventory rows only. Anything else is unfinished retirement.
+- [x] **Step 2: Name-blindness check:** `grep -rn "backlog.drain\|backlog_drain\|BacklogDrain" orchestrator/workflow_lisp/ | grep -v stdlib_modules | grep -v README` → expected during the Phase-2/3 boundary: exactly three sanctioned true registry/contract residue rows (two in `form_registry.py`, one in `stdlib_contracts.py`) plus the 12 frozen later-Phase certification/parity/inventory references that still exist only to prove and then retire the Design Delta evidence lanes. Any active AST, elaboration, typecheck, lowering, WCC dispatch, or form-specific-specialization site is unfinished intrinsic retirement; a frozen later-Phase evidence reference is not such a site and must remain until its owning Phase-3/4 task deletes it.
 - [x] **Step 3: Residue audit** (design: "Residue materially above that is a signal to stop and reassess against the per-form migration test rather than push through"): compare surviving lines against the review-loop precedent (registry entry, stdlib contract, output-contract shaping); record counts + the `line_count_delta`/`hook_surface_delta` from the fresh `g8_deletion_evidence.json` in the Phase 2 Ledger (§17.3: "Deletion evidence reports line-count and hook-surface reduction"). Materially more residue → STOP and escalate.
 - [x] **Step 4: Final parity regeneration (the Gate P3 promotion evidence):** run the P2.5 parity command; record `non_regressive` and `promotion_eligibility` in the ledger.
 - [x] **Step 5: Docs:** update `docs/capability_status_matrix.md` (backlog-drain: library-provided via `std/drain` generic; intrinsic: retired) and the two design docs' status notes (prereq 6 landed; G8 drain rows discharged). Commit: `Record intrinsic drain retirement evidence`.
@@ -1802,3 +1806,73 @@ archive step ran. Condition 4 is now recorded, but Gate P3 remains **pending**
 until an independent command set verifies and closes all four conditions
 together. The next selector is that Gate P3 verification, not Phase 3 and not
 typed result guidance.
+
+**(f) Gate P3 independent joint proof and reviewed closure (2026-07-12).** All
+four Gate P3 conditions were re-run together at base HEAD
+**`c82d150286248661bbfe2d8cb338715f47a02d36`** between
+`2026-07-13T05:26:41Z` and `05:45:35Z`. The complete runner summary is
+`tmp/gate-p3-c82d1502/summary.md`, SHA-256
+`1e2b95052d6d7e3880f832cdc7330db85fb1ae3dd440520d4f119679889c0383`.
+The initial audit step `15` returned 1 because its runner derived one path key
+incorrectly; corrected audit `15b` and the final audit `22` returned 0 and
+matched every reference. This was a transparent evidence-runner correction,
+not an artifact or product-code repair.
+
+1. **Deletion and name blindness:** ancestry checks found all Phase-2 closure
+   commits through `049efd5d`. The exact search
+   `grep -rn 'backlog.drain\|backlog_drain\|BacklogDrain' orchestrator/workflow_lisp/ | grep -v stdlib_modules | grep -v README`
+   produced exactly 15 source lines: three sanctioned true registry/contract
+   residue rows and 12 frozen later-Phase certification/parity/inventory
+   references. It found zero AST, elaboration, typecheck, lowering, WCC
+   dispatch, or form-specific-specialization sites. The five permanent
+   structure/classification/export guards passed **5 tests**; their log
+   SHA-256 is
+   `b41f5289e05bfc39de949fd886e9345eff8395618de78c2ea86db03a0fadf16d`.
+2. **Post-deletion certification:** the exact production command
+   `python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json`
+   exited 0 with zero diagnostics, `wcc_m4`, schema 2, and fingerprint
+   `c5cf03b2755308a3`; compile-log SHA-256
+   `3b21344aba8bac48ddae46222918ae404baa5053740971fc17d521d28492f97a`.
+   The fresh G8 artifact reports `status: pass`, imported-only heads
+   `with-phase` and `backlog-drain`, and SHA-256
+   `8b6e1bbe4f966cb2dacaa19022ae594ac22e09f5a202db68608005c88e83711c`.
+3. **Ordinary and strict parity:** the ordinary command
+   `python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/review-parity-check --target design_delta_parent_drain --require-non-regressive`
+   exited 0 with one selected non-regressive target and overall pass; log
+   SHA-256
+   `7f71f42a416a2bfde0f084880a67e414ed1500a3491a486b5d3b0b9937393a59`.
+   The final strict command used the same arguments with
+   `--require-promotable`; it exited 0 with no regressions and log SHA-256
+   `96634aa2418c37e5c4e161079d88cc7b23b79d7749d86dec84ad98b491c932c0`.
+   Final canonical SHA-256 values are report
+   `b621cc139a5b828334a1b61b22f84e5d66341854515924d3734e7d70790ad880`,
+   Markdown
+   `5a274e9224e81a44e7515b32b92fb7f0fb503832011f2e38c9e76667a66de481`,
+   index
+   `bf045d816b215e547b9fcb99b66d028e4b45018ab3a57c33c35aefd328c00cd0`,
+   and strict gate
+   `7ca1cbcbce097577c65d57b5406d79148580a6b1f0756c81b3ed218fc9dd0173`.
+   The final audit matched **47/47** path/hash references, **14/14** fresh
+   command logs, and **15/15** fresh required build artifacts. The four narrow
+   sibling fail-closed parity checks passed; log SHA-256
+   `f299cb0ffb4580215f4b9643a2f31cdf09e6c57c46f955b1d1c6a26a088f6fb3`.
+4. **Bounded promotion handoff:** the checked nine-public-input `.orc` dry-run
+   command recorded in entry (e) was invoked independently and exited 0 with
+   `Workflow validation successful`; log SHA-256
+   `d47037ef49b7ab03223bf82b832c810f11c85cd013acdfe9e600cd43e8c48f44`.
+   The exact smoke command
+   `pytest -q -n 16 --dist=worksteal tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -k design_delta_parent_drain_smokes`
+   passed **6 tests in 7.94s**; log SHA-256
+   `1b1e849eb086bb90f8024f802bdc477b2ed80d3ddeac03cb5f1fd12c951ce126`.
+   The parent YAML twin and all six `v214` twins remain present and byte-equal
+   to `17d66bf6`; no archive ran. No guarded regeneration environment was
+   needed, and no canonical artifact was edited by hand.
+
+Independent specification review returned **PASS** with no findings.
+Independent evidence/quality review returned **APPROVED**, including the
+artifact freshness, strict/ordinary parity distinction, name-blindness
+classification, and archive boundary. There is no machine-readable task
+selector for this prose-led plan; the routing authority is the synchronized
+plan/index/status surface. Gate P3 is therefore **SATISFIED** and the sole
+current selection is **Phase 3 Task 3.1**. This closure does not start Task
+3.1, Task 3.2+, Phase 4, typed result guidance, or YAML archive.

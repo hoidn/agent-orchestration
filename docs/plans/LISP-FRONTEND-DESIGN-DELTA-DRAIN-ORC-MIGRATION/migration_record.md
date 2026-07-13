@@ -3,7 +3,7 @@
 Workflow family: Lisp frontend design delta drain
 Primary `.orc`: `workflows/library/lisp_frontend_design_delta/drain.orc`
 Compatibility YAML twin: `workflows/examples/lisp_frontend_design_delta_drain.yaml`
-Status: `primary-flipped; promotion evidence recorded; Gate P3 verification pending`
+Status: `primary-flipped; promotion evidence recorded; Gate P3 satisfied`
 Created: 2026-06-09
 Plan: `docs/plans/2026-06-09-lisp-frontend-design-delta-drain-orc-migration-plan.md`
 
@@ -16,10 +16,12 @@ migration target is eligible for the primary surface. The YAML twin remains in
 place only as compatibility/reference evidence until the Stage 6 archive gate.
 
 The promotion handoff now has strict promotable parity plus fresh ordinary
-compile, input-complete CLI dry-run, and parent-smoke evidence. This record does
-not satisfy Gate P3 by itself: the current selector is independent verification
-and closure across all four Gate P3 conditions. Gate P3 remains pending, and the
-roadmap must not enter Phase 3 before that full verification passes.
+compile, input-complete CLI dry-run, and parent-smoke evidence. This record did
+not satisfy Gate P3 by itself; the later independent joint proof recorded in
+the governing drain plan verified all four conditions and satisfied Gate P3.
+The current selector is drain Phase 3 Task 3.1: re-home one parent-drain smoke
+into parity evidence commands. Task 3.2+, Phase 4, typed result guidance, and
+YAML archive are not current.
 
 The remaining sections preserve the June migration inventory and baseline as
 dated provenance. They do not override the current registry, parity target, or
