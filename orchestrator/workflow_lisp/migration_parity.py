@@ -19,29 +19,6 @@ REPORT_SCHEMA_VERSION = "workflow_lisp_migration_parity_report.v2"
 INDEX_SCHEMA_VERSION = "workflow_lisp_migration_parity_index.v2"
 GATE_EVALUATION_SCHEMA_VERSION = "workflow_lisp_migration_parity_gate_evaluation.v1"
 TOOL_VERSION = "workflow_lisp_migration_parity.v2"
-DESIGN_DELTA_G8_DELETION_EVIDENCE_SCHEMA_VERSION = (
-    "workflow_lisp_design_delta_g8_deletion_evidence.v1"
-)
-DESIGN_DELTA_G8_DELETED_MANIFEST_ROWS = (
-    "classify_lisp_frontend_work_item_terminal",
-    "select_lisp_frontend_blocked_recovery_route",
-    "record_terminal_work_item",
-    "record_blocked_recovery_outcome",
-    "write_lisp_frontend_drain_status",
-    "finalize_lisp_frontend_drain_summary",
-)
-DESIGN_DELTA_G8_RESOURCE_TRANSITION_HELPERS = (
-    "record_terminal_work_item",
-    "record_blocked_recovery_outcome",
-    "write_lisp_frontend_drain_status",
-    "finalize_lisp_frontend_drain_summary",
-)
-DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS = (
-    "with-phase",
-    "finalize-selected-item",
-    "backlog-drain",
-)
-DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS = ("with-phase", "backlog-drain")
 COMMAND_ROLES = (
     "compile",
     "dry_run",
@@ -521,12 +498,6 @@ def run_parity_target(
         build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
         repo_root=repo_root,
     )
-    g8_deletion_evidence = _load_compile_artifact_json(
-        artifact_name="g8_deletion_evidence",
-        build_manifest=build_manifest,
-        build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
-        repo_root=repo_root,
-    )
     if workflow_boundary is not None:
         report["workflow_boundary_projection"] = workflow_boundary
     if isinstance(adapter_census, Mapping):
@@ -547,8 +518,6 @@ def run_parity_target(
         report["rendering_cleanup_report"] = dict(rendering_cleanup_report)
     if isinstance(transition_authoring_report, Mapping):
         report["transition_authoring_report"] = dict(transition_authoring_report)
-    if isinstance(g8_deletion_evidence, Mapping):
-        report["g8_deletion_evidence"] = dict(g8_deletion_evidence)
     if target.required_family_evidence_roles:
         parent_route_identity, parent_family_evidence = _parent_family_evidence(
             target=target,
@@ -559,7 +528,6 @@ def run_parity_target(
             workflow_boundary=workflow_boundary,
             adapter_census=adapter_census,
             boundary_authority_report=boundary_authority_report,
-            g8_deletion_evidence=g8_deletion_evidence,
             repo_root=repo_root,
         )
         report["route_identity"] = parent_route_identity
@@ -1369,7 +1337,6 @@ def _parent_family_evidence(
     workflow_boundary: Mapping[str, Any] | None,
     adapter_census: Mapping[str, Any] | None,
     boundary_authority_report: Mapping[str, Any] | None,
-    g8_deletion_evidence: Mapping[str, Any] | None,
     repo_root: Path,
 ) -> tuple[dict[str, object], dict[str, object]]:
     route_identity = {
@@ -1401,26 +1368,16 @@ def _parent_family_evidence(
             )
         elif role == "parent_callable_smoke":
             role_evidence[role] = _parent_callable_smoke_evidence(evidence)
-        elif role == "resource_transition_parity":
-            role_evidence[role] = _resource_transition_parity_evidence(
-                target=target,
-                g8_deletion_evidence=g8_deletion_evidence,
-                repo_root=repo_root,
-            )
         elif role == "projection_retirement_parity":
             role_evidence[role] = _projection_retirement_parity_evidence(
                 target=target,
-                compile_payload=compile_payload,
-                build_manifest=build_manifest,
                 adapter_census=adapter_census,
-                g8_deletion_evidence=g8_deletion_evidence,
                 repo_root=repo_root,
             )
         elif role == "view_retirement_parity":
             role_evidence[role] = _view_retirement_parity_evidence(
                 target=target,
                 adapter_census=adapter_census,
-                g8_deletion_evidence=g8_deletion_evidence,
                 repo_root=repo_root,
             )
         elif role == "public_private_boundary_parity":
@@ -1676,305 +1633,10 @@ def _parent_callable_smoke_evidence(evidence: Mapping[str, object]) -> dict[str,
     }
 
 
-def _resource_transition_parity_evidence(
-    *,
-    target: ParityTarget,
-    g8_deletion_evidence: Mapping[str, Any] | None = None,
-    repo_root: Path,
-) -> dict[str, object]:
-    if target.command_boundaries_file is None:
-        return {
-            "status": "fail",
-            "reason": "target does not declare command_boundaries_file",
-        }
-    manifest_path = repo_root / target.command_boundaries_file
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        return {
-            "status": "fail",
-            "reason": f"command boundary manifest is unreadable: {exc}",
-        }
-    if not isinstance(manifest, Mapping):
-        return {
-            "status": "fail",
-            "reason": "command boundary manifest is not an object",
-        }
-    deleted_rows, deletion_reasons = _validated_design_delta_g8_deleted_rows(
-        target=target,
-        g8_deletion_evidence=g8_deletion_evidence,
-        required_rows=DESIGN_DELTA_G8_RESOURCE_TRANSITION_HELPERS,
-    )
-    helper_rows: dict[str, object] = {}
-    reasons: list[str] = []
-    reasons.extend(deletion_reasons)
-    for helper in DESIGN_DELTA_G8_RESOURCE_TRANSITION_HELPERS:
-        row = manifest.get(helper)
-        if isinstance(row, Mapping):
-            helper_rows[helper] = {
-                "status": "fail",
-                "reason": "deleted helper still present in active manifest",
-            }
-            reasons.append(f"deleted helper `{helper}` is still present in the active manifest")
-            continue
-        helper_status = "pass" if helper in deleted_rows else "fail"
-        helper_rows[helper] = {
-            "status": helper_status,
-            "reason": "deleted via g8_deletion_evidence"
-            if helper_status == "pass"
-            else "g8_deletion_evidence does not record helper deletion",
-        }
-        if helper_status != "pass":
-            reasons.append(f"g8_deletion_evidence does not record deleted helper `{helper}`")
-    runtime_audit = _runtime_audit_transition_parity_evidence(
-        target=target,
-        repo_root=repo_root,
-    )
-    if runtime_audit["status"] != "pass":
-        reasons.append(
-            runtime_audit.get("reason")
-            if isinstance(runtime_audit.get("reason"), str)
-            else "runtime audit evidence failed"
-        )
-    return {
-        "status": "fail" if reasons else "pass",
-        "helpers": helper_rows,
-        "g8_deleted_rows": sorted(deleted_rows),
-        "runtime_audit": runtime_audit,
-        **({"reasons": reasons} if reasons else {}),
-    }
-
-
-def _runtime_audit_transition_parity_evidence(
-    *,
-    target: ParityTarget,
-    repo_root: Path,
-) -> dict[str, object]:
-    if not target.runtime_audit_artifacts:
-        return {
-            "status": "fail",
-            "reason": "target does not declare runtime_audit_artifacts",
-        }
-    artifacts: dict[str, object] = {}
-    reasons: list[str] = []
-    for artifact in target.runtime_audit_artifacts:
-        artifact_id = artifact["artifact_id"]
-        artifact_path = repo_root / artifact["path"]
-        artifact_status = "pass"
-        artifact_reasons: list[str] = []
-        if not artifact_path.exists():
-            artifact_status = "fail"
-            artifact_reasons.append(f"missing runtime audit artifact `{artifact_id}`")
-            artifacts[artifact_id] = {
-                "status": artifact_status,
-                "path": artifact["path"],
-                "transition_name": artifact["transition_name"],
-                "resource_kind": artifact["resource_kind"],
-                "reason": artifact_reasons[0],
-            }
-            reasons.extend(artifact_reasons)
-            continue
-        try:
-            rows = [
-                json.loads(line)
-                for line in artifact_path.read_text(encoding="utf-8").splitlines()
-                if line.strip()
-            ]
-        except (OSError, json.JSONDecodeError) as exc:
-            artifact_status = "fail"
-            artifact_reasons.append(
-                f"runtime audit artifact `{artifact_id}` is unreadable: {exc}"
-            )
-            artifacts[artifact_id] = {
-                "status": artifact_status,
-                "path": artifact["path"],
-                "transition_name": artifact["transition_name"],
-                "resource_kind": artifact["resource_kind"],
-                "reason": artifact_reasons[0],
-            }
-            reasons.extend(artifact_reasons)
-            continue
-        matching_row = next(
-            (
-                row
-                for row in rows
-                if isinstance(row, Mapping)
-                and row.get("transition_name") == artifact["transition_name"]
-                and row.get("resource_kind") == artifact["resource_kind"]
-            ),
-            None,
-        )
-        if matching_row is None:
-            artifact_status = "fail"
-            artifact_reasons.append(
-                f"runtime audit artifact `{artifact_id}` does not contain the declared transition identity"
-            )
-        artifacts[artifact_id] = {
-            "status": artifact_status,
-            "path": artifact["path"],
-            "transition_name": artifact["transition_name"],
-            "resource_kind": artifact["resource_kind"],
-            **({"reasons": artifact_reasons} if artifact_reasons else {}),
-        }
-        reasons.extend(artifact_reasons)
-    return {
-        "status": "fail" if reasons else "pass",
-        "artifacts": artifacts,
-        **({"reason": reasons[0], "reasons": reasons} if reasons else {}),
-    }
-
-
-def _validated_design_delta_g8_deleted_rows(
-    *,
-    target: ParityTarget,
-    g8_deletion_evidence: Mapping[str, Any] | None,
-    required_rows: Sequence[str],
-) -> tuple[set[str], list[str]]:
-    reasons: list[str] = []
-    if g8_deletion_evidence is None:
-        return set(), ["missing g8_deletion_evidence compile artifact"]
-    if g8_deletion_evidence.get("schema_version") != DESIGN_DELTA_G8_DELETION_EVIDENCE_SCHEMA_VERSION:
-        reasons.append("g8_deletion_evidence compile artifact has wrong schema_version")
-    if g8_deletion_evidence.get("workflow_family") != target.workflow_family:
-        reasons.append("g8_deletion_evidence compile artifact does not match target workflow_family")
-    if g8_deletion_evidence.get("status") != "pass":
-        reasons.append("g8_deletion_evidence compile artifact is not passing")
-    removed_manifest_rows = g8_deletion_evidence.get("removed_manifest_rows")
-    if not isinstance(removed_manifest_rows, list) or not all(
-        isinstance(row_name, str) and row_name for row_name in removed_manifest_rows
-    ):
-        reasons.append("g8_deletion_evidence compile artifact does not declare removed_manifest_rows")
-        return set(), reasons
-    removed_registry_heads = g8_deletion_evidence.get("removed_registry_heads")
-    if not isinstance(removed_registry_heads, list) or not all(
-        isinstance(head_name, str) and head_name for head_name in removed_registry_heads
-    ):
-        reasons.append("g8_deletion_evidence compile artifact does not declare removed_registry_heads")
-    else:
-        missing_removed_heads = sorted(
-            head_name
-            for head_name in DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS
-            if head_name not in removed_registry_heads
-        )
-        if missing_removed_heads:
-            reasons.append(
-                "g8_deletion_evidence compile artifact is missing deleted registry heads: "
-                + ", ".join(missing_removed_heads)
-            )
-    hook_surface_delta = g8_deletion_evidence.get("hook_surface_delta")
-    if not isinstance(hook_surface_delta, Mapping):
-        reasons.append("g8_deletion_evidence compile artifact does not declare hook_surface_delta")
-    else:
-        imported_only_registry_heads = hook_surface_delta.get("imported_only_registry_heads")
-        if not isinstance(imported_only_registry_heads, list) or not all(
-            isinstance(head_name, str) and head_name for head_name in imported_only_registry_heads
-        ):
-            reasons.append(
-                "g8_deletion_evidence compile artifact does not declare imported_only_registry_heads"
-            )
-        else:
-            missing_imported_only_heads = sorted(
-                head_name
-                for head_name in DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS
-                if head_name not in imported_only_registry_heads
-            )
-            if missing_imported_only_heads:
-                reasons.append(
-                    "g8_deletion_evidence compile artifact is missing imported-only registry heads: "
-                    + ", ".join(missing_imported_only_heads)
-                )
-    removed_rows = {row_name for row_name in removed_manifest_rows}
-    missing_required_rows = sorted(row_name for row_name in required_rows if row_name not in removed_rows)
-    if missing_required_rows:
-        reasons.append(
-            "g8_deletion_evidence compile artifact is missing deleted rows: "
-            + ", ".join(missing_required_rows)
-    )
-    return removed_rows, reasons
-
-
-def _build_root_from_compile_payload(
-    compile_payload: Mapping[str, Any] | None,
-) -> Path | None:
-    if isinstance(compile_payload, Mapping) and isinstance(compile_payload.get("build_root"), str):
-        return Path(str(compile_payload["build_root"]))
-    return None
-
-
-def _projection_deleted_helper_live_lineage(
-    *,
-    build_manifest: Mapping[str, Any] | None,
-    build_root: Path | None,
-    repo_root: Path,
-) -> tuple[set[str], list[str]]:
-    reasons: list[str] = []
-    source_map = _load_compile_artifact_json(
-        artifact_name="source_map",
-        build_manifest=build_manifest,
-        build_root=build_root,
-        repo_root=repo_root,
-    )
-    core_workflow_ast = _load_compile_artifact_json(
-        artifact_name="core_workflow_ast",
-        build_manifest=build_manifest,
-        build_root=build_root,
-        repo_root=repo_root,
-    )
-    if source_map is None:
-        reasons.append(
-            "missing source_map compile artifact needed for deleted projection helper lineage"
-        )
-    if core_workflow_ast is None:
-        reasons.append(
-            "missing core_workflow_ast compile artifact needed for deleted projection helper lineage"
-        )
-    live_names: set[str] = set()
-    if isinstance(source_map, Mapping):
-        workflows = source_map.get("workflows")
-        if not isinstance(workflows, Mapping):
-            reasons.append(
-                "source_map compile artifact does not contain workflow lineage for deleted projection helpers"
-            )
-        else:
-            for workflow_payload in workflows.values():
-                if not isinstance(workflow_payload, Mapping):
-                    continue
-                command_boundaries = workflow_payload.get("command_boundaries")
-                if not isinstance(command_boundaries, list):
-                    continue
-                for boundary in command_boundaries:
-                    if not isinstance(boundary, Mapping):
-                        continue
-                    boundary_name = boundary.get("adapter_name") or boundary.get("command_name")
-                    if isinstance(boundary_name, str) and boundary_name:
-                        live_names.add(boundary_name)
-    if isinstance(core_workflow_ast, Mapping):
-        live_names.update(_core_ast_boundary_names(core_workflow_ast))
-    return live_names, reasons
-
-
-def _core_ast_boundary_names(node: object) -> set[str]:
-    names: set[str] = set()
-    if isinstance(node, Mapping):
-        for key in ("adapter_name", "command_name"):
-            value = node.get(key)
-            if isinstance(value, str) and value:
-                names.add(value)
-        for value in node.values():
-            names.update(_core_ast_boundary_names(value))
-    elif isinstance(node, list):
-        for item in node:
-            names.update(_core_ast_boundary_names(item))
-    return names
-
-
 def _projection_retirement_parity_evidence(
     *,
     target: ParityTarget,
-    compile_payload: Mapping[str, Any] | None = None,
-    build_manifest: Mapping[str, Any] | None = None,
     adapter_census: Mapping[str, Any] | None = None,
-    g8_deletion_evidence: Mapping[str, Any] | None = None,
     repo_root: Path,
 ) -> dict[str, object]:
     artifacts = [
@@ -1989,7 +1651,6 @@ def _projection_retirement_parity_evidence(
         }
     results: dict[str, object] = {}
     reasons: list[str] = []
-    build_root = _build_root_from_compile_payload(compile_payload)
     for artifact in artifacts:
         artifact_id = str(artifact["artifact_id"])
         artifact_path = repo_root / str(artifact["path"])
@@ -2063,34 +1724,6 @@ def _projection_retirement_parity_evidence(
                         for row in rows
                         if isinstance(row, Mapping) and isinstance(row.get("binding_name"), str)
                     }
-                    missing_adapter_names = [
-                        adapter_name
-                        for adapter_name in adapters
-                        if isinstance(adapter_name, str) and adapter_name not in rows_by_name
-                    ]
-                    deleted_rows: set[str] = set()
-                    deletion_reasons: list[str] = []
-                    if missing_adapter_names:
-                        deleted_rows, deletion_reasons = _validated_design_delta_g8_deleted_rows(
-                            target=target,
-                            g8_deletion_evidence=g8_deletion_evidence,
-                            required_rows=missing_adapter_names,
-                        )
-                    deleted_live_lineage, deleted_lineage_reasons = (
-                        _projection_deleted_helper_live_lineage(
-                            build_manifest=build_manifest,
-                            build_root=build_root,
-                            repo_root=repo_root,
-                        )
-                        if missing_adapter_names
-                        else (set(), [])
-                    )
-                    if deletion_reasons:
-                        artifact_status = "fail"
-                        artifact_reasons.extend(deletion_reasons)
-                    if deleted_lineage_reasons:
-                        artifact_status = "fail"
-                        artifact_reasons.extend(deleted_lineage_reasons)
                     for adapter_name in adapters:
                         if not isinstance(adapter_name, str):
                             artifact_status = "fail"
@@ -2100,58 +1733,15 @@ def _projection_retirement_parity_evidence(
                             continue
                         row = rows_by_name.get(adapter_name)
                         if row is None:
-                            deleted_reason: str | None = None
-                            if g8_deletion_evidence is None:
-                                deleted_reason = (
-                                    f"projection adapter `{adapter_name}` missing from "
-                                    "adapter_census and g8_deletion_evidence"
-                                )
-                            elif (
-                                g8_deletion_evidence.get("schema_version")
-                                != DESIGN_DELTA_G8_DELETION_EVIDENCE_SCHEMA_VERSION
-                            ):
-                                deleted_reason = (
-                                    f"projection adapter `{adapter_name}` has wrong "
-                                    "g8_deletion_evidence schema_version"
-                                )
-                            elif g8_deletion_evidence.get("workflow_family") != target.workflow_family:
-                                deleted_reason = (
-                                    f"projection adapter `{adapter_name}` has wrong "
-                                    "g8_deletion_evidence workflow_family"
-                                )
-                            elif g8_deletion_evidence.get("status") != "pass":
-                                deleted_reason = (
-                                    f"projection adapter `{adapter_name}` has non-passing "
-                                    "g8_deletion_evidence"
-                                )
-                            elif adapter_name not in deleted_rows:
-                                deleted_reason = (
-                                    f"projection adapter `{adapter_name}` missing from "
-                                    "adapter_census and g8_deletion_evidence"
-                                )
-                            elif deleted_lineage_reasons:
-                                deleted_reason = (
-                                    f"projection adapter `{adapter_name}` cannot be proven deleted "
-                                    "because compile/source_map lineage evidence is unreadable or missing"
-                                )
-                            elif adapter_name in deleted_live_lineage:
-                                deleted_reason = (
-                                    f"projection adapter `{adapter_name}` still has live "
-                                    "compile/source_map invocation lineage"
-                                )
-                            if deleted_reason is None:
-                                adapter_states[adapter_name] = {
-                                    "status": "pass",
-                                    "retirement_state": "deleted_after_retirement",
-                                    "evidence_source": "g8_deletion_evidence",
-                                }
-                                continue
+                            deleted_reason = (
+                                f"projection adapter `{adapter_name}` missing from adapter_census"
+                            )
                             artifact_status = "fail"
                             artifact_reasons.append(deleted_reason)
                             adapter_states[adapter_name] = {
                                 "status": "fail",
                                 "retirement_state": "invalid",
-                                "evidence_source": "g8_deletion_evidence",
+                                "evidence_source": "adapter_census",
                                 "reason": deleted_reason,
                             }
                             continue
@@ -2200,7 +1790,6 @@ def _view_retirement_parity_evidence(
     *,
     target: ParityTarget,
     adapter_census: Mapping[str, Any] | None = None,
-    g8_deletion_evidence: Mapping[str, Any] | None = None,
     repo_root: Path,
 ) -> dict[str, object]:
     artifacts = [
@@ -2215,12 +1804,6 @@ def _view_retirement_parity_evidence(
         }
     results: dict[str, object] = {}
     reasons: list[str] = []
-    deleted_rows, deletion_reasons = _validated_design_delta_g8_deleted_rows(
-        target=target,
-        g8_deletion_evidence=g8_deletion_evidence,
-        required_rows=("finalize_lisp_frontend_drain_summary",),
-    )
-    reasons.extend(deletion_reasons)
     for artifact in artifacts:
         artifact_id = str(artifact["artifact_id"])
         artifact_path = repo_root / str(artifact["path"])
@@ -2290,11 +1873,6 @@ def _view_retirement_parity_evidence(
                 artifact_reasons.append(
                     "family evidence artifact "
                     f"`{artifact_id}` does not record a passing finalizer adapter result"
-                )
-            if "finalize_lisp_frontend_drain_summary" not in deleted_rows:
-                artifact_status = "fail"
-                artifact_reasons.append(
-                    "g8_deletion_evidence compile artifact does not record deleted finalizer row"
                 )
             if adapter_census is not None:
                 if adapter_census.get("workflow_family") != target.workflow_family:
@@ -2502,7 +2080,6 @@ def _boundary_artifact_justification_evidence(
                     "adapter_census",
                     "boundary_authority_report",
                     "value_flow_census_report",
-                    "g8_deletion_evidence",
                     "core_workflow_ast",
                     "semantic_ir",
                     "source_map",

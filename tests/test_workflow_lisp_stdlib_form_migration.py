@@ -305,7 +305,7 @@ def test_retired_backlog_drain_registry_uses_imported_stdlib_classification() ->
     assert registry.get_form_spec("backlog-drain-callable-boundary") is None
 
 
-def test_retired_backlog_drain_g8_evidence_constants_match() -> None:
+def test_g8_imported_only_registry_heads_stay_owned_by_build_until_serializer_retirement() -> None:
     build_design_delta = importlib.import_module(
         "orchestrator.workflow_lisp.build_design_delta"
     )
@@ -315,7 +315,10 @@ def test_retired_backlog_drain_g8_evidence_constants_match() -> None:
 
     expected = ("with-phase", "backlog-drain")
     assert build_design_delta.DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS == expected
-    assert migration_parity.DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS == expected
+    assert not hasattr(
+        migration_parity,
+        "DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS",
+    )
 
 
 def test_retired_backlog_drain_callable_boundary_is_not_exported(
