@@ -4,7 +4,7 @@
 
 **Goal:** Make the approved procedure-first roadmap executable by reconciling the existing component plans with landed commits, tracking and routing the governing plan set, re-anchoring stale ownership paths, and establishing a verified component-plan handoff.
 
-**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, drain Phase 1 Task 1.7, Phase 2 Tasks 2.1–2.3, Phase 3 Tasks 3.1–3.4, and Phase 4 Task 4.1 are complete, and Gates P3 and P4 are independently reviewed and satisfied. The bounded Design Delta promotion handoff is recorded without archive, and its historical parity report is retained after target retirement. Task 4.1 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. The current selector is drain Phase 4 Task 4.2: strip the G8 serializer. Task 4.2 has not started, and no Task-4.2 deletion has begun. Stage 5 typed result guidance and Stage 6 YAML archive remain later work.
+**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, drain Phase 1 Task 1.7, Phase 2 Tasks 2.1–2.3, Phase 3 Tasks 3.1–3.4, and Phase 4 Tasks 4.1–4.2 are complete, and Gates P3 and P4 are independently reviewed and satisfied. The bounded Design Delta promotion handoff is recorded without archive, and its historical parity report is retained after target retirement. Task 4.1 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. The current selector is drain Phase 4 Task 4.3: final verification and closeout. Task 4.3 has not started. Final verification and final closeout have not begun. Stage 5 typed result guidance and Stage 6 YAML archive remain later work.
 
 > **Current execution amendment (updated 2026-07-13):** The case 5 design and
 > implementation are complete, and the boundary final gate passed. The
@@ -30,9 +30,11 @@
 > ordered certification bundle, and Task 3.4 closed Phase-3 verification with
 > independent specification and code-quality review. Gates P3 and P4 are
 > independently reviewed and satisfied. Task 4.1 is complete and independently
-> reviewed, with SPEC PASS and CODE QUALITY PASS. Next active selection: drain
-> Phase 4 Task 4.2: strip the G8 serializer. Task 4.2 has not started, and no
-> Task-4.2 deletion has begun. Stage 5 typed result
+> reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and
+> independently reviewed, with SPEC PASS and CODE QUALITY PASS. Next active
+> selection: drain Phase 4 Task 4.3: final verification and closeout. Task 4.3
+> has not started. Final verification and final closeout have not begun.
+> Stage 5 typed result
 > guidance and Stage 6 YAML archive remain later. Complete the remaining drain gates before the later
 > Stage-5 typed-result-guidance wave; P2 satisfies a prerequisite but does not
 > make guidance the current selector. The semantic-migration freeze remains in force and neither wave changes the
@@ -562,9 +564,11 @@ Task 3.2 retired the promoted parity target while preserving the historical
 promotion report, Task 3.3 retired the ordered certification bundle, and Task
 3.4 closed Phase-3 verification. Gates P3 and P4 are independently reviewed
 and satisfied. Task 4.1 is complete and independently reviewed, with SPEC PASS
-and CODE QUALITY PASS. Current routing, as recorded by `docs/index.md` and the
-governing execution sequence, selects drain Phase 4 Task 4.2: strip the G8
-serializer. Task 4.2 has not started, and no Task-4.2 deletion has begun. Stage
-5 typed result guidance and Stage 6 YAML archive remain later work.
+and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with
+SPEC PASS and CODE QUALITY PASS. Current routing, as recorded by `docs/index.md`
+and the governing execution sequence, selects drain Phase 4 Task 4.3: final
+verification and closeout. Task 4.3 has not started. Final verification and
+final closeout have not begun. Stage 5 typed result guidance and
+Stage 6 YAML archive remain later work.
 Typed result guidance remains a later Stage-5/post-drain wave, and the
 semantic-migration freeze remains in force.

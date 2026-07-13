@@ -76,7 +76,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-07-executor-decomposition.md` | Completed through Task 9. Its targeted executor surface and Design Delta smoke pass; the full-suite failure identities match the pre-Task-2 baseline. |
 | `2026-07-08-boundary-report-followups.md` | Completed through Task 6 and its final gate. Case 5 now has production runtime/source-map attribution evidence. |
 | `2026-07-09-runtime-union-field-lineage-plan.md` | Completed through Task 6. The post-fix full suite retains exactly the six recorded baseline failures. |
-| `2026-07-07-drain-migration-g8-retirement.md` | Phase 1 Tasks 1.1–1.7, Phase 2 Tasks 2.1–2.3, Phase 3 Tasks 3.1–3.4, and Phase 4 Task 4.1 are complete. Gates P3 and P4 are independently reviewed and satisfied. The bounded Design Delta promotion handoff is recorded without archive, its historical parity artifact remains tracked after target retirement, and the ordered certification bundle is deleted. Task 4.1 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. The current selector is Phase 4 Task 4.2: strip the G8 serializer. Task 4.2 has not started, and no Task-4.2 deletion has begun. Stage 5 typed result guidance and Stage 6 YAML archive remain later work. |
+| `2026-07-07-drain-migration-g8-retirement.md` | Phase 1 Tasks 1.1–1.7, Phase 2 Tasks 2.1–2.3, Phase 3 Tasks 3.1–3.4, and Phase 4 Tasks 4.1–4.2 are complete. Gates P3 and P4 are independently reviewed and satisfied. The bounded Design Delta promotion handoff is recorded without archive, its historical parity artifact remains tracked after target retirement, and the ordered certification bundle plus temporary G8 build serializer are deleted. Task 4.1 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. The current selector is Phase 4 Task 4.3: final verification and closeout. Task 4.3 has not started. Final verification and final closeout have not begun. Stage 5 typed result guidance and Stage 6 YAML archive remain later work. |
 | `2026-07-10-workflow-lisp-native-transportable-returns-plan.md` | Stage-5 wave 1 landed ahead of Gates S3/S4 under the 2026-07-10 amendment. Treat it as a completed historical prerequisite; do not re-execute it. |
 | `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Accepted and reviewed Stage-5 wave 2 plan. Gate P2 and landed native returns satisfy its two prerequisites, but it remains a later post-drain Stage-5 wave rather than the current selector. It adds root/field guidance and owns the combined v2.15 promotion gate. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
@@ -162,10 +162,11 @@ its historical promotion report for Stage 6. Task 3.3 then deleted the ordered
 certification bundle with its permanent evidence re-homed. Task 3.4 then closed
 Phase-3 verification with independent specification and code-quality review.
 Gates P3 and P4 are independently reviewed and satisfied. Task 4.1 is complete
-and independently reviewed, with SPEC PASS and CODE QUALITY PASS. The active
-step is **drain Phase 4 Task 4.2: strip the G8 serializer**. Task 4.2 has not
-started, and no Task-4.2 deletion has begun. Stage 5 typed result guidance and
-Stage 6 YAML archive remain later.
+and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is
+complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. The
+active step is **drain Phase 4 Task 4.3: final verification and closeout**. Task
+4.3 has not started. Final verification and final closeout have not begun.
+Stage 5 typed result guidance and Stage 6 YAML archive remain later.
 Typed result guidance (wave 2,
 `2026-07-10-workflow-lisp-typed-result-guidance-plan.md`) has its P2
 prerequisite satisfied but remains a later Stage-5/post-drain wave. The

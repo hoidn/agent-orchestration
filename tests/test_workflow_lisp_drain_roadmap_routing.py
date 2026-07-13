@@ -9,17 +9,19 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CURRENT_SELECTOR = (
-    "phase 4 task 4.2: strip the g8 serializer"
+    "phase 4 task 4.3: final verification and closeout"
 )
 GATE_P4_REVIEWED_STATE = (
     "gates p3 and p4 are independently reviewed and satisfied"
 )
 TASK_4_1_REVIEWED_STATE = "task 4.1 is complete and independently reviewed"
-TASK_4_2_UNSTARTED_STATE = "task 4.2 has not started"
-CONTRADICTORY_TASK_4_2_START = re.compile(
+TASK_4_2_REVIEWED_STATE = "task 4.2 is complete and independently reviewed"
+TASK_4_3_UNSTARTED_STATE = "task 4.3 has not started"
+CONTRADICTORY_TASK_4_3_START = re.compile(
     r"(?<!no )\b(?:"
-    r"task 4\.2(?: (?:implementation|work|source deletion|deletion))?"
-    r"|g8(?: serializer)?(?: (?:implementation|work|source deletion|deletion|removal))?"
+    r"task 4\.3(?: (?:implementation|work|verification|closeout))?"
+    r"|final verification(?: (?:work|execution))?"
+    r"|final closeout(?: (?:work|execution))?"
     r") has (?:started|begun)\b"
 )
 
@@ -53,18 +55,26 @@ def _assert_current_selector(surface: str, label: str) -> None:
     assert clauses, label
     assert any(CURRENT_SELECTOR in clause for clause in clauses), (label, clauses)
     forbidden = re.compile(
-        r"phase 3|task 4\.1|task 4\.(?:[3-9]|[1-9][0-9]+)|stage 5|typed result guidance|yaml archive"
+        r"phase 3|task 4\.[12]|task 4\.(?:[4-9]|[1-9][0-9]+)|stage 5|typed result guidance|yaml archive"
     )
     for clause in clauses:
         assert forbidden.search(clause) is None, (label, clause)
 
 
-def _assert_task_4_1_closure_state(surface: str, label: str) -> None:
+def _assert_task_4_2_closure_state(surface: str, label: str) -> None:
     normalized = _normalized_routing_text(surface)
     assert GATE_P4_REVIEWED_STATE in normalized, label
     assert TASK_4_1_REVIEWED_STATE in normalized, label
-    assert TASK_4_2_UNSTARTED_STATE in normalized, label
-    assert CONTRADICTORY_TASK_4_2_START.search(normalized) is None, label
+    assert TASK_4_2_REVIEWED_STATE in normalized, label
+    assert TASK_4_3_UNSTARTED_STATE in normalized, label
+    normalized_without_explicit_negative = normalized.replace(
+        "task 4.3 has not started, and no task 4.3 verification or final closeout has begun",
+        TASK_4_3_UNSTARTED_STATE,
+    )
+    assert (
+        CONTRADICTORY_TASK_4_3_START.search(normalized_without_explicit_negative)
+        is None
+    ), label
 
 
 def _assert_task_4_2_temporary_pipeline_contract(surface: str, label: str) -> None:
@@ -93,47 +103,52 @@ def _assert_task_4_2_temporary_pipeline_contract(surface: str, label: str) -> No
         (
             "Gates P3 and P4 are satisfied. "
             "Task 4.1 is complete and independently reviewed. "
-            "Task 4.2 has not started."
+            "Task 4.2 is complete and independently reviewed. "
+            "Task 4.3 has not started."
         ),
         (
             "Gates P3 and P4 are independently reviewed and satisfied. "
-            "Task 4.2 has not started."
-        ),
-        (
-            "Gates P3 and P4 are independently reviewed and satisfied. "
-            "Task 4.1 is complete and independently reviewed. "
-            "Task 4.2 has not started. Task 4.2 implementation has begun."
-        ),
-        (
-            "Gates P3 and P4 are independently reviewed and satisfied. "
-            "Task 4.1 is complete and independently reviewed. "
-            "Task 4.2 has not started. G8 serializer deletion has started."
+            "Task 4.2 is complete and independently reviewed. "
+            "Task 4.3 has not started."
         ),
         (
             "Gates P3 and P4 are independently reviewed and satisfied. "
             "Task 4.1 is complete and independently reviewed. "
-            "Task 4.2 has not started. G8 deletion has started."
+            "Task 4.3 has not started."
         ),
         (
             "Gates P3 and P4 are independently reviewed and satisfied. "
             "Task 4.1 is complete and independently reviewed. "
-            "Task 4.2 has not started. G8 removal has begun."
+            "Task 4.2 is complete and independently reviewed. "
+            "Task 4.3 has not started. Task 4.3 verification has begun."
+        ),
+        (
+            "Gates P3 and P4 are independently reviewed and satisfied. "
+            "Task 4.1 is complete and independently reviewed. "
+            "Task 4.2 is complete and independently reviewed. "
+            "Task 4.3 has not started. Final verification has started."
+        ),
+        (
+            "Gates P3 and P4 are independently reviewed and satisfied. "
+            "Task 4.1 is complete and independently reviewed. "
+            "Task 4.2 is complete and independently reviewed. "
+            "Task 4.3 has not started. Final closeout work has begun."
         ),
     ],
     ids=[
         "weakened-gate-review",
         "missing-task-4-1-review",
-        "contradictory-task-start",
-        "contradictory-serializer-start",
-        "contradictory-g8-deletion-start",
-        "contradictory-g8-removal-start",
+        "missing-task-4-2-review",
+        "contradictory-task-4-3-start",
+        "contradictory-final-verification-start",
+        "contradictory-final-closeout-start",
     ],
 )
-def test_task_4_1_closure_guard_rejects_weakened_or_contradictory_state(
+def test_task_4_2_closure_guard_rejects_weakened_or_contradictory_state(
     mutated_state: str,
 ) -> None:
     with pytest.raises(AssertionError):
-        _assert_task_4_1_closure_state(mutated_state, "mutated Task 4.1 state")
+        _assert_task_4_2_closure_state(mutated_state, "mutated Task 4.2 state")
 
 
 def test_design_delta_primary_and_archive_deferral_remain_routed() -> None:
@@ -291,16 +306,30 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
     assert len(routing_surfaces) == 13
     for label, surface in routing_surfaces.items():
         _assert_current_selector(surface, label)
-        _assert_task_4_1_closure_state(surface, label)
+        _assert_task_4_2_closure_state(surface, label)
     _assert_task_4_2_temporary_pipeline_contract(task_4_2_plan, "Task 4.2 plan")
 
     mutated = docs_index_routing.replace(
-        "strip the G8 serializer",
+        "final verification and closeout",
         "unrelated cleanup",
         1,
     )
     with pytest.raises(AssertionError):
         _assert_current_selector(mutated, "mutated selector title")
+
+    for forbidden_selector in (
+        "phase 4 task 4.2: strip the g8 serializer",
+        "phase 4 task 4.4: post closeout cleanup",
+        "stage 5: typed result guidance",
+        "stage 6: yaml archive",
+    ):
+        mutated = docs_index_routing.replace(
+            "drain Phase 4 Task 4.3: final verification and closeout",
+            forbidden_selector,
+            1,
+        )
+        with pytest.raises(AssertionError):
+            _assert_current_selector(mutated, f"forbidden selector {forbidden_selector}")
 
     workflow_lisp_readme = (
         REPO_ROOT / "orchestrator" / "workflow_lisp" / "README.md"
@@ -314,6 +343,6 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
     assert "ordinary specialization and WCC lowering" in drain_owner
 
     order = _normalized_routing_text(typed_guidance_row).split("current order", 1)[1]
-    assert order.index("phase 4 task 4.2") < order.index("stage 5")
+    assert order.index("phase 4 task 4.3") < order.index("stage 5")
     assert "+ 6 `v214` library imports" in family_one_row
     assert "Stage 6" in family_one_row

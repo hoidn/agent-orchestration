@@ -76,10 +76,12 @@ Phase 1 Ledger entry (k). Gate P2 admitted the reviewed Phase 2 sequence. Phase
 complete. Gate P3 is also satisfied by the later independent joint proof
 recorded in Phase 2 Ledger entry (f). Phase 3 Tasks 3.1–3.4 are complete and
 reviewed. Gates P3 and P4 are independently reviewed and satisfied. Task 4.1 is
-complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. The
-current selector is **Phase 4 Task 4.2: strip the G8 serializer**. Task 4.2 has
-not started, and no Task-4.2 deletion has begun. Stage 5 typed result guidance
-and Stage 6 YAML archive remain later work.
+complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS.
+Task 4.2 is complete and independently reviewed, with
+SPEC PASS and CODE QUALITY PASS. The current selector is **Phase 4 Task 4.3:
+final verification and closeout**. Task 4.3 has not started. Final verification
+and final closeout have not begun. Stage 5 typed result guidance and Stage 6
+YAML archive remain later work.
 
 **Gate P3 (entry to Phase 3):**
 1. Phase 2 Tasks 2.1–2.3 committed; name-blindness check (Task 2.3 Step 2) clean.
@@ -94,10 +96,12 @@ fresh joint verification of conditions 1–4 at base HEAD
 does not alter the verified implementation or evidence surfaces. Gate P3 is
 satisfied and now admits Phase 3. Tasks 3.1–3.4 are complete and reviewed.
 Gates P3 and P4 are independently reviewed and satisfied. Task 4.1 is complete
-and independently reviewed, with SPEC PASS and CODE QUALITY PASS. The current
-selector is **Phase 4 Task 4.2: strip the G8 serializer**. Task 4.2 has not
-started, and no Task-4.2 deletion has begun. Stage 5 typed result guidance and
-Stage 6 YAML archive remain later work.
+and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is
+complete and independently reviewed, with SPEC PASS and CODE
+QUALITY PASS. The current selector is **Phase 4 Task 4.3: final verification
+and closeout**. Task 4.3 has not started. Final verification and final closeout
+have not begun. Stage 5 typed result guidance and Stage 6 YAML archive remain
+later work.
 
 **Gate P4 (entry to Phase 4):**
 1. Phase 3 Tasks 3.1–3.4 committed.
@@ -113,10 +117,11 @@ two-family non-regressive parity run. The target manifest and generated index
 contain only `cycle_guard_demo` and `design_plan_impl_stack`; the retired
 `design_delta_parent_drain` target is absent. Gates P3 and P4 are independently
 reviewed and satisfied. Task 4.1 is complete and independently reviewed, with
-SPEC PASS and CODE QUALITY PASS. The current selector is **Phase 4 Task 4.2:
-strip the G8 serializer**. Task 4.2 has not started, and no Task-4.2 deletion
-has begun. Stage 5 typed result guidance and Stage 6 YAML archive remain later
-work.
+SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and independently
+reviewed, with SPEC PASS and CODE QUALITY PASS. The current selector is **Phase
+4 Task 4.3: final verification and closeout**. Task 4.3 has not started. Final
+verification and final closeout have not begun. Stage 5 typed result guidance
+and Stage 6 YAML archive remain later work.
 
 ---
 
@@ -398,10 +403,10 @@ reviewed).**
 
 **Deletion inventory (the temporary G8 artifact pipeline intentionally preserved through Task 4.1):** `serialize_design_delta_g8_deletion_evidence` and `DESIGN_DELTA_G8_REMOVED_MANIFEST_ROWS`, `DESIGN_DELTA_G8_REMOVED_SCRIPT_PATHS`, `DESIGN_DELTA_G8_REMOVED_PYTHON_SYMBOLS`, `DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS`, `DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS`, `DESIGN_DELTA_G8_RETAINED_BRIDGES`, `DESIGN_DELTA_G8_PRECONDITION_EVIDENCE_REFS`, `DESIGN_DELTA_G8_GREP_GUARDS`, and `DESIGN_DELTA_G8_VERIFICATION_COMMANDS` in `build_design_delta.py`; the `build_frontend_bundle` import/call and payload threading in `build.py`; the `g8_deletion_evidence` payload/entry in `_write_build_artifacts` and any now-empty payload plumbing in `build_artifacts.py`; compatibility imports/re-exports in `build.py`; and any orphaned `DESIGN_DELTA_PARENT_DRAIN_*` path constants proven unused by current symbol search. Removing this inventory leaves `build_design_delta.py` empty, so delete the module rather than retaining an empty compatibility shell.
 
-- [ ] **Step 1:** First run `rg -n "DESIGN_DELTA_G8|g8_deletion" orchestrator/workflow_lisp/build*.py` and confirm every build-module hit is confined to the temporary G8 artifact pipeline (serializer definition, `build_frontend_bundle` import/call, payload field/threading, artifact-map entry/emission, constants, or compatibility re-export). Then run the repo-global code search `rg -n "DESIGN_DELTA_G8|g8_deletion|serialize_design_delta_g8_deletion_evidence" orchestrator/ tests/` and classify every hit, including intentional tests and guards that protect the retirement boundary without consuming the temporary artifact. A consumer outside the temporary pipeline, or any surviving artifact gate or parity dependency, means the inventory is incomplete — STOP and resolve it before deletion. The temporary serializer caller is expected here and does not reopen Task 3.3.
-- [ ] **Step 2:** Delete from the owning modules, including `git rm orchestrator/workflow_lisp/build_design_delta.py`; run `pyflakes orchestrator/workflow_lisp/build.py orchestrator/workflow_lisp/build_artifacts.py` (plus `orchestrator/workflow_lisp/build_manifest_io.py` only if its docstring is updated) with no new unused/undefined names. Production compile (P2 form) → exit 0. `FrontendBuildResult.artifact_paths` plus the emitted manifest are authoritative for the current build; verify they omit G8 evidence, and assert physical `g8_deletion_evidence.json` absence only under a fresh temporary build root. Reused build roots are not pruned, so do not add a G8-specific cleanup path or a broad filesystem-absence gate. The Task 2.1 Step 4 CI guard now carries the §17 reintroduction protection.
-- [ ] **Step 3:** `pytest tests/test_workflow_lisp_build_artifacts.py tests/test_workflow_lisp_stdlib_form_migration.py -q` → PASS (update tests pinning the artifact or temporary module ownership — reviewed deltas, noted in the commit message).
-- [ ] **Step 4: Commit:** `git add orchestrator/workflow_lisp/build.py orchestrator/workflow_lisp/build_artifacts.py orchestrator/workflow_lisp/build_manifest_io.py tests/test_workflow_lisp_build_artifacts.py tests/test_workflow_lisp_stdlib_form_migration.py && git commit -m "Delete G8 deletion evidence serializer from build"` (omit `build_manifest_io.py` from `git add` if unchanged; the `git rm` is already staged).
+- [x] **Step 1:** First run `rg -n "DESIGN_DELTA_G8|g8_deletion" orchestrator/workflow_lisp/build*.py` and confirm every build-module hit is confined to the temporary G8 artifact pipeline (serializer definition, `build_frontend_bundle` import/call, payload field/threading, artifact-map entry/emission, constants, or compatibility re-export). Then run the repo-global code search `rg -n "DESIGN_DELTA_G8|g8_deletion|serialize_design_delta_g8_deletion_evidence" orchestrator/ tests/` and classify every hit, including intentional tests and guards that protect the retirement boundary without consuming the temporary artifact. A consumer outside the temporary pipeline, or any surviving artifact gate or parity dependency, means the inventory is incomplete — STOP and resolve it before deletion. The temporary serializer caller is expected here and does not reopen Task 3.3.
+- [x] **Step 2:** Delete from the owning modules, including `git rm orchestrator/workflow_lisp/build_design_delta.py`; run `pyflakes orchestrator/workflow_lisp/build.py orchestrator/workflow_lisp/build_artifacts.py` (plus `orchestrator/workflow_lisp/build_manifest_io.py` only if its docstring is updated) with no new unused/undefined names. Production compile (P2 form) → exit 0. `FrontendBuildResult.artifact_paths` plus the emitted manifest are authoritative for the current build; verify they omit G8 evidence, and assert physical `g8_deletion_evidence.json` absence only under a fresh temporary build root. Reused build roots are not pruned, so do not add a G8-specific cleanup path or a broad filesystem-absence gate. The Task 2.1 Step 4 CI guard now carries the §17 reintroduction protection.
+- [x] **Step 3:** `pytest tests/test_workflow_lisp_build_artifacts.py tests/test_workflow_lisp_stdlib_form_migration.py -q` → PASS (update tests pinning the artifact or temporary module ownership — reviewed deltas, noted in the commit message).
+- [x] **Step 4: Commit:** `git add orchestrator/workflow_lisp/build.py orchestrator/workflow_lisp/build_artifacts.py orchestrator/workflow_lisp/build_manifest_io.py tests/test_workflow_lisp_build_artifacts.py tests/test_workflow_lisp_stdlib_form_migration.py && git commit -m "Delete G8 deletion evidence serializer from build"` (omit `build_manifest_io.py` from `git add` if unchanged; the `git rm` is already staged).
 
 ### Task 4.3: Final verification and closeout
 
@@ -2205,3 +2210,32 @@ and independently reviewed, with SPEC PASS and CODE QUALITY PASS. The current
 selector is **Phase 4 Task 4.2: strip the G8 serializer**. Task 4.2 has not
 started, and no Task-4.2 deletion has begun. Stage 5 typed result guidance and
 Stage 6 YAML archive remain later work.
+
+### (b) Task 4.2 G8 build-serializer retirement (2026-07-13; independently reviewed and closed)
+
+The dependency-graph and repo-global inventory found no external consumer of
+the temporary G8 artifact pipeline and no surviving artifact gate or parity
+dependency. Task 4.2 therefore deleted the serializer, artifact entry, payload
+threading, compatibility re-exports, orphaned path constants, and the now-empty
+`build_design_delta.py` module. The deletion landed as `02156ffd` (`Delete G8
+deletion evidence serializer from build`) with **10 insertions and 270
+deletions**.
+
+TDD began with one expected RED failure proving that a fresh build still
+advertised the G8 artifact. GREEN verification passed **96 build-artifact plus
+stdlib-form-migration tests**, **18 smoke tests**, and the **114-test combined
+slice**. An independently run broader build/compile slice passed **180 tests**.
+The exact P2 production compile exited 0 with fingerprint
+`ad5a84000ed20a84`, WCC route `M4`, and schema version 2. Both authoritative
+surfaces—`FrontendBuildResult.artifact_paths` and the emitted manifest—omit G8
+evidence. A fresh temporary build root contains no
+`g8_deletion_evidence.json`; a reused root may retain an unreferenced historical
+orphan, which is accepted by the explicit non-pruning contract rather than
+hidden behind a G8-specific cleanup path.
+
+Independent review returned **SPEC PASS** and **CODE QUALITY PASS** with no
+open findings. Gates P3 and P4 remain independently reviewed and satisfied.
+Tasks 4.1 and 4.2 are complete and independently reviewed. The current selector
+is **Phase 4 Task 4.3: final verification and closeout**. Task 4.3 has not
+started, and no Task-4.3 verification or final closeout has begun. Stage 5 typed
+result guidance and Stage 6 YAML archive remain later work.
