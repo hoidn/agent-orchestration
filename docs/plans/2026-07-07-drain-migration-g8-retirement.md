@@ -1556,7 +1556,7 @@ values remain allowed. The final changed-test collection ran from
 five focused guard/contract checks ran from `01:45:56Z` through `01:45:58Z`
 and passed. The exact integration selector ran from `01:40:24Z` through
 `01:41:24Z` and passed **471 tests**. The broad 16-worker work-stealing suite
-ran from `01:41:33Z` through `01:43:20Z` and reported **4,237 passed, 8 failed,
+ran from `01:41:32Z` through `01:43:20Z` and reported **4,237 passed, 8 failed,
 11 skipped**; sorted failure identities matched the established unrelated
 baseline exactly (`cmp` exit 0).
 
