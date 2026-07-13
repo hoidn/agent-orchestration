@@ -190,6 +190,45 @@ def test_self_referential_registry_evidence_is_rejected(tmp_path: Path) -> None:
     assert "route_readiness_evidence_self_referential" in _codes(validation)
 
 
+def test_missing_registry_evidence_path_is_rejected(tmp_path: Path) -> None:
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=[
+                        "tests/test_workflow_lisp_missing_evidence.py::test_missing"
+                    ]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, REPO_ROOT)
+
+    assert "route_readiness_evidence_path_unknown" in _codes(validation)
+
+
+def test_retired_parity_target_registry_evidence_is_rejected(tmp_path: Path) -> None:
+    registry = load_route_readiness_registry(
+        _write_registry(
+            tmp_path,
+            [
+                _base_entry(
+                    evidence=[
+                        "workflows/examples/inputs/workflow_lisp_migrations/"
+                        "parity_targets.json::design_delta_parent_drain"
+                    ]
+                )
+            ],
+        )
+    )
+
+    validation = validate_route_readiness_registry(registry, REPO_ROOT)
+
+    assert "route_readiness_evidence_selector_unknown" in _codes(validation)
+
+
 def test_checked_in_registry_uses_proving_evidence_not_registry_self_validation() -> None:
     registry = load_route_readiness_registry(REGISTRY_PATH)
 
@@ -197,6 +236,26 @@ def test_checked_in_registry_uses_proving_evidence_not_registry_self_validation(
         "tests/test_workflow_lisp_route_readiness.py" not in evidence
         for entry in registry.surfaces
         for evidence in entry.evidence
+    )
+
+
+def test_checked_in_registry_omits_retired_design_delta_evidence() -> None:
+    registry = load_route_readiness_registry(REGISTRY_PATH)
+    evidence = {
+        item
+        for entry in registry.surfaces
+        for item in entry.evidence
+    }
+
+    assert all(
+        "test_workflow_lisp_design_delta_drain_migration_feasibility.py"
+        not in item
+        for item in evidence
+    )
+    assert (
+        "workflows/examples/inputs/workflow_lisp_migrations/"
+        "parity_targets.json::design_delta_parent_drain"
+        not in evidence
     )
 
 
@@ -299,6 +358,7 @@ def test_design_delta_parent_drain_historical_promotion_matches_registry() -> No
 
 
 def test_cli_route_readiness_check_valid_registry() -> None:
+    registry = load_route_readiness_registry(REGISTRY_PATH)
     result = subprocess.run(
         [
             sys.executable,
@@ -318,6 +378,10 @@ def test_cli_route_readiness_check_valid_registry() -> None:
     assert result.returncode == 0
     summary = json.loads(result.stdout)
     assert summary["overall_pass"] is True
+    assert summary["issues"] == []
+    assert summary["missing_required_surfaces"] == 0
+    assert summary["surfaces_checked"] == len(registry.surfaces)
+    assert summary["surfaces_checked"] > 0
 
 
 def test_cli_route_readiness_check_invalid_and_malformed_registries(tmp_path: Path) -> None:

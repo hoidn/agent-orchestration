@@ -147,7 +147,7 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_loop_promoted_hook_carries_phase_ctx_bridge_inputs"
+        "tests/test_workflow_lisp_migration_parity.py::test_design_delta_parent_loop_control_accepts_promoted_hook_owner_route"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -173,8 +173,7 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_migration_nested_implementation_phase_compiles",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_migration_nested_implementation_phase_smokes_completed_and_blocked_routes"
+        "tests/test_workflow_lisp_phase_stdlib.py::test_nested_implementation_phase_uses_ordinary_imported_review_revise_loop"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -187,7 +186,7 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_migration_nested_imported_branch_effects_compile",
+        "tests/test_workflow_lisp_phase_stdlib.py::test_nested_imported_procedure_with_provider_command_workflow_effects_compiles_under_branch",
         "tests/test_workflow_lisp_source_map.py::test_source_map_records_generated_write_roots_across_reusable_call_boundaries"
       ],
       "lowering_route": "wcc_m4",
@@ -201,7 +200,7 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_migration_nested_same_file_call_with_local_record_compiles"
+        "tests/test_workflow_lisp_phase_stdlib.py::test_nested_same_file_call_with_local_record_compiles_under_branch"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -214,7 +213,7 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_parent_call_implementation_phase_smokes_completed_and_blocked_routes"
+        "tests/test_workflow_lisp_phase_stdlib.py::test_linked_builtin_std_phase_owner_lane_compiles_design_delta_implementation_phase"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -227,8 +226,8 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_parent_call_work_item_smokes_complete_and_blocked_recovery_routes",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_parent_call_work_item_smokes_terminal_blocked_route"
+        "tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_generic_drain_carries_derived_phase_context_bindings",
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -241,13 +240,12 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_item_ctx_child_phase_reuse_compiles",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_item_ctx_child_phase_reuse_smokes_approved_and_plan_blocked_routes"
+        "tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_item_ctx_child_phase_reuse_emits_derived_phase_context_call_bindings"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
       "path": "tests/fixtures/workflow_lisp/valid/design_delta_item_ctx_child_phase_reuse.orc",
-      "readiness_label": "leaf_runtime_candidate",
+      "readiness_label": "leaf_compile_candidate",
       "route_label": "wcc_default",
       "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_item_ctx_child_phase_reuse",
       "surface_kind": "test_fixture"
@@ -255,8 +253,8 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_runtime_fixture_mirror_matches_library_module_set",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_smokes_complete_and_blocked_recovery_routes"
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry",
+        "tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_generic_drain_carries_derived_phase_context_bindings"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -269,7 +267,7 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts"
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -282,8 +280,8 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_smokes_complete_and_blocked_recovery_routes"
+        "tests/test_workflow_lisp_phase_stdlib.py::test_linked_builtin_std_phase_owner_lane_compiles_design_delta_implementation_phase",
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -296,8 +294,7 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_smokes_terminal_blocked_route"
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -310,7 +307,8 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts"
+        "tests/test_workflow_lisp_pure_projection_runtime.py::test_provider_bundle_path_projection_exports_generated_bundle_path",
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -323,7 +321,8 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts"
+        "tests/test_workflow_lisp_build_artifacts.py::test_design_delta_parent_drain_adapters_emit_resource_transition_effects",
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -336,8 +335,7 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_domain_types_import_from_two_candidate_modules"
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -350,8 +348,8 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_smokes_complete_and_blocked_recovery_routes"
+        "tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_generic_drain_carries_derived_phase_context_bindings",
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -486,8 +484,8 @@
     {
       "copy_safety": "migration_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_parent_call_work_item_compiles_with_hidden_phase_context",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_smokes_complete_and_blocked_recovery_routes"
+        "tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_generic_drain_carries_derived_phase_context_bindings",
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -500,7 +498,7 @@
     {
       "copy_safety": "migration_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_architect_candidate_compiles_draft_and_validation_leaves"
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -513,9 +511,11 @@
     {
       "copy_safety": "preferred_current_guidance",
       "evidence": [
-        "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json::design_delta_parent_drain",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_parent_drain_compiles_with_hidden_private_context",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_parent_drain_smokes_selected_item_completed_path"
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "artifacts/work/review-parity-check/design_delta_parent_drain.md",
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry",
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_historical_parity_records_focused_smoke",
+        "tests/test_workflow_lisp_migration_parity.py::test_promoted_design_delta_target_is_retired_but_historical_report_is_preserved"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -529,8 +529,8 @@
     {
       "copy_safety": "migration_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_implementation_phase_candidate_compiles_with_variant_and_review_loop",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_implementation_phase_candidate_smokes_completed_and_blocked_routes"
+        "tests/test_workflow_lisp_phase_stdlib.py::test_linked_builtin_std_phase_owner_lane_compiles_design_delta_implementation_phase",
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -543,7 +543,7 @@
     {
       "copy_safety": "migration_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_plan_phase_candidate_compiles_with_stdlib_review_loop"
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -556,8 +556,8 @@
     {
       "copy_safety": "migration_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_selector_candidate_compiles_as_provider_decision",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_selector_candidate_exports_selection_bundle_path"
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry",
+        "tests/test_workflow_lisp_pure_projection_runtime.py::test_provider_bundle_path_projection_exports_generated_bundle_path"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -570,7 +570,7 @@
     {
       "copy_safety": "migration_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_domain_types_import_from_two_candidate_modules"
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -583,8 +583,8 @@
     {
       "copy_safety": "migration_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_library_module_stays_closure_only",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts"
+        "tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_generic_drain_carries_derived_phase_context_bindings",
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -597,8 +597,8 @@
     {
       "copy_safety": "migration_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_parent_drain_entrypoint_adopts_stdlib_owner_routes",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_parent_drain_source_shape_finalizer_compat_retirement_removes_helpers_from_ordinary_work_item_routes"
+        "tests/test_workflow_lisp_build_artifacts.py::test_design_delta_parent_drain_adapters_emit_resource_transition_effects",
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -611,7 +611,7 @@
     {
       "copy_safety": "migration_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_parent_drain_routes_design_gap_bundle_from_action"
+        "tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -624,8 +624,8 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_projection_runtime_fixture_compiles",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_projection_runtime_fixture_executes_runtime_path"
+        "tests/test_workflow_lisp_projection_dual_run.py::test_projection_dual_run_emits_declared_report_and_passes_all_vectors",
+        "tests/test_workflow_lisp_pure_projection_runtime.py::test_provider_bundle_path_projection_exports_generated_bundle_path"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -638,7 +638,7 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts"
+        "tests/test_workflow_lisp_projection_dual_run.py::test_projection_dual_run_emits_declared_report_and_passes_all_vectors"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -651,7 +651,7 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts"
+        "tests/test_workflow_lisp_resource_transition_runtime.py::test_design_delta_runtime_transition_fixture_runs_via_real_cli"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -664,8 +664,7 @@
     {
       "copy_safety": "migration_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_projection_runtime_fixture_compiles",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_projection_runtime_fixture_executes_runtime_path"
+        "tests/test_workflow_lisp_projection_dual_run.py::test_projection_dual_run_emits_declared_report_and_passes_all_vectors"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -678,8 +677,7 @@
     {
       "copy_safety": "migration_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_runtime_transition_fixture_exposes_public_wrapper_input",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_runtime_transition_fixture_runs_via_real_cli"
+        "tests/test_workflow_lisp_resource_transition_runtime.py::test_design_delta_runtime_transition_fixture_runs_via_real_cli"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -692,8 +690,7 @@
     {
       "copy_safety": "migration_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_runtime_view_fixture_compiles_without_summary_writer_command",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_runtime_view_fixture_materializes_summary_and_pointer_views"
+        "tests/test_workflow_lisp_view_dual_run.py::test_view_dual_run_emits_declared_report_and_passes_all_vectors"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -706,9 +703,8 @@
     {
       "copy_safety": "migration_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_runtime_transition_fixture_exposes_public_wrapper_input",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_runtime_transition_fixture_runs_via_real_cli",
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_runtime_view_fixture_compiles_without_summary_writer_command"
+        "tests/test_workflow_lisp_resource_transition_runtime.py::test_design_delta_runtime_transition_fixture_runs_via_real_cli",
+        "tests/test_workflow_lisp_resource_transition_runtime.py::test_executor_runs_generated_resource_transition_step"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -721,7 +717,8 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_item_ctx_child_phase_reuse_proc_compiles_end_to_end"
+        "tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_item_ctx_child_phase_reuse_emits_derived_phase_context_call_bindings",
+        "tests/test_workflow_lisp_procedures.py::test_stage3_preserves_nested_proc_ref_effects_inside_run_provider_phase"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -734,7 +731,8 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_item_ctx_child_phase_reuse_proc_ref_compiles_end_to_end"
+        "tests/test_workflow_lisp_lowering.py::test_compile_stage3_entrypoint_item_ctx_child_phase_reuse_emits_derived_phase_context_call_bindings",
+        "tests/test_workflow_lisp_procedures.py::test_compile_stage3_supports_proc_ref_signature_parameters_and_same_file_literals"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
@@ -745,5 +743,5 @@
       "surface_kind": "test_fixture"
     }
   ],
-  "updated": "2026-07-12"
+  "updated": "2026-07-13"
 }

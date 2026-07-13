@@ -568,8 +568,69 @@ def _validate_entry(entry: RouteReadinessEntry, *, repo_root: Path) -> list[Rout
                     field="evidence",
                 )
             )
+        issues.extend(
+            _validate_evidence_reference(
+                entry,
+                evidence=evidence,
+                repo_root=repo_root,
+            )
+        )
 
     return issues
+
+
+def _validate_evidence_reference(
+    entry: RouteReadinessEntry,
+    *,
+    evidence: str,
+    repo_root: Path,
+) -> list[RouteReadinessIssue]:
+    evidence_path_text, separator, selector = evidence.partition("::")
+    evidence_path = repo_root / _normalize_path(evidence_path_text)
+    if not evidence_path.is_file():
+        return [
+            _issue(
+                "route_readiness_evidence_path_unknown",
+                entry,
+                f"evidence path `{evidence_path_text}` does not exist",
+                field="evidence",
+            )
+        ]
+
+    if not separator or evidence_path.suffix != ".json":
+        return []
+
+    try:
+        payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return [
+            _issue(
+                "route_readiness_evidence_selector_invalid",
+                entry,
+                f"structured evidence `{evidence_path_text}` is not valid JSON",
+                field="evidence",
+            )
+        ]
+
+    targets = payload.get("targets") if isinstance(payload, Mapping) else None
+    if not isinstance(targets, list):
+        return []
+    if any(
+        isinstance(target, Mapping) and target.get("workflow_family") == selector
+        for target in targets
+    ):
+        return []
+    return [
+        _issue(
+            "route_readiness_evidence_selector_unknown",
+            entry,
+            (
+                f"structured evidence selector `{selector}` does not name a current "
+                f"target in `{evidence_path_text}`"
+            ),
+            field="evidence",
+        )
+    ]
 
 
 def _compile_result_lowering_schema(result: object) -> int | None:

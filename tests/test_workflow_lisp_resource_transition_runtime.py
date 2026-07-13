@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 import yaml
@@ -30,6 +33,23 @@ from orchestrator.workflow.surface_ast import (
     WorkflowProvenance,
 )
 from orchestrator.workflow.transition_contract import validate_transition_declaration
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DESIGN_DELTA_RUNTIME_TRANSITION_FIXTURE = (
+    REPO_ROOT
+    / "workflows"
+    / "library"
+    / "lisp_frontend_design_delta"
+    / "runtime_transition_fixture.orc"
+)
+DESIGN_DELTA_MIGRATION_INPUTS = (
+    REPO_ROOT
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+)
 
 
 def _write_yaml(path: Path, payload: dict[str, object]) -> Path:
@@ -347,6 +367,67 @@ def _write_native_resource_state(path: Path) -> None:
     )
 
 
+def _run_design_delta_runtime_transition_fixture_cli(
+    tmp_path: Path,
+) -> subprocess.CompletedProcess[str]:
+    run_state_path = tmp_path / "state" / "run_state.json"
+    summary_path = tmp_path / "artifacts" / "work" / "drain_summary.json"
+    run_state_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    run_state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {},
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    summary_path.write_text(
+        json.dumps({"status": "BLOCKED", "reason": "runtime_native_fixture"})
+        + "\n",
+        encoding="utf-8",
+    )
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "orchestrator",
+            "run",
+            str(DESIGN_DELTA_RUNTIME_TRANSITION_FIXTURE),
+            "--entry-workflow",
+            "run-runtime-transition-fixture",
+            "--source-root",
+            str(REPO_ROOT / "workflows" / "library"),
+            "--provider-externs-file",
+            str(DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.providers.json"),
+            "--prompt-externs-file",
+            str(DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.prompts.json"),
+            "--command-boundaries-file",
+            str(DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.commands.json"),
+            "--input",
+            "summary_path=artifacts/work/drain_summary.json",
+            "--state-dir",
+            str(tmp_path / "orchestrator-state"),
+        ],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PYTHONPATH": os.pathsep.join(
+                [str(REPO_ROOT), *filter(None, [os.environ.get("PYTHONPATH")])]
+            ),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
 def test_loader_rejects_authored_resource_transition_step(tmp_path: Path) -> None:
     workflow_file = _write_yaml(
         tmp_path / "workflow.yaml",
@@ -439,3 +520,19 @@ def test_executor_runs_generated_resource_transition_step(tmp_path: Path) -> Non
     assert persisted_state["state"]["drain_status"] == "BLOCKED"
     assert audit_rows[-1]["outcome_code"] == "committed"
     assert audit_rows[-1]["resource_kind"] == "drain_run_state"
+
+
+def test_design_delta_runtime_transition_fixture_runs_via_real_cli(
+    tmp_path: Path,
+) -> None:
+    result = _run_design_delta_runtime_transition_fixture_cli(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    native_state_paths = sorted(
+        (tmp_path / "state" / "workflow_lisp").rglob("drain-run-state-state.json")
+    )
+    assert len(native_state_paths) == 1, native_state_paths
+    run_state = json.loads(native_state_paths[0].read_text(encoding="utf-8"))["state"]
+    assert run_state["drain_status"] == "BLOCKED"
+    assert run_state["drain_status_reason"] == "runtime_native_fixture"
+    assert run_state["drain_status_summary"] == "artifacts/work/drain_summary.json"

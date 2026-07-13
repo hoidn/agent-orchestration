@@ -3,8 +3,8 @@ priority: 1
 plan_path: ""
 check_commands:
   - python -m pytest tests/test_lisp_frontend_autonomous_drain_runtime.py -k "pointer or materialize or expected_outputs or call"
-  - python -m pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -q
-  - python -m orchestrator run workflows/examples/lisp_frontend_design_delta_drain.yaml --dry-run
+  - python -m pytest tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry tests/test_workflow_lisp_pure_projection_runtime.py::test_provider_bundle_path_projection_exports_generated_bundle_path tests/test_workflow_lisp_projection_dual_run.py::test_projection_dual_run_emits_declared_report_and_passes_all_vectors tests/test_workflow_lisp_view_dual_run.py::test_view_dual_run_emits_declared_report_and_passes_all_vectors tests/test_workflow_lisp_entry_publication.py::test_entry_publication_role_metadata_can_drive_exact_target_binding tests/test_workflow_lisp_resource_stdlib.py::test_stdlib_finalize_selected_item_executes_promoted_route_with_runtime_native_transition_and_view -q
+  - python -m orchestrator run workflows/examples/lisp_frontend_design_delta_drain.yaml --dry-run --input steering_path=docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/work_instructions.md --input target_design_path=docs/design/workflow_lisp_unified_frontend_design.md --input baseline_design_path=docs/design/workflow_lisp_frontend_specification.md
 prerequisites:
   - 2026-06-05-workflow-lisp-design-delta-drain-orc-migration
 related_target_designs:
