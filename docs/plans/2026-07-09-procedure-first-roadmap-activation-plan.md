@@ -4,7 +4,7 @@
 
 **Goal:** Make the approved procedure-first roadmap executable by reconciling the existing component plans with landed commits, tracking and routing the governing plan set, re-anchoring stale ownership paths, and establishing a verified component-plan handoff.
 
-**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, drain Phase 1 Task 1.7, Phase 2 Tasks 2.1–2.3, and Phase 3 Tasks 3.1–3.3 are complete, and Gates P2 and P3 are independently reviewed and satisfied. The bounded Design Delta promotion handoff is recorded without archive, and its historical parity report is retained after target retirement. Current routing selects drain Phase 3 Task 3.4: Phase-3 verification; Task 3.4 has not started, and Phase 4, Stage 5 typed result guidance, and Stage 6 YAML archive remain later work.
+**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, drain Phase 1 Task 1.7, Phase 2 Tasks 2.1–2.3, and Phase 3 Tasks 3.1–3.3 are complete, and Gates P2 and P3 are independently reviewed and satisfied. The bounded Design Delta promotion handoff is recorded without archive, and its historical parity report is retained after target retirement. The current selector is drain Phase 3 Task 3.4: Phase-3 verification. Task 3.4 evidence is recorded and pending independent review and closure; Phase 4, Stage 5 typed result guidance, and Stage 6 YAML archive remain later work.
 
 > **Current execution amendment (updated 2026-07-13):** The case 5 design and
 > implementation are complete, and the boundary final gate passed. The
@@ -28,8 +28,9 @@
 > with reviewed parity evidence, and Task 3.2 retired the promoted parity
 > target while retaining its historical report. Task 3.3 then retired the
 > ordered certification bundle. Next active selection: drain Phase 3 Task
-> 3.4: Phase-3 verification. Task 3.4 has not started; Phase 4, Stage 5 typed
-> result guidance, and Stage 6 YAML archive remain later. Complete the remaining drain gates before the later
+> 3.4: Phase-3 verification. Task 3.4 evidence is recorded and pending
+> independent review and closure; Phase 4, Stage 5 typed result guidance, and
+> Stage 6 YAML archive remain later. Complete the remaining drain gates before the later
 > Stage-5 typed-result-guidance wave; P2 satisfies a prerequisite but does not
 > make guidance the current selector. The semantic-migration freeze remains in force and neither wave changes the
 > current Stage 1-3 selection.
@@ -557,7 +558,8 @@ satisfied all four Gate P3 conditions. Task 3.1 re-homed the focused smoke and
 Task 3.2 retired the promoted parity target while preserving the historical
 promotion report, and Task 3.3 retired the ordered certification bundle.
 Current routing, as recorded by `docs/index.md` and the governing execution
-sequence, selects drain Phase 3 Task 3.4: Phase-3 verification. Task 3.4 has
-not started; Phase 4, Stage 5 typed result guidance, and Stage 6 YAML archive
-remain later work. Typed result guidance remains a later Stage-5/post-drain wave, and the
+sequence, selects drain Phase 3 Task 3.4: Phase-3 verification. Task 3.4
+evidence is recorded and pending independent review and closure; Phase 4,
+Stage 5 typed result guidance, and Stage 6 YAML archive remain later work.
+Typed result guidance remains a later Stage-5/post-drain wave, and the
 semantic-migration freeze remains in force.

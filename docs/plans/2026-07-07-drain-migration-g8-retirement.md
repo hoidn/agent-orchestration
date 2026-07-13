@@ -76,8 +76,9 @@ Phase 1 Ledger entry (k). Gate P2 admitted the reviewed Phase 2 sequence. Phase
 complete. Gate P3 is also satisfied by the later independent joint proof
 recorded in Phase 2 Ledger entry (f). Phase 3 Tasks 3.1–3.3 are complete and
 reviewed. The current selector is **Phase 3 Task 3.4: Phase-3 verification**.
-Task 3.4 has not started; Phase 4, Stage 5 typed result guidance, and Stage 6
-YAML archive remain later work.
+Task 3.4 evidence is recorded and pending independent review and closure;
+Phase 4, Stage 5 typed result guidance, and Stage 6 YAML archive remain later
+work.
 
 **Gate P3 (entry to Phase 3):**
 1. Phase 2 Tasks 2.1–2.3 committed; name-blindness check (Task 2.3 Step 2) clean.
@@ -91,9 +92,9 @@ fresh joint verification of conditions 1–4 at base HEAD
 `c82d150286248661bbfe2d8cb338715f47a02d36`. This status-and-routing closure
 does not alter the verified implementation or evidence surfaces. Gate P3 is
 satisfied and now admits Phase 3. Tasks 3.1–3.3 are complete and reviewed; the
-current selector is **Phase 3 Task 3.4: Phase-3 verification**. Task 3.4 has
-not started; Phase 4, Stage 5 typed result guidance, and Stage 6 YAML archive
-remain later work.
+current selector is **Phase 3 Task 3.4: Phase-3 verification**. Task 3.4
+evidence is recorded and pending independent review and closure; Phase 4,
+Stage 5 typed result guidance, and Stage 6 YAML archive remain later work.
 
 **Gate P4 (entry to Phase 4):**
 1. Phase 3 Tasks 3.1–3.4 committed.
@@ -2137,7 +2138,7 @@ validated **14/14** surfaces, and the focused routing/documentation modules
 passed **59 tests** after the machine-readable `current selector is` grammar
 was preserved.
 
-The current selector is **Phase 3 Task 3.4: Phase-3 verification** while this
-evidence awaits independent specification and quality review plus closure.
-Phase 4 deletion, Stage 5 typed result guidance, and Stage 6 YAML archive have
-not started.
+The current selector is **Phase 3 Task 3.4: Phase-3 verification**. Task 3.4
+evidence is recorded and pending independent review and closure. Phase 4
+deletion, Stage 5 typed result guidance, and Stage 6 YAML archive have not
+started.

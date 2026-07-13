@@ -631,8 +631,9 @@ Phase 3 Task 3.1 has re-homed the focused parent-drain smoke with reviewed
 parity evidence, and Task 3.2 retired the promoted parity target while
 preserving the historical promotion report. The current selector is drain
 Phase 3 Task 3.4: Phase-3 verification. Task 3.3 retired the ordered
-certification bundle; Task 3.4 has not started. Phase 4, Stage 5 typed result
-guidance, and Stage 6 YAML archive remain later work.
+certification bundle. Task 3.4 evidence is recorded and pending independent
+review and closure; Phase 4, Stage 5 typed result guidance, and Stage 6 YAML
+archive remain later work.
 
 Expected residue on the order of the review loop's (registry entry, stdlib
 contract, output-contract shaping). Residue materially above that is a signal

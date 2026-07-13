@@ -9,6 +9,9 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CURRENT_SELECTOR = "phase 3 task 3.4: phase 3 verification"
+REVIEW_PENDING_STATE = (
+    "task 3.4 evidence is recorded and pending independent review and closure"
+)
 
 
 def _markdown_table_row(path: Path, key: str) -> str:
@@ -44,6 +47,12 @@ def _assert_current_selector(surface: str, label: str) -> None:
     )
     for clause in clauses:
         assert forbidden.search(clause) is None, (label, clause)
+
+
+def _assert_review_pending_state(surface: str, label: str) -> None:
+    normalized = _normalized_routing_text(surface)
+    assert "task 3.4 has not started" not in normalized, label
+    assert REVIEW_PENDING_STATE in normalized, label
 
 
 def test_design_delta_primary_and_archive_deferral_remain_routed() -> None:
@@ -181,6 +190,7 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
         assert "p3" in normalized, label
         assert "satisfied" in normalized, label
         _assert_current_selector(surface, label)
+        _assert_review_pending_state(surface, label)
 
     mutated = docs_index_routing.replace("Phase-3 verification", "unrelated cleanup", 1)
     with pytest.raises(AssertionError):
