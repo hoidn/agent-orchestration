@@ -1635,12 +1635,16 @@ contained the pre-Task-2.2 G8 hash, so current-checkout compilation correctly
 failed closed before a new report could be produced. The executor used the
 canonical guarded regeneration environment
 (`ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_FAMILY`,
-`ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_REPORT`, and
-`ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_MARKDOWN`) for one preliminary
+`ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_REPORT`,
+`ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_MARKDOWN`, and
+`ORCHESTRATOR_MIGRATION_PARITY_REGENERATING_INDEX`) for one preliminary
 single-target parity regeneration. This was a supported bootstrap-order
-deviation, not a validation bypass: the complete pre-bootstrap artifact set and
-hash inventory are preserved under ignored
-`tmp/task23-artifact-bootstrap-pre-0b051f22/`; no artifact was manually edited
+deviation, not a validation bypass. The ignored
+`tmp/task23-artifact-bootstrap-pre-0b051f22/` snapshot contains the top-level
+parity report, Markdown view, index, and gate artifacts plus a SHA-256 inventory
+of the full pre-bootstrap parity-output tree. The logs were hashed and listed in
+that inventory but were not copied into the snapshot; neither the build root nor
+the parity log tree is claimed as snapshotted. No artifact was manually edited
 and no validation rule was weakened. The final ordinary production compile,
 with no regeneration environment, exited **0** with zero diagnostics, lowering
 route `wcc_m4`, and fingerprint `c5cf03b2755308a3`; its log SHA-256 is
@@ -1656,8 +1660,9 @@ all-green claim. The log SHA-256 is
 The checkpoint-identity selector passed **3 tests** (log SHA-256
 `290158fbdec31e2d3d9eff8245ec0ebce3741388103aba8097010835b057553d`).
 The raw name search produced 15 lines: 12 frozen later-phase evidence/inventory
-lines, three sanctioned true-residue lines (registry, stdlib contract, and
-transition/output shaping), and zero unexpected intrinsic-lane lines. Its log
+lines (including `transition_authoring.py`) and exactly three effective
+sanctioned true-residue rows—two in `form_registry.py` and one in
+`stdlib_contracts.py`—with zero unexpected intrinsic-lane lines. Its log
 SHA-256 is
 `a21302b211b99d0b2a2af6151c6d70233860791f26a97e1bfbccb3db6add747a`;
 the permanent structure guard passed **2 tests** (log SHA-256
