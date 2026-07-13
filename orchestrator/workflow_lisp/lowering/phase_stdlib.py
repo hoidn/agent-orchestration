@@ -1,4 +1,4 @@
-"""Phase/resource/drain lowering facade plus the residual review-loop quarantine.
+"""Phase/resource lowering facade plus the residual review-loop quarantine.
 
 The remaining review-loop-specific ownership here is limited to shaping the
 typed union result contracts for the ordinary stdlib lowering route. Other
@@ -13,7 +13,6 @@ from typing import Any
 
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..type_env import UnionTypeRef
-from .phase_drain import _lower_backlog_drain as _phase_drain_lower
 from .phase_flow import (
     _lower_produce_one_of as _phase_flow_lower_produce_one_of,
     _lower_resume_or_start as _phase_flow_lower_resume_or_start,
@@ -190,8 +189,3 @@ def _lower_resource_transition(*args, **kwargs):
 def _lower_finalize_selected_item(*args, **kwargs):
     # G6 keeps the intrinsic lane callable while `std/resource/finalize-selected-item` proves redundancy for G8.
     return _phase_resource_lower_finalize_selected_item(*args, **kwargs)
-
-
-def _lower_backlog_drain(*args, **kwargs):
-    # G6 keeps the intrinsic lane callable while `std/drain/backlog-drain` proves redundancy for G8.
-    return _phase_drain_lower(*args, **kwargs)

@@ -9,7 +9,6 @@ from enum import Enum
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..effects import EMPTY_EFFECT_SUMMARY
 from ..expressions import (
-    BacklogDrainExpr,
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
@@ -652,27 +651,6 @@ def _validate_wcc_m4_expr_supported(
     local_workflow_signatures: Mapping[str, WorkflowSignature],
     workflow_ref_value_names: frozenset[str],
 ) -> None:
-    if isinstance(expr, BacklogDrainExpr):
-        _validate_wcc_m4_expr_supported(
-            expr.spec.ctx_expr,
-            workflow_name=workflow_name,
-            local_workflow_signatures=local_workflow_signatures,
-            workflow_ref_value_names=workflow_ref_value_names,
-        )
-        if expr.spec.providers_expr is not None:
-            _validate_wcc_m4_expr_supported(
-                expr.spec.providers_expr,
-                workflow_name=workflow_name,
-                local_workflow_signatures=local_workflow_signatures,
-                workflow_ref_value_names=workflow_ref_value_names,
-            )
-        _validate_wcc_m4_expr_supported(
-            expr.spec.max_iterations_expr,
-            workflow_name=workflow_name,
-            local_workflow_signatures=local_workflow_signatures,
-            workflow_ref_value_names=workflow_ref_value_names,
-        )
-        return
     if isinstance(expr, LoopRecurExpr):
         _validate_wcc_m4_expr_supported(
             expr.max_iterations_expr,
@@ -1089,27 +1067,6 @@ def _validate_wcc_m4_expr_supported(
                 local_workflow_signatures=local_workflow_signatures,
                 workflow_ref_value_names=workflow_ref_value_names,
             )
-        return
-    if isinstance(expr, BacklogDrainExpr):
-        _validate_wcc_m4_expr_supported(
-            expr.spec.ctx_expr,
-            workflow_name=workflow_name,
-            local_workflow_signatures=local_workflow_signatures,
-            workflow_ref_value_names=workflow_ref_value_names,
-        )
-        if expr.spec.providers_expr is not None:
-            _validate_wcc_m4_expr_supported(
-                expr.spec.providers_expr,
-                workflow_name=workflow_name,
-                local_workflow_signatures=local_workflow_signatures,
-                workflow_ref_value_names=workflow_ref_value_names,
-            )
-        _validate_wcc_m4_expr_supported(
-            expr.spec.max_iterations_expr,
-            workflow_name=workflow_name,
-            local_workflow_signatures=local_workflow_signatures,
-            workflow_ref_value_names=workflow_ref_value_names,
-        )
         return
     if isinstance(expr, (LiteralExpr, EnumMemberExpr, NameExpr, PhaseTargetExpr, ProcRefLiteralExpr, GeneratedRelpathSeedExpr)):
         return

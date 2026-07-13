@@ -9,7 +9,6 @@ from ..conditionals import classify_condition_expr
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..effects import EffectSummary
 from ..expressions import (
-    BacklogDrainExpr,
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
@@ -324,7 +323,6 @@ def _elaborate_expr_to_body(
     if isinstance(
         expr,
         (
-            BacklogDrainExpr,
             ProviderResultExpr,
             CommandResultExpr,
             RunProviderPhaseExpr,
@@ -458,7 +456,6 @@ def _elaborate_let_star(
         if isinstance(
             binding_expr,
             (
-                BacklogDrainExpr,
                 ProviderResultExpr,
                 CommandResultExpr,
                 RunProviderPhaseExpr,
@@ -1275,7 +1272,6 @@ def _elaborate_match_to_body(
     if isinstance(
         expr.subject,
         (
-            BacklogDrainExpr,
             ProviderResultExpr,
             CommandResultExpr,
             RunProviderPhaseExpr,
@@ -2203,17 +2199,6 @@ def _elaborate_effect_expr_to_binding_value(
             returns_type_name=None,
             operation_payload=expr,
         )
-    if isinstance(expr, BacklogDrainExpr):
-        return WccPerform(
-            metadata=scope.value_metadata(role="perform:backlog_drain", **metadata_kwargs),
-            perform_kind="backlog_drain",
-            target_name=expr.spec.drain_name,
-            prompt_name=None,
-            positional_args=(),
-            keyword_args=(),
-            returns_type_name=None,
-            operation_payload=expr,
-        )
     if isinstance(expr, ResourceTransitionExpr):
         return WccPerform(
             metadata=scope.value_metadata(role="perform:resource_transition", **metadata_kwargs),
@@ -2335,7 +2320,6 @@ def _elaborate_workflow_call_binding_value(
     if isinstance(
         expr,
         (
-            BacklogDrainExpr,
             ProviderResultExpr,
             CommandResultExpr,
             RunProviderPhaseExpr,
@@ -2685,13 +2669,6 @@ def _infer_expr_type(
     if isinstance(expr, FinalizeSelectedItemExpr):
         return type_env.resolve_type(
             "SelectedItemResult",
-            span=expr.span,
-            form_path=expr.form_path,
-            expansion_stack=expr.expansion_stack,
-        )
-    if isinstance(expr, BacklogDrainExpr):
-        return type_env.resolve_type(
-            "DrainResult",
             span=expr.span,
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,

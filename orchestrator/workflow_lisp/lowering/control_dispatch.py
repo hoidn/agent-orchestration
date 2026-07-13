@@ -7,7 +7,6 @@ from typing import Any
 
 from ..conditionals import classify_condition_expr, render_condition_predicate
 from ..expressions import (
-    BacklogDrainExpr,
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
@@ -57,7 +56,6 @@ from .phase_scope import (
     _lower_with_phase as _phase_scope_lower_with_phase,
     _resolved_proc_ref_value,
 )
-from .phase_drain import _lower_backlog_drain
 from .pure_projection import (
     is_pure_projection_expr,
     lower_pure_projection_step,
@@ -147,8 +145,6 @@ def _control_lower_expression_impl(
         return _lower_resource_transition(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, FinalizeSelectedItemExpr):
         return _lower_finalize_selected_item(typed_expr, context=context, local_values=local_values)
-    if isinstance(expr, BacklogDrainExpr):
-        return _lower_backlog_drain(typed_expr, context=context, local_values=local_values)
     # schema1_compatibility: covered loops lower through WCC for promoted schema-2 compiles.
     if isinstance(expr, LoopRecurExpr):
         from .control_loops import _lower_loop_recur

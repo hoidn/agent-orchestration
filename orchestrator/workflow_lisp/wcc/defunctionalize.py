@@ -15,7 +15,6 @@ from ..contracts import GeneratedInternalInput, derive_workflow_signature_contra
 from ..conditionals import PureExprCondition, render_condition_predicate
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import (
-    BacklogDrainExpr,
     CallExpr,
     CommandResultExpr,
     ContinueExpr,
@@ -80,7 +79,6 @@ from ..lowering.phase_flow import (
     _phase_stdlib_lower_resume_or_start_impl,
     _phase_stdlib_lower_run_provider_phase_impl,
 )
-from ..lowering.phase_drain import _phase_stdlib_lower_backlog_drain_impl
 from ..lowering.phase_resource import (
     _phase_stdlib_lower_finalize_selected_item_impl,
     _phase_stdlib_lower_resource_transition_impl,
@@ -3113,7 +3111,6 @@ def _lower_effectful_binding(
                 local_values=local_values,
             )
         if value.perform_kind in {
-            "backlog_drain",
             "run_provider_phase",
             "produce_one_of",
             "resume_or_start",
@@ -3245,18 +3242,6 @@ def _lower_wcc_phase_effect(
         )
     if isinstance(payload, FinalizeSelectedItemExpr):
         return _phase_stdlib_lower_finalize_selected_item_impl(
-            TypedExpr(
-                expr=payload,
-                type_ref=binding_type,
-                span=value.metadata.source_span,
-                form_path=value.metadata.form_path,
-                effect_summary=value.metadata.effect_summary,
-            ),
-            context=context,
-            local_values=local_values,
-        )
-    if isinstance(payload, BacklogDrainExpr):
-        return _phase_stdlib_lower_backlog_drain_impl(
             TypedExpr(
                 expr=payload,
                 type_ref=binding_type,

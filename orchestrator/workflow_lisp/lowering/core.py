@@ -67,7 +67,6 @@ from ..diagnostics import (
     with_diagnostic_metadata,
 )
 from ..expressions import (
-    BacklogDrainExpr,
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
@@ -276,7 +275,6 @@ from .phase_impl import (
     _workflow_extern_requirements,
 )
 from .phase_stdlib import (
-    _lower_backlog_drain,
     _lower_finalize_selected_item,
     _lower_produce_one_of,
     _lower_resource_transition,
@@ -2092,12 +2090,6 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
     if isinstance(expr, FinalizeSelectedItemExpr):
         return context.type_env.resolve_type(
             "SelectedItemResult",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-    if isinstance(expr, BacklogDrainExpr):
-        return context.type_env.resolve_type(
-            "DrainResult",
             span=expr.span,
             form_path=expr.form_path,
         )
