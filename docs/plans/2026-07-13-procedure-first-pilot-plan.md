@@ -2,10 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** active only at the Task 1A pre-edit scan/attestation gate. The
-identity-compatibility prerequisite handoff passed, but the pilot source edit
-remains prohibited until every pre-edit scan, genuine named-owner attestation,
-quiescence check, and immutable pre-edit evidence commit required below passes.
+**Status:** STOP: missing known-store owner attestation. The
+identity-compatibility prerequisite handoff remains complete, but Task 1A's
+harness work and every pilot source edit are unselected and prohibited.
 
 **Goal:** Convert only the internal `tracked-plan-phase` in `design_plan_impl_review_stack_v2_call.orc` from a workflow call to an inline typed procedure while retaining `design-plan-impl-review-stack` as the public boundary and proving full executable parity.
 
@@ -36,8 +35,8 @@ the reviewed evidence path defined below.
   2. `docs/plans/2026-07-13-procedure-first-substrate-gaps-plan.md` is complete and reviewed.
 - Identity-compatibility prerequisite Tasks 1-7 and Task 8's final
   verification/review gate are complete under the audited handoff below. The
-  frozen pilot source and old baseline have not been refreshed. This activates
-  Task 1A only; it does not select or authorize the Task 2 source edit.
+  frozen pilot source and old baseline have not been refreshed. The current
+  attestation stop leaves Task 1A and Task 2 unselected and unauthorized.
 - When resumed, this plan owns the genuine named-owner attestations for every
   known state store and either proves strict compatibility or applies the
   accepted reviewed internal identity-retirement exception. Missing,
@@ -118,8 +117,30 @@ line in protected `state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt`.
 Scoped prerequisite/committed-path and protected-excluded diff checks are
 clean; the protected paths remain unstaged and outside this handoff. The pilot
 source and `tests/baselines/procedure_first/tracked_plan_phase.json` remain
-unchanged. Proceed only with Task 1A's scans, genuine attestations, and
-quiescence evidence; Task 2 remains locked.
+unchanged. The prerequisite handoff is complete; the attestation stop below
+keeps Task 1A and Task 2 locked.
+
+### Read-only Task 1A preflight stop (2026-07-14)
+
+The required evidence/attestation root was absent. The canonical repository
+store `/home/ollie/Documents/agent-orchestration/.orchestrate/runs` was
+nonempty with 4,165 immediate run directories, 322,629 files, and approximately
+6.2 GiB of content, and no genuine named-human owner attestation existed for
+it. The dedicated store
+`/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs`
+and its parent chain were absent, so its required isolation proof and owner
+attestation were also unmet.
+
+The preflight retained all 355 helper-shaped
+`/tmp/design-plan-impl-stack-*` scratch directories; the SHA-256 of their
+sorted absolute-path list was
+`b535f9a6c4debe837ba9d606420380c572c915f2e7492c46a366f37533b24b24`.
+None were removed, and no matching scratch directory existed in the
+repository. No human identity was inferred, no conversation response was
+treated as an attestation, and no file or directory was created, removed, or
+modified by the preflight. Therefore the mandatory result is
+`STOP: missing known-store owner attestation`; do not create placeholder
+evidence or select Task 1A's harness work or any source edit.
 
 ## Protected working-tree guard
 
