@@ -73,6 +73,8 @@ class KnownStateStoreEvidence:
     normalized_scan_digest: str
     terminal_run_count: int
     nonterminal_run_count: int
+    store_terminal_run_count: int
+    store_nonterminal_run_count: int
     call_frame_count: int
     consumer_count: int
     checkpoint_index_count: int
@@ -337,6 +339,8 @@ def _parse_stores(value: Any) -> tuple[KnownStateStoreEvidence, ...]:
                 "normalized_scan_digest",
                 "terminal_run_count",
                 "nonterminal_run_count",
+                "store_terminal_run_count",
+                "store_nonterminal_run_count",
                 "call_frame_count",
                 "consumer_count",
                 "checkpoint_index_count",
@@ -354,6 +358,8 @@ def _parse_stores(value: Any) -> tuple[KnownStateStoreEvidence, ...]:
                 "normalized_scan_digest",
                 "terminal_run_count",
                 "nonterminal_run_count",
+                "store_terminal_run_count",
+                "store_nonterminal_run_count",
                 "call_frame_count",
                 "consumer_count",
                 "checkpoint_index_count",
@@ -373,6 +379,8 @@ def _parse_stores(value: Any) -> tuple[KnownStateStoreEvidence, ...]:
             for key in (
                 "terminal_run_count",
                 "nonterminal_run_count",
+                "store_terminal_run_count",
+                "store_nonterminal_run_count",
                 "call_frame_count",
                 "consumer_count",
                 "checkpoint_index_count",
@@ -391,6 +399,8 @@ def _parse_stores(value: Any) -> tuple[KnownStateStoreEvidence, ...]:
                 normalized_scan_digest=row["normalized_scan_digest"],
                 terminal_run_count=counts["terminal_run_count"],
                 nonterminal_run_count=counts["nonterminal_run_count"],
+                store_terminal_run_count=counts["store_terminal_run_count"],
+                store_nonterminal_run_count=counts["store_nonterminal_run_count"],
                 call_frame_count=counts["call_frame_count"],
                 consumer_count=counts["consumer_count"],
                 checkpoint_index_count=counts["checkpoint_index_count"],
@@ -1878,6 +1888,8 @@ def validate_retirement_record(
     count_fields = (
         "terminal_run_count",
         "nonterminal_run_count",
+        "store_terminal_run_count",
+        "store_nonterminal_run_count",
         "call_frame_count",
         "consumer_count",
         "checkpoint_index_count",
@@ -1932,7 +1944,7 @@ def validate_retirement_record(
                 issues,
                 "procedure_identity_retirement_supported_state_present",
                 f"{path}.nonterminal_run_count",
-                "supported nonterminal state selects strict compatibility",
+                "matching supported nonterminal state selects strict compatibility",
             )
         if store.call_frame_count > 0 or store.consumer_count > 0:
             _issue(
@@ -2011,7 +2023,7 @@ def validate_retirement_record(
                 issues,
                 "procedure_identity_retirement_supported_state_present",
                 f"{path}.nonterminal_run_count",
-                "fresh scan found supported nonterminal state",
+                "fresh scan found matching supported nonterminal state",
             )
         if observed["call_frame_count"] > 0 or observed["consumer_count"] > 0:
             _issue(

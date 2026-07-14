@@ -130,6 +130,36 @@ def test_parser_rejects_unknown_or_mistyped_structural_fields(
 
 @pytest.mark.parametrize(
     "field",
+    ["store_terminal_run_count", "store_nonterminal_run_count"],
+)
+def test_parser_requires_store_wide_run_counts(tmp_path: Path, field: str) -> None:
+    payload = _payload()
+    store = payload["known_state_stores"][0]
+    store["store_terminal_run_count"] = 1
+    store["store_nonterminal_run_count"] = 0
+    store.pop(field)
+
+    with pytest.raises(ValueError, match=rf"missing required fields:.*{field}"):
+        load_retirement_record(_write_payload(tmp_path, payload))
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["store_terminal_run_count", "store_nonterminal_run_count"],
+)
+def test_parser_requires_integer_store_wide_run_counts(tmp_path: Path, field: str) -> None:
+    payload = _payload()
+    store = payload["known_state_stores"][0]
+    store["store_terminal_run_count"] = 1
+    store["store_nonterminal_run_count"] = 0
+    store[field] = True
+
+    with pytest.raises(ValueError, match=rf"{field} must be an integer"):
+        load_retirement_record(_write_payload(tmp_path, payload))
+
+
+@pytest.mark.parametrize(
+    "field",
     ["exported", "registered_public_entry", "public", "route_promoted", "route_live"],
 )
 def test_public_exported_registered_promoted_or_live_callee_fails_closed(tmp_path: Path, field: str) -> None:
@@ -172,6 +202,19 @@ def test_supported_nonterminal_or_old_identity_consumer_fails_closed(
     issues = _issues_for(tmp_path, lambda payload: payload["known_state_stores"][0].__setitem__(field, 1))
 
     assert code in issues
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["store_terminal_run_count", "store_nonterminal_run_count"],
+)
+def test_negative_store_wide_run_count_fails_closed(tmp_path: Path, field: str) -> None:
+    issues = _issues_for(
+        tmp_path,
+        lambda payload: payload["known_state_stores"][0].__setitem__(field, -1),
+    )
+
+    assert "procedure_identity_retirement_store_count_invalid" in issues
 
 
 def test_supporting_route_label_cannot_replace_substantive_wrapper_evidence(tmp_path: Path) -> None:
@@ -642,6 +685,8 @@ def test_validator_requeries_known_store_and_binds_digest_and_every_count() -> N
         ("normalized_scan_digest", "sha256:" + "0" * 64, "procedure_identity_retirement_known_store_digest_mismatch"),
         ("terminal_run_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
         ("nonterminal_run_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
+        ("store_terminal_run_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
+        ("store_nonterminal_run_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
         ("call_frame_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
         ("consumer_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
         ("checkpoint_index_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
@@ -1286,7 +1331,9 @@ def test_validator_allows_explicit_external_known_store_with_fresh_facts(tmp_pat
         root=str(external),
         normalized_scan_digest=observed["normalized_scan_digest"],
         **{field: observed[field] for field in (
-            "terminal_run_count", "nonterminal_run_count", "call_frame_count", "consumer_count",
+            "terminal_run_count", "nonterminal_run_count",
+            "store_terminal_run_count", "store_nonterminal_run_count",
+            "call_frame_count", "consumer_count",
             "checkpoint_index_count", "checkpoint_record_count", "retained_manifest_count",
             "identity_metadata_count", "scanned_file_count",
         )},
@@ -1295,6 +1342,124 @@ def test_validator_allows_explicit_external_known_store_with_fresh_facts(tmp_pat
     result = validate_retirement_record(replace(record, known_state_stores=(store,)), repo_root=REPO_ROOT)
 
     assert result.valid is True
+
+
+def test_validator_does_not_gate_on_unrelated_nonterminal_store_run(tmp_path: Path) -> None:
+    external = tmp_path / "external-runs"
+    run = external / "unrelated-running"
+    run.mkdir(parents=True)
+    (run / "state.json").write_text(
+        json.dumps({"status": "running", "steps": {"unrelated-step": {"status": "running"}}}),
+        encoding="utf-8",
+    )
+    record = load_retirement_record(FIXTURE)
+    retired = {
+        row.old_identity
+        for row in record.identity_delta
+        if row.old_disposition == "retired" and row.old_identity
+    }
+    observed = scan_known_state_store(
+        external,
+        retired_identities=retired,
+        query_version="procedure-identity-store-query.v1",
+    )
+    store = replace(
+        record.known_state_stores[0],
+        root=str(external),
+        normalized_scan_digest=observed["normalized_scan_digest"],
+        **{
+            field: observed[field]
+            for field in (
+                "terminal_run_count",
+                "nonterminal_run_count",
+                "store_terminal_run_count",
+                "store_nonterminal_run_count",
+                "call_frame_count",
+                "consumer_count",
+                "checkpoint_index_count",
+                "checkpoint_record_count",
+                "retained_manifest_count",
+                "identity_metadata_count",
+                "scanned_file_count",
+            )
+        },
+    )
+
+    assert observed["nonterminal_run_count"] == 0
+    assert observed["store_nonterminal_run_count"] == 1
+    result = validate_retirement_record(
+        replace(record, known_state_stores=(store,)),
+        repo_root=REPO_ROOT,
+    )
+
+    assert result.valid is True
+    assert not any(
+        issue.code == "procedure_identity_retirement_supported_state_present"
+        for issue in result.issues
+    )
+
+
+def test_validator_rejects_matching_nonterminal_store_run(tmp_path: Path) -> None:
+    external = tmp_path / "external-runs"
+    run = external / "matching-running"
+    run.mkdir(parents=True)
+    record = load_retirement_record(FIXTURE)
+    retired = {
+        row.old_identity
+        for row in record.identity_delta
+        if row.old_disposition == "retired" and row.old_identity
+    }
+    matching_identity = sorted(retired)[0]
+    (run / "state.json").write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "steps": {matching_identity: {"status": "running"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    observed = scan_known_state_store(
+        external,
+        retired_identities=retired,
+        query_version="procedure-identity-store-query.v1",
+    )
+    store = replace(
+        record.known_state_stores[0],
+        root=str(external),
+        normalized_scan_digest=observed["normalized_scan_digest"],
+        **{
+            field: observed[field]
+            for field in (
+                "terminal_run_count",
+                "nonterminal_run_count",
+                "store_terminal_run_count",
+                "store_nonterminal_run_count",
+                "call_frame_count",
+                "consumer_count",
+                "checkpoint_index_count",
+                "checkpoint_record_count",
+                "retained_manifest_count",
+                "identity_metadata_count",
+                "scanned_file_count",
+            )
+        },
+    )
+
+    assert observed["nonterminal_run_count"] == 1
+    assert observed["store_nonterminal_run_count"] == 1
+    result = validate_retirement_record(
+        replace(record, known_state_stores=(store,)),
+        repo_root=REPO_ROOT,
+    )
+
+    supported_issues = [
+        issue
+        for issue in result.issues
+        if issue.code == "procedure_identity_retirement_supported_state_present"
+    ]
+    assert supported_issues
+    assert all("matching supported nonterminal state" in issue.message for issue in supported_issues)
 
 
 @pytest.mark.parametrize("mutation", ["add", "remove", "replace", "mutate"])
