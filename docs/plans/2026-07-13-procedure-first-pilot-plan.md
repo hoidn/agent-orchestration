@@ -91,7 +91,11 @@ as a guard baseline; user changes to those paths are not plan failures.
   before/after structural characterization, retained-public-boundary negative
   test, and the final production-record validator test. The existing
   structural-delta assertions never authorize retirement by themselves.
-- `tests/test_workflow_lisp_key_migrations.py`: existing compile and one-pass runtime smoke, extended only where the procedure route needs an assertion.
+- `tests/test_workflow_lisp_key_migrations.py`: existing compile and one-pass
+  runtime smoke, plus runtime-workspace lifecycle ownership. Its stack helper
+  accepts an explicit workspace; normal tests use a cleanup-asserting yield
+  fixture, while the evidence invocation passes the dedicated retained
+  workspace.
 - `tests/test_workflow_lisp_migration_parity.py`: existing family parity/report gate; change only if the report lacks procedure-first evidence fields.
 - `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json`: existing commands and evidence roles; change only if a new named selector is required.
 - `docs/workflow_lisp_route_readiness_registry.json`: change evidence references only after the pilot passes; do not promote the example's copy-safety.
@@ -114,6 +118,11 @@ as a guard baseline; user changes to those paths are not plan failures.
   `semantic_ir.json`, `executable_ir.json`, `runtime_plan.json`,
   `lexical_checkpoint_points.json`, and `source_map.json`. The retirement
   record binds every exact relative path to its SHA-256 digest.
+- `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/inputs/`:
+  exact readable snapshots `provider_externs.json`, `prompt_externs.json`, and
+  `command_boundaries.json` copied from the actual pilot compile inputs. Both
+  old/new manifests reference these same paths when their input bytes are
+  unchanged.
 - `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/`:
   stable `identity_delta.json`, `artifact_contract_multiset.json`,
   `execution_order.json`, `clean_run.json`, `interruption_resume.json`,
@@ -275,25 +284,47 @@ git commit -m "test: freeze tracked plan procedure pilot parity"
 ### Task 1A: Freeze Pre-Edit Retirement Evidence And Store Quiescence
 
 **Files:**
+- Modify: `tests/test_workflow_lisp_key_migrations.py`
 - Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/pre_edit_known_store_scans.json`
 - Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json`
 - Create owner-supplied records under:
   `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/<sha256-of-canonical-root>.json`
 - Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/source.orc`
 - Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/build_manifest.json`
+- Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/inputs/provider_externs.json`
+- Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/inputs/prompt_externs.json`
+- Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/inputs/command_boundaries.json`
 - Create the six old production artifacts under that same `old/` directory:
   `typed_frontend_ast.json`, `semantic_ir.json`, `executable_ir.json`,
   `runtime_plan.json`, `lexical_checkpoint_points.json`, and `source_map.json`
 - Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence_index.json`
 
-- [ ] **Step 1: Enumerate roots and prove dedicated-root isolation**
+- [ ] **Step 1: Make ordinary runtime harness workspaces explicit and ephemeral**
+
+Change `_execute_design_plan_impl_stack_single_pass_runtime` to require an
+explicit `workspace: Path`; remove its internal persistent
+`tempfile.mkdtemp`. Normal tests receive a yield fixture backed by
+`tempfile.TemporaryDirectory`, pass its path to the helper, and assert in the
+fixture finalizer that the directory no longer exists after cleanup. Add a
+cleanup-focused test assertion. The later pilot evidence invocation bypasses
+that ephemeral fixture and passes the dedicated evidence workspace explicitly
+so its two new-ID runs are retained.
+
+Before any store scan, identify and remove only stale scratch directories
+proven to have been created by the old
+`design-plan-impl-stack-` helper. Ordinary test workspaces are ephemeral
+scratch, destroyed before final scans, and are never attested durable stores.
+If ownership of a leftover directory is ambiguous, stop rather than delete or
+exclude it silently.
+
+- [ ] **Step 2: Enumerate roots and prove dedicated-root isolation**
 
 Complete Mandatory pre-edit gate Steps 1-2. Record every canonical legacy
 root and the dedicated evidence root separately. Prove the dedicated root is
 empty, contains no old identity, and is not equal to or below a legacy root.
 Do not edit the pilot source.
 
-- [ ] **Step 2: Scan, attest, and quiesce every root**
+- [ ] **Step 3: Scan, attest, and quiesce every root**
 
 Complete Mandatory pre-edit gate Steps 3-5. Write the exact scanner outputs to
 `pre_edit_known_store_scans.json`. Store each genuine owner-supplied
@@ -303,35 +334,53 @@ attestations must cover the time-bounded quiescence window through final live
 validation and independent review. Missing evidence takes the exact unattended
 stop path; an agent does not create a placeholder.
 
-- [ ] **Step 3: Build and retain the old production artifact set**
+- [ ] **Step 4: Snapshot build inputs and retain the old production artifact set**
+
+Copy the actual pilot provider externs, prompt externs, and command-boundary
+inputs byte-for-byte from
+`workflows/examples/inputs/workflow_lisp_migrations/design_plan_impl_stack.providers.json`,
+`workflows/examples/inputs/workflow_lisp_migrations/design_plan_impl_stack.prompts.json`,
+and
+`workflows/examples/inputs/workflow_lisp_migrations/design_plan_impl_stack.commands.json`
+to the three exact `inputs/` paths.
+Review that these are the inputs supplied to the production compile command.
 
 Copy the still-unmodified `.orc` source to `old/source.orc`, compile/build it
-through the production WCC route, and retain the build manifest plus all six
-required artifacts at the exact paths above. Record every SHA-256 in the old
-manifest and initial `evidence_index.json`. The frozen Task 1 baseline remains
-unchanged and is linked by its digest; it is not regenerated.
+through the production WCC route, and retain all six required output artifacts.
+Write `old/build_manifest.json` with schema
+`workflow_lisp_procedure_retirement_build_manifest.v1`; it must record the
+`old` side, retained entry, lowering route, compiler/build labels, and
+repo-contained readable references for `source`, `provider_externs`,
+`prompt_externs`, and `command_boundaries`, plus the six outputs. Every entry
+binds its exact relative path and SHA-256. Record the manifest and input/output
+digests in the initial `evidence_index.json`. The frozen Task 1 baseline remains
+unchanged and is linked by digest; it is not regenerated.
 
-- [ ] **Step 4: Recheck quiescence immediately before source selection**
+- [ ] **Step 5: Recheck quiescence immediately before source selection**
 
 Rescan every root. Legacy and dedicated-root digests/counts must still equal
 the pre-edit facts. Any unexpected mutation records a stop and leaves the
 source unedited. Confirm the protected staging guard and confirm
 `workflows/examples/design_plan_impl_review_stack_v2_call.orc` has no diff.
 
-- [ ] **Step 5: Commit immutable pre-edit evidence**
+- [ ] **Step 6: Commit immutable pre-edit evidence and harness hygiene**
 
 ```bash
-git add docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/pre_edit_known_store_scans.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence_index.json
+git add tests/test_workflow_lisp_key_migrations.py docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/pre_edit_known_store_scans.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/inputs docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence_index.json
 git diff --cached --name-only
 git commit -m "evidence: freeze tracked plan retirement pre-edit state"
 ```
 
-Expected: only the listed pre-edit evidence is committed; genuine
+Expected: only the harness hygiene and listed pre-edit evidence are committed; genuine
 attestations are byte-for-byte owner-supplied records; the pilot source and
 frozen baseline are unchanged. Task 2 becomes selectable only after this
 commit and the quiescence recheck pass.
 
 ### Task 2: Convert Only `tracked-plan-phase`
+
+**Evidence status:** Every Task 2 comparison is provisional characterization.
+Passing it does not authorize identity retirement; only Task 4A's complete
+record, mandatory live validator, and independent approval can do so.
 
 **Files:**
 - Modify: `workflows/examples/design_plan_impl_review_stack_v2_call.orc`
@@ -377,7 +426,11 @@ pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'tracked_pla
 pytest -q tests/test_workflow_lisp_key_migrations.py -k 'design_plan_impl_stack_orc_compiles_with_phase_family_contracts'
 ```
 
-Expected: PASS. The lowered workflow-name assertion in the existing key-migration test may need to distinguish the one removed internal workflow from the retained public and two untouched phase workflows; update that assertion, not the contract.
+Expected: the source/compile characterization passes provisionally. The
+lowered workflow-name assertion in the existing key-migration test may need to
+distinguish the one removed internal workflow from the retained public and two
+untouched phase workflows; update that assertion, not the contract. Do not
+treat this result as accepted retirement evidence.
 
 - [ ] **Step 4: Commit the one-phase migration**
 
@@ -387,6 +440,10 @@ git commit -m "Migrate tracked plan phase to an inline procedure"
 ```
 
 ### Task 3: Prove Runtime, Artifact, Checkpoint, And Resume Parity
+
+**Evidence status:** Task 3 produces provisional runtime characterization
+under the new source. It cannot classify or approve a retired identity before
+Task 4A validates and reviews the complete record.
 
 **Files:**
 - Modify: `tests/test_workflow_lisp_key_migrations.py`
@@ -403,9 +460,9 @@ start a run from the new source. Fail once after the plan draft/review
 boundary, resume that new-source run with the same `run_id`, and assert already
 completed provider work is reused and the final public output and artifacts
 match a clean new-source run. Compare checkpoint IDs and presentation keys to
-the full old/new identity delta: public and preserved entries remain exact;
-only validator-approved retired internal entries may be absent, and new
-effect-owned entries must be classified explicitly.
+the provisional old/new identity delta: public and expected-preserved entries
+remain exact; candidate internal differences and new effect-owned entries are
+recorded for Task 4A classification. No Task 3 assertion approves an identity.
 
 - [ ] **Step 3: Run runtime and resume tests**
 
@@ -414,7 +471,8 @@ pytest -q tests/test_workflow_lisp_key_migrations.py -k 'design_plan_impl_stack'
 pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'checkpoint or resume or artifact or public_boundary'
 ```
 
-Expected: PASS.
+Expected: the runtime/resume characterization passes provisionally; no retired
+identity is accepted yet.
 
 - [ ] **Step 4: Stop on an unreviewed or ineligible identity mismatch**
 
@@ -510,9 +568,18 @@ No legacy root may receive a write. Retain the clean and interruption/resume
 projections at the exact tracked paths above, then stop writes to the dedicated
 root.
 
-- [ ] **Step 2: Final-scan and freeze every root**
+- [ ] **Step 2: Drain ephemeral harnesses, then final-scan and freeze every root**
 
-Rescan every enumerated root with the same old identities and query version.
+Run the focused and broad gates that exercise the ordinary runtime harness
+before taking final scan facts. Those tests must use only their
+`TemporaryDirectory` yield fixtures, and every fixture finalizer must prove its
+scratch workspace was removed. Assert that no `design-plan-impl-stack-*`
+scratch directory or other unenumerated persistent run store remains. Normal
+test scratch is never added to `known_state_stores`; any surviving directory
+is a `STOP` until its ownership is established and cleanup succeeds. After the
+source edit there may be no unenumerated persistent store.
+
+Then rescan every enumerated root with the same old identities and query version.
 Write the raw normalized facts to `final_known_store_scans.json`. Require every
 legacy digest/count to equal its pre-edit value exactly. Obtain the genuine
 named owner's second timestamped attestation for the dedicated root's final
@@ -525,7 +592,17 @@ run mutations explain its pre/final delta.
 
 Copy the one edited source to `new/source.orc`; compile/build the new side
 through the same production WCC route; retain its manifest and six production
-artifacts; and bind every old/new exact relative path and SHA-256 in
+artifacts. Write `new/build_manifest.json` with schema
+`workflow_lisp_procedure_retirement_build_manifest.v1`, the reviewed
+compiler/build labels, and the same four input roles and six output roles as
+the old manifest. When extern/command inputs are unchanged, both manifests
+must reference the same three readable repo-contained `inputs/` snapshots and
+their exact digests; no manifest path may be missing. Regenerate and replay
+both manifests against the repository, require every referenced source/input/
+output digest to match readable bytes, and require old/new compiler/build
+labels and role sets to agree.
+
+Bind every old/new exact relative artifact path and SHA-256 in
 `retirement_record.json`. Populate its `known_state_stores` from the final scan
 facts and applicable genuine attestations, keep
 `external_store_absence: not_asserted`, and populate the full identity delta,
@@ -591,8 +668,10 @@ The reviewer must verify the live validator ran while all roots were frozen;
 its observed roots, queries, digests, counts, and result match
 `final_known_store_scans.json`, `live_validator_result.json`, and the replay
 facts; every owner record is genuine and properly attributed; the dedicated
-root is the only mutated root; the old/new artifact set is complete; and the
-record contains no runtime directive or cross-source resume claim. The review
+root is the only mutated root; the three build-input snapshots are readable
+and digest-bound; both v1 manifests replay with matching labels, roles, and
+content; the old/new artifact set is complete; and the record contains no
+runtime directive or cross-source resume claim. The review
 must explicitly recognize that live validation is time-bound and that the
 default replay test asserts retained evidence consistency, not current
 external-store absence.

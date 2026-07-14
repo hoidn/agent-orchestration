@@ -1625,19 +1625,21 @@ Procedure effects have two views:
   with every statically resolved procedure, ProcRef hook, and child workflow
   reachable from the body.
 
-The accepted model requires generic declarations to retain their direct body
-effects. After type parameters and ProcRefs resolve, the specialized
-monomorphic helper must be authoritatively typechecked and its caller-visible
-transitive summary recomputed before lowering. Inline structural visibility
-supports effect evidence; it does not replace a truthful summary.
+Generic declarations retain their direct body effects. After type parameters
+and ProcRefs resolve, the compiler authoritatively typechecks each specialized
+monomorphic helper and recomputes its caller-visible transitive summary before
+lowering. `TypedProcedureDef.direct_effect_summary` carries the body-local
+view and procedure-call edges; `transitive_effect_summary` carries the resolved
+caller-visible closure. Inline and private-workflow lowering consume that
+resolved transitive view. Inline structural visibility supports effect
+evidence; it does not replace a truthful summary.
 
-This distinction is the accepted semantic model, not the shape of today's
-carrier fields. The current `procedure_typecheck.direct_effects` carrier
-conservatively includes callee transitive effects. A mandatory Stage 5
-substrate change must represent or derive a body-local direct view and
-recompute the caller-visible transitive view after specialization before the
-procedure-first pilot. Until that work lands, the carrier's name does not prove
-that the two semantic views are separately available.
+Stage 3 also owns each procedure's resolved lowering mode and generated
+private-workflow name and passes the same resolved procedures to classic and
+WCC lowering. The classic schema-1 iteration-scope inline-to-private override
+remains compatibility behavior only; it cannot support a WCC migration or
+promotion claim. These implemented substrates do not replace family-specific
+effect, identity, runtime, parity, and review gates.
 
 The compiler verifies:
 
@@ -4482,11 +4484,14 @@ Workflows are durable public run/resume/invocation/publication boundaries.
 Typed procedures are the normal internal reuse unit. A workflow-to-procedure
 migration keeps a public `defworkflow` wrapper and passes all of these tests:
 
-Implementation prerequisite: before any pilot, a mandatory Stage 5 substrate
-plan must separate or derive body-local direct effects from the current
-conservative `procedure_typecheck.direct_effects` carrier, recompute
-caller-visible transitive effects after generic/ProcRef specialization, and
-feed the recomputed result to lowering and Semantic IR with focused tests.
+The resolved-effect substrate is implemented:
+`TypedProcedureDef.direct_effect_summary` retains the body-local view,
+`transitive_effect_summary` is recomputed after generic/ProcRef
+specialization, and lowering/Semantic IR consume the resolved caller-visible
+view. Stage 3 owns resolved procedure lowering modes and generated names. A
+pilot still must pass the family-specific effect, identity, runtime, parity,
+and review gates below, and it may not depend on the classic schema-1
+iteration-scope lowering override.
 
 1. the callee owns no independently required external invocation, run/resume,
    publication, public output, or operator-visible identity;
