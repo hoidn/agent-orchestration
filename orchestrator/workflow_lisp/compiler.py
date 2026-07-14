@@ -4140,6 +4140,7 @@ def _discover_workflow_ref_specializations(
     procedure_catalog: ProcedureCatalog,
     workflow_catalog: object,
     type_env: FrontendTypeEnvironment,
+    visible_typed_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
     return _discover_workflow_ref_specializations_owner(
@@ -4148,6 +4149,7 @@ def _discover_workflow_ref_specializations(
         procedure_catalog=procedure_catalog,
         workflow_catalog=workflow_catalog,
         type_env=type_env,
+        visible_typed_procedures_by_name=visible_typed_procedures_by_name,
         procedure_type_envs=procedure_type_envs,
     )
 
@@ -4288,6 +4290,7 @@ def _infer_stage3_effect_summaries(
                 procedure_catalog=procedure_catalog,
                 workflow_catalog=workflow_catalog,
                 type_env=type_env,
+                visible_typed_procedures_by_name=visible_typed_procedures_by_name,
                 procedure_type_envs=procedure_type_envs_by_name,
             )
             for specialized in discovered_workflow_refs_from_procedures:
@@ -4398,6 +4401,7 @@ def _infer_stage3_effect_summaries(
                 procedure_catalog=procedure_catalog,
                 workflow_catalog=workflow_catalog,
                 type_env=type_env,
+                visible_typed_procedures_by_name=visible_typed_procedures_by_name,
                 procedure_type_envs=procedure_type_envs_by_name,
             )
             for specialized in discovered_workflow_refs_from_workflows:

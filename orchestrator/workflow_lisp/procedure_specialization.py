@@ -1231,6 +1231,7 @@ def discover_workflow_ref_specializations(
     procedure_catalog: ProcedureCatalog,
     workflow_catalog: object,
     type_env: FrontendTypeEnvironment,
+    visible_typed_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
     """Discover concrete WorkflowRef procedure calls for the Stage-3 fixed point."""
@@ -1239,7 +1240,11 @@ def discover_workflow_ref_specializations(
 
     discovered: dict[str, TypedProcedureDef] = {}
     typed_procedures_by_name = {
-        procedure.definition.name: procedure for procedure in typed_procedures
+        **dict(visible_typed_procedures_by_name or {}),
+        **{
+            procedure.definition.name: procedure
+            for procedure in typed_procedures
+        },
     }
 
     def record_specialization(specialized: TypedProcedureDef | None) -> None:

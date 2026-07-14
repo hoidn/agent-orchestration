@@ -423,6 +423,86 @@ def test_stage3_materializes_combined_workflow_and_proc_ref_specialization(
     assert tuple(combined.specialization.proc_ref_bindings) == ("hook",)
 
 
+def test_linked_stage3_materializes_imported_workflow_ref_procedure_specialization(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "linked_refs"
+    package = source_root / "demo"
+    package.mkdir(parents=True)
+    (package / "types.orc").write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/types)",
+                "  (export WorkReport WorkflowInput WorkflowOutput)",
+                "  (defpath WorkReport :kind relpath :under \"artifacts/work\" :must-exist true)",
+                "  (defrecord WorkflowInput (report WorkReport))",
+                "  (defrecord WorkflowOutput (report WorkReport)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (package / "procedures.orc").write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/procedures)",
+                "  (import demo/types :only (WorkflowInput WorkflowOutput))",
+                "  (export invoke-runner)",
+                "  (defproc invoke-runner",
+                "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
+                "     (input WorkflowInput)) -> WorkflowOutput",
+                "    :effects ((calls-workflow runner)) :lowering inline",
+                "    (call runner :input input)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    entry_path = package / "entry.orc"
+    entry_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/entry)",
+                "  (import demo/types :only (WorkflowInput WorkflowOutput))",
+                "  (import demo/procedures :only (invoke-runner))",
+                "  (export entry)",
+                "  (defworkflow echo-helper",
+                "    ((input WorkflowInput)) -> WorkflowOutput",
+                "    (record WorkflowOutput :report input.report))",
+                "  (defworkflow entry",
+                "    ((input WorkflowInput)) -> WorkflowOutput",
+                "    (invoke-runner (workflow-ref echo-helper) input)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        entry_path,
+        source_roots=(source_root,),
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
+    )
+
+    specialized = next(
+        procedure
+        for procedure in result.entry_result.typed_procedures
+        if procedure.specialization is not None
+        and procedure.specialization.workflow_ref_bindings
+    )
+    assert specialized.specialization.base_name == "demo/procedures::invoke-runner"
+    assert tuple(name for name, _ in specialized.signature.params) == ("input",)
+    assert specialized.resolved_lowering_mode.value == "inline"
+
+
 def test_wcc_procedure_lowering_has_no_specialization_fallback() -> None:
     source_path = Path(
         importlib.import_module("orchestrator.workflow_lisp.wcc.defunctionalize").__file__
