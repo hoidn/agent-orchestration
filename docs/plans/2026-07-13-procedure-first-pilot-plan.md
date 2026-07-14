@@ -6,6 +6,11 @@
 identity-compatibility prerequisite handoff remains complete, but Task 1A's
 harness work and every pilot source edit are unselected and prohibited.
 
+**Architect decision request:**
+[Tracked-Plan Pilot Identity-Retirement Architect Decision Request](2026-07-14-tracked-plan-pilot-identity-retirement-decision-request.md).
+It is non-authoritative routing input, not an attestation, retirement record,
+or source-edit authorization.
+
 **Goal:** Convert only the internal `tracked-plan-phase` in `design_plan_impl_review_stack_v2_call.orc` from a workflow call to an inline typed procedure while retaining `design-plan-impl-review-stack` as the public boundary and proving full executable parity.
 
 **Architecture:** Retain the frozen pre-change contract snapshot for the public
