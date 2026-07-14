@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
+from typing import Mapping
+
+import pytest
 
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.contracts import structured_contract_semantic_digest
+from orchestrator.workflow_lisp.source_map import (
+    WorkflowLispSourceMap,
+    build_source_map_document,
+)
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
@@ -25,6 +34,10 @@ DESIGN_DELTA_PARENT_DRAIN_COMMANDS = (
     / "inputs"
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.commands.json"
+)
+REVIEWED_INLINE_CALL_RETIREMENT_COUNT = 30
+REVIEWED_INLINE_CALL_RETIREMENT_DIGEST = (
+    "sha256:2df99fdd82327c87285e7053bcdaf3e909c4078a4d56dcc16d8caf894360cfca"
 )
 
 
@@ -177,9 +190,9 @@ def _design_delta_parent_drain_prompt_externs() -> dict[str, object]:
     }
 
 
-def _design_delta_drain_validated_bundles(tmp_path: Path):
+def _design_delta_drain_compile_result(tmp_path: Path):
     commands_payload = json.loads(DESIGN_DELTA_PARENT_DRAIN_COMMANDS.read_text(encoding="utf-8"))
-    result = compile_stage3_entrypoint(
+    return compile_stage3_entrypoint(
         DESIGN_DELTA_DRAIN_SOURCE,
         source_roots=(REPO_ROOT / "workflows" / "library",),
         provider_externs=_design_delta_parent_drain_provider_externs(),
@@ -191,15 +204,17 @@ def _design_delta_drain_validated_bundles(tmp_path: Path):
         validate_shared=True,
         workspace_root=tmp_path,
     )
-    return result.validated_bundles_by_name
 
 
-def _identity_map_for(source_path: Path, tmp_path: Path) -> dict[str, str]:
-    """`{workflow}::{origin}::{step_kind}` -> checkpoint_id across all bundles."""
-    if source_path == DESIGN_DELTA_DRAIN_SOURCE:
-        bundles = _design_delta_drain_validated_bundles(tmp_path)
-    else:
-        raise ValueError(f"no generic-route compile recipe for {source_path}")
+def _design_delta_drain_source_map(compile_result) -> WorkflowLispSourceMap:
+    return build_source_map_document(
+        compile_result,
+        selected_name="lisp_frontend_design_delta/drain::drain",
+        display_name_resolver=lambda name: name.rsplit("::", 1)[-1],
+    )
+
+
+def _identity_map_from_bundles(bundles, tmp_path: Path) -> dict[str, str]:
     state_manager = StateManager(tmp_path, run_id="drain-identity-baseline")
     rows: dict[str, str] = {}
     for _name, bundle in sorted(bundles.items()):
@@ -216,6 +231,77 @@ def _identity_map_for(source_path: Path, tmp_path: Path) -> dict[str, str]:
     return rows
 
 
+def _reviewed_inline_call_retirement_digest(rows: Mapping[str, str]) -> str:
+    payload = json.dumps(
+        sorted(rows.items()),
+        ensure_ascii=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+def _normalize_reviewed_inline_call_retirement(
+    *,
+    recorded: Mapping[str, str],
+    live: Mapping[str, str],
+    source_map: WorkflowLispSourceMap,
+) -> tuple[dict[str, str], dict[str, str]]:
+    retired = {
+        key: recorded[key]
+        for key in sorted(set(recorded) - set(live))
+    }
+    if len(retired) != REVIEWED_INLINE_CALL_RETIREMENT_COUNT:
+        raise AssertionError(
+            "reviewed inline-call retirement count changed: "
+            f"expected {REVIEWED_INLINE_CALL_RETIREMENT_COUNT}, got {len(retired)}"
+        )
+    digest = _reviewed_inline_call_retirement_digest(retired)
+    if digest != REVIEWED_INLINE_CALL_RETIREMENT_DIGEST:
+        raise AssertionError(
+            "reviewed inline-call retirement identity set changed: "
+            f"expected {REVIEWED_INLINE_CALL_RETIREMENT_DIGEST}, got {digest}"
+        )
+
+    lineage_by_call_key = {}
+    for workflow_name, workflow in source_map.workflows.items():
+        for entry in workflow.step_ids.values():
+            key = f"{workflow_name}::{entry.origin_key}::call"
+            if key in lineage_by_call_key:
+                raise AssertionError(
+                    f"ambiguous current source-map lineage for retired call key {key!r}"
+                )
+            lineage_by_call_key[key] = entry
+
+    for key, checkpoint_id in retired.items():
+        if not key.endswith("::call") or not checkpoint_id.startswith("ckpt:"):
+            raise AssertionError(
+                f"reviewed retirement row is not a lexical call checkpoint: {key!r}"
+            )
+        entry = lineage_by_call_key.get(key)
+        if entry is None:
+            raise AssertionError(
+                f"reviewed retired call has no unique current step lineage: {key!r}"
+            )
+        if entry.entity_kind != "step_id":
+            raise AssertionError(
+                f"reviewed retired call lineage is not a step identity: {key!r}"
+            )
+        if not any(
+            note.startswith("procedure definition at") for note in entry.notes
+        ) or not any(
+            note.startswith("procedure call site at") for note in entry.notes
+        ):
+            raise AssertionError(
+                "reviewed retired call lacks inline procedure definition/call-site "
+                f"lineage: {key!r}"
+            )
+
+    normalized = dict(recorded)
+    for key in retired:
+        del normalized[key]
+    return normalized, retired
+
+
 def test_retired_intrinsic_exemplar_baseline_remains_historical_evidence() -> None:
     recorded = json.loads((BASELINES / "exemplar.json").read_text(encoding="utf-8"))
     assert recorded
@@ -223,6 +309,84 @@ def test_retired_intrinsic_exemplar_baseline_remains_historical_evidence() -> No
 
 
 def test_design_delta_drain_generic_route_matches_baseline(tmp_path: Path) -> None:
-    live = _identity_map_for(DESIGN_DELTA_DRAIN_SOURCE, tmp_path)
+    compile_result = _design_delta_drain_compile_result(tmp_path)
+    live = _identity_map_from_bundles(
+        compile_result.validated_bundles_by_name,
+        tmp_path,
+    )
     recorded = json.loads((BASELINES / "design_delta_drain.json").read_text(encoding="utf-8"))
-    assert live == recorded
+    source_map = _design_delta_drain_source_map(compile_result)
+    normalized_recorded, retired = _normalize_reviewed_inline_call_retirement(
+        recorded=recorded,
+        live=live,
+        source_map=source_map,
+    )
+
+    assert len(retired) == REVIEWED_INLINE_CALL_RETIREMENT_COUNT
+    assert (
+        _reviewed_inline_call_retirement_digest(retired)
+        == REVIEWED_INLINE_CALL_RETIREMENT_DIGEST
+    )
+    assert live == normalized_recorded
+
+
+def test_reviewed_inline_call_retirement_rejects_identity_or_lineage_drift(
+    tmp_path: Path,
+) -> None:
+    compile_result = _design_delta_drain_compile_result(tmp_path)
+    live = _identity_map_from_bundles(
+        compile_result.validated_bundles_by_name,
+        tmp_path,
+    )
+    recorded = json.loads((BASELINES / "design_delta_drain.json").read_text(encoding="utf-8"))
+    source_map = _design_delta_drain_source_map(compile_result)
+    retired_keys = set(recorded) - set(live)
+
+    drifted_recorded = dict(recorded)
+    drifted_recorded[min(retired_keys)] = "ckpt:unreviewed-drift"
+    with pytest.raises(
+        AssertionError,
+        match="reviewed inline-call retirement identity set changed",
+    ):
+        _normalize_reviewed_inline_call_retirement(
+            recorded=drifted_recorded,
+            live=live,
+            source_map=source_map,
+        )
+
+    broken_workflows = dict(source_map.workflows)
+    broken = False
+    for workflow_name, workflow in source_map.workflows.items():
+        broken_steps = dict(workflow.step_ids)
+        for step_id, entry in workflow.step_ids.items():
+            call_key = f"{workflow_name}::{entry.origin_key}::call"
+            if call_key not in retired_keys:
+                continue
+            broken_steps[step_id] = replace(
+                entry,
+                notes=tuple(
+                    note
+                    for note in entry.notes
+                    if not note.startswith("procedure call site at")
+                ),
+            )
+            broken_workflows[workflow_name] = replace(
+                workflow,
+                step_ids=broken_steps,
+            )
+            broken = True
+            break
+        if broken:
+            break
+    assert broken
+    broken_source_map = replace(source_map, workflows=broken_workflows)
+
+    with pytest.raises(
+        AssertionError,
+        match="lacks inline procedure definition/call-site lineage",
+    ):
+        _normalize_reviewed_inline_call_retirement(
+            recorded=recorded,
+            live=live,
+            source_map=broken_source_map,
+        )
