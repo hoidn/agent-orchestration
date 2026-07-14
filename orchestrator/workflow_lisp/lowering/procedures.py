@@ -31,7 +31,6 @@ from ..procedure_refs import ResolvedProcRefValue
 from ..procedures import (
     ProcedureLoweringMode,
     TypedProcedureDef,
-    proc_ref_specialization_name as proc_ref_call_specialization_name,
     procedure_type_env_for,
 )
 from ..spans import SourceSpan
@@ -45,7 +44,10 @@ from ..type_env import (
     WorkflowRefTypeRef,
     render_type_ref,
 )
-from ..workflow_refs import ResolvedWorkflowRef, specialization_name as workflow_ref_specialization_name
+from ..workflow_refs import (
+    ResolvedWorkflowRef,
+    workflow_ref_binding_identity,
+)
 from ..workflows import (
     PromptExtern,
     ProviderExtern,
@@ -479,6 +481,61 @@ def _schema1_iteration_private_override_applies(
     )
 
 
+def _materialized_specialization_rows(
+    procedure: TypedProcedureDef,
+    *,
+    workflow_ref_bindings: Mapping[str, ResolvedWorkflowRef],
+    proc_ref_bindings: Mapping[str, ResolvedProcRefValue],
+    typed_procedures: Mapping[str, TypedProcedureDef],
+) -> tuple[TypedProcedureDef, ...]:
+    """Select exact compiler-owned rows without reconstructing their keys."""
+
+    existing = procedure.specialization
+    base_name = existing.base_name if existing is not None else procedure.signature.name
+    expected_workflow_bindings = {
+        **dict(getattr(existing, "workflow_ref_bindings", {})),
+        **dict(workflow_ref_bindings),
+    }
+    expected_proc_bindings = {
+        **dict(getattr(existing, "proc_ref_bindings", {})),
+        **dict(proc_ref_bindings),
+    }
+    expected_proc_identity = tuple(
+        sorted(
+            (param_name, resolved.call_target_name)
+            for param_name, resolved in expected_proc_bindings.items()
+        )
+    )
+
+    matches: list[TypedProcedureDef] = []
+    for candidate in typed_procedures.values():
+        specialization = candidate.specialization
+        if specialization is None or specialization.base_name != base_name:
+            continue
+        if workflow_ref_binding_identity(
+            specialization.workflow_ref_bindings
+        ) != workflow_ref_binding_identity(expected_workflow_bindings):
+            continue
+        candidate_proc_identity = tuple(
+            sorted(
+                (param_name, resolved.call_target_name)
+                for param_name, resolved in specialization.proc_ref_bindings.items()
+            )
+        )
+        if candidate_proc_identity != expected_proc_identity:
+            continue
+        if dict(specialization.type_bindings) != dict(
+            getattr(existing, "type_bindings", {})
+        ):
+            continue
+        if dict(specialization.value_bindings) != dict(
+            getattr(existing, "value_bindings", {})
+        ):
+            continue
+        matches.append(candidate)
+    return tuple(matches)
+
+
 def _lower_procedure_call(
     expr: LowerableProcedureCall,
     *,
@@ -611,29 +668,23 @@ def _lower_procedure_call(
                 continue
         remaining_args.append(arg_expr)
     if workflow_ref_bindings or proc_ref_bindings:
-        specialized_name = procedure.signature.name
-        if workflow_ref_bindings:
-            specialized_name = workflow_ref_specialization_name(
-                specialized_name,
-                workflow_ref_bindings,
-            )
-        if proc_ref_bindings:
-            specialized_name = proc_ref_call_specialization_name(
-                specialized_name,
-                proc_ref_bindings,
-            )
-        specialized = context.typed_procedures.get(specialized_name)
-        if specialized is None:
+        materialized_rows = _materialized_specialization_rows(
+            procedure,
+            workflow_ref_bindings=workflow_ref_bindings,
+            proc_ref_bindings=proc_ref_bindings,
+            typed_procedures=context.typed_procedures,
+        )
+        if len(materialized_rows) != 1:
             raise _compile_error(
                 code="procedure_lowering_unresolved",
                 message=(
-                    "compiler-owned procedure specialization row "
-                    f"`{specialized_name}` is missing during lowering"
+                    "compiler-owned procedure specialization row with exact "
+                    "compile-time bindings is missing or ambiguous during lowering"
                 ),
                 span=expr.span,
                 form_path=expr.form_path,
             )
-        procedure = specialized
+        procedure = materialized_rows[0]
         arg_exprs = tuple(remaining_args)
     if procedure.signature.name in context.active_procedure_calls:
         raise _compile_error(

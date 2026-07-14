@@ -64,8 +64,10 @@ from .type_env import (
 )
 from .workflow_refs import (
     ResolvedWorkflowRef,
+    collision_specialization_name,
     resolve_workflow_ref_expr,
     specialization_name,
+    workflow_ref_binding_identity,
 )
 from .workflows import TypedWorkflowDef, analyze_workflow_boundary_type
 
@@ -1224,6 +1226,39 @@ def discover_proc_ref_specializations(
     return tuple(discovered.values())
 
 
+def _same_specialization_bindings(
+    left: TypedProcedureDef,
+    right: TypedProcedureDef,
+) -> bool:
+    """Compare every compile-time binding carried by two specialization rows."""
+
+    left_specialization = left.specialization
+    right_specialization = right.specialization
+    if left_specialization is None or right_specialization is None:
+        return left_specialization is right_specialization
+    return (
+        left_specialization.base_name == right_specialization.base_name
+        and dict(left_specialization.type_bindings)
+        == dict(right_specialization.type_bindings)
+        and workflow_ref_binding_identity(left_specialization.workflow_ref_bindings)
+        == workflow_ref_binding_identity(right_specialization.workflow_ref_bindings)
+        and tuple(
+            sorted(
+                (param_name, resolved.call_target_name)
+                for param_name, resolved in left_specialization.proc_ref_bindings.items()
+            )
+        )
+        == tuple(
+            sorted(
+                (param_name, resolved.call_target_name)
+                for param_name, resolved in right_specialization.proc_ref_bindings.items()
+            )
+        )
+        and dict(left_specialization.value_bindings)
+        == dict(right_specialization.value_bindings)
+    )
+
+
 def discover_workflow_ref_specializations(
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
@@ -1238,7 +1273,7 @@ def discover_workflow_ref_specializations(
 
     from .expressions import LetStarExpr, ProcedureCallExpr
 
-    discovered: dict[str, TypedProcedureDef] = {}
+    candidates_by_legacy_name: dict[str, list[TypedProcedureDef]] = {}
     typed_procedures_by_name = {
         **dict(visible_typed_procedures_by_name or {}),
         **{
@@ -1250,9 +1285,16 @@ def discover_workflow_ref_specializations(
     def record_specialization(specialized: TypedProcedureDef | None) -> None:
         if specialized is None:
             return
-        if specialized.definition.name in typed_procedures_by_name:
+        candidates = candidates_by_legacy_name.setdefault(
+            specialized.definition.name,
+            [],
+        )
+        if any(
+            _same_specialization_bindings(candidate, specialized)
+            for candidate in candidates
+        ):
             return
-        discovered.setdefault(specialized.definition.name, specialized)
+        candidates.append(specialized)
 
     def resolve_binding(
         arg_expr: object,
@@ -1386,4 +1428,83 @@ def discover_workflow_ref_specializations(
         )
     for workflow in typed_workflows:
         walk(workflow.typed_body.expr, {}, {})
-    return tuple(discovered.values())
+
+    discovered: dict[str, tuple[tuple[tuple[str, str], ...], TypedProcedureDef]] = {}
+    for legacy_name, candidates in candidates_by_legacy_name.items():
+        existing_legacy_row = typed_procedures_by_name.get(legacy_name)
+        collision_group = len(candidates) > 1 or (
+            existing_legacy_row is not None
+            and not any(
+                _same_specialization_bindings(existing_legacy_row, candidate)
+                for candidate in candidates
+            )
+        )
+        for candidate in candidates:
+            if any(
+                _same_specialization_bindings(existing, candidate)
+                for existing in typed_procedures_by_name.values()
+            ):
+                # Fixed-point rediscovery reuses the exact compiler row even
+                # when a later candidate turns its legacy key into a group.
+                continue
+            identity = workflow_ref_binding_identity(
+                candidate.specialization.workflow_ref_bindings
+            )
+            final_name = (
+                collision_specialization_name(
+                    legacy_name,
+                    candidate.specialization.workflow_ref_bindings,
+                )
+                if collision_group
+                else legacy_name
+            )
+            if final_name != candidate.definition.name:
+                candidate = replace(
+                    candidate,
+                    definition=replace(candidate.definition, name=final_name),
+                    signature=replace(candidate.signature, name=final_name),
+                    specialization=replace(
+                        candidate.specialization,
+                        specialized_name=final_name,
+                        specialization_key=final_name,
+                    ),
+                )
+
+            existing = typed_procedures_by_name.get(final_name)
+            if existing is not None:
+                if not _same_specialization_bindings(existing, candidate):
+                    raise LispFrontendCompileError(
+                        (
+                            LispFrontendDiagnostic(
+                                code="procedure_specialization_key_collision",
+                                message=(
+                                    "procedure specialization key "
+                                    f"`{final_name}` has conflicting WorkflowRef bindings"
+                                ),
+                                span=candidate.definition.span,
+                                form_path=candidate.definition.form_path,
+                            ),
+                        )
+                    )
+                continue
+
+            prior = discovered.get(final_name)
+            if prior is not None and not _same_specialization_bindings(
+                prior[1],
+                candidate,
+            ):
+                raise LispFrontendCompileError(
+                    (
+                        LispFrontendDiagnostic(
+                            code="procedure_specialization_key_collision",
+                            message=(
+                                "procedure specialization key "
+                                f"`{final_name}` has conflicting WorkflowRef bindings"
+                            ),
+                            span=candidate.definition.span,
+                            form_path=candidate.definition.form_path,
+                        ),
+                    )
+                )
+            discovered[final_name] = (identity, candidate)
+    return tuple(candidate for _, candidate in discovered.values())

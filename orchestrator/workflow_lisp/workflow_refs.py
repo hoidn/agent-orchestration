@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -270,6 +271,34 @@ def specialization_name(base_name: str, bindings: Mapping[str, ResolvedWorkflowR
         target = resolved.workflow_name.replace("::", "__").replace("/", "_").replace("-", "_").replace(".", "_")
         parts.extend(("spec", param_name.replace("-", "_"), target))
     return "__".join(parts)
+
+
+def workflow_ref_binding_identity(
+    bindings: Mapping[str, ResolvedWorkflowRef],
+) -> tuple[tuple[str, str], ...]:
+    """Return the exact, workspace-independent identity of WorkflowRef bindings."""
+
+    return tuple(
+        sorted(
+            (param_name, resolved.workflow_name)
+            for param_name, resolved in bindings.items()
+        )
+    )
+
+
+def collision_specialization_name(
+    legacy_name: str,
+    bindings: Mapping[str, ResolvedWorkflowRef],
+) -> str:
+    """Disambiguate a colliding legacy key without changing unique keys."""
+
+    identity = workflow_ref_binding_identity(bindings)
+    payload = "".join(
+        f"{len(param_name)}:{param_name}{len(target_name)}:{target_name}"
+        for param_name, target_name in identity
+    )
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"{legacy_name}__workflow_ref__{digest}"
 
 
 def collect_workflow_extern_names(expr: Any) -> tuple[set[str], set[str]]:

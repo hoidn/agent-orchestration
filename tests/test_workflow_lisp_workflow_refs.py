@@ -25,6 +25,9 @@ from orchestrator.workflow_lisp.workflow_refs import (
     ResolvedWorkflowRef,
     WorkflowExternRebindingPlan,
     WorkflowRefAuthoritySource,
+    collision_specialization_name,
+    specialization_name,
+    workflow_ref_binding_identity,
 )
 
 
@@ -501,6 +504,262 @@ def test_linked_stage3_materializes_imported_workflow_ref_procedure_specializati
     assert specialized.specialization.base_name == "demo/procedures::invoke-runner"
     assert tuple(name for name, _ in specialized.signature.params) == ("input",)
     assert specialized.resolved_lowering_mode.value == "inline"
+
+
+def _lowered_call_targets(result, workflow_name: str) -> tuple[str, ...]:
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == workflow_name
+    )
+    return tuple(
+        step["call"]
+        for step in lowered.authored_mapping["steps"]
+        if "call" in step
+    )
+
+
+def _write_workflow_ref_key_collision(tmp_path: Path) -> Path:
+    path = tmp_path / "workflow_ref_key_collision.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord WorkflowInput (label String))",
+                "  (defrecord WorkflowOutput (label String))",
+                "  (defworkflow echo-helper",
+                "    ((input WorkflowInput)) -> WorkflowOutput",
+                "    (record WorkflowOutput :label input.label))",
+                "  (defworkflow echo_helper",
+                "    ((input WorkflowInput)) -> WorkflowOutput",
+                "    (record WorkflowOutput :label input.label))",
+                "  (defproc invoke-runner",
+                "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
+                "     (input WorkflowInput)) -> WorkflowOutput",
+                "    :effects ((calls-workflow runner)) :lowering inline",
+                "    (call runner :input input))",
+                "  (defworkflow run-dash",
+                "    ((input WorkflowInput)) -> WorkflowOutput",
+                "    (invoke-runner (workflow-ref echo-helper) input))",
+                "  (defworkflow run-underscore",
+                "    ((input WorkflowInput)) -> WorkflowOutput",
+                "    (invoke-runner (workflow-ref echo_helper) input)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_workflow_ref_collision_identity_uses_exact_ordered_binding_components() -> None:
+    first = {
+        "z-runner": SimpleNamespace(workflow_name="pkg/a::echo-helper"),
+        "a-runner": SimpleNamespace(workflow_name="pkg_a::echo_helper"),
+    }
+    reordered = dict(reversed(tuple(first.items())))
+    distinct_target = {
+        **first,
+        "z-runner": SimpleNamespace(workflow_name="pkg_a::echo_helper"),
+    }
+    distinct_param = {
+        "z_runner": first["z-runner"],
+        "a-runner": first["a-runner"],
+    }
+
+    assert workflow_ref_binding_identity(first) == workflow_ref_binding_identity(reordered)
+    assert collision_specialization_name("legacy", first) == collision_specialization_name(
+        "legacy",
+        reordered,
+    )
+    assert collision_specialization_name("legacy", first) != collision_specialization_name(
+        "legacy",
+        distinct_target,
+    )
+    assert collision_specialization_name("legacy", first) != collision_specialization_name(
+        "legacy",
+        distinct_param,
+    )
+    assert specialization_name("invoke-runner", {"runner": first["z-runner"]}) == (
+        "invoke-runner__spec__runner__pkg_a__echo_helper"
+    )
+
+
+def test_stage3_disambiguates_colliding_workflow_ref_specialization_keys(
+    tmp_path: Path,
+) -> None:
+    path = _write_workflow_ref_key_collision(tmp_path)
+
+    result = compile_stage3_module(
+        path,
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
+    )
+
+    specializations = [
+        procedure
+        for procedure in result.typed_procedures
+        if procedure.specialization is not None
+        and procedure.specialization.workflow_ref_bindings
+    ]
+    assert len(specializations) == 2
+    assert len({procedure.definition.name for procedure in specializations}) == 2
+    assert {
+        next(iter(procedure.specialization.workflow_ref_bindings.values())).workflow_name
+        for procedure in specializations
+    } == {"echo-helper", "echo_helper"}
+    assert _lowered_call_targets(result, "run-dash") == ("echo-helper",)
+    assert _lowered_call_targets(result, "run-underscore") == ("echo_helper",)
+
+
+def test_stage3_fails_closed_if_collision_disambiguator_reuses_a_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _write_workflow_ref_key_collision(tmp_path)
+    monkeypatch.setattr(
+        "orchestrator.workflow_lisp.procedure_specialization.collision_specialization_name",
+        lambda legacy_name, bindings: f"{legacy_name}__forced_collision",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            validate_shared=False,
+            workspace_root=tmp_path,
+            lowering_route=LoweringRoute.LEGACY,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "procedure_specialization_key_collision"
+
+
+def test_wcc_rejects_workflow_ref_collision_fixture_before_procedure_lowering(
+    tmp_path: Path,
+) -> None:
+    path = _write_workflow_ref_key_collision(tmp_path)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            validate_shared=False,
+            workspace_root=tmp_path,
+            lowering_route=LoweringRoute.WCC_M4,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "wcc_lowering_route_unsupported"
+    assert "WorkflowRefLiteralExpr" in excinfo.value.diagnostics[0].message
+
+
+def test_linked_stage3_disambiguates_colliding_canonical_workflow_ref_targets(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "linked_collision"
+    for module_path, module_name, workflow_name in (
+        (source_root / "demo" / "a.orc", "demo/a", "echo-helper"),
+        (source_root / "demo_a.orc", "demo_a", "echo_helper"),
+    ):
+        module_path.parent.mkdir(parents=True, exist_ok=True)
+        module_path.write_text(
+            "\n".join(
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.14")',
+                    f"  (defmodule {module_name})",
+                    "  (import demo/types :only (WorkflowInput WorkflowOutput))",
+                    f"  (export {workflow_name})",
+                    f"  (defworkflow {workflow_name}",
+                    "    ((input WorkflowInput)) -> WorkflowOutput",
+                    "    (record WorkflowOutput :label input.label)))",
+                ]
+            ),
+            encoding="utf-8",
+        )
+    package = source_root / "demo"
+    (package / "types.orc").write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/types)",
+                "  (export WorkflowInput WorkflowOutput)",
+                "  (defrecord WorkflowInput (label String))",
+                "  (defrecord WorkflowOutput (label String)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (package / "procedures.orc").write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/procedures)",
+                "  (import demo/types :only (WorkflowInput WorkflowOutput))",
+                "  (export invoke-runner)",
+                "  (defproc invoke-runner",
+                "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
+                "     (input WorkflowInput)) -> WorkflowOutput",
+                "    :effects ((calls-workflow runner)) :lowering inline",
+                "    (call runner :input input)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    entry_path = package / "entry.orc"
+    entry_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/entry)",
+                "  (import demo/types :only (WorkflowInput WorkflowOutput))",
+                "  (import demo/procedures :only (invoke-runner))",
+                "  (import demo/a :as slash :only (echo-helper))",
+                "  (import demo_a :as underscore :only (echo_helper))",
+                "  (export run-slash run-underscore)",
+                "  (defworkflow run-slash",
+                "    ((input WorkflowInput)) -> WorkflowOutput",
+                "    (invoke-runner (workflow-ref slash.echo-helper) input))",
+                "  (defworkflow run-underscore",
+                "    ((input WorkflowInput)) -> WorkflowOutput",
+                "    (invoke-runner (workflow-ref underscore.echo_helper) input)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        entry_path,
+        source_roots=(source_root,),
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
+    )
+
+    specializations = [
+        procedure
+        for procedure in result.entry_result.typed_procedures
+        if procedure.specialization is not None
+        and procedure.specialization.workflow_ref_bindings
+    ]
+    assert len(specializations) == 2
+    assert len({procedure.definition.name for procedure in specializations}) == 2
+    assert {
+        next(iter(procedure.specialization.workflow_ref_bindings.values())).workflow_name
+        for procedure in specializations
+    } == {"demo/a::echo-helper", "demo_a::echo_helper"}
+    assert _lowered_call_targets(result.entry_result, "demo/entry::run-slash") == (
+        "demo/a::echo-helper",
+    )
+    assert _lowered_call_targets(result.entry_result, "demo/entry::run-underscore") == (
+        "demo_a::echo_helper",
+    )
 
 
 def test_wcc_procedure_lowering_has_no_specialization_fallback() -> None:
