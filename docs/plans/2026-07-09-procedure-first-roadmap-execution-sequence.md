@@ -82,11 +82,14 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-07-executor-decomposition.md` | Completed through Task 9. Its targeted executor surface and Design Delta smoke pass; the full-suite failure identities match the pre-Task-2 baseline. |
 | `2026-07-08-boundary-report-followups.md` | Completed through Task 6 and its final gate. Case 5 now has production runtime/source-map attribution evidence. |
 | `2026-07-09-runtime-union-field-lineage-plan.md` | Completed through Task 6. The post-fix full suite retains exactly the six recorded baseline failures. |
-| `2026-07-07-drain-migration-g8-retirement.md` | Phase 1 through Phase 4 are complete. Gates P3/P4/S3/S4, both typed-return waves, and the resolved-effect substrate are complete. The bounded Design Delta promotion handoff is recorded without archive, its historical parity artifact remains tracked after target retirement, and the ordered certification bundle plus temporary G8 build serializer are deleted. The tracked-plan pilot is current. Stage 6 YAML archive remains later work. |
+| `2026-07-07-drain-migration-g8-retirement.md` | Phase 1 through Phase 4 are complete. Gates P3/P4/S3/S4, both typed-return waves, and the resolved-effect substrate are complete. The bounded Design Delta promotion handoff is recorded without archive, its historical parity artifact remains tracked after target retirement, and the ordered certification bundle plus temporary G8 build serializer are deleted. Stage 6 YAML archive remains later work. |
 | `2026-07-10-workflow-lisp-native-transportable-returns-plan.md` | Stage-5 wave 1 landed ahead of Gates S3/S4 under the 2026-07-10 amendment. Treat it as a completed historical prerequisite; do not re-execute it. |
 | `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Completed Stage-5 wave 2. Root/field guidance and the combined v2.15 public promotion gate are landed; do not re-execute it. |
 | `2026-07-13-procedure-first-substrate-gaps-plan.md` | Complete and independently gated. Caller-visible transitive effects are recomputed after specialization; do not re-execute this substrate before the tracked-plan pilot. |
-| `2026-07-13-procedure-first-pilot-plan.md` | Current selector. Convert only the internal `tracked-plan-phase` while preserving its public design-stack wrapper and all parity gates. |
+| `2026-07-13-procedure-migration-identity-compatibility-plan.md` | Current selector. Implement and review the accepted generic identity-compatibility prerequisites; do not edit the pilot family source under this plan. |
+| `2026-07-13-procedure-first-pilot-plan.md` | Paused until the identity-compatibility prerequisite gate passes. It then owns the tracked-plan source edit, store-owner attestations, retirement evidence, and public-wrapper parity. |
+| `2026-07-13-resume-projection-integrity-hardening-design-plan.md` | Planned after the internal pilot. Its design/specification and resulting implementation plan must complete before migration waves begin; this row is not an implementation claim. |
+| `2026-07-13-procedure-first-migration-waves-plan.md` | Planned after resume projection-integrity hardening implementation completes. Task 1 must rebaseline all prerequisites before any family migration. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
 | `2026-07-07-yaml-retirement-program.md` | Task 1 may inform later design. Its Design Delta family promotion is coordinated between drain Phases 2 and 3; other code-changing and promotion tasks wait until the procedure-first pilot is accepted. |
 
@@ -176,9 +179,17 @@ Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The
 semantic-migration freeze is lifted. Gate S4 passed holistic specification and
 quality review on 2026-07-13. Both typed-return waves are complete and DSL
 v2.15 is public. The resolved-effect substrate is complete and independently
-gated. The active step is the **tracked-plan pilot**, governed by
-`2026-07-13-procedure-first-pilot-plan.md`; reviewed migration waves follow
-it. Stage 6 YAML archive remains later.
+gated. The active step is the **procedure-migration identity compatibility
+prerequisite plan**, governed by
+`docs/plans/2026-07-13-procedure-migration-identity-compatibility-plan.md`. The
+`docs/plans/2026-07-13-procedure-first-pilot-plan.md` is paused until that plan's generic
+prerequisite gate passes. It is followed by
+`docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`, completion
+of the resulting implementation plan,
+`docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`,
+`docs/plans/2026-07-07-yaml-retirement-program.md`,
+`docs/design/workflow_lisp_provider_live_binding.md`, and
+`docs/design/workflow_lisp_language_server.md`, in that order.
 
 The completed Phase 1 execution order was:
 
@@ -240,7 +251,8 @@ generic-route residue audit, two-family non-regressive parity, exact baseline
 full-suite comparison, promoted `.orc` compile/dry-run evidence, and preserved
 historical state/YAML twin. The semantic-migration freeze is lifted and Stage 4
 was the next selector at Gate S3; it, both typed-return waves, and the
-resolved-effect substrate are now complete. The tracked-plan pilot is current.
+resolved-effect substrate are now complete. The identity-compatibility
+prerequisite plan is current and the tracked-plan pilot is paused.
 
 ### Stage 4: Design The Broader Procedure-First Contract
 
@@ -345,7 +357,8 @@ PASS` and `GATE S4 QUALITY PASS`. The three independently executable follow-on
 plans are the effect-substrate, tracked-plan pilot, and migration-wave plans
 dated 2026-07-13. Typed result guidance is implemented and compatible; the
 resolved-effect substrate is now complete and independently gated. The
-tracked-plan pilot is the current selector.
+accepted identity-compatibility design now gates the paused pilot through its
+generic prerequisite implementation plan.
 
 ### Stage 5: Implement Procedure-First Reuse In Waves
 
@@ -365,18 +378,29 @@ Execute only accepted plans, in this order:
    direct effects from caller-visible transitive effects and recomputes the
    latter after generic/`ProcRef` specialization. Its whole-plan specification
    and quality gates passed; do not replay it.
-4. **Pilot wave — current selector.** Execute
-   `2026-07-13-procedure-first-pilot-plan.md` for only the internal
-   `tracked-plan-phase`, preserving its public design-stack wrapper.
-5. **Small/library wave.** Execute Tasks 1–3 of
+4. **Identity-compatibility prerequisites — current selector.** Execute
+   `2026-07-13-procedure-migration-identity-compatibility-plan.md` and pass its
+   generic implementation, evidence, checksum-negative, and independent-review
+   gates. This plan must not edit the pilot family source.
+5. **Pilot wave — paused.** Resume
+   `2026-07-13-procedure-first-pilot-plan.md` only after item 4 passes. It owns
+   genuine known-store owner attestations, the reviewed internal retirement
+   exception, the one family edit, and full public-wrapper parity. Missing or
+   ineligible retirement evidence stops the pilot under strict compatibility.
+6. **Resume projection-integrity hardening.** After the pilot, execute
+   `2026-07-13-resume-projection-integrity-hardening-design-plan.md`, accept its
+   generic design/specification and detailed implementation plan, then complete
+   that implementation plan. This is a production-wave prerequisite, not a
+   claim that hardening is already implemented.
+7. **Small/library wave.** Only after item 6 completes, execute Tasks 1–3 of
    `2026-07-13-procedure-first-migration-waves-plan.md` with the recorded
    classification and parity gates.
-6. **Effect-adapter evidence wave.** Execute Task 4 of that migration plan
+8. **Effect-adapter evidence wave.** Execute Task 4 of that migration plan
    before production-family conversion. YAML adapter rows are audited, not
    translated into `.orc` procedure candidates.
-7. **Production-family wave.** Execute Tasks 5–6 only after output, artifact,
+9. **Production-family wave.** Execute Tasks 5–6 only after output, artifact,
    effect, resume, and checkpoint parity is computed.
-8. **Compatibility retirement handoff.** Execute Tasks 7–8; delete no YAML
+10. **Compatibility retirement handoff.** Execute Tasks 7–8; delete no YAML
    family here, and advance to Stage 6 only through its existing retirement
    gates.
 
@@ -556,6 +580,11 @@ This roadmap sequence is complete when:
   intrinsic/certification residue is retired;
 - the frontend contract makes procedures the normal internal reuse unit while
   retaining workflows as public/resumable boundaries;
+- identity-compatibility prerequisites pass before the internal pilot, and the
+  pilot's strict-default or reviewed-retirement gate closes with genuine store
+  attestations;
+- checksum-compatible resume projection-integrity hardening is designed,
+  specified, implemented, and reviewed before migration waves begin;
 - selected real families have migrated with computed parity evidence;
 - compatibility workflow-as-function paths have explicit remaining owners or
   are retired;
@@ -578,5 +607,8 @@ Revisit this sequence if:
   procedure values or hidden effects;
 - procedure conversion changes a public run/resume identity without an
   explicit migration contract;
+- the identity prerequisite gate, pilot retirement eligibility/attestation
+  gate, or projection-integrity implementation gate cannot pass without
+  weakening its accepted contract;
 - YAML promotion would force the repository back toward workflows as the
   internal reuse unit.

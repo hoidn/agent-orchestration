@@ -17,7 +17,16 @@
 - Human-readable inventory: `docs/plans/2026-07-13-procedure-first-reuse-inventory.md`
 - Stage 6 owner: `docs/plans/2026-07-07-yaml-retirement-program.md`
 - Migration parity owner: `docs/design/workflow_lisp_key_migration_parity_architecture.md`
-- Execute only after typed result guidance, the effect substrate plan, and the tracked-plan pilot are complete and reviewed.
+- Resume-integrity prerequisite owner:
+  `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`
+- Execute only after typed result guidance, the effect substrate plan, the
+  tracked-plan pilot, the accepted resume projection-integrity target and
+  implementation plan produced by that design-and-planning plan, and the full
+  hardening implementation are complete and independently reviewed.
+- No migration task, including a small/library family, may start before that
+  hardening implementation gate passes. Production-family Tasks 5–6 have the
+  same prerequisite and cannot treat pilot success or design acceptance alone
+  as authorization to start.
 - Preserve the inventory's separate `public-entry` records. In particular, never migrate:
   - `workflows/library/lisp_frontend_design_delta/drain.orc::drain` away from `defworkflow`; or
   - `workflows/examples/design_plan_impl_review_stack_v2_call.orc::design-plan-impl-review-stack` away from `defworkflow`.
@@ -85,13 +94,23 @@ collapse them across families:
 - Inspect: `docs/plans/2026-07-10-workflow-lisp-typed-result-guidance-plan.md`
 - Inspect: `docs/plans/2026-07-13-procedure-first-substrate-gaps-plan.md`
 - Inspect: `docs/plans/2026-07-13-procedure-first-pilot-plan.md`
+- Inspect: `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`
+- Inspect: the accepted resume projection-integrity design and completed
+  implementation plan produced by that plan
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.md`
 - Test: `tests/test_workflow_lisp_procedure_first_migrations.py`
 
 - [ ] **Step 1: Verify prerequisite completion evidence**
 
-Confirm typed result guidance is the completed first pending Stage 5 wave, the direct/transitive effect substrate gate passed, and the tracked-plan pilot passed all parity axes. Do not duplicate or reopen direct-root/guidance semantics.
+Confirm typed result guidance is complete, the direct/transitive effect
+substrate gate passed, the tracked-plan pilot passed all applicable strict or
+reviewed-retirement parity gates, and resume projection-integrity hardening is
+accepted, implemented, and independently reviewed with fresh completion
+evidence. Rebaseline the inventory and family selectors against that
+post-hardening checkout. Do not duplicate or reopen direct-root/guidance
+semantics, and stop before any migration if the hardening implementation gate
+cannot be proven.
 
 - [ ] **Step 2: Regenerate source locations and current commit provenance**
 
@@ -649,6 +668,8 @@ Stop the active family and do not start the next one when:
 
 - a public invocation, child-workflow, run/resume, publication, or operator-visible boundary would disappear;
 - exact persisted checkpoint/resume identity cannot be preserved;
+- resume projection-integrity hardening design, implementation-plan, runtime
+  implementation, or independent-review completion evidence is absent;
 - an effect is absent from the recomputed caller-visible summary or Semantic IR;
 - parity requires accepting a new output, artifact, terminal, source-map, state-root, or resume difference not already reviewed;
 - a family needs compiler/runtime substrate, dynamic dispatch, runtime procedure values, or a new DSL contract;

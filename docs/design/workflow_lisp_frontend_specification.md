@@ -4501,6 +4501,14 @@ feed the recomputed result to lowering and Semantic IR with focused tests.
    outcomes, artifacts/publications, source maps, state/write roots,
    checkpoint identities, and resume/reuse behavior.
 
+Persisted identity is strict-compatible by default. A mismatch stops the
+migration unless a separately reviewed general atomic upgrader applies or the
+accepted reviewed internal identity-retirement class applies; that evidence-
+only exception is unavailable to public/exported callees, promoted/live routes,
+or supported old-identity consumers. All other comparison axes above remain
+unconditional, and no retirement record remaps old state. See
+[Procedure-Migration Identity Compatibility](workflow_lisp_procedure_migration_identity_compatibility.md).
+
 Compilation or dry-run alone is not promotion evidence. Keep a workflow when
 it is externally run or resumed, is an independently addressable child
 workflow, owns public publication/output lifecycle, requires a stable

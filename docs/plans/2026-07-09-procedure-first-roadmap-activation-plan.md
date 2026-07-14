@@ -4,7 +4,7 @@
 
 **Goal:** Make the approved procedure-first roadmap executable by reconciling the existing component plans with landed commits, tracking and routing the governing plan set, re-anchoring stale ownership paths, and establishing a verified component-plan handoff.
 
-**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, and drain Phases 1–4 are complete. Gates P3/P4/S3/S4, both typed-return waves, and the resolved-effect substrate are complete. DSL v2.15 is public. The current selector is the tracked-plan pilot; reviewed migration waves follow it. Stage 6 YAML archive remains later work.
+**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, and drain Phases 1–4 are complete. Gates P3/P4/S3/S4, both typed-return waves, and the resolved-effect substrate are complete. DSL v2.15 is public. The current selector is `docs/plans/2026-07-13-procedure-migration-identity-compatibility-plan.md`; the tracked-plan pilot is paused behind that gate.
 
 > **Current execution amendment (updated 2026-07-13):** The case 5 design and
 > implementation are complete, and the boundary final gate passed. The
@@ -37,6 +37,21 @@
 > reviewed resolved-effect substrate are complete. The tracked-plan pilot is
 > selected next, followed by reviewed migration waves; Stage 6 YAML archive
 > remains later.
+
+> **Routing amendment (2026-07-13):** The preceding amendment remains the
+> historical closeout record, but its final selection is superseded. Execute
+> `docs/plans/2026-07-13-procedure-migration-identity-compatibility-plan.md`,
+> then resume the paused
+> `docs/plans/2026-07-13-procedure-first-pilot-plan.md`. After the pilot,
+> execute
+> `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`
+> and complete the implementation plan it produces before starting
+> `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`. Later order
+> remains `docs/plans/2026-07-07-yaml-retirement-program.md`,
+> `docs/design/workflow_lisp_provider_live_binding.md`, then
+> `docs/design/workflow_lisp_language_server.md`. This routing amendment
+> changes no historical gate evidence and claims neither compatibility
+> prerequisites nor projection hardening are implemented.
 
 **Tech Stack:** Markdown, Git, `rg`, pytest, pyflakes.
 

@@ -2,6 +2,10 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** paused until the accepted identity-compatibility prerequisite plan
+passes its implementation, verification, handoff, and independent-review gate.
+Do not select a pilot source-edit task while paused.
+
 **Goal:** Convert only the internal `tracked-plan-phase` in `design_plan_impl_review_stack_v2_call.orc` from a workflow call to an inline typed procedure while retaining `design-plan-impl-review-stack` as the public boundary and proving full executable parity.
 
 **Architecture:** Capture a pre-change, machine-readable contract snapshot for the retained public entry, then make the smallest source migration: `tracked-plan-phase` becomes `defproc :lowering inline`, and its one caller uses an ordinary positional procedure call. The public wrapper continues to own inputs, outputs, artifacts, effects, state, checkpoints, source maps, runtime execution, and resume identity; tests compare those surfaces before accepting the source edit.
@@ -13,11 +17,26 @@
 ## Authority, prerequisites, and boundaries
 
 - Accepted contract: `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
+- Accepted identity compatibility clarification:
+  `docs/design/workflow_lisp_procedure_migration_identity_compatibility.md`
+- Current prerequisite plan:
+  `docs/plans/2026-07-13-procedure-migration-identity-compatibility-plan.md`
 - Reviewed inventory row: `internal-call:workflows/examples/design_plan_impl_review_stack_v2_call.orc:tracked-plan-phase:1` in `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
 - Existing family target: `design_plan_impl_stack` in `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json`
 - Execute only after both:
   1. `docs/plans/2026-07-10-workflow-lisp-typed-result-guidance-plan.md` is complete; and
   2. `docs/plans/2026-07-13-procedure-first-substrate-gaps-plan.md` is complete and reviewed.
+- Remain paused until Task 7 and the final handoff gate of the identity-
+  compatibility prerequisite plan pass. That task owns the detailed rewrite
+  of this plan's identity stop conditions, pre-edit known-store scans, and
+  retirement-record gates; do not partially execute the older task details
+  below before that handoff is recorded.
+- When resumed, this plan owns the genuine named-owner attestations for every
+  known state store and either proves strict compatibility or applies the
+  accepted reviewed internal identity-retirement exception. Missing,
+  ambiguous, public/exported, promoted/live, or supported-consumer evidence
+  stops the pilot without a source edit. A retirement record is evidence only
+  and makes no old-state remap or cross-source resume claim.
 - Modify no phase except `tracked-plan-phase`; `tracked-design-phase` and `design-plan-impl-implementation-phase` remain workflows for later waves.
 - Retain the exported public `design-plan-impl-review-stack` workflow. Do not export the pilot procedure or register it as a workflow entry.
 - Do not edit the YAML twin or archive anything in this plan. Stage 6 owns YAML retirement.

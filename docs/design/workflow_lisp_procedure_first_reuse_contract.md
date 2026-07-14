@@ -15,6 +15,7 @@
   - `docs/design/workflow_lisp_state_layout.md`
   - `docs/design/workflow_lisp_source_map.md`
   - `docs/design/workflow_lisp_key_migration_parity_architecture.md`
+  - `docs/design/workflow_lisp_procedure_migration_identity_compatibility.md`
   - `docs/plans/2026-07-13-procedure-first-stage4-design-and-planning.md`
 - **Implementation target:** independently reviewed substrate, pilot, and
   migration-wave plans selected by the procedure-first roadmap
@@ -239,10 +240,15 @@ workflow as runtime owner. Private-workflow lowering additionally records the
 deterministic private boundary. No compiler-generated private name becomes a
 new public invocation or publication surface.
 
-If a migration cannot preserve a persisted checkpoint identifier exactly, it
-must stop. A separately reviewed compatibility/remap design may authorize an
-explicit mapping; absence of such a design is not permission for a silent
-change.
+A procedure-first migration is strict-compatible by default. If it cannot
+preserve a persisted identity exactly, it must stop unless a separately
+reviewed general atomic upgrader preserves supported old-state consumers, or
+the migration qualifies for the reviewed internal identity-retirement class
+in the accepted
+[Procedure-Migration Identity Compatibility](workflow_lisp_procedure_migration_identity_compatibility.md)
+design. Identity retirement is never available to a public or exported callee,
+a promoted or live route, or any migration with a supported consumer of the
+old identity. It supplies evidence only and does not remap old state.
 
 ## Migration Test
 
@@ -259,8 +265,12 @@ following are established:
    consumer-name special case.
 6. Before/after executable comparison proves public inputs/outputs, terminal
    states, artifacts/publications, effects, source maps, state/write roots,
-   checkpoint identities, and resume/reuse behavior equivalent, with any
-   accepted difference named and reviewed.
+   checkpoint identities, and resume/reuse behavior equivalent. Every axis is
+   unconditional except persisted identity: strict compatibility remains the
+   default, while a general atomic upgrader or the accepted reviewed internal
+   identity-retirement class may authorize its specifically bounded identity
+   treatment. The retirement exception is unavailable to public/exported
+   callees, promoted/live routes, or supported old-identity consumers.
 7. A runtime or end-to-end family check exercises the retained public wrapper.
 
 Compilation, typechecking, lowering, validation, or dry-run alone is necessary

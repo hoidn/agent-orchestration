@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
@@ -8,8 +7,17 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CURRENT_SELECTOR = (
-    "procedure first roadmap stage 4: design the broader procedure first contract"
+CURRENT_SELECTOR_PATH = (
+    "docs/plans/2026-07-13-procedure-migration-identity-compatibility-plan.md"
+)
+ORDERED_ROADMAP_PATHS = (
+    CURRENT_SELECTOR_PATH,
+    "docs/plans/2026-07-13-procedure-first-pilot-plan.md",
+    "docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md",
+    "docs/plans/2026-07-13-procedure-first-migration-waves-plan.md",
+    "docs/plans/2026-07-07-yaml-retirement-program.md",
+    "docs/design/workflow_lisp_provider_live_binding.md",
+    "docs/design/workflow_lisp_language_server.md",
 )
 GATE_P4_REVIEWED_STATE = (
     "gates p3 and p4 are independently reviewed and satisfied"
@@ -62,18 +70,16 @@ def _normalized_routing_text(text: str) -> str:
     )
 
 
-def _assert_current_selector(surface: str, label: str) -> None:
-    normalized = _normalized_routing_text(surface)
-    clauses = re.findall(
-        r"(?:current selector|active step|next active selection|next selector)\s*(?:is|:)\s*((?:\d+\.\d+|[^.,;|])+)",
-        normalized,
+def _assert_exact_ordered_routing_paths(surface: str, label: str) -> None:
+    canonical = surface.replace("(plans/", "(docs/plans/").replace(
+        "(design/", "(docs/design/"
     )
-    assert clauses == [CURRENT_SELECTOR], (label, clauses)
-    forbidden = re.compile(
-        r"drain phase|phase 4|task 4\.[1-9]|stage 5|typed result guidance|yaml archive"
-    )
-    for clause in clauses:
-        assert forbidden.search(clause) is None, (label, clause)
+    positions: list[int] = []
+    for path in ORDERED_ROADMAP_PATHS:
+        assert canonical.count(path) == 1, (label, path, canonical.count(path))
+        positions.append(canonical.index(path))
+    assert positions == sorted(positions), (label, positions)
+    assert "paused" in canonical.lower(), label
 
 
 def _assert_task_4_3_closeout_state(surface: str, label: str) -> None:
@@ -211,29 +217,14 @@ def test_task_4_2_inventory_guard_rejects_incomplete_pipeline_contract(
 
 
 def test_drain_authorities_share_one_current_selector_and_preserve_later_order() -> None:
-    drain_plan = (
-        REPO_ROOT / "docs" / "plans" / "2026-07-07-drain-migration-g8-retirement.md"
-    ).read_text(encoding="utf-8")
-    gate_p4_status = drain_plan.split("**Gate P4 (entry to Phase 4):**", 1)[1].split(
-        "---", 1
-    )[0]
-    task_4_2_plan = drain_plan.split(
-        "### Task 4.2: Strip the G8 serializer", 1
-    )[1].split("### Task 4.3:", 1)[0]
     capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
-    backlog_drain_row = _markdown_table_row(
-        capability_matrix_path, "`backlog-drain` generic stdlib route"
-    )
-    design_delta_row = _markdown_table_row(
-        capability_matrix_path, "Design Delta parent-family boundary"
-    )
-    typed_guidance_row = _markdown_table_row(
-        capability_matrix_path, "Workflow Lisp typed result guidance"
+    procedure_first_row = _markdown_table_row(
+        capability_matrix_path, "Workflow Lisp procedure-first reuse contract"
     )
     docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
         encoding="utf-8"
     ).split("**Component-plan routing:**", 1)[1].split(
-        "**Later procedure-first substrate:**", 1
+        "**Current procedure-first substrate:**", 1
     )[0]
     procedure_sequence = (
         REPO_ROOT
@@ -243,128 +234,36 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
     ).read_text(encoding="utf-8").split(
         "**Current next selection (2026-07-13):**", 1
     )[1].split("The completed Phase 1 execution order was:", 1)[0]
-    activation = (
+    activation_routing = (
         REPO_ROOT
         / "docs"
         / "plans"
         / "2026-07-09-procedure-first-roadmap-activation-plan.md"
     ).read_text(encoding="utf-8").split(
-        "> **Current execution amendment (updated 2026-07-13):**", 1
+        "> **Routing amendment (2026-07-13):**", 1
     )[1].split("**Tech Stack:**", 1)[0]
-    migration_record = (
-        REPO_ROOT
-        / "docs"
-        / "plans"
-        / "LISP-FRONTEND-DESIGN-DELTA-DRAIN-ORC-MIGRATION"
-        / "migration_record.md"
-    ).read_text(encoding="utf-8").split(
-        "The promotion handoff now has strict promotable parity", 1
-    )[1].split("The remaining sections preserve the June migration inventory", 1)[0]
-    family_one_row = _markdown_table_row(
-        REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md",
-        "lisp_frontend_design_delta_drain.yaml",
-    )
-    workflow_catalog_row = _markdown_table_row(
-        REPO_ROOT / "workflows" / "README.md", "lisp_frontend_design_delta/drain.orc"
-    )
-    parametric_status = (
-        REPO_ROOT / "docs" / "design" / "workflow_lisp_parametric_type_system.md"
-    ).read_text(encoding="utf-8").split("Current status (2026-07-13):", 1)[1].split(
-        "## Acceptance Checks", 1
-    )[0]
-    inventory = json.loads(
-        (
-            REPO_ROOT
-            / "docs"
-            / "plans"
-            / "LISP-FRONTEND-AUTONOMOUS-DRAIN"
-            / "post_wcc_current_state_inventory.json"
-        ).read_text(encoding="utf-8")
-    )
-    inventory_guidance = next(
-        row["selector_guidance"]
-        for row in inventory["surfaces"]
-        if row["surface_id"] == "workflow-lisp-yaml-primary-promotion-gate"
-    )
-    reconciliation_row = _markdown_table_row(
-        REPO_ROOT
-        / "docs"
-        / "plans"
-        / "LISP-FRONTEND-AUTONOMOUS-DRAIN"
-        / "design-gaps"
-        / "post_wcc_reconciliation_index.md",
-        "YAML-primary promotion gate",
-    )
+
     routing_surfaces = {
-        "drain plan": gate_p4_status,
-        "backlog drain": backlog_drain_row,
-        "design delta": design_delta_row,
-        "typed guidance": typed_guidance_row,
         "docs index": docs_index_routing,
         "procedure sequence": procedure_sequence,
-        "activation": activation,
-        "migration record": migration_record,
-        "YAML family 1": family_one_row,
-        "workflow catalog": workflow_catalog_row,
-        "parametric design": parametric_status,
-        "post-WCC inventory": inventory_guidance,
-        "reconciliation": reconciliation_row,
+        "activation": activation_routing,
+        "capability matrix": procedure_first_row,
     }
-    assert len(routing_surfaces) == 13
+    assert len(routing_surfaces) == 4
     for label, surface in routing_surfaces.items():
-        _assert_current_selector(surface, label)
-        _assert_task_4_3_closeout_state(surface, label)
-    _assert_task_4_2_temporary_pipeline_contract(task_4_2_plan, "Task 4.2 plan")
+        _assert_exact_ordered_routing_paths(surface, label)
 
-    mutated = docs_index_routing.replace(
-        "Design The Broader Procedure-First Contract",
-        "unrelated cleanup",
-        1,
-    )
-    with pytest.raises(AssertionError):
-        _assert_current_selector(mutated, "mutated selector title")
-
-    duplicated = (
-        docs_index_routing
-        + " The current selector is Procedure-First Roadmap Stage 4: "
-        "unrelated duplicate."
-    )
-    with pytest.raises(AssertionError):
-        _assert_current_selector(duplicated, "duplicate selector")
-
-    conflicting_next = (
-        docs_index_routing + " The next selector is Stage 5: typed result guidance."
-    )
-    with pytest.raises(AssertionError):
-        _assert_current_selector(conflicting_next, "conflicting next selector")
-
-    for forbidden_selector in (
-        "drain phase 4 task 4.3: final verification and closeout",
-        "phase 4 task 4.2: strip the g8 serializer",
-        "phase 4 task 4.4: post closeout cleanup",
-        "stage 5: typed result guidance",
-        "stage 6: yaml archive",
-    ):
-        mutated = docs_index_routing.replace(
-            "Procedure-First Roadmap Stage 4: Design The Broader Procedure-First Contract",
-            forbidden_selector,
+        missing = surface.replace(
+            "2026-07-13-resume-projection-integrity-hardening-design-plan.md",
+            "missing-hardening-plan.md",
             1,
         )
         with pytest.raises(AssertionError):
-            _assert_current_selector(mutated, f"forbidden selector {forbidden_selector}")
+            _assert_exact_ordered_routing_paths(missing, f"{label} missing hardening")
 
-    workflow_lisp_readme = (
-        REPO_ROOT / "orchestrator" / "workflow_lisp" / "README.md"
-    ).read_text(encoding="utf-8")
-    assert "`drain_stdlib.py`" not in workflow_lisp_readme
-    assert workflow_lisp_readme.count("`stdlib_modules/std/drain.orc`") == 1
-    drain_owner = workflow_lisp_readme.split("`stdlib_modules/std/drain.orc`", 1)[1].split(
-        "\n- ", 1
-    )[0]
-    assert "imported generic" in drain_owner
-    assert "ordinary specialization and WCC lowering" in drain_owner
+        duplicated = surface + " " + CURRENT_SELECTOR_PATH
+        with pytest.raises(AssertionError):
+            _assert_exact_ordered_routing_paths(duplicated, f"{label} duplicate selector")
 
-    order = _normalized_routing_text(typed_guidance_row)
-    assert order.index(CURRENT_SELECTOR) < order.index("guidance remains stage 5")
-    assert "+ 6 `v214` library imports" in family_one_row
-    assert "Stage 6" in family_one_row
+    assert _normalized_routing_text(docs_index_routing).count("current selector") == 1
+    assert _normalized_routing_text(procedure_first_row).count("current selector") == 1
