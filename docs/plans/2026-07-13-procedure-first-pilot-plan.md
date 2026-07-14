@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** PAUSED. Identity-compatibility Tasks 1-7 are implemented, but the
+**Status:** PAUSED. Identity-compatibility Tasks 1-7 changes are present, but the
 prerequisite plan's Task 8 repair and final verification/review gate have not
 yet passed. Do not select or make a pilot source edit while paused.
 
