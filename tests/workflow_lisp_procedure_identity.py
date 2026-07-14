@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from pathlib import Path
@@ -23,6 +24,46 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise TypeError(f"expected a JSON object in {path}")
     return payload
+
+
+def remove_reviewed_synthetic_inline_call_checkpoint(
+    observation: Mapping[str, Any],
+    *,
+    checkpoint_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Remove one explicitly reviewed baseline-only inline call checkpoint."""
+
+    normalized = deepcopy(dict(observation))
+    matches: list[tuple[list[dict[str, Any]], int, dict[str, Any]]] = []
+    for bundle in normalized.get("bundles", []):
+        runtime_identities = bundle.get("runtime_identities", {})
+        points = runtime_identities.get("lexical_checkpoint_points", [])
+        for index, point in enumerate(points):
+            if point.get("checkpoint_id") == checkpoint_id:
+                matches.append((points, index, point))
+
+    if len(matches) != 1:
+        raise AssertionError(
+            "reviewed synthetic inline call checkpoint must identify exactly one row; "
+            f"found {len(matches)} for {checkpoint_id}"
+        )
+    points, index, point = matches[0]
+    effect_boundary = point.get("effect_boundary")
+    policy = effect_boundary.get("policy") if isinstance(effect_boundary, Mapping) else None
+    if not (
+        point.get("point_kind") == "effect_boundary"
+        and point.get("step_kind") == "call"
+        and isinstance(effect_boundary, Mapping)
+        and effect_boundary.get("effect_kind") == "call"
+        and effect_boundary.get("boundary_kind") == "call"
+        and isinstance(policy, Mapping)
+        and policy.get("policy_kind") == "reuse_validated_workflow_call"
+    ):
+        raise AssertionError(
+            f"reviewed checkpoint {checkpoint_id} is not a synthetic workflow-call policy row"
+        )
+    removed = points.pop(index)
+    return normalized, removed
 
 
 def _fixture_manifests(path: Path) -> tuple[dict[str, str], dict[str, str], dict[str, ExternalToolBinding]]:

@@ -17,6 +17,9 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_shadow_points.orc")
 POLICY_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_effect_policies.orc")
 RESTORE_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_restore_regions.orc")
+PROCEDURE_FIXTURE = Path(
+    "tests/fixtures/workflow_lisp/valid/procedure_lowering_identity_modes.orc"
+)
 
 
 def _module():
@@ -91,6 +94,45 @@ def _compile_policy_fixture(tmp_path: Path):
         for name, bundle in result.validated_bundles_by_name.items()
         if name == "orchestrate" or name.endswith("::orchestrate")
     )
+
+
+def _compile_wcc_procedure_fixture(tmp_path: Path):
+    providers = json.loads(
+        PROCEDURE_FIXTURE.with_suffix(".providers.json").read_text(encoding="utf-8")
+    )
+    prompts = json.loads(
+        PROCEDURE_FIXTURE.with_suffix(".prompts.json").read_text(encoding="utf-8")
+    )
+    command_payload = json.loads(
+        PROCEDURE_FIXTURE.with_suffix(".commands.json").read_text(encoding="utf-8")
+    )
+    commands = {
+        name: ExternalToolBinding(
+            name=name,
+            stable_command=tuple(payload["stable_command"]),
+        )
+        for name, payload in command_payload.items()
+    }
+    result = compile_stage3_entrypoint(
+        PROCEDURE_FIXTURE,
+        source_roots=(PROCEDURE_FIXTURE.parent,),
+        entry_workflow="orchestrate",
+        provider_externs=providers,
+        prompt_externs=prompts,
+        command_boundaries=commands,
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+    return next(
+        bundle
+        for name, bundle in result.validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+
+
+def _effect_policy(point) -> dict[str, object]:
+    return point.details["effect_boundary"]["policy"]
 
 
 def _execution_inputs(tmp_path: Path) -> dict[str, object]:
@@ -188,6 +230,70 @@ def _latest_checkpoint_records_by_effect_kind(executor: WorkflowExecutor, state_
         record_path = state_manager.workspace / last_entry["record_path"]
         records[point.details["effect_boundary"]["effect_kind"]] = json.loads(record_path.read_text(encoding="utf-8"))
     return records
+
+
+def test_wcc_inline_procedure_has_no_synthetic_workflow_call_checkpoint(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_wcc_procedure_fixture(tmp_path)
+
+    inline_call_points = [
+        point
+        for point in bundle.runtime_plan.lexical_checkpoint_points
+        if "inline_plan" in point.step_id
+        and point.details.get("step_kind") == "call"
+        and _effect_policy(point)["policy_kind"]
+        == "reuse_validated_workflow_call"
+    ]
+
+    assert inline_call_points == []
+
+
+def test_wcc_inline_procedure_keeps_inner_provider_and_command_policies(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_wcc_procedure_fixture(tmp_path)
+
+    inline_effect_policies = {
+        point.details["step_kind"]: _effect_policy(point)["policy_kind"]
+        for point in bundle.runtime_plan.lexical_checkpoint_points
+        if "inline_plan" in point.step_id
+        and point.details.get("step_kind") in {"provider", "command"}
+    }
+
+    assert inline_effect_policies == {
+        "provider": "reuse_validated_structured_output",
+        "command": "reuse_validated_structured_output",
+    }
+
+
+def test_wcc_real_workflow_and_private_procedure_calls_keep_workflow_call_policy(
+    tmp_path: Path,
+) -> None:
+    workflow_workspace = tmp_path / "workflow-call"
+    procedure_workspace = tmp_path / "private-procedure"
+    workflow_workspace.mkdir()
+    procedure_workspace.mkdir()
+    workflow_bundle = _compile_fixture(workflow_workspace)
+    procedure_bundle = _compile_wcc_procedure_fixture(procedure_workspace)
+
+    real_workflow_call = next(
+        point
+        for point in workflow_bundle.runtime_plan.lexical_checkpoint_points
+        if "pure_helper" in point.step_id
+        and point.details.get("step_kind") == "call"
+    )
+    private_procedure_call = next(
+        point
+        for point in procedure_bundle.runtime_plan.lexical_checkpoint_points
+        if "private_helper" in point.step_id
+        and point.details.get("step_kind") == "call"
+    )
+
+    for point in (real_workflow_call, private_procedure_call):
+        assert point.details["effect_boundary"]["effect_kind"] == "call"
+        assert point.details["effect_boundary"]["boundary_kind"] == "call"
+        assert _effect_policy(point)["policy_kind"] == "reuse_validated_workflow_call"
 
 
 def test_checkpoint_id_derivation_is_deterministic() -> None:

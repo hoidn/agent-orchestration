@@ -75,7 +75,10 @@ from orchestrator.workflow_lisp.workflows import (
 )
 from orchestrator.workflow_lisp.wcc.defunctionalize import lower_wcc_m4_workflow_definitions
 from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
-from tests.workflow_lisp_procedure_identity import build_procedure_identity_observation
+from tests.workflow_lisp_procedure_identity import (
+    build_procedure_identity_observation,
+    remove_reviewed_synthetic_inline_call_checkpoint,
+)
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
@@ -6760,7 +6763,17 @@ def test_procedure_identity_modes_match_frozen_wcc_m4_observables(tmp_path: Path
         tmp_path,
     )
 
-    assert actual == expected
+    normalized_expected, removed = remove_reviewed_synthetic_inline_call_checkpoint(
+        expected,
+        checkpoint_id="ckpt:96c8f1defd3c99d22430b7e9",
+    )
+
+    assert removed["program_point_id"] == "pp:557411aebbf25d7fe27132c9"
+    assert removed["step_id"] == (
+        "root.procedure_lowering_identity_modes_orchestrate__plan__"
+        "procedure_lowering_identity_modes_inline_plan_1__match_attempt"
+    )
+    assert actual == normalized_expected
 
 
 def test_explicit_inline_pilot_shape_does_not_use_schema1_iteration_override(

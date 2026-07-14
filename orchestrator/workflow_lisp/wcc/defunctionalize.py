@@ -1791,7 +1791,17 @@ def _defunctionalize_body(
                 local_values=updated_locals,
                 lexical_checkpoint_points=lexical_checkpoint_points,
             )
-            if lexical_checkpoint_points is not None:
+            procedure = (
+                context.typed_procedures.get(body.bound_value.specialized_callee_name)
+                or context.typed_procedures.get(body.bound_value.callee_name)
+                if isinstance(body.bound_value, WccCall)
+                else None
+            )
+            is_inline_procedure_call = (
+                procedure is not None
+                and procedure.resolved_lowering_mode == ProcedureLoweringMode.INLINE
+            )
+            if lexical_checkpoint_points is not None and not is_inline_procedure_call:
                 lexical_checkpoint_points.append(
                     _effect_boundary_checkpoint_point_payload(
                         workflow_name=context.workflow_name,
