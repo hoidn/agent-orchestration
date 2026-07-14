@@ -173,6 +173,7 @@ git commit -m "test: freeze procedure lowering identity observables"
 
 **Files:**
 - Modify: `orchestrator/workflow_lisp/compiler.py`
+- Modify: `orchestrator/workflow_lisp/procedure_specialization.py`
 - Modify: `orchestrator/workflow_lisp/lowering/core.py`
 - Modify: `orchestrator/workflow_lisp/lowering/procedures.py`
 - Modify: `orchestrator/workflow_lisp/wcc/lower.py`
@@ -180,12 +181,21 @@ git commit -m "test: freeze procedure lowering identity observables"
 - Modify: `tests/test_workflow_lisp_procedures.py`
 - Modify: `tests/test_workflow_lisp_build_artifacts.py`
 - Modify: `tests/test_workflow_lisp_lowering.py`
+- Modify: `tests/test_workflow_lisp_modules.py`
 - Modify: `tests/test_workflow_lisp_workflow_refs.py`
 - Modify: `tests/workflow_lisp_procedure_identity.py`
 - Test: `tests/test_workflow_lisp_procedures.py`
 - Test: `tests/test_workflow_lisp_build_artifacts.py`
 - Test: `tests/test_workflow_lisp_lowering.py`
+- Test: `tests/test_workflow_lisp_modules.py`
 - Test: `tests/test_workflow_lisp_workflow_refs.py`
+
+Historical execution note: final review found that linked consumers could
+re-resolve imported procedures and that classic lowering still materialized
+missing specializations. Repair commits `90f69f12` and `27e1bd84` therefore
+used the adjacent specialization owner and linked-module coverage now listed
+above; the Task 2 lowering-ownership and no-call-site-carrier requirements are
+unchanged.
 
 - [ ] **Step 1: Write RED Stage-3 ownership tests**
 
