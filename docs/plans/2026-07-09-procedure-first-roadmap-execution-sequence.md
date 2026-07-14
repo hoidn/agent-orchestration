@@ -86,8 +86,8 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-10-workflow-lisp-native-transportable-returns-plan.md` | Stage-5 wave 1 landed ahead of Gates S3/S4 under the 2026-07-10 amendment. Treat it as a completed historical prerequisite; do not re-execute it. |
 | `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Completed Stage-5 wave 2. Root/field guidance and the combined v2.15 public promotion gate are landed; do not re-execute it. |
 | `2026-07-13-procedure-first-substrate-gaps-plan.md` | Complete and independently gated. Caller-visible transitive effects are recomputed after specialization; do not re-execute this substrate before the tracked-plan pilot. |
-| `2026-07-13-procedure-migration-identity-compatibility-plan.md` | Current selector. Implement and review the accepted generic identity-compatibility prerequisites; do not edit the pilot family source under this plan. |
-| `2026-07-13-procedure-first-pilot-plan.md` | Paused until the identity-compatibility prerequisite gate passes. It then owns the tracked-plan source edit, store-owner attestations, retirement evidence, and public-wrapper parity. |
+| `2026-07-13-procedure-migration-identity-compatibility-plan.md` | Complete and gated; the final audited handoff to the pilot is `f5adcb79`. Do not re-execute it or edit the pilot family source under this plan. |
+| `2026-07-13-procedure-first-pilot-plan.md` | Current selected plan, but `STOPPED/BLOCKED` before Task 1A selection by the missing genuine known-store owner attestation recorded in `45eadbdc`. Task 1A harness work and every source edit are unselected and prohibited. |
 | `2026-07-13-resume-projection-integrity-hardening-design-plan.md` | Planned after the internal pilot. Its design/specification and resulting implementation plan must complete before migration waves begin; this row is not an implementation claim. |
 | `2026-07-13-procedure-first-migration-waves-plan.md` | Planned after resume projection-integrity hardening implementation completes. Task 1 must rebaseline all prerequisites before any family migration. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
@@ -179,11 +179,17 @@ Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The
 semantic-migration freeze is lifted. Gate S4 passed holistic specification and
 quality review on 2026-07-13. Both typed-return waves are complete and DSL
 v2.15 is public. The resolved-effect substrate is complete and independently
-gated. The active step is the **procedure-migration identity compatibility
-prerequisite plan**, governed by
-`docs/plans/2026-07-13-procedure-migration-identity-compatibility-plan.md`. The
-`docs/plans/2026-07-13-procedure-first-pilot-plan.md` is paused until that plan's generic
-prerequisite gate passes. It is followed by
+gated. The procedure-migration identity-compatibility prerequisites are
+complete and gated at handoff `f5adcb79`. The current selected plan is
+`docs/plans/2026-07-13-procedure-first-pilot-plan.md`, but it is
+`STOPPED/BLOCKED` before Task 1A selection by the missing genuine known-store
+owner attestation recorded in `45eadbdc`; Task 1A harness work and every source
+edit remain unselected and prohibited. External unblock requires genuine
+attributable owner attestations for every known state store and completion of
+the required pre-edit scan, isolation, quiescence, and immutable-evidence gate;
+identity must not be inferred from usernames, filesystem metadata,
+conversation context, or agent claims. Only after the pilot completes is it
+followed by
 `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`, completion
 of the resulting implementation plan,
 `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`,
@@ -251,8 +257,10 @@ generic-route residue audit, two-family non-regressive parity, exact baseline
 full-suite comparison, promoted `.orc` compile/dry-run evidence, and preserved
 historical state/YAML twin. The semantic-migration freeze is lifted and Stage 4
 was the next selector at Gate S3; it, both typed-return waves, and the
-resolved-effect substrate are now complete. The identity-compatibility
-prerequisite plan is current and the tracked-plan pilot is paused.
+resolved-effect substrate and identity-compatibility prerequisites are now
+complete. The tracked-plan pilot is the current selected plan, but it is
+`STOPPED/BLOCKED` before Task 1A selection under the `45eadbdc` attestation
+stop; projection-integrity hardening remains later and must not start first.
 
 ### Stage 4: Design The Broader Procedure-First Contract
 
@@ -357,8 +365,9 @@ PASS` and `GATE S4 QUALITY PASS`. The three independently executable follow-on
 plans are the effect-substrate, tracked-plan pilot, and migration-wave plans
 dated 2026-07-13. Typed result guidance is implemented and compatible; the
 resolved-effect substrate is now complete and independently gated. The
-accepted identity-compatibility design now gates the paused pilot through its
-generic prerequisite implementation plan.
+accepted identity-compatibility design's generic prerequisites are complete and
+gated at `f5adcb79`. The pilot is selected next but remains stopped before Task
+1A under the genuine known-store owner-attestation gate recorded in `45eadbdc`.
 
 ### Stage 5: Implement Procedure-First Reuse In Waves
 
@@ -378,15 +387,21 @@ Execute only accepted plans, in this order:
    direct effects from caller-visible transitive effects and recomputes the
    latter after generic/`ProcRef` specialization. Its whole-plan specification
    and quality gates passed; do not replay it.
-4. **Identity-compatibility prerequisites — current selector.** Execute
-   `2026-07-13-procedure-migration-identity-compatibility-plan.md` and pass its
+4. **Identity-compatibility prerequisites — complete.**
+   `2026-07-13-procedure-migration-identity-compatibility-plan.md` passed its
    generic implementation, evidence, checksum-negative, and independent-review
-   gates. This plan must not edit the pilot family source.
-5. **Pilot wave — paused.** Resume
-   `2026-07-13-procedure-first-pilot-plan.md` only after item 4 passes. It owns
-   genuine known-store owner attestations, the reviewed internal retirement
-   exception, the one family edit, and full public-wrapper parity. Missing or
-   ineligible retirement evidence stops the pilot under strict compatibility.
+   gates; the final audited handoff is `f5adcb79`. Do not re-execute it.
+5. **Pilot wave — current selected plan, stopped before Task 1A.**
+   `2026-07-13-procedure-first-pilot-plan.md` is `STOPPED/BLOCKED` by the
+   missing genuine known-store owner attestation recorded in `45eadbdc`. Task
+   1A harness work and every source edit are unselected and prohibited.
+   External unblock requires genuine attributable owner attestations for every
+   known state store and completion of the required pre-edit scan, isolation,
+   quiescence, and immutable-evidence gate; identity must not be inferred from
+   usernames, filesystem metadata, conversation context, or agent claims. The
+   resumed pilot then owns the reviewed internal retirement exception, the one
+   family edit, and full public-wrapper parity. Missing or ineligible retirement
+   evidence stops the pilot under strict compatibility.
 6. **Resume projection-integrity hardening.** After the pilot, execute
    `2026-07-13-resume-projection-integrity-hardening-design-plan.md`, accept its
    generic design/specification and detailed implementation plan, then complete
