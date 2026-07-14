@@ -78,9 +78,10 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-07-executor-decomposition.md` | Completed through Task 9. Its targeted executor surface and Design Delta smoke pass; the full-suite failure identities match the pre-Task-2 baseline. |
 | `2026-07-08-boundary-report-followups.md` | Completed through Task 6 and its final gate. Case 5 now has production runtime/source-map attribution evidence. |
 | `2026-07-09-runtime-union-field-lineage-plan.md` | Completed through Task 6. The post-fix full suite retains exactly the six recorded baseline failures. |
-| `2026-07-07-drain-migration-g8-retirement.md` | Phase 1 through Phase 4 are complete. Gates P3 and P4 are independently reviewed and satisfied. The bounded Design Delta promotion handoff is recorded without archive, its historical parity artifact remains tracked after target retirement, and the ordered certification bundle plus temporary G8 build serializer are deleted. Task 4.1 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The semantic-migration freeze is lifted. Gate S4 is also satisfied; the current selector is Stage 5 wave 2, typed result guidance. Stage 6 YAML archive remains later work. |
+| `2026-07-07-drain-migration-g8-retirement.md` | Phase 1 through Phase 4 are complete. Gates P3/P4/S3/S4 and both typed-return waves are complete. The bounded Design Delta promotion handoff is recorded without archive, its historical parity artifact remains tracked after target retirement, and the ordered certification bundle plus temporary G8 build serializer are deleted. The resolved-effect substrate is current. Stage 6 YAML archive remains later work. |
 | `2026-07-10-workflow-lisp-native-transportable-returns-plan.md` | Stage-5 wave 1 landed ahead of Gates S3/S4 under the 2026-07-10 amendment. Treat it as a completed historical prerequisite; do not re-execute it. |
-| `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Accepted and reviewed Stage-5 wave 2 plan and the current selector. Gate P2, landed native returns, completed drain Stages 3–4, and Gate S4 satisfy its prerequisites. It adds root/field guidance and owns the combined v2.15 promotion gate. |
+| `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Completed Stage-5 wave 2. Root/field guidance and the combined v2.15 public promotion gate are landed; do not re-execute it. |
+| `2026-07-13-procedure-first-substrate-gaps-plan.md` | Current selector. Recompute caller-visible transitive effects after specialization before the tracked-plan pilot. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
 | `2026-07-07-yaml-retirement-program.md` | Task 1 may inform later design. Its Design Delta family promotion is coordinated between drain Phases 2 and 3; other code-changing and promotion tasks wait until the procedure-first pilot is accepted. |
 
@@ -232,8 +233,8 @@ Gate S3:
 generic-route residue audit, two-family non-regressive parity, exact baseline
 full-suite comparison, promoted `.orc` compile/dry-run evidence, and preserved
 historical state/YAML twin. The semantic-migration freeze is lifted and Stage 4
-was the next selector at Gate S3; it is now complete, and Stage 5 wave 2 typed
-result guidance is current.
+was the next selector at Gate S3; it and both typed-return waves are now
+complete, and the resolved-effect substrate is current.
 
 ### Stage 4: Design The Broader Procedure-First Contract
 
@@ -336,8 +337,8 @@ inventory contains 96 active internal calls (33 `procedure-candidate`, 25
 `public-boundary` entries. Independent holistic review returned `GATE S4 SPEC
 PASS` and `GATE S4 QUALITY PASS`. The three independently executable follow-on
 plans are the effect-substrate, tracked-plan pilot, and migration-wave plans
-dated 2026-07-13. Typed result guidance is compatible and is now the current
-selector.
+dated 2026-07-13. Typed result guidance is implemented and compatible; the
+resolved-effect substrate is now the current selector.
 
 ### Stage 5: Implement Procedure-First Reuse In Waves
 
@@ -347,14 +348,12 @@ Execute only accepted plans, in this order:
    prerequisite.** `2026-07-10-workflow-lisp-native-transportable-returns-plan.md`
    has landed under the 2026-07-10 amendment. Do not replay it. Direct JSON roots
    and compiler-owned `__result__` carriage remain uniform across every currently
-   transportable type; v2.15 is not promoted yet.
-2. **Typed result-guidance substrate.** Execute
-   `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` when this Stage-5
-   step is reached. It is now the current selector: wave 1, drain Gate P2, the
-   Design Delta handoff, remaining drain phases, and Gate S4 are complete. Its
-   completion gate jointly promotes the v2.15 native-return and guidance
-   contract.
-3. **Resolved-effect substrate wave.** Execute
+   transportable type; v2.15 is now public.
+2. **Typed result-guidance substrate — complete.**
+   `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` landed the source,
+   wire, prompt, IR, runtime-neutrality, and ordinary-loader gates and jointly
+   promoted the v2.15 native-return and guidance contract. Do not replay it.
+3. **Resolved-effect substrate wave — current selector.** Execute
    `2026-07-13-procedure-first-substrate-gaps-plan.md`. Separate body-local
    direct effects from caller-visible transitive effects and recompute the
    latter after generic/`ProcRef` specialization; do not change a workflow

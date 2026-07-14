@@ -2396,7 +2396,6 @@ def _validate_one_lowered_workflow(
         boundary_validation_policy=boundary_validation_policy,
     )
     loader._allow_private_collection_output_schemas = True
-    loader._enabled_preview_versions = frozenset({"2.15"})
     loader._allow_generated_repeat_until_on_exhausted_refs = True
     loader._generated_repeat_until_on_exhausted_refs = {
         step_name: dict(output_refs)

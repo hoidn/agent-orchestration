@@ -346,7 +346,7 @@ The currently implemented authoring surface includes:
 - `WorkflowRef[...]` and `(workflow-ref ...)`
 - native returns for every currently transportable type across workflows,
   providers, commands, procedures, and workflow calls when targeting the
-  compiler-recognized DSL v2.15 preview
+  public DSL v2.15
 - `provider-result`
 - `command-result`
 - `with-phase`
@@ -388,8 +388,6 @@ Current component-contract boundaries:
 
 Designed or future, but not current authoring:
 
-- authored `(result T ...)` return guidance and record/union payload-field
-  `:description`, `:format-hint`, and typed `:example` annotations;
 - runtime first-class procedures or closures
 - provider-selected or command-produced procedure values
 - procedure values stored in workflow outputs, records, unions, artifacts,
@@ -405,19 +403,17 @@ proves disabled-profile rejection and source-map diagnostics. Do not author
 runtime closure values, dynamic procedure dispatch, or procedure-valued runtime
 state.
 
-Native returns (wave 1) are landed: a `.orc` source declaring
+Native returns and typed guidance are landed: a `.orc` source declaring
 `(:target-dsl "2.15")` may
 return `Bool`, `Int`, `Float`, `String`, an enum, a declared path, an
 `Optional[T]`, a `List[T]`, or a `Map[String, T]` directly from
 `defworkflow`, `provider-result`, `command-result`, effectful `defproc`, and
 workflow calls, without wrapping it in a one-field record. Typed result
-guidance is accepted but not implemented: `(result T ...)` and annotated result
-fields still reject. This is still a private, compiler-recognized preview,
-not a promoted DSL version: ordinary loader entrypoints (CLI run/resume/
-report, dashboard, imported-bundle manifests) continue to reject
-`version: "2.15"` until the typed-result-guidance plan promotes it. Follow the
-[Capability Status Matrix](capability_status_matrix.md) for the current status
-of each row.
+guidance uses `(result T :description ... :format-hint ... :example ...)`, and
+record/union payload fields accept the same optional keys. Examples are typed
+pure constants. Path examples must be safe but need not exist at compile time.
+DSL v2.15 is public through ordinary loader entrypoints. Follow the
+[Capability Status Matrix](capability_status_matrix.md) for current status.
 
 Some migration slices now have evidence, but YAML remains authoritative for a
 workflow until that specific `.orc` version has compile, shared-validation,
@@ -1640,19 +1636,30 @@ Usually avoid:
 - broad ambient doc globs;
 - instructions to echo session IDs or pointer paths.
 
-### Current Result-Guidance Boundary
+### Result Guidance
 
-Use meaningful result and field names and explain field semantics in the
-provider task prompt today. The current Workflow Lisp parser accepts plain
-return type names and two-item record/union fields; it does not yet accept
-`(result T ...)` or field-level `:description`, `:format-hint`, and `:example`
-annotations. Do not hand-edit generated YAML contracts to simulate that source
-surface.
+Use plain return types when the type and field names are sufficient. Add
+guidance at the narrowest authored return occurrence when the producer needs
+semantic help:
 
-The accepted v2.15 target will pass optional typed root and payload-field
-guidance through generated contracts to the provider prompt without changing
-runtime validity. That target remains `Designed` in the capability matrix until
-both the native-return and typed-guidance implementation plans complete.
+```lisp
+:returns
+  (result Bool
+    :description "True only when no blocking findings remain."
+    :format-hint "Write a JSON boolean."
+    :example true)
+```
+
+Payload fields accept the same keys after the field type. `:example` is a
+typed pure constant; for path types it is checked for path safety but the
+target need not exist during compilation. Schema inclusion, imports, and
+generic specialization preserve field guidance without changing type identity.
+
+Provider/command occurrence guidance reaches the generated effect contract and
+provider prompt. A `defworkflow` or effectful `defproc` return annotation is
+overall callable guidance: it becomes top-level `result_guidance`, survives
+shared IR, and is deliberately not injected into a provider prompt. Neither
+form changes runtime validation, artifacts, routing, checkpoints, or resume.
 
 For nontrivial provider calls, build a typed prompt-input record and pass that
 record to `:inputs`. This keeps provider inputs named, typed, and separate from
@@ -2310,7 +2317,7 @@ Before running a new `.orc` workflow, confirm:
 | Area | Check |
 | --- | --- |
 | Frontend choice | This belongs in `.orc`; YAML is needed only for compatibility or fixtures. |
-| Types | All boundary values are typed. In the compiler-recognized DSL v2.15 preview, every currently transportable type is valid in function, procedure, provider-result, command-result, workflow-call, and public-workflow return positions; direct roots use compiler-owned `__result__` carriage and no authored wrapper. v2.14 and ordinary public loaders are not promoted to this surface yet. |
+| Types | All boundary values are typed. In public DSL v2.15, every currently transportable type is valid in function, procedure, provider-result, command-result, workflow-call, and public-workflow return positions; direct roots use compiler-owned `__result__` carriage and no authored wrapper. Optional `(result T ...)` and payload-field guidance is typed, prompt-only metadata and never changes runtime validity. |
 | Paths | Path contracts are reusable `defpath` definitions. |
 | Authority | Structured bundles/artifacts are authority; reports are views. |
 | Providers | Provider decisions return structured state through `provider-result`. |

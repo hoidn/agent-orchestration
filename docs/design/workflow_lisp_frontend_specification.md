@@ -4454,20 +4454,27 @@ workflow boundary declares exactly one generated output named `__result__`
 for a root-valued return, and `call` carries it through the outer call-step
 artifacts unchanged.
 
-DSL v2.15 is the wire version for this widened contract, but it is an
-unreleased private preview: only the compiler's own shared-validation call
-enables it (`_enabled_preview_versions`). Ordinary loader entrypoints (CLI
-run/resume/report, dashboard projection, imported-bundle manifest loading)
-continue to reject `version: "2.15"` until the dependent typed-result-guidance
-plan promotes it. v2.14 authored YAML and existing record/union `.orc`
-programs are unaffected and remain non-regressive (byte-identical executable
-contracts, source identities, and checkpoint identities).
+DSL v2.15 is the public wire version for this widened contract. Ordinary
+loader entrypoints and Workflow Lisp shared validation accept it uniformly.
+v2.14 authored YAML and existing record/union `.orc` programs are unaffected
+and remain non-regressive.
 
 Full contract, wire schema, and verification strategy:
 [Workflow Lisp Native Transportable Returns And Typed Result Guidance](workflow_lisp_native_transportable_returns.md).
-Typed result guidance (`(result T ...)`, field annotations, guidance wire
-keys) is a separate, not-yet-implemented wave; v2.15 capability promotion
-waits for it.
+Typed result guidance is implemented. Plain returns remain canonical; an
+annotated occurrence uses `(result T :description ... :format-hint ...
+:example <pure-constant>)`, and record/union payload fields accept the same
+three optional keys. Examples are typed pure constants; path examples enforce
+path safety but not target existence. Composition preserves metadata without
+including it in type or specialization identity.
+
+Effect boundaries lower guidance into v2.15 bundle `guidance`, direct field
+keys, ordered ancestor `guidance_context`, and discriminant-ordered
+`guidance_by_variant`. Overall callable/workflow return guidance lowers once
+to top-level `result_guidance` and survives Surface, Core, Semantic, and
+Executable IR. It is not injected into provider prompts and does not change
+outputs, runtime plans, value validation, fingerprints, checkpoints, or
+resume.
 
 ## 105.4 Procedure-First Reuse And Migration
 

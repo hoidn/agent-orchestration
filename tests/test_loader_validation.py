@@ -5038,13 +5038,11 @@ class TestLoaderValidation:
             }],
         }
 
-    def _preview_v215_loader(self) -> WorkflowLoader:
-        loader = WorkflowLoader(self.workspace)
-        loader._enabled_preview_versions = frozenset({"2.15"})
-        return loader
+    def _v215_loader(self) -> WorkflowLoader:
+        return WorkflowLoader(self.workspace)
 
     def test_v215_guidance_contracts_accept_every_public_container(self):
-        loaded = self._preview_v215_loader().load(
+        loaded = self._v215_loader().load(
             self.write_workflow(self._guidance_output_bundle_workflow())
         )
         surface = thaw_surface_workflow(loaded)
@@ -5058,7 +5056,7 @@ class TestLoaderValidation:
             "example": {"approved": True},
         }]
 
-        variant_loaded = self._preview_v215_loader().load(
+        variant_loaded = self._v215_loader().load(
             self.write_workflow(self._guidance_variant_output_workflow())
         )
         variant = thaw_surface_workflow(variant_loaded)["steps"][0]["variant_output"]
@@ -5134,7 +5132,7 @@ class TestLoaderValidation:
         workflow["steps"][0]["output_bundle"]["guidance"] = payload
 
         with pytest.raises(WorkflowValidationError):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
     @pytest.mark.parametrize("bundle_kind", ["output_bundle", "variant_output"])
     @pytest.mark.parametrize("misplaced_key", ["description", "format_hint", "example", "guidance_context"])
@@ -5154,7 +5152,7 @@ class TestLoaderValidation:
         )
 
         with pytest.raises(WorkflowValidationError, match="not allowed at bundle level"):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
     @pytest.mark.parametrize(
         ("key", "value"),
@@ -5169,7 +5167,7 @@ class TestLoaderValidation:
         workflow["steps"][0]["output_bundle"]["fields"][0][key] = value
 
         with pytest.raises(WorkflowValidationError):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
     def test_v215_field_guidance_rejects_guidance_nested_in_value_schema(self):
         workflow = self._guidance_output_bundle_workflow()
@@ -5178,7 +5176,7 @@ class TestLoaderValidation:
         field["example"] = [True]
 
         with pytest.raises(WorkflowValidationError, match="not allowed in a nested schema"):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
     @pytest.mark.parametrize(
         "payload",
@@ -5196,14 +5194,14 @@ class TestLoaderValidation:
         workflow["result_guidance"] = payload
 
         with pytest.raises(WorkflowValidationError):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
     def test_v215_result_guidance_requires_at_least_one_output(self):
         workflow = self._guidance_output_bundle_workflow()
         workflow["outputs"] = {}
 
         with pytest.raises(WorkflowValidationError, match="result_guidance requires at least one declared output"):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
     @pytest.mark.parametrize(
         "context_rows",
@@ -5231,7 +5229,7 @@ class TestLoaderValidation:
         field["guidance_context"] = context_rows
 
         with pytest.raises(WorkflowValidationError):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
     @pytest.mark.parametrize(
         "row",
@@ -5246,7 +5244,7 @@ class TestLoaderValidation:
         workflow["steps"][0]["output_bundle"]["fields"][0]["guidance_context"] = [row]
 
         with pytest.raises(WorkflowValidationError):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
     def test_v215_field_guidance_context_accepts_rfc6901_escaped_prefixes(self):
         workflow = self._guidance_output_bundle_workflow()
@@ -5257,7 +5255,7 @@ class TestLoaderValidation:
             {"json_pointer": "/review~1items/detail~0key", "description": "Escaped tilde."},
         ]
 
-        self._preview_v215_loader().load(self.write_workflow(workflow))
+        self._v215_loader().load(self.write_workflow(workflow))
 
     def test_v215_root_field_rejects_guidance_context_and_root_with_sibling(self):
         workflow = self._guidance_output_bundle_workflow()
@@ -5266,14 +5264,14 @@ class TestLoaderValidation:
         root_field["guidance_context"] = [{"json_pointer": "/review", "description": "bad"}]
 
         with pytest.raises(WorkflowValidationError, match="root field cannot declare guidance_context"):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
         root_field.pop("guidance_context")
         workflow["steps"][0]["output_bundle"]["fields"].append({
             "name": "other", "json_pointer": "/other", "type": "bool"
         })
         with pytest.raises(WorkflowValidationError, match="root json_pointer cannot have sibling fields"):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
     @pytest.mark.parametrize(
         "guidance_by_variant",
@@ -5291,7 +5289,7 @@ class TestLoaderValidation:
         shared["guidance_by_variant"] = guidance_by_variant
 
         with pytest.raises(WorkflowValidationError):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
     def test_v215_guidance_by_variant_rejects_keys_out_of_discriminant_order(self):
         workflow = self._guidance_variant_output_workflow()
@@ -5299,7 +5297,7 @@ class TestLoaderValidation:
         variant_output["discriminant"]["allowed"] = ["REVISE", "APPROVE"]
 
         with pytest.raises(WorkflowValidationError, match="discriminant allowed order"):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
     def test_v215_guidance_by_variant_rejects_direct_guidance_coexistence(self):
         workflow = self._guidance_variant_output_workflow()
@@ -5307,7 +5305,7 @@ class TestLoaderValidation:
         shared["description"] = "Direct guidance conflicts."
 
         with pytest.raises(WorkflowValidationError, match="mutually exclusive"):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
     @pytest.mark.parametrize(
         "payload",
@@ -5323,7 +5321,7 @@ class TestLoaderValidation:
         shared["guidance_by_variant"] = {"APPROVE": payload}
 
         with pytest.raises(WorkflowValidationError):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
     @pytest.mark.parametrize(
         ("example", "expected"),
@@ -5334,7 +5332,7 @@ class TestLoaderValidation:
         workflow["steps"][0]["output_bundle"]["fields"][0]["example"] = example
 
         with pytest.raises(WorkflowValidationError, match=expected):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
     def test_v215_path_guidance_example_checks_safety_without_existence(self):
         workflow = self._guidance_output_bundle_workflow()
@@ -5348,11 +5346,11 @@ class TestLoaderValidation:
         workflow.pop("outputs")
         workflow.pop("result_guidance")
 
-        self._preview_v215_loader().load(self.write_workflow(workflow))
+        self._v215_loader().load(self.write_workflow(workflow))
 
         field["example"] = "../outside.md"
         with pytest.raises(WorkflowValidationError, match="invalid"):
-            self._preview_v215_loader().load(self.write_workflow(workflow))
+            self._v215_loader().load(self.write_workflow(workflow))
 
     @pytest.mark.parametrize(
         "value",
@@ -5364,7 +5362,7 @@ class TestLoaderValidation:
         ],
     )
     def test_v215_guidance_json_compatibility_validator_rejects_non_json_values(self, value):
-        loader = self._preview_v215_loader()
+        loader = self._v215_loader()
         loader._validate_guidance_payload(
             {"example": value},
             context="test.guidance",
@@ -5376,7 +5374,7 @@ class TestLoaderValidation:
 
     @pytest.mark.parametrize("container", ["context", "variant"])
     def test_v215_nested_guidance_examples_reject_non_json_values_directly(self, container):
-        loader = self._preview_v215_loader()
+        loader = self._v215_loader()
         field = {
             "name": "approved",
             "json_pointer": "/review/approved",
@@ -5463,26 +5461,21 @@ class TestLoaderValidation:
             },
         }
 
-    def test_v215_version_rejected_by_default_loader(self):
-        """The default loader keeps rejecting the unreleased v2.15 preview version."""
-        with pytest.raises(WorkflowValidationError, match="Unsupported version '2.15'"):
-            self.loader.load(self.write_workflow(self._v215_workflow()))
-
-    def test_v215_version_accepted_by_preview_loader(self):
-        """A loader with the v2.15 preview enabled loads v2.15 workflows."""
-        preview_loader = WorkflowLoader(self.workspace)
-        preview_loader._enabled_preview_versions = frozenset({"2.15"})
-
-        loaded = preview_loader.load(self.write_workflow(self._v215_workflow()))
+    def test_v215_version_accepted_by_default_loader_after_combined_promotion(self):
+        """The ordinary loader accepts the complete public v2.15 contract."""
+        loaded = self.loader.load(self.write_workflow(self._v215_workflow()))
 
         assert loaded.surface.version == "2.15"
 
-    def test_v215_preview_public_collection_outputs_accepted(self):
-        """v2.15 preview workflows accept optional/list/map public output schemas."""
-        preview_loader = WorkflowLoader(self.workspace)
-        preview_loader._enabled_preview_versions = frozenset({"2.15"})
+    def test_v215_version_accepted_by_fresh_ordinary_loader(self):
+        """A fresh ordinary loader accepts v2.15 workflows."""
+        loaded = WorkflowLoader(self.workspace).load(self.write_workflow(self._v215_workflow()))
 
-        loaded = preview_loader.load(self.write_workflow(self._collection_outputs_workflow("2.15")))
+        assert loaded.surface.version == "2.15"
+
+    def test_v215_public_collection_outputs_accepted_by_ordinary_loader(self):
+        """Public v2.15 optional/list/map outputs are not compiler-private."""
+        loaded = self.loader.load(self.write_workflow(self._collection_outputs_workflow("2.15")))
         surface = thaw_surface_workflow(loaded)
 
         assert {name: spec["type"] for name, spec in surface["outputs"].items()} == {
@@ -5490,6 +5483,19 @@ class TestLoaderValidation:
             "maybe_ready": "optional",
             "scores": "map",
         }
+
+    def test_v215_guidance_contract_accepted_by_ordinary_loader(self):
+        loaded = self.loader.load(self.write_workflow(self._guidance_output_bundle_workflow()))
+        surface = thaw_surface_workflow(loaded)
+
+        assert surface["result_guidance"] == {
+            "description": "The public review result.",
+            "format_hint": "Use the declared output shape.",
+            "example": None,
+        }
+        assert surface["steps"][0]["output_bundle"]["guidance"]["description"] == (
+            "Complete review result."
+        )
 
     def test_v214_public_collection_outputs_rejected(self):
         """v2.14 authored YAML still rejects public collection output schemas."""

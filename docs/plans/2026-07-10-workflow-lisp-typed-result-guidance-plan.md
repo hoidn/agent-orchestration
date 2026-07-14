@@ -1,7 +1,7 @@
 # Workflow Lisp Typed Result Guidance Implementation Plan
 
-> **Status:** Reviewed implementation plan, execution in progress. The native
-> transportable-return prerequisite is complete; DSL v2.15 remains unpromoted.
+> **Status:** Complete. Both typed-return waves have passed their implementation
+> gates, and DSL v2.15 is public. The resolved-effect substrate is next.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

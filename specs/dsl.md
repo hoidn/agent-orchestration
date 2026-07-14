@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13", or "2.14"). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", or "2.15"). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -24,12 +24,18 @@
     - Preferred authoring style for relpath boundaries: use `type: relpath` alone; explicit `kind: relpath` remains valid for backward compatibility.
     - `from` must be exactly `{ ref: "root.steps.<Step>.artifacts.<name>|exit_code|outcome.<field>" }`.
     - Export validation runs after the workflow body completes successfully and, for v2.3+ workflows with `finally`, only after finalization completes successfully.
-    - v2.15 (unreleased preview; see `specs/versioning.md`) widens `outputs`
+    - v2.15 widens `outputs`
       (not `inputs`) to accept `kind: collection` (`optional|list|map`) in
       addition to the existing scalar/enum/relpath contracts, so a public
       workflow may directly export a collection value produced by a
       Workflow-Lisp-compiled root return. Ordinary authored YAML on other DSL
       versions does not gain this widening.
+  - `result_guidance` (v2.15+, optional): closed, non-empty metadata describing
+    the workflow's overall declared return. It accepts only `description:
+    string`, `format_hint: string`, and JSON-compatible `example`; requires at
+    least one declared `outputs` entry; and is not an output, artifact, prompt
+    instruction, reference target, or runtime value. It is valid with direct,
+    flattened-record, and flattened-union output maps and never changes them.
   - `imports`: reusable workflow aliases (v2.5+).
     - Shape: `{ <alias>: "<workflow-source-relative path>" }`.
     - Import paths resolve relative to the directory containing the authored workflow file and must remain within WORKSPACE.
@@ -215,11 +221,17 @@
       - `OutputBundleField`:
         - `name: string` (required artifact key; unique within `fields`)
         - `json_pointer: string` (required RFC 6901 pointer; `""` allowed for root)
-        - `type: enum|integer|float|bool|string|relpath` (required)
+        - `type: enum|integer|float|bool|string|relpath|optional|list|map`
+          (required; collection types require v2.15 for ordinary authored DSL)
         - `allowed: string[]` (required when `type: enum`)
         - `under: string` (optional root for `relpath` target validation)
         - `must_exist_target: boolean` (optional, `relpath` only)
         - `required: boolean` (optional, default true; when false, missing pointer is allowed)
+        - v2.15 optional guidance keys are `description: string`,
+          `format_hint: string`, JSON-compatible and schema-valid `example`,
+          and ordered `guidance_context` rows. Each context row contains an
+          RFC 6901 `json_pointer` that is a strict ancestor of the field
+          pointer plus at least one guidance value; rows are shallow-to-deep.
       - Runtime enforcement runs only when the step process exits with code `0`.
       - For command and provider steps, runtime must expose the resolved `path`
         as `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` before process/provider launch.
@@ -230,8 +242,9 @@
         producer writes the plain scalar/enum/relpath JSON value, not an
         object envelope.
       - `kind: scalar|collection` (optional; default `scalar`; `collection`
-        requires v2.14+ and an authoring lane that enables it — see
-        `specs/versioning.md` v2.15). `kind: collection` fields use
+        requires v2.15 for ordinary authored DSL; compiler-private v2.14
+        contracts may use the separately validated lowered lane).
+        `kind: collection` fields use
         `type: optional|list|map` instead of the scalar type list:
         `optional` requires an `item` schema, `list` requires an `items`
         schema, and `map` requires `keys` (must resolve to `type: string`)
@@ -241,6 +254,11 @@
       - The contract declares a `discriminant` artifact with enum `allowed` values and a `variants` map keyed by those values.
       - `shared_fields` is optional and defaults to `[]`. Shared fields are always present after bundle validation, are exposed without variant proof, and must not duplicate artifact names or JSON pointers used by the discriminant or any field in the same selected variant. Variant-only fields may reuse an artifact name or JSON pointer across distinct variants because only one variant is active.
       - Each variant declares required `fields` and optional `forbidden` JSON pointers. Runtime validation selects exactly one variant, enforces that variant's fields, rejects forbidden fields, and exposes the discriminant, any shared fields, and the selected-variant fields as `steps.<Step>.artifacts`.
+      - v2.15 may add closed non-empty bundle `guidance`, direct field
+        guidance, ordered `guidance_context`, and `guidance_by_variant` on a
+        shared field. `guidance_by_variant` keys must be known variants in
+        discriminant order and are mutually exclusive with direct guidance on
+        that field. Guidance never changes variant selection or value validity.
       - For command steps, the runtime ensures command steps receive the resolved `path` as runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, prepares the bundle parent before launch, and still treats the declared bundle file as authority rather than stdout during post-success validation.
       - Provider and adjudicated-provider steps inject the variant contract into the prompt unless `inject_output_contract: false`, and receive the resolved `path` as runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`.
       - Variant-only fields require proof before downstream use. v2.14 supports proof through a `match` over the same discriminant artifact or through step-level `requires_variant`.

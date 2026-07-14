@@ -4,7 +4,7 @@
 
 **Goal:** Make the approved procedure-first roadmap executable by reconciling the existing component plans with landed commits, tracking and routing the governing plan set, re-anchoring stale ownership paths, and establishing a verified component-plan handoff.
 
-**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, and drain Phases 1–4 are complete. Gates P3 and P4 are independently reviewed and satisfied. The bounded Design Delta promotion handoff is recorded without archive, and its historical parity report is retained after target retirement. Task 4.1 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The semantic-migration freeze is lifted. The current selector is Procedure-First Roadmap Stage 4: Design The Broader Procedure-First Contract. Stage 5 typed result guidance and Stage 6 YAML archive remain later work.
+**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, and drain Phases 1–4 are complete. Gates P3/P4/S3/S4 and both typed-return waves are complete. DSL v2.15 is public. The current selector is the resolved-effect substrate; the tracked-plan pilot follows it. Stage 6 YAML archive remains later work.
 
 > **Current execution amendment (updated 2026-07-13):** The case 5 design and
 > implementation are complete, and the boundary final gate passed. The
@@ -15,7 +15,7 @@
 > `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`) ran
 > native-return wave 1 ahead of Gates S3/S4, because drain Phase 1 paused at
 > Task 1.5 on the blocker wave 1 resolved. Wave 1 is landed
-> (compiler-internal; DSL v2.15 stays an unreleased private preview), and the
+> (initially compiler-internal; later promoted by the completed guidance wave), and the
 > drain plan has since landed its generic route, reviewed identity migration
 > with an empty persisted-record remap,
 > consumer parity, F5 sibling contract, and Task 1.7 documentation/integration
@@ -33,10 +33,9 @@
 > reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and
 > independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.3 is
 > complete. Phase 4 is complete. Gate S3 is satisfied. The semantic-migration
-> freeze is lifted. Next active selection: Procedure-First Roadmap Stage 4:
-> Design The Broader Procedure-First Contract. Stage 5 typed result guidance
-> and Stage 6 YAML archive remain later. P2 satisfies a guidance prerequisite,
-> but Gate S4 still precedes the Stage-5 typed-result-guidance wave.
+> freeze is lifted. Both typed-return waves and Gate S4 are now complete. The
+> resolved-effect substrate is selected next, followed by the tracked-plan
+> pilot; Stage 6 YAML archive remains later.
 
 **Tech Stack:** Markdown, Git, `rg`, pytest, pyflakes.
 
@@ -564,8 +563,7 @@ promotion report, Task 3.3 retired the ordered certification bundle, and Task
 and satisfied. Task 4.1 is complete and independently reviewed, with SPEC PASS
 and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with
 SPEC PASS and CODE QUALITY PASS. Current routing, as recorded by `docs/index.md`
-and the governing execution sequence, selects Procedure-First Roadmap Stage 4:
-Design The Broader Procedure-First Contract. Task 4.3 is complete. Phase 4 is
-complete. Gate S3 is satisfied. The semantic-migration freeze is lifted. Stage
-5 typed result guidance and Stage 6 YAML archive remain later work.
-Typed result guidance remains a later Stage-5 wave after Gate S4.
+and the governing execution sequence, selects the resolved-effect substrate.
+Task 4.3 and Phase 4 are complete; Gates S3/S4 and both typed-return waves are
+satisfied. DSL v2.15 is public. The tracked-plan pilot follows; Stage 6 YAML
+archive remains later.

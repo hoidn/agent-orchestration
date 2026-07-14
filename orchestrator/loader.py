@@ -86,7 +86,7 @@ class WorkflowLoader:
 
     SUPPORTED_VERSIONS = {
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13", "2.14",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", "2.15",
     }
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath", "string"}
     PRIVATE_COLLECTION_OUTPUT_TYPES = {"optional", "list", "map"}
@@ -119,7 +119,6 @@ class WorkflowLoader:
         self._current_workflow_is_imported = False
         self._current_validation_workflow_name: Optional[str] = None
         self._allow_private_collection_output_schemas = False
-        self._enabled_preview_versions: frozenset[str] = frozenset()
         self._allow_generated_repeat_until_on_exhausted_refs = False
         self._boundary_validation_policy = boundary_validation_policy
         self._dedicated_runtime_proof_nested_structured_step_names: Set[str] = set()
@@ -192,7 +191,7 @@ class WorkflowLoader:
             elif not isinstance(version, str):
                 self._add_error(f"'version' field must be a string, got {type(version).__name__}")
                 version = ""
-            elif version not in self.SUPPORTED_VERSIONS and version not in self._enabled_preview_versions:
+            elif version not in self.SUPPORTED_VERSIONS:
                 self._add_error(f"Unsupported version '{version}'. Supported: {self.SUPPORTED_VERSIONS}")
 
             if isinstance(version, str) and version:
@@ -866,11 +865,7 @@ class WorkflowLoader:
                     self._allow_private_collection_output_schemas
                     and self._version_at_least(version, "2.14")
                 )
-                or (
-                    allow_from
-                    and version in self._enabled_preview_versions
-                    and self._version_at_least(version, "2.15")
-                )
+                or (allow_from and self._version_at_least(version, "2.15"))
             ):
                 self._add_error(
                     f"{context}: kind 'collection' is only available for frontend-lowered workflows",
@@ -5473,7 +5468,7 @@ class WorkflowLoader:
             supported_types.discard("string")
         if self._allow_private_collection_output_schemas and self._version_at_least(version, "2.14"):
             supported_types.update(self.PRIVATE_COLLECTION_OUTPUT_TYPES)
-        if version in self._enabled_preview_versions and self._version_at_least(version, "2.15"):
+        if self._version_at_least(version, "2.15"):
             supported_types.update(self.PRIVATE_COLLECTION_OUTPUT_TYPES)
         return supported_types
 

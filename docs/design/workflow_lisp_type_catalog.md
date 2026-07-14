@@ -56,7 +56,27 @@ Record, Union -> unchanged: flattened output_bundle / variant_output
 structural, type-driven classification behind this split; it never branches
 on workflow, provider, procedure, module, or domain names. See
 [Workflow Lisp Native Transportable Returns And Typed Result Guidance](workflow_lisp_native_transportable_returns.md)
-for the full contract, wire schema, and DSL v2.15 preview scope.
+for the full contract and public DSL v2.15 wire schema.
+
+## Result Guidance
+
+Every return occurrence accepts either plain `T`, redundant `(result T)`, or
+an annotated return:
+
+```lisp
+(result Bool
+  :description "True only when no blockers remain."
+  :format-hint "JSON boolean."
+  :example true)
+```
+
+Record and union payload fields accept the same optional keys after their
+type. Examples must be closed pure constants of the declared type. Guidance is
+immutable declaration metadata: schema inclusion, imports, re-exports,
+specialization, record flattening, and union sharing preserve it, while type
+identity and runtime validity ignore it. Public DSL v2.15 carries occurrence
+guidance in effect contracts and overall-return guidance in top-level
+`result_guidance`.
 
 ## Path Types
 

@@ -105,9 +105,7 @@ def test_result_guidance_is_omitted_when_absent_and_runtime_plan_neutral(tmp_pat
         ],
     }
     _write_yaml(workflow_path, workflow)
-    plain_loader = WorkflowLoader(tmp_path)
-    plain_loader._enabled_preview_versions = frozenset({"2.15"})
-    plain = plain_loader.load_bundle(workflow_path)
+    plain = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     guided_workflow = {
         **workflow,
         "result_guidance": {
@@ -116,9 +114,7 @@ def test_result_guidance_is_omitted_when_absent_and_runtime_plan_neutral(tmp_pat
         },
     }
     _write_yaml(workflow_path, guided_workflow)
-    guided_loader = WorkflowLoader(tmp_path)
-    guided_loader._enabled_preview_versions = frozenset({"2.15"})
-    guided = guided_loader.load_bundle(workflow_path)
+    guided = WorkflowLoader(tmp_path).load_bundle(workflow_path)
 
     plain_core = workflow_core_ast_to_json(plain.core_workflow_ast)
     plain_semantic = workflow_semantic_ir_to_json(plain.semantic_ir)

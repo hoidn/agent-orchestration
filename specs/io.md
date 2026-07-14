@@ -15,6 +15,15 @@
   - Deterministic artifact contracts:
     - `expected_outputs`: file-per-value contract validation (v1.1+).
     - `output_bundle`: JSON-bundled field extraction/validation (v1.3+).
+    - v2.15 guidance is metadata only. Bundle `guidance` and top-level
+      `result_guidance` are closed non-empty objects with any of
+      `description`, `format_hint`, and JSON-compatible `example`. A field may
+      carry those keys directly, ordered ancestor rows in `guidance_context`,
+      or (for a shared variant field) discriminant-ordered
+      `guidance_by_variant`; direct and variant guidance are mutually
+      exclusive. Field examples must satisfy the field schema. Relpath
+      examples are path-safety checked but `must_exist_target` is not enforced
+      for an example. These containers are rejected before v2.15.
   - Command structured-bundle environment:
     - For command steps with `output_bundle.path` or `variant_output.path`, the
       runtime resolves the workspace-relative bundle path before launch and sets
@@ -38,6 +47,10 @@
       provider-template environment values for the same name.
     - Prompt contract text may repeat the same path and schema, but prompt text
       is guidance. The declared bundle file remains the semantic authority.
+    - Effect-boundary `guidance`, field guidance, `guidance_context`, and
+      `guidance_by_variant` are rendered as provider output instructions.
+      Workflow-level `result_guidance` is not: it describes the callable's
+      overall return and is carried only in workflow IR/artifact metadata.
     - If the provider exits `0` but writes the bundle to any other path, the
       step fails as an output-contract failure.
   - Reusable-call boundary:
@@ -79,6 +92,8 @@
     parsed JSON document, and `output_capture`/stdout are never consulted for
     it — the bundle file is the only structured-output authority regardless
     of field shape.
+  - Runtime parsing, routing, artifact projection, exit behavior, checkpoint
+    identity, and resume ignore all v2.15 guidance keys.
 
 ## Recommended Strictness Split
 

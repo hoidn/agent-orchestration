@@ -18,8 +18,8 @@
   - `specs/dsl.md`
   - `specs/io.md`
   - `specs/providers.md`
-- **Implementation target:** two independently reviewed implementation plans:
-  native transportable returns first, then typed result guidance
+- **Implementation status:** complete through both independently reviewed
+  implementation waves; DSL v2.15 is public
 
 ## Summary
 
@@ -57,7 +57,7 @@ shape, target binding, validation timing, and provider prompt delivery. This
 document is a design delta; implementation must update those owning documents
 rather than treating this file as the final runtime specification.
 
-Current behavior is intentionally uneven:
+The pre-implementation behavior was intentionally uneven:
 
 - `defun` and inline `defproc` can return scalar values;
 - `provider-result` and `command-result` reject anything other than a record
@@ -80,10 +80,9 @@ document in `orchestrator/contracts/output_contract.py`. An isolated
 `output_bundle`, each producing `{"__result__": value}`. The probe passed
 four of four cases.
 
-This proves the root-value validator substrate. It does not prove compiler,
-workflow-call, prompt, checkpoint, adjudication, or public-boundary support;
-those remain implementation obligations and must receive production-path
-integration evidence.
+That probe established the root-value validator substrate. The completed
+implementation adds production-path compiler, workflow-call, prompt,
+checkpoint, adjudication, public-boundary, and ordinary-loader evidence.
 
 ## Problem
 
@@ -698,10 +697,9 @@ ignores it. Compiler-generated and authored mappings therefore share one
 normative schema and do not depend on unknown-key tolerance.
 
 Native returns and typed result guidance are one v2.15 release contract even
-though implementation is split into sequential plans. The v2.15 capability is
-not promoted as complete until both plans and their shared normative spec gate
-pass; this prevents a released version from changing its accepted guidance
-keys between the two implementation waves.
+though implementation was split into sequential plans. The capability was
+promoted only after both plans and their shared normative spec gate passed, so
+the released version did not change its accepted guidance keys between waves.
 
 ## Contracts And Interfaces
 

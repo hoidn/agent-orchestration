@@ -7,6 +7,8 @@
 > `docs/plans/2026-07-10-workflow-lisp-native-transportable-returns-plan.md`
 > followed by
 > `docs/plans/2026-07-10-workflow-lisp-typed-result-guidance-plan.md`.
+> Both replacement plans are complete; DSL v2.15 is public. The
+> procedure-first resolved-effect substrate is the current selector.
 
 > **Historical record:** Everything below this notice preserves the superseded
 > proposal for provenance only. Its dependencies, tasks, checkboxes, and

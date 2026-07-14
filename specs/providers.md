@@ -18,6 +18,11 @@
   - v2.10 top-level provider steps may also declare `provider_session` to select either `session_support.fresh_command` or `session_support.resume_command`.
   - In this tranche, `provider_session` steps require a static provider alias because loader-time session-support validation must inspect the provider template.
   - Provider steps with `output_bundle.path` or `variant_output.path` receive the runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding for the resolved workspace-relative bundle target. The runtime creates or validates the declared parent directory before launch, and that declared bundle file remains the only structured-output authority.
+  - For v2.15 contracts, provider prompt composition renders validated
+    effect-boundary `guidance`, field guidance, ordered `guidance_context`, and
+    discriminant-ordered `guidance_by_variant` as data in the output-contract
+    suffix. It does not render top-level workflow `result_guidance`, and no
+    guidance container changes the value schema or bundle authority.
   - `provider_session` command selection changes only the provider command template. It preserves any preexisting runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding on the prepared invocation.
   - v2.13 provider steps may declare `managed_jobs` as a step modifier. The provider template remains ordinary; after existing provider and provider-session command selection, the runtime wraps the selected invocation with the managed-job guard and owns audit/recovery state.
   - `managed_jobs` wrapping preserves any preexisting runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding while adding `MANAGED_JOB_*` transport metadata. Guard state, audit files, and provider-session spools are not alternate structured-output authorities.
