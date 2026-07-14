@@ -11,7 +11,7 @@ from .effects import (
     EMPTY_EFFECT_SUMMARY,
     EffectSummary,
     ProcedureCallEdge,
-    effect_summary_from_direct,
+    effect_summary_from_procedure_call,
     merge_effect_summaries,
 )
 from .parametric_constraints import evaluate_parametric_constraints, provisional_shared_union_field_capabilities
@@ -487,15 +487,13 @@ def typecheck_procedure_call_expr(
                     form_path=arg_expr.form_path,
                 )
         callee_summary = context.procedure_effects_by_name.get(bound_proc_ref.call_target_name, EMPTY_EFFECT_SUMMARY)
-        procedure_summary = effect_summary_from_direct(
-            direct_effects=callee_summary.transitive_effects,
-            procedure_edges=(
-                ProcedureCallEdge(
-                    callee_name=bound_proc_ref.call_target_name,
-                    span=expr.span,
-                    form_path=expr.form_path,
-                    expansion_stack=expr.expansion_stack,
-                ),
+        procedure_summary = effect_summary_from_procedure_call(
+            callee_effects=callee_summary.transitive_effects,
+            edge=ProcedureCallEdge(
+                callee_name=bound_proc_ref.call_target_name,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
             ),
         )
         return typed_factory(
@@ -609,15 +607,13 @@ def typecheck_procedure_call_expr(
         callee_name,
         context.procedure_effects_by_name.get(signature.name, EMPTY_EFFECT_SUMMARY),
     )
-    procedure_summary = effect_summary_from_direct(
-        direct_effects=callee_summary.transitive_effects,
-        procedure_edges=(
-            ProcedureCallEdge(
-                callee_name=callee_name,
-                span=expr.span,
-                form_path=expr.form_path,
-                expansion_stack=expr.expansion_stack,
-            ),
+    procedure_summary = effect_summary_from_procedure_call(
+        callee_effects=callee_summary.transitive_effects,
+        edge=ProcedureCallEdge(
+            callee_name=callee_name,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
         ),
     )
     return typed_factory(
@@ -756,15 +752,13 @@ def _typecheck_parametric_procedure_call(
         specialized_name,
         context.procedure_effects_by_name.get(signature.name, EMPTY_EFFECT_SUMMARY),
     )
-    procedure_summary = effect_summary_from_direct(
-        direct_effects=callee_summary.transitive_effects,
-        procedure_edges=(
-            ProcedureCallEdge(
-                callee_name=specialized_name,
-                span=expr.span,
-                form_path=expr.form_path,
-                expansion_stack=expr.expansion_stack,
-            ),
+    procedure_summary = effect_summary_from_procedure_call(
+        callee_effects=callee_summary.transitive_effects,
+        edge=ProcedureCallEdge(
+            callee_name=specialized_name,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
         ),
     )
     return typed_factory(

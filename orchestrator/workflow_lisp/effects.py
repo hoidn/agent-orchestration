@@ -183,6 +183,20 @@ def effect_summary_from_direct(
     )
 
 
+def effect_summary_from_procedure_call(
+    *,
+    callee_effects: Iterable[EffectAtom],
+    edge: ProcedureCallEdge,
+) -> EffectSummary:
+    """Build a call summary whose callee effects are transitive-only."""
+
+    return effect_summary(
+        direct_effects=(),
+        transitive_effects=callee_effects,
+        procedure_edges=(edge,),
+    )
+
+
 def merge_effect_summaries(*summaries: EffectSummary) -> EffectSummary:
     """Union multiple effect summaries for sequential or nested forms."""
 
