@@ -19,7 +19,12 @@ from orchestrator.workflow_lisp.compiler import (
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
-from orchestrator.workflow_lisp.effects import CallsWorkflowEffect, UsesCommandEffect, UsesProviderEffect
+from orchestrator.workflow_lisp.effects import (
+    EMPTY_EFFECT_SUMMARY,
+    CallsWorkflowEffect,
+    UsesCommandEffect,
+    UsesProviderEffect,
+)
 from orchestrator.workflow_lisp.expressions import (
     BindProcBinding,
     BindProcExpr,
@@ -46,6 +51,7 @@ from orchestrator.workflow_lisp.procedures import (
     elaborate_procedure_definitions,
     parametric_specialization_name,
 )
+from orchestrator.workflow_lisp.procedure_specialization import specialize_typed_procedure
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
@@ -1587,6 +1593,115 @@ def test_compile_stage3_preserves_effect_visibility_for_constrained_generic_proc
         isinstance(effect, (UsesCommandEffect, UsesProviderEffect))
         for effect in proc_ref_specialized.direct_effect_summary.direct_effects
     )
+
+
+def test_selected_hook_recomputes_transitive_effects(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_selected_hook_effects.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defproc run-command",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    :effects ((uses-command run_checks))",
+            "    :lowering inline",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" input.report)',
+            "      :returns WorkflowOutput))",
+            "  (defproc run-provider",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    :effects ((uses-provider providers.execute))",
+            "    :lowering inline",
+            "    (provider-result providers.execute",
+            "      :prompt prompts.implementation.execute",
+            "      :inputs (input.report)",
+            "      :returns WorkflowOutput))",
+            "  (defproc apply-hook",
+            "    :forall (T)",
+            "    ((hook ProcRef[T -> WorkflowOutput])",
+            "     (value T))",
+            "    :where ((T is-record)",
+            "            (T has-field report WorkReport))",
+            "    -> WorkflowOutput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (hook value))",
+            "  (defworkflow command-entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    (apply-hook (proc-ref run-command) input))",
+            "  (defworkflow provider-entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    (apply-hook (proc-ref run-provider) input)))",
+        ],
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+    generic = next(
+        procedure
+        for procedure in result.typed_procedures
+        if procedure.definition.name == "apply-hook"
+    )
+    specializations = {
+        next(iter(procedure.specialization.proc_ref_bindings.values())).procedure_name: procedure
+        for procedure in result.typed_procedures
+        if getattr(procedure.specialization, "base_name", "") == "apply-hook"
+        and getattr(procedure.specialization, "proc_ref_bindings", {})
+    }
+    command = specializations["run-command"]
+    provider = specializations["run-provider"]
+    command_effect = UsesCommandEffect(subject=("run_checks",))
+    provider_effect = UsesProviderEffect(subject=("providers", "execute"))
+
+    assert generic.direct_effect_summary.direct_effects == frozenset()
+    assert generic.direct_effect_summary.procedure_edges == frozenset()
+    assert command.direct_effect_summary.direct_effects == generic.direct_effect_summary.direct_effects
+    assert provider.direct_effect_summary.direct_effects == generic.direct_effect_summary.direct_effects
+    assert command.transitive_effect_summary.transitive_effects == frozenset({command_effect})
+    assert provider.transitive_effect_summary.transitive_effects == frozenset({provider_effect})
+
+    command_hook = next(
+        procedure
+        for procedure in result.typed_procedures
+        if procedure.definition.name == "run-command"
+    )
+    stale_generic = replace(
+        generic,
+        direct_effect_summary=command_hook.direct_effect_summary,
+        transitive_effect_summary=command_hook.transitive_effect_summary,
+    )
+    provisional_provider = specialize_typed_procedure(
+        stale_generic,
+        type_bindings=provider.specialization.type_bindings,
+        proc_ref_bindings=provider.specialization.proc_ref_bindings,
+        shared_union_field_capabilities=provider.specialization.shared_union_field_capabilities,
+        remaining_params=provider.signature.params,
+        workflow_path=path,
+        type_env=FrontendTypeEnvironment.from_module(result.module),
+        typed_procedures_by_name={
+            procedure.definition.name: procedure
+            for procedure in result.typed_procedures
+        },
+        specialized_name="%test.apply-hook.provider",
+        origin_span=provider.specialization.origin_span,
+        origin_form_path=provider.specialization.origin_form_path,
+        defer_lowering_resolution=True,
+    )
+
+    assert provisional_provider.direct_effect_summary == EMPTY_EFFECT_SUMMARY
+    assert provisional_provider.transitive_effect_summary == EMPTY_EFFECT_SUMMARY
 
 
 def test_compile_stage3_rejects_parametric_specialization_cycles(tmp_path: Path) -> None:

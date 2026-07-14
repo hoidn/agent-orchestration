@@ -10,6 +10,7 @@ from typing import Any
 
 from .contracts import derive_workflow_boundary_fields
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .effects import EMPTY_EFFECT_SUMMARY
 from .expression_traversal import iter_child_exprs
 from .expressions import (
     CallExpr,
@@ -957,8 +958,12 @@ def specialize_typed_procedure(
             where_clauses=(),
         ),
         typed_body=request.procedure.typed_body,
-        direct_effect_summary=request.procedure.direct_effect_summary,
-        transitive_effect_summary=request.procedure.transitive_effect_summary,
+        # This object is a re-typecheck target, not a completed specialization.
+        # Concrete type/ProcRef bindings can change both the call edges and the
+        # caller-visible effects, so no summary is authoritative until the
+        # compiler's next typecheck/effect-closure iteration.
+        direct_effect_summary=EMPTY_EFFECT_SUMMARY,
+        transitive_effect_summary=EMPTY_EFFECT_SUMMARY,
         resolved_lowering_mode=ProcedureLoweringMode.INLINE,
         generated_workflow_name=None,
         specialization=specialization,
