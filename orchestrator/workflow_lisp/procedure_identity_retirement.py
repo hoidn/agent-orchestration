@@ -2421,6 +2421,8 @@ def scan_known_state_store(
     counts = {
         "terminal_run_count": 0,
         "nonterminal_run_count": 0,
+        "store_terminal_run_count": 0,
+        "store_nonterminal_run_count": 0,
         "checkpoint_index_count": 0,
         "checkpoint_record_count": 0,
         "retained_manifest_count": 0,
@@ -2429,6 +2431,7 @@ def scan_known_state_store(
     }
     raw_matches: list[dict[str, str]] = []
     scanned_files: list[dict[str, str]] = []
+    run_is_terminal: dict[str, bool] = {}
     for path in files:
         relative_path = path.relative_to(store_root).as_posix()
         content = _read_stable_bytes(path)
@@ -2449,12 +2452,14 @@ def scan_known_state_store(
 
         for object_location, payload in _load_store_objects(path, content, relative_path):
             relative_parts = path.relative_to(store_root).parts
-            if filename == "state.json" and len(relative_parts) <= 2:
+            if filename == "state.json" and len(relative_parts) == 2:
                 status = payload.get("status")
-                if isinstance(status, str) and status.lower() in _TERMINAL_STATUSES:
-                    counts["terminal_run_count"] += 1
+                terminal = isinstance(status, str) and status.lower() in _TERMINAL_STATUSES
+                run_is_terminal[relative_parts[0]] = terminal
+                if terminal:
+                    counts["store_terminal_run_count"] += 1
                 else:
-                    counts["nonterminal_run_count"] += 1
+                    counts["store_nonterminal_run_count"] += 1
             raw_matches.extend(
                 _identity_matches(
                     payload,
@@ -2489,6 +2494,22 @@ def scan_known_state_store(
     matches = sorted(
         deduplicated.values(),
         key=lambda row: json.dumps(row, sort_keys=True, separators=(",", ":")),
+    )
+    matching_runs = {
+        row["path"].split("/", maxsplit=1)[0]
+        for row in matches
+        if "/" in row["path"]
+    }
+    missing_run_states = sorted(matching_runs.difference(run_is_terminal))
+    if missing_run_states:
+        raise _scan_error(
+            "procedure_identity_retirement_matching_run_state_missing",
+            "matching store evidence has no containing top-level run state: "
+            + ", ".join(missing_run_states),
+        )
+    counts["terminal_run_count"] = sum(run_is_terminal[run] for run in matching_runs)
+    counts["nonterminal_run_count"] = sum(
+        not run_is_terminal[run] for run in matching_runs
     )
     call_frame_count = sum(
         1

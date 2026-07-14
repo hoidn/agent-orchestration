@@ -364,8 +364,10 @@ def test_known_state_store_scan_is_normalized_content_addressed_and_evidence_onl
     )
 
     assert result == repeated
-    assert result["terminal_run_count"] == 1
+    assert result["terminal_run_count"] == 0
     assert result["nonterminal_run_count"] == 1
+    assert result["store_terminal_run_count"] == 1
+    assert result["store_nonterminal_run_count"] == 1
     assert result["call_frame_count"] == 1
     assert result["checkpoint_index_count"] == 1
     assert result["checkpoint_record_count"] == 1
@@ -378,6 +380,190 @@ def test_known_state_store_scan_is_normalized_content_addressed_and_evidence_onl
     assert "attestation" not in result
     assert "external_store_absence" not in result
     assert tuple(result["matches"]) == tuple(sorted(result["matches"], key=lambda row: json.dumps(row, sort_keys=True)))
+
+
+def test_store_scan_discloses_unrelated_nonterminal_run_without_gating_match_counts(
+    tmp_path: Path,
+) -> None:
+    store = tmp_path / "store"
+    run = store / "run"
+    run.mkdir(parents=True)
+    (run / "state.json").write_text(json.dumps({"status": "running"}), encoding="utf-8")
+
+    result = scan_known_state_store(
+        store,
+        retired_identities={"retired-step"},
+        query_version="procedure-identity-store-query.v1",
+    )
+
+    assert result["matches"] == ()
+    assert result["terminal_run_count"] == 0
+    assert result["nonterminal_run_count"] == 0
+    assert result["store_terminal_run_count"] == 0
+    assert result["store_nonterminal_run_count"] == 1
+
+
+def test_store_scan_counts_matching_nonterminal_run(tmp_path: Path) -> None:
+    store = tmp_path / "store"
+    run = store / "run"
+    run.mkdir(parents=True)
+    (run / "state.json").write_text(
+        json.dumps({"status": "running", "step_id": "retired-step"}), encoding="utf-8"
+    )
+
+    result = scan_known_state_store(
+        store,
+        retired_identities={"retired-step"},
+        query_version="procedure-identity-store-query.v1",
+    )
+
+    assert result["terminal_run_count"] == 0
+    assert result["nonterminal_run_count"] == 1
+    assert result["store_terminal_run_count"] == 0
+    assert result["store_nonterminal_run_count"] == 1
+
+
+def test_store_scan_separates_unrelated_terminal_from_matching_nonterminal_run(
+    tmp_path: Path,
+) -> None:
+    store = tmp_path / "store"
+    terminal = store / "terminal"
+    active = store / "active"
+    terminal.mkdir(parents=True)
+    active.mkdir(parents=True)
+    (terminal / "state.json").write_text(
+        json.dumps({"status": "completed"}), encoding="utf-8"
+    )
+    (active / "state.json").write_text(
+        json.dumps({"status": "running", "step_id": "retired-step"}), encoding="utf-8"
+    )
+
+    result = scan_known_state_store(
+        store,
+        retired_identities={"retired-step"},
+        query_version="procedure-identity-store-query.v1",
+    )
+
+    assert result["terminal_run_count"] == 0
+    assert result["nonterminal_run_count"] == 1
+    assert result["store_terminal_run_count"] == 1
+    assert result["store_nonterminal_run_count"] == 1
+
+
+def test_store_scan_counts_run_once_when_it_contains_several_matches(tmp_path: Path) -> None:
+    store = tmp_path / "store"
+    run = store / "run"
+    run.mkdir(parents=True)
+    (run / "state.json").write_text(
+        json.dumps(
+            {
+                "status": "completed",
+                "steps": {
+                    "retired-step": {"step_id": "retired-step"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = scan_known_state_store(
+        store,
+        retired_identities={"retired-step"},
+        query_version="procedure-identity-store-query.v1",
+    )
+
+    assert result["consumer_count"] > 1
+    assert result["terminal_run_count"] == 1
+    assert result["nonterminal_run_count"] == 0
+    assert result["store_terminal_run_count"] == 1
+    assert result["store_nonterminal_run_count"] == 0
+
+
+def test_store_scan_associates_nested_match_with_containing_run_status(tmp_path: Path) -> None:
+    store = tmp_path / "store"
+    run = store / "run"
+    nested = run / "call_frames" / "frame"
+    nested.mkdir(parents=True)
+    (run / "state.json").write_text(json.dumps({"status": "completed"}), encoding="utf-8")
+    (nested / "state.json").write_text(
+        json.dumps({"call_frame_id": "retired-frame"}), encoding="utf-8"
+    )
+
+    result = scan_known_state_store(
+        store,
+        retired_identities={"retired-frame"},
+        query_version="procedure-identity-store-query.v1",
+    )
+
+    assert result["terminal_run_count"] == 1
+    assert result["nonterminal_run_count"] == 0
+    assert result["store_terminal_run_count"] == 1
+    assert result["store_nonterminal_run_count"] == 0
+
+
+def test_store_scan_rejects_nested_match_without_containing_run_state(tmp_path: Path) -> None:
+    store = tmp_path / "store"
+    nested = store / "run" / "call_frames" / "frame"
+    nested.mkdir(parents=True)
+    (nested / "state.json").write_text(
+        json.dumps({"call_frame_id": "retired-frame"}), encoding="utf-8"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="procedure_identity_retirement_matching_run_state_missing",
+    ):
+        scan_known_state_store(
+            store,
+            retired_identities={"retired-frame"},
+            query_version="procedure-identity-store-query.v1",
+        )
+
+
+def test_store_scan_keeps_root_level_identity_metadata_as_non_run_consumer(
+    tmp_path: Path,
+) -> None:
+    store = tmp_path / "store"
+    store.mkdir()
+    (store / "identity_index.json").write_text(
+        json.dumps({"presentation_key": "retired-presentation"}), encoding="utf-8"
+    )
+
+    result = scan_known_state_store(
+        store,
+        retired_identities={"retired-presentation"},
+        query_version="procedure-identity-store-query.v1",
+    )
+
+    assert result["consumer_count"] == 1
+    assert result["terminal_run_count"] == 0
+    assert result["nonterminal_run_count"] == 0
+    assert result["store_terminal_run_count"] == 0
+    assert result["store_nonterminal_run_count"] == 0
+
+
+@pytest.mark.parametrize("status_payload", [{}, {"status": "paused-unrecognized"}])
+def test_store_scan_treats_matching_run_without_known_terminal_status_as_nonterminal(
+    tmp_path: Path,
+    status_payload: dict[str, str],
+) -> None:
+    store = tmp_path / "store"
+    run = store / "run"
+    run.mkdir(parents=True)
+    (run / "state.json").write_text(
+        json.dumps({**status_payload, "step_id": "retired-step"}), encoding="utf-8"
+    )
+
+    result = scan_known_state_store(
+        store,
+        retired_identities={"retired-step"},
+        query_version="procedure-identity-store-query.v1",
+    )
+
+    assert result["terminal_run_count"] == 0
+    assert result["nonterminal_run_count"] == 1
+    assert result["store_terminal_run_count"] == 0
+    assert result["store_nonterminal_run_count"] == 1
 
 
 def test_known_store_scan_digest_changes_when_supported_identity_evidence_changes(tmp_path: Path) -> None:
@@ -1168,7 +1354,10 @@ def test_store_scan_ignores_unrelated_output_json_outside_state_surfaces(tmp_pat
         query_version="procedure-identity-store-query.v1",
     )
 
-    assert result["terminal_run_count"] == 1
+    assert result["terminal_run_count"] == 0
+    assert result["nonterminal_run_count"] == 0
+    assert result["store_terminal_run_count"] == 1
+    assert result["store_nonterminal_run_count"] == 0
     assert result["consumer_count"] == 0
 
 
