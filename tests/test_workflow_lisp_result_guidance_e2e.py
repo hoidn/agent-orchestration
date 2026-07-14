@@ -203,9 +203,13 @@ def test_direct_bool_provider_guidance_executes_without_wrapper_or_overall_promp
         )
 
     contract = _contract_document(captured["prompt"])
+    prompt_guidance = _guidance_payload(contract)
+    occurrence_guidance = _guidance_payload(occurrence_field)
     assert contract["type"] == occurrence_field["type"]
-    assert _guidance_payload(contract) == _guidance_payload(occurrence_field)
-    assert _guidance_payload(contract) != overall
+    assert prompt_guidance
+    assert occurrence_guidance
+    assert prompt_guidance == occurrence_guidance
+    assert prompt_guidance != overall
     assert "result_guidance" not in contract
     assert "guidance" not in contract
     assert "result_guidance" not in occurrence_bundle
@@ -228,18 +232,30 @@ def test_nested_union_guidance_renders_and_selected_variant_keeps_source_lineage
         guided=True,
         lowering_route="wcc_m4",
     )
-    variant_output = _thaw(next(
-        node.execution_config.common.variant_output
-        for node in bundle.ir.nodes.values()
-        if node.execution_config is not None
-        and node.execution_config.common.variant_output
-    ))
+    variant_output = _thaw(
+        next(
+            node.execution_config.common.variant_output
+            for node in bundle.ir.nodes.values()
+            if node.execution_config is not None
+            and node.execution_config.common.variant_output
+        )
+    )
     rendered = render_variant_output_contract_block(variant_output)
     prompt_contract = _contract_document(rendered)
+    prompt_guidance = _variant_guidance_projection(prompt_contract)
+    occurrence_guidance = _variant_guidance_projection(variant_output)
 
-    assert _variant_guidance_projection(prompt_contract) == _variant_guidance_projection(
-        variant_output
+    assert prompt_guidance["guidance"]
+    assert any(
+        payload.get("guidance_by_variant")
+        for payload in prompt_guidance["shared_fields"].values()
     )
+    assert any(
+        payload.get("guidance_context")
+        for fields in prompt_guidance["variants"].values()
+        for payload in fields.values()
+    )
+    assert prompt_guidance == occurrence_guidance
 
     frozen_approved = next(
         field for field in variant_output["shared_fields"] if field["name"] == "approved"
