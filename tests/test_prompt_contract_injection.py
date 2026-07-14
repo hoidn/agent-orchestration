@@ -40,6 +40,15 @@ def _variant_contract_body_as_yaml(prompt_block: str) -> object:
     return yaml.safe_load("\n".join(prompt_block.splitlines()[2:]))
 
 
+def _output_contract_body_as_yaml(prompt_block: str) -> object:
+    contract_start = next(
+        index
+        for index, line in enumerate(prompt_block.splitlines())
+        if line.startswith("- path:")
+    )
+    return yaml.safe_load("\n".join(prompt_block.splitlines()[contract_start:]))
+
+
 def test_provider_prompt_injection_renders_collection_consumed_value(tmp_path: Path) -> None:
     composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
 
@@ -1122,6 +1131,164 @@ def test_render_output_bundle_contract_block_root_field_renders_json_value_schem
     assert "path: state/run-root/test-run/result.json" in rendered
 
 
+def test_output_bundle_guidance_renders_nested_context_and_canonical_examples() -> None:
+    contract = {
+        "path": "state/review/result.json",
+        "guidance": {
+            "description": "Complete review bundle.",
+            "format_hint": "One review object.",
+            "example": {
+                "metrics": {"clarity": None},
+                "approved": True,
+            },
+        },
+        "fields": [
+            {
+                "name": "blocker__details__code",
+                "json_pointer": "/blocker/details/code",
+                "type": "string",
+                "guidance_context": [
+                    {
+                        "json_pointer": "/blocker",
+                        "description": "Blocking condition context.",
+                        "example": None,
+                    },
+                    {
+                        "json_pointer": "/blocker/details",
+                        "format_hint": "Nested blocker details.",
+                        "example": {"owner": None},
+                    },
+                ],
+                "description": "Stable blocker code.",
+                "format_hint": "Uppercase token.",
+                "example": "MISSING_RESOURCE",
+            }
+        ],
+    }
+
+    rendered = render_output_bundle_contract_block(contract)
+    bundle = _output_contract_body_as_yaml(rendered)[0]
+
+    assert list(bundle).index("guidance") < list(bundle).index("fields")
+    assert bundle["guidance"] == contract["guidance"]
+    field = bundle["fields"][0]
+    assert [row["json_pointer"] for row in field["guidance_context"]] == [
+        "/blocker",
+        "/blocker/details",
+    ]
+    assert field["description"] == contract["fields"][0]["description"]
+    for semantic_value in (
+        "Complete review bundle.",
+        "One review object.",
+        "Blocking condition context.",
+        "Nested blocker details.",
+        "Stable blocker code.",
+        "Uppercase token.",
+    ):
+        assert rendered.count(semantic_value) == 1
+    for example_token in (
+        'example: {"approved":true,"metrics":{"clarity":null}}',
+        "example: null",
+        'example: {"owner":null}',
+        'example: "MISSING_RESOURCE"',
+    ):
+        assert rendered.count(example_token) == 1
+
+
+def test_variant_output_guidance_uses_discriminant_order_and_canonical_examples() -> None:
+    from orchestrator.contracts.prompt_contract import render_variant_output_contract_block
+
+    contract = {
+        "path": "state/review/decision.json",
+        "guidance": {
+            "description": "Choose one review decision.",
+            "example": {"owner": None, "decision": "APPROVE"},
+        },
+        "discriminant": {
+            "name": "decision",
+            "json_pointer": "/decision",
+            "type": "enum",
+            "allowed": ["APPROVE", "REVISE"],
+        },
+        "shared_fields": [
+            {
+                "name": "report",
+                "json_pointer": "/report",
+                "type": "optional",
+                "item": {"type": "string"},
+                "description": "Shared report path.",
+                "example": None,
+            },
+            {
+                "name": "confidence",
+                "json_pointer": "/confidence",
+                "type": "float",
+                "guidance_by_variant": {
+                    "APPROVE": {
+                        "description": "Approval confidence.",
+                        "example": 0.95,
+                    },
+                    "REVISE": {
+                        "description": "Revision confidence.",
+                        "example": 0.8,
+                    },
+                },
+            },
+        ],
+        "variants": {
+            "APPROVE": {
+                "fields": [
+                    {
+                        "name": "approved",
+                        "json_pointer": "/approved",
+                        "type": "bool",
+                        "description": "Approval state.",
+                        "example": True,
+                    }
+                ]
+            },
+            "REVISE": {
+                "fields": [
+                    {
+                        "name": "reason",
+                        "json_pointer": "/reason",
+                        "type": "string",
+                        "format_hint": "Concise revision reason.",
+                        "example": "Needs tests",
+                    }
+                ]
+            },
+        },
+    }
+
+    rendered = render_variant_output_contract_block(contract)
+    bundle = _variant_contract_body_as_yaml(rendered)[0]
+
+    assert list(bundle).index("guidance") < list(bundle).index("shared_fields")
+    confidence = next(
+        field for field in bundle["shared_fields"] if field["name"] == "confidence"
+    )
+    assert list(confidence["guidance_by_variant"]) == ["APPROVE", "REVISE"]
+    assert list(bundle["variants"]) == ["APPROVE", "REVISE"]
+    for semantic_value in (
+        "Choose one review decision.",
+        "Shared report path.",
+        "Approval confidence.",
+        "Revision confidence.",
+        "Approval state.",
+        "Concise revision reason.",
+    ):
+        assert rendered.count(semantic_value) == 1
+    for example_token in (
+        'example: {"decision":"APPROVE","owner":null}',
+        "example: null",
+        "example: 0.95",
+        "example: 0.8",
+        "example: true",
+    ):
+        assert rendered.count(example_token) == 1
+
+
 def test_compiled_root_guidance_contract_is_the_prompt_renderer_input(tmp_path: Path) -> None:
     """The renderer consumes the production compiler contract, not a hand-built fixture."""
     workflow_path = tmp_path / "compiled_root_guidance_prompt.orc"
@@ -1156,7 +1323,10 @@ def test_compiled_root_guidance_contract_is_the_prompt_renderer_input(tmp_path: 
         if "provider" in step
     )
 
-    rendered = render_output_bundle_contract_block(executable_step["output_bundle"])
+    rendered = PromptComposer(
+        workspace=tmp_path,
+        asset_resolver=None,
+    ).apply_output_contract_prompt_suffix(executable_step, "")
 
     executable_field = executable_step["output_bundle"]["fields"][0]
     executable_workflow = compiled.lowered_workflows[0].authored_mapping
@@ -1174,6 +1344,10 @@ def test_compiled_root_guidance_contract_is_the_prompt_renderer_input(tmp_path: 
     assert rendered_contract["format_hint"] == executable_field["format_hint"]
     assert rendered_contract["example"] == executable_field["example"]
     assert rendered_contract["description"] != executable_workflow["result_guidance"]["description"]
+    assert rendered.count(executable_field["description"]) == 1
+    assert rendered.count(executable_field["format_hint"]) == 1
+    assert executable_workflow["result_guidance"]["description"] not in rendered
+    assert rendered.count("example: true") == 1
 
 
 def test_provider_output_bundle_root_result_appends_json_value_contract_and_persists_result(

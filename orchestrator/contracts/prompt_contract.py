@@ -135,7 +135,13 @@ def stringify_consumed_value(value: Any) -> str | None:
     return None
 
 
-def _append_field_constraints(lines: List[str], spec: Dict[str, Any], *, indent: int = 2) -> None:
+def _append_field_constraints(
+    lines: List[str],
+    spec: Dict[str, Any],
+    *,
+    indent: int = 2,
+    include_legacy_guidance: bool = True,
+) -> None:
     """Append optional field-level contract constraints."""
     prefix = " " * indent
     if "allowed" in spec:
@@ -147,12 +153,63 @@ def _append_field_constraints(lines: List[str], spec: Dict[str, Any], *, indent:
         lines.append(f"{prefix}must_exist_target: true")
     if spec.get("required") is False:
         lines.append(f"{prefix}required: false")
-    if "description" in spec:
-        lines.append(f"{prefix}description: {spec['description']}")
-    if "format_hint" in spec:
-        lines.append(f"{prefix}format_hint: {spec['format_hint']}")
-    if "example" in spec:
-        lines.append(f"{prefix}example: {spec['example']}")
+    if include_legacy_guidance:
+        if "description" in spec:
+            lines.append(f"{prefix}description: {spec['description']}")
+        if "format_hint" in spec:
+            lines.append(f"{prefix}format_hint: {spec['format_hint']}")
+        if "example" in spec:
+            lines.append(f"{prefix}example: {spec['example']}")
+
+
+def _append_guidance_payload(
+    lines: List[str],
+    payload: Mapping[str, Any],
+    *,
+    indent: int,
+    variant_order: Sequence[str] = (),
+) -> None:
+    """Render one validated v2.15 guidance payload without reinterpretation."""
+    prefix = " " * indent
+    if "description" in payload:
+        lines.append(f"{prefix}description: {payload['description']}")
+    if "format_hint" in payload:
+        lines.append(f"{prefix}format_hint: {payload['format_hint']}")
+    if "example" in payload:
+        rendered_example = json.dumps(
+            payload["example"],
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        lines.append(f"{prefix}example: {rendered_example}")
+
+    guidance_context = payload.get("guidance_context")
+    if isinstance(guidance_context, list) and guidance_context:
+        lines.append(f"{prefix}guidance_context:")
+        for context in guidance_context:
+            lines.append(f"{prefix}  - json_pointer: {context['json_pointer']}")
+            _append_guidance_payload(lines, context, indent=indent + 4)
+
+    guidance_by_variant = payload.get("guidance_by_variant")
+    if isinstance(guidance_by_variant, Mapping) and guidance_by_variant:
+        lines.append(f"{prefix}guidance_by_variant:")
+        ordered_variants = [
+            variant for variant in variant_order if variant in guidance_by_variant
+        ]
+        ordered_variants.extend(
+            variant
+            for variant in guidance_by_variant
+            if variant not in ordered_variants
+        )
+        for variant in ordered_variants:
+            lines.append(f"{prefix}  {variant}:")
+            _append_guidance_payload(
+                lines,
+                guidance_by_variant[variant],
+                indent=indent + 4,
+            )
 
 
 def _append_nested_schema(lines: List[str], spec: Dict[str, Any], *, indent: int, key: str) -> None:
@@ -164,14 +221,31 @@ def _append_nested_schema(lines: List[str], spec: Dict[str, Any], *, indent: int
     _append_schema_spec(lines, nested, indent=indent + 2)
 
 
-def _append_schema_spec(lines: List[str], spec: Dict[str, Any], *, indent: int) -> None:
+def _append_schema_spec(
+    lines: List[str],
+    spec: Dict[str, Any],
+    *,
+    indent: int,
+    variant_order: Sequence[str] = (),
+) -> None:
     prefix = " " * indent
     lines.append(f"{prefix}type: {spec['type']}")
-    _append_field_constraints(lines, spec, indent=indent)
+    _append_field_constraints(
+        lines,
+        spec,
+        indent=indent,
+        include_legacy_guidance=False,
+    )
     _append_nested_schema(lines, spec, indent=indent, key="item")
     _append_nested_schema(lines, spec, indent=indent, key="items")
     _append_nested_schema(lines, spec, indent=indent, key="keys")
     _append_nested_schema(lines, spec, indent=indent, key="values")
+    _append_guidance_payload(
+        lines,
+        spec,
+        indent=indent,
+        variant_order=variant_order,
+    )
 
 
 def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
@@ -208,8 +282,13 @@ def render_output_bundle_contract_block(output_bundle: Dict[str, Any]) -> str:
         _RELPATH_GUIDANCE,
         f"- path: {output_bundle['path']}",
         "  format: JSON object",
-        "  fields:",
     ]
+
+    guidance = output_bundle.get("guidance")
+    if isinstance(guidance, Mapping):
+        lines.append("  guidance:")
+        _append_guidance_payload(lines, guidance, indent=4)
+    lines.append("  fields:")
 
     for spec in fields:
         lines.append(f"    - name: {spec['name']}")
@@ -241,6 +320,10 @@ def _render_root_output_bundle_contract_block(
         f"- path: {output_bundle['path']}",
         "  format: JSON value",
     ]
+    guidance = output_bundle.get("guidance")
+    if isinstance(guidance, Mapping):
+        lines.append("  guidance:")
+        _append_guidance_payload(lines, guidance, indent=4)
     _append_schema_spec(lines, field, indent=2)
     return "\n".join(lines) + "\n"
 
@@ -258,11 +341,19 @@ def render_variant_output_contract_block(variant_output: Dict[str, Any]) -> str:
         _RELPATH_GUIDANCE,
         f"- path: {variant_output['path']}",
         "  format: JSON object",
-        "  discriminant:",
-        f"    name: {discriminant['name']}",
-        f"    json_pointer: {discriminant['json_pointer']}",
-        f"    type: {discriminant.get('type', 'enum')}",
     ]
+    guidance = variant_output.get("guidance")
+    if isinstance(guidance, Mapping):
+        lines.append("  guidance:")
+        _append_guidance_payload(lines, guidance, indent=4)
+    lines.extend(
+        [
+            "  discriminant:",
+            f"    name: {discriminant['name']}",
+            f"    json_pointer: {discriminant['json_pointer']}",
+            f"    type: {discriminant.get('type', 'enum')}",
+        ]
+    )
     if "allowed" in discriminant:
         allowed_values = ", ".join(str(value) for value in discriminant["allowed"])
         lines.append(f"    allowed: {allowed_values}")
@@ -272,9 +363,24 @@ def render_variant_output_contract_block(variant_output: Dict[str, Any]) -> str:
         for spec in shared_fields:
             lines.append(f"    - name: {spec['name']}")
             lines.append(f"      json_pointer: {spec['json_pointer']}")
-            _append_schema_spec(lines, spec, indent=6)
+            _append_schema_spec(
+                lines,
+                spec,
+                indent=6,
+                variant_order=discriminant.get("allowed", ()),
+            )
     lines.append("  variants:")
-    for variant_name, variant_spec in variant_output.get("variants", {}).items():
+    variants = variant_output.get("variants", {})
+    variant_names = [
+        variant_name
+        for variant_name in discriminant.get("allowed", ())
+        if variant_name in variants
+    ]
+    variant_names.extend(
+        variant_name for variant_name in variants if variant_name not in variant_names
+    )
+    for variant_name in variant_names:
+        variant_spec = variants[variant_name]
         lines.append(f"    {variant_name}:")
         lines.append("      fields:")
         for spec in variant_spec.get("fields", []):
