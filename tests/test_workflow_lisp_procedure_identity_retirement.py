@@ -4,9 +4,12 @@ import ast
 import copy
 from dataclasses import FrozenInstanceError, replace
 import hashlib
+import importlib
 import importlib.util
 import json
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import sys
 from typing import Any, Callable
@@ -710,6 +713,12 @@ def test_identity_kind_set_is_exact_and_rows_have_canonical_shapes(tmp_path: Pat
 
     assert "procedure_identity_retirement_identity_row_invalid" in _issues_for(tmp_path, changed_preserved)
 
+    def new_preserved_without_old(payload: dict[str, Any]) -> None:
+        row = payload["identity_delta"][0]
+        row.update(old_identity=None, old_disposition=None)
+
+    assert "procedure_identity_retirement_identity_row_invalid" in _issues_for(tmp_path, new_preserved_without_old)
+
     def retired_with_new(payload: dict[str, Any]) -> None:
         row = payload["identity_delta"][1]
         row.update(new_identity="illegal-new", new_disposition="new")
@@ -794,3 +803,629 @@ def test_validation_issue_order_is_deterministic_and_deduplicated(tmp_path: Path
 
     assert first == second
     assert len(first) == len({(issue.code, issue.path, issue.message) for issue in first})
+
+
+PRODUCTION_ARTIFACT_NAMES = (
+    "typed_frontend_ast",
+    "semantic_ir",
+    "executable_ir",
+    "runtime_plan",
+    "lexical_checkpoint_points",
+    "source_map",
+)
+
+
+def _canonical_production_artifact(payload: Any) -> Any:
+    if isinstance(payload, dict):
+        normalized = {key: _canonical_production_artifact(value) for key, value in payload.items()}
+        provenance = normalized.get("provenance")
+        if isinstance(provenance, dict) and "frontend_build_root" in provenance:
+            provenance["frontend_build_root"] = "<BUILD_ROOT>"
+            provenance["frontend_source_trace_path"] = "<BUILD_ROOT>/source_map.json"
+        if "bindings" in normalized and "schema_digest" in normalized:
+            normalized["schema_digest"] = "<PATH_NORMALIZED_SCHEMA_DIGEST>"
+        if "policy_kind" in normalized and "policy_digest" in normalized:
+            normalized["policy_digest"] = "<PATH_NORMALIZED_POLICY_DIGEST>"
+        if "bundle_path_ref" in normalized and "contract_digest" in normalized:
+            normalized["contract_digest"] = "<PATH_NORMALIZED_CONTRACT_DIGEST>"
+        if "executable_ir_digest" in normalized and "semantic_ir_digest" in normalized:
+            normalized["executable_ir_digest"] = "<PATH_NORMALIZED_IR_DIGEST>"
+            normalized["semantic_ir_digest"] = "<PATH_NORMALIZED_IR_DIGEST>"
+        return normalized
+    if isinstance(payload, list):
+        return [_canonical_production_artifact(value) for value in payload]
+    if isinstance(payload, str) and "/procedure_identity_retirement/" in payload:
+        payload = re.sub(
+            r"/(?:[^/\"' ),]+/)*procedure_identity_retirement",
+            "<FIXTURE_ROOT>",
+            payload,
+        )
+    if isinstance(payload, str) and payload.startswith("frozenset({") and payload.endswith("})"):
+        members = payload[len("frozenset({") : -2].split(", ")
+        return "frozenset({" + ", ".join(sorted(members)) + "})"
+    return payload
+
+
+def _build_procedure_retirement_side(side: str, workspace: Path, fixture_root: Path | None = None):
+    fixture_root = fixture_root or FIXTURE.parent
+    build = importlib.import_module("orchestrator.workflow_lisp.build")
+    request = build.FrontendBuildRequest(
+        source_path=fixture_root / side / "source.orc",
+        source_roots=(fixture_root / side,),
+        entry_workflow="orchestrate",
+        provider_externs_path=fixture_root / "providers.json",
+        prompt_externs_path=fixture_root / "prompts.json",
+        command_boundaries_path=fixture_root / "commands.json",
+        emit_debug_yaml=False,
+        workspace_root=workspace,
+        lowering_route="wcc_m4",
+    )
+    return build.build_frontend_bundle(request)
+
+
+@pytest.mark.parametrize("side", ["old", "new"])
+def test_checked_retirement_artifacts_reproduce_from_production_build(side: str, tmp_path: Path) -> None:
+    result = _build_procedure_retirement_side(side, tmp_path / side)
+
+    assert result.selected_workflow_name == "source::orchestrate"
+    for artifact_name in PRODUCTION_ARTIFACT_NAMES:
+        checked_path = FIXTURE.parent / side / f"{artifact_name}.json"
+        checked = json.loads(checked_path.read_text(encoding="utf-8"))
+        rebuilt = json.loads(result.artifact_paths[artifact_name].read_text(encoding="utf-8"))
+        assert _canonical_production_artifact(checked) == _canonical_production_artifact(rebuilt)
+
+
+def test_production_artifact_schemas_and_migration_identities_derive_from_sources(tmp_path: Path) -> None:
+    old = _build_procedure_retirement_side("old", tmp_path / "old")
+    new = _build_procedure_retirement_side("new", tmp_path / "new")
+    old_typed = json.loads(old.artifact_paths["typed_frontend_ast"].read_text(encoding="utf-8"))
+    new_typed = json.loads(new.artifact_paths["typed_frontend_ast"].read_text(encoding="utf-8"))
+    old_points = json.loads(old.artifact_paths["lexical_checkpoint_points"].read_text(encoding="utf-8"))
+    new_points = json.loads(new.artifact_paths["lexical_checkpoint_points"].read_text(encoding="utf-8"))
+    new_source_map = json.loads(new.artifact_paths["source_map"].read_text(encoding="utf-8"))
+
+    assert old_typed["modules"]["source"]["typed_procedures"] == []
+    assert any(workflow["definition"]["name"] == "source::internal-phase" for workflow in old_typed["modules"]["source"]["typed_workflows"])
+    internal = next(row for row in new_typed["modules"]["source"]["typed_procedures"] if row["definition"]["name"] == "source::internal-phase")
+    assert internal["resolved_lowering_mode"] == "inline"
+    assert old_points["schema_version"] == "workflow_lisp_lexical_checkpoint_points.v1"
+    assert old_points["points"][0]["effect_boundary"]["boundary_kind"] == "call"
+    assert new_points["points"][0]["effect_boundary"]["boundary_kind"] == "command"
+    notes = json.dumps(new_source_map["workflows"]["source::orchestrate"], sort_keys=True)
+    assert "procedure definition at" in notes
+    assert "procedure call site at" in notes
+    assert json.loads(new.artifact_paths["semantic_ir"].read_text())["schema_version"] == "workflow_semantic_ir.v1"
+    assert json.loads(new.artifact_paths["executable_ir"].read_text())["schema_version"] == "workflow_executable_ir.v1"
+    assert json.loads(new.artifact_paths["runtime_plan"].read_text())["schema_version"] == "workflow_runtime_plan.v1"
+    assert new_source_map["schema_version"] == "workflow_lisp_source_map.v1"
+    new_executable = json.loads(new.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
+    assert {
+        name: (row["kind"], row["value_type"])
+        for name, row in new_executable["outputs"].items()
+    } == {
+        "return__approved": ("scalar", "bool"),
+        "return__decision": ("scalar", "enum"),
+        "return__report": ("relpath", "relpath"),
+    }
+
+
+def test_production_artifacts_rebuild_identically_under_two_fixture_roots(tmp_path: Path) -> None:
+    roots = [tmp_path / name / "procedure_identity_retirement" for name in ("first", "second")]
+    for root in roots:
+        shutil.copytree(FIXTURE.parent, root, ignore=shutil.ignore_patterns(".reproduction"))
+
+    for side in ("old", "new"):
+        first = _build_procedure_retirement_side(side, tmp_path / "build-first" / side, roots[0])
+        second = _build_procedure_retirement_side(side, tmp_path / "build-second" / side, roots[1])
+        for artifact_name in PRODUCTION_ARTIFACT_NAMES:
+            first_payload = json.loads(first.artifact_paths[artifact_name].read_text(encoding="utf-8"))
+            second_payload = json.loads(second.artifact_paths[artifact_name].read_text(encoding="utf-8"))
+            assert _canonical_production_artifact(first_payload) == _canonical_production_artifact(second_payload)
+
+
+def test_identity_table_covers_all_source_map_origins_and_state_allocations() -> None:
+    record = load_retirement_record(FIXTURE)
+    for side in ("old", "new"):
+        source_map = json.loads((FIXTURE.parent / side / "source_map.json").read_text(encoding="utf-8"))
+        workflows = source_map["workflows"]
+        expected_origins: set[str] = set()
+
+        def collect(value: Any) -> None:
+            if isinstance(value, dict):
+                if isinstance(value.get("origin_key"), str):
+                    expected_origins.add(value["origin_key"])
+                for item in value.values():
+                    collect(item)
+            elif isinstance(value, list):
+                for item in value:
+                    collect(item)
+
+        collect(workflows)
+        points = json.loads(
+            (FIXTURE.parent / side / "lexical_checkpoint_points.json").read_text(encoding="utf-8")
+        )["points"]
+        expected_allocations = {
+            row["allocation_id"]
+            for workflow_map in workflows.values()
+            for row in workflow_map["generated_path_allocations"]
+        } | {point["storage"]["allocation_id"] for point in points}
+        identity_attr = f"{side}_identity"
+        actual_origins = {
+            getattr(row, identity_attr)
+            for row in record.identity_delta
+            if row.identity_kind == "source_map_origin" and getattr(row, identity_attr) is not None
+        }
+        actual_allocations = {
+            getattr(row, identity_attr)
+            for row in record.identity_delta
+            if row.identity_kind == "state_allocation" and getattr(row, identity_attr) is not None
+        }
+        assert actual_origins == expected_origins
+        assert actual_allocations == expected_allocations
+
+
+@pytest.mark.parametrize(
+    "mapping_field",
+    [
+        "artifact_consumes",
+        "private_artifact_consumes",
+        "_resolved_consumes",
+        "_pending_artifact_consumes",
+        "_pending_private_artifact_consumes",
+        "compatibility_artifact_consumes",
+        "public_artifact_consumes",
+        "resolved_artifact_consumes",
+        "for_each",
+        "repeat_until",
+    ],
+)
+def test_store_scan_covers_real_identity_addressed_state_maps(
+    tmp_path: Path,
+    mapping_field: str,
+) -> None:
+    store = tmp_path / "store"
+    run = store / "run"
+    run.mkdir(parents=True)
+    (run / "state.json").write_text(
+        json.dumps({"status": "completed", mapping_field: {"retired-step": {}}}),
+        encoding="utf-8",
+    )
+
+    result = scan_known_state_store(
+        store,
+        retired_identities={"retired-step"},
+        query_version="procedure-identity-store-query.v1",
+    )
+
+    assert result["consumer_count"] == 1
+    assert result["matches"][0]["identity"] == "retired-step"
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "producer",
+        "source_step_id",
+        "storage_allocation_id",
+        "producer_step_id",
+        "call_presentation_key",
+        "caller_node_id",
+    ],
+)
+def test_store_scan_covers_real_artifact_version_and_call_identity_fields(tmp_path: Path, field: str) -> None:
+    store = tmp_path / "store"
+    run = store / "run"
+    run.mkdir(parents=True)
+    state = {"status": "completed", "artifact_versions": {"report": [{field: "retired-id"}]}}
+    (run / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    result = scan_known_state_store(
+        store,
+        retired_identities={"retired-id"},
+        query_version="procedure-identity-store-query.v1",
+    )
+
+    assert result["consumer_count"] == 1
+    assert result["matches"][0]["field"] == field
+
+
+def test_store_scan_handles_real_runstate_and_lexical_checkpoint_shapes(tmp_path: Path) -> None:
+    from orchestrator.state import ForEachState, RunState, StepResult
+
+    store = tmp_path / "store"
+    run = store / "run"
+    checkpoints = run / "checkpoints"
+    checkpoints.mkdir(parents=True)
+    state = RunState(
+        schema_version="2.1",
+        run_id="fixture-run",
+        workflow_file="workflow.orc",
+        workflow_checksum="sha256:" + "0" * 64,
+        started_at="2026-07-14T00:00:00+00:00",
+        updated_at="2026-07-14T00:00:00+00:00",
+        status="completed",
+        steps={"retired-step": StepResult(status="completed", step_id="retired-step")},
+        for_each={"retired-loop": ForEachState(items=[])},
+        repeat_until={"retired-repeat": {"iteration": 1}},
+        artifact_versions={
+            "report": [{"producer": "retired-producer", "source_step_id": "retired-source"}]
+        },
+    )
+    (run / "state.json").write_text(json.dumps(state.to_dict()), encoding="utf-8")
+    point = json.loads((FIXTURE.parent / "new" / "lexical_checkpoint_points.json").read_text())["points"][0]
+    record = {
+        "schema_version": "workflow_lisp_lexical_checkpoint.v1",
+        "checkpoint_id": point["checkpoint_id"],
+        "program_point_id": point["program_point_id"],
+        "record_id": "retired-record",
+        "storage_allocation_id": point["storage"]["allocation_id"],
+        "origin_key": point["source_lineage"]["origin_key"],
+    }
+    (checkpoints / "record.json").write_text(json.dumps(record), encoding="utf-8")
+    retired = {
+        "retired-step",
+        "retired-loop",
+        "retired-repeat",
+        "retired-producer",
+        "retired-source",
+        point["checkpoint_id"],
+        point["program_point_id"],
+        point["storage"]["allocation_id"],
+        point["source_lineage"]["origin_key"],
+    }
+
+    result = scan_known_state_store(
+        store,
+        retired_identities=retired,
+        query_version="procedure-identity-store-query.v1",
+    )
+
+    assert retired.issubset({row["identity"] for row in result["matches"]})
+
+
+def test_validator_allows_explicit_external_known_store_with_fresh_facts(tmp_path: Path) -> None:
+    external = tmp_path / "external-runs"
+    run = external / "run"
+    run.mkdir(parents=True)
+    (run / "state.json").write_text(json.dumps({"status": "completed"}), encoding="utf-8")
+    record = load_retirement_record(FIXTURE)
+    retired = {row.old_identity for row in record.identity_delta if row.old_disposition == "retired" and row.old_identity}
+    observed = scan_known_state_store(
+        external,
+        retired_identities=retired,
+        query_version="procedure-identity-store-query.v1",
+    )
+    store = replace(
+        record.known_state_stores[0],
+        root=str(external),
+        normalized_scan_digest=observed["normalized_scan_digest"],
+        **{field: observed[field] for field in (
+            "terminal_run_count", "nonterminal_run_count", "call_frame_count", "consumer_count",
+            "checkpoint_index_count", "checkpoint_record_count", "retained_manifest_count",
+            "identity_metadata_count", "scanned_file_count",
+        )},
+    )
+
+    result = validate_retirement_record(replace(record, known_state_stores=(store,)), repo_root=REPO_ROOT)
+
+    assert result.valid is True
+
+
+@pytest.mark.parametrize("mutation", ["add", "remove", "replace", "mutate"])
+def test_store_scan_rejects_concurrent_tree_addition_or_removal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    module = _retirement_module()
+    store = tmp_path / "store"
+    run = store / "run"
+    run.mkdir(parents=True)
+    state = run / "state.json"
+    state.write_text(json.dumps({"status": "completed"}), encoding="utf-8")
+    original = module._read_stable_bytes
+    changed = False
+
+    def mutate_tree(path: Path) -> bytes:
+        nonlocal changed
+        content = original(path)
+        if not changed:
+            changed = True
+            if mutation == "add":
+                (run / "added.json").write_text(json.dumps({"status": "completed"}), encoding="utf-8")
+            elif mutation == "remove":
+                state.unlink()
+            elif mutation == "replace":
+                replacement = run / "replacement.json"
+                replacement.write_text(json.dumps({"status": "completed"}), encoding="utf-8")
+                replacement.replace(state)
+            else:
+                state.write_text(json.dumps({"status": "failed", "changed": True}), encoding="utf-8")
+        return content
+
+    monkeypatch.setattr(module, "_read_stable_bytes", mutate_tree)
+
+    with pytest.raises(ValueError, match="procedure_identity_retirement_known_store_tree_changed"):
+        scan_known_state_store(
+            store,
+            retired_identities=set(),
+            query_version="procedure-identity-store-query.v1",
+        )
+
+
+def test_store_scan_ignores_unrelated_output_json_outside_state_surfaces(tmp_path: Path) -> None:
+    store = tmp_path / "store"
+    run = store / "run"
+    outputs = run / "outputs"
+    outputs.mkdir(parents=True)
+    (run / "state.json").write_text(json.dumps({"status": "completed"}), encoding="utf-8")
+    (outputs / "scalar.json").write_text("true", encoding="utf-8")
+    (outputs / "list.json").write_text("[1, 2, 3]", encoding="utf-8")
+
+    result = scan_known_state_store(
+        store,
+        retired_identities=set(),
+        query_version="procedure-identity-store-query.v1",
+    )
+
+    assert result["terminal_run_count"] == 1
+    assert result["consumer_count"] == 0
+
+
+def test_cross_row_identity_table_rejects_retire_then_recreate(tmp_path: Path) -> None:
+    def mutate(payload: dict[str, Any]) -> None:
+        retired = copy.deepcopy(payload["identity_delta"][1])
+        recreated = {
+            "identity_kind": retired["identity_kind"],
+            "old_identity": None,
+            "old_disposition": None,
+            "new_identity": retired["old_identity"],
+            "new_disposition": "new",
+        }
+        payload["identity_delta"].append(recreated)
+
+    assert "procedure_identity_retirement_identity_recreated" in _issues_for(tmp_path, mutate)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "code"),
+    [
+        (lambda payload: payload["new_id_evidence"]["interruption_resume"].__setitem__("interruption_point", "not-a-new-point"), "procedure_identity_retirement_interruption_point_unknown"),
+        (lambda payload: payload["new_id_evidence"]["interruption_resume"].__setitem__("run_id", payload["new_id_evidence"]["clean_run"]["run_id"]), "procedure_identity_retirement_new_id_run_ids_not_distinct"),
+        (lambda payload: payload["checksum_evidence"]["callee"].__setitem__("mismatch_identity", "different-callee"), "procedure_identity_retirement_callee_identity_mismatch"),
+        (lambda payload: payload["lineage_notes"][0].__setitem__("executable_node", "unknown-node"), "procedure_identity_retirement_lineage_identity_mismatch"),
+        (lambda payload: payload["lineage_notes"][0].__setitem__("source_map_origin", "unknown-origin"), "procedure_identity_retirement_lineage_identity_mismatch"),
+    ],
+)
+def test_production_identity_evidence_cross_relations_fail_closed(
+    tmp_path: Path,
+    mutation: Callable[[dict[str, Any]], None],
+    code: str,
+) -> None:
+    assert code in _issues_for(tmp_path, mutation)
+
+
+def test_retained_inventory_is_separate_content_addressed_evidence(tmp_path: Path) -> None:
+    payload = _payload()
+    assert payload["retained_wrapper_evidence"]["inventory_path"].endswith("retained_inventory.json")
+    inventory_path = REPO_ROOT / payload["retained_wrapper_evidence"]["inventory_path"]
+    assert payload["retained_wrapper_evidence"]["inventory_sha256"] == (
+        "sha256:" + hashlib.sha256(inventory_path.read_bytes()).hexdigest()
+    )
+
+    payload["retained_wrapper_evidence"]["inventory_sha256"] = "sha256:" + "0" * 64
+    record = load_retirement_record(_write_payload(tmp_path, payload))
+    issues = {issue.code for issue in validate_retirement_record(record, repo_root=REPO_ROOT).issues}
+    assert "procedure_identity_retirement_inventory_digest_mismatch" in issues
+
+
+def _copied_retirement_repo(tmp_path: Path) -> tuple[Path, Path]:
+    repo = tmp_path / "repo"
+    copied = repo / FIXTURE.relative_to(REPO_ROOT).parent
+    shutil.copytree(FIXTURE.parent, copied, ignore=shutil.ignore_patterns(".reproduction"))
+    return repo, copied
+
+
+def test_production_identity_inventory_rejects_extra_and_relabelled_rows(tmp_path: Path) -> None:
+    def extra(payload: dict[str, Any]) -> None:
+        payload["identity_delta"].append(
+            {
+                "identity_kind": "executable_node",
+                "old_identity": None,
+                "old_disposition": None,
+                "new_identity": "fabricated-node",
+                "new_disposition": "new",
+            }
+        )
+
+    assert "procedure_identity_retirement_identity_artifact_mismatch" in _issues_for(tmp_path, extra)
+
+    def relabel(payload: dict[str, Any]) -> None:
+        row = next(
+            row
+            for row in payload["identity_delta"]
+            if row["identity_kind"] == "checkpoint" and row["old_disposition"] == "retired"
+        )
+        row.update(new_identity=row["old_identity"], new_disposition="preserved", old_disposition="preserved")
+
+    assert "procedure_identity_retirement_identity_artifact_mismatch" in _issues_for(tmp_path, relabel)
+
+
+def test_content_addressed_production_json_must_be_an_object(tmp_path: Path) -> None:
+    repo, copied = _copied_retirement_repo(tmp_path)
+    record_path = copied / "valid_internal_retirement.json"
+    payload = json.loads(record_path.read_text(encoding="utf-8"))
+    semantic_path = copied / "new" / "semantic_ir.json"
+    semantic_path.write_text("true\n", encoding="utf-8")
+    digest = "sha256:" + hashlib.sha256(semantic_path.read_bytes()).hexdigest()
+    next(
+        row for row in payload["artifacts"] if row["side"] == "new" and row["role"] == "semantic_ir"
+    )["sha256"] = digest
+    record_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    issues = validate_retirement_record(load_retirement_record(record_path), repo_root=repo).issues
+
+    assert "procedure_identity_retirement_artifact_content_invalid" in {issue.code for issue in issues}
+
+
+@pytest.mark.parametrize(
+    ("role", "schema", "code"),
+    [
+        (
+            "semantic_ir",
+            "workflow_semantic_ir.v1",
+            "procedure_identity_retirement_semantic_ir_structure_invalid",
+        ),
+        (
+            "runtime_plan",
+            "workflow_runtime_plan.v1",
+            "procedure_identity_retirement_runtime_plan_structure_invalid",
+        ),
+    ],
+)
+def test_schema_only_production_ir_cannot_satisfy_evidence(
+    tmp_path: Path,
+    role: str,
+    schema: str,
+    code: str,
+) -> None:
+    repo, copied = _copied_retirement_repo(tmp_path)
+    record_path = copied / "valid_internal_retirement.json"
+    payload = json.loads(record_path.read_text(encoding="utf-8"))
+    artifact_path = copied / "new" / f"{role}.json"
+    artifact_path.write_text(json.dumps({"schema_version": schema}), encoding="utf-8")
+    digest = "sha256:" + hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    next(
+        row for row in payload["artifacts"] if row["side"] == "new" and row["role"] == role
+    )["sha256"] = digest
+    manifest_path = copied / "new" / "build_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["outputs"][role]["sha256"] = digest
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    next(
+        row
+        for row in payload["artifacts"]
+        if row["side"] == "new" and row["role"] == "build_manifest"
+    )["sha256"] = "sha256:" + hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    record_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    issues = validate_retirement_record(load_retirement_record(record_path), repo_root=repo).issues
+
+    assert code in {issue.code for issue in issues}
+
+
+@pytest.mark.parametrize(
+    ("role", "mutation", "code"),
+    [
+        (
+            "semantic_ir",
+            lambda artifact: artifact["workflows"]["source::orchestrate"]["executable_bridge"].__setitem__("node_ids", None),
+            "procedure_identity_retirement_semantic_ir_structure_invalid",
+        ),
+        (
+            "runtime_plan",
+            lambda artifact: artifact.__setitem__("ordered_node_ids", [{}]),
+            "procedure_identity_retirement_runtime_plan_structure_invalid",
+        ),
+        (
+            "runtime_plan",
+            lambda artifact: artifact.__setitem__("lexical_checkpoint_points", [{"checkpoint_id": {}}]),
+            "procedure_identity_retirement_runtime_plan_structure_invalid",
+        ),
+    ],
+)
+def test_malformed_nested_production_ir_returns_issues_instead_of_raising(
+    tmp_path: Path,
+    role: str,
+    mutation: Callable[[dict[str, Any]], None],
+    code: str,
+) -> None:
+    repo, copied = _copied_retirement_repo(tmp_path)
+    record_path = copied / "valid_internal_retirement.json"
+    payload = json.loads(record_path.read_text(encoding="utf-8"))
+    artifact_path = copied / "new" / f"{role}.json"
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    mutation(artifact)
+    artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
+    digest = "sha256:" + hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    next(
+        row for row in payload["artifacts"] if row["side"] == "new" and row["role"] == role
+    )["sha256"] = digest
+    manifest_path = copied / "new" / "build_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["outputs"][role]["sha256"] = digest
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    next(
+        row
+        for row in payload["artifacts"]
+        if row["side"] == "new" and row["role"] == "build_manifest"
+    )["sha256"] = "sha256:" + hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    record_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = validate_retirement_record(load_retirement_record(record_path), repo_root=repo)
+
+    assert code in {issue.code for issue in result.issues}
+
+
+def test_inventory_exports_cannot_contradict_internal_callee(tmp_path: Path) -> None:
+    repo, copied = _copied_retirement_repo(tmp_path)
+    record_path = copied / "valid_internal_retirement.json"
+    payload = json.loads(record_path.read_text(encoding="utf-8"))
+    inventory_path = copied / "retained_inventory.json"
+    inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+    inventory["exported_entries"].append("internal-phase")
+    inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+    payload["retained_wrapper_evidence"]["inventory_sha256"] = (
+        "sha256:" + hashlib.sha256(inventory_path.read_bytes()).hexdigest()
+    )
+    record_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    issues = validate_retirement_record(load_retirement_record(record_path), repo_root=repo).issues
+
+    assert "procedure_identity_retirement_inventory_content_mismatch" in {issue.code for issue in issues}
+
+
+def test_source_and_build_manifest_cannot_be_readdressed_away_from_compiler_outputs(tmp_path: Path) -> None:
+    repo, copied = _copied_retirement_repo(tmp_path)
+    record_path = copied / "valid_internal_retirement.json"
+    payload = json.loads(record_path.read_text(encoding="utf-8"))
+    source_path = copied / "old" / "source.orc"
+    source_path.write_text("(workflow-lisp (:language \"0.1\") (:target-dsl \"2.15\") (defworkflow other () -> Unit (return)))\n", encoding="utf-8")
+    source_digest = "sha256:" + hashlib.sha256(source_path.read_bytes()).hexdigest()
+    next(row for row in payload["artifacts"] if row["side"] == "old" and row["role"] == "source")["sha256"] = source_digest
+    manifest_path = copied / "old" / "build_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["inputs"]["source"]["sha256"] = source_digest
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    next(row for row in payload["artifacts"] if row["side"] == "old" and row["role"] == "build_manifest")["sha256"] = (
+        "sha256:" + hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    )
+    record_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    issues = validate_retirement_record(load_retirement_record(record_path), repo_root=repo).issues
+
+    assert "procedure_identity_retirement_source_build_mismatch" in {issue.code for issue in issues}
+
+
+def test_unsafe_artifact_is_not_opened_by_downstream_relation_validation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _retirement_module()
+    record = load_retirement_record(FIXTURE)
+    unsafe = tmp_path / "must-not-open.orc"
+    unsafe.write_text("sensitive", encoding="utf-8")
+    source = next(row for row in record.artifacts if row.side == "old" and row.role == "source")
+    changed = replace(source, path=str(unsafe))
+    artifacts = tuple(changed if row is source else row for row in record.artifacts)
+    original = module._read_stable_bytes
+
+    def guarded(path: Path) -> bytes:
+        if path == unsafe:
+            raise AssertionError("unsafe artifact was opened")
+        return original(path)
+
+    monkeypatch.setattr(module, "_read_stable_bytes", guarded)
+    issues = validate_retirement_record(replace(record, artifacts=artifacts), repo_root=REPO_ROOT).issues
+
+    assert "procedure_identity_retirement_artifact_path_outside_repository" in {issue.code for issue in issues}

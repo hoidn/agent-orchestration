@@ -1,1 +1,243 @@
-{"schema":"workflow_lisp_executable_ir.fixture.v1","test_only":"FICTIONAL — NEVER COPY","side":"old","module":"fictional.retirement","entry":"retained-stack","nodes":["retained-stack/result-provider","retained-stack/report-publisher"]}
+{
+  "artifacts": {},
+  "body_region": [
+    "root.source_orchestrate__call_source_internal_phase"
+  ],
+  "finalization_entry_node_id": null,
+  "finalization_region": [],
+  "inputs": {
+    "report_path": {
+      "definition": {
+        "kind": "relpath",
+        "must_exist_target": true,
+        "type": "relpath",
+        "under": "artifacts/work"
+      },
+      "kind": "relpath",
+      "name": "report_path",
+      "source_address": null,
+      "value_type": "relpath"
+    }
+  },
+  "name": "source::orchestrate",
+  "nodes": {
+    "root.source_orchestrate__call_source_internal_phase": {
+      "available_outputs": [
+        "return__decision",
+        "return__approved",
+        "return__report"
+      ],
+      "bound_assert_predicate": null,
+      "bound_inputs": {
+        "__write_root__source_internal_phase__run_checks__result_bundle": ".orchestrate/workflow_lisp/calls/source::orchestrate/source::orchestrate__call_source::internal-phase/source::internal-phase/__write_root__source_internal_phase__run_checks__result_bundle.json",
+        "report_path": {
+          "input_name": "report_path"
+        }
+      },
+      "bound_when_predicate": null,
+      "call_alias": "source::internal-phase",
+      "execution_config": {
+        "call": "source::internal-phase",
+        "common": {
+          "allow_parse_error": null,
+          "consume_bundle": null,
+          "consumes": [],
+          "env": null,
+          "expected_outputs": [],
+          "max_visits": null,
+          "on": {},
+          "output_bundle": null,
+          "output_capture": null,
+          "output_file": null,
+          "persist_artifacts_in_state": null,
+          "pre_snapshot": null,
+          "provider_session": null,
+          "publishes": [],
+          "requires_variant": null,
+          "retries": null,
+          "secrets": [],
+          "timeout_sec": null,
+          "variant_output": null
+        }
+      },
+      "fallthrough_node_id": null,
+      "kind": "call_boundary",
+      "lexical_scope": [
+        "root",
+        "source_orchestrate__call_source_internal_phase"
+      ],
+      "node_id": "root.source_orchestrate__call_source_internal_phase",
+      "presentation_name": "source::orchestrate__call_source::internal-phase",
+      "region": "body",
+      "routed_transfers": {
+        "call_return": {
+          "counts_as_transition": false,
+          "reason": "call_return",
+          "target_node_id": null
+        }
+      },
+      "step_id": "root.source_orchestrate__call_source_internal_phase"
+    }
+  },
+  "outputs": {
+    "return__approved": {
+      "definition": {
+        "from": {
+          "ref": "root.steps.source::orchestrate__call_source::internal-phase.artifacts.return__approved"
+        },
+        "kind": "scalar",
+        "type": "bool"
+      },
+      "kind": "scalar",
+      "name": "return__approved",
+      "source_address": {
+        "node_id": "root.source_orchestrate__call_source_internal_phase",
+        "output_name": "return__approved"
+      },
+      "value_type": "bool"
+    },
+    "return__decision": {
+      "definition": {
+        "allowed": [
+          "APPROVE",
+          "REJECT"
+        ],
+        "from": {
+          "ref": "root.steps.source::orchestrate__call_source::internal-phase.artifacts.return__decision"
+        },
+        "kind": "scalar",
+        "type": "enum"
+      },
+      "kind": "scalar",
+      "name": "return__decision",
+      "source_address": {
+        "node_id": "root.source_orchestrate__call_source_internal_phase",
+        "output_name": "return__decision"
+      },
+      "value_type": "enum"
+    },
+    "return__report": {
+      "definition": {
+        "from": {
+          "ref": "root.steps.source::orchestrate__call_source::internal-phase.artifacts.return__report"
+        },
+        "kind": "relpath",
+        "must_exist_target": true,
+        "type": "relpath",
+        "under": "artifacts/work"
+      },
+      "kind": "relpath",
+      "name": "return__report",
+      "source_address": {
+        "node_id": "root.source_orchestrate__call_source_internal_phase",
+        "output_name": "return__report"
+      },
+      "value_type": "relpath"
+    }
+  },
+  "private_artifacts": {},
+  "provenance": {
+    "compatibility_bridge_inputs": [],
+    "frontend_build_root": "<FIXTURE_ROOT>/.reproduction/old/.orchestrate/build/054afe13630cd34d",
+    "frontend_entry_workflow": "source::orchestrate",
+    "frontend_kind": "workflow_lisp",
+    "frontend_source_map_coverage": {
+      "core_workflow_ast": "covered",
+      "executable_ir": "covered",
+      "frontend_ast": "covered",
+      "lowered_surface": "covered",
+      "runtime_logs": "covered",
+      "semantic_ir": "covered",
+      "shared_validation_subjects": "covered"
+    },
+    "frontend_source_map_schema_version": "workflow_lisp_source_map.v1",
+    "frontend_source_trace_path": "<FIXTURE_ROOT>/.reproduction/old/.orchestrate/build/054afe13630cd34d/source_map.json",
+    "generated_path_allocations": [
+      {
+        "allocation_id": "alloc:source_orchestrate:reusable_call_write_root:003c8199b5bff6e0",
+        "concrete_path_template": ".orchestrate/workflow_lisp/calls/source::orchestrate/source::orchestrate__call_source::internal-phase/source::internal-phase/__write_root__source_internal_phase__run_checks__result_bundle.json",
+        "generated_input_name": "__write_root__source_internal_phase__run_checks__result_bundle",
+        "path_safety_policy": "workspace_relative",
+        "privacy": "compatibility_view",
+        "projection_hints": {
+          "path_template": ".orchestrate/workflow_lisp/calls/source::orchestrate/source::orchestrate__call_source::internal-phase/source::internal-phase/__write_root__source_internal_phase__run_checks__result_bundle.json"
+        },
+        "resume_scope": "call_frame",
+        "semantic_role": "reusable_call_write_root",
+        "stable_identity": "schema:2/source::orchestrate/source::orchestrate__call_source::internal-phase/source::internal-phase/__write_root__source_internal_phase__run_checks__result_bundle",
+        "workflow_name": "source::orchestrate"
+      }
+    ],
+    "imported_aliases": [
+      "source::internal-phase"
+    ],
+    "lexical_checkpoint_points": [
+      {
+        "binding_schema": {
+          "bindings": [],
+          "schema_digest": "sha256:1ff195ef8d2a2a0a89b28151a43724e100d484b64c8ca0a89fdb56db904d977d"
+        },
+        "checkpoint_id": "ckpt:6f366562859b3c60af1f2363",
+        "effect_boundary": {
+          "boundary_kind": "call",
+          "effect_kind": "call",
+          "policy": {
+            "boundary_kind": "call",
+            "effect_kind": "call",
+            "evidence_requirements": {
+              "workflow_call": {
+                "callee_checksum": "sha256:a2f91555578522ecb6e0a9e6100265570e46c4d1e235cee3e37f06a2a9b47a0c",
+                "callee_workflow": "source_orchestrate__call_source_internal_phase",
+                "target_dsl_version": "2.15"
+              }
+            },
+            "policy_digest": "sha256:f9ce79469978fa6398c0f44303872c50c443e9e987dc57df2aecc01dd42928b3",
+            "policy_kind": "reuse_validated_workflow_call",
+            "schema_version": "workflow_lisp_effect_resume_policy.v1",
+            "source_map_origin_key": "source::orchestrate::step_id::source_orchestrate__call_source_internal_phase",
+            "step_id": "source_orchestrate__call_source_internal_phase",
+            "unsafe_pending_behavior": "fail_closed"
+          }
+        },
+        "executable_identity": {
+          "step_id": "source_orchestrate__call_source_internal_phase"
+        },
+        "loop_back_edge": null,
+        "origin_key": "source::orchestrate::step_id::source_orchestrate__call_source_internal_phase",
+        "point_kind": "effect_boundary",
+        "program_point_id": "pp:bcfcee4edeee0d60262b27b9",
+        "restore": {
+          "binding_descriptor_digests": [],
+          "eligibility": [],
+          "loop_frame_descriptor_digest": null,
+          "proof_descriptor_digests": []
+        },
+        "runtime_program_identity": {
+          "lowering_schema_version": "wcc_m4",
+          "wcc_node_id": "wcc-node:wcc_m4:d10fa5fb5fb386ad",
+          "wcc_scope_id": "wcc-scope:wcc_m4:4381cc47cdff2f75"
+        },
+        "step_id": "source_orchestrate__call_source_internal_phase",
+        "step_kind": "call",
+        "storage": {
+          "allocation_id": "alloc:source_orchestrate:lexical_checkpoint_record:0ca2ad80f358327f",
+          "privacy": "runtime_sidecar",
+          "resume_scope": "step_visit",
+          "semantic_role": "lexical_checkpoint_record"
+        },
+        "wcc_identity": {
+          "node_id_digest": "sha256:578c1e1f95dc1a8aa888669cb533caf653d241ba2346daf0d7af1c495498af68",
+          "scope_id_digest": "sha256:a98324ad75fb6f4d9a0cdc614dc8d4c0dad2361c0d6a74020e3242546b179019"
+        },
+        "workflow_name": "source::orchestrate"
+      }
+    ],
+    "managed_write_root_inputs": [],
+    "private_exec_context_bindings": [],
+    "runtime_context_inputs": [],
+    "source_root": "<FIXTURE_ROOT>/old",
+    "workflow_path": "<FIXTURE_ROOT>/old/source.orc"
+  },
+  "schema_version": "workflow_executable_ir.v1",
+  "version": "2.15"
+}

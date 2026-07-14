@@ -1,0 +1,9 @@
+{
+  "run_checks": {
+    "kind": "external_tool",
+    "stable_command": [
+      "python",
+      "scripts/run_checks.py"
+    ]
+  }
+}

@@ -10,12 +10,12 @@
     "test_fixture_notice": "FICTIONAL TEST DATA — NEVER COPY OWNER OR ATTESTATION INTO PILOT EVIDENCE"
   },
   "retained_public_entry": {
-    "module": "fictional.retirement",
-    "workflow": "retained-stack",
-    "contract_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    "module": "source",
+    "workflow": "source::orchestrate",
+    "contract_digest": "sha256:0bee98388a4d62810cc1701857be8fbc1f9576396eae49263cb9e7e3cbff7d7a"
   },
   "callee": {
-    "module": "fictional.retirement",
+    "module": "source",
     "identity": "internal-phase",
     "exported": false,
     "registered_public_entry": false,
@@ -24,11 +24,12 @@
     "route_live": false
   },
   "retained_wrapper_evidence": {
-    "inventory_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/typed_frontend_ast.json",
+    "inventory_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/retained_inventory.json",
+    "inventory_sha256": "sha256:2a1ba688a35040d7603959c91092d62553c87f05839fc865b05a76d6492dc158",
     "source_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/source.orc",
-    "reviewed_call_site": "retained-stack/internal-phase",
-    "retained_wrapper": "retained-stack",
-    "contract_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    "reviewed_call_site": "source::orchestrate/source::internal-phase",
+    "retained_wrapper": "source::orchestrate",
+    "contract_digest": "sha256:0bee98388a4d62810cc1701857be8fbc1f9576396eae49263cb9e7e3cbff7d7a"
   },
   "supporting_labels": [
     "migration_evidence_only"
@@ -39,7 +40,7 @@
       "owner": "Fictional Fixture Owner — NEVER COPY",
       "query_version": "procedure-identity-store-query.v1",
       "query_time": "2026-07-13T00:00:00Z",
-      "normalized_scan_digest": "sha256:c83b6d163d6c22db6e1939ff742bc8892c53ad640b90bae7ff7d7be7200a7a33",
+      "normalized_scan_digest": "sha256:8b51044b18815b0b5d4fbb3f8ab523bb4dd335222fe466a98ff3b524975b487e",
       "terminal_run_count": 1,
       "nonterminal_run_count": 0,
       "call_frame_count": 0,
@@ -59,140 +60,180 @@
       "side": "old",
       "role": "source",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/source.orc",
-      "sha256": "sha256:648a7d72676934219bf66414e5e957bff59f36b76be93507e7584384bd5ff736"
+      "sha256": "sha256:a2f91555578522ecb6e0a9e6100265570e46c4d1e235cee3e37f06a2a9b47a0c"
     },
     {
       "side": "old",
       "role": "typed_frontend_ast",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/typed_frontend_ast.json",
-      "sha256": "sha256:c00b1fbdceed971bc90fc48f077694324e90a5b3ac6a9c163197d497fe6e3f69"
+      "sha256": "sha256:735f97e4f69549d335f5eab20f1277218aee284d7fdf2e1ca8a5f122b5ede7af"
     },
     {
       "side": "old",
       "role": "semantic_ir",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/semantic_ir.json",
-      "sha256": "sha256:fec397bccc5f4d55e52c03b54236d3ef97d08cd97ed1cb16075ecc99cbb7239c"
+      "sha256": "sha256:1f6ed70b2c9021449ff053244ceb31303b81e9de4e8e9e50d91692b9c6f9a57b"
     },
     {
       "side": "old",
       "role": "executable_ir",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/executable_ir.json",
-      "sha256": "sha256:f65eee19fa269efe7118f9a623b6cc5f154727dfa5e0ff585f99b08f6d399612"
+      "sha256": "sha256:b0d51633d32773aea46bbce9fe81129ac32bc4ccdeed57efcb3a29ff2989c043"
     },
     {
       "side": "old",
       "role": "runtime_plan",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/runtime_plan.json",
-      "sha256": "sha256:b53c97c94b26e406d510fe66dae9697fd14f335bcae15eb35842268ddc0f3d62"
+      "sha256": "sha256:a0883eded6674a87bb501d625c96b0b7f9d4ca15e24c6cc409e7f27967a9c043"
     },
     {
       "side": "old",
       "role": "lexical_checkpoint_points",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/lexical_checkpoint_points.json",
-      "sha256": "sha256:f7321d73892419529ebcc7dfb858f771bbb30eab3d6bcf132491721220ae565d"
+      "sha256": "sha256:1304d087704a105d9c1a6232b205ddf308eb0e99d585c451f17a8ed3f628ff3f"
     },
     {
       "side": "old",
       "role": "source_map",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/source_map.json",
-      "sha256": "sha256:9ce336b572298193fbfa058b7187130f22319cf4a0af9d38dd8fbc2ee867e2ba"
+      "sha256": "sha256:c5ef750362e470076530ce5159b98504d7ca4db56bc4c886d0b26ed91a47eee3"
+    },
+    {
+      "side": "old",
+      "role": "build_manifest",
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/build_manifest.json",
+      "sha256": "sha256:160800ba7b307ec21e6fca89876bb768f688a83d3a55b3bc0534112d024f833a"
     },
     {
       "side": "new",
       "role": "source",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/source.orc",
-      "sha256": "sha256:aca93ff31f580b37e015daa541922be19fa6e8ebb42449087f653d6e8de0b44a"
+      "sha256": "sha256:903b44c96f284bb71286717f3d235eace1ef0ce4ae9286d02d058432411393e9"
     },
     {
       "side": "new",
       "role": "typed_frontend_ast",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/typed_frontend_ast.json",
-      "sha256": "sha256:d186733a025f355d784626b6ae3a2ba8d2decbf0412b123c2e2802ece848038e"
+      "sha256": "sha256:c042a782e471c361dff44531e8299582df58a8c780db726ad642474c3eb7cec3"
     },
     {
       "side": "new",
       "role": "semantic_ir",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/semantic_ir.json",
-      "sha256": "sha256:667fccd470f66dc6e9405a9771b866015dee6a2296121963ed73672060811cf0"
+      "sha256": "sha256:8e39937ebe54f9e3c35602fa3e92b696f4ebcd7b2450858f491c7b4a64389ccd"
     },
     {
       "side": "new",
       "role": "executable_ir",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/executable_ir.json",
-      "sha256": "sha256:44bf59c14c5c645016478b2c03b46e59f657c007f152957ba151dd4eab2519ca"
+      "sha256": "sha256:e70607a646c03474f1f54bb47698950819fb134bf9bb1af4f9f562df27f0c6d2"
     },
     {
       "side": "new",
       "role": "runtime_plan",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/runtime_plan.json",
-      "sha256": "sha256:fb109163995b61a0fbed014a73534f87e79ea01f178957018b652145f021ef05"
+      "sha256": "sha256:04041b18279f115f683daecc099596b02acccf97a397dbc4b031baed2b47fffa"
     },
     {
       "side": "new",
       "role": "lexical_checkpoint_points",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/lexical_checkpoint_points.json",
-      "sha256": "sha256:a533b26bf6f457f5efeffd21f015026cc20e3248ea8b6335e17a439328e3a857"
+      "sha256": "sha256:914b9544e7bb2a4389b56e840083063c24cb4a396021a60edeb6d2a0d42bc978"
     },
     {
       "side": "new",
       "role": "source_map",
       "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/source_map.json",
-      "sha256": "sha256:a9fa60510d1f1e82762e9b9dbb6c5e289b18cc1696af6d08447c32e35ab92dfb"
+      "sha256": "sha256:522ba32d5a595fbe02c05678efd5843e411915fedd0320da327e5ef9b68787f3"
+    },
+    {
+      "side": "new",
+      "role": "build_manifest",
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/build_manifest.json",
+      "sha256": "sha256:db9fd3725e098710eb433e41078dbfc88e2920eae874d22b97ef6ae705d86e5b"
     }
   ],
   "identity_delta": [
     {
       "identity_kind": "workflow",
-      "old_identity": "retained-stack",
+      "old_identity": "source::orchestrate",
       "old_disposition": "preserved",
-      "new_identity": "retained-stack",
+      "new_identity": "source::orchestrate",
       "new_disposition": "preserved"
     },
     {
-      "identity_kind": "call_frame",
-      "old_identity": "retained-stack/internal-phase",
+      "identity_kind": "workflow",
+      "old_identity": "source::internal-phase",
       "old_disposition": "retired",
       "new_identity": null,
       "new_disposition": null
     },
     {
       "identity_kind": "call_frame",
-      "old_identity": null,
-      "old_disposition": null,
-      "new_identity": "retained-stack/inline-provider",
-      "new_disposition": "new"
+      "old_identity": "root.source_orchestrate__call_source_internal_phase::visit::1",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
     },
     {
       "identity_kind": "executable_node",
-      "old_identity": "retained-stack/result-provider",
-      "old_disposition": "preserved",
-      "new_identity": "retained-stack/result-provider",
-      "new_disposition": "preserved"
+      "old_identity": "root.source_orchestrate__call_source_internal_phase",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "executable_node",
+      "old_identity": null,
+      "old_disposition": null,
+      "new_identity": "root.source_orchestrate__source_internal_phase_1__run_checks",
+      "new_disposition": "new"
     },
     {
       "identity_kind": "step",
-      "old_identity": "result-provider",
-      "old_disposition": "preserved",
-      "new_identity": "result-provider",
-      "new_disposition": "preserved"
+      "old_identity": "root.source_orchestrate__call_source_internal_phase",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "step",
+      "old_identity": null,
+      "old_disposition": null,
+      "new_identity": "root.source_orchestrate__source_internal_phase_1__run_checks",
+      "new_disposition": "new"
     },
     {
       "identity_kind": "presentation_key",
-      "old_identity": "result-provider",
-      "old_disposition": "preserved",
-      "new_identity": "result-provider",
-      "new_disposition": "preserved"
+      "old_identity": "source::orchestrate__call_source::internal-phase",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "presentation_key",
+      "old_identity": null,
+      "old_disposition": null,
+      "new_identity": "source::orchestrate__source::internal-phase_1__run_checks",
+      "new_disposition": "new"
     },
     {
       "identity_kind": "program_point",
-      "old_identity": "retained-stack/result-provider/output",
-      "old_disposition": "preserved",
-      "new_identity": "retained-stack/result-provider/output",
-      "new_disposition": "preserved"
+      "old_identity": "pp:bcfcee4edeee0d60262b27b9",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "program_point",
+      "old_identity": null,
+      "old_disposition": null,
+      "new_identity": "pp:37a2c6e588797fe4f3ace18a",
+      "new_disposition": "new"
     },
     {
       "identity_kind": "checkpoint",
-      "old_identity": "retained-stack/internal-phase/call",
+      "old_identity": "ckpt:6f366562859b3c60af1f2363",
       "old_disposition": "retired",
       "new_identity": null,
       "new_disposition": null
@@ -201,19 +242,180 @@
       "identity_kind": "checkpoint",
       "old_identity": null,
       "old_disposition": null,
-      "new_identity": "retained-stack/result-provider/output",
+      "new_identity": "ckpt:05144928f846cf29c4779bed",
       "new_disposition": "new"
     },
     {
       "identity_kind": "state_allocation",
-      "old_identity": "retained-stack/result",
+      "old_identity": "alloc:source_orchestrate:lexical_checkpoint_record:0ca2ad80f358327f",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "state_allocation",
+      "old_identity": "alloc:source_orchestrate:reusable_call_write_root:003c8199b5bff6e0",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "state_allocation",
+      "old_identity": "alloc:source_internal-phase:command_result_bundle:524e4e703040a868",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "state_allocation",
+      "old_identity": "alloc:source_internal-phase:entrypoint_managed_write_root:08d932ba332269f8",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "state_allocation",
+      "old_identity": null,
+      "old_disposition": null,
+      "new_identity": "alloc:source_orchestrate:lexical_checkpoint_record:f466b80b21490bfb",
+      "new_disposition": "new"
+    },
+    {
+      "identity_kind": "state_allocation",
+      "old_identity": null,
+      "old_disposition": null,
+      "new_identity": "alloc:source_orchestrate:command_result_bundle:c39f89c414d4f006",
+      "new_disposition": "new"
+    },
+    {
+      "identity_kind": "state_allocation",
+      "old_identity": null,
+      "old_disposition": null,
+      "new_identity": "alloc:source_orchestrate:entrypoint_managed_write_root:c78fc7dd93212373",
+      "new_disposition": "new"
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::orchestrate::generated_input::report_path",
       "old_disposition": "preserved",
-      "new_identity": "retained-stack/result",
+      "new_identity": "source::orchestrate::generated_input::report_path",
       "new_disposition": "preserved"
     },
     {
       "identity_kind": "source_map_origin",
-      "old_identity": "internal-phase/call-site",
+      "old_identity": "source::internal-phase::generated_input::report_path",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::internal-phase::generated_internal_input::__write_root__source_internal_phase__run_checks__result_bundle",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::internal-phase::generated_output::return__approved",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::internal-phase::generated_output::return__decision",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::internal-phase::generated_output::return__report",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::internal-phase::generated_path::${inputs.__write_root__source_internal_phase__run_checks__result_bundle}",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::internal-phase::generated_path::.orchestrate/workflow_lisp/entry/${runtime.run_id}/source_internal-phase/__write_root__source_internal_phase__run_checks__result_bundle.json",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::internal-phase::step_id::source::internal-phase__run_checks",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::internal-phase::step_id::source_internal_phase__run_checks",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::internal-phase::workflow::source::internal-phase",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::orchestrate::generated_output::return__approved",
+      "old_disposition": "preserved",
+      "new_identity": "source::orchestrate::generated_output::return__approved",
+      "new_disposition": "preserved"
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::orchestrate::generated_output::return__decision",
+      "old_disposition": "preserved",
+      "new_identity": "source::orchestrate::generated_output::return__decision",
+      "new_disposition": "preserved"
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::orchestrate::generated_output::return__report",
+      "old_disposition": "preserved",
+      "new_identity": "source::orchestrate::generated_output::return__report",
+      "new_disposition": "preserved"
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::orchestrate::workflow::source::orchestrate",
+      "old_disposition": "preserved",
+      "new_identity": "source::orchestrate::workflow::source::orchestrate",
+      "new_disposition": "preserved"
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::orchestrate::step_id::source::orchestrate__call_source::internal-phase",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::orchestrate::step_id::source_orchestrate__call_source_internal_phase",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "source::orchestrate::generated_path::.orchestrate/workflow_lisp/calls/source::orchestrate/source::orchestrate__call_source::internal-phase/source::internal-phase/__write_root__source_internal_phase__run_checks__result_bundle.json",
       "old_disposition": "retired",
       "new_identity": null,
       "new_disposition": null
@@ -222,7 +424,35 @@
       "identity_kind": "source_map_origin",
       "old_identity": null,
       "old_disposition": null,
-      "new_identity": "internal-phase/definition+call-site",
+      "new_identity": "source::orchestrate::step_id::source::orchestrate__source::internal-phase_1__run_checks",
+      "new_disposition": "new"
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": null,
+      "old_disposition": null,
+      "new_identity": "source::orchestrate::step_id::source_orchestrate__source_internal_phase_1__run_checks",
+      "new_disposition": "new"
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": null,
+      "old_disposition": null,
+      "new_identity": "source::orchestrate::generated_internal_input::__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle",
+      "new_disposition": "new"
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": null,
+      "old_disposition": null,
+      "new_identity": "source::orchestrate::generated_path::${inputs.__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle}",
+      "new_disposition": "new"
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": null,
+      "old_disposition": null,
+      "new_identity": "source::orchestrate::generated_path::.orchestrate/workflow_lisp/entry/${runtime.run_id}/source_orchestrate/__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle.json",
       "new_disposition": "new"
     }
   ],
@@ -230,25 +460,37 @@
     "old": [
       {
         "key": {
-          "owning_public_entry": "retained-stack",
-          "semantic_step_role": "result-provider",
+          "owning_public_entry": "source::orchestrate",
+          "semantic_step_role": "workflow_return_artifact",
+          "contract_kind": "artifact",
+          "name": "return__report",
+          "json_pointer": "/outputs/return__report",
+          "type_variant": "relpath",
+          "publication_role": "published_artifact"
+        },
+        "count": 1
+      },
+      {
+        "key": {
+          "owning_public_entry": "source::orchestrate",
+          "semantic_step_role": "workflow_return_field",
           "contract_kind": "result_field",
-          "name": "result",
-          "json_pointer": "/result",
-          "type_variant": "String",
+          "name": "return__approved",
+          "json_pointer": "/outputs/return__approved",
+          "type_variant": "bool",
           "publication_role": "public_output"
         },
         "count": 1
       },
       {
         "key": {
-          "owning_public_entry": "retained-stack",
-          "semantic_step_role": "report-publisher",
-          "contract_kind": "artifact",
-          "name": "report",
-          "json_pointer": "/artifacts/report",
-          "type_variant": "Path",
-          "publication_role": "published_artifact"
+          "owning_public_entry": "source::orchestrate",
+          "semantic_step_role": "workflow_return_field",
+          "contract_kind": "result_field",
+          "name": "return__decision",
+          "json_pointer": "/outputs/return__decision",
+          "type_variant": "enum",
+          "publication_role": "public_output"
         },
         "count": 1
       }
@@ -256,25 +498,37 @@
     "new": [
       {
         "key": {
-          "owning_public_entry": "retained-stack",
-          "semantic_step_role": "result-provider",
+          "owning_public_entry": "source::orchestrate",
+          "semantic_step_role": "workflow_return_artifact",
+          "contract_kind": "artifact",
+          "name": "return__report",
+          "json_pointer": "/outputs/return__report",
+          "type_variant": "relpath",
+          "publication_role": "published_artifact"
+        },
+        "count": 1
+      },
+      {
+        "key": {
+          "owning_public_entry": "source::orchestrate",
+          "semantic_step_role": "workflow_return_field",
           "contract_kind": "result_field",
-          "name": "result",
-          "json_pointer": "/result",
-          "type_variant": "String",
+          "name": "return__approved",
+          "json_pointer": "/outputs/return__approved",
+          "type_variant": "bool",
           "publication_role": "public_output"
         },
         "count": 1
       },
       {
         "key": {
-          "owning_public_entry": "retained-stack",
-          "semantic_step_role": "report-publisher",
-          "contract_kind": "artifact",
-          "name": "report",
-          "json_pointer": "/artifacts/report",
-          "type_variant": "Path",
-          "publication_role": "published_artifact"
+          "owning_public_entry": "source::orchestrate",
+          "semantic_step_role": "workflow_return_field",
+          "contract_kind": "result_field",
+          "name": "return__decision",
+          "json_pointer": "/outputs/return__decision",
+          "type_variant": "enum",
+          "publication_role": "public_output"
         },
         "count": 1
       }
@@ -284,52 +538,65 @@
     "old": [
       {
         "position": 0,
-        "semantic_step_role": "result-provider",
+        "semantic_step_role": "workflow_return_field",
         "contract_kind": "result_field",
-        "name": "result"
+        "name": "return__approved"
       },
       {
         "position": 1,
-        "semantic_step_role": "report-publisher",
+        "semantic_step_role": "workflow_return_field",
+        "contract_kind": "result_field",
+        "name": "return__decision"
+      },
+      {
+        "position": 2,
+        "semantic_step_role": "workflow_return_artifact",
         "contract_kind": "artifact",
-        "name": "report"
+        "name": "return__report"
       }
     ],
     "new": [
       {
         "position": 0,
-        "semantic_step_role": "result-provider",
+        "semantic_step_role": "workflow_return_field",
         "contract_kind": "result_field",
-        "name": "result"
+        "name": "return__approved"
       },
       {
         "position": 1,
-        "semantic_step_role": "report-publisher",
+        "semantic_step_role": "workflow_return_field",
+        "contract_kind": "result_field",
+        "name": "return__decision"
+      },
+      {
+        "position": 2,
+        "semantic_step_role": "workflow_return_artifact",
         "contract_kind": "artifact",
-        "name": "report"
+        "name": "return__report"
       }
     ]
   },
   "lineage_notes": [
     {
-      "executable_node": "retained-stack/result-provider",
-      "procedure_definition_note": "procedure definition at fictional.retirement:10",
-      "call_site_note": "procedure call site at fictional.retirement:30"
+      "executable_node": "root.source_orchestrate__source_internal_phase_1__run_checks",
+      "source_map_origin": "source::orchestrate::step_id::source::orchestrate__source::internal-phase_1__run_checks",
+      "procedure_definition_note": "procedure definition at <FIXTURE_ROOT>/new/source.orc:15:3",
+      "call_site_note": "procedure call site at <FIXTURE_ROOT>/new/source.orc:26:5"
     }
   ],
   "new_id_evidence": {
     "clean_run": {
       "run_id": "fixture-clean-new-ids",
       "status": "completed",
-      "public_contract_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "artifact_multiset_digest": "sha256:28d2c039cfa52698dd4cb00af009f124bf76955677d21b1fc75dc079c8eea4f5"
+      "public_contract_digest": "sha256:0bee98388a4d62810cc1701857be8fbc1f9576396eae49263cb9e7e3cbff7d7a",
+      "artifact_multiset_digest": "sha256:b4b11ceb7fb0f4e1a69472c1b0cee72f40af95e5a0bec74a17563da6ac873089"
     },
     "interruption_resume": {
       "run_id": "fixture-resume-new-ids",
-      "interruption_point": "retained-stack/result-provider/output",
+      "interruption_point": "ckpt:05144928f846cf29c4779bed",
       "status": "completed",
       "reused_only_new_id_work": true,
-      "public_contract_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "public_contract_digest": "sha256:0bee98388a4d62810cc1701857be8fbc1f9576396eae49263cb9e7e3cbff7d7a"
     }
   },
   "checksum_evidence": {
@@ -347,7 +614,7 @@
     },
     "callee": {
       "command": "orchestrator resume fictional-callee-checksum-run",
-      "mismatch_identity": "fictional.retirement/internal-phase",
+      "mismatch_identity": "source::internal-phase",
       "checksum_mismatch_observed": true,
       "child_workflow_executed": false,
       "provider_executed": false,

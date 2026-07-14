@@ -1,1 +1,153 @@
-{"schema":"workflow_lisp_runtime_plan.fixture.v1","test_only":"FICTIONAL — NEVER COPY","side":"new","entry":"retained-stack","execution_order":["result-provider","report-publisher"]}
+{
+  "artifacts": [
+    {
+      "contract_kind": "enum",
+      "contract_name": "decision",
+      "plan_key": "root.source_orchestrate__source_internal_phase_1__run_checks:output_bundle:decision",
+      "publication_mode": "output_bundle",
+      "source_node_id": "root.source_orchestrate__source_internal_phase_1__run_checks"
+    },
+    {
+      "contract_kind": "bool",
+      "contract_name": "approved",
+      "plan_key": "root.source_orchestrate__source_internal_phase_1__run_checks:output_bundle:approved",
+      "publication_mode": "output_bundle",
+      "source_node_id": "root.source_orchestrate__source_internal_phase_1__run_checks"
+    },
+    {
+      "contract_kind": "relpath",
+      "contract_name": "report",
+      "plan_key": "root.source_orchestrate__source_internal_phase_1__run_checks:output_bundle:report",
+      "publication_mode": "output_bundle",
+      "source_node_id": "root.source_orchestrate__source_internal_phase_1__run_checks"
+    }
+  ],
+  "lexical_checkpoint_points": [
+    {
+      "checkpoint_id": "ckpt:05144928f846cf29c4779bed",
+      "details": {
+        "binding_schema": {
+          "bindings": [],
+          "schema_digest": "sha256:5dac13ee959624272bb639eb305657098372f3b5d4834523b9ca841efaeb5c20"
+        },
+        "effect_boundary": {
+          "boundary_kind": "command",
+          "effect_kind": "command",
+          "policy": {
+            "boundary_kind": "command",
+            "effect_kind": "command",
+            "evidence_requirements": {
+              "structured_output": {
+                "bundle_path_ref": "generated:command_result_bundle:source_orchestrate__source_internal_phase_1__run_checks",
+                "contract_digest": "sha256:5dac13ee959624272bb639eb305657098372f3b5d4834523b9ca841efaeb5c20",
+                "declared_target_only": true,
+                "payload_digest_required": true
+              }
+            },
+            "policy_digest": "sha256:d55e863c6233b0f575d869471c818bb1d10998ba23d74c47839e6d9f38e06aa2",
+            "policy_kind": "reuse_validated_structured_output",
+            "schema_version": "workflow_lisp_effect_resume_policy.v1",
+            "source_map_origin_key": "source::orchestrate::step_id::source_orchestrate__source_internal_phase_1__run_checks",
+            "step_id": "source_orchestrate__source_internal_phase_1__run_checks",
+            "unsafe_pending_behavior": "fail_closed"
+          }
+        },
+        "executable_identity": {
+          "step_id": "source_orchestrate__source_internal_phase_1__run_checks"
+        },
+        "loop_back_edge": null,
+        "restore": {
+          "binding_descriptor_digests": [],
+          "binding_descriptors": [],
+          "eligibility": [],
+          "loop_frame_descriptor": null,
+          "loop_frame_descriptor_digest": null,
+          "proof_descriptor_digests": [],
+          "proof_descriptors": []
+        },
+        "step_kind": "command",
+        "storage": {
+          "allocation_id": "alloc:source_orchestrate:lexical_checkpoint_record:f466b80b21490bfb",
+          "privacy": "runtime_sidecar",
+          "resume_scope": "step_visit",
+          "semantic_role": "lexical_checkpoint_record"
+        },
+        "wcc_identity": {
+          "node_id_digest": "sha256:e31eedf9d769f8a22460955e45d37b19c31dbca7b8f3edb0b62d0264b3d34dd1",
+          "scope_id_digest": "sha256:5548735d6cd80d4fba24a456b4b02598a77cb14eb11e9515c0b1b8687e20d04b"
+        }
+      },
+      "node_id": "root.source_orchestrate__source_internal_phase_1__run_checks",
+      "origin_key": "source::orchestrate::step_id::source_orchestrate__source_internal_phase_1__run_checks",
+      "point_kind": "effect_boundary",
+      "presentation_key": "source::orchestrate__source::internal-phase_1__run_checks",
+      "program_point_id": "pp:37a2c6e588797fe4f3ace18a",
+      "step_id": "root.source_orchestrate__source_internal_phase_1__run_checks",
+      "workflow_name": "source::orchestrate"
+    }
+  ],
+  "nodes": {
+    "root.source_orchestrate__source_internal_phase_1__run_checks": {
+      "call_alias": null,
+      "command_boundary_kind": "external_tool",
+      "command_boundary_name": "run_checks",
+      "dependency_node_ids": [],
+      "display_name": "source::orchestrate__source::internal-phase_1__run_checks",
+      "execution_index": 0,
+      "fallthrough_node_id": null,
+      "kind": "command",
+      "lexical_scope": [
+        "root",
+        "source_orchestrate__source_internal_phase_1__run_checks"
+      ],
+      "nested_body_node_ids": [],
+      "node_id": "root.source_orchestrate__source_internal_phase_1__run_checks",
+      "presentation_key": "source::orchestrate__source::internal-phase_1__run_checks",
+      "region": "body",
+      "routed_transfer_targets": {},
+      "step_id": "root.source_orchestrate__source_internal_phase_1__run_checks"
+    }
+  },
+  "observability": {
+    "command_boundaries": [
+      {
+        "boundary_kind": "external_tool",
+        "boundary_name": "run_checks",
+        "node_id": "root.source_orchestrate__source_internal_phase_1__run_checks",
+        "step_id": "root.source_orchestrate__source_internal_phase_1__run_checks"
+      }
+    ],
+    "has_compiled_frontend_lineage": true,
+    "nodes": {
+      "root.source_orchestrate__source_internal_phase_1__run_checks": {
+        "display_name": "source::orchestrate__source::internal-phase_1__run_checks",
+        "kind": "command",
+        "node_id": "root.source_orchestrate__source_internal_phase_1__run_checks",
+        "presentation_key": "source::orchestrate__source::internal-phase_1__run_checks",
+        "region": "body",
+        "step_id": "root.source_orchestrate__source_internal_phase_1__run_checks"
+      }
+    },
+    "top_level_ordered_node_ids": [
+      "root.source_orchestrate__source_internal_phase_1__run_checks"
+    ],
+    "workflow_name": "source::orchestrate"
+  },
+  "ordered_node_ids": [
+    "root.source_orchestrate__source_internal_phase_1__run_checks"
+  ],
+  "resume_checkpoints": [
+    {
+      "checkpoint_kind": "top_level_node",
+      "iteration_owner_node_id": null,
+      "iteration_step_id_suffix": null,
+      "node_id": "root.source_orchestrate__source_internal_phase_1__run_checks",
+      "presentation_key": "source::orchestrate__source::internal-phase_1__run_checks",
+      "runtime_step_id_mode": "static",
+      "step_id": "root.source_orchestrate__source_internal_phase_1__run_checks"
+    }
+  ],
+  "schema_version": "workflow_runtime_plan.v1",
+  "snapshots": [],
+  "workflow_name": "source::orchestrate"
+}

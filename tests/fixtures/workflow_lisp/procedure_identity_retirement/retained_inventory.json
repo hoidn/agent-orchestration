@@ -1,0 +1,17 @@
+{
+  "schema": "workflow_lisp_procedure_retirement_inventory.v1",
+  "test_only": "FICTIONAL TEST EVIDENCE — NEVER COPY INTO PILOT EVIDENCE",
+  "module": "source",
+  "retained_public_entry": "source::orchestrate",
+  "internal_callee": "internal-phase",
+  "exported_entries": [
+    "orchestrate"
+  ],
+  "public_entries": [
+    "orchestrate"
+  ],
+  "registered_public_entries": [
+    "orchestrate"
+  ],
+  "reviewed_call_site": "source::orchestrate/source::internal-phase"
+}

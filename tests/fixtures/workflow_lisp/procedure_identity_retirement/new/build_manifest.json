@@ -1,0 +1,22 @@
+{
+  "schema_version": "workflow_lisp_procedure_retirement_build_manifest.v1",
+  "side": "new",
+  "entry_workflow": "orchestrate",
+  "lowering_route": "wcc_m4",
+  "compiler_version": "fixture-compiler-v1",
+  "build_version": "fixture-build-v1",
+  "inputs": {
+    "source": {"path": "new/source.orc", "sha256": "sha256:903b44c96f284bb71286717f3d235eace1ef0ce4ae9286d02d058432411393e9"},
+    "provider_externs": {"path": "providers.json", "sha256": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"},
+    "prompt_externs": {"path": "prompts.json", "sha256": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"},
+    "command_boundaries": {"path": "commands.json", "sha256": "sha256:58ae8d8dcd004ec71b4045b8fe1ba426c5b60504ce24947fdcbfaa0651dd313b"}
+  },
+  "outputs": {
+    "typed_frontend_ast": {"path": "new/typed_frontend_ast.json", "sha256": "sha256:c042a782e471c361dff44531e8299582df58a8c780db726ad642474c3eb7cec3"},
+    "semantic_ir": {"path": "new/semantic_ir.json", "sha256": "sha256:8e39937ebe54f9e3c35602fa3e92b696f4ebcd7b2450858f491c7b4a64389ccd"},
+    "executable_ir": {"path": "new/executable_ir.json", "sha256": "sha256:e70607a646c03474f1f54bb47698950819fb134bf9bb1af4f9f562df27f0c6d2"},
+    "runtime_plan": {"path": "new/runtime_plan.json", "sha256": "sha256:04041b18279f115f683daecc099596b02acccf97a397dbc4b031baed2b47fffa"},
+    "lexical_checkpoint_points": {"path": "new/lexical_checkpoint_points.json", "sha256": "sha256:914b9544e7bb2a4389b56e840083063c24cb4a396021a60edeb6d2a0d42bc978"},
+    "source_map": {"path": "new/source_map.json", "sha256": "sha256:522ba32d5a595fbe02c05678efd5843e411915fedd0320da327e5ef9b68787f3"}
+  }
+}

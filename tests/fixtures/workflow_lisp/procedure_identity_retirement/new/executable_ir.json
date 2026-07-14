@@ -1,1 +1,280 @@
-{"schema":"workflow_lisp_executable_ir.fixture.v1","test_only":"FICTIONAL — NEVER COPY","side":"new","module":"fictional.retirement","entry":"retained-stack","nodes":["retained-stack/result-provider","retained-stack/report-publisher"]}
+{
+  "artifacts": {},
+  "body_region": [
+    "root.source_orchestrate__source_internal_phase_1__run_checks"
+  ],
+  "finalization_entry_node_id": null,
+  "finalization_region": [],
+  "inputs": {
+    "__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle": {
+      "definition": {
+        "kind": "relpath",
+        "type": "relpath"
+      },
+      "kind": "relpath",
+      "name": "__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle",
+      "source_address": null,
+      "value_type": "relpath"
+    },
+    "report_path": {
+      "definition": {
+        "kind": "relpath",
+        "must_exist_target": true,
+        "type": "relpath",
+        "under": "artifacts/work"
+      },
+      "kind": "relpath",
+      "name": "report_path",
+      "source_address": null,
+      "value_type": "relpath"
+    }
+  },
+  "name": "source::orchestrate",
+  "nodes": {
+    "root.source_orchestrate__source_internal_phase_1__run_checks": {
+      "bound_assert_predicate": null,
+      "bound_when_predicate": null,
+      "execution_config": {
+        "command": [
+          "python",
+          "scripts/run_checks.py",
+          "${inputs.report_path}"
+        ],
+        "common": {
+          "allow_parse_error": null,
+          "consume_bundle": null,
+          "consumes": [],
+          "env": null,
+          "expected_outputs": [],
+          "max_visits": null,
+          "on": {},
+          "output_bundle": {
+            "fields": [
+              {
+                "allowed": [
+                  "APPROVE",
+                  "REJECT"
+                ],
+                "json_pointer": "/decision",
+                "name": "decision",
+                "type": "enum"
+              },
+              {
+                "json_pointer": "/approved",
+                "name": "approved",
+                "type": "bool"
+              },
+              {
+                "json_pointer": "/report",
+                "must_exist_target": true,
+                "name": "report",
+                "type": "relpath",
+                "under": "artifacts/work"
+              }
+            ],
+            "path": "${inputs.__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle}"
+          },
+          "output_capture": null,
+          "output_file": null,
+          "persist_artifacts_in_state": null,
+          "pre_snapshot": null,
+          "provider_session": null,
+          "publishes": [],
+          "requires_variant": null,
+          "retries": null,
+          "secrets": [],
+          "timeout_sec": null,
+          "variant_output": null
+        }
+      },
+      "fallthrough_node_id": null,
+      "kind": "command",
+      "lexical_scope": [
+        "root",
+        "source_orchestrate__source_internal_phase_1__run_checks"
+      ],
+      "node_id": "root.source_orchestrate__source_internal_phase_1__run_checks",
+      "presentation_name": "source::orchestrate__source::internal-phase_1__run_checks",
+      "region": "body",
+      "routed_transfers": {},
+      "step_id": "root.source_orchestrate__source_internal_phase_1__run_checks"
+    }
+  },
+  "outputs": {
+    "return__approved": {
+      "definition": {
+        "from": {
+          "ref": "root.steps.source::orchestrate__source::internal-phase_1__run_checks.artifacts.approved"
+        },
+        "kind": "scalar",
+        "type": "bool"
+      },
+      "kind": "scalar",
+      "name": "return__approved",
+      "source_address": {
+        "field": "artifacts",
+        "member": "approved",
+        "node_id": "root.source_orchestrate__source_internal_phase_1__run_checks"
+      },
+      "value_type": "bool"
+    },
+    "return__decision": {
+      "definition": {
+        "allowed": [
+          "APPROVE",
+          "REJECT"
+        ],
+        "from": {
+          "ref": "root.steps.source::orchestrate__source::internal-phase_1__run_checks.artifacts.decision"
+        },
+        "kind": "scalar",
+        "type": "enum"
+      },
+      "kind": "scalar",
+      "name": "return__decision",
+      "source_address": {
+        "field": "artifacts",
+        "member": "decision",
+        "node_id": "root.source_orchestrate__source_internal_phase_1__run_checks"
+      },
+      "value_type": "enum"
+    },
+    "return__report": {
+      "definition": {
+        "from": {
+          "ref": "root.steps.source::orchestrate__source::internal-phase_1__run_checks.artifacts.report"
+        },
+        "kind": "relpath",
+        "must_exist_target": true,
+        "type": "relpath",
+        "under": "artifacts/work"
+      },
+      "kind": "relpath",
+      "name": "return__report",
+      "source_address": {
+        "field": "artifacts",
+        "member": "report",
+        "node_id": "root.source_orchestrate__source_internal_phase_1__run_checks"
+      },
+      "value_type": "relpath"
+    }
+  },
+  "private_artifacts": {},
+  "provenance": {
+    "compatibility_bridge_inputs": [],
+    "frontend_build_root": "<FIXTURE_ROOT>/.reproduction/new/.orchestrate/build/c9fdc8080d418c83",
+    "frontend_entry_workflow": "source::orchestrate",
+    "frontend_kind": "workflow_lisp",
+    "frontend_source_map_coverage": {
+      "core_workflow_ast": "covered",
+      "executable_ir": "covered",
+      "frontend_ast": "covered",
+      "lowered_surface": "covered",
+      "runtime_logs": "covered",
+      "semantic_ir": "covered",
+      "shared_validation_subjects": "covered"
+    },
+    "frontend_source_map_schema_version": "workflow_lisp_source_map.v1",
+    "frontend_source_trace_path": "<FIXTURE_ROOT>/.reproduction/new/.orchestrate/build/c9fdc8080d418c83/source_map.json",
+    "generated_path_allocations": [
+      {
+        "allocation_id": "alloc:source_orchestrate:command_result_bundle:c39f89c414d4f006",
+        "concrete_path_template": "${inputs.__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle}",
+        "generated_input_name": "__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle",
+        "path_safety_policy": "workspace_relative",
+        "privacy": "private_generated",
+        "projection_hints": {},
+        "resume_scope": "step_visit",
+        "semantic_role": "command_result_bundle",
+        "stable_identity": "schema:2/source::orchestrate/source::orchestrate__source::internal-phase_1__run_checks/result_bundle",
+        "workflow_name": "source::orchestrate"
+      },
+      {
+        "allocation_id": "alloc:source_orchestrate:entrypoint_managed_write_root:c78fc7dd93212373",
+        "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/source_orchestrate/__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle.json",
+        "generated_input_name": "__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle",
+        "path_safety_policy": "workspace_relative",
+        "privacy": "private_generated",
+        "projection_hints": {
+          "source_allocation_id": "alloc:source_orchestrate:command_result_bundle:c39f89c414d4f006"
+        },
+        "resume_scope": "run",
+        "semantic_role": "entrypoint_managed_write_root",
+        "stable_identity": "schema:2/source::orchestrate/source::orchestrate__source::internal-phase_1__run_checks/result_bundle/entry",
+        "workflow_name": "source::orchestrate"
+      }
+    ],
+    "imported_aliases": [],
+    "lexical_checkpoint_points": [
+      {
+        "binding_schema": {
+          "bindings": [],
+          "schema_digest": "sha256:5dac13ee959624272bb639eb305657098372f3b5d4834523b9ca841efaeb5c20"
+        },
+        "checkpoint_id": "ckpt:05144928f846cf29c4779bed",
+        "effect_boundary": {
+          "boundary_kind": "command",
+          "effect_kind": "command",
+          "policy": {
+            "boundary_kind": "command",
+            "effect_kind": "command",
+            "evidence_requirements": {
+              "structured_output": {
+                "bundle_path_ref": "generated:command_result_bundle:source_orchestrate__source_internal_phase_1__run_checks",
+                "contract_digest": "sha256:5dac13ee959624272bb639eb305657098372f3b5d4834523b9ca841efaeb5c20",
+                "declared_target_only": true,
+                "payload_digest_required": true
+              }
+            },
+            "policy_digest": "sha256:d55e863c6233b0f575d869471c818bb1d10998ba23d74c47839e6d9f38e06aa2",
+            "policy_kind": "reuse_validated_structured_output",
+            "schema_version": "workflow_lisp_effect_resume_policy.v1",
+            "source_map_origin_key": "source::orchestrate::step_id::source_orchestrate__source_internal_phase_1__run_checks",
+            "step_id": "source_orchestrate__source_internal_phase_1__run_checks",
+            "unsafe_pending_behavior": "fail_closed"
+          }
+        },
+        "executable_identity": {
+          "step_id": "source_orchestrate__source_internal_phase_1__run_checks"
+        },
+        "loop_back_edge": null,
+        "origin_key": "source::orchestrate::step_id::source_orchestrate__source_internal_phase_1__run_checks",
+        "point_kind": "effect_boundary",
+        "program_point_id": "pp:37a2c6e588797fe4f3ace18a",
+        "restore": {
+          "binding_descriptor_digests": [],
+          "eligibility": [],
+          "loop_frame_descriptor_digest": null,
+          "proof_descriptor_digests": []
+        },
+        "runtime_program_identity": {
+          "lowering_schema_version": "wcc_m4",
+          "wcc_node_id": "wcc-node:wcc_m4:d036500cbe4b9644",
+          "wcc_scope_id": "wcc-scope:wcc_m4:00a8d92fc644dfa2"
+        },
+        "step_id": "source_orchestrate__source_internal_phase_1__run_checks",
+        "step_kind": "command",
+        "storage": {
+          "allocation_id": "alloc:source_orchestrate:lexical_checkpoint_record:f466b80b21490bfb",
+          "privacy": "runtime_sidecar",
+          "resume_scope": "step_visit",
+          "semantic_role": "lexical_checkpoint_record"
+        },
+        "wcc_identity": {
+          "node_id_digest": "sha256:e31eedf9d769f8a22460955e45d37b19c31dbca7b8f3edb0b62d0264b3d34dd1",
+          "scope_id_digest": "sha256:5548735d6cd80d4fba24a456b4b02598a77cb14eb11e9515c0b1b8687e20d04b"
+        },
+        "workflow_name": "source::orchestrate"
+      }
+    ],
+    "managed_write_root_inputs": [
+      "__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle"
+    ],
+    "private_exec_context_bindings": [],
+    "runtime_context_inputs": [],
+    "source_root": "<FIXTURE_ROOT>/new",
+    "workflow_path": "<FIXTURE_ROOT>/new/source.orc"
+  },
+  "schema_version": "workflow_executable_ir.v1",
+  "version": "2.15"
+}

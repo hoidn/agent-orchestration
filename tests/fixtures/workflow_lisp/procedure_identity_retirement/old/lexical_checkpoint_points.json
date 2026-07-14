@@ -1,1 +1,68 @@
-{"schema":"workflow_lisp_lexical_checkpoint_points.fixture.v1","test_only":"FICTIONAL — NEVER COPY","side":"old","entry":"retained-stack","points":["retained-stack/internal-phase/call","retained-stack/result-provider/output"]}
+{
+  "checkpoint_schema_version": "workflow_lisp_lexical_checkpoint.v1",
+  "points": [
+    {
+      "binding_schema": {
+        "bindings": [],
+        "schema_digest": "sha256:1ff195ef8d2a2a0a89b28151a43724e100d484b64c8ca0a89fdb56db904d977d"
+      },
+      "checkpoint_id": "ckpt:6f366562859b3c60af1f2363",
+      "effect_boundary": {
+        "boundary_kind": "call",
+        "effect_kind": "call",
+        "policy": {
+          "boundary_kind": "call",
+          "effect_kind": "call",
+          "evidence_requirements": {
+            "workflow_call": {
+              "callee_checksum": "sha256:a2f91555578522ecb6e0a9e6100265570e46c4d1e235cee3e37f06a2a9b47a0c",
+              "callee_workflow": "source_orchestrate__call_source_internal_phase",
+              "target_dsl_version": "2.15"
+            }
+          },
+          "policy_digest": "sha256:f9ce79469978fa6398c0f44303872c50c443e9e987dc57df2aecc01dd42928b3",
+          "policy_kind": "reuse_validated_workflow_call",
+          "schema_version": "workflow_lisp_effect_resume_policy.v1",
+          "source_map_origin_key": "source::orchestrate::step_id::source_orchestrate__call_source_internal_phase",
+          "step_id": "source_orchestrate__call_source_internal_phase",
+          "unsafe_pending_behavior": "fail_closed"
+        }
+      },
+      "executable_identity": {
+        "node_id": "root.source_orchestrate__call_source_internal_phase",
+        "presentation_key": "source::orchestrate__call_source::internal-phase",
+        "step_id": "root.source_orchestrate__call_source_internal_phase"
+      },
+      "loop_back_edge": null,
+      "point_kind": "effect_boundary",
+      "program_point_id": "pp:bcfcee4edeee0d60262b27b9",
+      "restore": {
+        "binding_descriptor_digests": [],
+        "eligibility": [],
+        "loop_frame_descriptor_digest": null,
+        "proof_descriptor_digests": []
+      },
+      "source_lineage": {
+        "origin_key": "source::orchestrate::step_id::source_orchestrate__call_source_internal_phase"
+      },
+      "storage": {
+        "allocation_id": "alloc:source_orchestrate:lexical_checkpoint_record:0ca2ad80f358327f",
+        "privacy": "runtime_sidecar",
+        "resume_scope": "step_visit",
+        "semantic_role": "lexical_checkpoint_record"
+      },
+      "wcc_identity": {
+        "node_id_digest": "sha256:578c1e1f95dc1a8aa888669cb533caf653d241ba2346daf0d7af1c495498af68",
+        "scope_id_digest": "sha256:a98324ad75fb6f4d9a0cdc614dc8d4c0dad2361c0d6a74020e3242546b179019"
+      },
+      "workflow_name": "source::orchestrate"
+    }
+  ],
+  "program_identity": {
+    "executable_ir_digest": "sha256:23c6b1aeec97bcb8b005ec2a55db59f11fea89ccd884069a91ddb957ee360c50",
+    "semantic_ir_digest": "sha256:2c500536802a0bab547c1bf5a586cdb8512431fe65561a066f218199304fd151",
+    "source_module_digest": "sha256:a2f91555578522ecb6e0a9e6100265570e46c4d1e235cee3e37f06a2a9b47a0c"
+  },
+  "schema_version": "workflow_lisp_lexical_checkpoint_points.v1",
+  "workflow_name": "source::orchestrate"
+}

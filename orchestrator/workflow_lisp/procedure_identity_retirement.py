@@ -38,6 +38,7 @@ REQUIRED_ARTIFACT_ROLES = frozenset(
         "runtime_plan",
         "lexical_checkpoint_points",
         "source_map",
+        "build_manifest",
     }
 )
 REQUIRED_IDENTITY_DOMAINS = frozenset(
@@ -301,6 +302,7 @@ def _parse_metadata(payload: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]
         "$.retained_wrapper_evidence",
         allowed={
             "inventory_path",
+            "inventory_sha256",
             "source_path",
             "reviewed_call_site",
             "retained_wrapper",
@@ -308,6 +310,7 @@ def _parse_metadata(payload: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]
         },
         required={
             "inventory_path",
+            "inventory_sha256",
             "source_path",
             "reviewed_call_site",
             "retained_wrapper",
@@ -513,7 +516,12 @@ def _parse_execution_order(value: Any) -> tuple[ExecutionOrderEntry, ...]:
 
 def _parse_lineage_notes(value: Any) -> tuple[Mapping[str, Any], ...]:
     rows: list[Mapping[str, Any]] = []
-    fields = {"executable_node", "procedure_definition_note", "call_site_note"}
+    fields = {
+        "executable_node",
+        "source_map_origin",
+        "procedure_definition_note",
+        "call_site_note",
+    }
     for index, raw in enumerate(_list(value, "$.lineage_notes")):
         path = f"$.lineage_notes[{index}]"
         row = _object(raw, path, allowed=fields, required=fields)
@@ -766,6 +774,17 @@ def _validate_identity_delta(record: ProcedureIdentityRetirementRecord, issues: 
                 path,
                 "preserved identity requires the same old/new identity and preserved dispositions",
             )
+        if row.new_disposition == "preserved" and not (
+            row.new_identity is not None
+            and row.old_identity == row.new_identity
+            and row.old_disposition == "preserved"
+        ):
+            _issue(
+                issues,
+                "procedure_identity_retirement_identity_row_invalid",
+                path,
+                "new preserved identity requires the same old identity and preserved dispositions",
+            )
         if row.old_disposition == "retired" and not (
             row.old_identity is not None
             and row.new_identity is None
@@ -789,13 +808,63 @@ def _validate_identity_delta(record: ProcedureIdentityRetirementRecord, issues: 
                 "new identity must have no old side",
             )
 
+    old_table = {
+        (row.identity_kind, row.old_identity): row.old_disposition
+        for row in record.identity_delta
+        if row.old_identity is not None
+    }
+    new_table = {
+        (row.identity_kind, row.new_identity): row.new_disposition
+        for row in record.identity_delta
+        if row.new_identity is not None
+    }
+    recreated = sorted(
+        f"{kind}:{identity}"
+        for (kind, identity), disposition in old_table.items()
+        if disposition == "retired" and new_table.get((kind, identity)) == "new"
+    )
+    if recreated:
+        _issue(
+            issues,
+            "procedure_identity_retirement_identity_recreated",
+            "$.identity_delta",
+            "retired identities may not be recreated as new: " + ", ".join(recreated),
+        )
+
+
+def _load_content_addressed_file(
+    root: Path,
+    *,
+    raw_path: str,
+    declared_digest: str,
+) -> tuple[bytes | None, str | None, str]:
+    relative = Path(raw_path)
+    if relative.is_absolute() or ".." in relative.parts:
+        return None, "procedure_identity_retirement_artifact_path_outside_repository", "path must be repository-relative"
+    if _path_has_symlink_component(root, relative):
+        return None, "procedure_identity_retirement_artifact_symlink_forbidden", "path must not contain symlink components"
+    candidate = (root / relative).resolve()
+    if candidate != root and root not in candidate.parents:
+        return None, "procedure_identity_retirement_artifact_path_outside_repository", "path resolves outside repo_root"
+    if not candidate.is_file():
+        return None, "procedure_identity_retirement_artifact_missing", f"file does not exist: {raw_path}"
+    try:
+        content = _read_stable_bytes(candidate)
+    except ValueError as exc:
+        return None, "procedure_identity_retirement_artifact_read_failed", str(exc)
+    actual = f"sha256:{sha256(content).hexdigest()}"
+    if actual != declared_digest:
+        return None, "procedure_identity_retirement_artifact_digest_mismatch", f"declared {declared_digest}, observed {actual}"
+    return content, None, ""
+
 
 def _validate_artifacts(
     record: ProcedureIdentityRetirementRecord,
     issues: list[RetirementIssue],
     repo_root: Path,
-) -> None:
+) -> dict[tuple[str, str], Mapping[str, Any]]:
     root = repo_root.resolve()
+    payloads: dict[tuple[str, str], Mapping[str, Any]] = {}
     roles_by_side: dict[str, set[str]] = {"old": set(), "new": set()}
     role_counts: Counter[tuple[str, str]] = Counter()
     for index, artifact in enumerate(record.artifacts):
@@ -821,65 +890,46 @@ def _validate_artifacts(
             )
             continue
         relative = Path(artifact.path)
-        if relative.is_absolute() or ".." in relative.parts:
-            _issue(
-                issues,
-                "procedure_identity_retirement_artifact_path_outside_repository",
-                f"{path}.path",
-                "artifact path must be a safe repository-relative path",
-            )
-            continue
-        if _path_has_symlink_component(root, relative):
-            _issue(
-                issues,
-                "procedure_identity_retirement_artifact_symlink_forbidden",
-                f"{path}.path",
-                "artifact path must not contain symlink components",
-            )
-            continue
-        candidate = (root / relative).resolve()
-        if candidate != root and root not in candidate.parents:
-            _issue(
-                issues,
-                "procedure_identity_retirement_artifact_path_outside_repository",
-                f"{path}.path",
-                "artifact path must resolve inside repo_root",
-            )
-            continue
-        if not candidate.is_file():
-            _issue(
-                issues,
-                "procedure_identity_retirement_artifact_missing",
-                f"{path}.path",
-                f"artifact does not exist: {artifact.path}",
-            )
-            continue
         expected_name = "source.orc" if artifact.role == "source" else f"{artifact.role}.json"
-        if candidate.name != expected_name:
+        if relative.name != expected_name:
             _issue(
                 issues,
                 "procedure_identity_retirement_artifact_role_path_mismatch",
                 f"{path}.path",
                 f"{artifact.role} evidence must use dedicated file {expected_name}",
             )
-        try:
-            content = _read_stable_bytes(candidate)
-        except ValueError as exc:
+        content, error_code, error_message = _load_content_addressed_file(
+            root,
+            raw_path=artifact.path,
+            declared_digest=artifact.sha256,
+        )
+        if error_code is not None or content is None:
             _issue(
                 issues,
-                "procedure_identity_retirement_artifact_read_failed",
-                f"{path}.path",
-                str(exc),
+                error_code or "procedure_identity_retirement_artifact_read_failed",
+                f"{path}.sha256" if error_code == "procedure_identity_retirement_artifact_digest_mismatch" else f"{path}.path",
+                error_message,
             )
             continue
-        actual = f"sha256:{sha256(content).hexdigest()}"
-        if actual != artifact.sha256:
-            _issue(
-                issues,
-                "procedure_identity_retirement_artifact_digest_mismatch",
-                f"{path}.sha256",
-                f"declared {artifact.sha256}, observed {actual}",
-            )
+        if artifact.role == "source":
+            payloads[(artifact.side, artifact.role)] = MappingProxyType({})
+        else:
+            try:
+                payload = json.loads(
+                    content,
+                    object_pairs_hook=_json_object_without_duplicates,
+                )
+            except (json.JSONDecodeError, ValueError):
+                payload = None
+            if not isinstance(payload, dict):
+                _issue(
+                    issues,
+                    "procedure_identity_retirement_artifact_content_invalid",
+                    f"{path}.path",
+                    "content-addressed production JSON must be an object",
+                )
+                continue
+            payloads[(artifact.side, artifact.role)] = payload
     for side, roles in roles_by_side.items():
         extra = sorted(roles - REQUIRED_ARTIFACT_ROLES)
         if extra:
@@ -897,6 +947,534 @@ def _validate_artifacts(
                 "$.artifacts",
                 f"{side} evidence is missing roles: {', '.join(missing)}",
             )
+    return payloads
+
+
+def _public_contract_projection(executable: Mapping[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for surface in ("outputs", "artifacts", "private_artifacts"):
+        contracts = executable.get(surface)
+        for name, raw in sorted(contracts.items()) if isinstance(contracts, Mapping) else ():
+            if not isinstance(raw, Mapping):
+                continue
+            definition = raw.get("definition")
+            stable_definition = {}
+            if isinstance(definition, Mapping):
+                stable_definition = {
+                    key: definition[key]
+                    for key in ("kind", "type", "allowed", "under", "must_exist_target")
+                    if key in definition
+                }
+            rows.append(
+                {
+                    "surface": surface,
+                    "name": name,
+                    "kind": raw.get("kind"),
+                    "value_type": raw.get("value_type"),
+                    "definition": stable_definition,
+                }
+            )
+    return rows
+
+
+def _projection_digest(value: Any) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"sha256:{sha256(encoded).hexdigest()}"
+
+
+def _validate_production_artifact_relations(
+    record: ProcedureIdentityRetirementRecord,
+    issues: list[RetirementIssue],
+    payloads: Mapping[tuple[str, str], Mapping[str, Any]],
+    repo_root: Path,
+) -> None:
+    eligible_sides = {
+        side
+        for side in ("old", "new")
+        if all((side, role) in payloads for role in REQUIRED_ARTIFACT_ROLES)
+    }
+    schemas = {
+        "semantic_ir": "workflow_semantic_ir.v1",
+        "executable_ir": "workflow_executable_ir.v1",
+        "runtime_plan": "workflow_runtime_plan.v1",
+        "lexical_checkpoint_points": "workflow_lisp_lexical_checkpoint_points.v1",
+        "source_map": "workflow_lisp_source_map.v1",
+        "build_manifest": "workflow_lisp_procedure_retirement_build_manifest.v1",
+    }
+    for (side, role), payload in payloads.items():
+        if side not in eligible_sides or role == "source":
+            continue
+        expected = schemas.get(role)
+        if expected is not None and payload.get("schema_version") != expected:
+            _issue(
+                issues,
+                "procedure_identity_retirement_artifact_schema_mismatch",
+                f"$.artifacts.{side}.{role}",
+                f"expected production schema {expected}",
+            )
+
+    artifact_index = {
+        (artifact.side, artifact.role): artifact
+        for artifact in record.artifacts
+        if artifact.side in {"old", "new"}
+    }
+    for side in ("old", "new"):
+        if side not in eligible_sides:
+            continue
+        manifest = payloads.get((side, "build_manifest"))
+        manifest_artifact = artifact_index.get((side, "build_manifest"))
+        if manifest is None or manifest_artifact is None:
+            continue
+        inputs = manifest.get("inputs")
+        outputs = manifest.get("outputs")
+        header_valid = (
+            manifest.get("side") == side
+            and manifest.get("entry_workflow")
+            == str(record.retained_public_entry.get("workflow", "")).split("::")[-1]
+            and isinstance(manifest.get("lowering_route"), str)
+            and bool(str(manifest.get("lowering_route")).strip())
+            and manifest.get("compiler_version") == record.migration.get("compiler_version")
+            and manifest.get("build_version") == record.migration.get("build_version")
+            and isinstance(inputs, Mapping)
+            and set(inputs) == {"source", "provider_externs", "prompt_externs", "command_boundaries"}
+            and isinstance(outputs, Mapping)
+            and set(outputs) == REQUIRED_ARTIFACT_ROLES - {"source", "build_manifest"}
+        )
+        if not header_valid:
+            _issue(
+                issues,
+                "procedure_identity_retirement_build_manifest_invalid",
+                f"$.artifacts.{side}.build_manifest",
+                "build manifest header and input/output role sets must match the reviewed production build",
+            )
+            continue
+        fixture_root = Path(manifest_artifact.path).parent.parent
+        for group_name, rows in (("inputs", inputs), ("outputs", outputs)):
+            for role, raw in rows.items():
+                if not isinstance(raw, Mapping) or not isinstance(raw.get("path"), str) or not _valid_sha256(str(raw.get("sha256", ""))):
+                    _issue(
+                        issues,
+                        "procedure_identity_retirement_build_manifest_invalid",
+                        f"$.artifacts.{side}.build_manifest.{group_name}.{role}",
+                        "manifest entry requires a safe path and sha256 digest",
+                    )
+                    continue
+                referenced_path = (fixture_root / str(raw["path"])).as_posix()
+                content, error_code, error_message = _load_content_addressed_file(
+                    repo_root.resolve(),
+                    raw_path=referenced_path,
+                    declared_digest=str(raw["sha256"]),
+                )
+                if content is None:
+                    _issue(
+                        issues,
+                        "procedure_identity_retirement_build_manifest_reference_invalid",
+                        f"$.artifacts.{side}.build_manifest.{group_name}.{role}",
+                        f"{error_code}: {error_message}",
+                    )
+                artifact = artifact_index.get((side, role))
+                if group_name == "outputs" and (artifact is None or artifact.sha256 != raw.get("sha256")):
+                    _issue(
+                        issues,
+                        "procedure_identity_retirement_build_manifest_output_mismatch",
+                        f"$.artifacts.{side}.build_manifest.outputs.{role}",
+                        "manifest output digest must equal the content-addressed artifact digest",
+                    )
+                if group_name == "inputs" and role == "source":
+                    source = artifact_index.get((side, "source"))
+                    if source is None or source.sha256 != raw.get("sha256"):
+                        _issue(
+                            issues,
+                            "procedure_identity_retirement_build_manifest_source_mismatch",
+                            f"$.artifacts.{side}.build_manifest.inputs.source",
+                            "manifest source digest must equal the content-addressed source artifact digest",
+                        )
+
+    old_executable = payloads.get(("old", "executable_ir"))
+    new_executable = payloads.get(("new", "executable_ir"))
+    for side in eligible_sides:
+        semantic = payloads[(side, "semantic_ir")]
+        executable = payloads[(side, "executable_ir")]
+        runtime = payloads[(side, "runtime_plan")]
+        points = payloads[(side, "lexical_checkpoint_points")]
+        entry = executable.get("name")
+        semantic_workflows = semantic.get("workflows")
+        semantic_entry = (
+            semantic_workflows.get(entry)
+            if isinstance(semantic_workflows, Mapping) and isinstance(entry, str)
+            else None
+        )
+        executable_nodes = executable.get("nodes")
+        executable_outputs = executable.get("outputs")
+        semantic_bridge = semantic_entry.get("executable_bridge") if isinstance(semantic_entry, Mapping) else None
+        semantic_outputs = semantic_entry.get("output_contract_ids") if isinstance(semantic_entry, Mapping) else None
+        bridge_node_ids = semantic_bridge.get("node_ids") if isinstance(semantic_bridge, Mapping) else None
+        semantic_maps = (
+            "call_edges",
+            "command_boundaries",
+            "contracts",
+            "effects",
+            "refs",
+            "source_map",
+            "state_layout",
+            "types",
+            "workflows",
+        )
+        semantic_valid = (
+            all(isinstance(semantic.get(key), Mapping) for key in semantic_maps)
+            and isinstance(semantic_entry, Mapping)
+            and semantic_entry.get("workflow_name") == entry
+            and isinstance(semantic_bridge, Mapping)
+            and isinstance(bridge_node_ids, list)
+            and all(isinstance(node_id, str) for node_id in bridge_node_ids)
+            and isinstance(executable_nodes, Mapping)
+            and set(bridge_node_ids) == set(executable_nodes)
+        )
+        semantic_valid = bool(
+            semantic_valid
+            and isinstance(semantic_outputs, Mapping)
+            and isinstance(executable_outputs, Mapping)
+            and set(semantic_outputs) == set(executable_outputs)
+        )
+        if not semantic_valid:
+            _issue(
+                issues,
+                "procedure_identity_retirement_semantic_ir_structure_invalid",
+                f"$.artifacts.{side}.semantic_ir",
+                "Semantic IR must contain the selected workflow, executable bridge, contracts, state, and source relations",
+            )
+
+        runtime_nodes = runtime.get("nodes")
+        ordered_nodes = runtime.get("ordered_node_ids")
+        runtime_points = runtime.get("lexical_checkpoint_points")
+        point_rows = points.get("points")
+        point_rows_valid = isinstance(point_rows, list) and all(
+            isinstance(row, Mapping) and isinstance(row.get("checkpoint_id"), str)
+            for row in point_rows
+        )
+        runtime_points_valid = isinstance(runtime_points, list) and all(
+            isinstance(row, Mapping) and isinstance(row.get("checkpoint_id"), str)
+            for row in runtime_points
+        )
+        expected_checkpoint_ids = (
+            {str(row["checkpoint_id"]) for row in point_rows}
+            if point_rows_valid
+            else set()
+        )
+        runtime_checkpoint_ids = (
+            {str(row["checkpoint_id"]) for row in runtime_points}
+            if runtime_points_valid
+            else set()
+        )
+        runtime_valid = (
+            runtime.get("workflow_name") == entry
+            and isinstance(runtime_nodes, Mapping)
+            and isinstance(executable_nodes, Mapping)
+            and set(runtime_nodes) == set(executable_nodes)
+            and isinstance(ordered_nodes, list)
+            and all(isinstance(node_id, str) for node_id in ordered_nodes)
+            and len(ordered_nodes) == len(set(ordered_nodes))
+            and set(ordered_nodes) == set(runtime_nodes)
+            and expected_checkpoint_ids == runtime_checkpoint_ids
+            and bool(expected_checkpoint_ids)
+            and point_rows_valid
+            and runtime_points_valid
+            and isinstance(runtime.get("resume_checkpoints"), list)
+            and isinstance(runtime.get("observability"), Mapping)
+        )
+        if not runtime_valid:
+            _issue(
+                issues,
+                "procedure_identity_retirement_runtime_plan_structure_invalid",
+                f"$.artifacts.{side}.runtime_plan",
+                "runtime plan must bind the selected workflow, executable nodes, ordering, and lexical checkpoints",
+            )
+
+    if eligible_sides == {"old", "new"} and old_executable is not None and new_executable is not None:
+        old_contract = _public_contract_projection(old_executable)
+        new_contract = _public_contract_projection(new_executable)
+        if old_contract != new_contract:
+            _issue(
+                issues,
+                "procedure_identity_retirement_production_contract_mismatch",
+                "$.artifacts",
+                "old and new executable IR public contracts differ",
+            )
+        actual_digest = _projection_digest(old_contract)
+        if record.retained_public_entry.get("contract_digest") != actual_digest:
+            _issue(
+                issues,
+                "procedure_identity_retirement_public_contract_artifact_mismatch",
+                "$.retained_public_entry.contract_digest",
+                "retained public contract digest does not match executable IR",
+            )
+        expected_multiset: Counter[ArtifactContractKey] = Counter()
+        for row in old_contract:
+            surface = str(row["surface"])
+            is_path = row["kind"] in {"path", "relpath"}
+            expected_multiset[
+                ArtifactContractKey(
+                    owning_public_entry=str(record.retained_public_entry.get("workflow")),
+                    semantic_step_role=(
+                        "workflow_return_artifact" if surface == "outputs" and is_path
+                        else "workflow_return_field" if surface == "outputs"
+                        else "published_artifact" if surface == "artifacts"
+                        else "private_artifact"
+                    ),
+                    contract_kind="artifact" if is_path or surface != "outputs" else "result_field",
+                    name=str(row["name"]),
+                    json_pointer=f"/{surface}/{row['name']}",
+                    type_variant=str(row["value_type"]),
+                    publication_role=(
+                        "private_artifact" if surface == "private_artifacts"
+                        else "published_artifact" if is_path or surface == "artifacts"
+                        else "public_output"
+                    ),
+                )
+            ] += 1
+        for side in ("old", "new"):
+            declared = Counter(
+                {row.key: row.count for row in record.artifact_multiset if row.side == side}
+            )
+            if declared != expected_multiset:
+                _issue(
+                    issues,
+                    "procedure_identity_retirement_artifact_multiset_artifact_mismatch",
+                    f"$.artifact_multiset.{side}",
+                    "declared contract multiset does not match production executable outputs",
+                )
+
+    source_map = payloads.get(("new", "source_map"))
+    if "new" in eligible_sides and source_map is not None:
+        workflows = source_map.get("workflows")
+        selected = workflows.get(record.retained_public_entry.get("workflow")) if isinstance(workflows, Mapping) else None
+        executable_nodes = selected.get("executable_nodes") if isinstance(selected, Mapping) else None
+        node_origins = {
+            row.get("node_id"): row.get("origin_key")
+            for row in executable_nodes or ()
+            if isinstance(row, Mapping)
+        }
+        serialized = json.dumps(selected, sort_keys=True) if selected is not None else ""
+        for index, row in enumerate(record.lineage_notes):
+            node = row.get("executable_node")
+            if node_origins.get(node) != row.get("source_map_origin") or any(
+                str(row.get(key, "")) not in serialized
+                for key in ("procedure_definition_note", "call_site_note")
+            ):
+                _issue(
+                    issues,
+                    "procedure_identity_retirement_lineage_artifact_mismatch",
+                    f"$.lineage_notes[{index}]",
+                    "lineage node, origin, and notes must occur in the new production source map",
+                )
+
+    expected_identities: dict[str, dict[str, set[str]]] = {
+        side: {kind: set() for kind in REQUIRED_IDENTITY_DOMAINS}
+        for side in ("old", "new")
+    }
+    for side in ("old", "new"):
+        if side not in eligible_sides:
+            continue
+        typed = payloads.get((side, "typed_frontend_ast"))
+        executable = payloads.get((side, "executable_ir"))
+        points_payload = payloads.get((side, "lexical_checkpoint_points"))
+        map_payload = payloads.get((side, "source_map"))
+        if typed is None or executable is None or points_payload is None or map_payload is None:
+            continue
+        modules = typed.get("modules")
+        for module in modules.values() if isinstance(modules, Mapping) else ():
+            workflows = module.get("typed_workflows") if isinstance(module, Mapping) else None
+            for workflow in workflows if isinstance(workflows, list) else ():
+                definition = workflow.get("definition") if isinstance(workflow, Mapping) else None
+                name = definition.get("name") if isinstance(definition, Mapping) else None
+                if isinstance(name, str):
+                    expected_identities[side]["workflow"].add(name)
+        nodes = executable.get("nodes")
+        if isinstance(nodes, Mapping):
+            for node in nodes.values():
+                if not isinstance(node, Mapping):
+                    continue
+                for kind, identity in (
+                    ("executable_node", node.get("node_id")),
+                    ("presentation_key", node.get("presentation_name")),
+                    ("step", node.get("step_id")),
+                ):
+                    if isinstance(identity, str):
+                        expected_identities[side][kind].add(identity)
+                if node.get("kind") == "call_boundary" and isinstance(node.get("step_id"), str):
+                    expected_identities[side]["call_frame"].add(f"{node['step_id']}::visit::1")
+        points = points_payload.get("points")
+        for point in points if isinstance(points, list) else ():
+            if not isinstance(point, Mapping):
+                continue
+            storage = point.get("storage")
+            for kind, identity in (
+                ("program_point", point.get("program_point_id")),
+                ("checkpoint", point.get("checkpoint_id")),
+                ("state_allocation", storage.get("allocation_id") if isinstance(storage, Mapping) else None),
+            ):
+                if isinstance(identity, str):
+                    expected_identities[side][kind].add(identity)
+        program_identity = points_payload.get("program_identity")
+        source_digest = program_identity.get("source_module_digest") if isinstance(program_identity, Mapping) else None
+        declared_source_digest = next(
+            (
+                artifact.sha256
+                for artifact in record.artifacts
+                if artifact.side == side and artifact.role == "source"
+            ),
+            None,
+        )
+        if source_digest != declared_source_digest:
+            _issue(
+                issues,
+                "procedure_identity_retirement_source_build_mismatch",
+                f"$.artifacts.{side}.source",
+                "source digest must match the compiler-produced program identity",
+            )
+        workflows = map_payload.get("workflows")
+        def collect_origins(value: Any) -> None:
+            if isinstance(value, Mapping):
+                origin = value.get("origin_key")
+                if isinstance(origin, str):
+                    expected_identities[side]["source_map_origin"].add(origin)
+                for item in value.values():
+                    collect_origins(item)
+            elif isinstance(value, list):
+                for item in value:
+                    collect_origins(item)
+
+        collect_origins(workflows)
+        for workflow_map in workflows.values() if isinstance(workflows, Mapping) else ():
+            allocations = (
+                workflow_map.get("generated_path_allocations")
+                if isinstance(workflow_map, Mapping)
+                else None
+            )
+            for allocation in allocations if isinstance(allocations, list) else ():
+                identity = allocation.get("allocation_id") if isinstance(allocation, Mapping) else None
+                if isinstance(identity, str):
+                    expected_identities[side]["state_allocation"].add(identity)
+
+    actual_identities = {
+        "old": {
+            kind: {
+                row.old_identity: row.old_disposition
+                for row in record.identity_delta
+                if row.identity_kind == kind
+                and row.old_identity is not None
+                and row.old_disposition is not None
+            }
+            for kind in REQUIRED_IDENTITY_DOMAINS
+        },
+        "new": {
+            kind: {
+                row.new_identity: row.new_disposition
+                for row in record.identity_delta
+                if row.identity_kind == kind
+                and row.new_identity is not None
+                and row.new_disposition is not None
+            }
+            for kind in REQUIRED_IDENTITY_DOMAINS
+        },
+    }
+    for side, opposite in (("old", "new"), ("new", "old")):
+        expected_table = {
+            kind: {
+                identity: (
+                    "preserved"
+                    if identity in expected_identities[opposite][kind]
+                    else "retired" if side == "old" else "new"
+                )
+                for identity in identities
+            }
+            for kind, identities in expected_identities[side].items()
+        }
+        if actual_identities[side] != expected_table:
+            _issue(
+                issues,
+                "procedure_identity_retirement_identity_artifact_mismatch",
+                "$.identity_delta",
+                f"{side} identity table must exactly match production identities and dispositions",
+            )
+
+
+def _validate_retained_inventory(
+    record: ProcedureIdentityRetirementRecord,
+    issues: list[RetirementIssue],
+    repo_root: Path,
+) -> None:
+    raw_path = record.retained_wrapper_evidence.get("inventory_path")
+    declared_digest = record.retained_wrapper_evidence.get("inventory_sha256")
+    if not isinstance(raw_path, str) or not isinstance(declared_digest, str):
+        return
+    relative = Path(raw_path)
+    if relative.is_absolute() or ".." in relative.parts or _path_has_symlink_component(repo_root, relative):
+        _issue(
+            issues,
+            "procedure_identity_retirement_inventory_path_invalid",
+            "$.retained_wrapper_evidence.inventory_path",
+            "retained inventory must be a repository-relative non-symlink file",
+        )
+        return
+    candidate = repo_root / relative
+    try:
+        content = _read_stable_bytes(candidate)
+    except ValueError:
+        _issue(
+            issues,
+            "procedure_identity_retirement_inventory_missing",
+            "$.retained_wrapper_evidence.inventory_path",
+            "retained inventory is unavailable",
+        )
+        return
+    actual_digest = f"sha256:{sha256(content).hexdigest()}"
+    if declared_digest != actual_digest:
+        _issue(
+            issues,
+            "procedure_identity_retirement_inventory_digest_mismatch",
+            "$.retained_wrapper_evidence.inventory_sha256",
+            "declared retained inventory digest does not match repository content",
+        )
+    try:
+        inventory = json.loads(content, object_pairs_hook=_json_object_without_duplicates)
+    except (json.JSONDecodeError, ValueError):
+        inventory = None
+    expected = {
+        "schema": "workflow_lisp_procedure_retirement_inventory.v1",
+        "module": record.retained_public_entry.get("module"),
+        "retained_public_entry": record.retained_public_entry.get("workflow"),
+        "internal_callee": record.callee.get("identity"),
+        "reviewed_call_site": record.retained_wrapper_evidence.get("reviewed_call_site"),
+    }
+    expected_export = str(record.retained_public_entry.get("workflow", "")).split("::")[-1]
+    exported_entries = inventory.get("exported_entries") if isinstance(inventory, Mapping) else None
+    public_entries = inventory.get("public_entries") if isinstance(inventory, Mapping) else None
+    registered_entries = inventory.get("registered_public_entries") if isinstance(inventory, Mapping) else None
+    callee_identity = record.callee.get("identity")
+    inventory_mismatch = (
+        not isinstance(inventory, Mapping)
+        or any(inventory.get(key) != value for key, value in expected.items())
+        or not all(
+            isinstance(entries, list)
+            for entries in (exported_entries, public_entries, registered_entries)
+        )
+        or any(
+            expected_export not in entries
+            for entries in (exported_entries, public_entries, registered_entries)
+        )
+        or any(
+            callee_identity in entries
+            for entries in (exported_entries, public_entries, registered_entries)
+        )
+    )
+    if inventory_mismatch:
+        _issue(
+            issues,
+            "procedure_identity_retirement_inventory_content_mismatch",
+            "$.retained_wrapper_evidence.inventory_path",
+            "retained inventory does not identify the reviewed module, entry, callee, and call site",
+        )
 
 
 def _validate_contracts_and_order(
@@ -1072,6 +1650,30 @@ def _validate_evidence_blocks(record: ProcedureIdentityRetirementRecord, issues:
                 "$.new_id_evidence.interruption_resume.public_contract_digest",
                 "resumed and clean public contracts must equal the retained public contract",
             )
+        new_points = {
+            identity
+            for row in record.identity_delta
+            for identity, disposition in (
+                (row.new_identity, row.new_disposition),
+            )
+            if row.identity_kind in {"checkpoint", "program_point"}
+            and identity is not None
+            and disposition == "new"
+        }
+        if resumed.get("interruption_point") not in new_points:
+            _issue(
+                issues,
+                "procedure_identity_retirement_interruption_point_unknown",
+                "$.new_id_evidence.interruption_resume.interruption_point",
+                "interruption point must be a declared new checkpoint or program point",
+            )
+    if isinstance(clean, Mapping) and isinstance(resumed, Mapping) and clean.get("run_id") == resumed.get("run_id"):
+        _issue(
+            issues,
+            "procedure_identity_retirement_new_id_run_ids_not_distinct",
+            "$.new_id_evidence",
+            "clean and interruption/resume evidence must use distinct run IDs",
+        )
     root = record.checksum_evidence.get("root")
     if isinstance(root, Mapping) and (
         not str(root.get("command", "")).strip()
@@ -1109,6 +1711,38 @@ def _validate_evidence_blocks(record: ProcedureIdentityRetirementRecord, issues:
             "$.checksum_evidence.callee",
             "callee proof must reject before child execution without remapping",
         )
+    if isinstance(callee, Mapping):
+        expected_callee = f"{record.callee.get('module')}::{record.callee.get('identity')}"
+        if callee.get("mismatch_identity") != expected_callee:
+            _issue(
+                issues,
+                "procedure_identity_retirement_callee_identity_mismatch",
+                "$.checksum_evidence.callee.mismatch_identity",
+                "checksum mismatch identity must be the reviewed qualified callee identity",
+            )
+
+    new_nodes = {
+        row.new_identity
+        for row in record.identity_delta
+        if row.identity_kind == "executable_node"
+        and row.new_disposition == "new"
+        and row.new_identity is not None
+    }
+    new_origins = {
+        row.new_identity
+        for row in record.identity_delta
+        if row.identity_kind == "source_map_origin"
+        and row.new_disposition == "new"
+        and row.new_identity is not None
+    }
+    for index, row in enumerate(record.lineage_notes):
+        if row.get("executable_node") not in new_nodes or row.get("source_map_origin") not in new_origins:
+            _issue(
+                issues,
+                "procedure_identity_retirement_lineage_identity_mismatch",
+                f"$.lineage_notes[{index}]",
+                "lineage node and source-map origin must be declared new identities",
+            )
 
 
 def validate_retirement_record(
@@ -1179,6 +1813,7 @@ def validate_retirement_record(
         record.retained_public_entry.get("module"),
         record.retained_public_entry.get("workflow"),
         record.retained_wrapper_evidence.get("inventory_path"),
+        record.retained_wrapper_evidence.get("inventory_sha256"),
         record.retained_wrapper_evidence.get("source_path"),
         record.retained_wrapper_evidence.get("reviewed_call_site"),
         record.retained_wrapper_evidence.get("retained_wrapper"),
@@ -1208,8 +1843,6 @@ def validate_retirement_record(
         or record.retained_wrapper_evidence.get("retained_wrapper")
         != record.retained_public_entry.get("workflow")
         or record.retained_wrapper_evidence.get("source_path") != old_artifact_paths.get("source")
-        or record.retained_wrapper_evidence.get("inventory_path")
-        != old_artifact_paths.get("typed_frontend_ast")
         or str(record.callee.get("identity", ""))
         not in str(record.retained_wrapper_evidence.get("reviewed_call_site", ""))
     )
@@ -1325,25 +1958,17 @@ def validate_retirement_record(
                 f"{path}.normalized_scan_digest",
                 "known-store digest must be sha256:<64 hexadecimal characters>",
             )
-        relative_root = Path(store.root)
-        if relative_root.is_absolute() or ".." in relative_root.parts:
+        named_root = Path(store.root)
+        if not named_root.is_absolute() and ".." in named_root.parts:
             _issue(
                 issues,
                 "procedure_identity_retirement_known_store_unsafe_path",
                 f"{path}.root",
-                "known store root must be a safe repository-relative path",
+                "relative known store root must not contain parent traversal",
             )
             continue
-        candidate = repository_root / relative_root
+        candidate = named_root if named_root.is_absolute() else repository_root / named_root
         resolved_candidate = candidate.resolve(strict=False)
-        if resolved_candidate != repository_root and repository_root not in resolved_candidate.parents:
-            _issue(
-                issues,
-                "procedure_identity_retirement_known_store_unsafe_path",
-                f"{path}.root",
-                "known store root resolves outside repo_root",
-            )
-            continue
         if resolved_candidate in seen_store_roots:
             _issue(
                 issues,
@@ -1409,7 +2034,9 @@ def validate_retirement_record(
             "$.runtime_directives",
             "retirement evidence may not contain runtime directives",
         )
-    _validate_artifacts(record, issues, repository_root)
+    artifact_payloads = _validate_artifacts(record, issues, repository_root)
+    _validate_retained_inventory(record, issues, repository_root)
+    _validate_production_artifact_relations(record, issues, artifact_payloads, repository_root)
     _validate_identity_delta(record, issues)
     _validate_contracts_and_order(record, issues)
     if not record.lineage_notes or any(
@@ -1463,6 +2090,14 @@ _IDENTITY_VALUE_FIELDS = frozenset(
         "source_map_origin",
         "source_map_origin_key",
         "presentation_key",
+        "producer",
+        "source_step_id",
+        "storage_allocation_id",
+        "producer_step_id",
+        "call_presentation_key",
+        "caller_node_id",
+        "allocation_id",
+        "record_id",
     }
 )
 _IDENTITY_MAPPING_FIELDS = frozenset(
@@ -1478,12 +2113,83 @@ _IDENTITY_MAPPING_FIELDS = frozenset(
         "state_allocations",
         "source_map_origins",
         "execution_frames",
+        "artifact_consumes",
+        "private_artifact_consumes",
+        "_resolved_consumes",
+        "_pending_artifact_consumes",
+        "_pending_private_artifact_consumes",
+        "compatibility_artifact_consumes",
+        "public_artifact_consumes",
+        "resolved_artifact_consumes",
+        "for_each",
+        "repeat_until",
     }
 )
 
 
 def _scan_error(code: str, message: str) -> ValueError:
     return ValueError(f"{code}: {message}")
+
+
+def _store_tree_snapshot(store_root: Path) -> tuple[tuple[Any, ...], ...]:
+    """Capture the complete named tree without following links."""
+
+    rows: list[tuple[Any, ...]] = []
+
+    def onerror(error: OSError) -> None:
+        raise _scan_error(
+            "procedure_identity_retirement_known_store_unreadable",
+            f"could not enumerate store: {error}",
+        )
+
+    for current, directories, filenames in os.walk(
+        store_root, followlinks=False, onerror=onerror
+    ):
+        directories.sort()
+        filenames.sort()
+        current_path = Path(current)
+        for name in sorted(tuple(directories) + tuple(filenames)):
+            candidate = current_path / name
+            try:
+                stat = candidate.lstat()
+            except OSError as exc:
+                raise _scan_error(
+                    "procedure_identity_retirement_known_store_unreadable",
+                    f"could not inspect store entry {candidate}: {exc}",
+                ) from exc
+            if candidate.is_symlink():
+                raise _scan_error(
+                    "procedure_identity_retirement_store_symlink_forbidden",
+                    f"symlink encountered in store: {candidate}",
+                )
+            kind = "directory" if candidate.is_dir() else "file" if candidate.is_file() else "other"
+            rows.append(
+                (
+                    candidate.relative_to(store_root).as_posix(),
+                    stat.st_dev,
+                    stat.st_ino,
+                    kind,
+                    stat.st_size,
+                    stat.st_mtime_ns,
+                )
+            )
+    return tuple(sorted(rows))
+
+
+def _is_supported_store_evidence(path: Path, store_root: Path) -> bool:
+    relative = path.relative_to(store_root)
+    lower_parts = tuple(part.lower() for part in relative.parts)
+    filename = path.name.lower()
+    if filename == "state.json":
+        return True
+    if path.suffix.lower() == ".jsonl":
+        return True
+    if path.suffix.lower() != ".json":
+        return False
+    return any(
+        marker in lower_parts
+        for marker in ("checkpoints", "manifests", "metadata", "call_frames")
+    ) or "manifest" in filename or "identity" in filename
 
 
 def _safe_store_files(store_root: Path) -> tuple[Path, ...]:
@@ -1507,6 +2213,8 @@ def _safe_store_files(store_root: Path) -> tuple[Path, ...]:
         )
 
     for current, directories, filenames in os.walk(store_root, followlinks=False, onerror=onerror):
+        directories.sort()
+        filenames.sort()
         current_path = Path(current)
         for name in tuple(directories) + tuple(filenames):
             candidate = current_path / name
@@ -1529,7 +2237,7 @@ def _safe_store_files(store_root: Path) -> tuple[Path, ...]:
                 )
         for filename in filenames:
             candidate = current_path / filename
-            if candidate.suffix.lower() in {".json", ".jsonl"}:
+            if _is_supported_store_evidence(candidate, store_root):
                 supported.append(candidate)
     return tuple(sorted(supported, key=lambda path: path.relative_to(store_root).as_posix()))
 
@@ -1585,7 +2293,13 @@ def _identity_matches(
 ) -> list[dict[str, str]]:
     matches: list[dict[str, str]] = []
     if isinstance(value, dict):
-        if field_name in _IDENTITY_MAPPING_FIELDS:
+        if field_name in _IDENTITY_MAPPING_FIELDS or (
+            isinstance(field_name, str)
+            and (
+                field_name.endswith("artifact_consumes")
+                or field_name.endswith("_resolved_consumes")
+            )
+        ):
             for identity in sorted(value):
                 if identity in retired:
                     escaped = identity.replace("~", "~0").replace("/", "~1")
@@ -1691,6 +2405,17 @@ def scan_known_state_store(
     if any(not isinstance(identity, str) or not identity for identity in retired_values):
         raise ValueError("retired_identities must contain only non-empty strings")
     retired = frozenset(retired_values)
+    if store_root.is_symlink():
+        raise _scan_error(
+            "procedure_identity_retirement_store_symlink_forbidden",
+            f"store root is a symlink: {store_root}",
+        )
+    if not store_root.exists() or not store_root.is_dir():
+        raise _scan_error(
+            "procedure_identity_retirement_known_store_unavailable",
+            f"store root is missing or not a directory: {store_root}",
+        )
+    before_tree = _store_tree_snapshot(store_root)
     files = _safe_store_files(store_root)
 
     counts = {
@@ -1749,6 +2474,13 @@ def scan_known_state_store(
                         pointer=f"#path/{part_index}",
                     )
                 )
+
+    after_tree = _store_tree_snapshot(store_root)
+    if before_tree != after_tree:
+        raise _scan_error(
+            "procedure_identity_retirement_known_store_tree_changed",
+            "named store tree changed while scanning",
+        )
 
     deduplicated = {
         (row["location"], row["identity"], row["field"]): row

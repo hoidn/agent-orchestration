@@ -1,1 +1,571 @@
-{"schema":"workflow_lisp_semantic_ir.fixture.v1","test_only":"FICTIONAL — NEVER COPY","side":"old","module":"fictional.retirement","entry":"retained-stack","callee":"internal-phase","public_contract_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+{
+  "call_edges": {
+    "call:source::orchestrate:root.source_orchestrate__call_source_internal_phase": {
+      "call_alias": "source::internal-phase",
+      "edge_id": "call:source::orchestrate:root.source_orchestrate__call_source_internal_phase",
+      "statement_id": "statement:source::orchestrate:root.source_orchestrate__call_source_internal_phase",
+      "target_workflow_name": "source::internal-phase",
+      "workflow_name": "source::orchestrate"
+    }
+  },
+  "command_boundaries": {},
+  "contracts": {
+    "contract:source::orchestrate:input:report_path": {
+      "contract_id": "contract:source::orchestrate:input:report_path",
+      "contract_kind": "relpath",
+      "contract_name": "report_path",
+      "definition": {
+        "kind": "relpath",
+        "must_exist_target": true,
+        "type": "relpath",
+        "under": "artifacts/work"
+      },
+      "source_kind": "input",
+      "type_id": "type:source::orchestrate:input:report_path",
+      "value_type": "relpath",
+      "workflow_name": "source::orchestrate"
+    },
+    "contract:source::orchestrate:output:return__approved": {
+      "contract_id": "contract:source::orchestrate:output:return__approved",
+      "contract_kind": "scalar",
+      "contract_name": "return__approved",
+      "definition": {
+        "from": {
+          "ref": "root.steps.source::orchestrate__call_source::internal-phase.artifacts.return__approved"
+        },
+        "kind": "scalar",
+        "type": "bool"
+      },
+      "source_kind": "output",
+      "type_id": "type:source::orchestrate:output:return__approved",
+      "value_type": "bool",
+      "workflow_name": "source::orchestrate"
+    },
+    "contract:source::orchestrate:output:return__decision": {
+      "contract_id": "contract:source::orchestrate:output:return__decision",
+      "contract_kind": "scalar",
+      "contract_name": "return__decision",
+      "definition": {
+        "allowed": [
+          "APPROVE",
+          "REJECT"
+        ],
+        "from": {
+          "ref": "root.steps.source::orchestrate__call_source::internal-phase.artifacts.return__decision"
+        },
+        "kind": "scalar",
+        "type": "enum"
+      },
+      "source_kind": "output",
+      "type_id": "type:source::orchestrate:output:return__decision",
+      "value_type": "enum",
+      "workflow_name": "source::orchestrate"
+    },
+    "contract:source::orchestrate:output:return__report": {
+      "contract_id": "contract:source::orchestrate:output:return__report",
+      "contract_kind": "relpath",
+      "contract_name": "return__report",
+      "definition": {
+        "from": {
+          "ref": "root.steps.source::orchestrate__call_source::internal-phase.artifacts.return__report"
+        },
+        "kind": "relpath",
+        "must_exist_target": true,
+        "type": "relpath",
+        "under": "artifacts/work"
+      },
+      "source_kind": "output",
+      "type_id": "type:source::orchestrate:output:return__report",
+      "value_type": "relpath",
+      "workflow_name": "source::orchestrate"
+    }
+  },
+  "effects": {
+    "effect:source::orchestrate:root.source_orchestrate__call_source_internal_phase:workflow_call": {
+      "boundary_kind": null,
+      "boundary_name": null,
+      "call_target": "source::internal-phase",
+      "details": {},
+      "effect_id": "effect:source::orchestrate:root.source_orchestrate__call_source_internal_phase:workflow_call",
+      "effect_kind": "workflow_call",
+      "output_validation_surface": null,
+      "ref_ids": [],
+      "source_map_behavior": null,
+      "statement_id": "statement:source::orchestrate:root.source_orchestrate__call_source_internal_phase",
+      "workflow_name": "source::orchestrate"
+    }
+  },
+  "prompt_surfaces": {},
+  "proofs": {},
+  "refs": {
+    "ref:source::orchestrate:import:source::internal-phase": {
+      "contract_id": null,
+      "ref_id": "ref:source::orchestrate:import:source::internal-phase",
+      "ref_kind": "import_alias",
+      "statement_id": null,
+      "subject_name": "source::internal-phase",
+      "target": "source::internal-phase",
+      "workflow_name": "source::orchestrate"
+    },
+    "ref:source::orchestrate:input:report_path": {
+      "contract_id": "contract:source::orchestrate:input:report_path",
+      "ref_id": "ref:source::orchestrate:input:report_path",
+      "ref_kind": "workflow_input",
+      "statement_id": null,
+      "subject_name": "report_path",
+      "target": null,
+      "workflow_name": "source::orchestrate"
+    },
+    "ref:source::orchestrate:output:return__approved": {
+      "contract_id": "contract:source::orchestrate:output:return__approved",
+      "ref_id": "ref:source::orchestrate:output:return__approved",
+      "ref_kind": "workflow_output",
+      "statement_id": null,
+      "subject_name": "return__approved",
+      "target": null,
+      "workflow_name": "source::orchestrate"
+    },
+    "ref:source::orchestrate:output:return__decision": {
+      "contract_id": "contract:source::orchestrate:output:return__decision",
+      "ref_id": "ref:source::orchestrate:output:return__decision",
+      "ref_kind": "workflow_output",
+      "statement_id": null,
+      "subject_name": "return__decision",
+      "target": null,
+      "workflow_name": "source::orchestrate"
+    },
+    "ref:source::orchestrate:output:return__report": {
+      "contract_id": "contract:source::orchestrate:output:return__report",
+      "ref_id": "ref:source::orchestrate:output:return__report",
+      "ref_kind": "workflow_output",
+      "statement_id": null,
+      "subject_name": "return__report",
+      "target": null,
+      "workflow_name": "source::orchestrate"
+    },
+    "ref:source::orchestrate:statement:root.source_orchestrate__call_source_internal_phase": {
+      "contract_id": null,
+      "ref_id": "ref:source::orchestrate:statement:root.source_orchestrate__call_source_internal_phase",
+      "ref_kind": "statement",
+      "statement_id": "statement:source::orchestrate:root.source_orchestrate__call_source_internal_phase",
+      "subject_name": "root.source_orchestrate__call_source_internal_phase",
+      "target": "call",
+      "workflow_name": "source::orchestrate"
+    }
+  },
+  "schema_version": "workflow_semantic_ir.v1",
+  "source_map": {
+    "source_map:source::orchestrate:coverage:core_workflow_ast": {
+      "bridge_id": "source_map:source::orchestrate:coverage:core_workflow_ast",
+      "bridge_kind": "coverage",
+      "coverage": "covered",
+      "origin_key": "core_workflow_ast",
+      "subject_ref": null,
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:coverage:executable_ir": {
+      "bridge_id": "source_map:source::orchestrate:coverage:executable_ir",
+      "bridge_kind": "coverage",
+      "coverage": "covered",
+      "origin_key": "executable_ir",
+      "subject_ref": null,
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:coverage:frontend_ast": {
+      "bridge_id": "source_map:source::orchestrate:coverage:frontend_ast",
+      "bridge_kind": "coverage",
+      "coverage": "covered",
+      "origin_key": "frontend_ast",
+      "subject_ref": null,
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:coverage:lowered_surface": {
+      "bridge_id": "source_map:source::orchestrate:coverage:lowered_surface",
+      "bridge_kind": "coverage",
+      "coverage": "covered",
+      "origin_key": "lowered_surface",
+      "subject_ref": null,
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:coverage:runtime_logs": {
+      "bridge_id": "source_map:source::orchestrate:coverage:runtime_logs",
+      "bridge_kind": "coverage",
+      "coverage": "covered",
+      "origin_key": "runtime_logs",
+      "subject_ref": null,
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:coverage:semantic_ir": {
+      "bridge_id": "source_map:source::orchestrate:coverage:semantic_ir",
+      "bridge_kind": "coverage",
+      "coverage": "covered",
+      "origin_key": "semantic_ir",
+      "subject_ref": null,
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:coverage:shared_validation_subjects": {
+      "bridge_id": "source_map:source::orchestrate:coverage:shared_validation_subjects",
+      "bridge_kind": "coverage",
+      "coverage": "covered",
+      "origin_key": "shared_validation_subjects",
+      "subject_ref": null,
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:generated_input:report_path": {
+      "bridge_id": "source_map:source::orchestrate:generated_input:report_path",
+      "bridge_kind": "validation_subject",
+      "coverage": null,
+      "origin_key": "source::orchestrate::generated_input::report_path",
+      "subject_ref": {
+        "subject_kind": "generated_input",
+        "subject_name": "report_path",
+        "workflow_name": "source::orchestrate"
+      },
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:generated_output:return__approved": {
+      "bridge_id": "source_map:source::orchestrate:generated_output:return__approved",
+      "bridge_kind": "validation_subject",
+      "coverage": null,
+      "origin_key": "source::orchestrate::generated_output::return__approved",
+      "subject_ref": {
+        "subject_kind": "generated_output",
+        "subject_name": "return__approved",
+        "workflow_name": "source::orchestrate"
+      },
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:generated_output:return__decision": {
+      "bridge_id": "source_map:source::orchestrate:generated_output:return__decision",
+      "bridge_kind": "validation_subject",
+      "coverage": null,
+      "origin_key": "source::orchestrate::generated_output::return__decision",
+      "subject_ref": {
+        "subject_kind": "generated_output",
+        "subject_name": "return__decision",
+        "workflow_name": "source::orchestrate"
+      },
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:generated_output:return__report": {
+      "bridge_id": "source_map:source::orchestrate:generated_output:return__report",
+      "bridge_kind": "validation_subject",
+      "coverage": null,
+      "origin_key": "source::orchestrate::generated_output::return__report",
+      "subject_ref": {
+        "subject_kind": "generated_output",
+        "subject_name": "return__report",
+        "workflow_name": "source::orchestrate"
+      },
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:generated_path:.orchestrate/workflow_lisp/calls/source::orchestrate/source::orchestrate__call_source::internal-phase/source::internal-phase/__write_root__source_internal_phase__run_checks__result_bundle.json": {
+      "bridge_id": "source_map:source::orchestrate:generated_path:.orchestrate/workflow_lisp/calls/source::orchestrate/source::orchestrate__call_source::internal-phase/source::internal-phase/__write_root__source_internal_phase__run_checks__result_bundle.json",
+      "bridge_kind": "validation_subject",
+      "coverage": null,
+      "origin_key": "source::orchestrate::generated_path::.orchestrate/workflow_lisp/calls/source::orchestrate/source::orchestrate__call_source::internal-phase/source::internal-phase/__write_root__source_internal_phase__run_checks__result_bundle.json",
+      "subject_ref": {
+        "subject_kind": "generated_path",
+        "subject_name": ".orchestrate/workflow_lisp/calls/source::orchestrate/source::orchestrate__call_source::internal-phase/source::internal-phase/__write_root__source_internal_phase__run_checks__result_bundle.json",
+        "workflow_name": "source::orchestrate"
+      },
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:step_id:root.source::orchestrate__call_source::internal-phase": {
+      "bridge_id": "source_map:source::orchestrate:step_id:root.source::orchestrate__call_source::internal-phase",
+      "bridge_kind": "validation_subject",
+      "coverage": null,
+      "origin_key": "source::orchestrate::step_id::source::orchestrate__call_source::internal-phase",
+      "subject_ref": {
+        "subject_kind": "step_id",
+        "subject_name": "root.source::orchestrate__call_source::internal-phase",
+        "workflow_name": "source::orchestrate"
+      },
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:step_id:root.source_orchestrate__call_source_internal_phase": {
+      "bridge_id": "source_map:source::orchestrate:step_id:root.source_orchestrate__call_source_internal_phase",
+      "bridge_kind": "validation_subject",
+      "coverage": null,
+      "origin_key": "source::orchestrate::step_id::source_orchestrate__call_source_internal_phase",
+      "subject_ref": {
+        "subject_kind": "step_id",
+        "subject_name": "root.source_orchestrate__call_source_internal_phase",
+        "workflow_name": "source::orchestrate"
+      },
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:step_id:source::orchestrate__call_source::internal-phase": {
+      "bridge_id": "source_map:source::orchestrate:step_id:source::orchestrate__call_source::internal-phase",
+      "bridge_kind": "validation_subject",
+      "coverage": null,
+      "origin_key": "source::orchestrate::step_id::source::orchestrate__call_source::internal-phase",
+      "subject_ref": {
+        "subject_kind": "step_id",
+        "subject_name": "source::orchestrate__call_source::internal-phase",
+        "workflow_name": "source::orchestrate"
+      },
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:step_id:source_orchestrate__call_source_internal_phase": {
+      "bridge_id": "source_map:source::orchestrate:step_id:source_orchestrate__call_source_internal_phase",
+      "bridge_kind": "validation_subject",
+      "coverage": null,
+      "origin_key": "source::orchestrate::step_id::source_orchestrate__call_source_internal_phase",
+      "subject_ref": {
+        "subject_kind": "step_id",
+        "subject_name": "source_orchestrate__call_source_internal_phase",
+        "workflow_name": "source::orchestrate"
+      },
+      "workflow_name": "source::orchestrate"
+    },
+    "source_map:source::orchestrate:workflow:source::orchestrate": {
+      "bridge_id": "source_map:source::orchestrate:workflow:source::orchestrate",
+      "bridge_kind": "validation_subject",
+      "coverage": null,
+      "origin_key": "source::orchestrate::workflow::source::orchestrate",
+      "subject_ref": {
+        "subject_kind": "workflow",
+        "subject_name": "source::orchestrate",
+        "workflow_name": "source::orchestrate"
+      },
+      "workflow_name": "source::orchestrate"
+    }
+  },
+  "state_layout": {
+    "state:source::orchestrate:checkpoint:call_boundary::root.source_orchestrate__call_source_internal_phase::static": {
+      "details": {
+        "checkpoint_kind": "call_boundary"
+      },
+      "layout_id": "state:source::orchestrate:checkpoint:call_boundary::root.source_orchestrate__call_source_internal_phase::static",
+      "layout_kind": "resume_checkpoint",
+      "node_id": "root.source_orchestrate__call_source_internal_phase",
+      "presentation_key": "source::orchestrate__call_source::internal-phase",
+      "workflow_name": "source::orchestrate"
+    },
+    "state:source::orchestrate:checkpoint:top_level_node::root.source_orchestrate__call_source_internal_phase::static": {
+      "details": {
+        "checkpoint_kind": "top_level_node"
+      },
+      "layout_id": "state:source::orchestrate:checkpoint:top_level_node::root.source_orchestrate__call_source_internal_phase::static",
+      "layout_kind": "resume_checkpoint",
+      "node_id": "root.source_orchestrate__call_source_internal_phase",
+      "presentation_key": "source::orchestrate__call_source::internal-phase",
+      "workflow_name": "source::orchestrate"
+    },
+    "state:source::orchestrate:lexical_checkpoint_index:alloc:source_orchestrate:lexical_checkpoint_index:e3ce0df838d0619f": {
+      "details": {
+        "allocation_id": "alloc:source_orchestrate:lexical_checkpoint_index:e3ce0df838d0619f",
+        "concrete_path_template": ".orchestrate/runs/${runtime.run_id}/workflow_lisp/checkpoints/index/ckpt:6f366562859b3c60af1f2363.json",
+        "path_safety_policy": "workspace_relative",
+        "privacy": "runtime_sidecar",
+        "resume_scope": "run",
+        "stable_identity": "ckpt:6f366562859b3c60af1f2363"
+      },
+      "layout_id": "state:source::orchestrate:lexical_checkpoint_index:alloc:source_orchestrate:lexical_checkpoint_index:e3ce0df838d0619f",
+      "layout_kind": "lexical_checkpoint_index",
+      "node_id": null,
+      "presentation_key": null,
+      "workflow_name": "source::orchestrate"
+    },
+    "state:source::orchestrate:lexical_checkpoint_point:ckpt:6f366562859b3c60af1f2363": {
+      "details": {
+        "checkpoint_id": "ckpt:6f366562859b3c60af1f2363",
+        "effect_boundary": {
+          "boundary_kind": "call",
+          "effect_kind": "call",
+          "policy": {
+            "boundary_kind": "call",
+            "effect_kind": "call",
+            "evidence_requirements": {
+              "workflow_call": {
+                "callee_checksum": "sha256:a2f91555578522ecb6e0a9e6100265570e46c4d1e235cee3e37f06a2a9b47a0c",
+                "callee_workflow": "source_orchestrate__call_source_internal_phase",
+                "target_dsl_version": "2.15"
+              }
+            },
+            "policy_digest": "sha256:f9ce79469978fa6398c0f44303872c50c443e9e987dc57df2aecc01dd42928b3",
+            "policy_kind": "reuse_validated_workflow_call",
+            "schema_version": "workflow_lisp_effect_resume_policy.v1",
+            "source_map_origin_key": "source::orchestrate::step_id::source_orchestrate__call_source_internal_phase",
+            "step_id": "source_orchestrate__call_source_internal_phase",
+            "unsafe_pending_behavior": "fail_closed"
+          }
+        },
+        "loop_back_edge": null,
+        "origin_key": "source::orchestrate::step_id::source_orchestrate__call_source_internal_phase",
+        "point_kind": "effect_boundary",
+        "program_point_id": "pp:bcfcee4edeee0d60262b27b9",
+        "restore": {
+          "binding_descriptor_digests": [],
+          "eligibility": [],
+          "loop_frame_descriptor_digest": null,
+          "proof_descriptor_digests": []
+        }
+      },
+      "layout_id": "state:source::orchestrate:lexical_checkpoint_point:ckpt:6f366562859b3c60af1f2363",
+      "layout_kind": "lexical_checkpoint_point",
+      "node_id": "root.source_orchestrate__call_source_internal_phase",
+      "presentation_key": "source::orchestrate__call_source::internal-phase",
+      "workflow_name": "source::orchestrate"
+    },
+    "state:source::orchestrate:lexical_checkpoint_record:alloc:source_orchestrate:lexical_checkpoint_record:0ca2ad80f358327f": {
+      "details": {
+        "allocation_id": "alloc:source_orchestrate:lexical_checkpoint_record:0ca2ad80f358327f",
+        "concrete_path_template": ".orchestrate/runs/${runtime.run_id}/workflow_lisp/checkpoints/records/ckpt:6f366562859b3c60af1f2363",
+        "path_safety_policy": "workspace_relative",
+        "privacy": "runtime_sidecar",
+        "resume_scope": "step_visit",
+        "stable_identity": "ckpt:6f366562859b3c60af1f2363"
+      },
+      "layout_id": "state:source::orchestrate:lexical_checkpoint_record:alloc:source_orchestrate:lexical_checkpoint_record:0ca2ad80f358327f",
+      "layout_kind": "lexical_checkpoint_record",
+      "node_id": null,
+      "presentation_key": null,
+      "workflow_name": "source::orchestrate"
+    },
+    "state:source::orchestrate:presentation:root.source_orchestrate__call_source_internal_phase": {
+      "details": {
+        "kind": "call_boundary",
+        "region": "body"
+      },
+      "layout_id": "state:source::orchestrate:presentation:root.source_orchestrate__call_source_internal_phase",
+      "layout_kind": "presentation_key",
+      "node_id": "root.source_orchestrate__call_source_internal_phase",
+      "presentation_key": "source::orchestrate__call_source::internal-phase",
+      "workflow_name": "source::orchestrate"
+    },
+    "state:source::orchestrate:reusable_call_write_root:alloc:source_orchestrate:reusable_call_write_root:003c8199b5bff6e0": {
+      "details": {
+        "allocation_id": "alloc:source_orchestrate:reusable_call_write_root:003c8199b5bff6e0",
+        "concrete_path_template": ".orchestrate/workflow_lisp/calls/source::orchestrate/source::orchestrate__call_source::internal-phase/source::internal-phase/__write_root__source_internal_phase__run_checks__result_bundle.json",
+        "generated_input_name": "__write_root__source_internal_phase__run_checks__result_bundle",
+        "path_safety_policy": "workspace_relative",
+        "privacy": "compatibility_view",
+        "resume_scope": "call_frame",
+        "stable_identity": "schema:2/source::orchestrate/source::orchestrate__call_source::internal-phase/source::internal-phase/__write_root__source_internal_phase__run_checks__result_bundle"
+      },
+      "layout_id": "state:source::orchestrate:reusable_call_write_root:alloc:source_orchestrate:reusable_call_write_root:003c8199b5bff6e0",
+      "layout_kind": "reusable_call_write_root",
+      "node_id": null,
+      "presentation_key": null,
+      "workflow_name": "source::orchestrate"
+    }
+  },
+  "types": {
+    "type:source::orchestrate:input:report_path": {
+      "definition": {
+        "kind": "relpath",
+        "must_exist_target": true,
+        "type": "relpath",
+        "under": "artifacts/work"
+      },
+      "type_id": "type:source::orchestrate:input:report_path",
+      "type_kind": "relpath",
+      "value_type": "relpath",
+      "workflow_name": "source::orchestrate"
+    },
+    "type:source::orchestrate:output:return__approved": {
+      "definition": {
+        "from": {
+          "ref": "root.steps.source::orchestrate__call_source::internal-phase.artifacts.return__approved"
+        },
+        "kind": "scalar",
+        "type": "bool"
+      },
+      "type_id": "type:source::orchestrate:output:return__approved",
+      "type_kind": "scalar",
+      "value_type": "bool",
+      "workflow_name": "source::orchestrate"
+    },
+    "type:source::orchestrate:output:return__decision": {
+      "definition": {
+        "allowed": [
+          "APPROVE",
+          "REJECT"
+        ],
+        "from": {
+          "ref": "root.steps.source::orchestrate__call_source::internal-phase.artifacts.return__decision"
+        },
+        "kind": "scalar",
+        "type": "enum"
+      },
+      "type_id": "type:source::orchestrate:output:return__decision",
+      "type_kind": "scalar",
+      "value_type": "enum",
+      "workflow_name": "source::orchestrate"
+    },
+    "type:source::orchestrate:output:return__report": {
+      "definition": {
+        "from": {
+          "ref": "root.steps.source::orchestrate__call_source::internal-phase.artifacts.return__report"
+        },
+        "kind": "relpath",
+        "must_exist_target": true,
+        "type": "relpath",
+        "under": "artifacts/work"
+      },
+      "type_id": "type:source::orchestrate:output:return__report",
+      "type_kind": "relpath",
+      "value_type": "relpath",
+      "workflow_name": "source::orchestrate"
+    }
+  },
+  "workflows": {
+    "source::orchestrate": {
+      "artifact_contract_ids": {},
+      "authored_statement_ids": [
+        "statement:source::orchestrate:root.source_orchestrate__call_source_internal_phase"
+      ],
+      "call_edge_ids": [
+        "call:source::orchestrate:root.source_orchestrate__call_source_internal_phase"
+      ],
+      "command_boundary_ids": [],
+      "executable_bridge": {
+        "node_ids": [
+          "root.source_orchestrate__call_source_internal_phase"
+        ],
+        "presentation_keys": [
+          "source::orchestrate__call_source::internal-phase"
+        ],
+        "resume_checkpoint_ids": [
+          "state:source::orchestrate:checkpoint:top_level_node::root.source_orchestrate__call_source_internal_phase::static",
+          "state:source::orchestrate:checkpoint:call_boundary::root.source_orchestrate__call_source_internal_phase::static"
+        ],
+        "workflow_name": "source::orchestrate"
+      },
+      "input_contract_ids": {
+        "report_path": "contract:source::orchestrate:input:report_path"
+      },
+      "output_contract_ids": {
+        "return__approved": "contract:source::orchestrate:output:return__approved",
+        "return__decision": "contract:source::orchestrate:output:return__decision",
+        "return__report": "contract:source::orchestrate:output:return__report"
+      },
+      "prompt_surface_ids": [],
+      "publication_ref_ids": [],
+      "statements": {
+        "statement:source::orchestrate:root.source_orchestrate__call_source_internal_phase": {
+          "effect_ids": [
+            "effect:source::orchestrate:root.source_orchestrate__call_source_internal_phase:workflow_call"
+          ],
+          "executable_node_ids": [
+            "root.source_orchestrate__call_source_internal_phase"
+          ],
+          "presentation_keys": [
+            "source::orchestrate__call_source::internal-phase"
+          ],
+          "ref_ids": [
+            "ref:source::orchestrate:statement:root.source_orchestrate__call_source_internal_phase"
+          ],
+          "statement_id": "statement:source::orchestrate:root.source_orchestrate__call_source_internal_phase",
+          "step_id": "root.source_orchestrate__call_source_internal_phase",
+          "step_kind": "call",
+          "step_name": "source::orchestrate__call_source::internal-phase",
+          "workflow_name": "source::orchestrate"
+        }
+      },
+      "workflow_name": "source::orchestrate"
+    }
+  }
+}

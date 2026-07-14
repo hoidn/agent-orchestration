@@ -1,1 +1,402 @@
-{"schema":"workflow_lisp_source_map.fixture.v1","test_only":"FICTIONAL — NEVER COPY","side":"new","module":"fictional.retirement","entry":"retained-stack","origins":["internal-phase/definition+call-site"]}
+{
+  "coverage": {
+    "core_workflow_ast": "covered",
+    "executable_ir": "covered",
+    "frontend_ast": "covered",
+    "lowered_surface": "covered",
+    "runtime_logs": "covered",
+    "semantic_ir": "covered",
+    "shared_validation_subjects": "covered"
+  },
+  "schema_version": "workflow_lisp_source_map.v1",
+  "workflows": {
+    "source::orchestrate": {
+      "command_boundaries": [
+        {
+          "adapter_name": null,
+          "boundary_kind": "external_tool",
+          "command_name": "run_checks",
+          "declared_effects": [],
+          "origin_key": "source::orchestrate::step_id::source_orchestrate__source_internal_phase_1__run_checks",
+          "source_map_behavior": null,
+          "step_id": "source_orchestrate__source_internal_phase_1__run_checks"
+        }
+      ],
+      "contract_fields": {},
+      "core_nodes": [
+        {
+          "origin_key": "source::orchestrate::step_id::source_orchestrate__source_internal_phase_1__run_checks",
+          "statement_id": "root.source_orchestrate__source_internal_phase_1__run_checks",
+          "step_id": "source_orchestrate__source_internal_phase_1__run_checks",
+          "step_kind": "command"
+        }
+      ],
+      "display_name": "orchestrate",
+      "executable_nodes": [
+        {
+          "kind": "command",
+          "node_id": "root.source_orchestrate__source_internal_phase_1__run_checks",
+          "origin_key": "source::orchestrate::step_id::source::orchestrate__source::internal-phase_1__run_checks",
+          "presentation_name": "source::orchestrate__source::internal-phase_1__run_checks",
+          "region": "body",
+          "step_id": "root.source_orchestrate__source_internal_phase_1__run_checks"
+        }
+      ],
+      "generated_inputs": {
+        "report_path": {
+          "column": 3,
+          "end_column": 34,
+          "end_line": 26,
+          "entity_kind": "generated_input",
+          "expansion_stack": [],
+          "form_path": [
+            "workflow-lisp",
+            "defworkflow",
+            "orchestrate"
+          ],
+          "generated_name_origin": "report_path",
+          "line": 23,
+          "module_name": "source",
+          "notes": [
+            "procedure call site at <FIXTURE_ROOT>/new/source.orc:26:5",
+            "procedure definition at <FIXTURE_ROOT>/new/source.orc:15:3"
+          ],
+          "origin_key": "source::orchestrate::generated_input::report_path",
+          "path": "<FIXTURE_ROOT>/new/source.orc",
+          "workflow_name": "source::orchestrate"
+        }
+      },
+      "generated_internal_inputs": {
+        "__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle": {
+          "column": 5,
+          "end_column": 29,
+          "end_line": 22,
+          "entity_kind": "generated_internal_input",
+          "expansion_stack": [],
+          "form_path": [
+            "workflow-lisp",
+            "defproc",
+            "internal-phase"
+          ],
+          "generated_name_origin": "__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle",
+          "line": 20,
+          "module_name": "source",
+          "notes": [
+            "procedure call site at <FIXTURE_ROOT>/new/source.orc:26:5",
+            "procedure definition at <FIXTURE_ROOT>/new/source.orc:15:3"
+          ],
+          "origin_key": "source::orchestrate::generated_internal_input::__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle",
+          "path": "<FIXTURE_ROOT>/new/source.orc",
+          "workflow_name": "source::orchestrate"
+        }
+      },
+      "generated_outputs": {
+        "return__approved": {
+          "column": 3,
+          "end_column": 34,
+          "end_line": 26,
+          "entity_kind": "generated_output",
+          "expansion_stack": [],
+          "form_path": [
+            "workflow-lisp",
+            "defworkflow",
+            "orchestrate"
+          ],
+          "generated_name_origin": "return__approved",
+          "line": 23,
+          "module_name": "source",
+          "notes": [
+            "procedure call site at <FIXTURE_ROOT>/new/source.orc:26:5",
+            "procedure definition at <FIXTURE_ROOT>/new/source.orc:15:3"
+          ],
+          "origin_key": "source::orchestrate::generated_output::return__approved",
+          "path": "<FIXTURE_ROOT>/new/source.orc",
+          "workflow_name": "source::orchestrate"
+        },
+        "return__decision": {
+          "column": 3,
+          "end_column": 34,
+          "end_line": 26,
+          "entity_kind": "generated_output",
+          "expansion_stack": [],
+          "form_path": [
+            "workflow-lisp",
+            "defworkflow",
+            "orchestrate"
+          ],
+          "generated_name_origin": "return__decision",
+          "line": 23,
+          "module_name": "source",
+          "notes": [
+            "procedure call site at <FIXTURE_ROOT>/new/source.orc:26:5",
+            "procedure definition at <FIXTURE_ROOT>/new/source.orc:15:3"
+          ],
+          "origin_key": "source::orchestrate::generated_output::return__decision",
+          "path": "<FIXTURE_ROOT>/new/source.orc",
+          "workflow_name": "source::orchestrate"
+        },
+        "return__report": {
+          "column": 3,
+          "end_column": 34,
+          "end_line": 26,
+          "entity_kind": "generated_output",
+          "expansion_stack": [],
+          "form_path": [
+            "workflow-lisp",
+            "defworkflow",
+            "orchestrate"
+          ],
+          "generated_name_origin": "return__report",
+          "line": 23,
+          "module_name": "source",
+          "notes": [
+            "procedure call site at <FIXTURE_ROOT>/new/source.orc:26:5",
+            "procedure definition at <FIXTURE_ROOT>/new/source.orc:15:3"
+          ],
+          "origin_key": "source::orchestrate::generated_output::return__report",
+          "path": "<FIXTURE_ROOT>/new/source.orc",
+          "workflow_name": "source::orchestrate"
+        }
+      },
+      "generated_path_allocations": [
+        {
+          "allocation_id": "alloc:source_orchestrate:command_result_bundle:c39f89c414d4f006",
+          "concrete_path_template": "${inputs.__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle}",
+          "generated_input_name": "__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle",
+          "origin_key": "source::orchestrate::generated_path::${inputs.__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle}",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "step_visit",
+          "semantic_role": "command_result_bundle",
+          "stable_identity": "schema:2/source::orchestrate/source::orchestrate__source::internal-phase_1__run_checks/result_bundle"
+        },
+        {
+          "allocation_id": "alloc:source_orchestrate:entrypoint_managed_write_root:c78fc7dd93212373",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/source_orchestrate/__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle.json",
+          "generated_input_name": "__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle",
+          "origin_key": "source::orchestrate::generated_path::.orchestrate/workflow_lisp/entry/${runtime.run_id}/source_orchestrate/__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle.json",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "run",
+          "semantic_role": "entrypoint_managed_write_root",
+          "stable_identity": "schema:2/source::orchestrate/source::orchestrate__source::internal-phase_1__run_checks/result_bundle/entry"
+        }
+      ],
+      "generated_paths": {
+        "${inputs.__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle}": {
+          "column": 5,
+          "end_column": 29,
+          "end_line": 22,
+          "entity_kind": "generated_path",
+          "expansion_stack": [],
+          "form_path": [
+            "workflow-lisp",
+            "defproc",
+            "internal-phase"
+          ],
+          "generated_name_origin": "${inputs.__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle}",
+          "line": 20,
+          "module_name": "source",
+          "notes": [
+            "procedure call site at <FIXTURE_ROOT>/new/source.orc:26:5",
+            "procedure definition at <FIXTURE_ROOT>/new/source.orc:15:3"
+          ],
+          "origin_key": "source::orchestrate::generated_path::${inputs.__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle}",
+          "path": "<FIXTURE_ROOT>/new/source.orc",
+          "workflow_name": "source::orchestrate"
+        },
+        ".orchestrate/workflow_lisp/entry/${runtime.run_id}/source_orchestrate/__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle.json": {
+          "column": 5,
+          "end_column": 29,
+          "end_line": 22,
+          "entity_kind": "generated_path",
+          "expansion_stack": [],
+          "form_path": [
+            "workflow-lisp",
+            "defproc",
+            "internal-phase"
+          ],
+          "generated_name_origin": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/source_orchestrate/__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle.json",
+          "line": 20,
+          "module_name": "source",
+          "notes": [
+            "procedure call site at <FIXTURE_ROOT>/new/source.orc:26:5",
+            "procedure definition at <FIXTURE_ROOT>/new/source.orc:15:3"
+          ],
+          "origin_key": "source::orchestrate::generated_path::.orchestrate/workflow_lisp/entry/${runtime.run_id}/source_orchestrate/__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle.json",
+          "path": "<FIXTURE_ROOT>/new/source.orc",
+          "workflow_name": "source::orchestrate"
+        }
+      },
+      "generated_semantic_effects": [],
+      "selected_entry_workflow": true,
+      "step_ids": {
+        "source::orchestrate__source::internal-phase_1__run_checks": {
+          "column": 5,
+          "end_column": 29,
+          "end_line": 22,
+          "entity_kind": "step_id",
+          "expansion_stack": [],
+          "form_path": [
+            "workflow-lisp",
+            "defproc",
+            "internal-phase"
+          ],
+          "generated_name_origin": "source::orchestrate__source::internal-phase_1__run_checks",
+          "line": 20,
+          "module_name": "source",
+          "notes": [
+            "procedure call site at <FIXTURE_ROOT>/new/source.orc:26:5",
+            "procedure definition at <FIXTURE_ROOT>/new/source.orc:15:3"
+          ],
+          "origin_key": "source::orchestrate::step_id::source::orchestrate__source::internal-phase_1__run_checks",
+          "path": "<FIXTURE_ROOT>/new/source.orc",
+          "workflow_name": "source::orchestrate"
+        },
+        "source_orchestrate__source_internal_phase_1__run_checks": {
+          "column": 5,
+          "end_column": 29,
+          "end_line": 22,
+          "entity_kind": "step_id",
+          "expansion_stack": [],
+          "form_path": [
+            "workflow-lisp",
+            "defproc",
+            "internal-phase"
+          ],
+          "generated_name_origin": "source_orchestrate__source_internal_phase_1__run_checks",
+          "line": 20,
+          "module_name": "source",
+          "notes": [
+            "procedure call site at <FIXTURE_ROOT>/new/source.orc:26:5",
+            "procedure definition at <FIXTURE_ROOT>/new/source.orc:15:3"
+          ],
+          "origin_key": "source::orchestrate::step_id::source_orchestrate__source_internal_phase_1__run_checks",
+          "path": "<FIXTURE_ROOT>/new/source.orc",
+          "workflow_name": "source::orchestrate"
+        }
+      },
+      "validation_subjects": [
+        {
+          "origin_key": "source::orchestrate::generated_internal_input::__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle",
+          "subject_ref": {
+            "subject_kind": "generated_input",
+            "subject_name": "__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle",
+            "workflow_name": "source::orchestrate"
+          }
+        },
+        {
+          "origin_key": "source::orchestrate::generated_input::report_path",
+          "subject_ref": {
+            "subject_kind": "generated_input",
+            "subject_name": "report_path",
+            "workflow_name": "source::orchestrate"
+          }
+        },
+        {
+          "origin_key": "source::orchestrate::generated_output::return__approved",
+          "subject_ref": {
+            "subject_kind": "generated_output",
+            "subject_name": "return__approved",
+            "workflow_name": "source::orchestrate"
+          }
+        },
+        {
+          "origin_key": "source::orchestrate::generated_output::return__decision",
+          "subject_ref": {
+            "subject_kind": "generated_output",
+            "subject_name": "return__decision",
+            "workflow_name": "source::orchestrate"
+          }
+        },
+        {
+          "origin_key": "source::orchestrate::generated_output::return__report",
+          "subject_ref": {
+            "subject_kind": "generated_output",
+            "subject_name": "return__report",
+            "workflow_name": "source::orchestrate"
+          }
+        },
+        {
+          "origin_key": "source::orchestrate::generated_path::${inputs.__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle}",
+          "subject_ref": {
+            "subject_kind": "generated_path",
+            "subject_name": "${inputs.__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle}",
+            "workflow_name": "source::orchestrate"
+          }
+        },
+        {
+          "origin_key": "source::orchestrate::generated_path::.orchestrate/workflow_lisp/entry/${runtime.run_id}/source_orchestrate/__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle.json",
+          "subject_ref": {
+            "subject_kind": "generated_path",
+            "subject_name": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/source_orchestrate/__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle.json",
+            "workflow_name": "source::orchestrate"
+          }
+        },
+        {
+          "origin_key": "source::orchestrate::step_id::source::orchestrate__source::internal-phase_1__run_checks",
+          "subject_ref": {
+            "subject_kind": "step_id",
+            "subject_name": "root.source::orchestrate__source::internal-phase_1__run_checks",
+            "workflow_name": "source::orchestrate"
+          }
+        },
+        {
+          "origin_key": "source::orchestrate::step_id::source_orchestrate__source_internal_phase_1__run_checks",
+          "subject_ref": {
+            "subject_kind": "step_id",
+            "subject_name": "root.source_orchestrate__source_internal_phase_1__run_checks",
+            "workflow_name": "source::orchestrate"
+          }
+        },
+        {
+          "origin_key": "source::orchestrate::step_id::source::orchestrate__source::internal-phase_1__run_checks",
+          "subject_ref": {
+            "subject_kind": "step_id",
+            "subject_name": "source::orchestrate__source::internal-phase_1__run_checks",
+            "workflow_name": "source::orchestrate"
+          }
+        },
+        {
+          "origin_key": "source::orchestrate::step_id::source_orchestrate__source_internal_phase_1__run_checks",
+          "subject_ref": {
+            "subject_kind": "step_id",
+            "subject_name": "source_orchestrate__source_internal_phase_1__run_checks",
+            "workflow_name": "source::orchestrate"
+          }
+        },
+        {
+          "origin_key": "source::orchestrate::workflow::source::orchestrate",
+          "subject_ref": {
+            "subject_kind": "workflow",
+            "subject_name": "source::orchestrate",
+            "workflow_name": "source::orchestrate"
+          }
+        }
+      ],
+      "workflow_name": "source::orchestrate",
+      "workflow_origin": {
+        "column": 3,
+        "end_column": 34,
+        "end_line": 26,
+        "entity_kind": "workflow",
+        "expansion_stack": [],
+        "form_path": [
+          "workflow-lisp",
+          "defworkflow",
+          "orchestrate"
+        ],
+        "generated_name_origin": "source::orchestrate",
+        "line": 23,
+        "module_name": "source",
+        "notes": [
+          "procedure call site at <FIXTURE_ROOT>/new/source.orc:26:5",
+          "procedure definition at <FIXTURE_ROOT>/new/source.orc:15:3"
+        ],
+        "origin_key": "source::orchestrate::workflow::source::orchestrate",
+        "path": "<FIXTURE_ROOT>/new/source.orc",
+        "workflow_name": "source::orchestrate"
+      }
+    }
+  }
+}

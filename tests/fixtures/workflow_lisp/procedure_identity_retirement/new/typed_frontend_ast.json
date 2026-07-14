@@ -1,1 +1,1278 @@
-{"schema":"workflow_lisp_typed_frontend_ast.fixture.v1","test_only":"FICTIONAL — NEVER COPY","side":"new","module":"fictional.retirement","entry":"retained-stack","callee":{"kind":"procedure","name":"internal-phase","lowering":"inline"}}
+{
+  "modules": {
+    "source": {
+      "typed_procedures": [
+        {
+          "definition": {
+            "body": {
+              "datum": {
+                "expansion_stack": [],
+                "form_path": [
+                  "workflow-lisp",
+                  "defproc",
+                  "internal-phase"
+                ],
+                "items": [
+                  {
+                    "display_name": "command-result",
+                    "expansion_stack": [],
+                    "form_path": [
+                      "workflow-lisp",
+                      "defproc",
+                      "internal-phase"
+                    ],
+                    "introduced_by_expansion_id": null,
+                    "module_path": "<FIXTURE_ROOT>/new/source.orc",
+                    "resolved_name": "command-result",
+                    "span": {
+                      "end": {
+                        "column": 20,
+                        "line": 20,
+                        "offset": 481,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 6,
+                        "line": 20,
+                        "offset": 467,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    }
+                  },
+                  {
+                    "display_name": "run_checks",
+                    "expansion_stack": [],
+                    "form_path": [
+                      "workflow-lisp",
+                      "defproc",
+                      "internal-phase"
+                    ],
+                    "introduced_by_expansion_id": null,
+                    "module_path": "<FIXTURE_ROOT>/new/source.orc",
+                    "resolved_name": "run_checks",
+                    "span": {
+                      "end": {
+                        "column": 31,
+                        "line": 20,
+                        "offset": 492,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 21,
+                        "line": 20,
+                        "offset": 482,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    }
+                  },
+                  {
+                    "expansion_stack": [],
+                    "form_path": [
+                      "workflow-lisp",
+                      "defproc",
+                      "internal-phase"
+                    ],
+                    "module_path": "<FIXTURE_ROOT>/new/source.orc",
+                    "span": {
+                      "end": {
+                        "column": 12,
+                        "line": 21,
+                        "offset": 504,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 7,
+                        "line": 21,
+                        "offset": 499,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "value": ":argv"
+                  },
+                  {
+                    "expansion_stack": [],
+                    "form_path": [
+                      "workflow-lisp",
+                      "defproc",
+                      "internal-phase"
+                    ],
+                    "items": [
+                      {
+                        "expansion_stack": [],
+                        "form_path": [
+                          "workflow-lisp",
+                          "defproc",
+                          "internal-phase"
+                        ],
+                        "module_path": "<FIXTURE_ROOT>/new/source.orc",
+                        "span": {
+                          "end": {
+                            "column": 22,
+                            "line": 21,
+                            "offset": 514,
+                            "path": "<FIXTURE_ROOT>/new/source.orc"
+                          },
+                          "start": {
+                            "column": 14,
+                            "line": 21,
+                            "offset": 506,
+                            "path": "<FIXTURE_ROOT>/new/source.orc"
+                          }
+                        },
+                        "value": "python"
+                      },
+                      {
+                        "expansion_stack": [],
+                        "form_path": [
+                          "workflow-lisp",
+                          "defproc",
+                          "internal-phase"
+                        ],
+                        "module_path": "<FIXTURE_ROOT>/new/source.orc",
+                        "span": {
+                          "end": {
+                            "column": 46,
+                            "line": 21,
+                            "offset": 538,
+                            "path": "<FIXTURE_ROOT>/new/source.orc"
+                          },
+                          "start": {
+                            "column": 23,
+                            "line": 21,
+                            "offset": 515,
+                            "path": "<FIXTURE_ROOT>/new/source.orc"
+                          }
+                        },
+                        "value": "scripts/run_checks.py"
+                      },
+                      {
+                        "display_name": "report_path",
+                        "expansion_stack": [],
+                        "form_path": [
+                          "workflow-lisp",
+                          "defproc",
+                          "internal-phase"
+                        ],
+                        "introduced_by_expansion_id": null,
+                        "module_path": "<FIXTURE_ROOT>/new/source.orc",
+                        "resolved_name": "report_path",
+                        "span": {
+                          "end": {
+                            "column": 58,
+                            "line": 21,
+                            "offset": 550,
+                            "path": "<FIXTURE_ROOT>/new/source.orc"
+                          },
+                          "start": {
+                            "column": 47,
+                            "line": 21,
+                            "offset": 539,
+                            "path": "<FIXTURE_ROOT>/new/source.orc"
+                          }
+                        }
+                      }
+                    ],
+                    "module_path": "<FIXTURE_ROOT>/new/source.orc",
+                    "span": {
+                      "end": {
+                        "column": 59,
+                        "line": 21,
+                        "offset": 551,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 13,
+                        "line": 21,
+                        "offset": 505,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    }
+                  },
+                  {
+                    "expansion_stack": [],
+                    "form_path": [
+                      "workflow-lisp",
+                      "defproc",
+                      "internal-phase"
+                    ],
+                    "module_path": "<FIXTURE_ROOT>/new/source.orc",
+                    "span": {
+                      "end": {
+                        "column": 15,
+                        "line": 22,
+                        "offset": 566,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 7,
+                        "line": 22,
+                        "offset": 558,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "value": ":returns"
+                  },
+                  {
+                    "display_name": "ChecksResult",
+                    "expansion_stack": [],
+                    "form_path": [
+                      "workflow-lisp",
+                      "defproc",
+                      "internal-phase"
+                    ],
+                    "introduced_by_expansion_id": null,
+                    "module_path": "<FIXTURE_ROOT>/new/source.orc",
+                    "resolved_name": "ChecksResult",
+                    "span": {
+                      "end": {
+                        "column": 28,
+                        "line": 22,
+                        "offset": 579,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 16,
+                        "line": 22,
+                        "offset": 567,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    }
+                  }
+                ],
+                "module_path": "<FIXTURE_ROOT>/new/source.orc",
+                "span": {
+                  "end": {
+                    "column": 29,
+                    "line": 22,
+                    "offset": 580,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  },
+                  "start": {
+                    "column": 5,
+                    "line": 20,
+                    "offset": 466,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  }
+                }
+              },
+              "form_path": [
+                "workflow-lisp",
+                "defproc",
+                "internal-phase"
+              ],
+              "module_path": "<FIXTURE_ROOT>/new/source.orc",
+              "span": {
+                "end": {
+                  "column": 29,
+                  "line": 22,
+                  "offset": 580,
+                  "path": "<FIXTURE_ROOT>/new/source.orc"
+                },
+                "start": {
+                  "column": 5,
+                  "line": 20,
+                  "offset": 466,
+                  "path": "<FIXTURE_ROOT>/new/source.orc"
+                }
+              }
+            },
+            "declared_effects": "frozenset({UsesCommandEffect(subject=('run_checks',))})",
+            "expansion_stack": [],
+            "form_path": [
+              "workflow-lisp",
+              "defproc",
+              "internal-phase"
+            ],
+            "generated_local_procedure": null,
+            "name": "source::internal-phase",
+            "params": [
+              {
+                "expansion_stack": [],
+                "form_path": [
+                  "workflow-lisp",
+                  "defproc",
+                  "internal-phase"
+                ],
+                "name": "report_path",
+                "span": {
+                  "end": {
+                    "column": 30,
+                    "line": 16,
+                    "offset": 378,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  },
+                  "start": {
+                    "column": 6,
+                    "line": 16,
+                    "offset": 354,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  }
+                },
+                "type_name": "WorkReport"
+              }
+            ],
+            "requested_lowering_mode": "inline",
+            "return_type_name": "ChecksResult",
+            "span": {
+              "end": {
+                "column": 30,
+                "line": 22,
+                "offset": 581,
+                "path": "<FIXTURE_ROOT>/new/source.orc"
+              },
+              "start": {
+                "column": 3,
+                "line": 15,
+                "offset": 325,
+                "path": "<FIXTURE_ROOT>/new/source.orc"
+              }
+            },
+            "type_params": [],
+            "where_clauses": []
+          },
+          "direct_effect_summary": {
+            "direct_effects": "frozenset({UsesCommandEffect(subject=('run_checks',))})",
+            "procedure_edges": "frozenset()",
+            "transitive_effects": "frozenset({UsesCommandEffect(subject=('run_checks',))})"
+          },
+          "generated_workflow_name": null,
+          "resolved_lowering_mode": "inline",
+          "signature": {
+            "declared_effects": "frozenset({UsesCommandEffect(subject=('run_checks',))})",
+            "form_path": [
+              "workflow-lisp",
+              "defproc",
+              "internal-phase"
+            ],
+            "name": "source::internal-phase",
+            "params": [
+              [
+                "report_path",
+                {
+                  "definition": {
+                    "kind": "relpath",
+                    "must_exist": true,
+                    "name": "WorkReport",
+                    "span": {
+                      "end": {
+                        "column": 22,
+                        "line": 10,
+                        "offset": 227,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 3,
+                        "line": 7,
+                        "offset": 140,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "under": "artifacts/work"
+                  },
+                  "name": "WorkReport"
+                }
+              ]
+            ],
+            "requested_lowering_mode": "inline",
+            "return_type_ref": {
+              "definition": {
+                "fields": [
+                  {
+                    "name": "decision",
+                    "span": {
+                      "end": {
+                        "column": 24,
+                        "line": 12,
+                        "offset": 277,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 5,
+                        "line": 12,
+                        "offset": 258,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "type_name": "Decision"
+                  },
+                  {
+                    "name": "approved",
+                    "span": {
+                      "end": {
+                        "column": 20,
+                        "line": 13,
+                        "offset": 297,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 5,
+                        "line": 13,
+                        "offset": 282,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "type_name": "Bool"
+                  },
+                  {
+                    "name": "report",
+                    "span": {
+                      "end": {
+                        "column": 24,
+                        "line": 14,
+                        "offset": 321,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 5,
+                        "line": 14,
+                        "offset": 302,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "type_name": "WorkReport"
+                  }
+                ],
+                "name": "ChecksResult",
+                "span": {
+                  "end": {
+                    "column": 25,
+                    "line": 14,
+                    "offset": 322,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  },
+                  "start": {
+                    "column": 3,
+                    "line": 11,
+                    "offset": 230,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  }
+                }
+              },
+              "field_types": {
+                "approved": {
+                  "allowed_values": [],
+                  "name": "Bool"
+                },
+                "decision": {
+                  "allowed_values": [
+                    "APPROVE",
+                    "REJECT"
+                  ],
+                  "name": "Decision"
+                },
+                "report": {
+                  "definition": {
+                    "kind": "relpath",
+                    "must_exist": true,
+                    "name": "WorkReport",
+                    "span": {
+                      "end": {
+                        "column": 22,
+                        "line": 10,
+                        "offset": 227,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 3,
+                        "line": 7,
+                        "offset": 140,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "under": "artifacts/work"
+                  },
+                  "name": "WorkReport"
+                }
+              },
+              "name": "ChecksResult"
+            },
+            "span": {
+              "end": {
+                "column": 30,
+                "line": 22,
+                "offset": 581,
+                "path": "<FIXTURE_ROOT>/new/source.orc"
+              },
+              "start": {
+                "column": 3,
+                "line": 15,
+                "offset": 325,
+                "path": "<FIXTURE_ROOT>/new/source.orc"
+              }
+            },
+            "type_params": [],
+            "where_clauses": []
+          },
+          "specialization": null,
+          "transitive_effect_summary": {
+            "direct_effects": "frozenset({UsesCommandEffect(subject=('run_checks',))})",
+            "procedure_edges": "frozenset()",
+            "transitive_effects": "frozenset({UsesCommandEffect(subject=('run_checks',))})"
+          },
+          "typed_body": {
+            "effect_summary": {
+              "direct_effects": "frozenset({UsesCommandEffect(subject=('run_checks',))})",
+              "procedure_edges": "frozenset()",
+              "transitive_effects": "frozenset({UsesCommandEffect(subject=('run_checks',))})"
+            },
+            "expr": {
+              "adapter_inputs": [],
+              "adapter_name": null,
+              "argv": [
+                {
+                  "expansion_stack": [],
+                  "form_path": [
+                    "workflow-lisp",
+                    "defproc",
+                    "internal-phase"
+                  ],
+                  "literal_kind": "string",
+                  "span": {
+                    "end": {
+                      "column": 22,
+                      "line": 21,
+                      "offset": 514,
+                      "path": "<FIXTURE_ROOT>/new/source.orc"
+                    },
+                    "start": {
+                      "column": 14,
+                      "line": 21,
+                      "offset": 506,
+                      "path": "<FIXTURE_ROOT>/new/source.orc"
+                    }
+                  },
+                  "value": "python"
+                },
+                {
+                  "expansion_stack": [],
+                  "form_path": [
+                    "workflow-lisp",
+                    "defproc",
+                    "internal-phase"
+                  ],
+                  "literal_kind": "string",
+                  "span": {
+                    "end": {
+                      "column": 46,
+                      "line": 21,
+                      "offset": 538,
+                      "path": "<FIXTURE_ROOT>/new/source.orc"
+                    },
+                    "start": {
+                      "column": 23,
+                      "line": 21,
+                      "offset": 515,
+                      "path": "<FIXTURE_ROOT>/new/source.orc"
+                    }
+                  },
+                  "value": "scripts/run_checks.py"
+                },
+                {
+                  "expansion_stack": [],
+                  "form_path": [
+                    "workflow-lisp",
+                    "defproc",
+                    "internal-phase"
+                  ],
+                  "name": "report_path",
+                  "span": {
+                    "end": {
+                      "column": 58,
+                      "line": 21,
+                      "offset": 550,
+                      "path": "<FIXTURE_ROOT>/new/source.orc"
+                    },
+                    "start": {
+                      "column": 47,
+                      "line": 21,
+                      "offset": 539,
+                      "path": "<FIXTURE_ROOT>/new/source.orc"
+                    }
+                  }
+                }
+              ],
+              "expansion_stack": [],
+              "form_path": [
+                "workflow-lisp",
+                "defproc",
+                "internal-phase"
+              ],
+              "returns_type_name": "ChecksResult",
+              "span": {
+                "end": {
+                  "column": 29,
+                  "line": 22,
+                  "offset": 580,
+                  "path": "<FIXTURE_ROOT>/new/source.orc"
+                },
+                "start": {
+                  "column": 5,
+                  "line": 20,
+                  "offset": 466,
+                  "path": "<FIXTURE_ROOT>/new/source.orc"
+                }
+              },
+              "step_name": "run_checks"
+            },
+            "form_path": [
+              "workflow-lisp",
+              "defproc",
+              "internal-phase"
+            ],
+            "span": {
+              "end": {
+                "column": 29,
+                "line": 22,
+                "offset": 580,
+                "path": "<FIXTURE_ROOT>/new/source.orc"
+              },
+              "start": {
+                "column": 5,
+                "line": 20,
+                "offset": 466,
+                "path": "<FIXTURE_ROOT>/new/source.orc"
+              }
+            },
+            "type_ref": {
+              "definition": {
+                "fields": [
+                  {
+                    "name": "decision",
+                    "span": {
+                      "end": {
+                        "column": 24,
+                        "line": 12,
+                        "offset": 277,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 5,
+                        "line": 12,
+                        "offset": 258,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "type_name": "Decision"
+                  },
+                  {
+                    "name": "approved",
+                    "span": {
+                      "end": {
+                        "column": 20,
+                        "line": 13,
+                        "offset": 297,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 5,
+                        "line": 13,
+                        "offset": 282,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "type_name": "Bool"
+                  },
+                  {
+                    "name": "report",
+                    "span": {
+                      "end": {
+                        "column": 24,
+                        "line": 14,
+                        "offset": 321,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 5,
+                        "line": 14,
+                        "offset": 302,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "type_name": "WorkReport"
+                  }
+                ],
+                "name": "ChecksResult",
+                "span": {
+                  "end": {
+                    "column": 25,
+                    "line": 14,
+                    "offset": 322,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  },
+                  "start": {
+                    "column": 3,
+                    "line": 11,
+                    "offset": 230,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  }
+                }
+              },
+              "field_types": {
+                "approved": {
+                  "allowed_values": [],
+                  "name": "Bool"
+                },
+                "decision": {
+                  "allowed_values": [
+                    "APPROVE",
+                    "REJECT"
+                  ],
+                  "name": "Decision"
+                },
+                "report": {
+                  "definition": {
+                    "kind": "relpath",
+                    "must_exist": true,
+                    "name": "WorkReport",
+                    "span": {
+                      "end": {
+                        "column": 22,
+                        "line": 10,
+                        "offset": 227,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 3,
+                        "line": 7,
+                        "offset": 140,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "under": "artifacts/work"
+                  },
+                  "name": "WorkReport"
+                }
+              },
+              "name": "ChecksResult"
+            }
+          }
+        }
+      ],
+      "typed_workflows": [
+        {
+          "definition": {
+            "body": {
+              "datum": {
+                "expansion_stack": [],
+                "form_path": [
+                  "workflow-lisp",
+                  "defworkflow",
+                  "orchestrate"
+                ],
+                "items": [
+                  {
+                    "display_name": "internal-phase",
+                    "expansion_stack": [],
+                    "form_path": [
+                      "workflow-lisp",
+                      "defworkflow",
+                      "orchestrate"
+                    ],
+                    "introduced_by_expansion_id": null,
+                    "module_path": "<FIXTURE_ROOT>/new/source.orc",
+                    "resolved_name": "internal-phase",
+                    "span": {
+                      "end": {
+                        "column": 20,
+                        "line": 26,
+                        "offset": 679,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 6,
+                        "line": 26,
+                        "offset": 665,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    }
+                  },
+                  {
+                    "display_name": "report_path",
+                    "expansion_stack": [],
+                    "form_path": [
+                      "workflow-lisp",
+                      "defworkflow",
+                      "orchestrate"
+                    ],
+                    "introduced_by_expansion_id": null,
+                    "module_path": "<FIXTURE_ROOT>/new/source.orc",
+                    "resolved_name": "report_path",
+                    "span": {
+                      "end": {
+                        "column": 32,
+                        "line": 26,
+                        "offset": 691,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 21,
+                        "line": 26,
+                        "offset": 680,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    }
+                  }
+                ],
+                "module_path": "<FIXTURE_ROOT>/new/source.orc",
+                "span": {
+                  "end": {
+                    "column": 33,
+                    "line": 26,
+                    "offset": 692,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  },
+                  "start": {
+                    "column": 5,
+                    "line": 26,
+                    "offset": 664,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  }
+                }
+              },
+              "form_path": [
+                "workflow-lisp",
+                "defworkflow",
+                "orchestrate"
+              ],
+              "module_path": "<FIXTURE_ROOT>/new/source.orc",
+              "span": {
+                "end": {
+                  "column": 33,
+                  "line": 26,
+                  "offset": 692,
+                  "path": "<FIXTURE_ROOT>/new/source.orc"
+                },
+                "start": {
+                  "column": 5,
+                  "line": 26,
+                  "offset": 664,
+                  "path": "<FIXTURE_ROOT>/new/source.orc"
+                }
+              }
+            },
+            "expansion_stack": [],
+            "form_path": [
+              "workflow-lisp",
+              "defworkflow",
+              "orchestrate"
+            ],
+            "name": "source::orchestrate",
+            "params": [
+              {
+                "default_value": null,
+                "expansion_stack": [],
+                "form_path": [
+                  "workflow-lisp",
+                  "defworkflow",
+                  "orchestrate"
+                ],
+                "name": "report_path",
+                "span": {
+                  "end": {
+                    "column": 30,
+                    "line": 24,
+                    "offset": 638,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  },
+                  "start": {
+                    "column": 6,
+                    "line": 24,
+                    "offset": 614,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  }
+                },
+                "type_name": "WorkReport"
+              }
+            ],
+            "publication_policy": null,
+            "return_type_name": "ChecksResult",
+            "span": {
+              "end": {
+                "column": 34,
+                "line": 26,
+                "offset": 693,
+                "path": "<FIXTURE_ROOT>/new/source.orc"
+              },
+              "start": {
+                "column": 3,
+                "line": 23,
+                "offset": 584,
+                "path": "<FIXTURE_ROOT>/new/source.orc"
+              }
+            }
+          },
+          "effect_summary": {
+            "direct_effects": "frozenset()",
+            "procedure_edges": "frozenset({ProcedureCallEdge(callee_name='source::internal-phase', span=SourceSpan(start=SourcePosition(path='<FIXTURE_ROOT>/new/source.orc', line=26, column=5, offset=664), end=SourcePosition(path='<FIXTURE_ROOT>/new/source.orc', line=26, column=33, offset=692)), form_path=('workflow-lisp', 'defworkflow', 'orchestrate'), expansion_stack=())})",
+            "transitive_effects": "frozenset({UsesCommandEffect(subject=('run_checks',))})"
+          },
+          "signature": {
+            "allow_hidden_context_binding": false,
+            "allow_private_compatibility_bridge_omission": false,
+            "allowed_hidden_context_callees": "frozenset()",
+            "allowed_private_compatibility_bridge_callees": "frozenset()",
+            "derived_hidden_context_callees": "frozenset()",
+            "entry_hidden_context_callees": "frozenset()",
+            "form_path": [
+              "workflow-lisp",
+              "defworkflow",
+              "orchestrate"
+            ],
+            "hidden_context_ambiguities": {},
+            "hidden_context_requirements": {},
+            "name": "source::orchestrate",
+            "param_defaults": {},
+            "params": [
+              [
+                "report_path",
+                {
+                  "definition": {
+                    "kind": "relpath",
+                    "must_exist": true,
+                    "name": "WorkReport",
+                    "span": {
+                      "end": {
+                        "column": 22,
+                        "line": 10,
+                        "offset": 227,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 3,
+                        "line": 7,
+                        "offset": 140,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "under": "artifacts/work"
+                  },
+                  "name": "WorkReport"
+                }
+              ]
+            ],
+            "private_compatibility_bridge_types": {},
+            "return_type_ref": {
+              "definition": {
+                "fields": [
+                  {
+                    "name": "decision",
+                    "span": {
+                      "end": {
+                        "column": 24,
+                        "line": 12,
+                        "offset": 277,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 5,
+                        "line": 12,
+                        "offset": 258,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "type_name": "Decision"
+                  },
+                  {
+                    "name": "approved",
+                    "span": {
+                      "end": {
+                        "column": 20,
+                        "line": 13,
+                        "offset": 297,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 5,
+                        "line": 13,
+                        "offset": 282,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "type_name": "Bool"
+                  },
+                  {
+                    "name": "report",
+                    "span": {
+                      "end": {
+                        "column": 24,
+                        "line": 14,
+                        "offset": 321,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 5,
+                        "line": 14,
+                        "offset": 302,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "type_name": "WorkReport"
+                  }
+                ],
+                "name": "ChecksResult",
+                "span": {
+                  "end": {
+                    "column": 25,
+                    "line": 14,
+                    "offset": 322,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  },
+                  "start": {
+                    "column": 3,
+                    "line": 11,
+                    "offset": 230,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  }
+                }
+              },
+              "field_types": {
+                "approved": {
+                  "allowed_values": [],
+                  "name": "Bool"
+                },
+                "decision": {
+                  "allowed_values": [
+                    "APPROVE",
+                    "REJECT"
+                  ],
+                  "name": "Decision"
+                },
+                "report": {
+                  "definition": {
+                    "kind": "relpath",
+                    "must_exist": true,
+                    "name": "WorkReport",
+                    "span": {
+                      "end": {
+                        "column": 22,
+                        "line": 10,
+                        "offset": 227,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 3,
+                        "line": 7,
+                        "offset": 140,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "under": "artifacts/work"
+                  },
+                  "name": "WorkReport"
+                }
+              },
+              "name": "ChecksResult"
+            },
+            "span": {
+              "end": {
+                "column": 34,
+                "line": 26,
+                "offset": 693,
+                "path": "<FIXTURE_ROOT>/new/source.orc"
+              },
+              "start": {
+                "column": 3,
+                "line": 23,
+                "offset": 584,
+                "path": "<FIXTURE_ROOT>/new/source.orc"
+              }
+            }
+          },
+          "specialization": null,
+          "typed_body": {
+            "effect_summary": {
+              "direct_effects": "frozenset()",
+              "procedure_edges": "frozenset({ProcedureCallEdge(callee_name='source::internal-phase', span=SourceSpan(start=SourcePosition(path='<FIXTURE_ROOT>/new/source.orc', line=26, column=5, offset=664), end=SourcePosition(path='<FIXTURE_ROOT>/new/source.orc', line=26, column=33, offset=692)), form_path=('workflow-lisp', 'defworkflow', 'orchestrate'), expansion_stack=())})",
+              "transitive_effects": "frozenset({UsesCommandEffect(subject=('run_checks',))})"
+            },
+            "expr": {
+              "args": [
+                {
+                  "expansion_stack": [],
+                  "form_path": [
+                    "workflow-lisp",
+                    "defworkflow",
+                    "orchestrate"
+                  ],
+                  "name": "report_path",
+                  "span": {
+                    "end": {
+                      "column": 32,
+                      "line": 26,
+                      "offset": 691,
+                      "path": "<FIXTURE_ROOT>/new/source.orc"
+                    },
+                    "start": {
+                      "column": 21,
+                      "line": 26,
+                      "offset": 680,
+                      "path": "<FIXTURE_ROOT>/new/source.orc"
+                    }
+                  }
+                }
+              ],
+              "callee_name": "source::internal-phase",
+              "expansion_stack": [],
+              "form_path": [
+                "workflow-lisp",
+                "defworkflow",
+                "orchestrate"
+              ],
+              "span": {
+                "end": {
+                  "column": 33,
+                  "line": 26,
+                  "offset": 692,
+                  "path": "<FIXTURE_ROOT>/new/source.orc"
+                },
+                "start": {
+                  "column": 5,
+                  "line": 26,
+                  "offset": 664,
+                  "path": "<FIXTURE_ROOT>/new/source.orc"
+                }
+              }
+            },
+            "form_path": [
+              "workflow-lisp",
+              "defworkflow",
+              "orchestrate"
+            ],
+            "span": {
+              "end": {
+                "column": 33,
+                "line": 26,
+                "offset": 692,
+                "path": "<FIXTURE_ROOT>/new/source.orc"
+              },
+              "start": {
+                "column": 5,
+                "line": 26,
+                "offset": 664,
+                "path": "<FIXTURE_ROOT>/new/source.orc"
+              }
+            },
+            "type_ref": {
+              "definition": {
+                "fields": [
+                  {
+                    "name": "decision",
+                    "span": {
+                      "end": {
+                        "column": 24,
+                        "line": 12,
+                        "offset": 277,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 5,
+                        "line": 12,
+                        "offset": 258,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "type_name": "Decision"
+                  },
+                  {
+                    "name": "approved",
+                    "span": {
+                      "end": {
+                        "column": 20,
+                        "line": 13,
+                        "offset": 297,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 5,
+                        "line": 13,
+                        "offset": 282,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "type_name": "Bool"
+                  },
+                  {
+                    "name": "report",
+                    "span": {
+                      "end": {
+                        "column": 24,
+                        "line": 14,
+                        "offset": 321,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 5,
+                        "line": 14,
+                        "offset": 302,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "type_name": "WorkReport"
+                  }
+                ],
+                "name": "ChecksResult",
+                "span": {
+                  "end": {
+                    "column": 25,
+                    "line": 14,
+                    "offset": 322,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  },
+                  "start": {
+                    "column": 3,
+                    "line": 11,
+                    "offset": 230,
+                    "path": "<FIXTURE_ROOT>/new/source.orc"
+                  }
+                }
+              },
+              "field_types": {
+                "approved": {
+                  "allowed_values": [],
+                  "name": "Bool"
+                },
+                "decision": {
+                  "allowed_values": [
+                    "APPROVE",
+                    "REJECT"
+                  ],
+                  "name": "Decision"
+                },
+                "report": {
+                  "definition": {
+                    "kind": "relpath",
+                    "must_exist": true,
+                    "name": "WorkReport",
+                    "span": {
+                      "end": {
+                        "column": 22,
+                        "line": 10,
+                        "offset": 227,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      },
+                      "start": {
+                        "column": 3,
+                        "line": 7,
+                        "offset": 140,
+                        "path": "<FIXTURE_ROOT>/new/source.orc"
+                      }
+                    },
+                    "under": "artifacts/work"
+                  },
+                  "name": "WorkReport"
+                }
+              },
+              "name": "ChecksResult"
+            }
+          }
+        }
+      ],
+      "workflow_catalog": {
+        "signatures": [
+          "orchestrate",
+          "source::orchestrate"
+        ]
+      }
+    }
+  }
+}
