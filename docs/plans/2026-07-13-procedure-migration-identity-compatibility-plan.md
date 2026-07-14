@@ -4,7 +4,7 @@
 
 **Goal:** Land the generic lowering-identity, inline checkpoint/provenance, retirement-evidence, and checksum-rejection prerequisites required before the tracked-plan procedure-first pilot source may change.
 
-**Architecture:** Resolve every monomorphic procedure's module-level lowering decision once in the compiler after specialization/effect recomputation, store the resolved tuple on Stage 3, and make classic and WCC lowering consume that exact mapping. Repair WCC inline checkpoint and source-map behavior at the generic inline boundary, add a standalone evidence-only retirement-record validator, characterize existing root/callee checksum rejection, amend the accepted contracts and pilot gates, then hand execution back to the existing pilot plan without editing its `.orc` source in this plan.
+**Architecture:** Resolve every monomorphic procedure's module-level lowering decision once in the compiler after specialization/effect recomputation, store the resolved tuple on Stage 3, and make classic and WCC lowering consume that exact mapping. Repair WCC inline checkpoint and source-map behavior at the generic inline boundary, add a standalone evidence-only retirement-record validator, characterize existing root/callee checksum rejection, amend only the remaining source-map/spec/acceptance and pilot gates, then hand execution back to the existing pilot plan without editing its `.orc` source in this plan.
 
 **Tech Stack:** Python 3.11, frozen dataclasses and JSON validation, Workflow Lisp typed AST/WCC/classic lowering, build artifacts and source maps, orchestrator resume/runtime, pytest and pytest-xdist.
 
@@ -46,13 +46,13 @@ git diff --cached --name-only -- \
   'workflows/library/prompts/workflow_step_back/diagnose_non_progress.md'
 ```
 
-The second command must print nothing. The full staged list must be a subset of the active task's `Files` list. Never stage by directory, never use `git add -A`/`git add .`, and never restore, rewrite, or clean a protected path. The untracked accepted target design is in scope only in Task 7; do not stage it earlier.
+The second command must print nothing. The full staged list must be a subset of the active task's `Files` list. Never stage by directory, never use `git add -A`/`git add .`, and never restore, rewrite, or clean a protected path.
 
 ## File responsibility map
 
 - `tests/fixtures/workflow_lisp/valid/procedure_lowering_identity_modes.orc`: generic explicit-inline, explicit-private, and auto fixture, with a WCC-M4-capable loop elsewhere in the retained workflow so the pilot-shaped inline call is outside the classic iteration override.
 - `tests/fixtures/workflow_lisp/valid/procedure_lowering_identity_modes.{providers,prompts,commands}.json`: deterministic compile/build extern manifests for that fixture.
-- `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json`: pre-edit authority for the exact nine broad-suite failures, their categories, normalized signatures/digests, command, date, and starting commit.
+- `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json`: pre-edit authority for the exact eight broad-suite failures, their categories, normalized signatures/digests, command, date, and starting commit.
 - `tests/baselines/procedure_first/procedure_lowering_identity_modes.{legacy,wcc_m4}.json`: normalized pre-refactor executable, Semantic IR, runtime/checkpoint, presentation, source-map, and generated-private-workflow observables.
 - `tests/workflow_lisp_procedure_identity.py`: reusable normalization and content-digest helpers; strips workspace roots and excludes unrelated nondeterministic fields.
 - `orchestrator/workflow_lisp/compiler.py`: sole owner of module-level resolution after specialization/effect recomputation and before route dispatch.
@@ -61,7 +61,8 @@ The second command must print nothing. The full staged list must be a subset of 
 - `orchestrator/workflow_lisp/procedure_identity_retirement.py`: evidence-only v1 record model, parser, known-store scan facts, and validator. It is not imported by resume/executor code.
 - `tests/test_workflow_lisp_procedure_identity_retirement.py`: record schema, eligibility, multiset/order, digest, and runtime-isolation tests.
 - `tests/test_resume_command.py`: root checksum and existing callee checksum negative characterization.
-- `docs/design/workflow_lisp_procedure_migration_identity_compatibility.md`, `docs/design/workflow_lisp_procedure_first_reuse_contract.md`, `docs/design/workflow_lisp_source_map.md`, `specs/state.md`, `specs/acceptance/index.md`: accepted design and durable contract amendments.
+- `docs/design/workflow_lisp_procedure_migration_identity_compatibility.md` and `docs/design/workflow_lisp_procedure_first_reuse_contract.md`: already accepted authorities, inspected by default and changed only if post-implementation symbol/path references genuinely require a status/evidence correction.
+- `docs/design/workflow_lisp_source_map.md`, `specs/state.md`, `specs/acceptance/index.md`: remaining durable source-map/checksum/acceptance amendments where current text is insufficient.
 - `docs/plans/2026-07-13-procedure-first-pilot-plan.md`: revised stop conditions, retirement-record production/approval gates, and handback instructions; it continues to own the family edit.
 
 ### Task 1: Freeze Generic Pre-Change Identity Observables
@@ -87,9 +88,9 @@ mkdir -p .orchestrate/tmp/procedure-identity-prereqs-baseline
 pytest -q -n 16 --dist=worksteal 2>&1 | tee .orchestrate/tmp/procedure-identity-prereqs-baseline/broad.txt
 ```
 
-Expected: exactly the nine nodeids enumerated in Step 2 fail and no others. If the nodeid set differs, stop before implementation; a replacement failure cannot be categorized as baseline merely because the count remains nine.
+Expected: exactly the eight nodeids enumerated in Step 2 fail and no others. If the nodeid set differs, stop before implementation; a replacement failure cannot be categorized as baseline merely because the count remains eight.
 
-- [ ] **Step 2: Isolate all nine baseline failures**
+- [ ] **Step 2: Isolate all eight baseline failures**
 
 Run each selector separately and save its complete output under `.orchestrate/tmp/procedure-identity-prereqs-baseline/`:
 
@@ -98,7 +99,6 @@ pytest -q tests/test_workflow_output_contract_integration.py::test_provider_vali
 pytest -q tests/test_workflow_semantic_ir.py::test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence 2>&1 | tee .orchestrate/tmp/procedure-identity-prereqs-baseline/semantic-prompt-lineage.txt
 pytest -q tests/test_workflow_semantic_ir.py::test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys 2>&1 | tee .orchestrate/tmp/procedure-identity-prereqs-baseline/executable-ir-keys.txt
 pytest -q tests/test_workflow_semantic_ir.py::test_compiled_bundle_semantic_ir_preserves_command_boundary_classification 2>&1 | tee .orchestrate/tmp/procedure-identity-prereqs-baseline/semantic-command-boundary.txt
-pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py::test_drain_authorities_share_one_current_selector_and_preserve_later_order 2>&1 | tee .orchestrate/tmp/procedure-identity-prereqs-baseline/drain-routing.txt
 pytest -q tests/test_provider_role_routing.py::test_design_delta_drain_defaults_route_work_to_codex_gpt54 2>&1 | tee .orchestrate/tmp/procedure-identity-prereqs-baseline/provider-role.txt
 pytest -q tests/test_neurips_steered_backlog_runtime.py::test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch 2>&1 | tee .orchestrate/tmp/procedure-identity-prereqs-baseline/neurips-runtime.txt
 pytest -q tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_is_explicit_inline_procedure 2>&1 | tee .orchestrate/tmp/procedure-identity-prereqs-baseline/pilot-definition.txt
@@ -109,7 +109,7 @@ Expected: each selector fails independently with the same failure class/message 
 
 - [ ] **Step 3: Create and commit the baseline authority before implementation**
 
-Write schema `procedure_migration_identity_compatibility_baseline.v1` with `captured_at` (UTC), `repository_commit` from `git rev-parse HEAD`, the exact broad command, and nine ordered `failures` rows. Each row contains `nodeid`, `category`, `normalized_failure_signature`, and `normalized_failure_sha256`. Normalize the isolated output by replacing the repository root with `$REPO`, pytest temp roots with `$PYTEST_TMP`, and elapsed durations with `$TIME`; retain exception/assertion type, compared values, and first substantive failure message before hashing the normalized UTF-8 text. Mark exactly the first seven nodeids above `established_unrelated` and exactly the last two `intentional_pilot_red`.
+Write schema `procedure_migration_identity_compatibility_baseline.v1` with `captured_at` (UTC), `repository_commit` from `git rev-parse HEAD`, the exact broad command, and eight ordered `failures` rows. Each row contains `nodeid`, `category`, `normalized_failure_signature`, and `normalized_failure_sha256`. Normalize the isolated output by replacing the repository root with `$REPO`, pytest temp roots with `$PYTEST_TMP`, and elapsed durations with `$TIME`; retain exception/assertion type, compared values, and first substantive failure message before hashing the normalized UTF-8 text. Mark exactly the first six nodeids above `established_unrelated` and exactly the last two `intentional_pilot_red`.
 
 ```bash
 git add docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json
@@ -395,49 +395,45 @@ git add tests/test_resume_command.py
 git commit -m "test: characterize procedure retirement checksum rejection"
 ```
 
-### Task 7: Accept Contracts and Amend the Pilot Handoff
+### Task 7: Amend Remaining Contracts and the Pilot Handoff
 
 **Files:**
-- Modify: `docs/design/workflow_lisp_procedure_migration_identity_compatibility.md`
-- Modify: `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
+- Inspect by default; modify only for genuine post-implementation status/evidence references: `docs/design/workflow_lisp_procedure_migration_identity_compatibility.md`
+- Inspect by default; modify only for genuine post-implementation status/evidence references: `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
 - Modify: `docs/design/workflow_lisp_source_map.md`
 - Modify only if current wording is insufficient: `specs/state.md`
 - Modify only if current wording is insufficient: `specs/acceptance/index.md`
 - Modify: `docs/plans/2026-07-13-procedure-first-pilot-plan.md`
 
-- [ ] **Step 1: Mark the target design accepted and record implementation ownership**
+- [ ] **Step 1: Confirm the already accepted target and reuse contract**
 
-Change only its status/implementation references needed to name the landed compiler pass, checkpoint/provenance behavior, evidence library, checksum tests, and this plan. Keep the projection-integrity audit explicitly out of scope and reference its named future plan; do not route broader roadmap/index selectors in this task.
+Inspect the accepted status and strict-default/narrow-retirement amendment already landed by routing commit `61c79cb4`. Do not re-accept, reword, or re-amend either authority. Modify only an implementation-status, symbol, test, or evidence reference if the completed Tasks 1-6 prove the checked-in reference factually stale; keep the projection-integrity follow-up out of scope.
 
-- [ ] **Step 2: Amend the baseline strict-default rule**
-
-Replace the unconditional checkpoint stop in `workflow_lisp_procedure_first_reuse_contract.md` with strict compatibility by default plus the narrow reviewed-internal-retirement exception. State that exported/public/promoted/live identities and supported old consumers never qualify, and that changed-source supported resume still waits for the atomic upgrader.
-
-- [ ] **Step 3: Amend the source-map contract**
+- [ ] **Step 2: Amend the remaining source-map contract**
 
 Document that WCC inline child contexts merge `_procedure_provenance_notes` through `_merge_origin_notes`, and persisted provider/match/checkpoint lineage contains definition and consuming-call-site notes. State explicitly that `workflow_lisp_source_map.v1` is unchanged.
 
-- [ ] **Step 4: Clarify normative checksum/upgrader text only where missing**
+- [ ] **Step 3: Clarify normative checksum/upgrader text only where missing**
 
 If `specs/state.md`/`specs/acceptance/index.md` do not already say it, add: root changed-source default resume rejects before executor construction and mutation; callee mismatch rejects before child execution/remap while parent metadata may exist; identity equality alone is not cross-source resume evidence; a future tested atomic upgrader must own checksum/program identity. Do not specify recursive projection auditing here.
 
-- [ ] **Step 5: Rewrite the pilot prerequisites and stop conditions**
+- [ ] **Step 4: Rewrite the pilot prerequisites and stop conditions**
 
 Make this plan's focused selectors and reviews prerequisites to the pilot source edit. Preserve the frozen old baseline. Qualify the old “any identity change stops” rule: unreviewed or ineligible changes stop, while reviewed retired internal identities may differ only after validator approval, substantive eligibility, checksum negatives, and artifact/order review.
 
-- [ ] **Step 6: Put known-store scans before the pilot source edit**
+- [ ] **Step 5: Put known-store scans before the pilot source edit**
 
 Before the pilot may edit `.orc`, require it to enumerate the repository workspace `.orchestrate/runs` root and every other intentionally used workspace/run root as separate prospective record entries. Run `scan_known_state_store` for each root against the old identities and retain the normalized digest/count facts. State `external_store_absence: not_asserted`; never infer absence in EasySpin, PtychoPINN, the paper repo, CI, backups, or copied workspaces unless each location is individually enumerated.
 
-- [ ] **Step 7: Require genuine named owner attestations before editing source**
+- [ ] **Step 6: Require genuine named owner attestations before editing source**
 
 For every scanned entry, require a genuine named human owner to supply the timestamped attestation that no supported live/nonterminal run or consumer remains in that named store. An agent must never synthesize, guess, default, paraphrase, or sign an owner name or attestation. If any owner/attestation is missing, ambiguous, or cannot be independently attributed, the pilot records `STOP: missing known-store owner attestation`, keeps strict compatibility selected, and ends without asking, retrying, editing source, or fabricating evidence under the standing unattended/“do not ask” instruction.
 
-- [ ] **Step 8: Keep full record assembly after the pilot source edit**
+- [ ] **Step 7: Keep full record assembly after the pilot source edit**
 
-Only after Steps 6-7 pass may the amended pilot make its one `.orc` edit. It then builds content-addressed new artifacts, combines them with retained old source/build artifacts and the pre-edit genuine store evidence, generates the full identity delta/artifact multiset/execution order/new-ID run-resume evidence, validates the complete record, obtains independent specification/runtime-state approval, and only then accepts reviewed retired identities. The record is evidence, never an input to run/resume. Make no cross-source old-run resume claim.
+Only after Steps 5-6 pass may the amended pilot make its one `.orc` edit. It then builds content-addressed new artifacts, combines them with retained old source/build artifacts and the pre-edit genuine store evidence, generates the full identity delta/artifact multiset/execution order/new-ID run-resume evidence, validates the complete record, obtains independent specification/runtime-state approval, and only then accepts reviewed retired identities. The record is evidence, never an input to run/resume. Make no cross-source old-run resume claim.
 
-- [ ] **Step 9: Verify contract consistency**
+- [ ] **Step 8: Verify contract consistency**
 
 Run:
 
@@ -448,12 +444,13 @@ rg -n "preserve.*checkpoint.*exact|any persisted checkpoint|old.*resume.*new|ext
 
 Expected: the first search finds the new rule at each owning surface; the second finds no stale unconditional stop or unsupported cross-source/external-absence claim except explicitly labeled historical wording.
 
-- [ ] **Step 10: Commit contract and handoff amendments**
+- [ ] **Step 9: Commit the remaining contract and handoff amendments**
 
 ```bash
-git add docs/design/workflow_lisp_procedure_migration_identity_compatibility.md docs/design/workflow_lisp_procedure_first_reuse_contract.md docs/design/workflow_lisp_source_map.md docs/plans/2026-07-13-procedure-first-pilot-plan.md
+git add docs/design/workflow_lisp_source_map.md docs/plans/2026-07-13-procedure-first-pilot-plan.md
 git add specs/state.md specs/acceptance/index.md  # only files actually changed after the insufficiency check
-git commit -m "docs: accept procedure identity retirement compatibility"
+git add docs/design/workflow_lisp_procedure_migration_identity_compatibility.md docs/design/workflow_lisp_procedure_first_reuse_contract.md  # only if Step 1 found a genuine post-implementation reference correction
+git commit -m "docs: land procedure identity compatibility references"
 ```
 
 ### Task 8: Run Full Gates, Independent Reviews, and Hand Back to the Pilot
@@ -497,12 +494,12 @@ Use the `tmux` skill and run from repo root:
 pytest -q -n 16 --dist=worksteal
 ```
 
-Expected: exactly the nine nodeids in `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json`: its seven `established_unrelated` rows plus its two `intentional_pilot_red` rows and no others. Compare nodeids as an exact set, not by count. Rerun every baseline row in isolation, apply the baseline's root/temp/time normalization, and require exact equality of both `normalized_failure_signature` and `normalized_failure_sha256`; a replacement failure cannot hide behind the same nodeid or category. The two pilot rows must be:
+Expected: exactly the eight nodeids in `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json`: its six `established_unrelated` rows plus its two `intentional_pilot_red` rows and no others. Compare nodeids as an exact set, not by count. Rerun every baseline row in isolation, apply the baseline's root/temp/time normalization, and require exact equality of both `normalized_failure_signature` and `normalized_failure_sha256`; a replacement failure cannot hide behind the same nodeid or category. The two pilot rows must be:
 
 - `tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_is_explicit_inline_procedure`
 - `tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_wrapper_uses_procedure_call`
 
-Record an isolated-rerun disposition for each of the seven unrelated rows and confirm none is in a file touched by Tasks 1-7. Rerun the two named pilot tests together and require exactly their pre-source-edit assertions. A missing/replacement/new nodeid, changed normalized signature/digest, changed category/count, any regression in a touched path, or any additional pilot failure fails this gate. Do not edit the baseline JSON or pilot source merely to make the comparison pass.
+Record an isolated-rerun disposition for each of the six unrelated rows and confirm none is in a file touched by Tasks 1-7. Rerun the two named pilot tests together and require exactly their pre-source-edit assertions. A missing/replacement/new nodeid, changed normalized signature/digest, changed category/count, any regression in a touched path, or any additional pilot failure fails this gate. Do not edit the baseline JSON or pilot source merely to make the comparison pass.
 
 ```bash
 pytest -q tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_is_explicit_inline_procedure tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_wrapper_uses_procedure_call
@@ -531,7 +528,7 @@ Expected: `git diff --check` is clean; the family source/frozen pilot baseline c
 
 - [ ] **Step 8: Hand back to the existing pilot plan**
 
-Modify `docs/plans/2026-07-13-procedure-first-pilot-plan.md` execution notes to record: the Task 1-7 prerequisite commit range; the checked-in baseline JSON path and its capture commit/date; focused/compile/build/broad commands and outcomes; exact nine-nodeid/signature/digest comparison; seven isolated unrelated dispositions; the two exact pilot REDs; both review approvals; and the known-store scan API location. The pilot must complete its pre-edit scans and obtain genuine named-owner attestations before its source-edit task becomes selectable. Missing attestation records the explicit unattended stop and does not trigger a question or retry. Do not update `docs/index.md`, the wider roadmap selector, capability status, route-readiness registry, or migration-wave routing in this prerequisite plan.
+Modify `docs/plans/2026-07-13-procedure-first-pilot-plan.md` execution notes to record: the Task 1-7 prerequisite commit range; the checked-in baseline JSON path and its capture commit/date; focused/compile/build/broad commands and outcomes; exact eight-nodeid/signature/digest comparison; six isolated unrelated dispositions; the two exact pilot REDs; both review approvals; and the known-store scan API location. The pilot must complete its pre-edit scans and obtain genuine named-owner attestations before its source-edit task becomes selectable. Missing attestation records the explicit unattended stop and does not trigger a question or retry. Do not update `docs/index.md`, the wider roadmap selector, capability status, route-readiness registry, or migration-wave routing in this prerequisite plan.
 
 - [ ] **Step 9: Commit the narrow handoff evidence update**
 
@@ -558,4 +555,4 @@ Expected: diff check passes; the checked-in broad baseline, pilot `.orc` source,
 
 ## Completion gate
 
-This plan is complete only when prerequisites A-D are generic and green; normalized legacy/WCC-M4 executable, Semantic, runtime, checkpoint/program-point, presentation, source-map-origin, state-allocation, and generated-workflow observables are unchanged except for exactly the reviewed retirement of the synthetic inline-procedure workflow-call checkpoint; the required additive WCC provenance notes pass their separate contract tests; the evidence validator and checksum characterizations pass; accepted contracts and pilot gates agree; a pre-edit baseline JSON is committed before implementation and the final broad/isolated runs match all nine exact nodeids, categories, normalized signatures, and digests; both independent reviews approve; the narrow pilot-plan handoff evidence commit exists; protected paths are untouched/unstaged; and the pilot `.orc` source and frozen old baseline are unchanged. At that point hand off to the existing pilot plan's pre-edit scan/attestation gate; do not continue into the source migration under this plan.
+This plan is complete only when prerequisites A-D are generic and green; normalized legacy/WCC-M4 executable, Semantic, runtime, checkpoint/program-point, presentation, source-map-origin, state-allocation, and generated-workflow observables are unchanged except for exactly the reviewed retirement of the synthetic inline-procedure workflow-call checkpoint; the required additive WCC provenance notes pass their separate contract tests; the evidence validator and checksum characterizations pass; accepted contracts and pilot gates agree; a pre-edit baseline JSON is committed before implementation and the final broad/isolated runs match all eight exact nodeids, categories, normalized signatures, and digests; both independent reviews approve; the narrow pilot-plan handoff evidence commit exists; protected paths are untouched/unstaged; and the pilot `.orc` source and frozen old baseline are unchanged. At that point hand off to the existing pilot plan's pre-edit scan/attestation gate; do not continue into the source migration under this plan.
