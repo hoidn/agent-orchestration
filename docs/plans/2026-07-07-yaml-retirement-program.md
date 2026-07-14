@@ -8,6 +8,24 @@
 
 **Steering decision (user, 2026-07-07):** YAML-surface retirement is a program desideratum. The design-delta family endgame is promote-`.orc`-then-delete-YAML. One recorded sub-decision remains open: whether `verified_iteration_drain` gets its own `.orc` port or is absorbed by the promoted design_delta family — settle it at Task 5, family 2.
 
+**Steering amendment (user, 2026-07-14): deletion-first retirement.** The
+surviving YAML estate is exactly two families — `verified_iteration_drain`
+and `generic_run_watchdog` — and each gets its own `.orc` port through the
+existing parity machinery. This resolves the open Task-5 sub-decision: own
+port, not absorption. Every other example, demo, library, and campaign YAML
+workflow is reclassified `delete` (the neurips and ptychopinn campaigns are
+confirmed finished), and Task 6's deletion sweep — including pruning the
+YAML-referencing tests and fixtures in the same tranche — may run as an
+early independent tranche scheduled around the tracked-plan pilot's
+quiescence window, without waiting for the migration waves. Task 5's
+per-family promotion tail therefore shrinks to the two named ports.
+Temporary holdout: `non_progress_step_back_demo.yaml` stays until the
+in-flight step-back recovery work concludes, then is deleted or ported by
+that work's owner. The demoted Design Delta YAML twins keep their planned
+Stage-6 archive step. Endgame: zero YAML workflow files, then Task 7 deletes
+the user-facing YAML frontend. The triage table's draft classes are
+superseded by this survivor list.
+
 ## Entry gate
 
 - `docs/workflow_yaml_estate_triage.md` must exist first (produced by `docs/plans/2026-07-07-refactoring-dead-code-and-lowering-consolidation.md` Task 13) — it is this program's work-list. Do not start this plan before that triage doc exists.

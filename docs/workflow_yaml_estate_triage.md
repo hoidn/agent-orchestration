@@ -2,6 +2,14 @@
 
 Generated 2026-07-07 for the user-facing YAML retirement sweep.
 Classification column is a DRAFT heuristic — review before acting.
+
+**Superseded 2026-07-14:** the draft classes below are replaced by the
+deletion-first steering amendment in
+`docs/plans/2026-07-07-yaml-retirement-program.md`. Survivors:
+`verified_iteration_drain` and `generic_run_watchdog` (each ported to
+`.orc`); `non_progress_step_back_demo` is a temporary holdout while the
+step-back recovery work is in flight; the Design Delta twins follow their
+planned Stage-6 archive; every other row is `delete`.
 Machine-readable migration state should graduate into the route-readiness registry pattern.
 
 | path | last commit | yaml importers | .orc twin | run/docs evidence | draft class |

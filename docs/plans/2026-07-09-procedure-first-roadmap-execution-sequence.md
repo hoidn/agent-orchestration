@@ -91,7 +91,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-13-resume-projection-integrity-hardening-design-plan.md` | Planned after the internal pilot. Its design/specification and resulting implementation plan must complete before migration waves begin; this row is not an implementation claim. |
 | `2026-07-13-procedure-first-migration-waves-plan.md` | Planned after resume projection-integrity hardening implementation completes. Task 1 must rebaseline all prerequisites before any family migration. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
-| `2026-07-07-yaml-retirement-program.md` | Task 1 may inform later design. Its Design Delta family promotion is coordinated between drain Phases 2 and 3; other code-changing and promotion tasks wait until the procedure-first pilot is accepted. |
+| `2026-07-07-yaml-retirement-program.md` | Amended 2026-07-14 to deletion-first retirement: survivors are `verified_iteration_drain` and `generic_run_watchdog`, each getting its own `.orc` port through the parity kernel; every other YAML workflow is reclassified delete, and the Task 6 deletion sweep may run as an early independent tranche scheduled around the pilot's quiescence window. See the program's steering amendment and roadmap Stage 6. |
 
 ## Concrete Execution Sequence
 
@@ -434,22 +434,31 @@ Every wave must pass:
 
 ### Stage 6: Resume YAML Retirement
 
-Use the procedure-first model as the target authoring architecture:
+Use the procedure-first model as the target authoring architecture. The
+2026-07-14 steering amendment to
+`docs/plans/2026-07-07-yaml-retirement-program.md` selects deletion-first
+retirement:
 
-1. Refresh or create the YAML-to-`.orc` language-gap list.
-2. Rebase the YAML retirement plan against the post-procedure inventory.
+1. Run the estate deletion sweep as an early independent tranche — it
+   touches no governed compiler/runtime/validation surface: delete every
+   YAML workflow except `verified_iteration_drain`, `generic_run_watchdog`,
+   the temporarily held `non_progress_step_back_demo`, and the Design Delta
+   twins, pruning the YAML-referencing tests and fixtures in the same
+   tranche. Schedule around the pilot's quiescence window and record the
+   broad-suite baseline before and after.
+2. Refresh the YAML-to-`.orc` language-gap list only for the two surviving
+   families.
 3. Archive the already-demoted Design Delta YAML twin only after confirming
    the recorded Stage-3 promotion/parity artifact remains the historical
    decision evidence and the `.orc` primary still passes its preserved compile,
    smoke, and end-to-end checks on the post-procedure checkout. Do not require
    the retired `design_delta_parent_drain` parity target to be recreated.
 4. Execute dashboard typed-surface and loader-validation separation work.
-5. Continue with families after the already-promoted Design Delta family, one
-   at a time through the retained parity kernel.
-6. Deprecate YAML only after a real `.orc` production primary exists.
-7. Delete YAML families and finally the user-facing YAML frontend only when
-   the gap list is empty or explicitly waived and all production families are
-   promoted.
+5. Port `verified_iteration_drain` and `generic_run_watchdog` to `.orc`
+   through the retained parity kernel — the only two remaining promotions.
+6. Delete the user-facing YAML frontend when zero YAML workflow files remain
+   and both ports have passed their promotion gates (gap list empty or
+   explicitly waived).
 
 Do not port a YAML family into a reusable `.orc` workflow when Stage 4
 classifies that unit as a procedure candidate.
