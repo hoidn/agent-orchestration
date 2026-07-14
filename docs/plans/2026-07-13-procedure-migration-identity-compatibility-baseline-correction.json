@@ -1,0 +1,169 @@
+{
+  "schema": "procedure_migration_identity_compatibility_baseline_correction.v1",
+  "correction_status": "accepted_values_pending_independent_review",
+  "original_baseline": {
+    "path": "docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json",
+    "capture_commit": "d5eb004309a544bfad56b80439dc106c628f2d63",
+    "capture_commit_parent": "dfd34c769de43dc7006094e5376a8bf4c6b1f593",
+    "captured_repository_commit": "dfd34c769de43dc7006094e5376a8bf4c6b1f593",
+    "captured_at": "2026-07-14T05:04:05Z",
+    "schema_version": "procedure_migration_identity_compatibility_baseline.v1",
+    "file_bytes": 4451,
+    "file_sha256": "fea2669963cf518a490f3a95cff444adfec9497678b5e34ed7f74afe6700559f"
+  },
+  "defects": [
+    {
+      "id": "signature_digest_substituted_for_normalized_log_digest",
+      "affected_values": "all_eight_normalized_failure_sha256_values",
+      "description": "The capture commit hashed each normalized_failure_signature string instead of the normalized UTF-8 isolated failure log required by the plan.",
+      "first_correction_commit": "5c4d6bdce87e1feb587201677c78b63f49925951"
+    },
+    {
+      "id": "python_repr_address_not_normalized",
+      "affected_values": "semantic_command_boundary_normalized_failure_sha256",
+      "description": "The first full-log correction retained a nondeterministic Python object repr address in the semantic-command-boundary failure log.",
+      "first_correction_commit": "50f78791320c540181946fb3a29dce355b19fed3"
+    },
+    {
+      "id": "normalization_patterns_initially_overbroad",
+      "affected_values": "normalization_algorithm_only",
+      "description": "The repr, elapsed-time, and pytest-root patterns were subsequently bounded so arbitrary hexadecimal values, non-summary durations, compared path prefixes, relative lookalikes, and non-repr addresses remain evidence.",
+      "scope_correction_commits": [
+        "bfabb614dd927a2c121f1e7220c21aa1ee180f63",
+        "ffd4503de7d40dbbadb388655adce4e140a516a0"
+      ]
+    }
+  ],
+  "corrected_normalization": {
+    "implementation_commit": "ffd4503de7d40dbbadb388655adce4e140a516a0",
+    "implementation_path": "tests/workflow_lisp_procedure_identity.py",
+    "implementation_symbol": "normalize_procedure_prerequisite_failure_log",
+    "ordered_algorithm": [
+      "Replace the resolved repository root POSIX string with $REPO.",
+      "Replace only complete absolute pytest session roots in POSIX, Windows-drive, or UNC form with $PYTEST_TMP.",
+      "Replace only elapsed durations in pytest outcome-count summary lines with $TIME.",
+      "Replace only Python object repr addresses inside angle brackets, in the form <... at 0x...>, with $ADDR."
+    ],
+    "preserved_evidence": [
+      "arbitrary hexadecimal values and hashes",
+      "non-summary duration text",
+      "compared path prefixes and relative pytest-like paths",
+      "addresses outside angle-bracket Python reprs"
+    ],
+    "digest_input": "normalized UTF-8 bytes of the complete isolated pytest log"
+  },
+  "raw_capture": {
+    "retained_root": ".orchestrate/tmp/procedure-identity-prereqs-baseline",
+    "capture_phase": "pre_implementation",
+    "broad_log": {
+      "path": ".orchestrate/tmp/procedure-identity-prereqs-baseline/broad.txt",
+      "bytes": 23507,
+      "sha256": "20b3c3e009595b242937a643cc156fcffa4b1f1f3a1be4cc99e257a5fbeb482a"
+    },
+    "content_address_contract": "Every corrected digest below is reproducible from the identified raw log only when that log's byte count and SHA-256 match this artifact first."
+  },
+  "failures": [
+    {
+      "nodeid": "tests/test_workflow_output_contract_integration.py::test_provider_valid_output_bundle_overrides_raw_nonzero_exit",
+      "category": "established_unrelated",
+      "normalized_failure_signature": "AssertionError | assert result[\"exit_code\"] == 0 | compared: 2 == 0",
+      "original_normalized_failure_sha256": "e23e31925fb3d7488ca7cf62217e57e1c811587d1ffd3414074498875913fe2d",
+      "corrected_normalized_failure_sha256": "58edf05cdda00547d9218a5938c8fc03801101e013c674ec7980dc39b956d3be",
+      "raw_log": {
+        "path": ".orchestrate/tmp/procedure-identity-prereqs-baseline/output-contract.txt",
+        "bytes": 2949,
+        "sha256": "78859cdcfe49d8ed7578d66fd9748c5877973e874df660c50020c2ffcc5c6c1f"
+      }
+    },
+    {
+      "nodeid": "tests/test_workflow_semantic_ir.py::test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence",
+      "category": "established_unrelated",
+      "normalized_failure_signature": "AssertionError | assert getattr(prompt_surface, \"typed_prompt_inputs\") | compared: () is truthy",
+      "original_normalized_failure_sha256": "fab886194b3e7305d7da58f8965ef181a9ba5ec0696309d53c3a4e034753fd00",
+      "corrected_normalized_failure_sha256": "6f475adbe48a0cc6e4b3140c29f3ed3cf792e0ac2f37f37c40c948f42b862e41",
+      "raw_log": {
+        "path": ".orchestrate/tmp/procedure-identity-prereqs-baseline/semantic-prompt-lineage.txt",
+        "bytes": 1631,
+        "sha256": "36236679421afe7f022f52aadd4b6804cce5056a4c98bc5199a51542020e643a"
+      }
+    },
+    {
+      "nodeid": "tests/test_workflow_semantic_ir.py::test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys",
+      "category": "established_unrelated",
+      "normalized_failure_signature": "AssertionError | assert \"form_path\" not in serialized | compared: \"form_path\" is contained in serialized",
+      "original_normalized_failure_sha256": "a4a6d4b2d12dc58fd3a00e2295e265561314a51fd0470d9220854d19be069ae7",
+      "corrected_normalized_failure_sha256": "a841f6f2534f43b3ef3780afa96cd16ef6c3956b32e77b5acf34c8a462e53710",
+      "raw_log": {
+        "path": ".orchestrate/tmp/procedure-identity-prereqs-baseline/executable-ir-keys.txt",
+        "bytes": 2280,
+        "sha256": "bd07a91c367347c67ca9995fe30557ab46d61c6ff7d5f61e32d526cbb4c767a7"
+      }
+    },
+    {
+      "nodeid": "tests/test_workflow_semantic_ir.py::test_compiled_bundle_semantic_ir_preserves_command_boundary_classification",
+      "category": "established_unrelated",
+      "normalized_failure_signature": "AssertionError | assert any(step.boundary_kind == \"certified_adapter\" and step.boundary_name == \"apply_resource_transition\" for step in resource_command_steps) | compared: False is truthy",
+      "original_normalized_failure_sha256": "d31974984680ef73e7927807a1dbd8f65a2f4591516798b09fc15edcdf6b9fe8",
+      "corrected_normalized_failure_sha256": "b0ae95ae8725578714724c86fea1479e15374d28c476a1ed5ae9ce2e9fbe6c5d",
+      "raw_log": {
+        "path": ".orchestrate/tmp/procedure-identity-prereqs-baseline/semantic-command-boundary.txt",
+        "bytes": 3745,
+        "sha256": "11135b8130cafd77ec7065275a4b0447997539e7ac8619d1e992a7a3ea77dc6d"
+      }
+    },
+    {
+      "nodeid": "tests/test_provider_role_routing.py::test_design_delta_drain_defaults_route_work_to_codex_gpt54",
+      "category": "established_unrelated",
+      "normalized_failure_signature": "AssertionError | assert workflow[\"inputs\"][\"design_gap_draft_provider\"][\"default\"] == \"codex\" | compared: \"claude\" == \"codex\"",
+      "original_normalized_failure_sha256": "90a8ccbf5fbd908c1e911860c54432e4433e13d574566398d5db055759361a59",
+      "corrected_normalized_failure_sha256": "ef20b51acbd115fbf35fe1338f60c44ebed325e4fe97b7ed80018a39a06bb4d4",
+      "raw_log": {
+        "path": ".orchestrate/tmp/procedure-identity-prereqs-baseline/provider-role.txt",
+        "bytes": 918,
+        "sha256": "6beb48014c94219f428c185f72a171c382a905dc62fbe3f6cec14a03e386e5e3"
+      }
+    },
+    {
+      "nodeid": "tests/test_neurips_steered_backlog_runtime.py::test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch",
+      "category": "established_unrelated",
+      "normalized_failure_signature": "FileNotFoundError | [Errno 2] No such file or directory: \"$PYTEST_TMP/test_neurips_steered_backlog_r0/workspace/artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog-drain-summary.json\"",
+      "original_normalized_failure_sha256": "7eb30e5f77f503b95bbc3da0e77a9d0c19088e1d22b0f53aa2481a17fd77e47d",
+      "corrected_normalized_failure_sha256": "908a4f623f045b0762da26bf732c4e0a7df8ca1568cdff605b0d3ad688da3367",
+      "raw_log": {
+        "path": ".orchestrate/tmp/procedure-identity-prereqs-baseline/neurips-runtime.txt",
+        "bytes": 5153,
+        "sha256": "464779ce795f3f5a77869f425cd806f08d5bf755803f9fddf9f0e3386842390d"
+      }
+    },
+    {
+      "nodeid": "tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_is_explicit_inline_procedure",
+      "category": "intentional_pilot_red",
+      "normalized_failure_signature": "AssertionError | tracked-plan-phase remains a defworkflow; expected defproc with requested/resolved lowering inline | compared: None is not None",
+      "original_normalized_failure_sha256": "c82257eec5d30836141e7a019398877eef338850b89c30701b6b97872d2d6f64",
+      "corrected_normalized_failure_sha256": "0419d3b317a617470d3d5bbc6abd63177633dd86f32a4c436ba2b5b842ba40bf",
+      "raw_log": {
+        "path": ".orchestrate/tmp/procedure-identity-prereqs-baseline/pilot-definition.txt",
+        "bytes": 1523,
+        "sha256": "aaa2d25a5b694f50bae65ee5d92fcb5b83cffc2191e674aa868f714d11ca8d7a"
+      }
+    },
+    {
+      "nodeid": "tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_wrapper_uses_procedure_call",
+      "category": "intentional_pilot_red",
+      "normalized_failure_signature": "AssertionError | design-plan-impl-review-stack still uses (call tracked-plan-phase ...); expected an ordinary positional procedure call | compared: \"examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase\" in set()",
+      "original_normalized_failure_sha256": "7ede0dbc27bad8983f6aad9904231522c3b10b92b08687e1afc41b066e05fa22",
+      "corrected_normalized_failure_sha256": "c49ce773ec2edfb1a547f1d7db19e829c3cce65bd1ba1241a1dd3c213a22ddbd",
+      "raw_log": {
+        "path": ".orchestrate/tmp/procedure-identity-prereqs-baseline/pilot-callsite.txt",
+        "bytes": 1953,
+        "sha256": "9fea4c69c22e513779a5de7674821393cc77a001f08c63004bd2c5fddd550b51"
+      }
+    }
+  ],
+  "accepted_baseline_projection": {
+    "baseline_file_commit": "50f78791320c540181946fb3a29dce355b19fed3",
+    "baseline_file_bytes": 4511,
+    "baseline_file_sha256": "2b4db936e3747e72fc67aab77ee738d2d0179ec40db170ee7648e6471ce5ec6e",
+    "selection_rule": "Use each corrected_normalized_failure_sha256 in this artifact together with its unchanged nodeid, category, and normalized_failure_signature. The baseline file is retained as the compact accepted projection; this correction artifact owns how that projection was derived from the original capture."
+  }
+}
