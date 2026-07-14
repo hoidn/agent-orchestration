@@ -2,9 +2,16 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** STOP: missing known-store owner attestation. The
-identity-compatibility prerequisite handoff remains complete, but Task 1A's
-harness work and every pilot source edit are unselected and prohibited.
+**Status:** Architect decision recorded 2026-07-14 (APPROVE, Path A —
+conditional `reviewed_internal_identity_retirement`; see the decision request
+below). Task 1A harness/evidence work is selectable: the repository run store
+and the dedicated evidence store are enumerated under a named owner, external
+stores are recorded as not intentionally used, and
+`external_store_absence: not_asserted` stands. Every pilot source edit
+remains prohibited until the complete pre-edit gate (scans, genuine owner
+attestations, isolation, quiescence, immutable evidence) commits
+successfully; any supported old-run or consumer match reverts to strict
+compatibility.
 
 **Architect decision request:**
 [Tracked-Plan Pilot Identity-Retirement Architect Decision Request](2026-07-14-tracked-plan-pilot-identity-retirement-decision-request.md).
@@ -146,6 +153,13 @@ treated as an attestation, and no file or directory was created, removed, or
 modified by the preflight. Therefore the mandatory result is
 `STOP: missing known-store owner attestation`; do not create placeholder
 evidence or select Task 1A's harness work or any source edit.
+
+**Superseded 2026-07-14:** the architect decision recorded in
+[the decision request](2026-07-14-tracked-plan-pilot-identity-retirement-decision-request.md)
+resolves this stop for Task 1A selection (Path A; see Status above). The
+preflight record above is preserved as history. The source-edit prohibition
+and every fail-closed rule below remain in force until the complete pre-edit
+gate commits.
 
 ## Protected working-tree guard
 

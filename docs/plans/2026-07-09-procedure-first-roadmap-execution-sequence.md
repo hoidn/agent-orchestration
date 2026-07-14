@@ -87,7 +87,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Completed Stage-5 wave 2. Root/field guidance and the combined v2.15 public promotion gate are landed; do not re-execute it. |
 | `2026-07-13-procedure-first-substrate-gaps-plan.md` | Complete and independently gated. Caller-visible transitive effects are recomputed after specialization; do not re-execute this substrate before the tracked-plan pilot. |
 | `2026-07-13-procedure-migration-identity-compatibility-plan.md` | Complete and gated; the final audited handoff to the pilot is `f5adcb79`. Do not re-execute it or edit the pilot family source under this plan. |
-| `2026-07-13-procedure-first-pilot-plan.md` | Current selected plan, but `STOPPED/BLOCKED` before Task 1A selection by the missing genuine known-store owner attestation recorded in `45eadbdc`. Task 1A harness work and every source edit are unselected and prohibited. |
+| `2026-07-13-procedure-first-pilot-plan.md` | Current selected plan. The 2026-07-14 architect decision (recorded in `2026-07-14-tracked-plan-pilot-identity-retirement-decision-request.md`) approved Path A — conditional reviewed internal identity retirement. Task 1A harness/evidence work is selectable with the repository run store and dedicated evidence store enumerated under a named owner; every pilot source edit remains prohibited until the complete pre-edit gate commits, and fail-closed reversion to strict compatibility stands. |
 | `2026-07-13-resume-projection-integrity-hardening-design-plan.md` | Planned after the internal pilot. Its design/specification and resulting implementation plan must complete before migration waves begin; this row is not an implementation claim. |
 | `2026-07-13-procedure-first-migration-waves-plan.md` | Planned after resume projection-integrity hardening implementation completes. Task 1 must rebaseline all prerequisites before any family migration. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
@@ -181,12 +181,13 @@ quality review on 2026-07-13. Both typed-return waves are complete and DSL
 v2.15 is public. The resolved-effect substrate is complete and independently
 gated. The procedure-migration identity-compatibility prerequisites are
 complete and gated at handoff `f5adcb79`. The current selected plan is
-`docs/plans/2026-07-13-procedure-first-pilot-plan.md`, but it is
-`STOPPED/BLOCKED` before Task 1A selection by the missing genuine known-store
-owner attestation recorded in `45eadbdc`; Task 1A harness work and every source
-edit remain unselected and prohibited. External unblock requires genuine
-attributable owner attestations for every known state store and completion of
-the required pre-edit scan, isolation, quiescence, and immutable-evidence gate;
+`docs/plans/2026-07-13-procedure-first-pilot-plan.md`. The 2026-07-14
+architect decision (Path A, recorded in
+`2026-07-14-tracked-plan-pilot-identity-retirement-decision-request.md`)
+makes Task 1A harness/evidence work selectable; every source edit remains
+prohibited until the complete pre-edit gate commits. The named store owner
+must still supply genuine attributable attestations after the recorded scans,
+with the required isolation, quiescence, and immutable-evidence gate;
 identity must not be inferred from usernames, filesystem metadata,
 conversation context, or agent claims. Only after the pilot completes is it
 followed by
@@ -258,9 +259,10 @@ full-suite comparison, promoted `.orc` compile/dry-run evidence, and preserved
 historical state/YAML twin. The semantic-migration freeze is lifted and Stage 4
 was the next selector at Gate S3; it, both typed-return waves, and the
 resolved-effect substrate and identity-compatibility prerequisites are now
-complete. The tracked-plan pilot is the current selected plan, but it is
-`STOPPED/BLOCKED` before Task 1A selection under the `45eadbdc` attestation
-stop; projection-integrity hardening remains later and must not start first.
+complete. The tracked-plan pilot is the current selected plan; the 2026-07-14 architect
+decision (Path A) makes Task 1A evidence work selectable while every source
+edit stays behind the pre-edit gate. Projection-integrity hardening remains
+later and must not start first.
 
 ### Stage 4: Design The Broader Procedure-First Contract
 
@@ -391,14 +393,17 @@ Execute only accepted plans, in this order:
    `2026-07-13-procedure-migration-identity-compatibility-plan.md` passed its
    generic implementation, evidence, checksum-negative, and independent-review
    gates; the final audited handoff is `f5adcb79`. Do not re-execute it.
-5. **Pilot wave — current selected plan, stopped before Task 1A.**
-   `2026-07-13-procedure-first-pilot-plan.md` is `STOPPED/BLOCKED` by the
-   missing genuine known-store owner attestation recorded in `45eadbdc`. Task
-   1A harness work and every source edit are unselected and prohibited.
-   External unblock requires genuine attributable owner attestations for every
-   known state store and completion of the required pre-edit scan, isolation,
-   quiescence, and immutable-evidence gate; identity must not be inferred from
-   usernames, filesystem metadata, conversation context, or agent claims. The
+5. **Pilot wave — current selected plan, Path A approved 2026-07-14.**
+   `2026-07-13-procedure-first-pilot-plan.md` resumes at Task 1A under the
+   architect decision recorded in
+   `2026-07-14-tracked-plan-pilot-identity-retirement-decision-request.md`:
+   conditional reviewed internal identity retirement, evidence collection
+   only. Every source edit remains prohibited until the complete pre-edit
+   gate commits. The named store owner must still supply genuine attributable
+   attestations after the recorded scans, with the required isolation,
+   quiescence, and immutable-evidence gate; identity must not be inferred
+   from usernames, filesystem metadata, conversation context, or agent
+   claims. The
    resumed pilot then owns the reviewed internal retirement exception, the one
    family edit, and full public-wrapper parity. Missing or ineligible retirement
    evidence stops the pilot under strict compatibility.

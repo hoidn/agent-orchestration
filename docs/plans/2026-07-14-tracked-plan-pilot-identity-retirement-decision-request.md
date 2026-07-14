@@ -1,6 +1,9 @@
 # Tracked-Plan Pilot Identity-Retirement Architect Decision Request
 
-**Status:** Awaiting architect decision.
+**Status:** Decided 2026-07-14 — Path A approved (conditional
+`reviewed_internal_identity_retirement`, evidence collection only). See the
+Architect Decision Record below. Source edit remains prohibited until the
+complete pre-edit gate commits.
 
 **Decision owner:** Project architect.
 
@@ -111,7 +114,7 @@ Projection-integrity hardening is not an alternative way around this decision.
 
 Select exactly one:
 
-- [ ] **A — Conditionally pursue `reviewed_internal_identity_retirement`.**
+- [x] **A — Conditionally pursue `reviewed_internal_identity_retirement`.**
       This authorizes evidence collection only. It does not authorize the
       source edit.
 - [ ] **B — Require `strict_compatibility` without a source-crossing
@@ -124,7 +127,15 @@ Select exactly one:
 
 **Rationale:**
 
-> Architect completes this section.
+> The pilot exists to exercise the reviewed retirement class on the narrowest
+> eligible candidate. The callee is internal-only with the public stack
+> wrapper retained, the generic prerequisites are complete and independently
+> audited (`f5adcb79`), and the architect does not require any old run of the
+> `design-plan-impl-review-stack` family to resume across the source change.
+> Path A authorizes evidence collection only; every downstream gate remains
+> fail-closed, and any supported old-run or consumer match reverts the pilot
+> to strict compatibility. (Decision supplied directly by the architect in an
+> interactive session on 2026-07-14.)
 
 ### Decision 2: Known-store scope and accountable owners
 
@@ -134,16 +145,16 @@ must not sign on that person's behalf.
 
 | Store or class | Canonical root | Genuine human owner | Include and scan? | Notes |
 | --- | --- | --- | --- | --- |
-| Repository run store | `/home/ollie/Documents/agent-orchestration/.orchestrate/runs` | _Required_ | Yes | Existing nonempty store |
-| Dedicated new-ID evidence store | `/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs` | _Required_ | Yes | Must be created empty and proven isolated before use |
-| EasySpin workspace/run store | _Architect supplies exact root or records not intentionally used_ | _Required if enumerated_ | _Decide_ | Absence is otherwise unknown |
-| PtychoPINN workspace/run store | _Architect supplies exact root or records not intentionally used_ | _Required if enumerated_ | _Decide_ | Absence is otherwise unknown |
-| Paper-repository workspace/run store | _Architect supplies exact root or records not intentionally used_ | _Required if enumerated_ | _Decide_ | Absence is otherwise unknown |
-| CI, backup, copied, or other stores | _Enumerate each concrete root_ | _Required_ | _Decide_ | Do not assert global absence |
+| Repository run store | `/home/ollie/Documents/agent-orchestration/.orchestrate/runs` | Ollie (ohoidn@stanford.edu) | Yes | Existing nonempty store |
+| Dedicated new-ID evidence store | `/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs` | Ollie (ohoidn@stanford.edu) | Yes | Must be created empty and proven isolated before use |
+| EasySpin workspace/run store | Not intentionally used for this family (architect record, 2026-07-14) | n/a — not enumerated | No | Absence is not asserted; remains unknown |
+| PtychoPINN workspace/run store | Not intentionally used for this family (architect record, 2026-07-14) | n/a — not enumerated | No | Absence is not asserted; remains unknown |
+| Paper-repository workspace/run store | Not intentionally used for this family (architect record, 2026-07-14) | n/a — not enumerated | No | Absence is not asserted; remains unknown |
+| CI, backup, copied, or other stores | None intentionally used for this family (architect record, 2026-07-14) | n/a — not enumerated | No | Do not assert global absence |
 
 Path A may be approved only after both of the following are recorded literally:
 
-- [ ] Every intentionally used known root is enumerated above, with no
+- [x] Every intentionally used known root is enumerated above, with no
       `_Decide_`, `_Required_`, or other unresolved entry remaining.
 - `external_store_absence: not_asserted`
 
@@ -167,7 +178,7 @@ Select one requested disposition. Disposal remains contingent on separately
 attributable owner confirmation and recorded evidence; this architect decision
 does not itself confirm provenance or authorize deletion.
 
-- [ ] Request owner-confirmed disposal of the 355
+- [x] Request owner-confirmed disposal of the 355
       `/tmp/design-plan-impl-stack-*` directories after the owner supplies a
       fresh, attributable provenance/shape confirmation.
 - [ ] Some or all directories are durable or potentially supported stores;
@@ -177,12 +188,17 @@ does not itself confirm provenance or authorize deletion.
 
 **Requested accountable owner and rationale:**
 
-> Architect completes this section.
+> Requested owner: Ollie (ohoidn@stanford.edu). The directories are
+> helper-shaped scratch produced by stack runs; disposal keeps the evidence
+> window clean. Disposal remains contingent on the owner's fresh,
+> attributable provenance/shape confirmation; if that confirmation fails,
+> fall back to enumerate-and-scan rather than deletion.
 
 **Confirming owner and evidence reference (completed by or from separately
 attributable owner evidence, not by architectural inference):**
 
-> Architect completes this section.
+> Pending — intentionally not completed by this decision. Awaits the owner's
+> separately attributable confirmation and its recorded evidence reference.
 
 ### Decision 4: Quiescence authority
 
@@ -191,9 +207,9 @@ evidence window and who owns the dedicated root's permitted new-ID runs.
 
 | Responsibility | Named human | Enforcement mechanism | Window |
 | --- | --- | --- | --- |
-| Legacy-store quiescence | _Required_ | _Required_ | Pre-edit scan through final review |
-| Dedicated new-ID store ownership | _Required_ | _Required_ | Creation through final review |
-| Final dedicated-store attestation | _Required_ | _Required_ | After clean and interruption/resume runs |
+| Legacy-store quiescence | Ollie (ohoidn@stanford.edu) | Hold: no new orchestrator runs launched in this repository, and run-launching agent sessions paused, for the window | Pre-edit scan through final review |
+| Dedicated new-ID store ownership | Ollie (ohoidn@stanford.edu) | Store created empty by the pilot harness and used exclusively for the pilot's permitted new-ID runs | Creation through final review |
+| Final dedicated-store attestation | Ollie (ohoidn@stanford.edu) | Timestamped owner attestation supplied after the clean and interruption/resume runs | After clean and interruption/resume runs |
 
 If quiescence cannot be credibly enforced, Path A is not eligible.
 
@@ -213,23 +229,48 @@ external absence.
 
 Complete all applicable fields:
 
-- **Selected path:** A / B / C
-- **Decision rationale:**
-- **Repository-store owner:**
-- **Dedicated-store owner:**
-- **Additional enumerated roots and owners:**
-- **Known-root scope complete:** yes / no
+- **Selected path:** A
+- **Decision rationale:** Exercise the reviewed retirement class on this
+  narrowest eligible internal candidate; no old run of this family needs to
+  resume across the source change; prerequisites are complete and audited
+  (`f5adcb79`); Path A authorizes evidence collection only and every
+  downstream gate remains fail-closed.
+- **Repository-store owner:** Ollie (ohoidn@stanford.edu)
+- **Dedicated-store owner:** Ollie (ohoidn@stanford.edu)
+- **Additional enumerated roots and owners:** None. EasySpin, PtychoPINN, and
+  paper-repository workspaces are recorded as not intentionally used for this
+  family; no CI, backup, or copied stores were intentionally used.
+- **Known-root scope complete:** yes
 - `external_store_absence: not_asserted`
-- **Scratch-directory requested disposition and owner:**
-- **Scratch confirming owner/evidence reference:**
-- **Quiescence authority and mechanism:**
+- **Scratch-directory requested disposition and owner:** Owner-confirmed
+  disposal of the 355 `/tmp/design-plan-impl-stack-*` directories requested;
+  requested owner Ollie (ohoidn@stanford.edu); contingent on his separate
+  fresh provenance confirmation.
+- **Scratch confirming owner/evidence reference:** Pending — awaits the
+  owner's separately attributable confirmation; not completed by this
+  decision.
+- **Quiescence authority and mechanism:** Ollie (ohoidn@stanford.edu); hold —
+  no new orchestrator runs launched in this repository and run-launching
+  agent sessions paused from the pre-edit scan through final validator
+  execution and independent review; the dedicated store is used exclusively
+  for the pilot's permitted new-ID runs.
 - **Roadmap disposition and exact next selected plan:**
-- **If Path B, choose exactly one:** unchanged pilot closed/abandoned / identity-preserving redesign chartered with no supported old run crossing changed source
-- **If Path C, upgrader owner and exact roadmap change request:**
-- **Conditions that must be re-reviewed:**
-- **Architect name:**
-- **Decision date/time and timezone:**
-- **Decision status:** APPROVE / REVISE / REJECT
+  `docs/plans/2026-07-13-procedure-first-pilot-plan.md` remains the current
+  selector, resumed at Task 1A (harness hygiene, root isolation, scans,
+  genuine attestations, immutable pre-edit evidence). The pilot source edit
+  remains prohibited until the complete pre-edit gate commits successfully.
+- **If Path B, choose exactly one:** n/a
+- **If Path C, upgrader owner and exact roadmap change request:** n/a
+- **Conditions that must be re-reviewed:** any scan match of a supported
+  live/nonterminal run or old-frame consumer in an attested store (reverts to
+  strict compatibility); any break of the quiescence hold during the window
+  (requires re-scan); failed scratch provenance confirmation (falls back to
+  enumerate-and-scan, no deletion); discovery of any additional intentionally
+  used root (reopens scope and this decision).
+- **Architect name:** Ollie (ohoidn@stanford.edu), decision supplied directly
+  in an interactive session and transcribed verbatim by the session agent.
+- **Decision date/time and timezone:** 2026-07-14T12:52:57-07:00 (PDT)
+- **Decision status:** APPROVE
 
 ## Acceptance And Handoff
 
