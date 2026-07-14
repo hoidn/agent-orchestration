@@ -217,6 +217,48 @@ def _resolve_procedure_lowering(
     return MappingProxyType(resolved)
 
 
+def _validate_resolved_procedure_mapping(
+    typed_procedures: tuple[TypedProcedureDef, ...],
+    resolved_procedures_by_name: Mapping[str, TypedProcedureDef] | None,
+) -> Mapping[str, TypedProcedureDef]:
+    """Require the exact immutable Stage-3 procedure decision mapping."""
+
+    if not typed_procedures:
+        return resolved_procedures_by_name or MappingProxyType({})
+
+    first = typed_procedures[0]
+    reason: str | None = None
+    if resolved_procedures_by_name is None:
+        reason = "compiler-owned resolved procedure mapping is required"
+    elif not isinstance(resolved_procedures_by_name, type(MappingProxyType({}))):
+        reason = "resolved procedure mapping must be immutable"
+    elif tuple(resolved_procedures_by_name) != tuple(
+        procedure.definition.name for procedure in typed_procedures
+    ):
+        reason = "resolved procedure mapping order or membership differs from the typed tuple"
+    else:
+        for procedure in typed_procedures:
+            mapped = resolved_procedures_by_name.get(procedure.definition.name)
+            if mapped is not procedure:
+                reason = f"resolved procedure row differs for `{procedure.definition.name}`"
+                break
+            if procedure.resolved_lowering_mode is ProcedureLoweringMode.AUTO:
+                reason = f"procedure `{procedure.definition.name}` has unresolved lowering mode"
+                break
+
+    if reason is not None:
+        from .context import _compile_error
+
+        raise _compile_error(
+            code="procedure_lowering_unresolved",
+            message=reason,
+            span=first.definition.span,
+            form_path=first.definition.form_path,
+        )
+    assert resolved_procedures_by_name is not None
+    return resolved_procedures_by_name
+
+
 def _procedure_private_call_site_analysis(
     typed_procedures: tuple[TypedProcedureDef, ...],
     *,
@@ -348,6 +390,43 @@ def _lower_procedure_call_expr(
         result_type=typed_expr.type_ref,
         context=context,
         local_values=local_values,
+    )
+
+
+def _schema1_iteration_private_override_applies(
+    procedure: TypedProcedureDef,
+    *,
+    context: Any,
+) -> bool:
+    """Expose the legacy call-local override as an observable boolean decision."""
+
+    if not (
+        procedure.resolved_lowering_mode == ProcedureLoweringMode.INLINE
+        and context.iteration_scope is not None
+        and not context.workflow_name.startswith("%composition.")
+        and not any(
+            isinstance(node, LoopRecurExpr)
+            for node in walk_expr(procedure.typed_body.expr)
+        )
+    ):
+        return False
+
+    from ..procedure_specialization import (
+        _procedure_private_body_valid,
+        _procedure_private_boundary_valid,
+    )
+
+    procedure_type_env = _procedure_type_env_for(
+        procedure,
+        procedure_type_envs=context.procedure_type_envs,
+        default=context.type_env,
+    )
+    return _procedure_private_boundary_valid(procedure) and _procedure_private_body_valid(
+        procedure,
+        typed_procedures_by_name=context.typed_procedures,
+        type_env=procedure_type_env,
+        procedure_type_envs=context.procedure_type_envs,
+        workflow_signatures_by_name=context.workflow_catalog.signatures_by_name,
     )
 
 
@@ -572,44 +651,16 @@ def _lower_procedure_call(
     generated_workflow_name = procedure.generated_workflow_name
     # schema1_compatibility: keep loop-recur bodies on the inline route inside
     # iteration scopes so recursive loop state remains owned by loop lowering.
-    if (
-        resolved_lowering_mode == ProcedureLoweringMode.INLINE
-        and context.iteration_scope is not None
-        and not context.workflow_name.startswith("%composition.")
-        and not any(isinstance(node, LoopRecurExpr) for node in walk_expr(procedure.typed_body.expr))
-    ):
-        from ..procedure_specialization import (
-            _procedure_private_body_valid,
-            _procedure_private_boundary_valid,
+    if _schema1_iteration_private_override_applies(procedure, context=context):
+        resolved_lowering_mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
+        generated_workflow_name = procedure.generated_workflow_name or (
+            f"%{Path(procedure.definition.span.start.path).stem}.{procedure.signature.name}.v1"
         )
-
-        procedure_type_env = _procedure_type_env_for(
+        procedure = replace(
             procedure,
-            procedure_type_envs=context.procedure_type_envs,
-            default=context.type_env,
+            resolved_lowering_mode=resolved_lowering_mode,
+            generated_workflow_name=generated_workflow_name,
         )
-        if _procedure_private_boundary_valid(procedure) and _procedure_private_body_valid(
-            procedure,
-            typed_procedures_by_name=context.typed_procedures,
-            type_env=procedure_type_env,
-            procedure_type_envs=context.procedure_type_envs,
-            # Iteration-scope-only widening: this re-check alone threads the
-            # workflow-signature lookup, so hooks whose bodies let*-bind
-            # workflow calls promote inside the generic loop lane while
-            # module-level and specialization-site promotion decisions stay
-            # untouched (defproc lowering-mode contract,
-            # docs/design/workflow_lisp_frontend_specification.md).
-            workflow_signatures_by_name=context.workflow_catalog.signatures_by_name,
-        ):
-            resolved_lowering_mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
-            generated_workflow_name = procedure.generated_workflow_name or (
-                f"%{Path(procedure.definition.span.start.path).stem}.{procedure.signature.name}.v1"
-            )
-            procedure = replace(
-                procedure,
-                resolved_lowering_mode=resolved_lowering_mode,
-                generated_workflow_name=generated_workflow_name,
-            )
     if resolved_lowering_mode == ProcedureLoweringMode.PRIVATE_WORKFLOW:
         context.origin_notes = procedure_notes
         assert procedure.generated_workflow_name is not None

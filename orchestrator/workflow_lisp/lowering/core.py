@@ -737,6 +737,7 @@ def lower_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...] = (),
+    resolved_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
     procedure_catalog: ProcedureCatalog | None = None,
     workflow_path: Path,
     workflow_catalog: WorkflowCatalog,
@@ -748,20 +749,17 @@ def lower_workflow_definitions(
 ) -> tuple[LoweredWorkflow, ...]:
     """Lower typechecked frontend workflows into shared workflow dictionaries.
 
-    This is the frontend's main lowering entrypoint. It first decides how each
-    `defproc` lowers, synthesizes private workflow boundaries where needed,
-    topologically lowers same-file workflow dependencies, and returns mappings
-    that can be passed directly into the shared workflow validation pipeline.
+    This is the frontend's main lowering entrypoint. It consumes Stage 3's
+    immutable `defproc` decisions, synthesizes private workflow boundaries
+    where needed, topologically lowers same-file workflow dependencies, and
+    returns mappings that can be passed directly into shared validation.
     """
 
-    typed_procedures_by_name = {procedure.definition.name: procedure for procedure in typed_procedures}
-    from .procedures import _private_workflow_from_procedure, _resolve_procedure_lowering
+    from .procedures import _private_workflow_from_procedure, _validate_resolved_procedure_mapping
 
-    resolved_procedures = _resolve_procedure_lowering(
+    resolved_procedures = _validate_resolved_procedure_mapping(
         typed_procedures,
-        typed_workflows=typed_workflows,
-        workflow_path=workflow_path,
-        type_env=type_env or FrontendTypeEnvironment.from_module(_definition_only_module(workflow_path)),
+        resolved_procedures_by_name,
     )
     private_workflows = {
         procedure.generated_workflow_name: _private_workflow_from_procedure(procedure)

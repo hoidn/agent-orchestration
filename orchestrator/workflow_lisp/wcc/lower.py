@@ -42,6 +42,7 @@ def lower_wcc_m1_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
+    resolved_procedures_by_name: Mapping[str, TypedProcedureDef],
     available_workflows_by_name: Mapping[str, TypedWorkflowDef] | None = None,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment],
     workflow_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
@@ -67,6 +68,7 @@ def lower_wcc_m1_workflow_definitions(
     return lower_workflow_definitions(
         rewritten,
         typed_procedures=typed_procedures,
+        resolved_procedures_by_name=resolved_procedures_by_name,
         procedure_catalog=procedure_catalog,
         workflow_path=workflow_path,
         workflow_catalog=workflow_catalog,

@@ -10,9 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-from orchestrator.workflow_lisp.lowering import _resolve_procedure_lowering
 from orchestrator.workflow_lisp.source_map import build_source_map_document
-from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
@@ -413,12 +411,10 @@ def build_procedure_identity_observation(
         lowering_route=route,
     )
     module_result = compile_result.entry_result
-    resolved = _resolve_procedure_lowering(
-        module_result.typed_procedures,
-        typed_workflows=module_result.typed_workflows,
-        workflow_path=path,
-        type_env=FrontendTypeEnvironment.from_module(module_result.module),
-    )
+    resolved = {
+        procedure.definition.name: procedure
+        for procedure in module_result.typed_procedures
+    }
     source_map = build_source_map_document(
         compile_result,
         selected_name=f"{module_result.module.module_name}::{entry_workflow}",

@@ -1,13 +1,15 @@
 import ast
 import importlib
-import inspect
 import json
 from dataclasses import fields, replace
 from pathlib import Path
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
+import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
+import orchestrator.workflow_lisp.lowering.procedures as procedure_lowering
+import orchestrator.workflow_lisp.wcc.defunctionalize as wcc_defunctionalize
 from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
 from orchestrator.workflow_lisp.compiler import (
@@ -70,6 +72,7 @@ from orchestrator.workflow_lisp.workflows import (
     elaborate_workflow_definitions,
     typecheck_workflow_definitions,
 )
+from orchestrator.workflow_lisp.wcc.defunctionalize import lower_wcc_m4_workflow_definitions
 from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
 from tests.workflow_lisp_procedure_identity import build_procedure_identity_observation
 
@@ -96,6 +99,28 @@ PROCEDURE_IDENTITY_BASELINES = Path(__file__).parent / "baselines" / "procedure_
 def compile_stage3_module(*args, **kwargs):
     kwargs.setdefault("lowering_route", "legacy")
     return _compile_stage3_module(*args, **kwargs)
+
+
+def _compile_procedure_identity_fixture(tmp_path: Path, *, lowering_route: str = "legacy"):
+    providers = json.loads(PROCEDURE_IDENTITY_FIXTURE.with_suffix(".providers.json").read_text())
+    prompts = json.loads(PROCEDURE_IDENTITY_FIXTURE.with_suffix(".prompts.json").read_text())
+    command_payload = json.loads(
+        PROCEDURE_IDENTITY_FIXTURE.with_suffix(".commands.json").read_text()
+    )
+    commands = {
+        name: ExternalToolBinding(name=name, stable_command=tuple(payload["stable_command"]))
+        for name, payload in command_payload.items()
+    }
+    return _compile_stage3_module(
+        PROCEDURE_IDENTITY_FIXTURE,
+        entry_workflow="orchestrate",
+        provider_externs=providers,
+        prompt_externs=prompts,
+        command_boundaries=commands,
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route=lowering_route,
+    )
 
 
 def _compile(path: Path, *, tmp_path: Path):
@@ -3748,7 +3773,6 @@ def test_private_workflow_match_binding_exports_step_backed_outputs(tmp_path: Pa
 
 def test_private_workflow_union_match_uses_private_workflow_metadata_not_name_heuristic(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path = _write_module(
         tmp_path / "procedure_union_match_private_workflow.orc",
@@ -3809,16 +3833,20 @@ def test_private_workflow_union_match_uses_private_workflow_metadata_not_name_he
         resolved_lowering_mode=ProcedureLoweringMode.PRIVATE_WORKFLOW,
         generated_workflow_name="%custom.private-wrap",
     )
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.procedures")
-    monkeypatch.setattr(
-        lowering_module,
-        "_resolve_procedure_lowering",
-        lambda *args, **kwargs: {"private-wrap": custom_private_proc},
+    resolved_procedures = tuple(
+        custom_private_proc
+        if procedure.definition.name == private_proc.definition.name
+        else procedure
+        for procedure in compiled.typed_procedures
+    )
+    resolved_procedures_by_name = MappingProxyType(
+        {procedure.definition.name: procedure for procedure in resolved_procedures}
     )
 
     lowered = lower_workflow_definitions(
         compiled.typed_workflows,
-        typed_procedures=compiled.typed_procedures,
+        typed_procedures=resolved_procedures,
+        resolved_procedures_by_name=resolved_procedures_by_name,
         procedure_catalog=compiled.procedure_catalog,
         workflow_path=path,
         workflow_catalog=compiled.workflow_catalog,
@@ -6428,6 +6456,165 @@ def test_procedure_identity_modes_match_frozen_legacy_observables(tmp_path: Path
     assert actual == expected
 
 
+def test_stage3_returns_module_resolved_procedure_modes_and_names(tmp_path: Path) -> None:
+    result = _compile_procedure_identity_fixture(tmp_path)
+
+    assert result.typed_procedures
+    for procedure in result.typed_procedures:
+        assert procedure.resolved_lowering_mode is not ProcedureLoweringMode.AUTO
+        if procedure.resolved_lowering_mode is ProcedureLoweringMode.PRIVATE_WORKFLOW:
+            assert procedure.generated_workflow_name == (
+                f"%{PROCEDURE_IDENTITY_FIXTURE.stem}.{procedure.definition.name}.v1"
+            )
+        else:
+            assert procedure.generated_workflow_name is None
+
+
+def test_stage3_resolves_lowering_once_after_specialization_and_effects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_resolver = procedure_lowering._resolve_procedure_lowering
+    resolver_inputs: list[tuple[str, ...]] = []
+
+    def counting_resolver(typed_procedures, **kwargs):
+        assert all(procedure.typed_body is not None for procedure in typed_procedures)
+        assert all(
+            procedure.transitive_effect_summary is not None
+            for procedure in typed_procedures
+        )
+        resolver_inputs.append(
+            tuple(procedure.definition.name for procedure in typed_procedures)
+        )
+        return original_resolver(typed_procedures, **kwargs)
+
+    monkeypatch.setattr(
+        workflow_lisp_compiler,
+        "_resolve_procedure_lowering",
+        counting_resolver,
+        raising=False,
+    )
+
+    result = _compile_procedure_identity_fixture(tmp_path)
+
+    assert len(resolver_inputs) == 1
+    assert resolver_inputs[0] == tuple(
+        procedure.definition.name for procedure in result.typed_procedures
+    )
+    assert all(
+        procedure.resolved_lowering_mode is not ProcedureLoweringMode.AUTO
+        for procedure in result.typed_procedures
+    )
+
+
+def _resolved_procedure_identity_inputs(tmp_path: Path):
+    compiled = _compile_procedure_identity_fixture(tmp_path)
+    type_env = FrontendTypeEnvironment.from_module(compiled.module)
+    resolved_by_name = _resolve_procedure_lowering(
+        compiled.typed_procedures,
+        typed_workflows=compiled.typed_workflows,
+        workflow_path=PROCEDURE_IDENTITY_FIXTURE,
+        type_env=type_env,
+        procedure_type_envs={
+            procedure.definition.name: type_env
+            for procedure in compiled.typed_procedures
+        },
+    )
+    resolved = tuple(
+        resolved_by_name[procedure.definition.name]
+        for procedure in compiled.typed_procedures
+    )
+    private_name = next(
+        procedure.definition.name
+        for procedure in resolved
+        if procedure.definition.name.endswith("private-helper")
+    )
+    custom = tuple(
+        replace(procedure, generated_workflow_name="%test.resolved.helper")
+        if procedure.definition.name == private_name
+        else procedure
+        for procedure in resolved
+    )
+    return compiled, type_env, custom, MappingProxyType(
+        {procedure.definition.name: procedure for procedure in custom}
+    )
+
+
+def test_legacy_lowerer_uses_supplied_resolved_procedure_tuple(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    compiled, type_env, resolved, resolved_by_name = _resolved_procedure_identity_inputs(tmp_path)
+
+    def fail_recomputation(*args, **kwargs):
+        raise AssertionError("legacy lowerer recomputed procedure lowering")
+
+    monkeypatch.setattr(
+        procedure_lowering,
+        "_resolve_procedure_lowering",
+        fail_recomputation,
+    )
+
+    lowered = lower_workflow_definitions(
+        compiled.typed_workflows,
+        typed_procedures=resolved,
+        resolved_procedures_by_name=resolved_by_name,
+        procedure_catalog=compiled.procedure_catalog,
+        workflow_path=PROCEDURE_IDENTITY_FIXTURE,
+        workflow_catalog=compiled.workflow_catalog,
+        imported_workflow_bundles=compiled.workflow_catalog.imported_bundles_by_name,
+        extern_environment=compiled.extern_environment,
+        command_boundary_environment=compiled.command_boundary_environment,
+        type_env=type_env,
+        target_dsl_version=compiled.module.target_dsl_version,
+    )
+
+    assert any(
+        workflow.typed_workflow.definition.name == "%test.resolved.helper"
+        for workflow in lowered
+    )
+
+
+def test_wcc_m4_lowerer_uses_supplied_resolved_procedure_tuple(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    compiled, type_env, resolved, resolved_by_name = _resolved_procedure_identity_inputs(tmp_path)
+
+    def fail_recomputation(*args, **kwargs):
+        raise AssertionError("WCC M4 lowerer recomputed procedure lowering")
+
+    monkeypatch.setattr(
+        wcc_defunctionalize,
+        "_resolve_procedure_lowering",
+        fail_recomputation,
+        raising=False,
+    )
+
+    lowered = lower_wcc_m4_workflow_definitions(
+        compiled.typed_workflows,
+        typed_procedures=resolved,
+        resolved_procedures_by_name=resolved_by_name,
+        procedure_type_envs={
+            procedure.definition.name: type_env
+            for procedure in resolved
+        },
+        procedure_catalog=compiled.procedure_catalog,
+        workflow_path=PROCEDURE_IDENTITY_FIXTURE,
+        workflow_catalog=compiled.workflow_catalog,
+        imported_workflow_bundles=compiled.workflow_catalog.imported_bundles_by_name,
+        extern_environment=compiled.extern_environment,
+        command_boundary_environment=compiled.command_boundary_environment,
+        type_env=type_env,
+        target_dsl_version=compiled.module.target_dsl_version,
+    )
+
+    assert any(
+        workflow.typed_workflow.definition.name == "%test.resolved.helper"
+        for workflow in lowered
+    )
+
+
 def test_procedure_identity_modes_match_frozen_wcc_m4_observables(tmp_path: Path) -> None:
     expected = json.loads(
         (PROCEDURE_IDENTITY_BASELINES / "procedure_lowering_identity_modes.wcc_m4.json").read_text(
@@ -6448,23 +6635,18 @@ def test_explicit_inline_pilot_shape_does_not_use_schema1_iteration_override(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    specialization_module = importlib.import_module("orchestrator.workflow_lisp.procedure_specialization")
-    original_predicate = specialization_module._procedure_private_boundary_valid
-    override_decisions: list[str] = []
+    original_predicate = procedure_lowering._schema1_iteration_private_override_applies
+    override_decisions: list[bool] = []
 
-    def spy_on_override_predicate(procedure):
-        caller = inspect.currentframe().f_back
-        if (
-            caller is not None
-            and caller.f_code.co_name == "_lower_procedure_call"
-            and procedure.definition.name.endswith("::inline-plan")
-        ):
-            override_decisions.append(procedure.definition.name)
-        return original_predicate(procedure)
+    def spy_on_override_predicate(procedure, *, context):
+        decision = original_predicate(procedure, context=context)
+        if procedure.definition.name.endswith("::inline-plan"):
+            override_decisions.append(decision)
+        return decision
 
     monkeypatch.setattr(
-        specialization_module,
-        "_procedure_private_boundary_valid",
+        procedure_lowering,
+        "_schema1_iteration_private_override_applies",
         spy_on_override_predicate,
     )
 
@@ -6473,7 +6655,8 @@ def test_explicit_inline_pilot_shape_does_not_use_schema1_iteration_override(
         for route in ("legacy", "wcc_m4")
     ]
 
-    assert override_decisions == []
+    assert override_decisions
+    assert not any(override_decisions)
     for observation in observations:
         inline_plan = next(
             procedure

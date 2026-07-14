@@ -1,7 +1,7 @@
 import ast
 import importlib
 from pathlib import Path
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
@@ -363,6 +363,12 @@ def test_workflow_ref_specialization_preserves_return_guidance(
         lowered_workflows = lower_wcc_m4_workflow_definitions(
             result.typed_workflows,
             typed_procedures=result.typed_procedures,
+            resolved_procedures_by_name=MappingProxyType(
+                {
+                    procedure.definition.name: procedure
+                    for procedure in result.typed_procedures
+                }
+            ),
             procedure_type_envs={
                 procedure.definition.name: type_env
                 for procedure in result.typed_procedures

@@ -19,6 +19,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
+from types import MappingProxyType
 
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.workflow.executable_ir import validate_executable_workflow, workflow_executable_ir_to_json
@@ -95,6 +96,7 @@ from .lowering import (
     _lowered_workflow_dependencies,
     _missing_validation_subject_message,
     _origin_for_validation_subject_refs,
+    _resolve_procedure_lowering,
     _remap_validation_message,
     _shared_validation_diagnostic_code,
     lower_workflow_definitions,
@@ -1379,6 +1381,38 @@ def _compile_stage1_syntax_module(
     return state.module
 
 
+def _resolve_stage3_procedure_lowering(
+    state: ValidationPipelineState,
+    *,
+    workflow_path: Path,
+) -> ValidationPipelineState:
+    """Resolve module-level procedure lowering once after Stage-3 typing/effects."""
+
+    if not state.typed_procedures:
+        return state
+    resolved_by_name = _resolve_procedure_lowering(
+        state.typed_procedures,
+        typed_workflows=state.typed_workflows,
+        workflow_path=workflow_path,
+        type_env=state.type_env,
+        procedure_type_envs={
+            procedure.definition.name: procedure_type_env_for(
+                procedure,
+                procedure_type_envs=None,
+                default=state.type_env,
+            )
+            for procedure in state.typed_procedures
+        },
+    )
+    return replace(
+        state,
+        typed_procedures=tuple(
+            resolved_by_name[procedure.definition.name]
+            for procedure in state.typed_procedures
+        ),
+    )
+
+
 def _lower_workflows_for_route(
     *,
     lowering_route: LoweringRoute,
@@ -1396,11 +1430,15 @@ def _lower_workflows_for_route(
     type_env: FrontendTypeEnvironment,
     target_dsl_version: str = "2.14",
 ):
+    resolved_procedures_by_name = MappingProxyType(
+        {procedure.definition.name: procedure for procedure in typed_procedures}
+    )
     if lowering_route is LoweringRoute.WCC_M1:
         validate_wcc_m1_route_supported(typed_workflows)
         return lower_wcc_m1_workflow_definitions(
             typed_workflows,
             typed_procedures=typed_procedures,
+            resolved_procedures_by_name=resolved_procedures_by_name,
             available_workflows_by_name=available_workflows_by_name,
             procedure_type_envs=procedure_type_envs,
             workflow_type_envs=workflow_type_envs,
@@ -1418,6 +1456,7 @@ def _lower_workflows_for_route(
         return lower_wcc_m2_workflow_definitions(
             typed_workflows,
             typed_procedures=typed_procedures,
+            resolved_procedures_by_name=resolved_procedures_by_name,
             available_workflows_by_name=available_workflows_by_name,
             procedure_type_envs=procedure_type_envs,
             workflow_type_envs=workflow_type_envs,
@@ -1435,6 +1474,7 @@ def _lower_workflows_for_route(
         return lower_wcc_m3_workflow_definitions(
             typed_workflows,
             typed_procedures=typed_procedures,
+            resolved_procedures_by_name=resolved_procedures_by_name,
             available_workflows_by_name=available_workflows_by_name,
             procedure_type_envs=procedure_type_envs,
             workflow_type_envs=workflow_type_envs,
@@ -1456,6 +1496,7 @@ def _lower_workflows_for_route(
         return lower_wcc_m4_workflow_definitions(
             typed_workflows,
             typed_procedures=typed_procedures,
+            resolved_procedures_by_name=resolved_procedures_by_name,
             available_workflows_by_name=available_workflows_by_name,
             procedure_type_envs=procedure_type_envs,
             workflow_type_envs=workflow_type_envs,
@@ -1471,6 +1512,7 @@ def _lower_workflows_for_route(
     return lower_workflow_definitions(
         typed_workflows,
         typed_procedures=typed_procedures,
+        resolved_procedures_by_name=resolved_procedures_by_name,
         procedure_catalog=procedure_catalog,
         workflow_path=workflow_path,
         workflow_catalog=workflow_catalog,
@@ -1645,24 +1687,28 @@ def _run_stage3_validation_pipeline(
             )
             for workflow in typed_workflows
         )
+        resolved_state = _resolve_stage3_procedure_lowering(
+            replace(
+                state,
+                module=module,
+                type_env=type_env,
+                workflow_defs=workflow_defs,
+                procedure_defs=procedure_defs,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=resolved_procedure_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                typed_procedures=typed_procedures,
+                typed_workflows=typed_workflows,
+            ),
+            workflow_path=path,
+        )
         _validate_family_profile_typed_prompt_input_rows(
-            typed_workflows,
-            typed_procedures=typed_procedures,
+            resolved_state.typed_workflows,
+            typed_procedures=resolved_state.typed_procedures,
             workflow_catalog=workflow_catalog,
         )
-        return replace(
-            state,
-            module=module,
-            type_env=type_env,
-            workflow_defs=workflow_defs,
-            procedure_defs=procedure_defs,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=resolved_procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            typed_procedures=typed_procedures,
-            typed_workflows=typed_workflows,
-        )
+        return resolved_state
 
     def lowering_surface_pass(state: ValidationPipelineState) -> ValidationPipelineState:
         lowered_workflows = _lower_workflows_for_route(
@@ -2422,6 +2468,16 @@ def _compile_stage3_graph(
             )
             for workflow in typed_workflows
         )
+        resolved_state = _resolve_stage3_procedure_lowering(
+            ValidationPipelineState(
+                module=definition_module,
+                type_env=type_env,
+                typed_procedures=typed_procedures,
+                typed_workflows=typed_workflows,
+            ),
+            workflow_path=module_source.path,
+        )
+        typed_procedures = resolved_state.typed_procedures
         _validate_family_profile_typed_prompt_input_rows(
             typed_workflows,
             typed_procedures=typed_procedures,

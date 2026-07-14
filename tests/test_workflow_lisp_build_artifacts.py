@@ -46,6 +46,7 @@ MATERIALIZE_VIEW_ALLOCATED_TARGET_FIXTURE = FIXTURES / "valid" / "materialize_vi
 LEXICAL_CHECKPOINT_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_shadow_points.orc"
 LEXICAL_POLICY_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_effect_policies.orc"
 LEXICAL_RESTORE_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_restore_regions.orc"
+PROCEDURE_IDENTITY_FIXTURE = FIXTURES / "valid" / "procedure_lowering_identity_modes.orc"
 RUNTIME_CLOSURE_MARKERS = (
     "workflow_lisp_runtime_closure",
     "closure_families",
@@ -109,6 +110,21 @@ def _build_request(tmp_path: Path, *, manifest_path: Path | None = None):
         command_boundaries_path=CLI_FIXTURES / "commands.json",
         emit_debug_yaml=False,
         workspace_root=tmp_path,
+    )
+
+
+def _procedure_identity_build_request(tmp_path: Path):
+    request_cls = getattr(_build_module(), "FrontendBuildRequest")
+    return request_cls(
+        source_path=PROCEDURE_IDENTITY_FIXTURE,
+        source_roots=(PROCEDURE_IDENTITY_FIXTURE.parent,),
+        entry_workflow="orchestrate",
+        provider_externs_path=PROCEDURE_IDENTITY_FIXTURE.with_suffix(".providers.json"),
+        prompt_externs_path=PROCEDURE_IDENTITY_FIXTURE.with_suffix(".prompts.json"),
+        command_boundaries_path=PROCEDURE_IDENTITY_FIXTURE.with_suffix(".commands.json"),
+        emit_debug_yaml=False,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
     )
 
 
@@ -1416,6 +1432,45 @@ def test_build_emits_required_artifacts_and_emitted_status_entries(tmp_path: Pat
     _assert_no_runtime_closure_markers(json.dumps(semantic_ir, sort_keys=True))
     _assert_no_runtime_closure_markers(json.dumps(executable_ir, sort_keys=True))
     _assert_no_runtime_closure_markers(json.dumps(runtime_plan, sort_keys=True))
+
+
+def test_typed_frontend_ast_records_resolved_procedure_lowering(tmp_path: Path) -> None:
+    result = _build_module().build_frontend_bundle(
+        _procedure_identity_build_request(tmp_path)
+    )
+    payload = json.loads(
+        result.artifact_paths["typed_frontend_ast"].read_text(encoding="utf-8")
+    )
+    rows = payload["modules"]["procedure_lowering_identity_modes"]["typed_procedures"]
+    artifact_by_name = {row["definition"]["name"]: row for row in rows}
+
+    assert set(artifact_by_name) == {
+        procedure.definition.name
+        for procedure in result.compile_result.entry_result.typed_procedures
+    }
+    expected_modes = {
+        "inline-plan": ("inline", None),
+        "private-helper": (
+            "private-workflow",
+            "%procedure_lowering_identity_modes.procedure_lowering_identity_modes::private-helper.v1",
+        ),
+        "auto-helper": (
+            "private-workflow",
+            "%procedure_lowering_identity_modes.procedure_lowering_identity_modes::auto-helper.v1",
+        ),
+    }
+    for procedure in result.compile_result.entry_result.typed_procedures:
+        artifact = artifact_by_name[procedure.definition.name]
+        assert artifact["signature"]["requested_lowering_mode"] == (
+            procedure.signature.requested_lowering_mode.value
+        )
+        assert artifact["resolved_lowering_mode"] == procedure.resolved_lowering_mode.value
+        assert artifact["generated_workflow_name"] == procedure.generated_workflow_name
+        short_name = procedure.definition.name.rsplit("::", 1)[-1]
+        assert (
+            artifact["resolved_lowering_mode"],
+            artifact["generated_workflow_name"],
+        ) == expected_modes[short_name]
 
 
 def test_build_artifacts_persist_diagnostic_validation_metadata(tmp_path: Path) -> None:

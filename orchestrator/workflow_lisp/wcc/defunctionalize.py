@@ -86,7 +86,7 @@ from ..lowering.phase_resource import (
 from ..loops import RepeatUntilEmitterInput
 from ..lowering.control_loops import _emit_repeat_until_from_emitter_input
 from ..phase import eligible_private_context_source_param_names
-from ..lowering.procedures import LowerableProcedureCall, _private_workflow_from_procedure, _procedure_type_env_for, _resolve_procedure_lowering, _lower_procedure_call, _rewrite_nested_sibling_step_refs
+from ..lowering.procedures import LowerableProcedureCall, _private_workflow_from_procedure, _procedure_type_env_for, _validate_resolved_procedure_mapping, _lower_procedure_call, _rewrite_nested_sibling_step_refs
 from ..lowering.workflow_calls import LowerableWorkflowCall, _lower_workflow_call
 from orchestrator.workflow.state_layout import GeneratedPathPrivacy, GeneratedPathSemanticRole, derive_entrypoint_managed_write_root_allocations
 from .anf import normalize_wcc_body_to_anf
@@ -210,6 +210,7 @@ def lower_wcc_m2_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
+    resolved_procedures_by_name: Mapping[str, TypedProcedureDef],
     available_workflows_by_name: Mapping[str, TypedWorkflowDef] | None = None,
     procedure_type_envs: Mapping[str, object],
     workflow_type_envs: Mapping[str, object] | None = None,
@@ -226,6 +227,7 @@ def lower_wcc_m2_workflow_definitions(
     return _lower_wcc_workflow_definitions(
         typed_workflows,
         typed_procedures=typed_procedures,
+        resolved_procedures_by_name=resolved_procedures_by_name,
         available_workflows_by_name=available_workflows_by_name,
         procedure_type_envs=procedure_type_envs,
         workflow_type_envs=workflow_type_envs,
@@ -245,6 +247,7 @@ def lower_wcc_m3_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
+    resolved_procedures_by_name: Mapping[str, TypedProcedureDef],
     available_workflows_by_name: Mapping[str, TypedWorkflowDef] | None = None,
     procedure_type_envs: Mapping[str, object],
     workflow_type_envs: Mapping[str, object] | None = None,
@@ -262,6 +265,7 @@ def lower_wcc_m3_workflow_definitions(
     return _lower_wcc_workflow_definitions(
         typed_workflows,
         typed_procedures=typed_procedures,
+        resolved_procedures_by_name=resolved_procedures_by_name,
         available_workflows_by_name=available_workflows_by_name,
         procedure_type_envs=procedure_type_envs,
         workflow_type_envs=workflow_type_envs,
@@ -281,6 +285,7 @@ def lower_wcc_m4_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
+    resolved_procedures_by_name: Mapping[str, TypedProcedureDef],
     available_workflows_by_name: Mapping[str, TypedWorkflowDef] | None = None,
     procedure_type_envs: Mapping[str, object],
     workflow_type_envs: Mapping[str, object] | None = None,
@@ -298,6 +303,7 @@ def lower_wcc_m4_workflow_definitions(
     return _lower_wcc_workflow_definitions(
         typed_workflows,
         typed_procedures=typed_procedures,
+        resolved_procedures_by_name=resolved_procedures_by_name,
         available_workflows_by_name=available_workflows_by_name,
         procedure_type_envs=procedure_type_envs,
         workflow_type_envs=workflow_type_envs,
@@ -317,6 +323,7 @@ def _lower_wcc_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
+    resolved_procedures_by_name: Mapping[str, TypedProcedureDef],
     available_workflows_by_name: Mapping[str, TypedWorkflowDef] | None = None,
     procedure_type_envs: Mapping[str, object],
     workflow_type_envs: Mapping[str, object] | None = None,
@@ -332,12 +339,9 @@ def _lower_wcc_workflow_definitions(
 ) -> tuple[lowering_core.LoweredWorkflow, ...]:
     """Lower WCC workflows through one route-selected normalized program shape."""
 
-    resolved_procedures = _resolve_procedure_lowering(
+    resolved_procedures = _validate_resolved_procedure_mapping(
         typed_procedures,
-        typed_workflows=typed_workflows,
-        workflow_path=workflow_path,
-        type_env=type_env,
-        procedure_type_envs=procedure_type_envs,
+        resolved_procedures_by_name,
     )
     private_workflows = {
         procedure.generated_workflow_name: _private_workflow_from_procedure(procedure)
