@@ -1579,6 +1579,14 @@ def test_compile_stage3_preserves_effect_visibility_for_constrained_generic_proc
     expected_effect = UsesCommandEffect(subject=("run_checks",))
 
     assert expected_effect in proc_ref_specialized.transitive_effect_summary.transitive_effects
+    assert proc_ref_specialized.direct_effect_summary.procedure_edges
+    assert all(
+        edge.callee_name != "runner" for edge in proc_ref_specialized.direct_effect_summary.procedure_edges
+    )
+    assert not any(
+        isinstance(effect, (UsesCommandEffect, UsesProviderEffect))
+        for effect in proc_ref_specialized.direct_effect_summary.direct_effects
+    )
 
 
 def test_compile_stage3_rejects_parametric_specialization_cycles(tmp_path: Path) -> None:
@@ -2776,6 +2784,53 @@ def test_direct_command_result_procedure_effects_do_not_require_hidden_bundle_wr
             UsesCommandEffect(subject=("run_checks",)),
         }
     )
+
+
+def test_procedure_calls_keep_callee_effects_out_of_body_local_direct_effects(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "procedure_body_local_direct_effects.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord ChecksResult",
+            "    (report WorkReport))",
+            "  (defproc run-checks",
+            "    ((report_path WorkReport))",
+            "    -> ChecksResult",
+            "    :effects ((uses-command run_checks))",
+            "    :lowering inline",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" report_path)',
+            "      :returns ChecksResult))",
+            "  (defproc invoke-checks",
+            "    ((report_path WorkReport))",
+            "    -> ChecksResult",
+            "    :effects ((uses-command run_checks))",
+            "    :lowering inline",
+            "    (run-checks report_path))",
+            "  (defworkflow entry",
+            "    ((report_path WorkReport))",
+            "    -> ChecksResult",
+            "    (invoke-checks report_path)))",
+        ],
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+    invoke = next(
+        procedure for procedure in result.typed_procedures if procedure.definition.name == "invoke-checks"
+    )
+    entry = next(workflow for workflow in result.typed_workflows if workflow.definition.name == "entry")
+    expected_effect = UsesCommandEffect(subject=("run_checks",))
+
+    assert expected_effect in invoke.transitive_effect_summary.transitive_effects
+    assert expected_effect in entry.effect_summary.transitive_effects
+    assert invoke.direct_effect_summary.procedure_edges
+    assert invoke.direct_effect_summary.direct_effects == frozenset()
 
 
 def test_inline_procedure_lowering_accepts_literal_command_arguments(tmp_path: Path) -> None:
@@ -5300,13 +5355,18 @@ def test_stage3_materializes_proc_ref_specializations_before_lowering_and_preser
         for procedure in typed_procedures
         if procedure.definition.name.startswith("%proc-ref-call.invoke_runner.")
     )
+    expected_effect = UsesCommandEffect(subject=("run_checks",))
 
     assert any(name.startswith("%proc-ref.helper.") for name in typed_names)
     assert specialized_invoke_runner.direct_effect_summary.procedure_edges
-    assert entry.effect_summary.transitive_effects == frozenset(
-        {
-            UsesCommandEffect(subject=("run_checks",)),
-        }
+    assert all(
+        edge.callee_name in typed_names for edge in specialized_invoke_runner.direct_effect_summary.procedure_edges
+    )
+    assert expected_effect in specialized_invoke_runner.transitive_effect_summary.transitive_effects
+    assert entry.effect_summary.transitive_effects == frozenset({expected_effect})
+    assert not any(
+        isinstance(effect, (UsesCommandEffect, UsesProviderEffect))
+        for effect in specialized_invoke_runner.direct_effect_summary.direct_effects
     )
 
 
