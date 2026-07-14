@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 import hashlib
 import json
 import tempfile
@@ -332,9 +333,10 @@ def test_design_plan_impl_stack_orc_compiles_with_phase_family_contracts(tmp_pat
     }
 
 
-def _execute_design_plan_impl_stack_single_pass_runtime() -> tuple[Path, dict[str, object], dict[str, str]]:
+def _execute_design_plan_impl_stack_single_pass_runtime(
+    workspace: Path,
+) -> tuple[Path, dict[str, object], dict[str, str]]:
     workflow_relpath = Path("workflows/examples/design_plan_impl_review_stack_v2_call.orc")
-    workspace = Path(tempfile.mkdtemp(prefix="design-plan-impl-stack-", dir="/tmp"))
     workflow_path = workspace / workflow_relpath
     workflow_path.parent.mkdir(parents=True, exist_ok=True)
     workflow_path.write_text((REPO_ROOT / workflow_relpath).read_text(encoding="utf-8"), encoding="utf-8")
@@ -498,14 +500,41 @@ def _execute_design_plan_impl_stack_single_pass_runtime() -> tuple[Path, dict[st
     return workspace, state, output_paths
 
 
-def test_design_plan_impl_stack_orc_runtime_smoke_executes_single_pass_stack() -> None:
-    _workspace, state, _output_paths = _execute_design_plan_impl_stack_single_pass_runtime()
+@pytest.fixture
+def design_plan_impl_stack_workspace() -> Iterator[Path]:
+    temporary_directory = tempfile.TemporaryDirectory(prefix="design-plan-impl-stack-", dir="/tmp")
+    workspace = Path(temporary_directory.name)
+    yield workspace
+    temporary_directory.cleanup()
+    assert not workspace.exists()
+
+
+def test_design_plan_impl_stack_orc_runtime_uses_fixture_workspace(
+    design_plan_impl_stack_workspace: Path,
+) -> None:
+    workspace, _state, _output_paths = _execute_design_plan_impl_stack_single_pass_runtime(
+        design_plan_impl_stack_workspace
+    )
+
+    assert workspace == design_plan_impl_stack_workspace
+
+
+def test_design_plan_impl_stack_orc_runtime_smoke_executes_single_pass_stack(
+    design_plan_impl_stack_workspace: Path,
+) -> None:
+    _workspace, state, _output_paths = _execute_design_plan_impl_stack_single_pass_runtime(
+        design_plan_impl_stack_workspace
+    )
 
     assert state["status"] == "completed"
 
 
-def test_design_plan_impl_stack_orc_runtime_output_contract_matches_stack_outputs() -> None:
-    _workspace, state, output_paths = _execute_design_plan_impl_stack_single_pass_runtime()
+def test_design_plan_impl_stack_orc_runtime_output_contract_matches_stack_outputs(
+    design_plan_impl_stack_workspace: Path,
+) -> None:
+    _workspace, state, output_paths = _execute_design_plan_impl_stack_single_pass_runtime(
+        design_plan_impl_stack_workspace
+    )
 
     assert state["workflow_outputs"] == {
         "return__design_path": output_paths["design_path"],
@@ -520,15 +549,23 @@ def test_design_plan_impl_stack_orc_runtime_output_contract_matches_stack_output
     }
 
 
-def test_design_plan_impl_stack_orc_runtime_completes_with_expected_terminal_state() -> None:
-    _workspace, state, _output_paths = _execute_design_plan_impl_stack_single_pass_runtime()
+def test_design_plan_impl_stack_orc_runtime_completes_with_expected_terminal_state(
+    design_plan_impl_stack_workspace: Path,
+) -> None:
+    _workspace, state, _output_paths = _execute_design_plan_impl_stack_single_pass_runtime(
+        design_plan_impl_stack_workspace
+    )
 
     assert state["status"] == "completed"
     assert state.get("error") is None
 
 
-def test_design_plan_impl_stack_orc_runtime_materializes_expected_artifacts() -> None:
-    workspace, state, output_paths = _execute_design_plan_impl_stack_single_pass_runtime()
+def test_design_plan_impl_stack_orc_runtime_materializes_expected_artifacts(
+    design_plan_impl_stack_workspace: Path,
+) -> None:
+    workspace, state, output_paths = _execute_design_plan_impl_stack_single_pass_runtime(
+        design_plan_impl_stack_workspace
+    )
 
     assert state["status"] == "completed"
     for relpath in output_paths.values():
