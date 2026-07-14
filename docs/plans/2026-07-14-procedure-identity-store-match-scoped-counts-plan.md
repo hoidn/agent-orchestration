@@ -299,10 +299,17 @@ re-review material findings before broad verification.
 
 ### Task 4: Run Broad Generic Verification
 
+**Completed:** the focused integrated run passed 252 checks with only the two
+accepted intentional pilot REDs; the full run reported 4,288 passed, 11
+skipped, and exactly the eight accepted baseline failures. All isolated
+normalized signatures and corrected digests matched, and holistic review
+approved the integrated result. Roadmap-routing regression repair `83fbe562`
+is included in this gate.
+
 **Files:**
 - Verify only; modify nothing unless a real regression requires a scoped fix.
 
-- [ ] **Step 1: Run focused related suites**
+- [x] **Step 1: Run focused related suites**
 
 ```bash
 pytest -q -n 16 --dist=worksteal \
@@ -311,7 +318,7 @@ pytest -q -n 16 --dist=worksteal \
   tests/test_resume_command.py
 ```
 
-- [ ] **Step 2: Run the broad suite in tmux**
+- [x] **Step 2: Run the broad suite in tmux**
 
 ```bash
 pytest -q -n 16 --dist=worksteal
@@ -321,7 +328,7 @@ Compare failures by exact node ID and normalized signature against the accepted
 prerequisite baseline/correction artifacts. Do not weaken or delete tests to
 make unrelated failures disappear.
 
-- [ ] **Step 3: Independent holistic review**
+- [x] **Step 3: Independent holistic review**
 
 After the per-task two-stage reviews, require a fresh holistic reviewer to
 check the integrated Tasks 1-3 result and fresh verification evidence before
