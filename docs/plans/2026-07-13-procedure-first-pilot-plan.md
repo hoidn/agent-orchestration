@@ -33,10 +33,12 @@ the reviewed evidence path defined below.
 - The following earlier prerequisites are complete:
   1. `docs/plans/2026-07-10-workflow-lisp-typed-result-guidance-plan.md` is complete; and
   2. `docs/plans/2026-07-13-procedure-first-substrate-gaps-plan.md` is complete and reviewed.
-- Identity-compatibility prerequisite Tasks 1-7 are implemented in commits
-  `d5eb0043` through `8ae270ea`. The frozen pilot source and old baseline have
-  not been refreshed. Remain paused until Task 8 completes its pending repair,
-  reruns the focused selectors, broad suite, smoke check, and independent
+- Identity-compatibility prerequisite Tasks 1-7 changes are present. Task 8's
+  final handoff must record the exact audited commit set, including later
+  normalization and Task 7 correction commits, rather than report a simple
+  contiguous range. The frozen pilot source and old baseline have not been
+  refreshed. Remain paused until Task 8 completes its pending repair, reruns
+  the focused selectors, broad suite, smoke check, and independent
   specification/runtime-state and quality reviews, then records its final
   handoff.
 - When resumed, this plan owns the genuine named-owner attestations for every
