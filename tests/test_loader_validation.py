@@ -4944,6 +4944,470 @@ class TestLoaderValidation:
             "steps": [{"name": "emit", "command": ["python", "-c", "print('true')"]}],
         }
 
+    def _guidance_output_bundle_workflow(self, version: str = "2.15") -> dict:
+        return {
+            "version": version,
+            "name": "guided-output-bundle",
+            "steps": [{
+                "name": "Review",
+                "command": ["echo", "ok"],
+                "output_bundle": {
+                    "path": "state/review.json",
+                    "guidance": {
+                        "description": "Complete review result.",
+                        "format_hint": "Return one JSON object.",
+                        "example": {"approved": True},
+                    },
+                    "fields": [{
+                        "name": "approved",
+                        "json_pointer": "/review/approved",
+                        "type": "bool",
+                        "guidance_context": [{
+                            "json_pointer": "/review",
+                            "description": "The complete review.",
+                            "example": {"approved": True},
+                        }],
+                        "description": "True only when no blockers remain.",
+                        "format_hint": "JSON boolean.",
+                        "example": True,
+                    }],
+                },
+            }],
+            "outputs": {
+                "approved": {
+                    "kind": "scalar",
+                    "type": "bool",
+                    "from": {"ref": "root.steps.Review.artifacts.approved"},
+                },
+            },
+            "result_guidance": {
+                "description": "The public review result.",
+                "format_hint": "Use the declared output shape.",
+                "example": None,
+            },
+        }
+
+    def _guidance_variant_output_workflow(self, version: str = "2.15") -> dict:
+        return {
+            "version": version,
+            "name": "guided-variant-output",
+            "steps": [{
+                "name": "Decide",
+                "command": ["echo", "ok"],
+                "variant_output": {
+                    "path": "state/decision.json",
+                    "guidance": {"description": "Complete decision result."},
+                    "discriminant": {
+                        "name": "decision",
+                        "json_pointer": "/decision",
+                        "type": "enum",
+                        "allowed": ["APPROVE", "REVISE"],
+                    },
+                    "shared_fields": [{
+                        "name": "score",
+                        "json_pointer": "/metrics/score",
+                        "type": "float",
+                        "guidance_by_variant": {
+                            "APPROVE": {
+                                "description": "Approval confidence.",
+                                "format_hint": "A number from zero to one.",
+                                "example": 0.95,
+                                "guidance_context": [{
+                                    "json_pointer": "/metrics",
+                                    "description": "Decision metrics.",
+                                    "example": {"score": 0.95},
+                                }],
+                            },
+                            "REVISE": {
+                                "description": "Revision confidence.",
+                                "example": 0.8,
+                            },
+                        },
+                    }],
+                    "variants": {
+                        "APPROVE": {"fields": [{
+                            "name": "approved",
+                            "json_pointer": "/approved",
+                            "type": "bool",
+                            "description": "The approval flag.",
+                            "example": True,
+                        }]},
+                        "REVISE": {"fields": []},
+                    },
+                },
+            }],
+        }
+
+    def _preview_v215_loader(self) -> WorkflowLoader:
+        loader = WorkflowLoader(self.workspace)
+        loader._enabled_preview_versions = frozenset({"2.15"})
+        return loader
+
+    def test_v215_guidance_contracts_accept_every_public_container(self):
+        loaded = self._preview_v215_loader().load(
+            self.write_workflow(self._guidance_output_bundle_workflow())
+        )
+        surface = thaw_surface_workflow(loaded)
+
+        assert surface["steps"][0]["output_bundle"]["guidance"]["example"] == {
+            "approved": True,
+        }
+        assert surface["steps"][0]["output_bundle"]["fields"][0]["guidance_context"] == [{
+            "json_pointer": "/review",
+            "description": "The complete review.",
+            "example": {"approved": True},
+        }]
+
+        variant_loaded = self._preview_v215_loader().load(
+            self.write_workflow(self._guidance_variant_output_workflow())
+        )
+        variant = thaw_surface_workflow(variant_loaded)["steps"][0]["variant_output"]
+        assert list(variant["shared_fields"][0]["guidance_by_variant"]) == ["APPROVE", "REVISE"]
+
+    @pytest.mark.parametrize(
+        ("mutate", "expected"),
+        [
+            (lambda workflow: workflow["steps"][0]["output_bundle"].update(
+                guidance={"description": "bundle"}
+            ), "output_bundle.guidance requires version '2.15'"),
+            (lambda workflow: workflow["steps"][0]["output_bundle"]["fields"][0].update(
+                description="field"
+            ), "field guidance requires version '2.15'"),
+            (lambda workflow: workflow["steps"][0]["output_bundle"]["fields"][0].update(
+                guidance_context=[{"json_pointer": "/review", "description": "parent"}]
+            ), "field guidance requires version '2.15'"),
+            (lambda workflow: workflow.update(result_guidance={"description": "result"}),
+             "result_guidance requires version '2.15'"),
+        ],
+    )
+    def test_v214_rejects_every_new_guidance_container(self, mutate, expected):
+        workflow = self._guidance_output_bundle_workflow("2.14")
+        workflow["steps"][0]["output_bundle"].pop("guidance")
+        field = workflow["steps"][0]["output_bundle"]["fields"][0]
+        for key in ("description", "format_hint", "example", "guidance_context"):
+            field.pop(key, None)
+        workflow.pop("result_guidance")
+        mutate(workflow)
+
+        with pytest.raises(WorkflowValidationError, match=expected):
+            self.loader.load(self.write_workflow(workflow))
+
+    @pytest.mark.parametrize(
+        "mutate",
+        [
+            lambda output: output.update(guidance={"description": "bundle"}),
+            lambda output: output["shared_fields"][0].update(description="shared"),
+            lambda output: output["shared_fields"][0].update(
+                guidance_by_variant={"APPROVE": {"description": "shared variant"}}
+            ),
+            lambda output: output["variants"]["APPROVE"]["fields"][0].update(
+                example=True
+            ),
+        ],
+    )
+    def test_v214_rejects_every_variant_guidance_container(self, mutate):
+        workflow = self._guidance_variant_output_workflow("2.14")
+        output = workflow["steps"][0]["variant_output"]
+        output.pop("guidance")
+        output["shared_fields"][0].pop("guidance_by_variant")
+        field = output["variants"]["APPROVE"]["fields"][0]
+        for key in ("description", "example"):
+            field.pop(key)
+        mutate(output)
+
+        with pytest.raises(WorkflowValidationError, match="requires version '2.15'"):
+            self.loader.load(self.write_workflow(workflow))
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {},
+            {"description": ""},
+            {"description": "   "},
+            {"format_hint": 7},
+            {"unknown": "value"},
+            {"guidance_context": [{"json_pointer": "/review", "description": "nested"}]},
+        ],
+    )
+    def test_v215_bundle_guidance_rejects_invalid_closed_payloads(self, payload):
+        workflow = self._guidance_output_bundle_workflow()
+        workflow["steps"][0]["output_bundle"]["guidance"] = payload
+
+        with pytest.raises(WorkflowValidationError):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    @pytest.mark.parametrize("bundle_kind", ["output_bundle", "variant_output"])
+    @pytest.mark.parametrize("misplaced_key", ["description", "format_hint", "example", "guidance_context"])
+    def test_v215_bundle_guidance_rejects_guidance_keys_outside_container(
+        self, bundle_kind, misplaced_key
+    ):
+        workflow = (
+            self._guidance_output_bundle_workflow()
+            if bundle_kind == "output_bundle"
+            else self._guidance_variant_output_workflow()
+        )
+        bundle = workflow["steps"][0][bundle_kind]
+        bundle[misplaced_key] = (
+            [{"json_pointer": "/parent", "description": "misplaced"}]
+            if misplaced_key == "guidance_context"
+            else "misplaced"
+        )
+
+        with pytest.raises(WorkflowValidationError, match="not allowed at bundle level"):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("description", ""),
+            ("description", "  "),
+            ("format_hint", 4),
+        ],
+    )
+    def test_v215_direct_field_guidance_rejects_empty_or_invalid_strings(self, key, value):
+        workflow = self._guidance_output_bundle_workflow()
+        workflow["steps"][0]["output_bundle"]["fields"][0][key] = value
+
+        with pytest.raises(WorkflowValidationError):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    def test_v215_field_guidance_rejects_guidance_nested_in_value_schema(self):
+        workflow = self._guidance_output_bundle_workflow()
+        field = workflow["steps"][0]["output_bundle"]["fields"][0]
+        field.update({"type": "list", "items": {"type": "bool", "description": "nested"}})
+        field["example"] = [True]
+
+        with pytest.raises(WorkflowValidationError, match="not allowed in a nested schema"):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {},
+            {"description": ""},
+            {"format_hint": "\t"},
+            {"unknown": True},
+            {"guidance_context": []},
+            {"guidance_by_variant": {"APPROVE": {"description": "no context here"}}},
+        ],
+    )
+    def test_v215_result_guidance_rejects_invalid_closed_payloads(self, payload):
+        workflow = self._guidance_output_bundle_workflow()
+        workflow["result_guidance"] = payload
+
+        with pytest.raises(WorkflowValidationError):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    def test_v215_result_guidance_requires_at_least_one_output(self):
+        workflow = self._guidance_output_bundle_workflow()
+        workflow["outputs"] = {}
+
+        with pytest.raises(WorkflowValidationError, match="result_guidance requires at least one declared output"):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    @pytest.mark.parametrize(
+        "context_rows",
+        [
+            [],
+            [{"json_pointer": "/review"}],
+            [{"json_pointer": "review", "description": "bad syntax"}],
+            [{"json_pointer": "/other", "description": "not a prefix"}],
+            [{"json_pointer": "/review/approved", "description": "equal leaf"}],
+            [
+                {"json_pointer": "/review", "description": "first"},
+                {"json_pointer": "/review", "description": "duplicate"},
+            ],
+            [
+                {"json_pointer": "/review/details", "description": "deep"},
+                {"json_pointer": "/review", "description": "shallow"},
+            ],
+            [{"json_pointer": "/review/~2bad", "description": "bad escape"}],
+        ],
+    )
+    def test_v215_field_guidance_context_rejects_invalid_pointer_contracts(self, context_rows):
+        workflow = self._guidance_output_bundle_workflow()
+        field = workflow["steps"][0]["output_bundle"]["fields"][0]
+        field["json_pointer"] = "/review/details/approved"
+        field["guidance_context"] = context_rows
+
+        with pytest.raises(WorkflowValidationError):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    @pytest.mark.parametrize(
+        "row",
+        [
+            {"json_pointer": "/review", "unknown": "closed"},
+            {"json_pointer": "/review", "description": ""},
+            {"json_pointer": "/review", "format_hint": []},
+        ],
+    )
+    def test_v215_field_guidance_context_rejects_closed_or_empty_row_payload(self, row):
+        workflow = self._guidance_output_bundle_workflow()
+        workflow["steps"][0]["output_bundle"]["fields"][0]["guidance_context"] = [row]
+
+        with pytest.raises(WorkflowValidationError):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    def test_v215_field_guidance_context_accepts_rfc6901_escaped_prefixes(self):
+        workflow = self._guidance_output_bundle_workflow()
+        field = workflow["steps"][0]["output_bundle"]["fields"][0]
+        field["json_pointer"] = "/review~1items/detail~0key/approved"
+        field["guidance_context"] = [
+            {"json_pointer": "/review~1items", "description": "Escaped slash."},
+            {"json_pointer": "/review~1items/detail~0key", "description": "Escaped tilde."},
+        ]
+
+        self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    def test_v215_root_field_rejects_guidance_context_and_root_with_sibling(self):
+        workflow = self._guidance_output_bundle_workflow()
+        root_field = workflow["steps"][0]["output_bundle"]["fields"][0]
+        root_field["json_pointer"] = ""
+        root_field["guidance_context"] = [{"json_pointer": "/review", "description": "bad"}]
+
+        with pytest.raises(WorkflowValidationError, match="root field cannot declare guidance_context"):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+        root_field.pop("guidance_context")
+        workflow["steps"][0]["output_bundle"]["fields"].append({
+            "name": "other", "json_pointer": "/other", "type": "bool"
+        })
+        with pytest.raises(WorkflowValidationError, match="root json_pointer cannot have sibling fields"):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    @pytest.mark.parametrize(
+        "guidance_by_variant",
+        [
+            {},
+            {"UNKNOWN": {"description": "unknown"}},
+            {"APPROVE": {}},
+        ],
+    )
+    def test_v215_guidance_by_variant_rejects_unknown_ordered_or_empty_payloads(
+        self, guidance_by_variant
+    ):
+        workflow = self._guidance_variant_output_workflow()
+        shared = workflow["steps"][0]["variant_output"]["shared_fields"][0]
+        shared["guidance_by_variant"] = guidance_by_variant
+
+        with pytest.raises(WorkflowValidationError):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    def test_v215_guidance_by_variant_rejects_keys_out_of_discriminant_order(self):
+        workflow = self._guidance_variant_output_workflow()
+        variant_output = workflow["steps"][0]["variant_output"]
+        variant_output["discriminant"]["allowed"] = ["REVISE", "APPROVE"]
+
+        with pytest.raises(WorkflowValidationError, match="discriminant allowed order"):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    def test_v215_guidance_by_variant_rejects_direct_guidance_coexistence(self):
+        workflow = self._guidance_variant_output_workflow()
+        shared = workflow["steps"][0]["variant_output"]["shared_fields"][0]
+        shared["description"] = "Direct guidance conflicts."
+
+        with pytest.raises(WorkflowValidationError, match="mutually exclusive"):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"description": ""},
+            {"unknown": "closed"},
+            "not-a-mapping",
+        ],
+    )
+    def test_v215_guidance_by_variant_rejects_invalid_nested_payloads(self, payload):
+        workflow = self._guidance_variant_output_workflow()
+        shared = workflow["steps"][0]["variant_output"]["shared_fields"][0]
+        shared["guidance_by_variant"] = {"APPROVE": payload}
+
+        with pytest.raises(WorkflowValidationError):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    @pytest.mark.parametrize(
+        ("example", "expected"),
+        [("true", "invalid"), (1, "invalid")],
+    )
+    def test_v215_field_guidance_examples_obey_field_schema(self, example, expected):
+        workflow = self._guidance_output_bundle_workflow()
+        workflow["steps"][0]["output_bundle"]["fields"][0]["example"] = example
+
+        with pytest.raises(WorkflowValidationError, match=expected):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    def test_v215_path_guidance_example_checks_safety_without_existence(self):
+        workflow = self._guidance_output_bundle_workflow()
+        field = workflow["steps"][0]["output_bundle"]["fields"][0]
+        field.update({
+            "type": "relpath",
+            "under": "docs/reviews",
+            "must_exist_target": True,
+            "example": "docs/reviews/not-created.md",
+        })
+        workflow.pop("outputs")
+        workflow.pop("result_guidance")
+
+        self._preview_v215_loader().load(self.write_workflow(workflow))
+
+        field["example"] = "../outside.md"
+        with pytest.raises(WorkflowValidationError, match="invalid"):
+            self._preview_v215_loader().load(self.write_workflow(workflow))
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            {"not-json"},
+            ("tuple",),
+            {1: "integer key"},
+            float("nan"),
+        ],
+    )
+    def test_v215_guidance_json_compatibility_validator_rejects_non_json_values(self, value):
+        loader = self._preview_v215_loader()
+        loader._validate_guidance_payload(
+            {"example": value},
+            context="test.guidance",
+            version="2.15",
+            allow_context=False,
+        )
+
+        assert any("JSON-compatible" in error.message for error in loader.errors)
+
+    @pytest.mark.parametrize("container", ["context", "variant"])
+    def test_v215_nested_guidance_examples_reject_non_json_values_directly(self, container):
+        loader = self._preview_v215_loader()
+        field = {
+            "name": "approved",
+            "json_pointer": "/review/approved",
+            "type": "bool",
+        }
+        if container == "context":
+            loader._validate_guidance_payload(
+                {
+                    "guidance_context": [{
+                        "json_pointer": "/review",
+                        "example": {"not-json"},
+                    }],
+                },
+                context="field",
+                version="2.15",
+                allow_context=True,
+                leaf_pointer=field["json_pointer"],
+                field_spec=field,
+            )
+        else:
+            field["guidance_by_variant"] = {"APPROVE": {"example": {"not-json"}}}
+            loader._validate_field_guidance(
+                field,
+                context="shared",
+                version="2.15",
+                allowed_variants=["APPROVE"],
+                allow_guidance_by_variant=True,
+            )
+
+        assert any("JSON-compatible" in error.message for error in loader.errors)
+
     def _collection_outputs_workflow(self, version: str) -> dict:
         return {
             "version": version,

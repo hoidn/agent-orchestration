@@ -1,5 +1,7 @@
 """Workflow loader and strict DSL validation per specs/dsl.md."""
 
+import json
+import math
 import re
 from copy import deepcopy
 from enum import Enum
@@ -364,6 +366,8 @@ class WorkflowLoader:
             'inbox_dir', 'processed_dir', 'failed_dir', 'task_extension', 'steps',
             'artifacts', 'max_transitions', 'inputs', 'outputs', 'finally', 'imports'
         }
+        if self._version_at_least(version, "2.15"):
+            known_fields.add("result_guidance")
 
         # Strict unknown field rejection (skip if version is invalid/empty)
         if version:
@@ -408,6 +412,20 @@ class WorkflowLoader:
 
         if 'outputs' in workflow and not self._version_at_least(version, WORKFLOW_SIGNATURE_VERSION):
             self._add_error(f"outputs requires version '{WORKFLOW_SIGNATURE_VERSION}'")
+
+        if 'result_guidance' in workflow:
+            if not self._version_at_least(version, "2.15"):
+                self._add_error("result_guidance requires version '2.15'")
+            else:
+                outputs = workflow.get("outputs")
+                if not isinstance(outputs, dict) or not outputs:
+                    self._add_error("result_guidance requires at least one declared output")
+                self._validate_guidance_payload(
+                    workflow["result_guidance"],
+                    context="result_guidance",
+                    version=version,
+                    allow_context=False,
+                )
 
         if 'finally' in workflow and not self._version_at_least(version, STRUCTURED_FINALLY_VERSION):
             self._add_error(f"finally requires version '{STRUCTURED_FINALLY_VERSION}'")
@@ -871,6 +889,7 @@ class WorkflowLoader:
                 version=version,
                 subject_refs=subject_refs,
                 kind_label="workflow boundary",
+                allow_guidance_keys=True,
             )
 
         if output_type == 'enum' and 'allowed' not in spec:
@@ -3323,12 +3342,34 @@ class WorkflowLoader:
         else:
             self._validate_path_safety(output_bundle['path'], f"{context} path", subject_refs=subject_refs)
 
+        if 'guidance' in output_bundle:
+            if not self._version_at_least(version, "2.15"):
+                self._add_error(
+                    f"{context}.guidance requires version '2.15'",
+                    subject_refs=subject_refs,
+                )
+            else:
+                self._validate_guidance_payload(
+                    output_bundle['guidance'],
+                    context=f"{context}.guidance",
+                    version=version,
+                    allow_context=False,
+                    subject_refs=subject_refs,
+                )
+        for misplaced_key in ('description', 'format_hint', 'example', 'guidance_context', 'guidance_by_variant'):
+            if misplaced_key in output_bundle:
+                self._add_error(
+                    f"{context}.{misplaced_key} is not allowed at bundle level; use {context}.guidance",
+                    subject_refs=subject_refs,
+                )
+
         fields = output_bundle.get('fields')
         if not isinstance(fields, list) or not fields:
             self._add_error(f"{context}.fields must be a non-empty list", subject_refs=subject_refs)
             return
 
         seen_names: Set[str] = set()
+        root_pointer_indexes: list[int] = []
         for i, spec in enumerate(fields):
             field_context = f"{context}.fields[{i}]"
             if not isinstance(spec, dict):
@@ -3354,6 +3395,20 @@ class WorkflowLoader:
                 pointer = spec['json_pointer']
                 if pointer and not pointer.startswith('/'):
                     self._add_error(f"{field_context} 'json_pointer' must be RFC 6901 pointer syntax", subject_refs=subject_refs)
+                elif (
+                    self._version_at_least(version, "2.15")
+                    and self._decode_guidance_json_pointer(pointer) is None
+                ):
+                    self._add_error(f"{field_context} 'json_pointer' must be RFC 6901 pointer syntax", subject_refs=subject_refs)
+                elif pointer == "":
+                    root_pointer_indexes.append(i)
+
+            self._validate_field_guidance(
+                spec,
+                context=field_context,
+                version=version,
+                subject_refs=subject_refs,
+            )
 
             self._validate_output_schema_spec(
                 spec,
@@ -3361,6 +3416,13 @@ class WorkflowLoader:
                 version=version,
                 subject_refs=subject_refs,
                 kind_label="output_bundle",
+                allow_guidance_keys=True,
+            )
+
+        if self._version_at_least(version, "2.15") and len(fields) > 1 and root_pointer_indexes:
+            self._add_error(
+                f"{context}.fields root json_pointer cannot have sibling fields",
+                subject_refs=subject_refs,
             )
 
     def _validate_variant_output(
@@ -3383,6 +3445,27 @@ class WorkflowLoader:
             self._add_error(f"{context} 'path' must be a string", subject_refs=subject_refs)
         else:
             self._validate_path_safety(variant_output['path'], f"{context} path", subject_refs=subject_refs)
+
+        if 'guidance' in variant_output:
+            if not self._version_at_least(version, "2.15"):
+                self._add_error(
+                    f"{context}.guidance requires version '2.15'",
+                    subject_refs=subject_refs,
+                )
+            else:
+                self._validate_guidance_payload(
+                    variant_output['guidance'],
+                    context=f"{context}.guidance",
+                    version=version,
+                    allow_context=False,
+                    subject_refs=subject_refs,
+                )
+        for misplaced_key in ('description', 'format_hint', 'example', 'guidance_context', 'guidance_by_variant'):
+            if misplaced_key in variant_output:
+                self._add_error(
+                    f"{context}.{misplaced_key} is not allowed at bundle level; use {context}.guidance",
+                    subject_refs=subject_refs,
+                )
 
         discriminant = variant_output.get('discriminant')
         if not isinstance(discriminant, dict):
@@ -3410,6 +3493,7 @@ class WorkflowLoader:
             *,
             seen_names: Set[str],
             seen_pointers: Set[str],
+            guidance_role: str,
         ) -> None:
             if not isinstance(spec, dict):
                 self._add_error(f"{field_context} must be a dictionary", subject_refs=subject_refs)
@@ -3434,6 +3518,11 @@ class WorkflowLoader:
             else:
                 if pointer and not pointer.startswith('/'):
                     self._add_error(f"{field_context} 'json_pointer' must be RFC 6901 pointer syntax", subject_refs=subject_refs)
+                elif (
+                    self._version_at_least(version, "2.15")
+                    and self._decode_guidance_json_pointer(pointer) is None
+                ):
+                    self._add_error(f"{field_context} 'json_pointer' must be RFC 6901 pointer syntax", subject_refs=subject_refs)
                 elif pointer in seen_pointers:
                     self._add_error(
                         f"{field_context} duplicate json_pointer '{pointer}' across discriminant/shared_fields/variants",
@@ -3442,12 +3531,27 @@ class WorkflowLoader:
                 else:
                     seen_pointers.add(pointer)
 
+            self._validate_field_guidance(
+                spec,
+                context=field_context,
+                version=version,
+                allowed_variants=(
+                    discriminant.get('allowed')
+                    if guidance_role == "shared" and isinstance(discriminant.get('allowed'), list)
+                    else None
+                ),
+                allow_guidance=guidance_role != "discriminant",
+                allow_guidance_by_variant=guidance_role == "shared",
+                subject_refs=subject_refs,
+            )
+
             self._validate_output_schema_spec(
                 spec,
                 field_context=field_context,
                 version=version,
                 subject_refs=subject_refs,
                 kind_label="variant_output",
+                allow_guidance_keys=guidance_role != "discriminant",
             )
 
         validate_field_spec(
@@ -3455,6 +3559,7 @@ class WorkflowLoader:
             f"{context}.discriminant",
             seen_names=base_seen_names,
             seen_pointers=base_seen_pointers,
+            guidance_role="discriminant",
         )
 
         for index, spec in enumerate(shared_fields):
@@ -3463,6 +3568,7 @@ class WorkflowLoader:
                 f"{context}.shared_fields[{index}]",
                 seen_names=base_seen_names,
                 seen_pointers=base_seen_pointers,
+                guidance_role="shared",
             )
 
         for variant_name, variant_spec in variants.items():
@@ -3482,7 +3588,347 @@ class WorkflowLoader:
                     f"{variant_context}.fields[{index}]",
                     seen_names=variant_seen_names,
                     seen_pointers=variant_seen_pointers,
+                    guidance_role="variant",
                 )
+
+    def _validate_field_guidance(
+        self,
+        spec: Dict[str, Any],
+        *,
+        context: str,
+        version: str,
+        allowed_variants: Any = None,
+        allow_guidance: bool = True,
+        allow_guidance_by_variant: bool = False,
+        subject_refs: tuple[ValidationSubjectRef, ...] = (),
+    ) -> None:
+        """Validate additive v2.15 guidance without changing value schemas."""
+        direct_keys = ('description', 'format_hint', 'example', 'guidance_context')
+        present_direct_keys = tuple(key for key in direct_keys if key in spec)
+        has_by_variant = 'guidance_by_variant' in spec
+        if not present_direct_keys and not has_by_variant:
+            return
+
+        if not self._version_at_least(version, "2.15"):
+            self._add_error(
+                f"{context} field guidance requires version '2.15'",
+                subject_refs=subject_refs,
+            )
+            return
+
+        if not allow_guidance:
+            for key in (*present_direct_keys, *(() if not has_by_variant else ('guidance_by_variant',))):
+                self._add_error(
+                    f"{context}: guidance key '{key}' is not allowed on the discriminant",
+                    subject_refs=subject_refs,
+                )
+            return
+
+        if present_direct_keys:
+            direct_payload = {key: spec[key] for key in present_direct_keys}
+            self._validate_guidance_payload(
+                direct_payload,
+                context=context,
+                version=version,
+                allow_context=True,
+                leaf_pointer=spec.get('json_pointer'),
+                field_spec=spec,
+                subject_refs=subject_refs,
+            )
+
+        if not has_by_variant:
+            return
+        if not allow_guidance_by_variant:
+            self._add_error(
+                f"{context}.guidance_by_variant is only allowed on shared variant fields",
+                subject_refs=subject_refs,
+            )
+            return
+        if present_direct_keys:
+            self._add_error(
+                f"{context}.guidance_by_variant is mutually exclusive with direct guidance",
+                subject_refs=subject_refs,
+            )
+
+        payloads = spec['guidance_by_variant']
+        if not isinstance(payloads, dict) or not payloads:
+            self._add_error(
+                f"{context}.guidance_by_variant must be a non-empty dictionary",
+                subject_refs=subject_refs,
+            )
+            return
+
+        canonical_variants = (
+            [value for value in allowed_variants if isinstance(value, str)]
+            if isinstance(allowed_variants, list)
+            else []
+        )
+        payload_names = list(payloads)
+        unknown_variants = [name for name in payload_names if name not in canonical_variants]
+        if unknown_variants:
+            self._add_error(
+                f"{context}.guidance_by_variant has unknown variants {unknown_variants}",
+                subject_refs=subject_refs,
+            )
+        expected_order = [name for name in canonical_variants if name in payloads]
+        if not unknown_variants and payload_names != expected_order:
+            self._add_error(
+                f"{context}.guidance_by_variant keys must follow discriminant allowed order",
+                subject_refs=subject_refs,
+            )
+
+        for variant_name, payload in payloads.items():
+            self._validate_guidance_payload(
+                payload,
+                context=f"{context}.guidance_by_variant.{variant_name}",
+                version=version,
+                allow_context=True,
+                leaf_pointer=spec.get('json_pointer'),
+                field_spec=spec,
+                subject_refs=subject_refs,
+            )
+
+    def _validate_guidance_payload(
+        self,
+        payload: Any,
+        *,
+        context: str,
+        version: str,
+        allow_context: bool,
+        leaf_pointer: Any = None,
+        field_spec: Optional[Mapping[str, Any]] = None,
+        subject_refs: tuple[ValidationSubjectRef, ...] = (),
+    ) -> None:
+        """Validate one closed guidance payload independently of value-schema shape."""
+        if not isinstance(payload, dict):
+            self._add_error(f"{context} must be a dictionary", subject_refs=subject_refs)
+            return
+
+        allowed_keys = {'description', 'format_hint', 'example'}
+        if allow_context:
+            allowed_keys.add('guidance_context')
+        for key in payload:
+            if key not in allowed_keys:
+                self._add_error(f"{context}: unknown guidance key '{key}'", subject_refs=subject_refs)
+
+        if not payload:
+            self._add_error(f"{context} must be a non-empty guidance payload", subject_refs=subject_refs)
+            return
+
+        for key in ('description', 'format_hint'):
+            if key not in payload:
+                continue
+            value = payload[key]
+            if not isinstance(value, str) or not value.strip():
+                self._add_error(
+                    f"{context}.{key} must be a non-empty string",
+                    subject_refs=subject_refs,
+                )
+
+        if 'example' in payload:
+            self._validate_json_compatible_guidance_value(
+                payload['example'],
+                context=f"{context}.example",
+                subject_refs=subject_refs,
+            )
+            if field_spec is not None:
+                self._validate_field_guidance_example(
+                    payload['example'],
+                    field_spec,
+                    context=f"{context}.example",
+                    subject_refs=subject_refs,
+                )
+
+        if 'guidance_context' not in payload:
+            return
+        rows = payload['guidance_context']
+        if not isinstance(rows, list) or not rows:
+            self._add_error(
+                f"{context}.guidance_context must be a non-empty list",
+                subject_refs=subject_refs,
+            )
+            return
+        if leaf_pointer == "":
+            self._add_error(
+                f"{context} root field cannot declare guidance_context",
+                subject_refs=subject_refs,
+            )
+            return
+        leaf_parts = self._decode_guidance_json_pointer(leaf_pointer)
+        if leaf_parts is None:
+            return
+
+        previous_depth = -1
+        seen_pointers: set[str] = set()
+        for index, row in enumerate(rows):
+            row_context = f"{context}.guidance_context[{index}]"
+            if not isinstance(row, dict):
+                self._add_error(f"{row_context} must be a dictionary", subject_refs=subject_refs)
+                continue
+            row_pointer = row.get('json_pointer')
+            if not isinstance(row_pointer, str) or not row_pointer:
+                self._add_error(
+                    f"{row_context}.json_pointer must be a non-empty RFC 6901 pointer",
+                    subject_refs=subject_refs,
+                )
+                continue
+            row_parts = self._decode_guidance_json_pointer(row_pointer)
+            if row_parts is None:
+                self._add_error(
+                    f"{row_context}.json_pointer must use RFC 6901 pointer syntax",
+                    subject_refs=subject_refs,
+                )
+                continue
+            if row_pointer in seen_pointers:
+                self._add_error(
+                    f"{row_context}.json_pointer duplicates an earlier context pointer",
+                    subject_refs=subject_refs,
+                )
+            seen_pointers.add(row_pointer)
+            if len(row_parts) >= len(leaf_parts) or leaf_parts[:len(row_parts)] != row_parts:
+                self._add_error(
+                    f"{row_context}.json_pointer must be a proper prefix of the field pointer",
+                    subject_refs=subject_refs,
+                )
+            if len(row_parts) <= previous_depth:
+                self._add_error(
+                    f"{context}.guidance_context must be ordered shallowest to deepest",
+                    subject_refs=subject_refs,
+                )
+            previous_depth = len(row_parts)
+
+            row_payload = {key: value for key, value in row.items() if key != 'json_pointer'}
+            self._validate_guidance_payload(
+                row_payload,
+                context=row_context,
+                version=version,
+                allow_context=False,
+                subject_refs=subject_refs,
+            )
+
+    def _validate_json_compatible_guidance_value(
+        self,
+        value: Any,
+        *,
+        context: str,
+        subject_refs: tuple[ValidationSubjectRef, ...] = (),
+    ) -> None:
+        if not self._is_json_native_guidance_value(value):
+            self._add_error(
+                f"{context} must be JSON-compatible",
+                subject_refs=subject_refs,
+            )
+            return
+        try:
+            json.dumps(value, allow_nan=False)
+        except (TypeError, ValueError):
+            self._add_error(
+                f"{context} must be JSON-compatible",
+                subject_refs=subject_refs,
+            )
+
+    @classmethod
+    def _is_json_native_guidance_value(cls, value: Any) -> bool:
+        if value is None or isinstance(value, (bool, str)):
+            return True
+        if type(value) is int:
+            return True
+        if isinstance(value, float):
+            return math.isfinite(value)
+        if isinstance(value, list):
+            return all(cls._is_json_native_guidance_value(item) for item in value)
+        if isinstance(value, dict):
+            return all(
+                isinstance(key, str) and cls._is_json_native_guidance_value(item)
+                for key, item in value.items()
+            )
+        return False
+
+    @staticmethod
+    def _decode_guidance_json_pointer(pointer: Any) -> Optional[tuple[str, ...]]:
+        if not isinstance(pointer, str) or (pointer and not pointer.startswith('/')):
+            return None
+        if pointer == "":
+            return ()
+        decoded: list[str] = []
+        for raw_part in pointer[1:].split('/'):
+            index = 0
+            chars: list[str] = []
+            while index < len(raw_part):
+                char = raw_part[index]
+                if char != '~':
+                    chars.append(char)
+                    index += 1
+                    continue
+                if index + 1 >= len(raw_part) or raw_part[index + 1] not in {'0', '1'}:
+                    return None
+                chars.append('~' if raw_part[index + 1] == '0' else '/')
+                index += 2
+            decoded.append(''.join(chars))
+        return tuple(decoded)
+
+    def _validate_field_guidance_example(
+        self,
+        example: Any,
+        field_spec: Mapping[str, Any],
+        *,
+        context: str,
+        subject_refs: tuple[ValidationSubjectRef, ...] = (),
+    ) -> None:
+        schema = self._guidance_example_schema(field_spec)
+        if not self._guidance_example_has_json_type(example, schema):
+            self._add_error(f"{context} is invalid for the field schema", subject_refs=subject_refs)
+            return
+        try:
+            validate_contract_value(example, schema, workspace=self.workspace)
+        except OutputContractError as exc:
+            self._add_error(
+                f"{context} is invalid for the field schema: {exc}",
+                subject_refs=subject_refs,
+            )
+
+    @classmethod
+    def _guidance_example_schema(cls, spec: Mapping[str, Any]) -> Dict[str, Any]:
+        schema = deepcopy(dict(spec))
+        schema.pop('description', None)
+        schema.pop('format_hint', None)
+        schema.pop('example', None)
+        schema.pop('guidance_context', None)
+        schema.pop('guidance_by_variant', None)
+        if 'must_exist_target' in schema:
+            schema['must_exist_target'] = False
+        for key in ('item', 'items', 'keys', 'values'):
+            child = schema.get(key)
+            if isinstance(child, Mapping):
+                schema[key] = cls._guidance_example_schema(child)
+        return schema
+
+    @classmethod
+    def _guidance_example_has_json_type(cls, value: Any, spec: Mapping[str, Any]) -> bool:
+        value_type = spec.get('type')
+        if value_type == 'optional':
+            return value is None or (
+                isinstance(spec.get('item'), Mapping)
+                and cls._guidance_example_has_json_type(value, spec['item'])
+            )
+        if value_type == 'list':
+            return isinstance(value, list) and isinstance(spec.get('items'), Mapping) and all(
+                cls._guidance_example_has_json_type(item, spec['items']) for item in value
+            )
+        if value_type == 'map':
+            return isinstance(value, dict) and isinstance(spec.get('values'), Mapping) and all(
+                isinstance(key, str) and cls._guidance_example_has_json_type(item, spec['values'])
+                for key, item in value.items()
+            )
+        if value_type in {'string', 'enum', 'relpath'}:
+            return isinstance(value, str)
+        if value_type == 'integer':
+            return type(value) is int
+        if value_type == 'float':
+            return isinstance(value, (int, float)) and not isinstance(value, bool)
+        if value_type == 'bool':
+            return isinstance(value, bool)
+        return False
 
     def _validate_output_schema_spec(
         self,
@@ -3492,7 +3938,15 @@ class WorkflowLoader:
         version: str,
         subject_refs: tuple[ValidationSubjectRef, ...] = (),
         kind_label: str,
+        allow_guidance_keys: bool = False,
     ) -> None:
+        if not allow_guidance_keys and self._version_at_least(version, "2.15"):
+            for key in ('description', 'format_hint', 'example', 'guidance_context', 'guidance_by_variant'):
+                if key in spec:
+                    self._add_error(
+                        f"{field_context}: guidance key '{key}' is not allowed in a nested schema",
+                        subject_refs=subject_refs,
+                    )
         if 'type' not in spec:
             self._add_error(f"{field_context} missing required 'type'", subject_refs=subject_refs)
             return
@@ -5430,6 +5884,7 @@ class WorkflowLoader:
                     field_context=context,
                     version=version,
                     kind_label="artifact",
+                    allow_guidance_keys=True,
                 )
 
             if output_type == 'enum' and 'allowed' not in spec:
