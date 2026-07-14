@@ -877,6 +877,7 @@ def _lower_union_variant_expr(
         step_id=step_name,
         span=union_expr.span,
         form_path=union_expr.form_path,
+        type_env=context.type_env,
     )
     _register_generated_contract_field_bindings(context, bundle_contract.field_origins)
     allocation = allocate_generated_result_bundle(

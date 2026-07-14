@@ -1849,6 +1849,79 @@ def test_provider_result_native_bool_binds_terminal_result_artifact_ref(tmp_path
     }
 
 
+@pytest.mark.parametrize("lowering_route", ["legacy", "wcc_m4"])
+def test_compiled_root_guidance_survives_provider_and_command_lowering_routes(
+    tmp_path: Path,
+    lowering_route: str,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / f"compiled_root_guidance_{lowering_route}.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defworkflow guided-provider ()",
+                '    -> (result Bool :description "Public provider decision." :example true)',
+                "    (provider-result providers.execute",
+                "      :prompt prompts.implementation.execute",
+                "      :inputs ()",
+                '      :returns (result Bool :description "Provider must decide."',
+                '        :format-hint "JSON boolean." :example true)))',
+                "  (defworkflow guided-command ()",
+                '    -> (result Bool :description "Public command decision." :example false)',
+                "    (command-result decide",
+                '      :argv ("python" "scripts/decide.py")',
+                '      :returns (result Bool :description "Command must decide."',
+                '        :format-hint "JSON boolean." :example false))))',
+            ]
+        ),
+    )
+
+    result = _compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md"
+        },
+        command_boundaries={
+            "decide": ExternalToolBinding(
+                name="decide",
+                stable_command=("python", "scripts/decide.py"),
+            )
+        },
+        lowering_route=lowering_route,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered_by_name = {
+        lowered.typed_workflow.definition.name: lowered.authored_mapping
+        for lowered in result.lowered_workflows
+    }
+    provider_mapping = lowered_by_name["guided-provider"]
+    provider_step = next(step for step in provider_mapping["steps"] if "provider" in step)
+    assert provider_step["output_bundle"]["fields"][0] == {
+        **provider_step["output_bundle"]["fields"][0],
+        "description": "Provider must decide.",
+        "format_hint": "JSON boolean.",
+        "example": True,
+    }
+    assert provider_mapping["outputs"]["__result__"]["description"] == "Public provider decision."
+    assert provider_mapping["outputs"]["__result__"]["example"] is True
+
+    command_mapping = lowered_by_name["guided-command"]
+    command_step = next(step for step in command_mapping["steps"] if "command" in step)
+    assert command_step["output_bundle"]["fields"][0] == {
+        **command_step["output_bundle"]["fields"][0],
+        "description": "Command must decide.",
+        "format_hint": "JSON boolean.",
+        "example": False,
+    }
+    assert command_mapping["outputs"]["__result__"]["description"] == "Public command decision."
+    assert command_mapping["outputs"]["__result__"]["example"] is False
+
+
 def test_command_result_native_int_binds_terminal_result_artifact_ref(tmp_path: Path) -> None:
     """A let*-bound native `Int` command result binds `root.steps.<step>.artifacts.__result__`."""
     workflow_path = _write_module(

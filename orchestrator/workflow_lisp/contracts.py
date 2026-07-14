@@ -19,6 +19,7 @@ from orchestrator.workflow.surface_ast import SurfaceContract
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .phase_stdlib import ReusableArtifactRequirement
+from .result_guidance import ResultGuidance, normalized_result_guidance_payload
 from .spans import SourceSpan
 from .type_env import (
     ListTypeRef,
@@ -40,6 +41,12 @@ _NON_SEMANTIC_CONTRACT_PROVENANCE_KEYS = frozenset(
     {
         "source_map_subject",
         "source_map_subjects_by_variant",
+        "guidance",
+        "description",
+        "format_hint",
+        "example",
+        "guidance_context",
+        "guidance_by_variant",
     }
 )
 
@@ -215,6 +222,8 @@ def derive_structured_result_contract(
     step_id: str,
     span: SourceSpan | None = None,
     form_path: tuple[str, ...] = (),
+    guidance: ResultGuidance | None = None,
+    type_env: Any | None = None,
 ) -> GeneratedBundleContract:
     """Derive the runtime-validated result contract for a provider/command form.
 
@@ -226,6 +235,11 @@ def derive_structured_result_contract(
     """
 
     path = _bundle_path(workflow_name=workflow_name, step_id=step_id)
+    root_guidance = normalized_result_guidance_payload(
+        guidance,
+        expected_type=type_ref,
+        type_env=type_env,
+    )
     if not isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
         root_subject = ValidationSubjectRef(
             subject_kind="output_bundle_field",
@@ -243,6 +257,7 @@ def derive_structured_result_contract(
                         span=span,
                         form_path=form_path,
                     ),
+                    **(root_guidance or {}),
                     "source_map_subject": serialize_validation_subject_ref(root_subject),
                 }
             ],
@@ -270,10 +285,13 @@ def derive_structured_result_contract(
     if isinstance(type_ref, RecordTypeRef):
         payload = {
             "path": path,
+            **({"guidance": root_guidance} if root_guidance else {}),
             "fields": _flatten_structured_result_fields(
                 type_ref,
                 span=span,
                 form_path=form_path,
+                type_env=type_env,
+                include_guidance=True,
             ),
         }
         return GeneratedBundleContract(
@@ -287,6 +305,8 @@ def derive_structured_result_contract(
         type_ref,
         span=span,
         form_path=form_path,
+        type_env=type_env,
+        include_guidance=True,
     )
     variant_fields = {
         variant.name: _flatten_variant_structured_result_fields(
@@ -294,6 +314,8 @@ def derive_structured_result_contract(
             variant.name,
             span=span,
             form_path=form_path,
+            type_env=type_env,
+            include_guidance=True,
         )
         for variant in type_ref.definition.variants
     }
@@ -319,6 +341,7 @@ def derive_structured_result_contract(
 
     payload = {
         "path": path,
+        **({"guidance": root_guidance} if root_guidance else {}),
         "discriminant": {
             "name": "variant",
             "json_pointer": "/variant",
@@ -1104,6 +1127,8 @@ def _flatten_structured_result_fields(
     *,
     span: SourceSpan | None,
     form_path: tuple[str, ...],
+    type_env: Any | None = None,
+    include_guidance: bool = False,
 ) -> list[dict[str, Any]]:
     flattened: list[dict[str, Any]] = []
     for field in type_ref.definition.fields:
@@ -1114,6 +1139,9 @@ def _flatten_structured_result_fields(
                 field_path=(field.name,),
                 span=span,
                 form_path=form_path,
+                field_guidance=field.guidance,
+                type_env=type_env,
+                include_guidance=include_guidance,
             )
         )
     return flattened
@@ -1187,6 +1215,8 @@ def _flatten_variant_structured_result_fields(
     *,
     span: SourceSpan | None,
     form_path: tuple[str, ...],
+    type_env: Any | None = None,
+    include_guidance: bool = False,
 ) -> list[dict[str, Any]]:
     shared_field_names = {
         field["name"]
@@ -1194,6 +1224,8 @@ def _flatten_variant_structured_result_fields(
             type_ref,
             span=span,
             form_path=form_path,
+            type_env=type_env,
+            include_guidance=include_guidance,
         )
     }
     flattened: list[dict[str, Any]] = []
@@ -1204,6 +1236,9 @@ def _flatten_variant_structured_result_fields(
             field_path=(field.name,),
             span=span,
             form_path=form_path,
+            field_guidance=field.guidance,
+            type_env=type_env,
+            include_guidance=include_guidance,
         ):
             if flattened_field["name"] not in shared_field_names:
                 flattened.append(flattened_field)
@@ -1215,6 +1250,8 @@ def _shared_variant_structured_result_fields(
     *,
     span: SourceSpan | None,
     form_path: tuple[str, ...],
+    type_env: Any | None = None,
+    include_guidance: bool = False,
 ) -> list[dict[str, Any]]:
     if not type_ref.definition.variants:
         return []
@@ -1229,6 +1266,9 @@ def _shared_variant_structured_result_fields(
                 field_path=(field.name,),
                 span=span,
                 form_path=form_path,
+                field_guidance=field.guidance,
+                type_env=type_env,
+                include_guidance=include_guidance,
             ):
                 flattened_fields[flattened_field["name"]] = flattened_field
         variant_field_maps.append(flattened_fields)
@@ -1248,12 +1288,49 @@ def _shared_variant_structured_result_fields(
             field_path=(field.name,),
             span=span,
             form_path=form_path,
+            field_guidance=field.guidance,
+            type_env=type_env,
+            include_guidance=include_guidance,
         ):
             field_name = flattened_field["name"]
             if field_name not in common_names:
                 continue
-            if all(field_map.get(field_name) == flattened_field for field_map in variant_field_maps[1:]):
-                shared.append(flattened_field)
+            structural_field = _without_guidance(flattened_field)
+            if not all(
+                _without_guidance(field_map[field_name]) == structural_field
+                for field_map in variant_field_maps[1:]
+            ):
+                continue
+            if not include_guidance:
+                shared.append(structural_field)
+                continue
+            payloads = [
+                _field_guidance_payload(field_map[field_name])
+                for field_map in variant_field_maps
+            ]
+            nonempty_payloads = [payload for payload in payloads if payload]
+            if nonempty_payloads and all(
+                _canonical_guidance_payload(payload)
+                == _canonical_guidance_payload(payloads[0])
+                for payload in payloads
+            ):
+                shared.append({**structural_field, **payloads[0]})
+                continue
+            guidance_by_variant = {
+                variant.name: payload
+                for variant, payload in zip(type_ref.definition.variants, payloads, strict=True)
+                if payload
+            }
+            shared.append(
+                {
+                    **structural_field,
+                    **(
+                        {"guidance_by_variant": guidance_by_variant}
+                        if guidance_by_variant
+                        else {}
+                    ),
+                }
+            )
     return shared
 
 
@@ -1263,8 +1340,27 @@ def _flatten_structured_result_field(
     field_path: tuple[str, ...],
     span: SourceSpan | None,
     form_path: tuple[str, ...],
+    field_guidance: ResultGuidance | None = None,
+    guidance_context: tuple[dict[str, Any], ...] = (),
+    type_env: Any | None = None,
+    include_guidance: bool = False,
 ) -> list[dict[str, Any]]:
     if isinstance(type_ref, RecordTypeRef):
+        nested_context = guidance_context
+        if include_guidance:
+            ancestor_payload = normalized_result_guidance_payload(
+                field_guidance,
+                expected_type=type_ref,
+                type_env=type_env,
+            )
+            if ancestor_payload:
+                nested_context = (
+                    *guidance_context,
+                    {
+                        "json_pointer": _json_pointer(field_path),
+                        **ancestor_payload,
+                    },
+                )
         flattened: list[dict[str, Any]] = []
         for field in type_ref.definition.fields:
             field_type = _resolve_record_field_type(type_ref, field.name)
@@ -1274,17 +1370,60 @@ def _flatten_structured_result_field(
                     field_path=field_path + (field.name,),
                     span=span,
                     form_path=form_path,
+                    field_guidance=field.guidance,
+                    guidance_context=nested_context,
+                    type_env=type_env,
+                    include_guidance=include_guidance,
                 )
             )
         return flattened
 
-    return [
-        {
-            "name": "__".join(field_path),
-            "json_pointer": "/" + "/".join(field_path),
-            **_structured_result_field_definition(type_ref, span=span, form_path=form_path),
-        }
-    ]
+    direct_guidance = (
+        normalized_result_guidance_payload(
+            field_guidance,
+            expected_type=type_ref,
+            type_env=type_env,
+        )
+        if include_guidance
+        else None
+    )
+    return [{
+        "name": "__".join(field_path),
+        "json_pointer": _json_pointer(field_path),
+        **_structured_result_field_definition(type_ref, span=span, form_path=form_path),
+        **({"guidance_context": list(guidance_context)} if guidance_context else {}),
+        **(direct_guidance or {}),
+    }]
+
+
+_FIELD_GUIDANCE_KEYS = frozenset(
+    {"description", "format_hint", "example", "guidance_context", "guidance_by_variant"}
+)
+
+
+def _field_guidance_payload(field: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        key: field[key]
+        for key in ("description", "format_hint", "example", "guidance_context")
+        if key in field
+    }
+
+
+def _without_guidance(field: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in field.items() if key not in _FIELD_GUIDANCE_KEYS}
+
+
+def _canonical_guidance_payload(payload: Mapping[str, Any]) -> str:
+    """Return a deterministic deep-JSON representation for union deduplication."""
+
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _json_pointer(field_path: tuple[str, ...]) -> str:
+    return "/" + "/".join(
+        component.replace("~", "~0").replace("/", "~1")
+        for component in field_path
+    )
 
 
 def _structured_result_field_definition(

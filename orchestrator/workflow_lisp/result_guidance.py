@@ -37,6 +37,34 @@ class ReturnSpec:
     span: SourceSpan = field(compare=False)
 
 
+def normalized_result_guidance_payload(
+    guidance: ResultGuidance | None,
+    *,
+    expected_type=None,
+    type_env=None,
+    workspace: Path | None = None,
+) -> dict[str, Any] | None:
+    """Project authored guidance once into the canonical JSON-native wire payload."""
+
+    if guidance is None:
+        return None
+    payload: dict[str, Any] = {}
+    if guidance.description is not None:
+        payload["description"] = guidance.description
+    if guidance.format_hint is not None:
+        payload["format_hint"] = guidance.format_hint
+    if guidance.example_expr is not None:
+        if expected_type is None or type_env is None:
+            raise TypeError("typed result guidance examples require an expected type and type environment")
+        payload["example"] = validate_result_guidance_example(
+            guidance,
+            expected_type=expected_type,
+            type_env=type_env,
+            workspace=workspace,
+        )
+    return payload or None
+
+
 def parse_return_spec(
     raw_return: object,
     *,
@@ -278,6 +306,7 @@ def validate_typed_guidance_constant(
         _validate_against_structured_result_contract(
             normalized,
             expected_type=expected_type,
+            type_env=type_env,
             workspace=workspace or Path.cwd(),
             example_node=example_node,
         )
@@ -420,6 +449,7 @@ def _validate_against_structured_result_contract(
     value: Any,
     *,
     expected_type,
+    type_env,
     workspace: Path,
     example_node: SyntaxNode,
 ) -> None:
@@ -433,6 +463,7 @@ def _validate_against_structured_result_contract(
         step_id="result-guidance-example__value",
         span=example_node.span,
         form_path=example_node.form_path,
+        type_env=type_env,
     )
     payload = _without_existence_requirements(contract.payload)
     if contract.contract_kind == "output_bundle":

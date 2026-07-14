@@ -413,6 +413,228 @@ def test_guidance_example_valid_module_compiles_through_stage3(tmp_path: Path) -
     assert result.typed_workflows[0].signature.return_type_ref == PrimitiveTypeRef(name="Bool")
 
 
+def test_root_and_record_bundle_guidance_lower_to_exact_wire_shapes(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "bundle_guidance.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defrecord ReviewResult",
+                '    (approved Bool :description "No blockers remain." :example true)',
+                '    (score Float :format-hint "Inclusive range [0, 1]." :example 0.91)))',
+            ]
+        ),
+    )
+    module = _compile_definition_module(path)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    review_type = type_env.resolve_type("ReviewResult", span=module.span, form_path=())
+
+    root_guidance = ResultGuidance(
+        description="True only when approved.",
+        format_hint="JSON boolean.",
+        example_expr=_expression_syntax("true"),
+    )
+    root_contract = derive_structured_result_contract(
+        PrimitiveTypeRef(name="Bool"),
+        workflow_name="review",
+        step_id="review__approved",
+        guidance=root_guidance,
+        type_env=type_env,
+    )
+    assert root_contract.payload["fields"][0] == {
+        "name": "__result__",
+        "json_pointer": "",
+        "type": "bool",
+        "description": "True only when approved.",
+        "format_hint": "JSON boolean.",
+        "example": True,
+        "source_map_subject": {
+            "subject_kind": "output_bundle_field",
+            "subject_name": "review__approved::root-result::__result__",
+            "workflow_name": "review",
+        },
+    }
+
+    bundle_guidance = ResultGuidance(
+        description="Complete review result.",
+        example_expr=_expression_syntax(
+            '(record ReviewResult :approved true :score 0.91)'
+        ),
+    )
+    record_contract = derive_structured_result_contract(
+        review_type,
+        workflow_name="review",
+        step_id="review__result",
+        guidance=bundle_guidance,
+        type_env=type_env,
+    )
+    assert record_contract.payload["guidance"] == {
+        "description": "Complete review result.",
+        "example": {"approved": True, "score": 0.91},
+    }
+    assert record_contract.payload["fields"] == [
+        {
+            "name": "approved",
+            "json_pointer": "/approved",
+            "type": "bool",
+            "description": "No blockers remain.",
+            "example": True,
+        },
+        {
+            "name": "score",
+            "json_pointer": "/score",
+            "type": "float",
+            "format_hint": "Inclusive range [0, 1].",
+            "example": 0.91,
+        },
+    ]
+
+
+def test_nested_guidance_context_is_rfc6901_prefix_ordered_and_not_concatenated(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "nested_guidance.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defrecord Location",
+                '    (code String :description "Stable leaf code."))',
+                "  (defrecord Blocker",
+                '    (location Location :description "Where the blocker occurred."))',
+                "  (defrecord ReviewResult",
+                '    (blocker Blocker :description "The blocking condition.")))',
+            ]
+        ),
+    )
+    module = _compile_definition_module(path)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    review_type = type_env.resolve_type("ReviewResult", span=module.span, form_path=())
+
+    contract = derive_structured_result_contract(
+        review_type,
+        workflow_name="review",
+        step_id="review__result",
+        type_env=type_env,
+    )
+
+    assert contract.payload["fields"] == [
+        {
+            "name": "blocker__location__code",
+            "json_pointer": "/blocker/location/code",
+            "type": "string",
+            "guidance_context": [
+                {
+                    "json_pointer": "/blocker",
+                    "description": "The blocking condition.",
+                },
+                {
+                    "json_pointer": "/blocker/location",
+                    "description": "Where the blocker occurred.",
+                },
+            ],
+            "description": "Stable leaf code.",
+        }
+    ]
+    pointers = [
+        row["json_pointer"]
+        for row in contract.payload["fields"][0]["guidance_context"]
+    ]
+    assert pointers == ["/blocker", "/blocker/location"]
+    assert all(
+        contract.payload["fields"][0]["json_pointer"].startswith(pointer + "/")
+        for pointer in pointers
+    )
+
+    from orchestrator.workflow_lisp.contracts import _json_pointer
+
+    assert _json_pointer(("parent/name", "til~de")) == "/parent~1name/til~0de"
+
+
+def test_union_guidance_preserves_variant_fields_and_guidance_by_variant(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "union_guidance.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defrecord Details",
+                "    (approved Bool)",
+                "    (score Float))",
+                "  (defunion Decision",
+                "    (APPROVE",
+                '      (confidence Float :description "Confidence in approval." :example 0.95)',
+                '      (details Details :description "Decision details."',
+                '        :example (record Details :approved true :score 0.95))',
+                '      (report String :description "Approval report."))',
+                "    (REVISE",
+                '      (confidence Float :description "Confidence revision is needed." :example 0.80)',
+                '      (details Details :description "Decision details."',
+                '        :example (record Details :score 0.95 :approved true))',
+                '      (reason String :format-hint "Short explanation."))))',
+            ]
+        ),
+    )
+    module = _compile_definition_module(path)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    decision_type = type_env.resolve_type("Decision", span=module.span, form_path=())
+    union_guidance = ResultGuidance(description="Choose one decision variant.")
+
+    contract = derive_structured_result_contract(
+        decision_type,
+        workflow_name="review",
+        step_id="review__decision",
+        guidance=union_guidance,
+        type_env=type_env,
+    )
+
+    assert contract.payload["guidance"] == {
+        "description": "Choose one decision variant."
+    }
+    assert contract.payload["discriminant"]["allowed"] == ["APPROVE", "REVISE"]
+    confidence = next(
+        field for field in contract.payload["shared_fields"] if field["name"] == "confidence"
+    )
+    assert [*confidence["guidance_by_variant"]] == ["APPROVE", "REVISE"]
+    assert confidence["guidance_by_variant"] == {
+        "APPROVE": {"description": "Confidence in approval.", "example": 0.95},
+        "REVISE": {
+            "description": "Confidence revision is needed.",
+            "example": 0.8,
+        },
+    }
+    assert not ({"description", "format_hint", "example", "guidance_context"} & confidence.keys())
+
+    details_leaf = next(
+        field
+        for field in contract.payload["shared_fields"]
+        if field["name"] == "details__approved"
+    )
+    assert "guidance_by_variant" not in details_leaf
+    assert details_leaf["guidance_context"] == [
+        {
+            "json_pointer": "/details",
+            "description": "Decision details.",
+            "example": {"approved": True, "score": 0.95},
+        }
+    ]
+    assert contract.payload["variants"]["APPROVE"]["fields"][0]["description"] == "Approval report."
+    assert contract.payload["variants"]["REVISE"]["fields"][0]["format_hint"] == "Short explanation."
+
+    from orchestrator.workflow_lisp.contracts import _canonical_guidance_payload
+
+    assert _canonical_guidance_payload(
+        {"example": {"approved": True, "metrics": {"clarity": 0.87, "correctness": 0.95}}}
+    ) == _canonical_guidance_payload(
+        {"example": {"metrics": {"correctness": 0.95, "clarity": 0.87}, "approved": True}}
+    )
+
+
 def test_result_guidance_is_neutral_to_return_identity_and_runtime_validation() -> None:
     syntax = _expression_syntax("true")
     guided = ReturnSpec(
@@ -480,6 +702,7 @@ def test_field_guidance_is_neutral_to_type_specialization_and_contract_fingerpri
         guided_type,
         workflow_name="identity-neutral",
         step_id="identity-neutral__record",
+        type_env=_build_type_env(),
     )
     assert _strip_contract_provenance_for_fingerprint(
         plain_contract.payload

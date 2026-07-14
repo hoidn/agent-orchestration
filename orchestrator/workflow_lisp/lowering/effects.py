@@ -11,6 +11,7 @@ from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 
 from ..expressions import CommandResultExpr, LiteralExpr, ProviderResultExpr
 from ..phase import IMPLEMENTATION_ATTEMPT_ARTIFACT_ROOT
+from ..result_guidance import ResultGuidance
 from ..type_env import TypeRef
 from ..workflows import PromptExtern, ProviderExtern
 from .context import _compile_error, _TerminalResult
@@ -52,6 +53,7 @@ class LowerableCommandResult:
     expansion_stack: tuple[object, ...] = ()
     adapter_name: str | None = None
     adapter_inputs: tuple[tuple[str, Any], ...] = ()
+    guidance: ResultGuidance | None = None
 
 
 @dataclass(frozen=True)
@@ -64,6 +66,7 @@ class LowerableProviderResult:
     span: Any
     form_path: tuple[str, ...]
     expansion_stack: tuple[object, ...] = ()
+    guidance: ResultGuidance | None = None
 
 
 def _lower_command_result(
@@ -83,6 +86,7 @@ def _lower_command_result(
             expansion_stack=expr.expansion_stack,
             adapter_name=expr.adapter_name,
             adapter_inputs=tuple(expr.adapter_inputs),
+            guidance=expr.return_spec.guidance,
         ),
         result_type=typed_expr.type_ref,
         context=context,
@@ -117,6 +121,8 @@ def _lower_command_result_operation(
         step_id=step_name,
         span=command_result.span,
         form_path=command_result.form_path,
+        guidance=command_result.guidance,
+        type_env=context.type_env,
     )
     _register_generated_contract_field_bindings(context, bundle_contract.field_origins)
     allocation = allocate_generated_result_bundle(
@@ -268,6 +274,7 @@ def _lower_provider_result(
             span=expr.span,
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
+            guidance=expr.return_spec.guidance,
         ),
         result_type=result_type,
         context=context,
@@ -306,6 +313,8 @@ def _lower_provider_result_operation(
         step_id=provider_step_name,
         span=provider_result.span,
         form_path=provider_result.form_path,
+        guidance=provider_result.guidance,
+        type_env=context.type_env,
     )
     _register_generated_contract_field_bindings(context, bundle_contract.field_origins)
     authored_contract = dict(bundle_contract.payload)

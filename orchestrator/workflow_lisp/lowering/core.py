@@ -990,6 +990,30 @@ def validate_lowered_workflows(
     return MappingProxyType(dict(validated))
 
 
+def _attach_public_root_guidance(
+    authored_outputs: dict[str, dict[str, Any]],
+    *,
+    typed_workflow: TypedWorkflowDef,
+    type_env: FrontendTypeEnvironment,
+) -> None:
+    """Attach workflow/procedure root guidance to its generated public value contract."""
+
+    if (
+        "__result__" not in authored_outputs
+        or typed_workflow.definition.return_spec.guidance is None
+    ):
+        return
+    from ..result_guidance import normalized_result_guidance_payload
+
+    public_guidance = normalized_result_guidance_payload(
+        typed_workflow.definition.return_spec.guidance,
+        expected_type=typed_workflow.signature.return_type_ref,
+        type_env=type_env,
+    )
+    if public_guidance:
+        authored_outputs["__result__"].update(public_guidance)
+
+
 def _lower_one_workflow(
     typed_workflow: TypedWorkflowDef,
     *,
@@ -1018,6 +1042,11 @@ def _lower_one_workflow(
     inputs, outputs, boundary_projection = derive_workflow_signature_contracts(typed_workflow.signature)
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
     authored_outputs = {name: dict(contract.definition) for name, contract in outputs.items()}
+    _attach_public_root_guidance(
+        authored_outputs,
+        typed_workflow=typed_workflow,
+        type_env=type_env,
+    )
     is_generated_private_workflow = typed_workflow.definition.name in generated_private_workflow_names
     if isinstance(typed_workflow.signature.return_type_ref, UnionTypeRef) and is_generated_private_workflow:
         for definition in authored_outputs.values():

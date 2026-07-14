@@ -11,6 +11,7 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.prompting import PromptComposer
+from orchestrator.workflow_lisp.compiler import compile_stage3_module
 
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
@@ -1119,6 +1120,53 @@ def test_render_output_bundle_contract_block_root_field_renders_json_value_schem
     assert "json_pointer:" not in rendered
     assert "type: bool" in rendered
     assert "path: state/run-root/test-run/result.json" in rendered
+
+
+def test_compiled_root_guidance_contract_is_the_prompt_renderer_input(tmp_path: Path) -> None:
+    """The renderer consumes the production compiler contract, not a hand-built fixture."""
+    workflow_path = tmp_path / "compiled_root_guidance_prompt.orc"
+    workflow_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defworkflow guided-provider () -> Bool",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.review",
+                "      :inputs ()",
+                '      :returns (result Bool :description "No blockers remain."',
+                '        :format-hint "JSON boolean." :example true))))',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    compiled = compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.review": "prompts/review.md"},
+        lowering_route="wcc_m4",
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    executable_step = next(
+        step
+        for step in compiled.lowered_workflows[0].authored_mapping["steps"]
+        if "provider" in step
+    )
+
+    rendered = render_output_bundle_contract_block(executable_step["output_bundle"])
+
+    executable_field = executable_step["output_bundle"]["fields"][0]
+    contract_start = next(
+        index for index, line in enumerate(rendered.splitlines()) if line.startswith("- path:")
+    )
+    rendered_contract = yaml.safe_load(
+        "\n".join(rendered.splitlines()[contract_start:])
+    )[0]
+    assert rendered_contract["description"] == executable_field["description"]
+    assert rendered_contract["format_hint"] == executable_field["format_hint"]
+    assert rendered_contract["example"] == executable_field["example"]
 
 
 def test_provider_output_bundle_root_result_appends_json_value_contract_and_persists_result(

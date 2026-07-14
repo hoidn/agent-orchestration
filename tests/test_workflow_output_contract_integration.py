@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import yaml
 
+from orchestrator.contracts.output_contract import validate_output_bundle
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
@@ -689,6 +690,27 @@ def test_provider_failure_preserves_original_error_and_skips_contract(tmp_path: 
     assert result["error"]["type"] == "execution_failed"
     assert "artifacts" not in result
     assert result["error"]["type"] != "contract_violation"
+
+
+def test_bundle_guidance_is_runtime_neutral_for_value_validation(tmp_path: Path) -> None:
+    bundle_path = tmp_path / "artifacts" / "work" / "decision.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text("true\n", encoding="utf-8")
+    output_bundle = {
+        "path": "artifacts/work/decision.json",
+        "fields": [
+            {
+                "name": "decision",
+                "json_pointer": "",
+                "type": "bool",
+                "description": "True only when approved.",
+                "format_hint": "JSON boolean.",
+                "example": True,
+            }
+        ],
+    }
+
+    assert validate_output_bundle(output_bundle, workspace=tmp_path) == {"decision": True}
 
 
 def test_command_step_persists_artifacts_from_output_bundle(tmp_path: Path):
