@@ -1,5 +1,6 @@
 import ast
 import importlib
+import inspect
 import json
 from dataclasses import fields, replace
 from pathlib import Path
@@ -70,6 +71,7 @@ from orchestrator.workflow_lisp.workflows import (
     typecheck_workflow_definitions,
 )
 from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
+from tests.workflow_lisp_procedure_identity import build_procedure_identity_observation
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
@@ -87,6 +89,8 @@ LET_PROC_FIXTURE = FIXTURES / "valid" / "let_proc_proc_ref_forwarding.orc"
 PROC_REF_LITERAL_REQUIRED_FIXTURE = FIXTURES / "invalid" / "proc_ref_literal_required.orc"
 PROC_REF_SIGNATURE_INVALID_FIXTURE = FIXTURES / "invalid" / "proc_ref_signature_invalid.orc"
 PROC_REF_SPECIALIZATION_CYCLE_FIXTURE = FIXTURES / "invalid" / "proc_ref_specialization_cycle.orc"
+PROCEDURE_IDENTITY_FIXTURE = FIXTURES / "valid" / "procedure_lowering_identity_modes.orc"
+PROCEDURE_IDENTITY_BASELINES = Path(__file__).parent / "baselines" / "procedure_first"
 
 
 def compile_stage3_module(*args, **kwargs):
@@ -6406,3 +6410,80 @@ def test_wcc_anonymous_effect_terminal_pure_op_compiles_cleanly(tmp_path: Path) 
     )
 
     assert result.diagnostics == ()
+
+
+def test_procedure_identity_modes_match_frozen_legacy_observables(tmp_path: Path) -> None:
+    expected = json.loads(
+        (PROCEDURE_IDENTITY_BASELINES / "procedure_lowering_identity_modes.legacy.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    actual = build_procedure_identity_observation(
+        PROCEDURE_IDENTITY_FIXTURE,
+        "legacy",
+        tmp_path,
+    )
+
+    assert actual == expected
+
+
+def test_procedure_identity_modes_match_frozen_wcc_m4_observables(tmp_path: Path) -> None:
+    expected = json.loads(
+        (PROCEDURE_IDENTITY_BASELINES / "procedure_lowering_identity_modes.wcc_m4.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    actual = build_procedure_identity_observation(
+        PROCEDURE_IDENTITY_FIXTURE,
+        "wcc_m4",
+        tmp_path,
+    )
+
+    assert actual == expected
+
+
+def test_explicit_inline_pilot_shape_does_not_use_schema1_iteration_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    specialization_module = importlib.import_module("orchestrator.workflow_lisp.procedure_specialization")
+    original_predicate = specialization_module._procedure_private_boundary_valid
+    override_decisions: list[str] = []
+
+    def spy_on_override_predicate(procedure):
+        caller = inspect.currentframe().f_back
+        if (
+            caller is not None
+            and caller.f_code.co_name == "_lower_procedure_call"
+            and procedure.definition.name.endswith("::inline-plan")
+        ):
+            override_decisions.append(procedure.definition.name)
+        return original_predicate(procedure)
+
+    monkeypatch.setattr(
+        specialization_module,
+        "_procedure_private_boundary_valid",
+        spy_on_override_predicate,
+    )
+
+    observations = [
+        build_procedure_identity_observation(PROCEDURE_IDENTITY_FIXTURE, route, tmp_path / route)
+        for route in ("legacy", "wcc_m4")
+    ]
+
+    assert override_decisions == []
+    for observation in observations:
+        inline_plan = next(
+            procedure
+            for procedure in observation["resolved_typed_procedures"]
+            if procedure["name"].endswith("::inline-plan")
+        )
+        assert inline_plan["requested_mode"] == "inline"
+        assert inline_plan["resolved_mode"] == "inline"
+        assert inline_plan["generated_workflow_name"] is None
+        assert not any(
+            workflow["workflow_name"].endswith("::inline-plan.v1")
+            for workflow in observation["generated_private_workflows"]
+        )
