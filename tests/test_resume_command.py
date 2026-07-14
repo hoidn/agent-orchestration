@@ -37,6 +37,25 @@ LEXICAL_CHECKPOINT_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_ch
 LEXICAL_RESTORE_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_restore_regions.orc")
 
 
+def _run_tree_bytes(run_root: Path) -> tuple[tuple[str, bytes], ...]:
+    return tuple(
+        (path.relative_to(run_root).as_posix(), path.read_bytes())
+        for path in sorted(run_root.rglob("*"))
+        if path.is_file()
+    )
+
+
+def _run_tree_digest(tree: tuple[tuple[str, bytes], ...]) -> str:
+    digest = hashlib.sha256()
+    for relative_path, contents in tree:
+        encoded_path = relative_path.encode("utf-8")
+        digest.update(len(encoded_path).to_bytes(8, "big"))
+        digest.update(encoded_path)
+        digest.update(len(contents).to_bytes(8, "big"))
+        digest.update(contents)
+    return f"sha256:{digest.hexdigest()}"
+
+
 def _workflow_runtime_context_inputs(bundle):
     helper = getattr(
         loaded_bundle_helpers,
@@ -2391,12 +2410,54 @@ def test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch(tem
     ]
 
     (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
+    run_root = state_manager.run_root
+    before_tree = dict(_run_tree_bytes(run_root))
+    before_state = json.loads((run_root / "state.json").read_text(encoding="utf-8"))
+    before_frames = before_state["call_frames"]
+    assert len(before_frames) == 1
+    before_frame_id, before_frame = next(iter(before_frames.items()))
+
+    def child_identity_projection(frame):
+        child_state = frame["state"]
+        return {
+            "call_frame_id": frame["call_frame_id"],
+            "call_step_name": frame["call_step_name"],
+            "call_step_id": frame["call_step_id"],
+            "import_alias": frame["import_alias"],
+            "workflow_file": frame["workflow_file"],
+            "child_workflow_file": child_state["workflow_file"],
+            "child_workflow_checksum": child_state["workflow_checksum"],
+            "child_step_names": tuple(sorted(child_state["steps"])),
+            "child_step_ids": tuple(
+                sorted(
+                    step["step_id"]
+                    for step in child_state["steps"].values()
+                    if isinstance(step, dict) and isinstance(step.get("step_id"), str)
+                )
+            ),
+        }
+
+    before_child_identity = child_identity_projection(before_frame)
     library_path.write_text(
         library_path.read_text(encoding="utf-8") + "\n# checksum-change\n",
         encoding="utf-8",
     )
 
-    with patch('os.getcwd', return_value=str(temp_workspace)):
+    def unexpected_child_runtime_call(*_args, **_kwargs):
+        raise AssertionError("callee checksum mismatch reached child execution")
+
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        "orchestrator.workflow.executor.WorkflowExecutor",
+        side_effect=unexpected_child_runtime_call,
+    ) as child_executor_constructor, patch.object(
+        WorkflowExecutor,
+        "_execute_provider_with_context",
+        side_effect=unexpected_child_runtime_call,
+    ) as provider_entrypoint, patch.object(
+        WorkflowExecutor,
+        "_execute_command_with_context",
+        side_effect=unexpected_child_runtime_call,
+    ) as command_entrypoint:
         result = resume_workflow(
             run_id=run_id,
             repair=False,
@@ -2408,6 +2469,9 @@ def test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch(tem
         "child-one",
         "gate-failed",
     ]
+    child_executor_constructor.assert_not_called()
+    provider_entrypoint.assert_not_called()
+    command_entrypoint.assert_not_called()
 
     loaded_state = StateManager(temp_workspace, run_id=run_id).load()
     assert loaded_state.status == "failed"
@@ -2417,6 +2481,33 @@ def test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch(tem
     assert frame["state"]["steps"]["WriteHistory"]["status"] == "completed"
     assert frame["state"]["steps"]["ResumeGate"]["status"] == "failed"
     assert "SetApproved" not in frame["state"]["steps"]
+    assert set(loaded_state.call_frames) == {before_frame_id}
+    assert child_identity_projection(frame) == before_child_identity
+
+    after_tree = dict(_run_tree_bytes(run_root))
+    changed_run_files = {
+        relative_path
+        for relative_path in before_tree.keys() | after_tree.keys()
+        if before_tree.get(relative_path) != after_tree.get(relative_path)
+    }
+    after_state = json.loads((run_root / "state.json").read_text(encoding="utf-8"))
+    changed_parent_state_fields = {
+        key
+        for key in before_state.keys() | after_state.keys()
+        if before_state.get(key) != after_state.get(key)
+    }
+    assert changed_run_files == {
+        "monitor_process.json",
+        "state.json",
+        "workflow_lisp/checkpoints/default_resume_report.json",
+    }
+    assert changed_parent_state_fields == {
+        "runtime_observability",
+        "step_visits",
+        "steps",
+        "updated_at",
+    }
+    assert loaded_state.steps["RunReviewLoop"]["error"]["type"] == "call_resume_checksum_mismatch"
 
 
 def test_workflow_lisp_resume_ignores_shadow_checkpoint_sidecars(temp_workspace):
@@ -3055,6 +3146,108 @@ def test_at4_resume_completed_run(temp_workspace, sample_workflow):
         )
 
     assert result == 0  # Should succeed immediately
+
+
+def test_default_resume_root_checksum_mismatch_is_pre_executor_and_byte_immutable(
+    temp_workspace,
+    capsys,
+):
+    run_id = "workflow-lisp-root-checksum-mismatch"
+    workflow_path = temp_workspace / "root_checksum_mismatch.orc"
+    original_source = "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule root_checksum_mismatch)",
+            "  (export orchestrate)",
+            "  (defrecord ResumeSummary",
+            "    (status String)",
+            "    (ready Bool))",
+            "  (defworkflow orchestrate",
+            "    ((approved Bool)",
+            "     (status String))",
+            "    -> ResumeSummary",
+            "    (record ResumeSummary",
+            "      :status status",
+            "      :ready approved)))",
+            "",
+        ]
+    )
+    workflow_path.write_text(original_source, encoding="utf-8")
+
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state = state_manager.initialize(str(workflow_path))
+    state.status = "failed"
+    state.steps = {
+        "legacy-step": {
+            "status": "completed",
+            "step_id": "root.legacy_step",
+            "exit_code": 0,
+        }
+    }
+    state.call_frames = {
+        "call-frame:legacy": {
+            "frame_id": "call-frame:legacy",
+            "call_step_id": "root.legacy_call",
+            "status": "failed",
+            "state": {"steps": {"child-step": {"status": "completed"}}},
+        }
+    }
+    state_manager._write_state()
+
+    run_root = state_manager.run_root
+    seeded_files = {
+        "workflow_lisp/checkpoints/index/ckpt:legacy.json": b'{"records":["record:legacy"]}\n',
+        "workflow_lisp/checkpoints/records/ckpt:legacy/record:legacy.json": b'{"status":"completed"}\n',
+        "artifacts/legacy-report.md": b"legacy report\n",
+        "adjudication/legacy-step/visit-1/candidate_scores.jsonl": b'{"candidate_id":"legacy"}\n',
+        "sidecars/legacy-session.json": b'{"status":"interrupted"}\n',
+    }
+    for relative_path, contents in seeded_files.items():
+        path = run_root / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(contents)
+
+    before_tree = _run_tree_bytes(run_root)
+    before_digest = _run_tree_digest(before_tree)
+    assert {path for path, _contents in before_tree}.issuperset(
+        {
+            "state.json",
+            *seeded_files,
+        }
+    )
+
+    workflow_path.write_text(original_source + "; changed root source\n", encoding="utf-8")
+
+    def unexpected_runtime_call(*_args, **_kwargs):
+        raise AssertionError("checksum mismatch reached an executor, provider, or command boundary")
+
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+        "orchestrator.cli.commands.resume.WorkflowExecutor",
+        side_effect=unexpected_runtime_call,
+    ) as executor_constructor, patch.object(
+        WorkflowExecutor,
+        "_execute_provider_with_context",
+        side_effect=unexpected_runtime_call,
+    ) as provider_entrypoint, patch.object(
+        WorkflowExecutor,
+        "_execute_command_with_context",
+        side_effect=unexpected_runtime_call,
+    ) as command_entrypoint:
+        result = resume_workflow(run_id=run_id, repair=False, force_restart=False)
+
+    captured = capsys.readouterr()
+    after_tree = _run_tree_bytes(run_root)
+    after_digest = _run_tree_digest(after_tree)
+
+    assert result == 1
+    assert "checksum" in captured.err.lower()
+    executor_constructor.assert_not_called()
+    provider_entrypoint.assert_not_called()
+    command_entrypoint.assert_not_called()
+    assert after_tree == before_tree
+    assert after_digest == before_digest
 
 
 def test_at4_resume_with_checksum_mismatch(temp_workspace, partial_run_state):
