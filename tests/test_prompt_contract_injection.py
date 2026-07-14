@@ -1195,6 +1195,132 @@ def test_output_bundle_guidance_renders_nested_context_and_canonical_examples() 
         assert rendered.count(example_token) == 1
 
 
+def test_typed_guidance_strings_roundtrip_through_structured_prompt_sections() -> None:
+    from orchestrator.contracts.prompt_contract import render_variant_output_contract_block
+
+    output_contract = {
+        "path": "state/review/result.json",
+        "guidance": {
+            "description": "Bundle: retain # marker",
+            "format_hint": "null",
+        },
+        "fields": [
+            {
+                "name": "blocker__code",
+                "json_pointer": "/blocker/code",
+                "type": "string",
+                "guidance_context": [
+                    {
+                        "json_pointer": "/blocker",
+                        "description": "First line\nSecond line: keep # marker",
+                        "format_hint": "yes",
+                    }
+                ],
+                "description": "[APPROVE, REVISE]",
+                "format_hint": "Résumé ✓",
+            }
+        ],
+    }
+    variant_contract = {
+        "path": "state/review/decision.json",
+        "guidance": {
+            "description": "Variant bundle: keep # marker",
+            "format_hint": "false",
+        },
+        "discriminant": {
+            "name": "decision",
+            "json_pointer": "/decision",
+            "type": "enum",
+            "allowed": ["APPROVE", "REVISE"],
+        },
+        "shared_fields": [
+            {
+                "name": "confidence",
+                "json_pointer": "/confidence",
+                "type": "float",
+                "guidance_by_variant": {
+                    "APPROVE": {
+                        "description": "Decision: approve # exact",
+                        "format_hint": "on",
+                    },
+                    "REVISE": {
+                        "description": "Décision: réviser # exact",
+                        "format_hint": "[0, 1]",
+                    },
+                },
+            }
+        ],
+        "variants": {
+            "APPROVE": {"fields": []},
+            "REVISE": {
+                "fields": [
+                    {
+                        "name": "reason",
+                        "json_pointer": "/reason",
+                        "type": "string",
+                        "description": "Reason: multiline\nKeep # exactly",
+                        "format_hint": "true",
+                    }
+                ]
+            },
+        },
+    }
+
+    rendered_output = render_output_bundle_contract_block(output_contract)
+    rendered_variant = render_variant_output_contract_block(variant_contract)
+    output_bundle = _output_contract_body_as_yaml(rendered_output)[0]
+    variant_bundle = _variant_contract_body_as_yaml(rendered_variant)[0]
+
+    assert output_bundle["guidance"] == output_contract["guidance"]
+    assert output_bundle["fields"][0]["description"] == "[APPROVE, REVISE]"
+    assert output_bundle["fields"][0]["format_hint"] == "Résumé ✓"
+    assert (
+        output_bundle["fields"][0]["guidance_context"]
+        == output_contract["fields"][0]["guidance_context"]
+    )
+    assert variant_bundle["guidance"] == variant_contract["guidance"]
+    assert (
+        variant_bundle["shared_fields"][0]["guidance_by_variant"]
+        == variant_contract["shared_fields"][0]["guidance_by_variant"]
+    )
+    assert (
+        variant_bundle["variants"]["REVISE"]["fields"][0]["description"]
+        == "Reason: multiline\nKeep # exactly"
+    )
+    assert (
+        variant_bundle["variants"]["REVISE"]["fields"][0]["format_hint"]
+        == "true"
+    )
+
+    output_values = (
+        *output_contract["guidance"].values(),
+        output_contract["fields"][0]["description"],
+        output_contract["fields"][0]["format_hint"],
+        *(
+            value
+            for key, value in output_contract["fields"][0]["guidance_context"][0].items()
+            if key != "json_pointer"
+        ),
+    )
+    variant_values = (
+        *variant_contract["guidance"].values(),
+        *(
+            value
+            for payload in variant_contract["shared_fields"][0]["guidance_by_variant"].values()
+            for value in payload.values()
+        ),
+        variant_contract["variants"]["REVISE"]["fields"][0]["description"],
+        variant_contract["variants"]["REVISE"]["fields"][0]["format_hint"],
+    )
+    for rendered, semantic_values in (
+        (rendered_output, output_values),
+        (rendered_variant, variant_values),
+    ):
+        for semantic_value in semantic_values:
+            encoded = json.dumps(semantic_value, ensure_ascii=False)
+            assert rendered.count(encoded) == 1
+
+
 def test_variant_output_guidance_uses_discriminant_order_and_canonical_examples() -> None:
     from orchestrator.contracts.prompt_contract import render_variant_output_contract_block
 

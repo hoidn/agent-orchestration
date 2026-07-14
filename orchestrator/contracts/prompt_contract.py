@@ -172,9 +172,11 @@ def _append_guidance_payload(
     """Render one validated v2.15 guidance payload without reinterpretation."""
     prefix = " " * indent
     if "description" in payload:
-        lines.append(f"{prefix}description: {payload['description']}")
+        rendered_description = json.dumps(payload["description"], ensure_ascii=False)
+        lines.append(f"{prefix}description: {rendered_description}")
     if "format_hint" in payload:
-        lines.append(f"{prefix}format_hint: {payload['format_hint']}")
+        rendered_format_hint = json.dumps(payload["format_hint"], ensure_ascii=False)
+        lines.append(f"{prefix}format_hint: {rendered_format_hint}")
     if "example" in payload:
         rendered_example = json.dumps(
             payload["example"],
