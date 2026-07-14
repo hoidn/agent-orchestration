@@ -4,14 +4,15 @@
 
 **Status:** Architect decision recorded 2026-07-14 (APPROVE, Path A —
 conditional `reviewed_internal_identity_retirement`; see the decision request
-below). Task 1A harness/evidence work is selectable: the repository run store
-and the dedicated evidence store are enumerated under a named owner, external
-stores are recorded as not intentionally used, and
-`external_store_absence: not_asserted` stands. Every pilot source edit
-remains prohibited until the complete pre-edit gate (scans, genuine owner
-attestations, isolation, quiescence, immutable evidence) commits
-successfully; any supported old-run or consumer match reverts to strict
-compatibility.
+below). Task 1A is selected. The generic match-scoped store-count correction is
+implemented and reviewed at `e43461f9` and `5f382401`; the prior pre-edit scan
+must now be regenerated and reviewed under that contract before the exact owner
+records are presented for adoption and quiescence begins. No corrected scan,
+owner attestation, or quiescence claim is complete yet. Every pilot source edit
+remains prohibited until the complete pre-edit gate (corrected scans, genuine
+owner attestations, isolation, quiescence, immutable evidence) commits
+successfully; any matching supported live/nonterminal run or queried
+old-identity consumer reverts to strict compatibility.
 
 **Architect decision request:**
 [Tracked-Plan Pilot Identity-Retirement Architect Decision Request](2026-07-14-tracked-plan-pilot-identity-retirement-decision-request.md).
@@ -47,8 +48,10 @@ the reviewed evidence path defined below.
   2. `docs/plans/2026-07-13-procedure-first-substrate-gaps-plan.md` is complete and reviewed.
 - Identity-compatibility prerequisite Tasks 1-7 and Task 8's final
   verification/review gate are complete under the audited handoff below. The
-  frozen pilot source and old baseline have not been refreshed. The current
-  attestation stop leaves Task 1A and Task 2 unselected and unauthorized.
+  generic match-scoped store-count repair is also implemented and reviewed.
+  The frozen pilot source and old baseline have not been refreshed. Task 1A is
+  selected only through corrected scan regeneration and the owner-attestation
+  boundary; Task 2 remains unselected and unauthorized.
 - When resumed, this plan owns the genuine named-owner attestations for every
   known state store and either proves strict compatibility or applies the
   accepted reviewed internal identity-retirement exception. Missing,
@@ -129,8 +132,9 @@ line in protected `state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt`.
 Scoped prerequisite/committed-path and protected-excluded diff checks are
 clean; the protected paths remain unstaged and outside this handoff. The pilot
 source and `tests/baselines/procedure_first/tracked_plan_phase.json` remain
-unchanged. The prerequisite handoff is complete; the attestation stop below
-keeps Task 1A and Task 2 locked.
+unchanged. The prerequisite handoff is complete. The superseding Path A
+decision selected Task 1A, but Task 2 remains locked until the corrected scan,
+owner-attestation, quiescence, isolation, and immutable-evidence gates pass.
 
 ### Read-only Task 1A preflight stop (2026-07-14)
 
@@ -279,8 +283,10 @@ of only the current workspace.
 3. For every enumerated root call
    `scan_known_state_store(root, retired_identities=old_identities,
    query_version="procedure-identity-store-query.v1")`. Record the query time
-   alongside the returned `normalized_scan_digest`,
-   terminal/nonterminal/call-frame/consumer counts,
+   alongside the returned `normalized_scan_digest`, match-scoped
+   `terminal_run_count` / `nonterminal_run_count`, query-derived
+   call-frame/consumer counts, whole-store `store_terminal_run_count` /
+   `store_nonterminal_run_count`,
    checkpoint-index/checkpoint-record counts, retained-manifest and
    identity-metadata counts, and scanned-file count in
    `pre_edit_known_store_scans.json`. Set
@@ -291,10 +297,10 @@ of only the current workspace.
    explicitly.
 4. After each pre-edit scan, obtain from a genuine named human owner of that
    exact store an independently attributable timestamped attestation that no
-   supported live/nonterminal run or consumer of the queried old identities
-   remains there. The attestation must also place that named root under
-   quiescence from the pre-edit scan through final validator execution and
-   independent review. An agent must never synthesize, guess, default,
+   matching supported live/nonterminal run or consumer of the queried old
+   identities remains there. The attestation must also place that named root
+   under quiescence from the pre-edit scan through final validator execution
+   and independent review. An agent must never synthesize, guess, default,
    paraphrase, or sign an owner name or attestation. The sole planned mutation
    is creation of the clean and interrupted/resumed **new-ID** runs in the
    dedicated evidence root after the source edit; no legacy root may mutate.
@@ -303,18 +309,20 @@ of only the current workspace.
    `STOP: missing known-store owner attestation`, keep
    `strict_compatibility` selected, and end without asking, retrying, editing
    source, or fabricating evidence under the standing unattended instruction.
-   A supported live/nonterminal run, old consumer, nonempty/nonisolated
-   dedicated root, or unexpected legacy-root mutation before the source edit
-   also stops without an edit. Any unexpected legacy-root mutation after the
-   source edit stops retirement acceptance; it cannot be cured by silently
-   refreshing the evidence.
+   A matching supported live/nonterminal run, queried old consumer,
+   nonempty/nonisolated dedicated root, or unexpected legacy-root mutation
+   before the source edit also stops without an edit. Unrelated active runs are
+   disclosed in `store_*` totals but do not select strict compatibility. Any
+   unexpected legacy-root mutation after the source edit stops retirement
+   acceptance; it cannot be cured by silently refreshing the evidence.
 
 Only after all five steps and Task 1A's immutable pre-edit evidence commit pass
 may Task 2 make its one `.orc` edit. After that edit, only the dedicated
 evidence root may receive writes, and only for the clean and
 interrupted/resumed new-ID runs. Stop all writes after those runs, rescan every
 enumerated root, and write `final_known_store_scans.json`. Each quiesced legacy
-root must match its pre-edit digest and every count exactly. The dedicated root
+root must match its pre-edit digest, matching counts, store-wide totals, and
+every other scan count exactly. The dedicated root
 must receive a second genuine named-owner attestation for its final snapshot.
 Populate `retirement_record.json.known_state_stores` with the final scan facts
 and applicable genuine attestations so the validator's fresh rescan observes
@@ -407,7 +415,13 @@ git commit -m "test: freeze tracked plan procedure pilot parity"
   `runtime_plan.json`, `lexical_checkpoint_points.json`, and `source_map.json`
 - Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence_index.json`
 
-- [ ] **Step 1: Make ordinary runtime harness workspaces explicit and ephemeral**
+- [x] **Step 1: Make ordinary runtime harness workspaces explicit and ephemeral**
+
+**Completed:** harness workspace hygiene landed separately at `7ac96c41`.
+Disposal of the bound scratch set was owner-confirmed separately in
+`docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/scratch-provenance-confirmation.json`.
+This completion does not claim root enumeration, known-store scans or
+attestations, or quiescence.
 
 Change `_execute_design_plan_impl_stack_single_pass_runtime` to require an
 explicit `workspace: Path`; remove its internal persistent
@@ -435,7 +449,9 @@ Do not edit the pilot source.
 - [ ] **Step 3: Scan, attest, and quiesce every root**
 
 Complete Mandatory pre-edit gate Steps 3-5. Write the exact scanner outputs to
-`pre_edit_known_store_scans.json`. Store each genuine owner-supplied
+`pre_edit_known_store_scans.json`, including match-scoped run/consumer counts
+and the non-gating `store_terminal_run_count` /
+`store_nonterminal_run_count` totals. Store each genuine owner-supplied
 attestation verbatim under the deterministic canonical-root digest filename
 and bind those paths and content digests in `attestations/index.json`. The
 attestations must cover the time-bounded quiescence window through final live

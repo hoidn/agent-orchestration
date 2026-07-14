@@ -70,15 +70,18 @@ Preserve and never stage, restore, or rewrite these user-owned dirty paths:
 - `workflows/library/prompts/workflow_step_back/diagnose_non_progress.md`
 
 The untracked pilot evidence directory is also not part of the generic repair
-commit. Regeneration is owned by Task 4 below.
+commit. Regeneration is owned by Task 5 below.
 
 ### Task 1: Correct Generic Scanner Run Counts With TDD
+
+**Completed:** scanner correction `e43461f9`; focused scanner tests passed and
+the specification and quality reviews approved the generic behavior.
 
 **Files:**
 - Modify: `tests/test_workflow_lisp_procedure_identity_retirement.py`
 - Modify: `orchestrator/workflow_lisp/procedure_identity_retirement.py`
 
-- [ ] **Step 1: Write the unrelated-run RED**
+- [x] **Step 1: Write the unrelated-run RED**
 
 Add a generic test with one unrelated `running` top-level run and a retired
 identity that does not occur anywhere. Require:
@@ -91,7 +94,7 @@ assert result["store_nonterminal_run_count"] == 1
 assert result["matches"] == ()
 ```
 
-- [ ] **Step 2: Write remaining scanner REDs**
+- [x] **Step 2: Write remaining scanner REDs**
 
 Add behavioral tests proving:
 
@@ -113,7 +116,7 @@ Update the existing normalized scan test and scalar-output scan test so their
 matching-count expectations follow the accepted semantics while store-wide
 totals retain the old observations.
 
-- [ ] **Step 3: Run RED tests**
+- [x] **Step 3: Run RED tests**
 
 ```bash
 pytest -q tests/test_workflow_lisp_procedure_identity_retirement.py \
@@ -123,7 +126,7 @@ pytest -q tests/test_workflow_lisp_procedure_identity_retirement.py \
 Expected: failures show current store-wide counts leaking into match-scoped
 fields and missing `store_*` fields/error behavior.
 
-- [ ] **Step 4: Implement minimal scanner correction**
+- [x] **Step 4: Implement minimal scanner correction**
 
 In `scan_known_state_store`:
 
@@ -139,7 +142,7 @@ In `scan_known_state_store`:
 
 Do not special-case workflow names, query values, or the pilot root.
 
-- [ ] **Step 5: Run GREEN and focused regression tests**
+- [x] **Step 5: Run GREEN and focused regression tests**
 
 ```bash
 pytest -q tests/test_workflow_lisp_procedure_identity_retirement.py \
@@ -148,7 +151,7 @@ pytest -q tests/test_workflow_lisp_procedure_identity_retirement.py \
 
 Expected: all selected scanner tests pass.
 
-- [ ] **Step 6: Commit the scanner behavior**
+- [x] **Step 6: Commit the scanner behavior**
 
 ```bash
 git add orchestrator/workflow_lisp/procedure_identity_retirement.py \
@@ -157,7 +160,7 @@ git diff --cached --check
 git commit -m "fix: scope procedure retirement run counts to matches"
 ```
 
-- [ ] **Step 7: Run the two-stage Task 1 review**
+- [x] **Step 7: Run the two-stage Task 1 review**
 
 Require a fresh specification reviewer to check the implementation against
 the accepted match-scoped semantics, then a different fresh quality reviewer
@@ -166,12 +169,16 @@ material finding and repeat the affected review before Task 2.
 
 ### Task 2: Carry Store Totals Through Record Parsing And Validation
 
+**Completed:** record/schema correction `5f382401`; 173 tests collected and
+passed in the complete retirement module, followed by specification and
+quality approval.
+
 **Files:**
 - Modify: `orchestrator/workflow_lisp/procedure_identity_retirement.py`
 - Modify: `tests/test_workflow_lisp_procedure_identity_retirement.py`
 - Modify: `tests/fixtures/workflow_lisp/procedure_identity_retirement/valid_internal_retirement.json`
 
-- [ ] **Step 1: Write validator REDs in both directions**
+- [x] **Step 1: Write validator REDs in both directions**
 
 Add a test that builds a fresh known store containing only an unrelated running
 run. Copy all fresh scanner fields into the record and require the validator to
@@ -184,7 +191,7 @@ Add parser/count-mismatch coverage for both required `store_*` fields. Retain
 the existing rejection tests for matching nonterminal, call-frame, and consumer
 counts.
 
-- [ ] **Step 2: Run validator REDs**
+- [x] **Step 2: Run validator REDs**
 
 ```bash
 pytest -q tests/test_workflow_lisp_procedure_identity_retirement.py \
@@ -193,7 +200,7 @@ pytest -q tests/test_workflow_lisp_procedure_identity_retirement.py \
 
 Expected: missing schema fields and current record semantics fail.
 
-- [ ] **Step 3: Extend the generic record model**
+- [x] **Step 3: Extend the generic record model**
 
 Add required integer fields to `KnownStateStoreEvidence`:
 
@@ -206,14 +213,14 @@ Permit, require, parse, validate as non-negative, and fresh-compare both fields.
 Do not add either to the eligibility predicate. Change the supported-state
 diagnostic text to say `matching supported nonterminal state`.
 
-- [ ] **Step 4: Regenerate fictional fixture scan facts**
+- [x] **Step 4: Regenerate fictional fixture scan facts**
 
 Run the corrected scanner over the fixture store using the fixture record's
 retired identities. Update the fixture's matching counts, store totals, and
 normalized digest from that exact result. Do not copy owner or attestation text
 into any pilot evidence.
 
-- [ ] **Step 5: Run the complete retirement suite**
+- [x] **Step 5: Run the complete retirement suite**
 
 ```bash
 pytest --collect-only -q tests/test_workflow_lisp_procedure_identity_retirement.py
@@ -222,7 +229,7 @@ pytest -q -n 16 --dist=worksteal tests/test_workflow_lisp_procedure_identity_ret
 
 Expected: collection succeeds and the complete module passes.
 
-- [ ] **Step 6: Commit schema and validator support**
+- [x] **Step 6: Commit schema and validator support**
 
 ```bash
 git add orchestrator/workflow_lisp/procedure_identity_retirement.py \
@@ -232,7 +239,7 @@ git diff --cached --check
 git commit -m "fix: retain non-gating procedure store totals"
 ```
 
-- [ ] **Step 7: Run the two-stage Task 2 review**
+- [x] **Step 7: Run the two-stage Task 2 review**
 
 Require specification review first and quality review second. Resolve and
 re-review material findings before updating durable documentation.
@@ -245,14 +252,14 @@ re-review material findings before updating durable documentation.
 - Modify: `docs/plans/2026-07-13-procedure-first-pilot-plan.md`
 - Modify: `docs/plans/2026-07-14-procedure-identity-store-match-scoped-counts-plan.md`
 
-- [ ] **Step 1: Clarify the authoritative evidence schema**
+- [x] **Step 1: Clarify the authoritative evidence schema**
 
 State durably that terminal/nonterminal counts are counts of distinct runs
 containing at least one queried-identity match; multiple matches do not multiply
 the count; nested matches inherit the containing run status; missing/unreadable
 status fails closed; and separate `store_*` totals are disclosed but non-gating.
 
-- [ ] **Step 2: Align the pilot gate**
+- [x] **Step 2: Align the pilot gate**
 
 Require the corrected matching counts and disclosed store totals in pre-edit
 and final scans. Replace any plan wording that could make unrelated
@@ -263,12 +270,12 @@ Update `docs/index.md` so its Task 1A route reflects the architect-approved
 selection, this generic corrective prerequisite, and the current
 owner-attestation boundary instead of describing the task as unselected.
 
-- [ ] **Step 3: Record repair completion in this plan**
+- [x] **Step 3: Record repair completion in this plan**
 
 Check completed implementation steps only after their commits and reviews are
 real. Do not mark pilot scan regeneration or owner attestations complete here.
 
-- [ ] **Step 4: Verify and commit docs**
+- [x] **Step 4: Verify and commit docs**
 
 ```bash
 rg -n "matching.*nonterminal|store_nonterminal_run_count|queried old identities" \
@@ -285,7 +292,7 @@ git add docs/design/workflow_lisp_procedure_migration_identity_compatibility.md 
 git commit -m "docs: clarify procedure retirement store counts"
 ```
 
-- [ ] **Step 5: Run the two-stage Task 3 review**
+- [x] **Step 5: Run the two-stage Task 3 review**
 
 Require specification review first and quality review second. Resolve and
 re-review material findings before broad verification.

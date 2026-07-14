@@ -1,7 +1,7 @@
 # Workflow Lisp Procedure-Migration Identity Compatibility
 
-- **Status:** accepted (generic prerequisites implemented; final prerequisite
-  verification/reviews and pilot remain pending)
+- **Status:** accepted (generic prerequisites and match-scoped store-count
+  correction implemented and reviewed; tracked-plan pilot remains pending)
 - **Kind:** migration architecture decision and compatibility clarification
 - **Owner:** Workflow Lisp frontend and runtime-state owners
 - **Reviewers:** procedure-first specification review, runtime-state review, and
@@ -14,6 +14,7 @@
   - `docs/design/workflow_lisp_source_map.md`
   - `docs/design/workflow_language_design_principles.md`
   - `docs/plans/2026-07-13-procedure-migration-identity-compatibility-plan.md`
+  - `docs/plans/2026-07-14-procedure-identity-store-match-scoped-counts-plan.md`
   - `docs/plans/2026-07-13-procedure-first-pilot-plan.md`
   - `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`
   - `specs/state.md`
@@ -21,9 +22,9 @@
   tracked-plan procedure-first pilot retry
 
 Acceptance establishes the compatibility contract and reviewed implementation
-sequence. Generic prerequisite Tasks 1-6 now have implementation and focused
-evidence; this status does not claim the prerequisite plan's Task 8 final gate,
-the pilot, or the separate resume projection-integrity hardening complete.
+sequence. Generic prerequisite Tasks 1-8, including the final verification and
+review gate, completed at handoff `f5adcb79`. This status does not claim the
+pilot or the separate resume projection-integrity hardening complete.
 
 ## Summary
 
@@ -36,7 +37,8 @@ classes:
 2. **Reviewed internal identity retirement** permits old identities to be
    retired only for an internal callee that is not exported, registered, or
    public; whose containing route is not promoted or live; and that has no
-   supported live/nonterminal run or supported consumer of its old call frame.
+   matching supported live/nonterminal run (a run containing a queried
+   old-identity match) or supported consumer of the queried old identities.
    This class requires repository evidence, owner attestation for every known
    state store, retained historical source/build artifacts, a machine-readable
    identity delta, and fresh fail-closed checksum-rejection evidence.
@@ -152,8 +154,8 @@ checksum-compatible projection-integrity gap remains routed outside the pilot.
 - Designing or implementing the general atomic state upgrader.
 - Supporting old-state resume under retired identities.
 - Inferring that external stores do not exist.
-- Allowing identity retirement for exported, public, promoted, or supported
-  live/nonterminal state.
+- Allowing identity retirement for exported, public, promoted, or matching
+  supported live/nonterminal old-identity state.
 - Adding a family-name-specific compiler/runtime branch or a pilot allowlist.
 - Treating compile, dry-run, terminal historical runs, or a repository scan as
   sufficient evidence alone.
@@ -164,8 +166,8 @@ checksum-compatible projection-integrity gap remains routed outside the pilot.
 
 | Class | Eligibility | Old-state behavior | Required path |
 | --- | --- | --- | --- |
-| `strict_compatibility` | Default for every migration; mandatory for exported/public boundaries, promoted/live routes, supported old runs, or any old-state consumer | Persisted identities remain exact and all earlier schema/bundle/lowering/checksum/program-identity guards remain satisfied. Under current checksum semantics, a changed source cannot resume a supported old run without the general upgrader | Preserve identity for parity evidence; if any supported run must cross changed source, stop and wait for the general atomic upgrader |
-| `reviewed_internal_identity_retirement` | Callee is not exported, registered, or public; containing route is not promoted/live; retained public wrapper/contract is evidenced; no supported live/nonterminal run or old-frame consumer exists in every attested known store | The changed pilot source is rejected by the existing root checksum guard before `WorkflowExecutor` construction and without mutation. Existing callee-checksum behavior remains authoritative at the child boundary; ordinary parent-level metadata may already exist, but child state is not remapped | Retain history, review the identity delta, prove new-ID clean/resume behavior, and approve the evidence-only retirement record |
+| `strict_compatibility` | Default for every migration; mandatory for exported/public boundaries, promoted/live routes, matching supported live/nonterminal runs, or any queried old-state consumer | Persisted identities remain exact and all earlier schema/bundle/lowering/checksum/program-identity guards remain satisfied. Under current checksum semantics, a changed source cannot resume a supported old run without the general upgrader | Preserve identity for parity evidence; if any supported run must cross changed source, stop and wait for the general atomic upgrader |
+| `reviewed_internal_identity_retirement` | Callee is not exported, registered, or public; containing route is not promoted/live; retained public wrapper/contract is evidenced; no matching supported live/nonterminal run or queried old-identity consumer exists in every attested known store | The changed pilot source is rejected by the existing root checksum guard before `WorkflowExecutor` construction and without mutation. Existing callee-checksum behavior remains authoritative at the child boundary; ordinary parent-level metadata may already exist, but child state is not remapped | Retain history, review the identity delta, prove new-ID clean/resume behavior, and approve the evidence-only retirement record |
 
 Classification is fail closed. Missing evidence, an unowned known store, an
 unknown consumer, or an unsupported assertion selects strict compatibility.
@@ -333,7 +335,8 @@ A retirement record uses schema
   only. A `migration_evidence_only` label is neither mandatory nor sufficient;
 - all **known** state-store roots, their owners, scan/query version and time,
   normalized query digest, matching terminal/nonterminal/call-frame counts,
-  and an owner attestation that no supported live/nonterminal run or consumer
+  whole-store terminal/nonterminal totals, and an owner attestation that no
+  supported live/nonterminal run or consumer of the queried old identities
   remains in that named store;
 - the explicit statement `external_store_absence: not_asserted`;
 - content-addressed old and new source snapshots and production build
@@ -371,6 +374,18 @@ Historical old source and build artifacts are retained and readable for audit,
 reports, and diagnosis. They are not selectable as current executable state
 and are not rewritten to resemble the new build.
 
+`terminal_run_count` and `nonterminal_run_count` are query-scoped counts of
+distinct top-level runs containing at least one queried-identity match. Several
+matches in one run count once. A match below a run directory inherits the
+status of that first path component's top-level `state.json`. A nested match
+without that state file fails the scan; an unreadable supported state file also
+fails the scan; and a readable matching state with a missing or unknown
+`status` counts as nonterminal. `store_terminal_run_count` and
+`store_nonterminal_run_count` disclose all top-level runs in the named store
+and remain digest- and freshness-bound, but they do not select strict
+compatibility. The eligibility gate uses only the match-scoped
+`nonterminal_run_count` and query-derived old call-frame/consumer counts.
+
 ## Pilot Application
 
 The tracked-plan pilot is the recommended first use of the retirement class,
@@ -390,11 +405,12 @@ repository-local zero match cannot support a claim about EasySpin,
 PtychoPINN, paper repositories, copied workspaces, backups, CI artifacts, or
 other external locations unless each is explicitly enumerated and attested.
 
-If any known store contains a supported nonterminal run or consumer, the pilot
-returns to strict compatibility and waits for identity preservation or the
-general upgrader. Terminal historical evidence may remain, provided its old
-source/build artifacts are retained and no supported resume/consumer contract
-is claimed.
+If any known store contains a matching supported nonterminal run or a queried
+old-identity consumer, the pilot returns to strict compatibility and waits for
+identity preservation or the general upgrader. Unrelated active runs remain
+disclosed in the whole-store totals but do not select compatibility. Terminal
+historical evidence may remain, provided its old source/build artifacts are
+retained and no supported resume/consumer contract is claimed.
 
 ## Dependencies And Sequencing
 
@@ -462,7 +478,7 @@ independent reviews remain required before Step 6 or any source edit begins.
 | Failure | Required behavior |
 | --- | --- |
 | Known store lacks an owner or attestation | Select strict compatibility and stop the retirement path |
-| Supported nonterminal run or old call-frame consumer is found | Select strict compatibility; do not migrate |
+| Matching supported nonterminal run or queried old-identity consumer is found | Select strict compatibility; do not migrate |
 | External-store absence is inferred from repository evidence | Reject the retirement record |
 | Reported module-level lowering differs between Stage 3 and WCC | Fail compilation/build validation |
 | Migration behavior depends on the classic schema-1 iteration call-local override | Reject migration/promotion; do not add an effective-call-site carrier in this pilot |
@@ -496,8 +512,9 @@ resume from identity equality alone.
 
 Given a callee that is neither exported, registered, nor public, a containing
 route that is not promoted/live, retained-wrapper contract evidence, a complete
-retirement record, and owner attestations for all known stores with no
-supported run or old-frame consumer, compile and run the new inline procedure.
+retirement record, and owner attestations for all known stores with no matching
+supported nonterminal run or queried old-identity consumer, compile and run the
+new inline procedure.
 A clean run completes with the same public contract and artifact multiset. A
 second **new-source** run interrupted after the first generated provider
 boundary resumes on the same run ID, reuses only validated new-ID work, and
@@ -588,7 +605,8 @@ Stop and revise this design if:
 - inline procedure checkpoints cannot be expressed by ordinary effect policy;
 - existing persisted notes cannot carry both required provenance labels on WCC
   inline generated nodes;
-- any known supported live/nonterminal run or old-frame consumer exists;
+- any known matching supported live/nonterminal run or queried old-identity
+  consumer exists;
 - root-checksum rejection does not occur before `WorkflowExecutor`
   construction or mutates any part of the persisted run tree;
 - callee-checksum rejection permits child workflow/provider/command execution
