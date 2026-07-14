@@ -20,10 +20,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 _DEBUG_ONLY_WCC_KEYS = frozenset({"wcc_node_id", "wcc_scope_id"})
 _PYTEST_SESSION_ROOT_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_.-])(?:"
-    r"[A-Za-z]:[\\/](?:[^\\/\r\n'\"]+[\\/])*"
-    r"pytest-of-[^\\/\r\n'\"]+[\\/]pytest-\d+"
+    r"\\\\[^\\/\s'\"<>!=|&+*]+[\\/][^\\/\s'\"<>!=|&+*]+"
+    r"(?:[\\/][^\\/\s'\"<>!=|&+*]+)*"
+    r"[\\/]pytest-of-[^\\/\s'\"<>!=|&+*]+[\\/]pytest-\d+"
     r"|"
-    r"/(?:[^/\r\n'\"]+/)*pytest-of-[^/\r\n'\"]+/pytest-\d+"
+    r"[A-Za-z]:[\\/](?:[^\\/\s'\"<>!=|&+*]+[\\/])*"
+    r"pytest-of-[^\\/\s'\"<>!=|&+*]+[\\/]pytest-\d+"
+    r"|"
+    r"/(?:[^/\s'\"<>!=|&+*]+/)*pytest-of-[^/\s'\"<>!=|&+*]+/pytest-\d+"
     r")"
 )
 _PYTEST_ELAPSED_SUMMARY_PATTERN = re.compile(

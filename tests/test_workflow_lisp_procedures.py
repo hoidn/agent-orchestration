@@ -6529,6 +6529,37 @@ def test_procedure_prerequisite_failure_log_replaces_complete_session_roots() ->
     )
 
 
+def test_procedure_prerequisite_failure_log_preserves_compared_path_prefix() -> None:
+    raw = "E assert /expected/value != /var/tmp/pytest-of-ollie/pytest-42/result.json\n"
+
+    assert normalize_procedure_prerequisite_failure_log(
+        raw,
+        repo_root=Path("/unused/repo"),
+    ) == "E assert /expected/value != $PYTEST_TMP/result.json\n"
+
+
+def test_procedure_prerequisite_failure_log_normalizes_unc_but_not_relative_roots() -> None:
+    raw = (
+        r"\\server\share\cache\pytest-of-ada\pytest-47\workspace\result.json"
+        "\n"
+        r"\server\share\cache\pytest-of-ada\pytest-48\workspace\result.json"
+        "\n"
+        r"server\share\cache\pytest-of-ada\pytest-49\workspace\result.json"
+        "\n"
+    )
+
+    assert normalize_procedure_prerequisite_failure_log(
+        raw,
+        repo_root=Path("/unused/repo"),
+    ) == (
+        "$PYTEST_TMP" + r"\workspace\result.json" + "\n"
+        r"\server\share\cache\pytest-of-ada\pytest-48\workspace\result.json"
+        "\n"
+        r"server\share\cache\pytest-of-ada\pytest-49\workspace\result.json"
+        "\n"
+    )
+
+
 def test_procedure_prerequisite_failure_log_preserves_newline_and_utf8_digest() -> None:
     raw = "répr: <generator object work at 0x1234ABCD>\n1 failed in 8.25s\n"
 
