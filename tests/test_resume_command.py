@@ -5,6 +5,7 @@ import json
 import pytest
 from pathlib import Path
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -37,23 +38,74 @@ LEXICAL_CHECKPOINT_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_ch
 LEXICAL_RESTORE_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_restore_regions.orc")
 
 
-def _run_tree_bytes(run_root: Path) -> tuple[tuple[str, bytes], ...]:
-    return tuple(
-        (path.relative_to(run_root).as_posix(), path.read_bytes())
-        for path in sorted(run_root.rglob("*"))
-        if path.is_file()
-    )
+def _persisted_tree_entries(run_root: Path) -> tuple[tuple[str, bytes, bytes], ...]:
+    entries: list[tuple[str, bytes, bytes]] = []
+
+    def visit(directory: Path, relative_directory: Path) -> None:
+        with os.scandir(directory) as children:
+            sorted_children = sorted(children, key=lambda child: child.name)
+        for child in sorted_children:
+            relative_path = relative_directory / child.name
+            relative_text = relative_path.as_posix()
+            mode = child.stat(follow_symlinks=False).st_mode
+            if stat.S_ISDIR(mode):
+                entries.append((relative_text, b"d", b""))
+                visit(Path(child.path), relative_path)
+            elif stat.S_ISREG(mode):
+                entries.append((relative_text, b"f", Path(child.path).read_bytes()))
+            elif stat.S_ISLNK(mode):
+                entries.append((relative_text, b"l", os.readlink(child.path).encode("utf-8")))
+            else:
+                raise AssertionError(f"unsupported persisted run-tree entry type: {relative_text}")
+
+    visit(run_root, Path())
+    return tuple(sorted(entries, key=lambda entry: entry[0]))
 
 
-def _run_tree_digest(tree: tuple[tuple[str, bytes], ...]) -> str:
-    digest = hashlib.sha256()
-    for relative_path, contents in tree:
+def _persisted_tree_snapshot(run_root: Path) -> bytes:
+    entries = _persisted_tree_entries(run_root)
+    encoded = bytearray(b"orchestrator-persisted-tree-snapshot-v1\x00")
+    encoded.extend(len(entries).to_bytes(8, "big"))
+    for relative_path, entry_type, payload in entries:
         encoded_path = relative_path.encode("utf-8")
-        digest.update(len(encoded_path).to_bytes(8, "big"))
-        digest.update(encoded_path)
-        digest.update(len(contents).to_bytes(8, "big"))
-        digest.update(contents)
-    return f"sha256:{digest.hexdigest()}"
+        encoded.extend(entry_type)
+        encoded.extend(len(encoded_path).to_bytes(8, "big"))
+        encoded.extend(encoded_path)
+        encoded.extend(len(payload).to_bytes(8, "big"))
+        encoded.extend(payload)
+    return bytes(encoded)
+
+
+def _persisted_tree_digest(snapshot: bytes) -> str:
+    return f"sha256:{hashlib.sha256(snapshot).hexdigest()}"
+
+
+def test_persisted_tree_snapshot_tracks_symlink_targets_and_empty_directories(temp_workspace):
+    run_root = temp_workspace / "run-tree"
+    run_root.mkdir()
+    first_target = run_root / "target-a.txt"
+    second_target = run_root / "target-b.txt"
+    first_target.write_bytes(b"equal contents\n")
+    second_target.write_bytes(b"equal contents\n")
+    link = run_root / "current.txt"
+    link.symlink_to(first_target.name)
+
+    first_link_snapshot = _persisted_tree_snapshot(run_root)
+    link.unlink()
+    link.symlink_to(second_target.name)
+    second_link_snapshot = _persisted_tree_snapshot(run_root)
+
+    assert second_link_snapshot != first_link_snapshot
+    assert _persisted_tree_digest(second_link_snapshot) != _persisted_tree_digest(first_link_snapshot)
+
+    first_empty_directory = run_root / "empty-a"
+    first_empty_directory.mkdir()
+    first_directory_snapshot = _persisted_tree_snapshot(run_root)
+    first_empty_directory.rename(run_root / "empty-b")
+    second_directory_snapshot = _persisted_tree_snapshot(run_root)
+
+    assert second_directory_snapshot != first_directory_snapshot
+    assert _persisted_tree_digest(second_directory_snapshot) != _persisted_tree_digest(first_directory_snapshot)
 
 
 def _workflow_runtime_context_inputs(bundle):
@@ -2411,7 +2463,10 @@ def test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch(tem
 
     (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
     run_root = state_manager.run_root
-    before_tree = dict(_run_tree_bytes(run_root))
+    before_tree = {
+        relative_path: (entry_type, payload)
+        for relative_path, entry_type, payload in _persisted_tree_entries(run_root)
+    }
     before_state = json.loads((run_root / "state.json").read_text(encoding="utf-8"))
     before_frames = before_state["call_frames"]
     assert len(before_frames) == 1
@@ -2446,6 +2501,9 @@ def test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch(tem
     def unexpected_child_runtime_call(*_args, **_kwargs):
         raise AssertionError("callee checksum mismatch reached child execution")
 
+    # `execute_call` imports WorkflowExecutor dynamically; patching the module
+    # binding here observes child construction without replacing the already-
+    # imported parent executor used by `resume_workflow`.
     with patch('os.getcwd', return_value=str(temp_workspace)), patch(
         "orchestrator.workflow.executor.WorkflowExecutor",
         side_effect=unexpected_child_runtime_call,
@@ -2484,8 +2542,11 @@ def test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch(tem
     assert set(loaded_state.call_frames) == {before_frame_id}
     assert child_identity_projection(frame) == before_child_identity
 
-    after_tree = dict(_run_tree_bytes(run_root))
-    changed_run_files = {
+    after_tree = {
+        relative_path: (entry_type, payload)
+        for relative_path, entry_type, payload in _persisted_tree_entries(run_root)
+    }
+    changed_run_entries = {
         relative_path
         for relative_path in before_tree.keys() | after_tree.keys()
         if before_tree.get(relative_path) != after_tree.get(relative_path)
@@ -2496,9 +2557,11 @@ def test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch(tem
         for key in before_state.keys() | after_state.keys()
         if before_state.get(key) != after_state.get(key)
     }
-    assert changed_run_files == {
+    assert changed_run_entries == {
         "monitor_process.json",
         "state.json",
+        "workflow_lisp",
+        "workflow_lisp/checkpoints",
         "workflow_lisp/checkpoints/default_resume_report.json",
     }
     assert changed_parent_state_fields == {
@@ -3188,7 +3251,7 @@ def test_default_resume_root_checksum_mismatch_is_pre_executor_and_byte_immutabl
     }
     state.call_frames = {
         "call-frame:legacy": {
-            "frame_id": "call-frame:legacy",
+            "call_frame_id": "call-frame:legacy",
             "call_step_id": "root.legacy_call",
             "status": "failed",
             "state": {"steps": {"child-step": {"status": "completed"}}},
@@ -3201,7 +3264,7 @@ def test_default_resume_root_checksum_mismatch_is_pre_executor_and_byte_immutabl
         "workflow_lisp/checkpoints/index/ckpt:legacy.json": b'{"records":["record:legacy"]}\n',
         "workflow_lisp/checkpoints/records/ckpt:legacy/record:legacy.json": b'{"status":"completed"}\n',
         "artifacts/legacy-report.md": b"legacy report\n",
-        "adjudication/legacy-step/visit-1/candidate_scores.jsonl": b'{"candidate_id":"legacy"}\n',
+        "adjudication/root/root.legacy_step/1/candidate_scores.jsonl": b'{"candidate_id":"legacy"}\n',
         "sidecars/legacy-session.json": b'{"status":"interrupted"}\n',
     }
     for relative_path, contents in seeded_files.items():
@@ -3209,9 +3272,10 @@ def test_default_resume_root_checksum_mismatch_is_pre_executor_and_byte_immutabl
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(contents)
 
-    before_tree = _run_tree_bytes(run_root)
-    before_digest = _run_tree_digest(before_tree)
-    assert {path for path, _contents in before_tree}.issuperset(
+    before_entries = _persisted_tree_entries(run_root)
+    before_snapshot = _persisted_tree_snapshot(run_root)
+    before_digest = _persisted_tree_digest(before_snapshot)
+    assert {path for path, _entry_type, _payload in before_entries}.issuperset(
         {
             "state.json",
             *seeded_files,
@@ -3219,11 +3283,32 @@ def test_default_resume_root_checksum_mismatch_is_pre_executor_and_byte_immutabl
     )
 
     workflow_path.write_text(original_source + "; changed root source\n", encoding="utf-8")
+    persisted_root_checksum = state.workflow_checksum
+    changed_root_checksum = state_manager.calculate_checksum(workflow_path)
+    root_checksum_calls = []
+    validate_root_checksum = StateManager.validate_checksum
+
+    def record_root_checksum_validation(manager, workflow_file):
+        accepted = validate_root_checksum(manager, workflow_file)
+        root_checksum_calls.append(
+            {
+                "run_id": manager.run_id,
+                "workflow_file": Path(workflow_file).resolve(),
+                "persisted_checksum": manager.state.workflow_checksum,
+                "current_checksum": manager.calculate_checksum(workflow_file),
+                "accepted": accepted,
+            }
+        )
+        return accepted
 
     def unexpected_runtime_call(*_args, **_kwargs):
         raise AssertionError("checksum mismatch reached an executor, provider, or command boundary")
 
-    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch.object(
+        StateManager,
+        "validate_checksum",
+        new=record_root_checksum_validation,
+    ), patch(
         "orchestrator.cli.commands.resume.WorkflowExecutor",
         side_effect=unexpected_runtime_call,
     ) as executor_constructor, patch.object(
@@ -3238,15 +3323,27 @@ def test_default_resume_root_checksum_mismatch_is_pre_executor_and_byte_immutabl
         result = resume_workflow(run_id=run_id, repair=False, force_restart=False)
 
     captured = capsys.readouterr()
-    after_tree = _run_tree_bytes(run_root)
-    after_digest = _run_tree_digest(after_tree)
+    after_entries = _persisted_tree_entries(run_root)
+    after_snapshot = _persisted_tree_snapshot(run_root)
+    after_digest = _persisted_tree_digest(after_snapshot)
 
     assert result == 1
     assert "checksum" in captured.err.lower()
+    assert root_checksum_calls == [
+        {
+            "run_id": run_id,
+            "workflow_file": workflow_path.resolve(),
+            "persisted_checksum": persisted_root_checksum,
+            "current_checksum": changed_root_checksum,
+            "accepted": False,
+        }
+    ]
+    assert changed_root_checksum != persisted_root_checksum
     executor_constructor.assert_not_called()
     provider_entrypoint.assert_not_called()
     command_entrypoint.assert_not_called()
-    assert after_tree == before_tree
+    assert after_entries == before_entries
+    assert after_snapshot == before_snapshot
     assert after_digest == before_digest
 
 
