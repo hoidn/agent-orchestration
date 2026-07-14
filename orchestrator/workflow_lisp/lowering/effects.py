@@ -101,7 +101,7 @@ def _lower_command_result_operation(
     context: Any,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], Any]:
-    from ..contracts import derive_structured_result_contract
+    from ..contracts import derive_prompt_guided_structured_result_contract
     from ..workflows import CertifiedAdapterBinding
 
     binding_name = command_result.adapter_name or command_result.step_name
@@ -115,7 +115,7 @@ def _lower_command_result_operation(
         )
     step_name = f"{context.step_name_prefix}__{command_result.step_name}"
     step_id = context.normalize_generated_step_id(step_name)
-    bundle_contract = derive_structured_result_contract(
+    bundle_contract = derive_prompt_guided_structured_result_contract(
         result_type,
         workflow_name=context.workflow_name,
         step_id=step_name,
@@ -291,7 +291,7 @@ def _lower_provider_result_operation(
     local_values: Mapping[str, Any],
     step_name: str | None = None,
 ) -> tuple[list[dict[str, Any]], Any]:
-    from ..contracts import derive_structured_result_contract
+    from ..contracts import derive_prompt_guided_structured_result_contract
     from .core import _prompt_source_step_fields, _template_for_ref
 
     provider_step_name = step_name or f"{context.step_name_prefix}__result"
@@ -307,7 +307,7 @@ def _lower_provider_result_operation(
             span=provider_result.span,
             form_path=provider_result.form_path,
         )
-    bundle_contract = derive_structured_result_contract(
+    bundle_contract = derive_prompt_guided_structured_result_contract(
         result_type,
         workflow_name=context.workflow_name,
         step_id=provider_step_name,

@@ -1907,8 +1907,15 @@ def test_compiled_root_guidance_survives_provider_and_command_lowering_routes(
         "format_hint": "JSON boolean.",
         "example": True,
     }
-    assert provider_mapping["outputs"]["__result__"]["description"] == "Public provider decision."
-    assert provider_mapping["outputs"]["__result__"]["example"] is True
+    assert provider_mapping["result_guidance"] == {
+        "description": "Public provider decision.",
+        "example": True,
+    }
+    assert "description" not in provider_mapping["outputs"]["__result__"]
+    assert "example" not in provider_mapping["outputs"]["__result__"]
+    assert provider_mapping["outputs"]["__result__"]["from"] == {
+        "ref": f"root.steps.{provider_step['name']}.artifacts.__result__"
+    }
 
     command_mapping = lowered_by_name["guided-command"]
     command_step = next(step for step in command_mapping["steps"] if "command" in step)
@@ -1918,9 +1925,132 @@ def test_compiled_root_guidance_survives_provider_and_command_lowering_routes(
         "format_hint": "JSON boolean.",
         "example": False,
     }
-    assert command_mapping["outputs"]["__result__"]["description"] == "Public command decision."
-    assert command_mapping["outputs"]["__result__"]["example"] is False
+    assert command_mapping["result_guidance"] == {
+        "description": "Public command decision.",
+        "example": False,
+    }
+    assert "description" not in command_mapping["outputs"]["__result__"]
+    assert "example" not in command_mapping["outputs"]["__result__"]
+    assert command_mapping["outputs"]["__result__"]["from"] == {
+        "ref": f"root.steps.{command_step['name']}.artifacts.__result__"
+    }
 
+
+@pytest.mark.parametrize("lowering_route", ["legacy", "wcc_m4"])
+def test_compiled_root_guidance_covers_record_union_and_private_procedure_workflows(
+    tmp_path: Path,
+    lowering_route: str,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / f"compiled_root_guidance_shapes_{lowering_route}.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defrecord ReviewResult",
+                '    (approved Bool :description "Payload approval." :example true))',
+                "  (defunion Decision",
+                "    (APPROVE",
+                '      (approved Bool :description "Approval branch." :example true))',
+                "    (REVISE",
+                '      (reason String :description "Revision reason." :example "fix")))',
+                "  (defproc build-review ()",
+                '    -> (result ReviewResult :description "Private review result."',
+                '      :format-hint "Complete review object."',
+                '      :example (record ReviewResult :approved true))',
+                "    :effects ((uses-command decide))",
+                "    :lowering private-workflow",
+                "    (command-result decide",
+                '      :argv ("python" "scripts/decide.py")',
+                "      :returns ReviewResult))",
+                "  (defworkflow guided-record ()",
+                '    -> (result ReviewResult :description "Public review result."',
+                '      :example (record ReviewResult :approved true))',
+                "    (command-result decide",
+                '      :argv ("python" "scripts/decide.py")',
+                "      :returns ReviewResult))",
+                "  (defworkflow guided-union ()",
+                '    -> (result Decision :description "Public decision result."',
+                '      :example (variant Decision APPROVE :approved true))',
+                "    (command-result decide",
+                '      :argv ("python" "scripts/decide.py")',
+                "      :returns Decision))",
+                "  (defworkflow invoke-private () -> ReviewResult",
+                "    (build-review)))",
+            ]
+        ),
+    )
+
+    result = _compile_stage3_module(
+        workflow_path,
+        command_boundaries={
+            "decide": ExternalToolBinding(
+                name="decide",
+                stable_command=("python", "scripts/decide.py"),
+            )
+        },
+        lowering_route=lowering_route,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    mappings = {
+        lowered.typed_workflow.definition.name: lowered.authored_mapping
+        for lowered in result.lowered_workflows
+    }
+    expected = {
+        "guided-record": {
+            "description": "Public review result.",
+            "example": {"approved": True},
+        },
+        "guided-union": {
+            "description": "Public decision result.",
+            "example": {"variant": "APPROVE", "approved": True},
+        },
+        "%compiled_root_guidance_shapes_"
+        f"{lowering_route}.build-review.v1": {
+            "description": "Private review result.",
+            "format_hint": "Complete review object.",
+            "example": {"approved": True},
+        },
+    }
+    private_name = next(name for name in mappings if name.startswith("%") and "build-review" in name)
+    expected_private = expected.pop(
+        "%compiled_root_guidance_shapes_" f"{lowering_route}.build-review.v1"
+    )
+    expected[private_name] = expected_private
+
+    for workflow_name, guidance in expected.items():
+        mapping = mappings[workflow_name]
+        assert mapping["result_guidance"] == guidance
+        assert set(mapping["result_guidance"]) <= {
+            "description",
+            "format_hint",
+            "example",
+        }
+        for output in mapping["outputs"].values():
+            assert not {
+                "guidance",
+                "description",
+                "format_hint",
+                "example",
+            } & output.keys()
+        assert all("from" in output for output in mapping["outputs"].values())
+
+    assert mappings["guided-record"]["outputs"]["return__approved"]["from"] == {
+        "ref": "root.steps.guided-record__decide.artifacts.approved"
+    }
+    assert {
+        name: output["from"]["ref"]
+        for name, output in mappings["guided-union"]["outputs"].items()
+    } == {
+        "return__variant": "root.steps.guided-union__decide.artifacts.variant",
+        "return__approved": "root.steps.guided-union__decide.artifacts.approved",
+        "return__reason": "root.steps.guided-union__decide.artifacts.reason",
+    }
+    assert mappings[private_name]["outputs"]["return__approved"]["from"] == {
+        "ref": f"root.steps.{private_name}__decide.artifacts.approved"
+    }
 
 def test_command_result_native_int_binds_terminal_result_artifact_ref(tmp_path: Path) -> None:
     """A let*-bound native `Int` command result binds `root.steps.<step>.artifacts.__result__`."""

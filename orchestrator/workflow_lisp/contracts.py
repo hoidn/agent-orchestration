@@ -222,8 +222,57 @@ def derive_structured_result_contract(
     step_id: str,
     span: SourceSpan | None = None,
     form_path: tuple[str, ...] = (),
+) -> GeneratedBundleContract:
+    """Derive one guidance-free runtime structured-result contract."""
+
+    return _derive_structured_result_contract(
+        type_ref,
+        workflow_name=workflow_name,
+        step_id=step_id,
+        span=span,
+        form_path=form_path,
+        guidance=None,
+        type_env=None,
+        include_guidance=False,
+    )
+
+
+def derive_prompt_guided_structured_result_contract(
+    type_ref: TypeRef,
+    *,
+    workflow_name: str,
+    step_id: str,
+    type_env: Any,
+    span: SourceSpan | None = None,
+    form_path: tuple[str, ...] = (),
     guidance: ResultGuidance | None = None,
-    type_env: Any | None = None,
+) -> GeneratedBundleContract:
+    """Derive a provider/command prompt contract with normalized guidance."""
+
+    if type_env is None:
+        raise TypeError("derive_prompt_guided_structured_result_contract requires type_env")
+    return _derive_structured_result_contract(
+        type_ref,
+        workflow_name=workflow_name,
+        step_id=step_id,
+        span=span,
+        form_path=form_path,
+        guidance=guidance,
+        type_env=type_env,
+        include_guidance=True,
+    )
+
+
+def _derive_structured_result_contract(
+    type_ref: TypeRef,
+    *,
+    workflow_name: str,
+    step_id: str,
+    span: SourceSpan | None,
+    form_path: tuple[str, ...],
+    guidance: ResultGuidance | None,
+    type_env: Any | None,
+    include_guidance: bool,
 ) -> GeneratedBundleContract:
     """Derive the runtime-validated result contract for a provider/command form.
 
@@ -235,10 +284,14 @@ def derive_structured_result_contract(
     """
 
     path = _bundle_path(workflow_name=workflow_name, step_id=step_id)
-    root_guidance = normalized_result_guidance_payload(
-        guidance,
-        expected_type=type_ref,
-        type_env=type_env,
+    root_guidance = (
+        normalized_result_guidance_payload(
+            guidance,
+            expected_type=type_ref,
+            type_env=type_env,
+        )
+        if include_guidance
+        else None
     )
     if not isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
         root_subject = ValidationSubjectRef(
@@ -291,7 +344,7 @@ def derive_structured_result_contract(
                 span=span,
                 form_path=form_path,
                 type_env=type_env,
-                include_guidance=True,
+                include_guidance=include_guidance,
             ),
         }
         return GeneratedBundleContract(
@@ -306,7 +359,7 @@ def derive_structured_result_contract(
         span=span,
         form_path=form_path,
         type_env=type_env,
-        include_guidance=True,
+        include_guidance=include_guidance,
     )
     variant_fields = {
         variant.name: _flatten_variant_structured_result_fields(
@@ -315,7 +368,7 @@ def derive_structured_result_contract(
             span=span,
             form_path=form_path,
             type_env=type_env,
-            include_guidance=True,
+            include_guidance=include_guidance,
         )
         for variant in type_ref.definition.variants
     }

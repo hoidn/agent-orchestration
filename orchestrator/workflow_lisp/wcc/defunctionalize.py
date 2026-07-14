@@ -520,11 +520,6 @@ def _lower_one_wcc_workflow(
     inputs, outputs, boundary_projection = derive_workflow_signature_contracts(typed_workflow.signature)
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
     authored_outputs = {name: dict(contract.definition) for name, contract in outputs.items()}
-    lowering_core._attach_public_root_guidance(
-        authored_outputs,
-        typed_workflow=typed_workflow,
-        type_env=type_env,
-    )
     is_generated_private_workflow = typed_workflow.definition.name in generated_private_workflow_names
     if isinstance(typed_workflow.signature.return_type_ref, UnionTypeRef) and is_generated_private_workflow:
         for definition in authored_outputs.values():
@@ -724,6 +719,12 @@ def _lower_one_wcc_workflow(
         ),
         "steps": steps,
     }
+    result_guidance = lowering_core._normalized_public_result_guidance(
+        typed_workflow=typed_workflow,
+        type_env=type_env,
+    )
+    if result_guidance:
+        authored_mapping["result_guidance"] = result_guidance
     authored_mapping["steps"] = _append_entry_publication_steps(
         typed_workflow=typed_workflow,
         terminal=terminal,

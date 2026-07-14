@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import orchestrator.workflow_lisp.contracts as workflow_lisp_contracts
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
@@ -436,7 +437,7 @@ def test_root_and_record_bundle_guidance_lower_to_exact_wire_shapes(tmp_path: Pa
         format_hint="JSON boolean.",
         example_expr=_expression_syntax("true"),
     )
-    root_contract = derive_structured_result_contract(
+    root_contract = workflow_lisp_contracts.derive_prompt_guided_structured_result_contract(
         PrimitiveTypeRef(name="Bool"),
         workflow_name="review",
         step_id="review__approved",
@@ -463,7 +464,7 @@ def test_root_and_record_bundle_guidance_lower_to_exact_wire_shapes(tmp_path: Pa
             '(record ReviewResult :approved true :score 0.91)'
         ),
     )
-    record_contract = derive_structured_result_contract(
+    record_contract = workflow_lisp_contracts.derive_prompt_guided_structured_result_contract(
         review_type,
         workflow_name="review",
         step_id="review__result",
@@ -515,7 +516,7 @@ def test_nested_guidance_context_is_rfc6901_prefix_ordered_and_not_concatenated(
     type_env = FrontendTypeEnvironment.from_module(module)
     review_type = type_env.resolve_type("ReviewResult", span=module.span, form_path=())
 
-    contract = derive_structured_result_contract(
+    contract = workflow_lisp_contracts.derive_prompt_guided_structured_result_contract(
         review_type,
         workflow_name="review",
         step_id="review__result",
@@ -585,7 +586,7 @@ def test_union_guidance_preserves_variant_fields_and_guidance_by_variant(tmp_pat
     decision_type = type_env.resolve_type("Decision", span=module.span, form_path=())
     union_guidance = ResultGuidance(description="Choose one decision variant.")
 
-    contract = derive_structured_result_contract(
+    contract = workflow_lisp_contracts.derive_prompt_guided_structured_result_contract(
         decision_type,
         workflow_name="review",
         step_id="review__decision",
@@ -633,6 +634,67 @@ def test_union_guidance_preserves_variant_fields_and_guidance_by_variant(tmp_pat
     ) == _canonical_guidance_payload(
         {"example": {"metrics": {"correctness": 0.95, "clarity": 0.87}, "approved": True}}
     )
+
+
+def test_guidance_free_contract_callers_ignore_annotated_definition_examples(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "guidance_free_contracts.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defrecord ReviewResult",
+                '    (approved Bool :description "No blockers." :example true))',
+                "  (defunion Decision",
+                "    (APPROVE",
+                '      (approved Bool :description "Approved." :example true))',
+                "    (REVISE",
+                '      (approved Bool :description "Not approved." :example false))))',
+            ]
+        ),
+    )
+    module = _compile_definition_module(path)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    record_type = type_env.resolve_type("ReviewResult", span=module.span, form_path=())
+    union_type = type_env.resolve_type("Decision", span=module.span, form_path=())
+
+    for type_ref in (record_type, union_type):
+        direct = derive_structured_result_contract(
+            type_ref,
+            workflow_name="runtime-only",
+            step_id=f"runtime-only__{type_ref.name}",
+        )
+        reusable = workflow_lisp_contracts.derive_reusable_state_contract_metadata(
+            type_ref,
+            target_dsl_version="2.15",
+            workflow_name="runtime-only",
+            step_id=f"runtime-only__{type_ref.name}",
+            span=module.span,
+            form_path=("workflow-lisp", "runtime-only"),
+        )[3]
+        for payload in (direct.payload, reusable):
+            serialized = json.dumps(payload, sort_keys=True)
+            assert "guidance" not in serialized
+            assert "description" not in serialized
+            assert "example" not in serialized
+
+
+def test_prompt_guided_contract_requires_type_environment_at_api_boundary() -> None:
+    guidance = ResultGuidance(
+        description="Provider decision.",
+        example_expr=_expression_syntax("true"),
+    )
+
+    with pytest.raises(TypeError, match="type_env"):
+        workflow_lisp_contracts.derive_prompt_guided_structured_result_contract(
+            PrimitiveTypeRef(name="Bool"),
+            workflow_name="guided",
+            step_id="guided__result",
+            guidance=guidance,
+        )
 
 
 def test_result_guidance_is_neutral_to_return_identity_and_runtime_validation() -> None:
@@ -702,7 +764,6 @@ def test_field_guidance_is_neutral_to_type_specialization_and_contract_fingerpri
         guided_type,
         workflow_name="identity-neutral",
         step_id="identity-neutral__record",
-        type_env=_build_type_env(),
     )
     assert _strip_contract_provenance_for_fingerprint(
         plain_contract.payload

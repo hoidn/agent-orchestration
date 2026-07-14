@@ -1131,7 +1131,8 @@ def test_compiled_root_guidance_contract_is_the_prompt_renderer_input(tmp_path: 
                 "(workflow-lisp",
                 '  (:language "0.1")',
                 '  (:target-dsl "2.15")',
-                "  (defworkflow guided-provider () -> Bool",
+                "  (defworkflow guided-provider ()",
+                '    -> (result Bool :description "Public workflow decision." :example false)',
                 "    (provider-result providers.execute",
                 "      :prompt prompts.review",
                 "      :inputs ()",
@@ -1158,6 +1159,11 @@ def test_compiled_root_guidance_contract_is_the_prompt_renderer_input(tmp_path: 
     rendered = render_output_bundle_contract_block(executable_step["output_bundle"])
 
     executable_field = executable_step["output_bundle"]["fields"][0]
+    executable_workflow = compiled.lowered_workflows[0].authored_mapping
+    assert executable_workflow["result_guidance"] != {
+        key: executable_field[key]
+        for key in ("description", "format_hint", "example")
+    }
     contract_start = next(
         index for index, line in enumerate(rendered.splitlines()) if line.startswith("- path:")
     )
@@ -1167,6 +1173,7 @@ def test_compiled_root_guidance_contract_is_the_prompt_renderer_input(tmp_path: 
     assert rendered_contract["description"] == executable_field["description"]
     assert rendered_contract["format_hint"] == executable_field["format_hint"]
     assert rendered_contract["example"] == executable_field["example"]
+    assert rendered_contract["description"] != executable_workflow["result_guidance"]["description"]
 
 
 def test_provider_output_bundle_root_result_appends_json_value_contract_and_persists_result(

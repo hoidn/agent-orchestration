@@ -306,7 +306,6 @@ def validate_typed_guidance_constant(
         _validate_against_structured_result_contract(
             normalized,
             expected_type=expected_type,
-            type_env=type_env,
             workspace=workspace or Path.cwd(),
             example_node=example_node,
         )
@@ -449,7 +448,6 @@ def _validate_against_structured_result_contract(
     value: Any,
     *,
     expected_type,
-    type_env,
     workspace: Path,
     example_node: SyntaxNode,
 ) -> None:
@@ -463,7 +461,6 @@ def _validate_against_structured_result_contract(
         step_id="result-guidance-example__value",
         span=example_node.span,
         form_path=example_node.form_path,
-        type_env=type_env,
     )
     payload = _without_existence_requirements(contract.payload)
     if contract.contract_kind == "output_bundle":
