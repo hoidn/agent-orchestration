@@ -1704,6 +1704,160 @@ def test_selected_hook_recomputes_transitive_effects(tmp_path: Path) -> None:
     assert provisional_provider.transitive_effect_summary == EMPTY_EFFECT_SUMMARY
 
 
+def _selected_hook_lowering_module_lines(*, wrapper_lowering: str) -> list[str]:
+    return [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.14")',
+        "  (defpath WorkReport",
+        "    :kind relpath",
+        '    :under "artifacts/work"',
+        "    :must-exist true)",
+        "  (defrecord WorkflowInput",
+        "    (report WorkReport))",
+        "  (defrecord WorkflowOutput",
+        "    (report WorkReport))",
+        "  (defproc run-command",
+        "    ((input WorkflowInput))",
+        "    -> WorkflowOutput",
+        "    :effects ((uses-command run_checks))",
+        "    :lowering inline",
+        "    (command-result run_checks",
+        '      :argv ("python" "scripts/run_checks.py" input.report)',
+        "      :returns WorkflowOutput))",
+        "  (defproc run-provider",
+        "    ((input WorkflowInput))",
+        "    -> WorkflowOutput",
+        "    :effects ((uses-provider providers.execute))",
+        "    :lowering inline",
+        "    (provider-result providers.execute",
+        "      :prompt prompts.implementation.execute",
+        "      :inputs (input.report)",
+        "      :returns WorkflowOutput))",
+        "  (defproc invoke-selected",
+        "    ((hook ProcRef[WorkflowInput -> WorkflowOutput])",
+        "     (input WorkflowInput))",
+        "    -> WorkflowOutput",
+        "    :effects ()",
+        f"    :lowering {wrapper_lowering}",
+        "    (hook input))",
+        "  (defworkflow entry",
+        "    ((input WorkflowInput))",
+        "    -> WorkflowOutput",
+        "    (invoke-selected (proc-ref run-command) input)))",
+    ]
+
+
+def test_inline_lowering_carries_resolved_transitive_effects(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "inline_resolved_transitive_effects.orc",
+        _selected_hook_lowering_module_lines(wrapper_lowering="inline"),
+    )
+    result = _compile_validated(path, tmp_path=tmp_path)
+    specialized = next(
+        procedure
+        for procedure in result.typed_procedures
+        if getattr(procedure.specialization, "base_name", "") == "invoke-selected"
+        and getattr(procedure.specialization, "proc_ref_bindings", {})
+    )
+    selected_effect = UsesCommandEffect(subject=("run_checks",))
+    unselected_effect = UsesProviderEffect(subject=("providers", "execute"))
+    entry = next(
+        lowered
+        for lowered in result.lowered_workflows
+        if lowered.typed_workflow.definition.name == "entry"
+    )
+    lowered_payload = json.dumps(entry.authored_mapping, sort_keys=True)
+
+    assert specialized.direct_effect_summary.direct_effects == frozenset()
+    assert specialized.transitive_effect_summary.transitive_effects == frozenset(
+        {selected_effect}
+    )
+    assert (
+        entry.typed_workflow.effect_summary.transitive_effects
+        == specialized.transitive_effect_summary.transitive_effects
+    )
+    assert "run_checks" in lowered_payload
+    assert "providers.execute" not in lowered_payload
+    assert unselected_effect not in entry.typed_workflow.effect_summary.transitive_effects
+
+
+def test_private_workflow_lowering_carries_resolved_transitive_effects(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "private_resolved_transitive_effects.orc",
+        _selected_hook_lowering_module_lines(wrapper_lowering="private-workflow"),
+    )
+
+    result = _compile_validated(path, tmp_path=tmp_path)
+    specialized = next(
+        procedure
+        for procedure in result.typed_procedures
+        if getattr(procedure.specialization, "base_name", "") == "invoke-selected"
+        and getattr(procedure.specialization, "proc_ref_bindings", {})
+    )
+    generated = next(
+        lowered.typed_workflow
+        for lowered in result.lowered_workflows
+        if lowered.typed_workflow.specialization is not None
+        and lowered.typed_workflow.specialization.base_name == "invoke-selected"
+        and lowered.typed_workflow.definition.name.startswith("%")
+    )
+    selected_effect = UsesCommandEffect(subject=("run_checks",))
+    unselected_effect = UsesProviderEffect(subject=("providers", "execute"))
+
+    assert specialized.direct_effect_summary.direct_effects == frozenset()
+    assert generated.effect_summary == specialized.transitive_effect_summary
+    assert generated.effect_summary.transitive_effects == frozenset({selected_effect})
+    assert unselected_effect not in generated.effect_summary.transitive_effects
+
+
+def test_private_workflow_specialization_revalidates_selected_hook_boundary(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "private_selected_hook_boundary_invalid.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defproc run-command",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowInput",
+            "    :effects ((uses-command run_checks))",
+            "    :lowering inline",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" input.report)',
+            "      :returns WorkflowInput))",
+            "  (defproc invoke-selected",
+            "    ((hook ProcRef[WorkflowInput -> WorkflowInput])",
+            "     (provider Provider)",
+            "     (input WorkflowInput))",
+            "    -> WorkflowInput",
+            "    :effects ()",
+            "    :lowering private-workflow",
+            "    (hook input))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowInput",
+            "    (invoke-selected (proc-ref run-command) providers.execute input)))",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "proc_private_workflow_boundary_invalid")
+    assert "%proc-ref-call.invoke_selected" in excinfo.value.diagnostics[0].message
+
+
 def test_compile_stage3_rejects_parametric_specialization_cycles(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "generic_proc_specialization_cycle.orc",

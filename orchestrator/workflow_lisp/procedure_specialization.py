@@ -369,7 +369,11 @@ def _private_workflow_binding_local_value(
     """Return the step-backed local shape one private-workflow binding exports."""
 
     from .lowering.control import _binding_terminal_for_match_subject, _is_inline_let_binding_expr
-    from .lowering.values import _procedure_signature_local_type_bindings, _resolve_inline_expr_value
+    from .lowering.values import (
+        _procedure_signature_local_type_bindings,
+        _procedure_signature_local_values,
+        _resolve_inline_expr_value,
+    )
     from .lowering.workflow_calls import _managed_write_root_binding_step
 
     _ = _managed_write_root_binding_step
@@ -390,10 +394,17 @@ def _private_workflow_binding_local_value(
             workflow_signatures_by_name=workflow_signatures_by_name,
         )
     if isinstance(expr, ProcedureCallExpr):
-        callee = typed_procedures_by_name.get(expr.callee_name)
+        callee_name = expr.callee_name
+        bound_proc_ref = local_values.get(callee_name)
+        if isinstance(bound_proc_ref, ResolvedProcRefValue):
+            callee_name = bound_proc_ref.call_target_name
+        callee = typed_procedures_by_name.get(callee_name)
         if callee is None or callee.definition.name in active_procedures:
             return None
-        child_locals = dict(local_values)
+        child_locals = {
+            **dict(local_values),
+            **_procedure_signature_local_values(callee),
+        }
         child_local_types = _procedure_signature_local_type_bindings(callee)
         for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
             child_locals[param_name] = _resolve_inline_expr_value(arg_expr, local_values=local_values)
@@ -522,6 +533,7 @@ def _private_workflow_body_exports_step_backed_outputs(
 
     from .lowering.values import (
         _procedure_signature_local_type_bindings,
+        _procedure_signature_local_values,
         _resolve_inline_expr_value,
     )
 
@@ -554,10 +566,17 @@ def _private_workflow_body_exports_step_backed_outputs(
             workflow_signatures_by_name=workflow_signatures_by_name,
         )
     if isinstance(expr, ProcedureCallExpr):
-        callee = typed_procedures_by_name.get(expr.callee_name)
+        callee_name = expr.callee_name
+        bound_proc_ref = local_values.get(callee_name)
+        if isinstance(bound_proc_ref, ResolvedProcRefValue):
+            callee_name = bound_proc_ref.call_target_name
+        callee = typed_procedures_by_name.get(callee_name)
         if callee is None or callee.definition.name in active_procedures:
             return False
-        child_locals = dict(local_values)
+        child_locals = {
+            **dict(local_values),
+            **_procedure_signature_local_values(callee),
+        }
         child_local_types = _procedure_signature_local_type_bindings(callee)
         for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
             child_locals[param_name] = _resolve_inline_expr_value(arg_expr, local_values=local_values)
@@ -1075,6 +1094,11 @@ def bound_proc_ref_request(
         specialized_name=resolved.call_target_name,
         origin_span=origin_span,
         origin_form_path=origin_form_path,
+        # Discovery products are inserted into the compiler's procedure-target
+        # fixed point and authoritatively re-typechecked before lowering.  Do
+        # not validate private-workflow eligibility or retain stale effects on
+        # this provisional object.
+        defer_lowering_resolution=True,
     )
 
 
@@ -1161,6 +1185,10 @@ def discover_proc_ref_specializations(
                                     ),
                                     origin_span=node.span,
                                     origin_form_path=node.form_path,
+                                    # The compiler records this discovery
+                                    # product, continues the fixed point, and
+                                    # re-typechecks it before lowering.
+                                    defer_lowering_resolution=True,
                                 )
                             )
             for arg in node.args:

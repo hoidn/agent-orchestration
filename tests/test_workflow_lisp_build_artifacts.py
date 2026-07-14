@@ -112,6 +112,73 @@ def _build_request(tmp_path: Path, *, manifest_path: Path | None = None):
     )
 
 
+def _selected_hook_semantic_ir_request(tmp_path: Path, *, selected_hook: str):
+    module_path = tmp_path / "selected" / "hooks.orc"
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule selected/hooks)",
+                "  (export entry)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord WorkflowInput",
+                "    (report WorkReport))",
+                "  (defrecord WorkflowOutput",
+                "    (report WorkReport))",
+                "  (defproc run-command",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    :effects ((uses-command run_checks))",
+                "    :lowering inline",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" input.report)',
+                "      :returns WorkflowOutput))",
+                "  (defproc run-provider",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    :effects ((uses-provider providers.execute))",
+                "    :lowering inline",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.implementation.execute",
+                "      :inputs (input.report)",
+                "      :returns WorkflowOutput))",
+                "  (defproc invoke-selected",
+                "    ((hook ProcRef[WorkflowInput -> WorkflowOutput])",
+                "     (input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (hook input))",
+                "  (defworkflow entry",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                f"    (invoke-selected (proc-ref {selected_hook}) input)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    request_cls = getattr(_build_module(), "FrontendBuildRequest")
+    return request_cls(
+        source_path=module_path,
+        source_roots=(tmp_path,),
+        entry_workflow="entry",
+        provider_externs_path=CLI_FIXTURES / "providers.json",
+        prompt_externs_path=CLI_FIXTURES / "prompts.json",
+        imported_workflow_bundles_path=None,
+        command_boundaries_path=CLI_FIXTURES / "commands.json",
+        emit_debug_yaml=False,
+        workspace_root=tmp_path,
+        lowering_route="legacy",
+    )
+
+
 def _imported_stdlib_helper_request(tmp_path: Path):
     build = _build_module()
     request_cls = getattr(build, "FrontendBuildRequest")
@@ -3302,6 +3369,61 @@ def test_semantic_ir_artifact_serializes_promoted_effects_for_frontend_build(tmp
     ]
 
     assert any(effect["effect_kind"] == "pointer_materialization" for effect in effects)
+
+
+@pytest.mark.parametrize(
+    ("selected_hook", "selected_effect_kind", "unselected_effect_kind"),
+    [
+        ("run-command", "command_call", "provider_call"),
+        ("run-provider", "provider_call", "command_call"),
+    ],
+)
+def test_selected_hook_semantic_ir_preserves_effect_and_procedure_source_lineage(
+    tmp_path: Path,
+    selected_hook: str,
+    selected_effect_kind: str,
+    unselected_effect_kind: str,
+) -> None:
+    build_frontend_bundle = getattr(_build_module(), "build_frontend_bundle")
+    result = build_frontend_bundle(
+        _selected_hook_semantic_ir_request(tmp_path, selected_hook=selected_hook)
+    )
+    semantic_ir = json.loads(
+        result.artifact_paths["semantic_ir"].read_text(encoding="utf-8")
+    )
+    source_map = json.loads(
+        result.artifact_paths["source_map"].read_text(encoding="utf-8")
+    )
+    selected_effects = [
+        effect
+        for effect in semantic_ir["effects"].values()
+        if effect["effect_kind"] == selected_effect_kind
+    ]
+
+    assert len(selected_effects) == 1
+    assert not any(
+        effect["effect_kind"] == unselected_effect_kind
+        for effect in semantic_ir["effects"].values()
+    )
+    effect = selected_effects[0]
+    workflow_name = effect["workflow_name"]
+    statement = semantic_ir["workflows"][workflow_name]["statements"][
+        effect["statement_id"]
+    ]
+    source_workflow = source_map["workflows"][workflow_name]
+    core_node = next(
+        node
+        for node in source_workflow["core_nodes"]
+        if node["statement_id"] == statement["step_id"]
+    )
+    step_source = source_workflow["step_ids"][core_node["step_id"]]
+
+    assert any("procedure call site at" in note for note in step_source["notes"])
+    assert any("procedure definition at" in note for note in step_source["notes"])
+    assert any("proc-ref specialization selected" in note for note in step_source["notes"])
+    assert effect["statement_id"] in semantic_ir["workflows"][workflow_name]["statements"]
+    assert statement["step_id"].endswith(core_node["step_id"])
+    assert core_node["origin_key"] == step_source["origin_key"]
 
 
 def test_design_delta_parent_drain_adapters_emit_resource_transition_effects(

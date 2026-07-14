@@ -145,20 +145,32 @@ def _resolve_procedure_lowering(
     for procedure in typed_procedures:
         requested = procedure.signature.requested_lowering_mode
         boundary_valid = _procedure_private_boundary_valid(procedure)
+        compile_time_proc_ref_template = any(
+            isinstance(type_ref, ProcRefTypeRef)
+            for _, type_ref in procedure.signature.params
+        )
         body_valid = _procedure_private_body_valid(
             procedure,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
             procedure_type_envs=procedure_type_envs,
         )
-        if requested == ProcedureLoweringMode.PRIVATE_WORKFLOW and not boundary_valid:
+        if (
+            requested == ProcedureLoweringMode.PRIVATE_WORKFLOW
+            and not boundary_valid
+            and not compile_time_proc_ref_template
+        ):
             raise _compile_error(
                 code="proc_private_workflow_boundary_invalid",
                 message=f"procedure `{procedure.definition.name}` cannot lower as `private-workflow` in Stage 3",
                 span=procedure.definition.span,
                 form_path=procedure.definition.form_path,
             )
-        if requested == ProcedureLoweringMode.PRIVATE_WORKFLOW and not body_valid:
+        if (
+            requested == ProcedureLoweringMode.PRIVATE_WORKFLOW
+            and not body_valid
+            and not compile_time_proc_ref_template
+        ):
             raise _compile_error(
                 code="proc_private_workflow_boundary_invalid",
                 message=(
@@ -168,7 +180,16 @@ def _resolve_procedure_lowering(
                 span=procedure.definition.span,
                 form_path=procedure.definition.form_path,
             )
-        if requested == ProcedureLoweringMode.PRIVATE_WORKFLOW:
+        if (
+            requested == ProcedureLoweringMode.PRIVATE_WORKFLOW
+            and compile_time_proc_ref_template
+        ):
+            # The generic ProcRef-bearing definition is a compile-time
+            # specialization template, not a runtime workflow boundary.  Its
+            # authoritative monomorphic specializations are validated below
+            # after compiler fixed-point re-typechecking.
+            mode = ProcedureLoweringMode.INLINE
+        elif requested == ProcedureLoweringMode.PRIVATE_WORKFLOW:
             mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
         elif (
             requested == ProcedureLoweringMode.AUTO
