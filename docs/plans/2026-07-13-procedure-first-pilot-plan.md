@@ -2,9 +2,10 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** PAUSED. Identity-compatibility Tasks 1-7 changes are present, but the
-prerequisite plan's Task 8 repair and final verification/review gate have not
-yet passed. Do not select or make a pilot source edit while paused.
+**Status:** active only at the Task 1A pre-edit scan/attestation gate. The
+identity-compatibility prerequisite handoff passed, but the pilot source edit
+remains prohibited until every pre-edit scan, genuine named-owner attestation,
+quiescence check, and immutable pre-edit evidence commit required below passes.
 
 **Goal:** Convert only the internal `tracked-plan-phase` in `design_plan_impl_review_stack_v2_call.orc` from a workflow call to an inline typed procedure while retaining `design-plan-impl-review-stack` as the public boundary and proving full executable parity.
 
@@ -33,14 +34,10 @@ the reviewed evidence path defined below.
 - The following earlier prerequisites are complete:
   1. `docs/plans/2026-07-10-workflow-lisp-typed-result-guidance-plan.md` is complete; and
   2. `docs/plans/2026-07-13-procedure-first-substrate-gaps-plan.md` is complete and reviewed.
-- Identity-compatibility prerequisite Tasks 1-7 changes are present. Task 8's
-  final handoff must record the exact audited commit set, including later
-  normalization and Task 7 correction commits, rather than report a simple
-  contiguous range. The frozen pilot source and old baseline have not been
-  refreshed. Remain paused until Task 8 completes its pending repair, reruns
-  the focused selectors, broad suite, smoke check, and independent
-  specification/runtime-state and quality reviews, then records its final
-  handoff.
+- Identity-compatibility prerequisite Tasks 1-7 and Task 8's final
+  verification/review gate are complete under the audited handoff below. The
+  frozen pilot source and old baseline have not been refreshed. This activates
+  Task 1A only; it does not select or authorize the Task 2 source edit.
 - When resumed, this plan owns the genuine named-owner attestations for every
   known state store and either proves strict compatibility or applies the
   accepted reviewed internal identity-retirement exception. Missing,
@@ -55,6 +52,74 @@ the reviewed evidence path defined below.
   internal identity change also stops. Only an old internal identity accepted
   by the validated `reviewed_internal_identity_retirement` record may differ;
   that exception does not relax any other parity axis.
+
+### Identity-compatibility prerequisite handoff (2026-07-14)
+
+Task 8 audited the exact prerequisite set by responsibility rather than
+treating the history as one uninterrupted range:
+
+- Task 1 capture/observables and late normalization/correction:
+  `d5eb0043`, `6076f37e`, `5c4d6bdc`, `142a1840`, `50f78791`,
+  `bfabb614`, `ffd4503d`, and `d2440fe9`;
+- Task 2 compiler ownership, identity preservation, schema-1 classification,
+  linked specialization, and collision repairs: `7614cf9a`, `6d552c92`,
+  `36071d98`, `6d8bfea7`, `90f69f12`, `27e1bd84`, and `2ba82db4`;
+- Tasks 3-4 checkpoint/provenance and reviewed-observable delta:
+  `e10749c3`, `a77c032f`, and `842432f9`;
+- Task 5 evidence-only retirement validation: `d85d637b`, `8d317897`, and
+  `57b35b1c`;
+- Task 6 root/callee checksum characterization: `7e4b3428` and `e4f2ecbe`;
+  and
+- Task 7 contract/pilot/plan repairs and final authority binding: `8ae270ea`,
+  `c7aca2c9`, `bb8ff56f`, `b7212487`, `8b2586cd`, `4237445b`, `405e918b`,
+  `fd81a839`, and `71a3592b`.
+
+The compact baseline is
+`docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json`:
+captured by `d5eb0043` at `2026-07-14T05:04:05Z` and accepted at `50f78791`.
+Its correction authority is
+`docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline-correction.json`:
+created by `d2440fe9`, accepted at `b7212487`, and pinned into the execution
+plan by `4237445b`. Final reviewed prerequisite HEAD was `71a3592b`.
+
+Fresh gates collected 727 tests; the focused prerequisite command passed 596
+with 131 deselected. The production CLI WCC compile exited 0 and its two build
+artifact checks passed. The broad run reported exactly 8 failures, 4268
+passes, and 11 skips in 72.64 seconds. Its nodeid set was exactly the accepted
+set, and all eight isolated normalized signatures and complete-log SHA-256
+digests matched the accepted baseline/correction pair. The six unchanged
+unrelated failures remain in four files untouched since the pre-implementation
+anchor `dfd34c76`:
+
+- `tests/test_workflow_output_contract_integration.py::test_provider_valid_output_bundle_overrides_raw_nonzero_exit`;
+- `tests/test_workflow_semantic_ir.py::test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence`;
+- `tests/test_workflow_semantic_ir.py::test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys`;
+- `tests/test_workflow_semantic_ir.py::test_compiled_bundle_semantic_ir_preserves_command_boundary_classification`;
+- `tests/test_provider_role_routing.py::test_design_delta_drain_defaults_route_work_to_codex_gpt54`; and
+- `tests/test_neurips_steered_backlog_runtime.py::test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch`.
+
+The two intentional pilot REDs also retained their exact pre-edit failures:
+
+- `tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_is_explicit_inline_procedure` — `tracked-plan-phase` remains a
+  `defworkflow`; and
+- `tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_wrapper_uses_procedure_call` — the wrapper still uses
+  `(call tracked-plan-phase ...)`.
+
+The evidence-only retirement parser/validator/store scanner, production
+artifact checks, root byte-immutable pre-executor checksum rejection, and
+callee pre-child-execution/no-remap characterization passed. The known-store
+scan API is
+`orchestrator.workflow_lisp.procedure_identity_retirement.scan_known_state_store`.
+Independent reviews returned `FINAL SPEC PASS` and `FINAL QUALITY PASS`, with
+no cross-source resume or runtime-record coupling claim.
+
+The literal repo-wide `git diff --check` still reports the pre-existing blank
+line in protected `state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt`.
+Scoped prerequisite/committed-path and protected-excluded diff checks are
+clean; the protected paths remain unstaged and outside this handoff. The pilot
+source and `tests/baselines/procedure_first/tracked_plan_phase.json` remain
+unchanged. Proceed only with Task 1A's scans, genuine attestations, and
+quiescence evidence; Task 2 remains locked.
 
 ## Protected working-tree guard
 
