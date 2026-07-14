@@ -6448,14 +6448,16 @@ def test_wcc_anonymous_effect_terminal_pure_op_compiles_cleanly(tmp_path: Path) 
 
 def test_procedure_prerequisite_failure_log_normalizes_only_repr_addresses() -> None:
     first = (
-        "E assert <generator object collect at 0x7c1717026330> == "
+        "E assert <generator object collect.<locals>.<genexpr> at 0x7c1717026330> == "
         "<Widget object at 0x7C1717026ABC>\n"
         "E assert 0xDEADBEEF == 0xCAFE\n"
+        "E assert mapped at 0xDEADBEEF == mapped at 0xCAFE\n"
     )
     second = (
-        "E assert <generator object collect at 0x7395eef2e670> == "
+        "E assert <generator object collect.<locals>.<genexpr> at 0x7395eef2e670> == "
         "<Widget object at 0x7395EEF2FFFF>\n"
         "E assert 0xDEADBEEF == 0xCAFE\n"
+        "E assert mapped at 0xDEADBEEF == mapped at 0xCAFE\n"
     )
 
     normalized = normalize_procedure_prerequisite_failure_log(
@@ -6469,6 +6471,9 @@ def test_procedure_prerequisite_failure_log_normalizes_only_repr_addresses() -> 
     )
     assert normalized.count("at $ADDR") == 2
     assert "0xDEADBEEF == 0xCAFE" in normalized
+    assert normalized.endswith(
+        "E assert mapped at 0xDEADBEEF == mapped at 0xCAFE\n"
+    )
 
 
 def test_procedure_prerequisite_failure_log_normalizes_root_temp_and_time() -> None:
@@ -6483,6 +6488,44 @@ def test_procedure_prerequisite_failure_log_normalizes_root_temp_and_time() -> N
         "root: $REPO/tests/test_example.py\n"
         "tmp: $PYTEST_TMP/test_example0/result.json\n"
         "1 failed in $TIME\n"
+    )
+
+
+def test_procedure_prerequisite_failure_log_normalizes_only_pytest_summary_time() -> None:
+    raw = (
+        "E expected operation in 30s\n"
+        "2 passed, 1 skipped in 1.25s\n"
+        "1 failed, 2 warnings in 0.50s\n"
+    )
+
+    assert normalize_procedure_prerequisite_failure_log(
+        raw,
+        repo_root=Path("/unused/repo"),
+    ) == (
+        "E expected operation in 30s\n"
+        "2 passed, 1 skipped in $TIME\n"
+        "1 failed, 2 warnings in $TIME\n"
+    )
+
+
+def test_procedure_prerequisite_failure_log_replaces_complete_session_roots() -> None:
+    raw = (
+        "/var/tmp/build-cache/pytest-of-ollie/pytest-42/workspace/result.json\n"
+        "C:\\Users\\Ollie\\Temp\\pytest-of-ollie\\pytest-43\\workspace\\result.json\n"
+        "D:/ci/temp/pytest-of-ollie/pytest-44/workspace/result.json\n"
+        "relative/pytest-of-ollie/pytest-45/workspace/result.json\n"
+        "/var/tmp/build-cache/pytest-of-ollie/session-46/workspace/result.json\n"
+    )
+
+    assert normalize_procedure_prerequisite_failure_log(
+        raw,
+        repo_root=Path("/unused/repo"),
+    ) == (
+        "$PYTEST_TMP/workspace/result.json\n"
+        "$PYTEST_TMP\\workspace\\result.json\n"
+        "$PYTEST_TMP/workspace/result.json\n"
+        "relative/pytest-of-ollie/pytest-45/workspace/result.json\n"
+        "/var/tmp/build-cache/pytest-of-ollie/session-46/workspace/result.json\n"
     )
 
 
