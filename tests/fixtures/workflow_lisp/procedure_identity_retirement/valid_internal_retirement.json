@@ -1,0 +1,339 @@
+{
+  "schema": "workflow_lisp_procedure_identity_retirement.v1",
+  "migration": {
+    "migration_id": "fixture-procedure-retirement",
+    "compatibility_class": "reviewed_internal_identity_retirement",
+    "repository_commit": "0000000000000000000000000000000000000000",
+    "compiler_version": "fixture-compiler-v1",
+    "build_version": "fixture-build-v1",
+    "captured_at": "2026-07-13T00:00:00Z",
+    "test_fixture_notice": "FICTIONAL TEST DATA — NEVER COPY OWNER OR ATTESTATION INTO PILOT EVIDENCE"
+  },
+  "retained_public_entry": {
+    "module": "fixture.module",
+    "workflow": "retained-stack",
+    "contract_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "callee": {
+    "module": "fixture.module",
+    "identity": "tracked-plan-phase",
+    "exported": false,
+    "registered_public_entry": false,
+    "public": false,
+    "route_promoted": false,
+    "route_live": false
+  },
+  "retained_wrapper_evidence": {
+    "inventory_path": "tests/baselines/procedure_first/tracked_plan_phase.json",
+    "source_path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+    "reviewed_call_site": "retained-stack/tracked-plan-phase",
+    "retained_wrapper": "retained-stack",
+    "contract_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "supporting_labels": [
+    "migration_evidence_only"
+  ],
+  "known_state_stores": [
+    {
+      "root": "/fictional/test-only/.orchestrate/runs",
+      "owner": "Fictional Fixture Owner — NEVER COPY",
+      "query_version": "procedure-identity-store-query.v1",
+      "query_time": "2026-07-13T00:00:00Z",
+      "normalized_scan_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "terminal_run_count": 0,
+      "nonterminal_run_count": 0,
+      "call_frame_count": 0,
+      "consumer_count": 0,
+      "attestation": "FICTIONAL TEST ATTESTATION — NEVER COPY: no supported live/nonterminal run or consumer remains in this named fictional store",
+      "attested_at": "2026-07-13T00:01:00Z"
+    }
+  ],
+  "external_store_absence": "not_asserted",
+  "artifacts": [
+    {
+      "side": "old",
+      "role": "source",
+      "path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+      "sha256": "sha256:3a03feac563834cf8b9a0c1a329d006b82ad6ee210537b3e82fc0de786171bfb"
+    },
+    {
+      "side": "old",
+      "role": "typed_frontend_ast",
+      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.legacy.json",
+      "sha256": "sha256:d387093618011873e3221b96e1f4c46736429163202160230ad141fb83f6e39b"
+    },
+    {
+      "side": "old",
+      "role": "semantic_ir",
+      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.legacy.json",
+      "sha256": "sha256:d387093618011873e3221b96e1f4c46736429163202160230ad141fb83f6e39b"
+    },
+    {
+      "side": "old",
+      "role": "executable_ir",
+      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.legacy.json",
+      "sha256": "sha256:d387093618011873e3221b96e1f4c46736429163202160230ad141fb83f6e39b"
+    },
+    {
+      "side": "old",
+      "role": "runtime_plan",
+      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.legacy.json",
+      "sha256": "sha256:d387093618011873e3221b96e1f4c46736429163202160230ad141fb83f6e39b"
+    },
+    {
+      "side": "old",
+      "role": "lexical_checkpoint_points",
+      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.legacy.json",
+      "sha256": "sha256:d387093618011873e3221b96e1f4c46736429163202160230ad141fb83f6e39b"
+    },
+    {
+      "side": "old",
+      "role": "source_map",
+      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.legacy.json",
+      "sha256": "sha256:d387093618011873e3221b96e1f4c46736429163202160230ad141fb83f6e39b"
+    },
+    {
+      "side": "new",
+      "role": "source",
+      "path": "tests/fixtures/workflow_lisp/valid/procedure_lowering_identity_modes.orc",
+      "sha256": "sha256:3588f26eae619a5c02ff46e9cf31e0b97726cef31915b9aaef1fb38b5aa73854"
+    },
+    {
+      "side": "new",
+      "role": "typed_frontend_ast",
+      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.wcc_m4.json",
+      "sha256": "sha256:597512b31e50f3b2542019255f8eab5ca8ae49e98e1568615878dbb920c9cc5c"
+    },
+    {
+      "side": "new",
+      "role": "semantic_ir",
+      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.wcc_m4.json",
+      "sha256": "sha256:597512b31e50f3b2542019255f8eab5ca8ae49e98e1568615878dbb920c9cc5c"
+    },
+    {
+      "side": "new",
+      "role": "executable_ir",
+      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.wcc_m4.json",
+      "sha256": "sha256:597512b31e50f3b2542019255f8eab5ca8ae49e98e1568615878dbb920c9cc5c"
+    },
+    {
+      "side": "new",
+      "role": "runtime_plan",
+      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.wcc_m4.json",
+      "sha256": "sha256:597512b31e50f3b2542019255f8eab5ca8ae49e98e1568615878dbb920c9cc5c"
+    },
+    {
+      "side": "new",
+      "role": "lexical_checkpoint_points",
+      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.wcc_m4.json",
+      "sha256": "sha256:597512b31e50f3b2542019255f8eab5ca8ae49e98e1568615878dbb920c9cc5c"
+    },
+    {
+      "side": "new",
+      "role": "source_map",
+      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.wcc_m4.json",
+      "sha256": "sha256:597512b31e50f3b2542019255f8eab5ca8ae49e98e1568615878dbb920c9cc5c"
+    }
+  ],
+  "identity_delta": [
+    {
+      "identity_kind": "workflow",
+      "old_identity": "retained-stack",
+      "old_disposition": "preserved",
+      "new_identity": "retained-stack",
+      "new_disposition": "preserved"
+    },
+    {
+      "identity_kind": "call_frame",
+      "old_identity": "retained-stack/tracked-plan-phase",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "call_frame",
+      "old_identity": null,
+      "old_disposition": null,
+      "new_identity": "retained-stack/inline-provider",
+      "new_disposition": "new"
+    },
+    {
+      "identity_kind": "executable_node",
+      "old_identity": "retained-stack/result-provider",
+      "old_disposition": "preserved",
+      "new_identity": "retained-stack/result-provider",
+      "new_disposition": "preserved"
+    },
+    {
+      "identity_kind": "step",
+      "old_identity": "result-provider",
+      "old_disposition": "preserved",
+      "new_identity": "result-provider",
+      "new_disposition": "preserved"
+    },
+    {
+      "identity_kind": "presentation_key",
+      "old_identity": "result-provider",
+      "old_disposition": "preserved",
+      "new_identity": "result-provider",
+      "new_disposition": "preserved"
+    },
+    {
+      "identity_kind": "program_point",
+      "old_identity": "retained-stack/result-provider/output",
+      "old_disposition": "preserved",
+      "new_identity": "retained-stack/result-provider/output",
+      "new_disposition": "preserved"
+    },
+    {
+      "identity_kind": "checkpoint",
+      "old_identity": "retained-stack/tracked-plan-phase/call",
+      "old_disposition": "retired",
+      "new_identity": "retained-stack/result-provider/output",
+      "new_disposition": "new"
+    },
+    {
+      "identity_kind": "state_allocation",
+      "old_identity": "retained-stack/result",
+      "old_disposition": "preserved",
+      "new_identity": "retained-stack/result",
+      "new_disposition": "preserved"
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": "tracked-plan-phase/call-site",
+      "old_disposition": "retired",
+      "new_identity": "tracked-plan-phase/definition+call-site",
+      "new_disposition": "new"
+    }
+  ],
+  "artifact_multiset": {
+    "old": [
+      {
+        "key": {
+          "owning_public_entry": "retained-stack",
+          "semantic_step_role": "result-provider",
+          "contract_kind": "result_field",
+          "name": "result",
+          "json_pointer": "/result",
+          "type_variant": "String",
+          "publication_role": "public_output"
+        },
+        "count": 1
+      },
+      {
+        "key": {
+          "owning_public_entry": "retained-stack",
+          "semantic_step_role": "report-publisher",
+          "contract_kind": "artifact",
+          "name": "report",
+          "json_pointer": "/artifacts/report",
+          "type_variant": "Path",
+          "publication_role": "published_artifact"
+        },
+        "count": 1
+      }
+    ],
+    "new": [
+      {
+        "key": {
+          "owning_public_entry": "retained-stack",
+          "semantic_step_role": "result-provider",
+          "contract_kind": "result_field",
+          "name": "result",
+          "json_pointer": "/result",
+          "type_variant": "String",
+          "publication_role": "public_output"
+        },
+        "count": 1
+      },
+      {
+        "key": {
+          "owning_public_entry": "retained-stack",
+          "semantic_step_role": "report-publisher",
+          "contract_kind": "artifact",
+          "name": "report",
+          "json_pointer": "/artifacts/report",
+          "type_variant": "Path",
+          "publication_role": "published_artifact"
+        },
+        "count": 1
+      }
+    ]
+  },
+  "execution_order": {
+    "old": [
+      {
+        "position": 0,
+        "semantic_step_role": "result-provider",
+        "contract_kind": "result_field",
+        "name": "result"
+      },
+      {
+        "position": 1,
+        "semantic_step_role": "report-publisher",
+        "contract_kind": "artifact",
+        "name": "report"
+      }
+    ],
+    "new": [
+      {
+        "position": 0,
+        "semantic_step_role": "result-provider",
+        "contract_kind": "result_field",
+        "name": "result"
+      },
+      {
+        "position": 1,
+        "semantic_step_role": "report-publisher",
+        "contract_kind": "artifact",
+        "name": "report"
+      }
+    ]
+  },
+  "lineage_notes": [
+    {
+      "executable_node": "retained-stack/result-provider",
+      "procedure_definition_note": "procedure definition at fixture.module:10",
+      "call_site_note": "procedure call site at fixture.module:30"
+    }
+  ],
+  "new_id_evidence": {
+    "clean_run": {
+      "run_id": "fixture-clean-new-ids",
+      "status": "completed",
+      "public_contract_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "artifact_multiset_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "interruption_resume": {
+      "run_id": "fixture-resume-new-ids",
+      "interruption_point": "retained-stack/result-provider/output",
+      "status": "completed",
+      "reused_only_new_id_work": true,
+      "public_contract_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  },
+  "checksum_evidence": {
+    "root": {
+      "command": "orchestrator resume fixture-old-run",
+      "default_resume": true,
+      "observability_overrides": false,
+      "cli_overrides": false,
+      "exit_status": 1,
+      "before_tree_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "after_tree_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "executor_constructed": false,
+      "provider_executed": false,
+      "command_executed": false
+    },
+    "callee": {
+      "checksum_mismatch_observed": true,
+      "child_workflow_executed": false,
+      "provider_executed": false,
+      "command_executed": false,
+      "child_state_identity_remapped": false,
+      "parent_metadata_delta": "ordinary parent-level metadata only"
+    }
+  },
+  "runtime_directives": []
+}
