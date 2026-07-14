@@ -5,6 +5,7 @@ from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
+import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import NameExpr, ProduceOneOfExpr, ProviderResultExpr
@@ -279,7 +280,159 @@ def test_workflow_ref_specialization_through_owner_seam_compiles_and_validates(t
     }
 
     assert specialized_names == {"%workflow_refs_forwarding.invoke-runner__spec__runner__echo_helper.v1"}
+    assert any(
+        procedure.definition.name == "invoke-runner__spec__runner__echo_helper"
+        for procedure in result.typed_procedures
+    )
     assert specialized_names <= set(result.validated_bundles)
+
+
+def test_workflow_ref_procedure_specialization_is_materialized_before_lowering(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received_mappings: list[tuple[tuple[object, ...], object]] = []
+    consumer_name = "lower_workflow_definitions"
+    original_consumer = getattr(workflow_lisp_compiler, consumer_name)
+
+    def capture_consumer(typed_workflows, **kwargs):
+        received_mappings.append(
+            (kwargs["typed_procedures"], kwargs["resolved_procedures_by_name"])
+        )
+        return original_consumer(typed_workflows, **kwargs)
+
+    monkeypatch.setattr(workflow_lisp_compiler, consumer_name, capture_consumer)
+
+    result = compile_stage3_module(
+        VALID_FIXTURES / "workflow_refs_forwarding.orc",
+        command_boundaries=_workflow_ref_command_boundaries(),
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
+    )
+
+    specialized = next(
+        procedure
+        for procedure in result.typed_procedures
+        if procedure.definition.name == "invoke-runner__spec__runner__echo_helper"
+    )
+    assert tuple(name for name, _ in specialized.signature.params) == ("input",)
+    assert tuple(specialized.specialization.workflow_ref_bindings) == ("runner",)
+    assert specialized.resolved_lowering_mode.value == "private-workflow"
+    assert specialized.generated_workflow_name == (
+        "%workflow_refs_forwarding.invoke-runner__spec__runner__echo_helper.v1"
+    )
+    assert len(received_mappings) == 1
+    typed_rows, resolved_rows = received_mappings[0]
+    assert resolved_rows[specialized.definition.name] is specialized
+    assert any(row is specialized for row in typed_rows)
+
+
+def test_classic_procedure_lowering_has_no_specialization_fallback() -> None:
+    source_path = Path(
+        importlib.import_module("orchestrator.workflow_lisp.lowering.procedures").__file__
+    )
+    module = ast.parse(source_path.read_text(encoding="utf-8"))
+    lowering_function = next(
+        node
+        for node in module.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_lower_procedure_call"
+    )
+
+    assert not any(
+        isinstance(node, ast.Name) and node.id == "specialize_typed_procedure"
+        for node in ast.walk(lowering_function)
+    )
+
+
+def test_classic_procedure_lowering_rejects_a_missing_stage3_workflow_ref_row(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        workflow_lisp_compiler,
+        "_discover_workflow_ref_specializations",
+        lambda **kwargs: (),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            VALID_FIXTURES / "workflow_refs_forwarding.orc",
+            command_boundaries=_workflow_ref_command_boundaries(),
+            validate_shared=False,
+            workspace_root=tmp_path,
+            lowering_route=LoweringRoute.LEGACY,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "procedure_lowering_unresolved"
+
+
+def test_stage3_materializes_combined_workflow_and_proc_ref_specialization(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "combined_refs.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport :kind relpath :under \"artifacts/work\" :must-exist true)",
+                "  (defrecord WorkflowInput (report WorkReport))",
+                "  (defrecord WorkflowOutput (report WorkReport))",
+                "  (defworkflow echo-helper",
+                "    ((input WorkflowInput)) -> WorkflowOutput",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" input.report)',
+                "      :returns WorkflowOutput))",
+                "  (defproc identity-helper",
+                "    ((input WorkflowInput)) -> WorkflowOutput",
+                "    :effects () :lowering inline",
+                "    (record WorkflowOutput :report input.report))",
+                "  (defproc invoke-runner",
+                "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
+                "     (hook ProcRef[WorkflowInput -> WorkflowOutput])",
+                "     (input WorkflowInput)) -> WorkflowOutput",
+                "    :effects ((calls-workflow runner)) :lowering inline",
+                "    (call runner :input input))",
+                "  (defworkflow entry",
+                "    ((input WorkflowInput)) -> WorkflowOutput",
+                "    (invoke-runner (workflow-ref echo-helper) (proc-ref identity-helper) input)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        path,
+        command_boundaries=_workflow_ref_command_boundaries(),
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
+    )
+
+    combined = next(
+        procedure
+        for procedure in result.typed_procedures
+        if procedure.specialization is not None
+        and procedure.specialization.workflow_ref_bindings
+        and procedure.specialization.proc_ref_bindings
+    )
+    assert tuple(name for name, _ in combined.signature.params) == ("input",)
+    assert tuple(combined.specialization.workflow_ref_bindings) == ("runner",)
+    assert tuple(combined.specialization.proc_ref_bindings) == ("hook",)
+
+
+def test_wcc_procedure_lowering_has_no_specialization_fallback() -> None:
+    source_path = Path(
+        importlib.import_module("orchestrator.workflow_lisp.wcc.defunctionalize").__file__
+    )
+    module = ast.parse(source_path.read_text(encoding="utf-8"))
+
+    assert not any(
+        isinstance(node, ast.Name) and node.id == "specialize_typed_procedure"
+        for node in ast.walk(module)
+    )
 
 
 @pytest.mark.parametrize("lowering_route", (LoweringRoute.LEGACY, LoweringRoute.WCC_M4))

@@ -33,6 +33,7 @@ from .expressions import (
     RunProviderPhaseExpr,
     UnionVariantExpr,
     WithPhaseExpr,
+    WorkflowRefLiteralExpr,
 )
 from .lowering.pure_projection import is_pure_projection_expr
 from .procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
@@ -57,10 +58,15 @@ from .type_env import (
     TypeRef,
     UnionTypeRef,
     VariantCaseTypeRef,
+    WorkflowRefTypeRef,
     render_type_ref,
     substitute_type_params,
 )
-from .workflow_refs import ResolvedWorkflowRef, specialization_name
+from .workflow_refs import (
+    ResolvedWorkflowRef,
+    resolve_workflow_ref_expr,
+    specialization_name,
+)
 from .workflows import TypedWorkflowDef, analyze_workflow_boundary_type
 
 
@@ -1215,4 +1221,164 @@ def discover_proc_ref_specializations(
         walk(procedure.typed_body.expr, proc_ref_env)
     for workflow in typed_workflows:
         walk(workflow.typed_body.expr, {})
+    return tuple(discovered.values())
+
+
+def discover_workflow_ref_specializations(
+    *,
+    typed_procedures: tuple[TypedProcedureDef, ...],
+    typed_workflows: tuple[TypedWorkflowDef, ...],
+    procedure_catalog: ProcedureCatalog,
+    workflow_catalog: object,
+    type_env: FrontendTypeEnvironment,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
+) -> tuple[TypedProcedureDef, ...]:
+    """Discover concrete WorkflowRef procedure calls for the Stage-3 fixed point."""
+
+    from .expressions import LetStarExpr, ProcedureCallExpr
+
+    discovered: dict[str, TypedProcedureDef] = {}
+    typed_procedures_by_name = {
+        procedure.definition.name: procedure for procedure in typed_procedures
+    }
+
+    def record_specialization(specialized: TypedProcedureDef | None) -> None:
+        if specialized is None:
+            return
+        if specialized.definition.name in typed_procedures_by_name:
+            return
+        discovered.setdefault(specialized.definition.name, specialized)
+
+    def resolve_binding(
+        arg_expr: object,
+        *,
+        expected_type: WorkflowRefTypeRef,
+        workflow_ref_env: Mapping[str, ResolvedWorkflowRef],
+    ) -> ResolvedWorkflowRef | None:
+        if isinstance(arg_expr, NameExpr) and arg_expr.name in workflow_ref_env:
+            return workflow_ref_env[arg_expr.name]
+        if not isinstance(arg_expr, (WorkflowRefLiteralExpr, NameExpr, EnumMemberExpr)):
+            return None
+        return resolve_workflow_ref_expr(
+            arg_expr,
+            workflow_catalog=workflow_catalog,
+            span=arg_expr.span,
+            form_path=arg_expr.form_path,
+            expansion_stack=arg_expr.expansion_stack,
+            expected_type=expected_type,
+            typed_workflows_by_name={
+                workflow.definition.name: workflow for workflow in typed_workflows
+            },
+            allow_extern_rebinding=True,
+        )
+
+    def walk(
+        node: object,
+        workflow_ref_env: Mapping[str, ResolvedWorkflowRef],
+        proc_ref_env: Mapping[str, ResolvedProcRefValue],
+    ) -> None:
+        if isinstance(node, ProcedureCallExpr):
+            bound_proc_ref = proc_ref_env.get(node.callee_name)
+            callee_name = (
+                bound_proc_ref.call_target_name
+                if bound_proc_ref is not None
+                else node.callee_name
+            )
+            procedure = typed_procedures_by_name.get(callee_name)
+            signature = (
+                procedure.signature
+                if procedure is not None
+                else procedure_catalog.signatures_by_name.get(callee_name)
+            )
+            if procedure is not None and signature is not None and len(node.args) == len(signature.params):
+                workflow_ref_bindings: dict[str, ResolvedWorkflowRef] = {}
+                proc_ref_bindings: dict[str, ResolvedProcRefValue] = {}
+                remaining_params: list[tuple[str, TypeRef]] = []
+                for arg_expr, (param_name, param_type) in zip(
+                    node.args,
+                    signature.params,
+                    strict=True,
+                ):
+                    if isinstance(param_type, WorkflowRefTypeRef):
+                        resolved = resolve_binding(
+                            arg_expr,
+                            expected_type=param_type,
+                            workflow_ref_env=workflow_ref_env,
+                        )
+                        if resolved is not None:
+                            workflow_ref_bindings[param_name] = resolved
+                            continue
+                    if isinstance(param_type, ProcRefTypeRef):
+                        resolved_proc_ref = resolve_proc_ref_value(
+                            arg_expr,
+                            procedure_catalog=procedure_catalog,
+                            proc_ref_env=proc_ref_env,
+                            expected_type=param_type,
+                        )
+                        if resolved_proc_ref is not None:
+                            proc_ref_bindings[param_name] = resolved_proc_ref
+                            continue
+                    remaining_params.append((param_name, param_type))
+                if workflow_ref_bindings:
+                    record_specialization(
+                        specialize_typed_procedure(
+                            procedure,
+                            workflow_ref_bindings=workflow_ref_bindings,
+                            proc_ref_bindings=proc_ref_bindings,
+                            remaining_params=tuple(remaining_params),
+                            workflow_path=Path(procedure.definition.span.start.path),
+                            type_env=procedure_type_env_for(
+                                procedure,
+                                procedure_type_envs=procedure_type_envs,
+                                default=type_env,
+                            ),
+                            typed_procedures_by_name=typed_procedures_by_name,
+                            procedure_type_envs=procedure_type_envs,
+                            origin_span=node.span,
+                            origin_form_path=node.form_path,
+                            defer_lowering_resolution=True,
+                        )
+                    )
+            for arg in node.args:
+                walk(arg, workflow_ref_env, proc_ref_env)
+            return
+        if isinstance(node, LetStarExpr):
+            child_workflow_env = dict(workflow_ref_env)
+            for binding_name, binding_expr in node.bindings:
+                walk(binding_expr, child_workflow_env, proc_ref_env)
+                if isinstance(
+                    binding_expr,
+                    (WorkflowRefLiteralExpr, NameExpr, EnumMemberExpr),
+                ):
+                    try:
+                        resolved = resolve_workflow_ref_expr(
+                            binding_expr,
+                            workflow_catalog=workflow_catalog,
+                            span=binding_expr.span,
+                            form_path=binding_expr.form_path,
+                            expansion_stack=binding_expr.expansion_stack,
+                            typed_workflows_by_name={
+                                workflow.definition.name: workflow
+                                for workflow in typed_workflows
+                            },
+                            allow_extern_rebinding=True,
+                        )
+                    except LispFrontendCompileError:
+                        resolved = None
+                    if resolved is not None:
+                        child_workflow_env[binding_name] = resolved
+            walk(node.body, child_workflow_env, proc_ref_env)
+            return
+        for child in iter_child_exprs(node):
+            walk(child, workflow_ref_env, proc_ref_env)
+
+    for procedure in typed_procedures:
+        specialization = procedure.specialization
+        walk(
+            procedure.typed_body.expr,
+            dict(getattr(specialization, "workflow_ref_bindings", {})),
+            dict(getattr(specialization, "proc_ref_bindings", {})),
+        )
+    for workflow in typed_workflows:
+        walk(workflow.typed_body.expr, {}, {})
     return tuple(discovered.values())

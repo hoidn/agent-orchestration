@@ -5509,10 +5509,20 @@ def test_compile_stage3_supports_bind_proc_forwarding_and_lexical_proc_ref_calls
 def test_let_proc_resolves_to_hidden_generated_proc_ref(tmp_path: Path) -> None:
     result = _compile(LET_PROC_FIXTURE, tmp_path=tmp_path)
     generated = [p for p in result.typed_procedures if p.definition.name.startswith("%let-proc.")]
+    bound = [
+        procedure
+        for procedure in result.typed_procedures
+        if procedure.specialization is not None
+        and procedure.specialization.value_bindings
+    ]
 
     assert len(generated) == 1
     assert generated[0].definition.name == generated[0].signature.name
     assert generated[0].specialization is None
+    assert len(bound) == 1
+    assert tuple(name for name, _ in bound[0].signature.params) == ("item",)
+    assert tuple(bound[0].specialization.value_bindings) == ("fixed",)
+    assert bound[0].resolved_lowering_mode is ProcedureLoweringMode.INLINE
 
 
 def test_compile_rejects_let_proc_generated_name_authored_reference(tmp_path: Path) -> None:

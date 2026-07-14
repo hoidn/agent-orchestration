@@ -1,5 +1,6 @@
 import importlib
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
@@ -1093,8 +1094,8 @@ def test_compile_stage3_entrypoint_imported_private_helper_local_union_compiles_
         for compiled in result.compiled_results_by_name.values()
         for workflow in compiled.lowered_workflows
     }
-    assert "%consumer.imported_private_helper_local_union/helper::route-decision.v1" in lowered_names
-    assert "%consumer.imported_private_helper_local_union/helper::finalize-decision.v1" in lowered_names
+    assert "%helper.imported_private_helper_local_union/helper::route-decision.v1" in lowered_names
+    assert "%helper.imported_private_helper_local_union/helper::finalize-decision.v1" in lowered_names
 
 
 def test_compile_stage3_entrypoint_imported_private_helper_exported_union_not_imported_compiles_on_default_wcc_route(
@@ -1120,11 +1121,83 @@ def test_compile_stage3_entrypoint_imported_private_helper_exported_union_not_im
         for compiled in result.compiled_results_by_name.values()
         for workflow in compiled.lowered_workflows
     }
-    assert "%consumer.imported_private_helper_exported_union_not_imported/helper::route-decision.v1" in lowered_names
+    assert "%helper.imported_private_helper_exported_union_not_imported/helper::route-decision.v1" in lowered_names
     assert (
-        "%consumer.imported_private_helper_exported_union_not_imported/helper::finalize-decision.v1"
+        "%helper.imported_private_helper_exported_union_not_imported/helper::finalize-decision.v1"
         in lowered_names
     )
+
+
+@pytest.mark.parametrize(
+    ("lowering_route", "consumer_name"),
+    (
+        ("legacy", "lower_workflow_definitions"),
+        ("wcc_m4", "lower_wcc_m4_workflow_definitions"),
+    ),
+)
+def test_linked_private_procedures_resolve_once_in_their_defining_module(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    lowering_route: str,
+    consumer_name: str,
+) -> None:
+    source_root = VALID_FIXTURES / "imported_private_helper_local_union"
+    entry_path = source_root / "imported_private_helper_local_union" / "consumer.orc"
+    compiler = _compiler_module()
+    original_resolver = compiler._resolve_procedure_lowering
+    resolver_inputs: list[tuple[str, ...]] = []
+    received_rows: list[tuple[object, ...]] = []
+
+    def counting_resolver(typed_procedures, **kwargs):
+        resolver_inputs.append(
+            tuple(procedure.definition.name for procedure in typed_procedures)
+        )
+        return original_resolver(typed_procedures, **kwargs)
+
+    original_consumer = getattr(compiler, consumer_name)
+
+    def capture_consumer(typed_workflows, **kwargs):
+        if any(
+            workflow.definition.name
+            == "imported_private_helper_local_union/consumer::run"
+            for workflow in typed_workflows
+        ):
+            typed_rows = kwargs["typed_procedures"]
+            resolved_rows = kwargs["resolved_procedures_by_name"]
+            assert isinstance(resolved_rows, type(MappingProxyType({})))
+            assert all(
+                resolved_rows[procedure.definition.name] is procedure
+                for procedure in typed_rows
+            )
+            received_rows.append(typed_rows)
+        return original_consumer(typed_workflows, **kwargs)
+
+    monkeypatch.setattr(compiler, "_resolve_procedure_lowering", counting_resolver)
+    monkeypatch.setattr(compiler, consumer_name, capture_consumer)
+
+    result = _compile_stage3_entrypoint(
+        entry_path,
+        source_root=source_root,
+        lowering_route=lowering_route,
+        validate_shared=False,
+        tmp_path=tmp_path,
+    )
+
+    assert resolver_inputs == [
+        (
+            "imported_private_helper_local_union/helper::finalize-decision",
+            "imported_private_helper_local_union/helper::route-decision",
+        )
+    ]
+    assert len(received_rows) == 1
+    assert {
+        procedure.generated_workflow_name
+        for procedure in received_rows[0]
+    } >= {
+        "%helper.imported_private_helper_local_union/helper::finalize-decision.v1",
+        "%helper.imported_private_helper_local_union/helper::route-decision.v1",
+    }
+    assert result.entry_result.typed_procedures == ()
 
 
 def test_compile_stage3_entrypoint_imported_private_helper_unknown_type_stays_at_helper_span(

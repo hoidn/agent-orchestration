@@ -45,7 +45,7 @@ from ..type_env import (
     WorkflowRefTypeRef,
     render_type_ref,
 )
-from ..workflow_refs import ResolvedWorkflowRef
+from ..workflow_refs import ResolvedWorkflowRef, specialization_name as workflow_ref_specialization_name
 from ..workflows import (
     PromptExtern,
     ProviderExtern,
@@ -195,7 +195,20 @@ def _resolve_procedure_lowering(
             requested == ProcedureLoweringMode.AUTO
             and boundary_valid
             and body_valid
-            and call_counts.get(procedure.definition.name, 0) > 1
+            and (
+                call_counts.get(procedure.definition.name, 0) > 1
+                or (
+                    procedure.specialization is not None
+                    and any(
+                        bool(getattr(procedure.specialization, field_name, {}))
+                        for field_name in (
+                            "type_bindings",
+                            "workflow_ref_bindings",
+                            "proc_ref_bindings",
+                        )
+                    )
+                )
+            )
             and lowerable_call_sites.get(procedure.definition.name, True)
         ):
             mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
@@ -480,7 +493,6 @@ def _lower_procedure_call(
     through the same runtime call step used for authored workflows.
     """
 
-    from ..procedure_specialization import specialize_typed_procedure
     from .context import _LoweringContext, _TerminalResult
     from .origins import _record_step_origin
     from .core import (
@@ -523,8 +535,11 @@ def _lower_procedure_call(
         procedure = context.typed_procedures.get(expr.specialized_callee_name)
         if procedure is None:
             raise _compile_error(
-                code="procedure_call_unknown",
-                message=f"unknown procedure callee `{expr.specialized_callee_name}` during lowering",
+                code="procedure_lowering_unresolved",
+                message=(
+                    "compiler-owned specialization row "
+                    f"`{expr.specialized_callee_name}` is missing during lowering"
+                ),
                 span=expr.span,
                 form_path=expr.form_path,
             )
@@ -537,41 +552,14 @@ def _lower_procedure_call(
         if bound_proc_ref is not None:
             procedure = context.typed_procedures.get(bound_proc_ref.call_target_name)
             if procedure is None:
-                base_procedure = context.typed_procedures.get(bound_proc_ref.procedure_name)
-                if base_procedure is None:
-                    raise _compile_error(
-                        code="procedure_call_unknown",
-                        message=f"unknown procedure callee `{bound_proc_ref.procedure_name}` during lowering",
-                        span=expr.span,
-                        form_path=expr.form_path,
-                    )
-                procedure = specialize_typed_procedure(
-                    base_procedure,
-                    value_bindings={
-                        binding.name: binding.value_expr
-                        for binding in bound_proc_ref.bound_args
-                        if not isinstance(binding.type_ref, ProcRefTypeRef)
-                    },
-                    proc_ref_bindings={
-                        binding.name: resolved_binding
-                        for binding in bound_proc_ref.bound_args
-                        if isinstance(binding.type_ref, ProcRefTypeRef)
-                        for resolved_binding in (
-                            _resolved_proc_ref_value(
-                                binding.value_expr,
-                                context=context,
-                                local_values=local_values,
-                            ),
-                        )
-                        if resolved_binding is not None
-                    },
-                    remaining_params=bound_proc_ref.residual_params,
-                    workflow_path=context.workflow_path,
-                    type_env=context.type_env,
-                    typed_procedures_by_name=context.typed_procedures,
-                    specialized_name=bound_proc_ref.call_target_name,
-                    origin_span=expr.span,
-                    origin_form_path=expr.form_path,
+                raise _compile_error(
+                    code="procedure_lowering_unresolved",
+                    message=(
+                        "compiler-owned bound ProcRef specialization row "
+                        f"`{bound_proc_ref.call_target_name}` is missing during lowering"
+                    ),
+                    span=expr.span,
+                    form_path=expr.form_path,
                 )
             arg_exprs = expr.args
         else:
@@ -583,76 +571,70 @@ def _lower_procedure_call(
                     span=expr.span,
                     form_path=expr.form_path,
                 )
-    if any(isinstance(type_ref, WorkflowRefTypeRef) for _, type_ref in procedure.signature.params):
-        workflow_ref_bindings: dict[str, ResolvedWorkflowRef] = {}
-        remaining_params: list[tuple[str, TypeRef]] = []
-        remaining_args: list[Any] = []
-        for arg_expr, (param_name, param_type) in zip(arg_exprs, procedure.signature.params, strict=True):
-            if isinstance(param_type, WorkflowRefTypeRef):
-                candidate_expr = (
-                    arg_expr
-                    if isinstance(arg_expr, EnumMemberExpr)
-                    else _resolve_inline_expr_value(arg_expr, local_values=local_values) or arg_expr
+    workflow_ref_bindings: dict[str, ResolvedWorkflowRef] = {}
+    proc_ref_bindings: dict[str, ResolvedProcRefValue] = {}
+    remaining_args: list[Any] = []
+    for arg_expr, (param_name, param_type) in zip(
+        arg_exprs,
+        procedure.signature.params,
+        strict=True,
+    ):
+        if isinstance(param_type, WorkflowRefTypeRef):
+            candidate_expr = (
+                arg_expr
+                if isinstance(arg_expr, EnumMemberExpr)
+                else _resolve_inline_expr_value(arg_expr, local_values=local_values) or arg_expr
+            )
+            resolved_binding = _resolved_workflow_ref_value(
+                candidate_expr,
+                context=context,
+                expected_type=param_type,
+            )
+            if resolved_binding is None:
+                raise _compile_error(
+                    code="workflow_ref_literal_required",
+                    message="workflow-ref arguments must be literals or forwarded workflow-ref bindings",
+                    span=arg_expr.span,
+                    form_path=arg_expr.form_path,
                 )
-                resolved_binding = _resolved_workflow_ref_value(
-                    candidate_expr,
-                    context=context,
-                    expected_type=param_type,
-                )
-                if resolved_binding is None:
-                    raise _compile_error(
-                        code="workflow_ref_literal_required",
-                        message="workflow-ref arguments must be literals or forwarded workflow-ref bindings",
-                        span=arg_expr.span,
-                        form_path=arg_expr.form_path,
-                    )
-                workflow_ref_bindings[param_name] = resolved_binding
+            workflow_ref_bindings[param_name] = resolved_binding
+            continue
+        if isinstance(param_type, ProcRefTypeRef):
+            resolved_binding = _resolved_proc_ref_value(
+                _resolve_inline_expr_value(arg_expr, local_values=local_values) or arg_expr,
+                context=context,
+                local_values=local_values,
+                expected_type=param_type,
+            )
+            if resolved_binding is not None:
+                proc_ref_bindings[param_name] = resolved_binding
                 continue
-            remaining_params.append((param_name, param_type))
-            remaining_args.append(arg_expr)
-        procedure = specialize_typed_procedure(
-            procedure,
-            workflow_ref_bindings=workflow_ref_bindings,
-            remaining_params=tuple(remaining_params),
-            workflow_path=context.workflow_path,
-            type_env=context.type_env,
-            typed_procedures_by_name=context.typed_procedures,
-        )
-        arg_exprs = tuple(remaining_args)
-    if any(isinstance(type_ref, ProcRefTypeRef) for _, type_ref in procedure.signature.params):
-        proc_ref_bindings: dict[str, ResolvedProcRefValue] = {}
-        remaining_params = []
-        remaining_args = []
-        for arg_expr, (param_name, param_type) in zip(arg_exprs, procedure.signature.params, strict=True):
-            if isinstance(param_type, ProcRefTypeRef):
-                resolved_binding = _resolved_proc_ref_value(
-                    _resolve_inline_expr_value(arg_expr, local_values=local_values) or arg_expr,
-                    context=context,
-                    local_values=local_values,
-                    expected_type=param_type,
-                )
-                if resolved_binding is not None:
-                    proc_ref_bindings[param_name] = resolved_binding
-                    continue
-            remaining_params.append((param_name, param_type))
-            remaining_args.append(arg_expr)
+        remaining_args.append(arg_expr)
+    if workflow_ref_bindings or proc_ref_bindings:
+        specialized_name = procedure.signature.name
+        if workflow_ref_bindings:
+            specialized_name = workflow_ref_specialization_name(
+                specialized_name,
+                workflow_ref_bindings,
+            )
         if proc_ref_bindings:
             specialized_name = proc_ref_call_specialization_name(
-                procedure.signature.name,
+                specialized_name,
                 proc_ref_bindings,
             )
-            procedure = context.typed_procedures.get(specialized_name) or specialize_typed_procedure(
-                procedure,
-                proc_ref_bindings=proc_ref_bindings,
-                remaining_params=tuple(remaining_params),
-                workflow_path=context.workflow_path,
-                type_env=context.type_env,
-                typed_procedures_by_name=context.typed_procedures,
-                specialized_name=specialized_name,
-                origin_span=expr.span,
-                origin_form_path=expr.form_path,
+        specialized = context.typed_procedures.get(specialized_name)
+        if specialized is None:
+            raise _compile_error(
+                code="procedure_lowering_unresolved",
+                message=(
+                    "compiler-owned procedure specialization row "
+                    f"`{specialized_name}` is missing during lowering"
+                ),
+                span=expr.span,
+                form_path=expr.form_path,
             )
-            arg_exprs = tuple(remaining_args)
+        procedure = specialized
+        arg_exprs = tuple(remaining_args)
     if procedure.signature.name in context.active_procedure_calls:
         raise _compile_error(
             code=(
