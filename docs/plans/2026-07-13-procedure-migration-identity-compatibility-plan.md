@@ -52,7 +52,8 @@ The second command must print nothing. The full staged list must be a subset of 
 
 - `tests/fixtures/workflow_lisp/valid/procedure_lowering_identity_modes.orc`: generic explicit-inline, explicit-private, and auto fixture, with a WCC-M4-capable loop elsewhere in the retained workflow so the pilot-shaped inline call is outside the classic iteration override.
 - `tests/fixtures/workflow_lisp/valid/procedure_lowering_identity_modes.{providers,prompts,commands}.json`: deterministic compile/build extern manifests for that fixture.
-- `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json`: pre-edit authority for the exact eight broad-suite failures, their categories, normalized signatures/digests, command, date, and starting commit.
+- `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json`: compact accepted pre-edit projection for the exact eight broad-suite failures, their categories, normalized signatures/digests, command, date, and starting commit; its accepted content is pinned to commit `50f78791320c540181946fb3a29dce355b19fed3`.
+- `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline-correction.json`: provenance authority for the original `d5eb0043` values, normalization defects, corrected algorithm/digests, and content addresses of the retained raw pre-implementation logs; its accepted content is pinned to correction commit `b7212487764bda8ff93dc995c4ca8e1a6eec54ee`.
 - `tests/baselines/procedure_first/procedure_lowering_identity_modes.{legacy,wcc_m4}.json`: normalized pre-refactor executable, Semantic IR, runtime/checkpoint, presentation, source-map, and generated-private-workflow observables.
 - `tests/workflow_lisp_procedure_identity.py`: reusable normalization and content-digest helpers; strips workspace roots and excludes unrelated nondeterministic fields.
 - `orchestrator/workflow_lisp/compiler.py`: sole owner of module-level resolution after specialization/effect recomputation and before route dispatch.
@@ -69,6 +70,7 @@ The second command must print nothing. The full staged list must be a subset of 
 
 **Files:**
 - Create before any source/test edit: `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json`
+- Create only as the reviewed correction to the completed capture: `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline-correction.json`
 - Create: `tests/fixtures/workflow_lisp/valid/procedure_lowering_identity_modes.orc`
 - Create: `tests/fixtures/workflow_lisp/valid/procedure_lowering_identity_modes.providers.json`
 - Create: `tests/fixtures/workflow_lisp/valid/procedure_lowering_identity_modes.prompts.json`
@@ -117,6 +119,22 @@ git commit -m "test: record procedure identity prerequisite baseline"
 ```
 
 Expected: the commit contains only the baseline JSON. This commit's parent is the pre-implementation checkout recorded in `repository_commit`.
+
+Historical execution note: capture commit `d5eb004309a544bfad56b80439dc106c628f2d63`
+correctly froze the eight nodeids, categories, signatures, capture time, and
+pre-implementation commit, but its eight digest fields hashed the signature
+projections rather than the complete normalized isolated logs. Commit
+`5c4d6bdce87e1feb587201677c78b63f49925951` corrected all eight to full-log
+digests; `50f78791320c540181946fb3a29dce355b19fed3` normalized the one Python repr
+address that remained nondeterministic; and `bfabb614dd927a2c121f1e7220c21aa1ee180f63`
+plus `ffd4503de7d40dbbadb388655adce4e140a516a0` bounded the normalizer so it
+does not erase evidence. The separate correction artifact was created at
+`d2440fe9bb52a478c90af4cd7bee5fcf8748f276`; its accepted review candidate at
+`b7212487764bda8ff93dc995c4ca8e1a6eec54ee` adds the explicit correction
+history and Task 8 review gate while binding the original and corrected values
+to the retained raw logs by byte count and SHA-256. Task 8 selects the compact
+baseline and this correction artifact together; it must not infer authority
+from the latest commit to touch either path.
 
 - [ ] **Step 4: Add the generic fixture**
 
@@ -457,6 +475,7 @@ git commit -m "docs: land procedure identity compatibility references"
 
 **Files:**
 - Inspect without modifying: `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json`
+- Inspect without modifying: `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline-correction.json`
 - Modify in Step 8 only: `docs/plans/2026-07-13-procedure-first-pilot-plan.md`
 - If a review finds a defect, return to the owning Task 1-7, change only that task's exact `Files` list, rerun its RED/GREEN cycle, and commit there.
 - Never modify the family source or frozen pilot baseline.
@@ -494,7 +513,7 @@ Use the `tmux` skill and run from repo root:
 pytest -q -n 16 --dist=worksteal
 ```
 
-Expected: exactly the eight nodeids in `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json`: its six `established_unrelated` rows plus its two `intentional_pilot_red` rows and no others. Compare nodeids as an exact set, not by count. Rerun every baseline row in isolation, apply the baseline's root/temp/time/Python-repr-address normalization (only `at 0x[0-9A-Fa-f]+` becomes `at $ADDR`; arbitrary hexadecimal values remain evidence), and require exact equality of both `normalized_failure_signature` and `normalized_failure_sha256`; a replacement failure cannot hide behind the same nodeid or category. The two pilot rows must be:
+Expected: exactly the eight nodeids selected by the accepted baseline/correction pair: the compact baseline's six `established_unrelated` rows plus its two `intentional_pilot_red` rows and no others. First verify that both files still match their pinned commits, that every correction row's nodeid/category/signature and `corrected_normalized_failure_sha256` equal the compact baseline row, and that each retained raw log still matches the correction artifact's byte count and SHA-256. Compare broad-run nodeids as an exact set, not by count. Rerun every baseline row in isolation, apply `tests.workflow_lisp_procedure_identity.normalize_procedure_prerequisite_failure_log`, and require exact equality of both `normalized_failure_signature` and the selected corrected digest; a replacement failure cannot hide behind the same nodeid or category. The two pilot rows must be:
 
 - `tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_is_explicit_inline_procedure`
 - `tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_wrapper_uses_procedure_call`
@@ -528,7 +547,7 @@ Expected: `git diff --check` is clean; the family source/frozen pilot baseline c
 
 - [ ] **Step 8: Hand back to the existing pilot plan**
 
-Modify `docs/plans/2026-07-13-procedure-first-pilot-plan.md` execution notes to record: the Task 1-7 prerequisite commit range; the checked-in baseline JSON path and its capture commit/date; focused/compile/build/broad commands and outcomes; exact eight-nodeid/signature/digest comparison; six isolated unrelated dispositions; the two exact pilot REDs; both review approvals; and the known-store scan API location. The pilot must complete its pre-edit scans and obtain genuine named-owner attestations before its source-edit task becomes selectable. Missing attestation records the explicit unattended stop and does not trigger a question or retry. Do not update `docs/index.md`, the wider roadmap selector, capability status, route-readiness registry, or migration-wave routing in this prerequisite plan.
+Modify `docs/plans/2026-07-13-procedure-first-pilot-plan.md` execution notes to record: the Task 1-7 prerequisite commit range; the checked-in compact baseline and correction-artifact paths; original capture commit/date, accepted baseline commit, and accepted correction commit; focused/compile/build/broad commands and outcomes; exact eight-nodeid/signature/digest comparison against the accepted pair; six isolated unrelated dispositions; the two exact pilot REDs; both review approvals; and the known-store scan API location. The pilot must complete its pre-edit scans and obtain genuine named-owner attestations before its source-edit task becomes selectable. Missing attestation records the explicit unattended stop and does not trigger a question or retry. Do not update `docs/index.md`, the wider roadmap selector, capability status, route-readiness registry, or migration-wave routing in this prerequisite plan.
 
 - [ ] **Step 9: Commit the narrow handoff evidence update**
 
@@ -546,13 +565,14 @@ Expected: the staged list contains only the pilot plan, and the commit records e
 
 ```bash
 git diff --check
-git diff --exit-code "$(git log --format=%H -1 -- docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json)"..HEAD -- docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json
+git diff --exit-code 50f78791320c540181946fb3a29dce355b19fed3..HEAD -- docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json
+git diff --exit-code b7212487764bda8ff93dc995c4ca8e1a6eec54ee..HEAD -- docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline-correction.json
 git diff --name-only "$(python -c 'import json; print(json.load(open("docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json"))["repository_commit"])')"..HEAD -- workflows/examples/design_plan_impl_review_stack_v2_call.orc tests/baselines/procedure_first/tracked_plan_phase.json
 git status --short
 ```
 
-Expected: diff check passes; the checked-in broad baseline, pilot `.orc` source, and frozen pilot contract baseline are unchanged; all seven protected paths retain their initial user-owned status and are unstaged.
+Expected: diff checks pass against the explicitly accepted baseline and correction commits; the checked-in baseline pair, pilot `.orc` source, and frozen pilot contract baseline are unchanged; all seven protected paths retain their initial user-owned status and are unstaged.
 
 ## Completion gate
 
-This plan is complete only when prerequisites A-D are generic and green; normalized legacy/WCC-M4 executable, Semantic, runtime, checkpoint/program-point, presentation, source-map-origin, state-allocation, and generated-workflow observables are unchanged except for exactly the reviewed retirement of the synthetic inline-procedure workflow-call checkpoint; the required additive WCC provenance notes pass their separate contract tests; the evidence validator and checksum characterizations pass; accepted contracts and pilot gates agree; a pre-edit baseline JSON is committed before implementation and the final broad/isolated runs match all eight exact nodeids, categories, normalized signatures, and digests; both independent reviews approve; the narrow pilot-plan handoff evidence commit exists; protected paths are untouched/unstaged; and the pilot `.orc` source and frozen old baseline are unchanged. At that point hand off to the existing pilot plan's pre-edit scan/attestation gate; do not continue into the source migration under this plan.
+This plan is complete only when prerequisites A-D are generic and green; normalized legacy/WCC-M4 executable, Semantic, runtime, checkpoint/program-point, presentation, source-map-origin, state-allocation, and generated-workflow observables are unchanged except for exactly the reviewed retirement of the synthetic inline-procedure workflow-call checkpoint; the required additive WCC provenance notes pass their separate contract tests; the evidence validator and checksum characterizations pass; accepted contracts and pilot gates agree; the original pre-edit baseline capture and its separately reviewed correction artifact remain pinned to their accepted commits, with the corrected values bound to content-addressed raw logs, and the final broad/isolated runs match all eight exact nodeids, categories, normalized signatures, and corrected digests; both independent reviews approve; the narrow pilot-plan handoff evidence commit exists; protected paths are untouched/unstaged; and the pilot `.orc` source and frozen old baseline are unchanged. At that point hand off to the existing pilot plan's pre-edit scan/attestation gate; do not continue into the source migration under this plan.
