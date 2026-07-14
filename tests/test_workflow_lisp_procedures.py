@@ -673,6 +673,35 @@ def test_compile_generic_identity_defers_example_until_type_param_specialization
     assert definition.return_spec.guidance.example_expr.datum.value is True
 
 
+def test_generic_specialization_revalidates_deferred_return_guidance_example(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_identity_concrete_guidance_mismatch.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.15")',
+            "  (defproc identity",
+            "    :forall (T)",
+            "    ((value T))",
+            "    -> (result T :example true)",
+            "    :effects ()",
+            "    :lowering inline",
+            "    value)",
+            "  (defproc use-string",
+            "    ((value String))",
+            "    -> String",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (identity value)))",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "result_guidance_example_type_mismatch")
+
+
 def test_type_param_substitution_rewrites_nested_proc_ref_and_workflow_ref_types(
     tmp_path: Path,
 ) -> None:
@@ -2235,6 +2264,44 @@ def test_lowering_generates_private_workflow_for_reused_boundary_lowerable_proce
         PRIVATE_WORKFLOW_FIXTURE,
         tmp_path=tmp_path,
     ).validated_bundles
+
+
+def test_private_workflow_wrapper_preserves_procedure_return_guidance(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "guided_private_workflow_procedure.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.15")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord ChecksResult",
+            "    (report WorkReport))",
+            "  (defproc build-checks",
+            "    ((report_path WorkReport))",
+            '    -> (result ChecksResult :description "Validated check outputs.")',
+            "    :effects ((uses-command run_checks))",
+            "    :lowering private-workflow",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" report_path)',
+            "      :returns ChecksResult))",
+            "  (defworkflow entry",
+            "    ((report_path WorkReport))",
+            "    -> ChecksResult",
+            "    (build-checks report_path)))",
+        ],
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+    private_workflow = next(
+        lowered.typed_workflow
+        for lowered in result.lowered_workflows
+        if lowered.typed_workflow.definition.name.startswith("%guided_private_workflow_procedure.build-checks")
+    )
+
+    assert private_workflow.definition.return_spec.guidance.description == "Validated check outputs."
 
 
 def test_lowering_preloads_nested_private_workflow_procedure_dependencies(tmp_path: Path) -> None:

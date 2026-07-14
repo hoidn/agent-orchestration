@@ -7,11 +7,14 @@ import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.expressions import CommandResultExpr, ProviderResultExpr
+from orchestrator.workflow_lisp.result_guidance import ResultGuidance, ReturnSpec
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, PrimitiveTypeRef
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow
+from orchestrator.workflow_lisp.wcc.defunctionalize import _frontend_expr_from_wcc_loop_binding_value
 from orchestrator.workflow_lisp.wcc.model import (
     WccCall,
     WccHalt,
@@ -315,6 +318,49 @@ def test_wcc_model_instantiates_effectful_nodes_with_stable_metadata() -> None:
     assert perform.metadata.node_id.startswith("wcc-node:")
     assert call.specialized_callee_name.startswith("%proc-ref-call.forward_runner.")
     assert call.metadata.scope_id == scope.scope_id
+
+
+@pytest.mark.parametrize(
+    ("perform_kind", "expected_type"),
+    (
+        ("provider_result", ProviderResultExpr),
+        ("command_result", CommandResultExpr),
+    ),
+)
+def test_wcc_loop_binding_reconstruction_preserves_return_spec(
+    perform_kind: str,
+    expected_type: type[ProviderResultExpr] | type[CommandResultExpr],
+) -> None:
+    span = SourceSpan(
+        start=SourcePosition(path="wcc_guidance.orc", line=1, column=1, offset=0),
+        end=SourcePosition(path="wcc_guidance.orc", line=1, column=2, offset=1),
+    )
+    scope = WccIdentityFactory(owner_name="guided-loop", lexical_owner_chain=("workflow",))
+    return_spec = ReturnSpec(
+        type_name="Bool",
+        guidance=ResultGuidance(description="No blockers remain."),
+        span=span,
+    )
+    perform = WccPerform(
+        metadata=scope.value_metadata(
+            role=f"perform:{perform_kind}",
+            type_ref=PrimitiveTypeRef(name="Bool"),
+            source_span=span,
+            form_path=("workflow-lisp", "defworkflow", "guided-loop"),
+        ),
+        perform_kind=perform_kind,
+        target_name="providers.execute" if perform_kind == "provider_result" else "run_checks",
+        prompt_name="prompts.review" if perform_kind == "provider_result" else None,
+        positional_args=(),
+        keyword_args=(),
+        returns_type_name="Bool",
+        operation_payload={"return_spec": return_spec},
+    )
+
+    reconstructed = _frontend_expr_from_wcc_loop_binding_value(perform)
+
+    assert isinstance(reconstructed, expected_type)
+    assert reconstructed.return_spec is return_spec
 
 
 def test_elaborate_preserves_effect_summaries_on_perform_nodes(tmp_path: Path) -> None:

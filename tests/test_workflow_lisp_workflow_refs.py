@@ -1,6 +1,7 @@
 import ast
 import importlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,9 +14,17 @@ from orchestrator.workflow_lisp.phase_stdlib import (
     ProduceOneOfProducerSpec,
 )
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
 from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from orchestrator.workflow_lisp.wcc.route import LoweringRoute
+from orchestrator.workflow_lisp.wcc.defunctionalize import lower_wcc_m4_workflow_definitions
+from orchestrator.workflow_lisp.wcc import defunctionalize as wcc_defunctionalize
+from orchestrator.workflow_lisp.workflow_refs import (
+    ResolvedWorkflowRef,
+    WorkflowExternRebindingPlan,
+    WorkflowRefAuthoritySource,
+)
 
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
@@ -271,6 +280,113 @@ def test_workflow_ref_specialization_through_owner_seam_compiles_and_validates(t
 
     assert specialized_names == {"%workflow_refs_forwarding.invoke-runner__spec__runner__echo_helper.v1"}
     assert specialized_names <= set(result.validated_bundles)
+
+
+@pytest.mark.parametrize("lowering_route", (LoweringRoute.LEGACY, LoweringRoute.WCC_M4))
+def test_workflow_ref_specialization_preserves_return_guidance(
+    tmp_path: Path,
+    lowering_route: LoweringRoute,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / f"guided_workflow_ref_{lowering_route.value}.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord WorkflowInput",
+                "    (report WorkReport))",
+                "  (defrecord WorkflowOutput",
+                "    (report WorkReport))",
+                "  (defworkflow echo-helper",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" input.report)',
+                "      :returns WorkflowOutput))",
+                "  (defworkflow call-runner",
+                "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
+                "     (input WorkflowInput))",
+                '    -> (result WorkflowOutput :description "Forwarded workflow output.")',
+                "    (call runner",
+                "      :input input))",
+                "  (defworkflow entry",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (call call-runner",
+                "      :runner (workflow-ref echo-helper)",
+                "      :input input)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        path,
+        command_boundaries=_workflow_ref_command_boundaries(),
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
+    )
+    lowered_workflows = result.lowered_workflows
+    captured_specializations = []
+    if lowering_route is LoweringRoute.WCC_M4:
+        type_env = FrontendTypeEnvironment.from_module(result.module)
+        echo_helper = next(
+            workflow for workflow in result.typed_workflows if workflow.definition.name == "echo-helper"
+        )
+        resolved_runner = ResolvedWorkflowRef(
+            workflow_name="echo-helper",
+            signature_params=echo_helper.signature.params,
+            return_type_ref=echo_helper.signature.return_type_ref,
+            authority_source=WorkflowRefAuthoritySource(kind="local", workflow_name="echo-helper"),
+            extern_rebinding_plan=WorkflowExternRebindingPlan(provider_bindings={}, prompt_bindings={}),
+        )
+
+        def capture_wcc_specialization(typed_workflow, **kwargs):
+            if typed_workflow.definition.name == "entry":
+                captured_specializations.append(
+                    kwargs["specialize_workflow"]("call-runner", {"runner": resolved_runner})
+                )
+            return SimpleNamespace(typed_workflow=typed_workflow)
+
+        monkeypatch.setattr(
+            wcc_defunctionalize,
+            "_lower_one_wcc_workflow",
+            capture_wcc_specialization,
+        )
+        lowered_workflows = lower_wcc_m4_workflow_definitions(
+            result.typed_workflows,
+            typed_procedures=result.typed_procedures,
+            procedure_type_envs={
+                procedure.definition.name: type_env
+                for procedure in result.typed_procedures
+            },
+            procedure_catalog=result.procedure_catalog,
+            workflow_path=path,
+            workflow_catalog=result.workflow_catalog,
+            imported_workflow_bundles={},
+            extern_environment=result.extern_environment,
+            command_boundary_environment=result.command_boundary_environment,
+            type_env=type_env,
+            target_dsl_version=result.module.target_dsl_version,
+        )
+    specialized = (
+        captured_specializations[0]
+        if lowering_route is LoweringRoute.WCC_M4
+        else next(
+            lowered.typed_workflow
+            for lowered in lowered_workflows
+            if lowered.typed_workflow.definition.name.startswith("call-runner__spec__")
+        )
+    )
+
+    assert specialized.definition.return_spec.guidance.description == "Forwarded workflow output."
 
 
 def test_workflow_ref_imported_module_resolution_compiles_and_validates(tmp_path: Path) -> None:

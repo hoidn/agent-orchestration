@@ -45,6 +45,7 @@ from .procedures import (
     proc_ref_specialization_name as proc_ref_call_specialization_name,
     procedure_type_env_for,
 )
+from .result_guidance import validate_result_guidance_example
 from .spans import SourceSpan
 from .type_env import (
     FrontendTypeEnvironment,
@@ -962,6 +963,20 @@ def specialize_typed_procedure(
         generated_workflow_name=None,
         specialization=specialization,
     )
+    if (
+        request.procedure.signature.type_params
+        and all(
+            type_param.name in request.type_bindings
+            for type_param in request.procedure.signature.type_params
+        )
+        and request.procedure.definition.return_spec.guidance is not None
+        and request.procedure.definition.return_spec.guidance.example_expr is not None
+    ):
+        validate_result_guidance_example(
+            specialized.definition.return_spec.guidance,
+            expected_type=substituted_return_type,
+            type_env=type_env,
+        )
     mode = ProcedureLoweringMode.INLINE
     generated_name = None
     if not defer_lowering_resolution:

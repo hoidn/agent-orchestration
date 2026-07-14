@@ -800,6 +800,7 @@ def _private_workflow_from_procedure(procedure: TypedProcedureDef) -> TypedWorkf
             )
             for param in procedure.definition.params
         ),
+        return_spec=procedure.definition.return_spec,
         return_type_name=procedure.definition.return_type_name,
         body=procedure.definition.body,
         span=procedure.definition.span,

@@ -796,6 +796,7 @@ def lower_workflow_definitions(
             definition=WorkflowDef(
                 name=specialized_name,
                 params=tuple(param for param in base.definition.params if param.name not in bindings),
+                return_spec=base.definition.return_spec,
                 return_type_name=base.definition.return_type_name,
                 body=base.definition.body,
                 span=base.definition.span,

@@ -380,6 +380,7 @@ def _lower_wcc_workflow_definitions(
             definition=WorkflowDef(
                 name=specialized_name,
                 params=tuple(param for param in base.definition.params if param.name not in bindings),
+                return_spec=base.definition.return_spec,
                 return_type_name=base.definition.return_type_name,
                 body=base.definition.body,
                 span=base.definition.span,
@@ -3758,6 +3759,7 @@ def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, ob
 def _frontend_expr_from_wcc_loop_binding_value(value):
     if isinstance(value, WccPerform):
         if value.perform_kind == "provider_result":
+            operation_payload = value.operation_payload if isinstance(value.operation_payload, dict) else {}
             return ProviderResultExpr(
                 provider=NameExpr(
                     name=value.target_name,
@@ -3772,6 +3774,7 @@ def _frontend_expr_from_wcc_loop_binding_value(value):
                     expansion_stack=value.metadata.expansion_stack,
                 ),
                 inputs=tuple(_frontend_expr_from_wcc_value(arg) for arg in value.positional_args),
+                return_spec=operation_payload.get("return_spec"),
                 returns_type_name=value.returns_type_name or "",
                 span=value.metadata.source_span,
                 form_path=value.metadata.form_path,
@@ -3783,6 +3786,7 @@ def _frontend_expr_from_wcc_loop_binding_value(value):
             return CommandResultExpr(
                 step_name=value.target_name,
                 argv=tuple(_frontend_expr_from_wcc_value(arg) for arg in value.positional_args),
+                return_spec=operation_payload.get("return_spec"),
                 returns_type_name=value.returns_type_name or "",
                 adapter_name=operation_payload.get("adapter_name"),
                 adapter_inputs=tuple(
