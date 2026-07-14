@@ -1,6 +1,15 @@
 # Procedure-First Effect Substrate Implementation Plan
 
+Status: complete and gated 2026-07-13
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+> **Completion note (2026-07-13):** Tasks 1–5 are implemented. Fresh focused,
+> route/composition, and broad verification preserved every caller-visible
+> effect and the no-family-change boundary. Independent whole-plan review
+> returned **SPEC PASS** and **QUALITY PASS** with no open findings. This plan
+> is historical execution evidence and must not be replayed; the current
+> selector is `2026-07-13-procedure-first-pilot-plan.md`.
 
 **Goal:** Represent a procedure's body-local direct effects separately from its caller-visible transitive effects, recompute the latter after generic and `ProcRef` resolution, and make lowering and Semantic IR consume the resolved view without changing any currently visible effect.
 

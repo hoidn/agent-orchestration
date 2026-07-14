@@ -4,7 +4,7 @@
 
 **Goal:** Make the approved procedure-first roadmap executable by reconciling the existing component plans with landed commits, tracking and routing the governing plan set, re-anchoring stale ownership paths, and establishing a verified component-plan handoff.
 
-**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, and drain Phases 1–4 are complete. Gates P3/P4/S3/S4 and both typed-return waves are complete. DSL v2.15 is public. The current selector is the resolved-effect substrate; the tracked-plan pilot follows it. Stage 6 YAML archive remains later work.
+**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, and drain Phases 1–4 are complete. Gates P3/P4/S3/S4, both typed-return waves, and the resolved-effect substrate are complete. DSL v2.15 is public. The current selector is the tracked-plan pilot; reviewed migration waves follow it. Stage 6 YAML archive remains later work.
 
 > **Current execution amendment (updated 2026-07-13):** The case 5 design and
 > implementation are complete, and the boundary final gate passed. The
@@ -33,9 +33,10 @@
 > reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and
 > independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.3 is
 > complete. Phase 4 is complete. Gate S3 is satisfied. The semantic-migration
-> freeze is lifted. Both typed-return waves and Gate S4 are now complete. The
-> resolved-effect substrate is selected next, followed by the tracked-plan
-> pilot; Stage 6 YAML archive remains later.
+> freeze is lifted. Both typed-return waves, Gate S4, and the independently
+> reviewed resolved-effect substrate are complete. The tracked-plan pilot is
+> selected next, followed by reviewed migration waves; Stage 6 YAML archive
+> remains later.
 
 **Tech Stack:** Markdown, Git, `rg`, pytest, pyflakes.
 
@@ -563,7 +564,8 @@ promotion report, Task 3.3 retired the ordered certification bundle, and Task
 and satisfied. Task 4.1 is complete and independently reviewed, with SPEC PASS
 and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with
 SPEC PASS and CODE QUALITY PASS. Current routing, as recorded by `docs/index.md`
-and the governing execution sequence, selects the resolved-effect substrate.
+and the governing execution sequence, selects the tracked-plan pilot.
 Task 4.3 and Phase 4 are complete; Gates S3/S4 and both typed-return waves are
-satisfied. DSL v2.15 is public. The tracked-plan pilot follows; Stage 6 YAML
-archive remains later.
+satisfied. DSL v2.15 is public. The resolved-effect substrate is complete and
+independently gated; reviewed migration waves follow the pilot, and Stage 6
+YAML archive remains later.

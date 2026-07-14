@@ -82,10 +82,11 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-07-executor-decomposition.md` | Completed through Task 9. Its targeted executor surface and Design Delta smoke pass; the full-suite failure identities match the pre-Task-2 baseline. |
 | `2026-07-08-boundary-report-followups.md` | Completed through Task 6 and its final gate. Case 5 now has production runtime/source-map attribution evidence. |
 | `2026-07-09-runtime-union-field-lineage-plan.md` | Completed through Task 6. The post-fix full suite retains exactly the six recorded baseline failures. |
-| `2026-07-07-drain-migration-g8-retirement.md` | Phase 1 through Phase 4 are complete. Gates P3/P4/S3/S4 and both typed-return waves are complete. The bounded Design Delta promotion handoff is recorded without archive, its historical parity artifact remains tracked after target retirement, and the ordered certification bundle plus temporary G8 build serializer are deleted. The resolved-effect substrate is current. Stage 6 YAML archive remains later work. |
+| `2026-07-07-drain-migration-g8-retirement.md` | Phase 1 through Phase 4 are complete. Gates P3/P4/S3/S4, both typed-return waves, and the resolved-effect substrate are complete. The bounded Design Delta promotion handoff is recorded without archive, its historical parity artifact remains tracked after target retirement, and the ordered certification bundle plus temporary G8 build serializer are deleted. The tracked-plan pilot is current. Stage 6 YAML archive remains later work. |
 | `2026-07-10-workflow-lisp-native-transportable-returns-plan.md` | Stage-5 wave 1 landed ahead of Gates S3/S4 under the 2026-07-10 amendment. Treat it as a completed historical prerequisite; do not re-execute it. |
 | `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Completed Stage-5 wave 2. Root/field guidance and the combined v2.15 public promotion gate are landed; do not re-execute it. |
-| `2026-07-13-procedure-first-substrate-gaps-plan.md` | Current selector. Recompute caller-visible transitive effects after specialization before the tracked-plan pilot. |
+| `2026-07-13-procedure-first-substrate-gaps-plan.md` | Complete and independently gated. Caller-visible transitive effects are recomputed after specialization; do not re-execute this substrate before the tracked-plan pilot. |
+| `2026-07-13-procedure-first-pilot-plan.md` | Current selector. Convert only the internal `tracked-plan-phase` while preserving its public design-stack wrapper and all parity gates. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
 | `2026-07-07-yaml-retirement-program.md` | Task 1 may inform later design. Its Design Delta family promotion is coordinated between drain Phases 2 and 3; other code-changing and promotion tasks wait until the procedure-first pilot is accepted. |
 
@@ -174,9 +175,10 @@ complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS.
 Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The
 semantic-migration freeze is lifted. Gate S4 passed holistic specification and
 quality review on 2026-07-13. Both typed-return waves are complete and DSL
-v2.15 is public. The active step is the **resolved-effect substrate**, governed
-by `2026-07-13-procedure-first-substrate-gaps-plan.md`; the tracked-plan pilot
-follows it. Stage 6 YAML archive remains later.
+v2.15 is public. The resolved-effect substrate is complete and independently
+gated. The active step is the **tracked-plan pilot**, governed by
+`2026-07-13-procedure-first-pilot-plan.md`; reviewed migration waves follow
+it. Stage 6 YAML archive remains later.
 
 The completed Phase 1 execution order was:
 
@@ -237,8 +239,8 @@ Gate S3:
 generic-route residue audit, two-family non-regressive parity, exact baseline
 full-suite comparison, promoted `.orc` compile/dry-run evidence, and preserved
 historical state/YAML twin. The semantic-migration freeze is lifted and Stage 4
-was the next selector at Gate S3; it and both typed-return waves are now
-complete, and the resolved-effect substrate is current.
+was the next selector at Gate S3; it, both typed-return waves, and the
+resolved-effect substrate are now complete. The tracked-plan pilot is current.
 
 ### Stage 4: Design The Broader Procedure-First Contract
 
@@ -342,7 +344,8 @@ inventory contains 96 active internal calls (33 `procedure-candidate`, 25
 PASS` and `GATE S4 QUALITY PASS`. The three independently executable follow-on
 plans are the effect-substrate, tracked-plan pilot, and migration-wave plans
 dated 2026-07-13. Typed result guidance is implemented and compatible; the
-resolved-effect substrate is now the current selector.
+resolved-effect substrate is now complete and independently gated. The
+tracked-plan pilot is the current selector.
 
 ### Stage 5: Implement Procedure-First Reuse In Waves
 
@@ -357,12 +360,12 @@ Execute only accepted plans, in this order:
    `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` landed the source,
    wire, prompt, IR, runtime-neutrality, and ordinary-loader gates and jointly
    promoted the v2.15 native-return and guidance contract. Do not replay it.
-3. **Resolved-effect substrate wave — current selector.** Execute
-   `2026-07-13-procedure-first-substrate-gaps-plan.md`. Separate body-local
-   direct effects from caller-visible transitive effects and recompute the
-   latter after generic/`ProcRef` specialization; do not change a workflow
-   family in this wave.
-4. **Pilot wave.** Execute
+3. **Resolved-effect substrate wave — complete.**
+   `2026-07-13-procedure-first-substrate-gaps-plan.md` separated body-local
+   direct effects from caller-visible transitive effects and recomputes the
+   latter after generic/`ProcRef` specialization. Its whole-plan specification
+   and quality gates passed; do not replay it.
+4. **Pilot wave — current selector.** Execute
    `2026-07-13-procedure-first-pilot-plan.md` for only the internal
    `tracked-plan-phase`, preserving its public design-stack wrapper.
 5. **Small/library wave.** Execute Tasks 1–3 of
