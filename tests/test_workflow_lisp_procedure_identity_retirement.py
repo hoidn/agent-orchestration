@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ast
 import copy
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 import hashlib
 import importlib.util
 import json
@@ -382,9 +382,17 @@ def test_known_store_scan_digest_changes_when_supported_identity_evidence_change
     (store / "run").mkdir(parents=True)
     state = store / "run" / "state.json"
     state.write_text(json.dumps({"status": "completed", "step_id": "old-step"}), encoding="utf-8")
-    before = scan_known_state_store(store, retired_identities={"old-step"}, query_version="query.v1")
+    before = scan_known_state_store(
+        store,
+        retired_identities={"old-step"},
+        query_version="procedure-identity-store-query.v1",
+    )
     state.write_text(json.dumps({"status": "completed", "step_id": "different-step"}), encoding="utf-8")
-    after = scan_known_state_store(store, retired_identities={"old-step"}, query_version="query.v1")
+    after = scan_known_state_store(
+        store,
+        retired_identities={"old-step"},
+        query_version="procedure-identity-store-query.v1",
+    )
 
     assert before["normalized_scan_digest"] != after["normalized_scan_digest"]
     assert before["consumer_count"] == 1
@@ -429,3 +437,360 @@ def test_fixture_artifact_hashes_are_literal_sha256_of_repository_files() -> Non
     for artifact in _payload()["artifacts"]:
         actual = hashlib.sha256((REPO_ROOT / artifact["path"]).read_bytes()).hexdigest()
         assert artifact["sha256"] == f"sha256:{actual}"
+
+
+def test_validator_requeries_known_store_and_binds_digest_and_every_count() -> None:
+    record = load_retirement_record(FIXTURE)
+
+    result = validate_retirement_record(record, repo_root=REPO_ROOT)
+
+    assert result.valid is True
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "code"),
+    [
+        ("normalized_scan_digest", "sha256:" + "0" * 64, "procedure_identity_retirement_known_store_digest_mismatch"),
+        ("terminal_run_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
+        ("nonterminal_run_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
+        ("call_frame_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
+        ("consumer_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
+        ("checkpoint_index_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
+        ("checkpoint_record_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
+        ("retained_manifest_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
+        ("identity_metadata_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
+        ("scanned_file_count", 99, "procedure_identity_retirement_known_store_count_mismatch"),
+    ],
+)
+def test_validator_rejects_stale_known_store_facts(
+    tmp_path: Path,
+    field: str,
+    value: Any,
+    code: str,
+) -> None:
+    issues = _issues_for(tmp_path, lambda payload: payload["known_state_stores"][0].__setitem__(field, value))
+
+    assert code in issues
+
+
+def test_validator_rejects_duplicate_known_store_roots(tmp_path: Path) -> None:
+    def mutate(payload: dict[str, Any]) -> None:
+        payload["known_state_stores"].append(copy.deepcopy(payload["known_state_stores"][0]))
+
+    assert "procedure_identity_retirement_known_store_duplicate" in _issues_for(tmp_path, mutate)
+
+
+@pytest.mark.parametrize(
+    ("root", "query_version", "code"),
+    [
+        ("tests/fixtures/workflow_lisp/procedure_identity_retirement/missing-store", "procedure-identity-store-query.v1", "procedure_identity_retirement_known_store_unavailable"),
+        ("../outside-repository", "procedure-identity-store-query.v1", "procedure_identity_retirement_known_store_unsafe_path"),
+        ("tests/fixtures/workflow_lisp/procedure_identity_retirement/state_store", "unsupported-query.v2", "procedure_identity_retirement_query_version_unsupported"),
+    ],
+)
+def test_validator_fails_closed_for_unavailable_unsafe_or_unsupported_store(
+    tmp_path: Path,
+    root: str,
+    query_version: str,
+    code: str,
+) -> None:
+    def mutate(payload: dict[str, Any]) -> None:
+        store = payload["known_state_stores"][0]
+        store["root"] = root
+        store["query_version"] = query_version
+
+    assert code in _issues_for(tmp_path, mutate)
+
+
+@pytest.mark.parametrize(
+    "mapping_field",
+    ["steps", "completed_steps", "call_frames", "step_visits"],
+)
+def test_store_scan_finds_retired_identities_in_identity_addressed_mapping_keys(
+    tmp_path: Path,
+    mapping_field: str,
+) -> None:
+    store = tmp_path / "store"
+    run = store / "run"
+    run.mkdir(parents=True)
+    (run / "state.json").write_text(
+        json.dumps({"status": "completed", mapping_field: {"retired-identity": {"status": "completed"}}}),
+        encoding="utf-8",
+    )
+
+    result = scan_known_state_store(store, retired_identities={"retired-identity"}, query_version="procedure-identity-store-query.v1")
+
+    assert result["consumer_count"] == 1
+    assert result["matches"][0]["identity"] == "retired-identity"
+    assert result["matches"][0]["location"].endswith(f"/{mapping_field}/retired-identity")
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "call_step_id",
+        "step_id",
+        "node_id",
+        "origin_key",
+        "source_map_origin_key",
+        "execution_frame_id",
+        "call_frame_id",
+        "checkpoint_id",
+        "program_point_id",
+        "workflow_id",
+        "presentation_key",
+        "state_allocation_id",
+    ],
+)
+def test_store_scan_finds_each_supported_identity_value_field(tmp_path: Path, field: str) -> None:
+    store = tmp_path / "store"
+    run = store / "run"
+    run.mkdir(parents=True)
+    (run / "state.json").write_text(
+        json.dumps({"status": "completed", field: "retired-identity"}), encoding="utf-8"
+    )
+
+    result = scan_known_state_store(store, retired_identities={"retired-identity"}, query_version="procedure-identity-store-query.v1")
+
+    assert result["consumer_count"] == 1
+    assert result["matches"][0]["field"] == field
+
+
+def test_store_scan_finds_supported_jsonl_and_path_encoded_identities(tmp_path: Path) -> None:
+    store = tmp_path / "store"
+    ledger = store / "run" / "ledgers"
+    frames = store / "run" / "call_frames" / "retired-frame"
+    ledger.mkdir(parents=True)
+    frames.mkdir(parents=True)
+    (store / "run" / "state.json").write_text(json.dumps({"status": "completed"}), encoding="utf-8")
+    (ledger / "events.jsonl").write_text(
+        json.dumps({"step_id": "retired-step"}) + "\n" + json.dumps({"checkpoint_id": "other"}) + "\n",
+        encoding="utf-8",
+    )
+    (frames / "state.json").write_text(json.dumps({"status": "completed"}), encoding="utf-8")
+
+    result = scan_known_state_store(
+        store,
+        retired_identities={"retired-step", "retired-frame"},
+        query_version="procedure-identity-store-query.v1",
+    )
+
+    assert {row["identity"] for row in result["matches"]} == {"retired-step", "retired-frame"}
+    assert any("events.jsonl#1" in row["location"] for row in result["matches"])
+    assert any(row["field"] == "path_component" for row in result["matches"])
+
+
+@pytest.mark.parametrize(
+    ("filename", "content"),
+    [
+        ("state.json", "{"),
+        ("state.json", "[]"),
+        ("events.jsonl", "not-json\n"),
+        ("events.jsonl", "[]\n"),
+    ],
+)
+def test_store_scan_rejects_malformed_or_nonobject_supported_content(
+    tmp_path: Path,
+    filename: str,
+    content: str,
+) -> None:
+    store = tmp_path / "store"
+    run = store / "run"
+    run.mkdir(parents=True)
+    (run / filename).write_text(content, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="procedure_identity_retirement_store_content_invalid"):
+        scan_known_state_store(store, retired_identities=set(), query_version="procedure-identity-store-query.v1")
+
+
+def test_store_scan_rejects_missing_root_and_symlink_escape(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="procedure_identity_retirement_known_store_unavailable"):
+        scan_known_state_store(tmp_path / "missing", retired_identities=set(), query_version="procedure-identity-store-query.v1")
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "state.json").write_text(json.dumps({"status": "completed"}), encoding="utf-8")
+    store = tmp_path / "store"
+    store.mkdir()
+    (store / "escaped").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="procedure_identity_retirement_store_symlink_forbidden"):
+        scan_known_state_store(store, retired_identities=set(), query_version="procedure-identity-store-query.v1")
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "code"),
+    [
+        (("migration", "migration_id"), "", "procedure_identity_retirement_metadata_missing"),
+        (("migration", "repository_commit"), "not-a-commit", "procedure_identity_retirement_metadata_invalid"),
+        (("migration", "compiler_version"), " ", "procedure_identity_retirement_metadata_missing"),
+        (("migration", "build_version"), "", "procedure_identity_retirement_metadata_missing"),
+        (("migration", "captured_at"), "yesterday", "procedure_identity_retirement_timestamp_invalid"),
+        (("known_state_stores", 0, "query_time"), "never", "procedure_identity_retirement_timestamp_invalid"),
+        (("known_state_stores", 0, "attested_at"), "", "procedure_identity_retirement_attestation_missing"),
+        (("retained_public_entry", "contract_digest"), "sha256:ABC", "procedure_identity_retirement_digest_invalid"),
+    ],
+)
+def test_substantive_metadata_and_digest_facts_are_validated(
+    tmp_path: Path,
+    path: tuple[Any, ...],
+    value: Any,
+    code: str,
+) -> None:
+    def mutate(payload: dict[str, Any]) -> None:
+        target: Any = payload
+        for component in path[:-1]:
+            target = target[component]
+        target[path[-1]] = value
+
+    assert code in _issues_for(tmp_path, mutate)
+
+
+@pytest.mark.parametrize(
+    ("block", "field", "value", "code"),
+    [
+        ("clean_run", "run_id", "", "procedure_identity_retirement_new_id_evidence_invalid"),
+        ("clean_run", "status", "running", "procedure_identity_retirement_new_id_evidence_invalid"),
+        ("interruption_resume", "interruption_point", "", "procedure_identity_retirement_new_id_evidence_invalid"),
+        ("interruption_resume", "reused_only_new_id_work", False, "procedure_identity_retirement_new_id_evidence_invalid"),
+        ("interruption_resume", "public_contract_digest", "sha256:" + "f" * 64, "procedure_identity_retirement_public_contract_mismatch"),
+        ("clean_run", "artifact_multiset_digest", "sha256:" + "f" * 64, "procedure_identity_retirement_artifact_multiset_digest_mismatch"),
+    ],
+)
+def test_new_id_evidence_is_substantive_and_cross_related(
+    tmp_path: Path,
+    block: str,
+    field: str,
+    value: Any,
+    code: str,
+) -> None:
+    issues = _issues_for(tmp_path, lambda payload: payload["new_id_evidence"][block].__setitem__(field, value))
+
+    assert code in issues
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "code"),
+    [
+        ("exit_status", 0, "procedure_identity_retirement_root_checksum_proof_invalid"),
+        ("command", "", "procedure_identity_retirement_root_checksum_proof_invalid"),
+        ("before_tree_digest", "sha256:BAD", "procedure_identity_retirement_root_checksum_proof_invalid"),
+        ("after_tree_digest", "sha256:" + "f" * 64, "procedure_identity_retirement_root_checksum_proof_invalid"),
+    ],
+)
+def test_root_checksum_proof_requires_substantive_rejection_evidence(
+    tmp_path: Path,
+    field: str,
+    value: Any,
+    code: str,
+) -> None:
+    assert code in _issues_for(tmp_path, lambda payload: payload["checksum_evidence"]["root"].__setitem__(field, value))
+
+
+@pytest.mark.parametrize("field", ["command", "mismatch_identity", "parent_metadata_delta"])
+def test_callee_checksum_characterization_requires_nonempty_metadata(tmp_path: Path, field: str) -> None:
+    issues = _issues_for(tmp_path, lambda payload: payload["checksum_evidence"]["callee"].__setitem__(field, ""))
+
+    assert "procedure_identity_retirement_callee_checksum_proof_invalid" in issues
+
+
+def test_identity_kind_set_is_exact_and_rows_have_canonical_shapes(tmp_path: Path) -> None:
+    def unknown(payload: dict[str, Any]) -> None:
+        payload["identity_delta"][0]["identity_kind"] = "unknown-domain"
+
+    assert "procedure_identity_retirement_identity_domain_unknown" in _issues_for(tmp_path, unknown)
+
+    def all_null(payload: dict[str, Any]) -> None:
+        row = payload["identity_delta"][0]
+        row.update(old_identity=None, old_disposition=None, new_identity=None, new_disposition=None)
+
+    assert "procedure_identity_retirement_identity_row_invalid" in _issues_for(tmp_path, all_null)
+
+    def changed_preserved(payload: dict[str, Any]) -> None:
+        payload["identity_delta"][0]["new_identity"] = "renamed-retained-stack"
+
+    assert "procedure_identity_retirement_identity_row_invalid" in _issues_for(tmp_path, changed_preserved)
+
+    def retired_with_new(payload: dict[str, Any]) -> None:
+        row = payload["identity_delta"][1]
+        row.update(new_identity="illegal-new", new_disposition="new")
+
+    assert "procedure_identity_retirement_identity_row_invalid" in _issues_for(tmp_path, retired_with_new)
+
+
+def test_artifact_roles_are_unique_exact_and_role_appropriate(tmp_path: Path) -> None:
+    def duplicate(payload: dict[str, Any]) -> None:
+        payload["artifacts"].append(copy.deepcopy(payload["artifacts"][0]))
+
+    assert "procedure_identity_retirement_artifact_role_duplicate" in _issues_for(tmp_path, duplicate)
+
+    def relabel(payload: dict[str, Any]) -> None:
+        payload["artifacts"][0]["role"] = "semantic_ir"
+
+    issues = _issues_for(tmp_path, relabel)
+    assert "procedure_identity_retirement_artifact_role_duplicate" in issues
+    assert "procedure_identity_retirement_artifact_role_missing" in issues
+    assert "procedure_identity_retirement_artifact_role_path_mismatch" in issues
+
+
+def test_artifact_path_symlink_is_rejected(tmp_path: Path) -> None:
+    target = tmp_path / "target.json"
+    target.write_text("{}", encoding="utf-8")
+    link = tmp_path / "source_map.json"
+    link.symlink_to(target)
+    record = load_retirement_record(FIXTURE)
+    artifact = replace(
+        record.artifacts[0],
+        role="source_map",
+        path="source_map.json",
+        sha256=f"sha256:{hashlib.sha256(target.read_bytes()).hexdigest()}",
+    )
+    mutated = replace(record, artifacts=(artifact, *record.artifacts[1:]))
+
+    issues = {issue.code for issue in validate_retirement_record(mutated, repo_root=tmp_path).issues}
+
+    assert "procedure_identity_retirement_artifact_symlink_forbidden" in issues
+
+
+def test_artifact_multiset_rows_and_execution_order_must_be_coherent(tmp_path: Path) -> None:
+    def mutate(payload: dict[str, Any]) -> None:
+        payload["execution_order"]["new"][0]["name"] = "not-in-artifact-multiset"
+
+    assert "procedure_identity_retirement_artifact_order_incoherent" in _issues_for(tmp_path, mutate)
+
+
+def test_parser_rejects_duplicate_json_keys_at_every_depth(tmp_path: Path) -> None:
+    path = tmp_path / "duplicate.json"
+    source = FIXTURE.read_text(encoding="utf-8")
+    source = source.replace(
+        '"migration_id": "fictional-internal-phase-retirement",',
+        '"migration_id": "first", "migration_id": "second",',
+        1,
+    )
+    path.write_text(source, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="procedure_identity_retirement_duplicate_json_key"):
+        load_retirement_record(path)
+
+
+def test_loaded_record_is_deeply_independent_from_source_payload(tmp_path: Path) -> None:
+    payload = _payload()
+    path = _write_payload(tmp_path, payload)
+    record = load_retirement_record(path)
+    payload["migration"]["migration_id"] = "mutated"
+    payload["new_id_evidence"]["clean_run"]["run_id"] = "mutated"
+
+    assert record.migration["migration_id"] == "fictional-internal-phase-retirement"
+    assert record.new_id_evidence["clean_run"]["run_id"] == "fixture-clean-new-ids"
+
+
+def test_validation_issue_order_is_deterministic_and_deduplicated(tmp_path: Path) -> None:
+    payload = _payload()
+    payload["callee"]["public"] = True
+    payload["callee"]["exported"] = True
+    record = load_retirement_record(_write_payload(tmp_path, payload))
+
+    first = validate_retirement_record(record, repo_root=REPO_ROOT).issues
+    second = validate_retirement_record(record, repo_root=REPO_ROOT).issues
+
+    assert first == second
+    assert len(first) == len({(issue.code, issue.path, issue.message) for issue in first})

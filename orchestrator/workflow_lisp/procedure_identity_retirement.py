@@ -12,15 +12,20 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
+import re
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Sequence
+from urllib.parse import unquote
 
 
 SCHEMA = "workflow_lisp_procedure_identity_retirement.v1"
 COMPATIBILITY_CLASS = "reviewed_internal_identity_retirement"
+STORE_QUERY_VERSION = "procedure-identity-store-query.v1"
 FORBIDDEN_RUNTIME_KEYS = frozenset(
     {"runtime_remap", "remap_directive", "identity_aliases", "old_to_new_map"}
 )
@@ -69,6 +74,11 @@ class KnownStateStoreEvidence:
     nonterminal_run_count: int
     call_frame_count: int
     consumer_count: int
+    checkpoint_index_count: int
+    checkpoint_record_count: int
+    retained_manifest_count: int
+    identity_metadata_count: int
+    scanned_file_count: int
     attestation: str | None
     attested_at: str | None
 
@@ -213,6 +223,18 @@ def _reject_forbidden_runtime_keys(value: Any, path: str = "$") -> None:
             _reject_forbidden_runtime_keys(item, f"{path}[{index}]")
 
 
+def _json_object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(
+                "procedure_identity_retirement_duplicate_json_key: "
+                f"duplicate JSON object key {key!r}"
+            )
+        result[key] = value
+    return result
+
+
 def _parse_metadata(payload: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
     migration = _object(
         payload["migration"],
@@ -314,6 +336,11 @@ def _parse_stores(value: Any) -> tuple[KnownStateStoreEvidence, ...]:
                 "nonterminal_run_count",
                 "call_frame_count",
                 "consumer_count",
+                "checkpoint_index_count",
+                "checkpoint_record_count",
+                "retained_manifest_count",
+                "identity_metadata_count",
+                "scanned_file_count",
                 "attestation",
                 "attested_at",
             },
@@ -326,6 +353,11 @@ def _parse_stores(value: Any) -> tuple[KnownStateStoreEvidence, ...]:
                 "nonterminal_run_count",
                 "call_frame_count",
                 "consumer_count",
+                "checkpoint_index_count",
+                "checkpoint_record_count",
+                "retained_manifest_count",
+                "identity_metadata_count",
+                "scanned_file_count",
             },
         )
         for key in ("root", "query_version", "query_time", "normalized_scan_digest"):
@@ -335,7 +367,17 @@ def _parse_stores(value: Any) -> tuple[KnownStateStoreEvidence, ...]:
         attested_at = _string(row.get("attested_at"), f"{path}.attested_at", nullable=True)
         counts = {
             key: _integer(row[key], f"{path}.{key}")
-            for key in ("terminal_run_count", "nonterminal_run_count", "call_frame_count", "consumer_count")
+            for key in (
+                "terminal_run_count",
+                "nonterminal_run_count",
+                "call_frame_count",
+                "consumer_count",
+                "checkpoint_index_count",
+                "checkpoint_record_count",
+                "retained_manifest_count",
+                "identity_metadata_count",
+                "scanned_file_count",
+            )
         }
         stores.append(
             KnownStateStoreEvidence(
@@ -348,6 +390,11 @@ def _parse_stores(value: Any) -> tuple[KnownStateStoreEvidence, ...]:
                 nonterminal_run_count=counts["nonterminal_run_count"],
                 call_frame_count=counts["call_frame_count"],
                 consumer_count=counts["consumer_count"],
+                checkpoint_index_count=counts["checkpoint_index_count"],
+                checkpoint_record_count=counts["checkpoint_record_count"],
+                retained_manifest_count=counts["retained_manifest_count"],
+                identity_metadata_count=counts["identity_metadata_count"],
+                scanned_file_count=counts["scanned_file_count"],
                 attestation=attestation,
                 attested_at=attested_at,
             )
@@ -530,6 +577,8 @@ def _parse_evidence_blocks(payload: Mapping[str, Any]) -> tuple[Mapping[str, Any
         "command_executed",
     }
     callee_fields = {
+        "command",
+        "mismatch_identity",
         "checksum_mismatch_observed",
         "child_workflow_executed",
         "provider_executed",
@@ -552,8 +601,9 @@ def _parse_evidence_blocks(payload: Mapping[str, Any]) -> tuple[Mapping[str, Any
             allowed=callee_fields,
             required=callee_fields,
         )
-        _string(callee["parent_metadata_delta"], "$.checksum_evidence.callee.parent_metadata_delta")
-        for key in callee_fields - {"parent_metadata_delta"}:
+        for key in ("command", "mismatch_identity", "parent_metadata_delta"):
+            _string(callee[key], f"$.checksum_evidence.callee.{key}")
+        for key in callee_fields - {"command", "mismatch_identity", "parent_metadata_delta"}:
             _boolean(callee[key], f"$.checksum_evidence.callee.{key}")
     return _frozen(new_evidence), _frozen(checksum)
 
@@ -563,7 +613,10 @@ def load_retirement_record(path: str | Path) -> ProcedureIdentityRetirementRecor
 
     source = Path(path)
     try:
-        payload = json.loads(source.read_text(encoding="utf-8"))
+        payload = json.loads(
+            source.read_text(encoding="utf-8"),
+            object_pairs_hook=_json_object_without_duplicates,
+        )
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"could not load procedure identity retirement record {source}: {exc}") from exc
     _reject_forbidden_runtime_keys(payload)
@@ -620,17 +673,38 @@ def _issue(issues: list[RetirementIssue], code: str, path: str, message: str) ->
 
 
 def _valid_sha256(value: str) -> bool:
-    if not value.startswith("sha256:") or len(value) != len("sha256:") + 64:
+    return re.fullmatch(r"sha256:[0-9a-f]{64}", value) is not None
+
+
+def _valid_timestamp(value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
         return False
     try:
-        int(value.removeprefix("sha256:"), 16)
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return False
-    return True
+    return parsed.tzinfo is not None
+
+
+def _path_has_symlink_component(root: Path, relative: Path) -> bool:
+    current = root
+    for component in relative.parts:
+        current = current / component
+        if current.is_symlink():
+            return True
+    return False
 
 
 def _validate_identity_delta(record: ProcedureIdentityRetirementRecord, issues: list[RetirementIssue]) -> None:
     domains = {row.identity_kind for row in record.identity_delta}
+    unknown = sorted(domains - REQUIRED_IDENTITY_DOMAINS)
+    if unknown:
+        _issue(
+            issues,
+            "procedure_identity_retirement_identity_domain_unknown",
+            "$.identity_delta",
+            f"unknown identity domains: {', '.join(unknown)}",
+        )
     missing = sorted(REQUIRED_IDENTITY_DOMAINS - domains)
     if missing:
         _issue(
@@ -673,14 +747,46 @@ def _validate_identity_delta(record: ProcedureIdentityRetirementRecord, issues: 
             else:
                 seen[key] = disposition
     for index, row in enumerate(record.identity_delta):
-        if row.old_disposition == "preserved" and (
-            row.new_identity is None or row.new_disposition != "preserved"
+        path = f"$.identity_delta[{index}]"
+        if row.old_identity is None and row.new_identity is None:
+            _issue(
+                issues,
+                "procedure_identity_retirement_identity_row_invalid",
+                path,
+                "identity row cannot be empty on both sides",
+            )
+        if row.old_disposition == "preserved" and not (
+            row.old_identity is not None
+            and row.new_identity == row.old_identity
+            and row.new_disposition == "preserved"
         ):
             _issue(
                 issues,
                 "procedure_identity_retirement_identity_row_invalid",
-                f"$.identity_delta[{index}]",
-                "a preserved old identity requires a preserved new identity",
+                path,
+                "preserved identity requires the same old/new identity and preserved dispositions",
+            )
+        if row.old_disposition == "retired" and not (
+            row.old_identity is not None
+            and row.new_identity is None
+            and row.new_disposition is None
+        ):
+            _issue(
+                issues,
+                "procedure_identity_retirement_identity_row_invalid",
+                path,
+                "retired identity must have no new side",
+            )
+        if row.new_disposition == "new" and not (
+            row.new_identity is not None
+            and row.old_identity is None
+            and row.old_disposition is None
+        ):
+            _issue(
+                issues,
+                "procedure_identity_retirement_identity_row_invalid",
+                path,
+                "new identity must have no old side",
             )
 
 
@@ -691,12 +797,21 @@ def _validate_artifacts(
 ) -> None:
     root = repo_root.resolve()
     roles_by_side: dict[str, set[str]] = {"old": set(), "new": set()}
+    role_counts: Counter[tuple[str, str]] = Counter()
     for index, artifact in enumerate(record.artifacts):
         path = f"$.artifacts[{index}]"
         if artifact.side not in roles_by_side:
             _issue(issues, "procedure_identity_retirement_artifact_side_invalid", path, "side must be old or new")
             continue
         roles_by_side[artifact.side].add(artifact.role)
+        role_counts[(artifact.side, artifact.role)] += 1
+        if role_counts[(artifact.side, artifact.role)] > 1:
+            _issue(
+                issues,
+                "procedure_identity_retirement_artifact_role_duplicate",
+                path,
+                f"duplicate {artifact.side} artifact role {artifact.role}",
+            )
         if not _valid_sha256(artifact.sha256):
             _issue(
                 issues,
@@ -705,7 +820,24 @@ def _validate_artifacts(
                 "artifact digest must be sha256:<64 lowercase hexadecimal characters>",
             )
             continue
-        candidate = (root / artifact.path).resolve()
+        relative = Path(artifact.path)
+        if relative.is_absolute() or ".." in relative.parts:
+            _issue(
+                issues,
+                "procedure_identity_retirement_artifact_path_outside_repository",
+                f"{path}.path",
+                "artifact path must be a safe repository-relative path",
+            )
+            continue
+        if _path_has_symlink_component(root, relative):
+            _issue(
+                issues,
+                "procedure_identity_retirement_artifact_symlink_forbidden",
+                f"{path}.path",
+                "artifact path must not contain symlink components",
+            )
+            continue
+        candidate = (root / relative).resolve()
         if candidate != root and root not in candidate.parents:
             _issue(
                 issues,
@@ -722,7 +854,25 @@ def _validate_artifacts(
                 f"artifact does not exist: {artifact.path}",
             )
             continue
-        actual = f"sha256:{sha256(candidate.read_bytes()).hexdigest()}"
+        expected_name = "source.orc" if artifact.role == "source" else f"{artifact.role}.json"
+        if candidate.name != expected_name:
+            _issue(
+                issues,
+                "procedure_identity_retirement_artifact_role_path_mismatch",
+                f"{path}.path",
+                f"{artifact.role} evidence must use dedicated file {expected_name}",
+            )
+        try:
+            content = _read_stable_bytes(candidate)
+        except ValueError as exc:
+            _issue(
+                issues,
+                "procedure_identity_retirement_artifact_read_failed",
+                f"{path}.path",
+                str(exc),
+            )
+            continue
+        actual = f"sha256:{sha256(content).hexdigest()}"
         if actual != artifact.sha256:
             _issue(
                 issues,
@@ -731,6 +881,14 @@ def _validate_artifacts(
                 f"declared {artifact.sha256}, observed {actual}",
             )
     for side, roles in roles_by_side.items():
+        extra = sorted(roles - REQUIRED_ARTIFACT_ROLES)
+        if extra:
+            _issue(
+                issues,
+                "procedure_identity_retirement_artifact_role_unknown",
+                "$.artifacts",
+                f"{side} evidence has unknown roles: {', '.join(extra)}",
+            )
         missing = sorted(REQUIRED_ARTIFACT_ROLES - roles)
         if missing:
             _issue(
@@ -746,15 +904,27 @@ def _validate_contracts_and_order(
     issues: list[RetirementIssue],
 ) -> None:
     multisets: dict[str, Counter[ArtifactContractKey]] = {"old": Counter(), "new": Counter()}
-    for index, row in enumerate(record.artifact_multiset):
+    side_indexes = {"old": 0, "new": 0}
+    for row in record.artifact_multiset:
+        side_index = side_indexes.get(row.side, 0)
+        path = f"$.artifact_multiset.{row.side}[{side_index}]"
+        if row.side in side_indexes:
+            side_indexes[row.side] += 1
         if row.count <= 0:
             _issue(
                 issues,
                 "procedure_identity_retirement_artifact_count_invalid",
-                f"$.artifact_multiset[{index}].count",
+                f"{path}.count",
                 "artifact multiset count must be positive",
             )
         elif row.side in multisets:
+            if row.key in multisets[row.side]:
+                _issue(
+                    issues,
+                    "procedure_identity_retirement_artifact_key_duplicate",
+                    path,
+                    "each side must aggregate a contract key into one counted row",
+                )
             multisets[row.side][row.key] += row.count
     if multisets["old"] != multisets["new"]:
         _issue(
@@ -783,6 +953,50 @@ def _validate_contracts_and_order(
             "$.execution_order",
             "old and new execution-order evidence differs",
         )
+    for side in ("old", "new"):
+        ordered_counter = Counter(sequences[side])
+        multiset_counter: Counter[tuple[str, str, str]] = Counter()
+        for key, count in multisets[side].items():
+            multiset_counter[(key.semantic_step_role, key.contract_kind, key.name)] += count
+        if ordered_counter != multiset_counter:
+            _issue(
+                issues,
+                "procedure_identity_retirement_artifact_order_incoherent",
+                f"$.execution_order.{side}",
+                "execution order must contain exactly the counted artifact contract occurrences",
+            )
+
+
+def _canonical_artifact_multiset_digest(record: ProcedureIdentityRetirementRecord) -> str:
+    rows = [row for row in record.artifact_multiset if row.side == "old"]
+    payload = [
+        {
+            "key": {
+                "owning_public_entry": row.key.owning_public_entry,
+                "semantic_step_role": row.key.semantic_step_role,
+                "contract_kind": row.key.contract_kind,
+                "name": row.key.name,
+                "json_pointer": row.key.json_pointer,
+                "type_variant": row.key.type_variant,
+                "publication_role": row.key.publication_role,
+            },
+            "count": row.count,
+        }
+        for row in sorted(
+            rows,
+            key=lambda row: (
+                row.key.owning_public_entry,
+                row.key.semantic_step_role,
+                row.key.contract_kind,
+                row.key.name,
+                row.key.json_pointer,
+                row.key.type_variant,
+                row.key.publication_role,
+            ),
+        )
+    ]
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"sha256:{sha256(encoded).hexdigest()}"
 
 
 def _validate_evidence_blocks(record: ProcedureIdentityRetirementRecord, issues: list[RetirementIssue]) -> None:
@@ -802,11 +1016,71 @@ def _validate_evidence_blocks(record: ProcedureIdentityRetirementRecord, issues:
                 f"$.checksum_evidence.{block}",
                 f"{block} checksum evidence is required",
             )
+    public_contract_digest = record.retained_public_entry.get("contract_digest")
+    clean = record.new_id_evidence.get("clean_run")
+    resumed = record.new_id_evidence.get("interruption_resume")
+    if isinstance(clean, Mapping):
+        invalid = (
+            not str(clean.get("run_id", "")).strip()
+            or clean.get("status") not in {"completed", "succeeded"}
+            or not _valid_sha256(str(clean.get("public_contract_digest", "")))
+            or not _valid_sha256(str(clean.get("artifact_multiset_digest", "")))
+        )
+        if invalid:
+            _issue(
+                issues,
+                "procedure_identity_retirement_new_id_evidence_invalid",
+                "$.new_id_evidence.clean_run",
+                "clean run requires a nonempty run ID, successful terminal status, and valid digests",
+            )
+        if clean.get("public_contract_digest") != public_contract_digest:
+            _issue(
+                issues,
+                "procedure_identity_retirement_public_contract_mismatch",
+                "$.new_id_evidence.clean_run.public_contract_digest",
+                "clean run public contract must equal the retained public contract",
+            )
+        if clean.get("artifact_multiset_digest") != _canonical_artifact_multiset_digest(record):
+            _issue(
+                issues,
+                "procedure_identity_retirement_artifact_multiset_digest_mismatch",
+                "$.new_id_evidence.clean_run.artifact_multiset_digest",
+                "artifact multiset digest does not match canonical keyed-multiset evidence",
+            )
+    if isinstance(resumed, Mapping):
+        invalid = (
+            not str(resumed.get("run_id", "")).strip()
+            or not str(resumed.get("interruption_point", "")).strip()
+            or resumed.get("status") not in {"completed", "succeeded"}
+            or resumed.get("reused_only_new_id_work") is not True
+            or not _valid_sha256(str(resumed.get("public_contract_digest", "")))
+        )
+        if invalid:
+            _issue(
+                issues,
+                "procedure_identity_retirement_new_id_evidence_invalid",
+                "$.new_id_evidence.interruption_resume",
+                "resume requires a run ID, interruption point, successful status, valid digest, and new-ID-only reuse",
+            )
+        if resumed.get("public_contract_digest") != public_contract_digest or (
+            isinstance(clean, Mapping)
+            and resumed.get("public_contract_digest") != clean.get("public_contract_digest")
+        ):
+            _issue(
+                issues,
+                "procedure_identity_retirement_public_contract_mismatch",
+                "$.new_id_evidence.interruption_resume.public_contract_digest",
+                "resumed and clean public contracts must equal the retained public contract",
+            )
     root = record.checksum_evidence.get("root")
     if isinstance(root, Mapping) and (
-        root["default_resume"] is not True
+        not str(root.get("command", "")).strip()
+        or root["default_resume"] is not True
         or root["observability_overrides"] is not False
         or root["cli_overrides"] is not False
+        or root["exit_status"] == 0
+        or not _valid_sha256(str(root["before_tree_digest"]))
+        or not _valid_sha256(str(root["after_tree_digest"]))
         or root["before_tree_digest"] != root["after_tree_digest"]
         or root["executor_constructed"] is not False
         or root["provider_executed"] is not False
@@ -820,7 +1094,10 @@ def _validate_evidence_blocks(record: ProcedureIdentityRetirementRecord, issues:
         )
     callee = record.checksum_evidence.get("callee")
     if isinstance(callee, Mapping) and (
-        callee["checksum_mismatch_observed"] is not True
+        not str(callee.get("command", "")).strip()
+        or not str(callee.get("mismatch_identity", "")).strip()
+        or not str(callee.get("parent_metadata_delta", "")).strip()
+        or callee["checksum_mismatch_observed"] is not True
         or callee["child_workflow_executed"] is not False
         or callee["provider_executed"] is not False
         or callee["command_executed"] is not False
@@ -851,6 +1128,43 @@ def validate_retirement_record(
             "$.migration.compatibility_class",
             f"expected {COMPATIBILITY_CLASS}",
         )
+    for key in ("migration_id", "compiler_version", "build_version"):
+        value = record.migration.get(key)
+        if not isinstance(value, str) or not value.strip():
+            _issue(
+                issues,
+                "procedure_identity_retirement_metadata_missing",
+                f"$.migration.{key}",
+                f"{key} must be nonempty",
+            )
+    repository_commit = record.migration.get("repository_commit")
+    if not isinstance(repository_commit, str) or re.fullmatch(r"[0-9a-f]{40}", repository_commit) is None:
+        _issue(
+            issues,
+            "procedure_identity_retirement_metadata_invalid",
+            "$.migration.repository_commit",
+            "repository_commit must be a full lowercase hexadecimal commit ID",
+        )
+    if not _valid_timestamp(record.migration.get("captured_at")):
+        _issue(
+            issues,
+            "procedure_identity_retirement_timestamp_invalid",
+            "$.migration.captured_at",
+            "captured_at must be a timezone-aware ISO-8601 timestamp",
+        )
+    retained_digest = record.retained_public_entry.get("contract_digest")
+    wrapper_digest = record.retained_wrapper_evidence.get("contract_digest")
+    for path, digest in (
+        ("$.retained_public_entry.contract_digest", retained_digest),
+        ("$.retained_wrapper_evidence.contract_digest", wrapper_digest),
+    ):
+        if not isinstance(digest, str) or not _valid_sha256(digest):
+            _issue(
+                issues,
+                "procedure_identity_retirement_digest_invalid",
+                path,
+                "contract digest must be lowercase sha256:<64 hexadecimal characters>",
+            )
     public_flags = ("exported", "registered_public_entry", "public", "route_promoted", "route_live")
     if any(record.callee.get(field) is not False for field in public_flags):
         _issue(
@@ -884,6 +1198,36 @@ def validate_retirement_record(
             "$.retained_wrapper_evidence.contract_digest",
             "retained wrapper and public entry contract digests differ",
         )
+    old_artifact_paths = {
+        artifact.role: artifact.path
+        for artifact in record.artifacts
+        if artifact.side == "old"
+    }
+    cross_relation_mismatch = (
+        record.callee.get("module") != record.retained_public_entry.get("module")
+        or record.retained_wrapper_evidence.get("retained_wrapper")
+        != record.retained_public_entry.get("workflow")
+        or record.retained_wrapper_evidence.get("source_path") != old_artifact_paths.get("source")
+        or record.retained_wrapper_evidence.get("inventory_path")
+        != old_artifact_paths.get("typed_frontend_ast")
+        or str(record.callee.get("identity", ""))
+        not in str(record.retained_wrapper_evidence.get("reviewed_call_site", ""))
+    )
+    if cross_relation_mismatch:
+        _issue(
+            issues,
+            "procedure_identity_retirement_substantive_evidence_mismatch",
+            "$.retained_wrapper_evidence",
+            "callee, retained wrapper, call site, and old source/inventory artifacts must agree",
+        )
+    public_entry = record.retained_public_entry.get("workflow")
+    if any(row.key.owning_public_entry != public_entry for row in record.artifact_multiset):
+        _issue(
+            issues,
+            "procedure_identity_retirement_artifact_public_entry_mismatch",
+            "$.artifact_multiset",
+            "every artifact contract must be owned by the retained public entry",
+        )
     if not record.known_state_stores:
         _issue(
             issues,
@@ -891,8 +1235,40 @@ def validate_retirement_record(
             "$.known_state_stores",
             "every known store must be enumerated",
         )
+    retired_identities = {
+        row.old_identity
+        for row in record.identity_delta
+        if row.old_disposition == "retired" and row.old_identity is not None
+    }
+    repository_root = Path(repo_root).resolve()
+    seen_store_roots: set[Path] = set()
+    count_fields = (
+        "terminal_run_count",
+        "nonterminal_run_count",
+        "call_frame_count",
+        "consumer_count",
+        "checkpoint_index_count",
+        "checkpoint_record_count",
+        "retained_manifest_count",
+        "identity_metadata_count",
+        "scanned_file_count",
+    )
     for index, store in enumerate(record.known_state_stores):
         path = f"$.known_state_stores[{index}]"
+        if not store.root.strip() or not store.query_version.strip():
+            _issue(
+                issues,
+                "procedure_identity_retirement_metadata_missing",
+                path,
+                "store root and query version must be nonempty",
+            )
+        if not _valid_timestamp(store.query_time):
+            _issue(
+                issues,
+                "procedure_identity_retirement_timestamp_invalid",
+                f"{path}.query_time",
+                "query_time must be a timezone-aware ISO-8601 timestamp",
+            )
         if not store.owner or not store.owner.strip():
             _issue(
                 issues,
@@ -900,12 +1276,23 @@ def validate_retirement_record(
                 f"{path}.owner",
                 "known store requires a genuine named owner",
             )
-        if not store.attestation or not store.attestation.strip() or not store.attested_at:
+        if (
+            not store.attestation
+            or not store.attestation.strip()
+            or not store.attested_at
+        ):
             _issue(
                 issues,
                 "procedure_identity_retirement_attestation_missing",
                 f"{path}.attestation",
                 "known store requires a timestamped owner attestation",
+            )
+        elif not _valid_timestamp(store.attested_at):
+            _issue(
+                issues,
+                "procedure_identity_retirement_timestamp_invalid",
+                f"{path}.attested_at",
+                "attested_at must be a timezone-aware ISO-8601 timestamp",
             )
         if store.nonterminal_run_count > 0:
             _issue(
@@ -923,12 +1310,7 @@ def validate_retirement_record(
             )
         if any(
             count < 0
-            for count in (
-                store.terminal_run_count,
-                store.nonterminal_run_count,
-                store.call_frame_count,
-                store.consumer_count,
-            )
+            for count in (getattr(store, field) for field in count_fields)
         ):
             _issue(
                 issues,
@@ -942,6 +1324,76 @@ def validate_retirement_record(
                 "procedure_identity_retirement_store_digest_invalid",
                 f"{path}.normalized_scan_digest",
                 "known-store digest must be sha256:<64 hexadecimal characters>",
+            )
+        relative_root = Path(store.root)
+        if relative_root.is_absolute() or ".." in relative_root.parts:
+            _issue(
+                issues,
+                "procedure_identity_retirement_known_store_unsafe_path",
+                f"{path}.root",
+                "known store root must be a safe repository-relative path",
+            )
+            continue
+        candidate = repository_root / relative_root
+        resolved_candidate = candidate.resolve(strict=False)
+        if resolved_candidate != repository_root and repository_root not in resolved_candidate.parents:
+            _issue(
+                issues,
+                "procedure_identity_retirement_known_store_unsafe_path",
+                f"{path}.root",
+                "known store root resolves outside repo_root",
+            )
+            continue
+        if resolved_candidate in seen_store_roots:
+            _issue(
+                issues,
+                "procedure_identity_retirement_known_store_duplicate",
+                f"{path}.root",
+                "known store roots must be unique after canonical resolution",
+            )
+            continue
+        seen_store_roots.add(resolved_candidate)
+        try:
+            observed = scan_known_state_store(
+                candidate,
+                retired_identities=retired_identities,
+                query_version=store.query_version,
+            )
+        except ValueError as exc:
+            message = str(exc)
+            code = message.split(":", 1)[0]
+            if not code.startswith("procedure_identity_retirement_"):
+                code = "procedure_identity_retirement_known_store_scan_failed"
+            _issue(issues, code, f"{path}.root", message)
+            continue
+        if observed["normalized_scan_digest"] != store.normalized_scan_digest:
+            _issue(
+                issues,
+                "procedure_identity_retirement_known_store_digest_mismatch",
+                f"{path}.normalized_scan_digest",
+                "declared store digest does not match a fresh normalized scan",
+            )
+        for field in count_fields:
+            if observed[field] != getattr(store, field):
+                _issue(
+                    issues,
+                    "procedure_identity_retirement_known_store_count_mismatch",
+                    f"{path}.{field}",
+                    f"declared {getattr(store, field)}, observed {observed[field]}",
+                )
+        if observed["nonterminal_run_count"] > 0:
+            _issue(
+                issues,
+                "procedure_identity_retirement_supported_state_present",
+                f"{path}.nonterminal_run_count",
+                "fresh scan found supported nonterminal state",
+            )
+        if observed["call_frame_count"] > 0 or observed["consumer_count"] > 0:
+            _issue(
+                issues,
+                "procedure_identity_retirement_old_identity_consumer_present",
+                path,
+                "fresh scan found an old call frame or identity-addressing consumer",
             )
     if record.external_store_absence != "not_asserted":
         _issue(
@@ -957,7 +1409,7 @@ def validate_retirement_record(
             "$.runtime_directives",
             "retirement evidence may not contain runtime directives",
         )
-    _validate_artifacts(record, issues, Path(repo_root))
+    _validate_artifacts(record, issues, repository_root)
     _validate_identity_delta(record, issues)
     _validate_contracts_and_order(record, issues)
     if not record.lineage_notes or any(
@@ -972,11 +1424,21 @@ def validate_retirement_record(
             "lineage evidence requires definition and consuming call-site notes",
         )
     _validate_evidence_blocks(record, issues)
-    return RetirementValidationResult(issues=tuple(sorted(issues, key=lambda issue: (issue.path, issue.code))))
+    unique = {
+        (issue.code, issue.path, issue.message): issue
+        for issue in issues
+    }
+    return RetirementValidationResult(
+        issues=tuple(
+            sorted(unique.values(), key=lambda issue: (issue.path, issue.code, issue.message))
+        )
+    )
 
 
-_TERMINAL_STATUSES = frozenset({"completed", "succeeded", "failed", "cancelled", "canceled", "aborted", "terminated"})
-_IDENTITY_KEYS = frozenset(
+_TERMINAL_STATUSES = frozenset(
+    {"completed", "succeeded", "failed", "cancelled", "canceled", "aborted", "terminated"}
+)
+_IDENTITY_VALUE_FIELDS = frozenset(
     {
         "workflow_id",
         "workflow_name",
@@ -984,20 +1446,133 @@ _IDENTITY_KEYS = frozenset(
         "call_frame_id",
         "caller_call_frame_id",
         "parent_call_frame_id",
+        "execution_frame_id",
+        "call_step_id",
         "caller_step_id",
         "step_id",
         "current_step",
         "completed_step",
         "completed_steps",
+        "node_id",
         "executable_node_id",
         "program_point_id",
         "checkpoint_id",
         "checkpoint_ids",
         "state_allocation_id",
+        "origin_key",
         "source_map_origin",
+        "source_map_origin_key",
         "presentation_key",
     }
 )
+_IDENTITY_MAPPING_FIELDS = frozenset(
+    {
+        "steps",
+        "completed_steps",
+        "call_frames",
+        "step_visits",
+        "checkpoints",
+        "program_points",
+        "workflows",
+        "presentation_keys",
+        "state_allocations",
+        "source_map_origins",
+        "execution_frames",
+    }
+)
+
+
+def _scan_error(code: str, message: str) -> ValueError:
+    return ValueError(f"{code}: {message}")
+
+
+def _safe_store_files(store_root: Path) -> tuple[Path, ...]:
+    if store_root.is_symlink():
+        raise _scan_error(
+            "procedure_identity_retirement_store_symlink_forbidden",
+            f"store root is a symlink: {store_root}",
+        )
+    if not store_root.exists() or not store_root.is_dir():
+        raise _scan_error(
+            "procedure_identity_retirement_known_store_unavailable",
+            f"store root is missing or not a directory: {store_root}",
+        )
+    resolved_root = store_root.resolve(strict=True)
+    supported: list[Path] = []
+
+    def onerror(error: OSError) -> None:
+        raise _scan_error(
+            "procedure_identity_retirement_known_store_unreadable",
+            f"could not enumerate store: {error}",
+        )
+
+    for current, directories, filenames in os.walk(store_root, followlinks=False, onerror=onerror):
+        current_path = Path(current)
+        for name in tuple(directories) + tuple(filenames):
+            candidate = current_path / name
+            try:
+                if candidate.is_symlink():
+                    raise _scan_error(
+                        "procedure_identity_retirement_store_symlink_forbidden",
+                        f"symlink encountered in store: {candidate}",
+                    )
+                resolved = candidate.resolve(strict=True)
+            except OSError as exc:
+                raise _scan_error(
+                    "procedure_identity_retirement_known_store_unreadable",
+                    f"could not resolve store entry {candidate}: {exc}",
+                ) from exc
+            if resolved != resolved_root and resolved_root not in resolved.parents:
+                raise _scan_error(
+                    "procedure_identity_retirement_known_store_unsafe_path",
+                    f"store entry escapes root: {candidate}",
+                )
+        for filename in filenames:
+            candidate = current_path / filename
+            if candidate.suffix.lower() in {".json", ".jsonl"}:
+                supported.append(candidate)
+    return tuple(sorted(supported, key=lambda path: path.relative_to(store_root).as_posix()))
+
+
+def _read_stable_bytes(path: Path) -> bytes:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as handle:
+            before = os.fstat(handle.fileno())
+            content = handle.read()
+            after = os.fstat(handle.fileno())
+    except OSError as exc:
+        raise _scan_error(
+            "procedure_identity_retirement_known_store_unreadable",
+            f"could not read {path}: {exc}",
+        ) from exc
+    signature_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+    signature_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+    if signature_before != signature_after or len(content) != before.st_size:
+        raise _scan_error(
+            "procedure_identity_retirement_known_store_scan_race",
+            f"store file changed while scanning: {path}",
+        )
+    return content
+
+
+def _match_row(
+    *,
+    identity: str,
+    field: str,
+    relative_path: str,
+    pointer: str,
+) -> dict[str, str]:
+    location = relative_path + (pointer if pointer.startswith("#") else f"{pointer or '/'}")
+    return {
+        "identity": identity,
+        "field": field,
+        "key": field,
+        "path": relative_path,
+        "pointer": pointer or "/",
+        "location": location,
+    }
 
 
 def _identity_matches(
@@ -1006,10 +1581,22 @@ def _identity_matches(
     retired: frozenset[str],
     relative_path: str,
     pointer: str = "",
-    key_name: str | None = None,
+    field_name: str | None = None,
 ) -> list[dict[str, str]]:
     matches: list[dict[str, str]] = []
     if isinstance(value, dict):
+        if field_name in _IDENTITY_MAPPING_FIELDS:
+            for identity in sorted(value):
+                if identity in retired:
+                    escaped = identity.replace("~", "~0").replace("/", "~1")
+                    matches.append(
+                        _match_row(
+                            identity=identity,
+                            field=f"{field_name}_key",
+                            relative_path=relative_path,
+                            pointer=f"{pointer}/{escaped}",
+                        )
+                    )
         for key in sorted(value):
             escaped = key.replace("~", "~0").replace("/", "~1")
             matches.extend(
@@ -1018,7 +1605,7 @@ def _identity_matches(
                     retired=retired,
                     relative_path=relative_path,
                     pointer=f"{pointer}/{escaped}",
-                    key_name=key,
+                    field_name=key,
                 )
             )
     elif isinstance(value, list):
@@ -1029,19 +1616,61 @@ def _identity_matches(
                     retired=retired,
                     relative_path=relative_path,
                     pointer=f"{pointer}/{index}",
-                    key_name=key_name,
+                    field_name=field_name,
                 )
             )
-    elif key_name in _IDENTITY_KEYS and isinstance(value, str) and value in retired:
+    elif field_name in _IDENTITY_VALUE_FIELDS and isinstance(value, str) and value in retired:
         matches.append(
-            {
-                "identity": value,
-                "key": key_name,
-                "path": relative_path,
-                "pointer": pointer or "/",
-            }
+            _match_row(
+                identity=value,
+                field=field_name,
+                relative_path=relative_path,
+                pointer=pointer,
+            )
         )
     return matches
+
+
+def _load_store_objects(path: Path, content: bytes, relative: str) -> tuple[tuple[str, dict[str, Any]], ...]:
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise _scan_error(
+            "procedure_identity_retirement_store_content_invalid",
+            f"supported store file is not UTF-8: {relative}",
+        ) from exc
+    if path.suffix.lower() == ".jsonl":
+        rows: list[tuple[str, dict[str, Any]]] = []
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line, object_pairs_hook=_json_object_without_duplicates)
+            except (json.JSONDecodeError, ValueError) as exc:
+                raise _scan_error(
+                    "procedure_identity_retirement_store_content_invalid",
+                    f"malformed JSONL row {relative}#{line_number}: {exc}",
+                ) from exc
+            if not isinstance(row, dict):
+                raise _scan_error(
+                    "procedure_identity_retirement_store_content_invalid",
+                    f"JSONL row must be an object: {relative}#{line_number}",
+                )
+            rows.append((f"{relative}#{line_number}", row))
+        return tuple(rows)
+    try:
+        payload = json.loads(text, object_pairs_hook=_json_object_without_duplicates)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise _scan_error(
+            "procedure_identity_retirement_store_content_invalid",
+            f"malformed JSON object {relative}: {exc}",
+        ) from exc
+    if not isinstance(payload, dict):
+        raise _scan_error(
+            "procedure_identity_retirement_store_content_invalid",
+            f"supported JSON file must contain an object: {relative}",
+        )
+    return ((relative, payload),)
 
 
 def scan_known_state_store(
@@ -1050,87 +1679,107 @@ def scan_known_state_store(
     retired_identities: Iterable[str],
     query_version: str,
 ) -> dict[str, Any]:
-    """Return normalized facts about one explicitly named local state store.
+    """Return deterministic, fail-closed facts about one named state store."""
 
-    The scan never supplies an owner, attestation, or claim about external
-    stores.  Its digest excludes the absolute root so identical copied content
-    produces the same normalized query result.
-    """
-
+    if query_version != STORE_QUERY_VERSION:
+        raise _scan_error(
+            "procedure_identity_retirement_query_version_unsupported",
+            f"unsupported query version: {query_version!r}",
+        )
     store_root = Path(root)
-    retired = frozenset(str(identity) for identity in retired_identities)
-    if not isinstance(query_version, str) or not query_version:
-        raise ValueError("query_version must be a non-empty string")
-    if any(not identity for identity in retired):
+    retired_values = tuple(retired_identities)
+    if any(not isinstance(identity, str) or not identity for identity in retired_values):
         raise ValueError("retired_identities must contain only non-empty strings")
+    retired = frozenset(retired_values)
+    files = _safe_store_files(store_root)
 
-    terminal_runs = 0
-    nonterminal_runs = 0
-    checkpoint_indexes = 0
-    checkpoint_records = 0
-    retained_manifests = 0
-    identity_metadata = 0
-    parse_errors = 0
-    matches: list[dict[str, str]] = []
+    counts = {
+        "terminal_run_count": 0,
+        "nonterminal_run_count": 0,
+        "checkpoint_index_count": 0,
+        "checkpoint_record_count": 0,
+        "retained_manifest_count": 0,
+        "identity_metadata_count": 0,
+        "scanned_file_count": len(files),
+    }
+    raw_matches: list[dict[str, str]] = []
     scanned_files: list[dict[str, str]] = []
-    json_paths = sorted(
-        (path for path in store_root.rglob("*.json") if path.is_file()),
-        key=lambda path: path.relative_to(store_root).as_posix(),
-    ) if store_root.is_dir() else []
-    for path in json_paths:
-        relative = path.relative_to(store_root).as_posix()
-        content = path.read_bytes()
-        scanned_files.append({"path": relative, "sha256": f"sha256:{sha256(content).hexdigest()}"})
+    for path in files:
+        relative_path = path.relative_to(store_root).as_posix()
+        content = _read_stable_bytes(path)
+        scanned_files.append(
+            {"path": relative_path, "sha256": f"sha256:{sha256(content).hexdigest()}"}
+        )
         lower_parts = tuple(part.lower() for part in path.relative_to(store_root).parts)
         filename = path.name.lower()
         if "checkpoints" in lower_parts:
             if filename == "index.json" or "index" in filename:
-                checkpoint_indexes += 1
+                counts["checkpoint_index_count"] += 1
             else:
-                checkpoint_records += 1
+                counts["checkpoint_record_count"] += 1
         if "manifest" in filename or "manifests" in lower_parts:
-            retained_manifests += 1
+            counts["retained_manifest_count"] += 1
         if "metadata" in lower_parts or "identity" in filename:
-            identity_metadata += 1
-        try:
-            payload = json.loads(content)
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            parse_errors += 1
-            continue
-        relative_parts = path.relative_to(store_root).parts
-        is_top_level_state = filename == "state.json" and len(relative_parts) <= 2
-        if is_top_level_state and isinstance(payload, dict):
-            status = payload.get("status")
-            if isinstance(status, str) and status.lower() in _TERMINAL_STATUSES:
-                terminal_runs += 1
-            else:
-                nonterminal_runs += 1
-        matches.extend(
-            _identity_matches(
-                payload,
-                retired=retired,
-                relative_path=relative,
-            )
-        )
+            counts["identity_metadata_count"] += 1
 
-    matches.sort(key=lambda row: json.dumps(row, sort_keys=True, separators=(",", ":")))
-    call_frame_count = sum(1 for row in matches if "call_frame" in row["key"])
+        for object_location, payload in _load_store_objects(path, content, relative_path):
+            relative_parts = path.relative_to(store_root).parts
+            if filename == "state.json" and len(relative_parts) <= 2:
+                status = payload.get("status")
+                if isinstance(status, str) and status.lower() in _TERMINAL_STATUSES:
+                    counts["terminal_run_count"] += 1
+                else:
+                    counts["nonterminal_run_count"] += 1
+            raw_matches.extend(
+                _identity_matches(
+                    payload,
+                    retired=retired,
+                    relative_path=object_location,
+                )
+            )
+
+        for part_index, part in enumerate(path.relative_to(store_root).parts):
+            candidates = {unquote(part), unquote(Path(part).stem)}
+            for identity in sorted(retired.intersection(candidates)):
+                raw_matches.append(
+                    _match_row(
+                        identity=identity,
+                        field="path_component",
+                        relative_path=relative_path,
+                        pointer=f"#path/{part_index}",
+                    )
+                )
+
+    deduplicated = {
+        (row["location"], row["identity"], row["field"]): row
+        for row in raw_matches
+    }
+    matches = sorted(
+        deduplicated.values(),
+        key=lambda row: json.dumps(row, sort_keys=True, separators=(",", ":")),
+    )
+    call_frame_count = sum(
+        1
+        for row in matches
+        if "call_frame" in row["field"]
+        or "execution_frame" in row["field"]
+        or (row["field"] == "path_component" and "/call_frames/" in f"/{row['path']}")
+    )
     normalized = {
         "query_version": query_version,
         "retired_identities": sorted(retired),
-        "terminal_run_count": terminal_runs,
-        "nonterminal_run_count": nonterminal_runs,
+        **counts,
         "call_frame_count": call_frame_count,
         "consumer_count": len(matches),
-        "checkpoint_index_count": checkpoint_indexes,
-        "checkpoint_record_count": checkpoint_records,
-        "retained_manifest_count": retained_manifests,
-        "identity_metadata_count": identity_metadata,
-        "parse_error_count": parse_errors,
         "matches": matches,
         "scanned_files": scanned_files,
     }
-    encoded = json.dumps(normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    encoded = json.dumps(
+        normalized,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
     return {
         "root": str(store_root),
         **normalized,

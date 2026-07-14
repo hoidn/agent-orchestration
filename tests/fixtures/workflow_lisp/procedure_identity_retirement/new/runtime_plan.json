@@ -1,0 +1,1 @@
+{"schema":"workflow_lisp_runtime_plan.fixture.v1","test_only":"FICTIONAL — NEVER COPY","side":"new","entry":"retained-stack","execution_order":["result-provider","report-publisher"]}

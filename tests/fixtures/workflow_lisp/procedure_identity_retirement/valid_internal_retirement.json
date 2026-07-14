@@ -1,7 +1,7 @@
 {
   "schema": "workflow_lisp_procedure_identity_retirement.v1",
   "migration": {
-    "migration_id": "fixture-procedure-retirement",
+    "migration_id": "fictional-internal-phase-retirement",
     "compatibility_class": "reviewed_internal_identity_retirement",
     "repository_commit": "0000000000000000000000000000000000000000",
     "compiler_version": "fixture-compiler-v1",
@@ -10,13 +10,13 @@
     "test_fixture_notice": "FICTIONAL TEST DATA — NEVER COPY OWNER OR ATTESTATION INTO PILOT EVIDENCE"
   },
   "retained_public_entry": {
-    "module": "fixture.module",
+    "module": "fictional.retirement",
     "workflow": "retained-stack",
     "contract_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   },
   "callee": {
-    "module": "fixture.module",
-    "identity": "tracked-plan-phase",
+    "module": "fictional.retirement",
+    "identity": "internal-phase",
     "exported": false,
     "registered_public_entry": false,
     "public": false,
@@ -24,9 +24,9 @@
     "route_live": false
   },
   "retained_wrapper_evidence": {
-    "inventory_path": "tests/baselines/procedure_first/tracked_plan_phase.json",
-    "source_path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
-    "reviewed_call_site": "retained-stack/tracked-plan-phase",
+    "inventory_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/typed_frontend_ast.json",
+    "source_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/source.orc",
+    "reviewed_call_site": "retained-stack/internal-phase",
     "retained_wrapper": "retained-stack",
     "contract_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   },
@@ -35,15 +35,20 @@
   ],
   "known_state_stores": [
     {
-      "root": "/fictional/test-only/.orchestrate/runs",
+      "root": "tests/fixtures/workflow_lisp/procedure_identity_retirement/state_store",
       "owner": "Fictional Fixture Owner — NEVER COPY",
       "query_version": "procedure-identity-store-query.v1",
       "query_time": "2026-07-13T00:00:00Z",
-      "normalized_scan_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "terminal_run_count": 0,
+      "normalized_scan_digest": "sha256:c83b6d163d6c22db6e1939ff742bc8892c53ad640b90bae7ff7d7be7200a7a33",
+      "terminal_run_count": 1,
       "nonterminal_run_count": 0,
       "call_frame_count": 0,
       "consumer_count": 0,
+      "checkpoint_index_count": 1,
+      "checkpoint_record_count": 1,
+      "retained_manifest_count": 1,
+      "identity_metadata_count": 1,
+      "scanned_file_count": 5,
       "attestation": "FICTIONAL TEST ATTESTATION — NEVER COPY: no supported live/nonterminal run or consumer remains in this named fictional store",
       "attested_at": "2026-07-13T00:01:00Z"
     }
@@ -53,86 +58,86 @@
     {
       "side": "old",
       "role": "source",
-      "path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
-      "sha256": "sha256:3a03feac563834cf8b9a0c1a329d006b82ad6ee210537b3e82fc0de786171bfb"
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/source.orc",
+      "sha256": "sha256:648a7d72676934219bf66414e5e957bff59f36b76be93507e7584384bd5ff736"
     },
     {
       "side": "old",
       "role": "typed_frontend_ast",
-      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.legacy.json",
-      "sha256": "sha256:d387093618011873e3221b96e1f4c46736429163202160230ad141fb83f6e39b"
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/typed_frontend_ast.json",
+      "sha256": "sha256:c00b1fbdceed971bc90fc48f077694324e90a5b3ac6a9c163197d497fe6e3f69"
     },
     {
       "side": "old",
       "role": "semantic_ir",
-      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.legacy.json",
-      "sha256": "sha256:d387093618011873e3221b96e1f4c46736429163202160230ad141fb83f6e39b"
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/semantic_ir.json",
+      "sha256": "sha256:fec397bccc5f4d55e52c03b54236d3ef97d08cd97ed1cb16075ecc99cbb7239c"
     },
     {
       "side": "old",
       "role": "executable_ir",
-      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.legacy.json",
-      "sha256": "sha256:d387093618011873e3221b96e1f4c46736429163202160230ad141fb83f6e39b"
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/executable_ir.json",
+      "sha256": "sha256:f65eee19fa269efe7118f9a623b6cc5f154727dfa5e0ff585f99b08f6d399612"
     },
     {
       "side": "old",
       "role": "runtime_plan",
-      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.legacy.json",
-      "sha256": "sha256:d387093618011873e3221b96e1f4c46736429163202160230ad141fb83f6e39b"
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/runtime_plan.json",
+      "sha256": "sha256:b53c97c94b26e406d510fe66dae9697fd14f335bcae15eb35842268ddc0f3d62"
     },
     {
       "side": "old",
       "role": "lexical_checkpoint_points",
-      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.legacy.json",
-      "sha256": "sha256:d387093618011873e3221b96e1f4c46736429163202160230ad141fb83f6e39b"
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/lexical_checkpoint_points.json",
+      "sha256": "sha256:f7321d73892419529ebcc7dfb858f771bbb30eab3d6bcf132491721220ae565d"
     },
     {
       "side": "old",
       "role": "source_map",
-      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.legacy.json",
-      "sha256": "sha256:d387093618011873e3221b96e1f4c46736429163202160230ad141fb83f6e39b"
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/source_map.json",
+      "sha256": "sha256:9ce336b572298193fbfa058b7187130f22319cf4a0af9d38dd8fbc2ee867e2ba"
     },
     {
       "side": "new",
       "role": "source",
-      "path": "tests/fixtures/workflow_lisp/valid/procedure_lowering_identity_modes.orc",
-      "sha256": "sha256:3588f26eae619a5c02ff46e9cf31e0b97726cef31915b9aaef1fb38b5aa73854"
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/source.orc",
+      "sha256": "sha256:aca93ff31f580b37e015daa541922be19fa6e8ebb42449087f653d6e8de0b44a"
     },
     {
       "side": "new",
       "role": "typed_frontend_ast",
-      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.wcc_m4.json",
-      "sha256": "sha256:597512b31e50f3b2542019255f8eab5ca8ae49e98e1568615878dbb920c9cc5c"
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/typed_frontend_ast.json",
+      "sha256": "sha256:d186733a025f355d784626b6ae3a2ba8d2decbf0412b123c2e2802ece848038e"
     },
     {
       "side": "new",
       "role": "semantic_ir",
-      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.wcc_m4.json",
-      "sha256": "sha256:597512b31e50f3b2542019255f8eab5ca8ae49e98e1568615878dbb920c9cc5c"
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/semantic_ir.json",
+      "sha256": "sha256:667fccd470f66dc6e9405a9771b866015dee6a2296121963ed73672060811cf0"
     },
     {
       "side": "new",
       "role": "executable_ir",
-      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.wcc_m4.json",
-      "sha256": "sha256:597512b31e50f3b2542019255f8eab5ca8ae49e98e1568615878dbb920c9cc5c"
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/executable_ir.json",
+      "sha256": "sha256:44bf59c14c5c645016478b2c03b46e59f657c007f152957ba151dd4eab2519ca"
     },
     {
       "side": "new",
       "role": "runtime_plan",
-      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.wcc_m4.json",
-      "sha256": "sha256:597512b31e50f3b2542019255f8eab5ca8ae49e98e1568615878dbb920c9cc5c"
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/runtime_plan.json",
+      "sha256": "sha256:fb109163995b61a0fbed014a73534f87e79ea01f178957018b652145f021ef05"
     },
     {
       "side": "new",
       "role": "lexical_checkpoint_points",
-      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.wcc_m4.json",
-      "sha256": "sha256:597512b31e50f3b2542019255f8eab5ca8ae49e98e1568615878dbb920c9cc5c"
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/lexical_checkpoint_points.json",
+      "sha256": "sha256:a533b26bf6f457f5efeffd21f015026cc20e3248ea8b6335e17a439328e3a857"
     },
     {
       "side": "new",
       "role": "source_map",
-      "path": "tests/baselines/procedure_first/procedure_lowering_identity_modes.wcc_m4.json",
-      "sha256": "sha256:597512b31e50f3b2542019255f8eab5ca8ae49e98e1568615878dbb920c9cc5c"
+      "path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/source_map.json",
+      "sha256": "sha256:a9fa60510d1f1e82762e9b9dbb6c5e289b18cc1696af6d08447c32e35ab92dfb"
     }
   ],
   "identity_delta": [
@@ -145,7 +150,7 @@
     },
     {
       "identity_kind": "call_frame",
-      "old_identity": "retained-stack/tracked-plan-phase",
+      "old_identity": "retained-stack/internal-phase",
       "old_disposition": "retired",
       "new_identity": null,
       "new_disposition": null
@@ -187,8 +192,15 @@
     },
     {
       "identity_kind": "checkpoint",
-      "old_identity": "retained-stack/tracked-plan-phase/call",
+      "old_identity": "retained-stack/internal-phase/call",
       "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "checkpoint",
+      "old_identity": null,
+      "old_disposition": null,
       "new_identity": "retained-stack/result-provider/output",
       "new_disposition": "new"
     },
@@ -201,9 +213,16 @@
     },
     {
       "identity_kind": "source_map_origin",
-      "old_identity": "tracked-plan-phase/call-site",
+      "old_identity": "internal-phase/call-site",
       "old_disposition": "retired",
-      "new_identity": "tracked-plan-phase/definition+call-site",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "source_map_origin",
+      "old_identity": null,
+      "old_disposition": null,
+      "new_identity": "internal-phase/definition+call-site",
       "new_disposition": "new"
     }
   ],
@@ -294,23 +313,23 @@
   "lineage_notes": [
     {
       "executable_node": "retained-stack/result-provider",
-      "procedure_definition_note": "procedure definition at fixture.module:10",
-      "call_site_note": "procedure call site at fixture.module:30"
+      "procedure_definition_note": "procedure definition at fictional.retirement:10",
+      "call_site_note": "procedure call site at fictional.retirement:30"
     }
   ],
   "new_id_evidence": {
     "clean_run": {
       "run_id": "fixture-clean-new-ids",
       "status": "completed",
-      "public_contract_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-      "artifact_multiset_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      "public_contract_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "artifact_multiset_digest": "sha256:28d2c039cfa52698dd4cb00af009f124bf76955677d21b1fc75dc079c8eea4f5"
     },
     "interruption_resume": {
       "run_id": "fixture-resume-new-ids",
       "interruption_point": "retained-stack/result-provider/output",
       "status": "completed",
       "reused_only_new_id_work": true,
-      "public_contract_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      "public_contract_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
   },
   "checksum_evidence": {
@@ -327,6 +346,8 @@
       "command_executed": false
     },
     "callee": {
+      "command": "orchestrator resume fictional-callee-checksum-run",
+      "mismatch_identity": "fictional.retirement/internal-phase",
       "checksum_mismatch_observed": true,
       "child_workflow_executed": false,
       "provider_executed": false,
