@@ -6,7 +6,7 @@
 - **Reviewers:** independent design review approved after three review passes;
   authoring surface approved by the user on 2026-07-10
 - **Created:** 2026-07-10
-- **Last material update:** 2026-07-10
+- **Last material update:** 2026-07-13
 - **Related docs:**
   - `docs/design/workflow_lisp_frontend_specification.md`
   - `docs/design/workflow_language_design_principles.md`
@@ -42,6 +42,12 @@ returns remain concise (`-> Bool`, `:returns Bool`). An annotated return uses
 format-hint, and typed-example vocabulary. Guidance affects prompts and
 human-facing contract information, while declaration metadata is checked at
 compile time and never changes runtime value validity.
+
+Overall workflow-return guidance has its own v2.15 top-level
+`result_guidance` container. It is a sibling of `outputs`, not an output and
+not a pseudo-field. The one container therefore describes the declared return
+equally for a direct `__result__`, a flattened record, or a flattened union
+without changing any output name, reference, artifact, or runtime value.
 
 ## Context And Authority
 
@@ -138,6 +144,8 @@ guidance must compose without making guidance part of type identity.
 - Hiding results in an opaque runtime value store.
 - Making return guidance affect type identity, specialization identity,
   routing, effects, optionality, or runtime validation.
+- Encoding overall workflow-return guidance as a generated output, distributing
+  it over flattened outputs, or adding a runtime value envelope.
 - Automatically publishing a returned value as a separately named artifact.
 - Adding enum-member or union-variant guidance in the first tranche. Overall
   result guidance and payload-field guidance are sufficient for this design;
@@ -285,6 +293,13 @@ and do not implicitly overwrite each other:
 - guidance on `defworkflow` describes the caller/public boundary; and
 - guidance on a helper or procedure documents its callable result.
 
+When a `defworkflow` or effectful `defproc` becomes a shared workflow mapping,
+its overall return guidance lowers to top-level `result_guidance`. It does not
+move onto `outputs.__result__` for a scalar and is not repeated on
+`return__*` outputs for a record or union. Effect-boundary guidance remains on
+the producing step's `output_bundle` or `variant_output`; the two containers
+may coexist because they describe different boundaries.
+
 ### Field guidance
 
 Record and union payload fields accept the corresponding optional metadata:
@@ -418,6 +433,23 @@ typed value.
 Semantic IR records the authored type and optional return guidance. It does not
 pretend the source value is a record with a `__result__` field.
 
+The normalized public/callable-boundary payload is carried without
+reinterpretation through the shared pipeline:
+
+- `SurfaceWorkflow.result_guidance` owns the validated authored-shape payload;
+- `CoreWorkflowAST.result_guidance` preserves it as workflow-root metadata;
+- `SemanticWorkflow.result_guidance` records it beside that workflow's output
+  contract identifiers; and
+- `ExecutableWorkflow.result_guidance` preserves the validated metadata for
+  executable/build inspection while runtime execution ignores it.
+
+The Core, Semantic, and Executable JSON projections emit `result_guidance`
+only when it is present. This is an additive optional metadata field, so their
+current internal `*.v1` schema identifiers remain unchanged and unannotated
+serialized artifacts remain byte-equivalent. There is no runtime-plan copy.
+Any future reader that makes those projection schemas closed must trigger a
+separate schema-version review before this field is added to that reader.
+
 Executable IR and runtime-plan projections may record:
 
 - result shape `root_value`;
@@ -530,7 +562,8 @@ A payload must contain at least one of `description`, `format_hint`, `example`,
 or a non-empty `guidance_context`. Unknown keys are invalid. Every context row
 must contain at least one guidance value in addition to `json_pointer`.
 
-Overall record/union return guidance appears at bundle level:
+At a provider or command effect boundary, overall record/union result guidance
+appears at bundle level:
 
 ```yaml
 output_bundle:
@@ -545,6 +578,45 @@ output_bundle:
 
 `variant_output.guidance` has the same shape. Bundle-level `guidance_context`
 is forbidden because the bundle guidance already describes the root.
+
+Overall workflow/callable-return guidance instead appears once at workflow
+root, alongside `outputs`:
+
+```yaml
+version: "2.15"
+name: review-change
+outputs:
+  return__approved:
+    kind: scalar
+    type: bool
+    from: {ref: root.steps.review.artifacts.approved}
+  return__score:
+    kind: scalar
+    type: float
+    from: {ref: root.steps.review.artifacts.score}
+result_guidance:
+  description: Complete review result.
+  format_hint: Return the final adjudicated review.
+  example:
+    approved: true
+    score: 0.91
+```
+
+`result_guidance` uses the same closed root payload vocabulary:
+`description`, `format_hint`, and JSON-native `example`. It must be a non-empty
+mapping; descriptions and format hints must be non-empty strings; unknown keys
+and `guidance_context` are invalid. The `example` key counts as present even
+when its value is JSON `null`. The container requires at least one declared
+workflow output but does not require a particular output count or name.
+
+The shared loader checks only JSON compatibility for a top-level example,
+because flattened public outputs do not retain one unflattened record/union
+schema. Workflow Lisp compilation additionally checks the example against the
+authored declared return type before lowering. The container is accepted only
+for DSL v2.15 and later; earlier versions reject it as an unknown/versioned
+field. It is caller- and human-facing metadata, not provider-step prompt
+guidance, and never participates in output validation, call binding,
+publication, routing, resume, checkpoint identity, or runtime state.
 
 An ordinary fixed/root field places guidance keys directly on its field spec:
 
@@ -654,6 +726,8 @@ field pointers.
 New documentation must explicitly allow any JSON document root and define
 `json_pointer: ""` as selecting that root. Field and bundle guidance are
 prompt-only metadata with schema validation but no value-validation impact.
+Top-level `result_guidance` is the separate overall workflow-return metadata
+container and is not part of any output definition.
 
 DSL v2.15 also widens public `outputs` contract definitions to optional, list,
 and map schemas under the same element restrictions as the frontend contract
@@ -709,6 +783,23 @@ must complete before a procedure-first pilot depends on direct scalar returns.
 Native-return acceptance fixtures use plain `:returns T` / `-> T` and contain
 no guidance metadata; guidance fixtures are added only by the dependent plan.
 
+Within typed-guidance implementation, canonical provider/command bundle
+guidance and top-level `result_guidance` carriage must land before the public
+v2.15 loader schema and renderer promotion. The loader cannot validate a
+container the frontend cannot yet carry through Surface, Core, Semantic, and
+Executable IR.
+
+Structural contract derivation also has two explicit production APIs. The
+ordinary `derive_structured_result_contract(...)` is guidance-free: it never
+reads root or definition-field guidance and never requires a type environment.
+Provider and command prompt contracts use
+`derive_prompt_guided_structured_result_contract(...)`, which requires the
+resolved type environment and may normalize root, field, ancestor, and variant
+guidance. Both delegate to one structural derivation implementation. This
+keeps reusable-state fingerprints, materialization contracts, phase helpers,
+and other runtime-only callers independent of authoring metadata while making
+guided callers opt in visibly.
+
 Planning may be drafted before the active migration sequence completes, but
 implementation must honor the roadmap's compiler/runtime freeze and rebaseline
 against the post-migration owning modules before execution.
@@ -722,6 +813,10 @@ against the post-migration owning modules before execution.
 - Wrong root type fails closed and points to the authored return declaration.
 - Guidance declaration validation is compile-time; valid guidance never changes
   runtime value validation.
+- Top-level `result_guidance` is metadata beside `outputs`; it never creates,
+  renames, wraps, or changes an output.
+- Guidance-free contract derivation cannot evaluate examples or require a
+  `FrontendTypeEnvironment`; prompt-guided derivation must receive one.
 - Record and union variant proof rules are unchanged.
 - Existing record/union routes must not silently switch contract shapes.
 - Hidden artifacts retain source ownership, debug visibility, and resume
@@ -897,6 +992,9 @@ route is not selected.
 - Provider and command prompts accurately request a JSON root value.
 - Root and field guidance are validated, source-mapped, and rendered without
   changing runtime validity.
+- Scalar, record, union, and private-procedure workflow returns retain one
+  overall `result_guidance` payload through Surface, Core, Semantic, and
+  Executable IR without changing the output map.
 - Public workflow calls, runtime state, resume, adjudication, dashboards, and
   parity consumers handle root values.
 - Existing record and union behavior is non-regressive.

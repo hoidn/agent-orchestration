@@ -1,14 +1,13 @@
 # Workflow Lisp Typed Result Guidance Implementation Plan
 
-> **Status:** Reviewed implementation plan, execution gated. Execute only after
-> `2026-07-10-workflow-lisp-native-transportable-returns-plan.md` passes its
-> completion gate and while DSL v2.15 remains unpromoted.
+> **Status:** Reviewed implementation plan, execution in progress. The native
+> transportable-return prerequisite is complete; DSL v2.15 remains unpromoted.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add optional, typed, source-mapped guidance to every Workflow Lisp return occurrence and to record/union payload fields, and render that guidance in v2.15 provider output contracts without changing runtime value semantics.
 
-**Architecture:** Introduce a compile-time `ReturnSpec` plus immutable field guidance metadata, validate examples as pure constants against existing structured-result schemas, and preserve metadata through schemas, imports, specialization, flattening, and union sharing. Lower into the accepted v2.15 `guidance`, direct field guidance, `guidance_context`, and `guidance_by_variant` wire shapes; the loader validates metadata, the prompt renderer consumes it, and output value validation ignores it.
+**Architecture:** Introduce a compile-time `ReturnSpec` plus immutable field guidance metadata, validate examples as pure constants against existing structured-result schemas, and preserve metadata through schemas, imports, specialization, flattening, and union sharing. Lower effect-boundary metadata into the accepted v2.15 `guidance`, direct field guidance, `guidance_context`, and `guidance_by_variant` wire shapes. Lower callable/workflow overall-return metadata once into top-level `result_guidance`, a sibling of `outputs` that works for scalar, record, and union returns without changing output shape. The loader validates metadata, the prompt renderer consumes effect-boundary guidance, shared IR carries overall-return guidance, and output value validation ignores both.
 
 **Tech Stack:** Workflow Lisp syntax/elaboration/typechecking, schema/module/generic specialization, structured-result contract lowering, DSL loader v2.15, prompt rendering, source maps, Semantic/Executable IR, pytest.
 
@@ -25,6 +24,27 @@ This plan owns `(result T ...)`, field annotations, typed examples, metadata
 composition, public v2.15 guidance wire schemas, prompts, and runtime-neutrality
 evidence. It does not change transportability, root artifact identity, workflow
 call carriage, runtime value parsers, or record/union proof semantics.
+
+### Task-5 review amendment (2026-07-13)
+
+The first Task-5 implementation review exposed two design/plan gaps rather
+than an acceptable record/union exception:
+
+1. overall `defworkflow`/effectful-`defproc` guidance had no public workflow
+   container, so attaching it to `outputs.__result__` worked only for direct
+   roots and dropped record/union guidance; and
+2. structural production callers invoked contract derivation without a type
+   environment, while the new implementation implicitly expanded annotated
+   definition fields and could raise `TypeError` on examples.
+
+The accepted remediation is top-level v2.15 `result_guidance`, a closed
+non-empty `{description?, format_hint?, example?}` payload beside `outputs`.
+It never becomes a pseudo-output and does not change runtime output maps.
+Task 5 emits it and splits prompt-guided from guidance-free contract
+derivation; Task 6 validates its public DSL schema; Task 8 carries it through
+Surface/Core/Semantic/Executable IR; Task 9 documents and promotes the complete
+contract. Task 7 renders only effect-boundary guidance and must not treat
+`result_guidance` as a provider instruction.
 
 ## Wave-1 Handoff Intake (2026-07-11)
 
@@ -332,7 +352,9 @@ Assert exact design shapes for:
 - bundle-level record/union `guidance`;
 - leaf guidance plus ordered ancestor `guidance_context` using RFC 6901 paths;
 - variant-specific guidance; and
-- structurally shared fields with differing `guidance_by_variant`.
+- structurally shared fields with differing `guidance_by_variant`; and
+- top-level `result_guidance` for direct, record, union, and generated private
+  procedure workflows, with their output maps unchanged.
 
 Test prefix validation, shallow-to-deep ordering, mutually exclusive direct and
 variant guidance, discriminant-key ordering, and deep-JSON canonical deduplication.
@@ -348,7 +370,7 @@ pytest -q tests/test_workflow_lisp_structured_results.py tests/test_workflow_lis
 
 Expected: FAIL because contract flattening drops guidance.
 
-- [ ] **Step 3: Implement canonical projection once**
+- [ ] **Step 3: Implement canonical effect-boundary projection once**
 
 Build one normalized JSON-native guidance payload function. Carry ancestor
 contexts separately during flattening. Compute runtime sharedness from field
@@ -356,11 +378,41 @@ schema/pointer only, then attach direct or variant-keyed guidance using the
 accepted deduplication rules. Never concatenate descriptions. Add guidance to
 `LowerableProviderResult` and `LowerableCommandResult`, populate it in classic
 lowering and every WCC construction/reconstruction site, and pass it to
-`derive_structured_result_contract(...)` for occurrence-specific root results.
-Carry workflow/procedure root guidance through `lowering/values.py` and
-`lowering/core.py` to their terminal/public contracts.
+the prompt-guided contract derivation API for occurrence-specific results. Do
+not attach workflow/procedure overall-return guidance to generated output
+definitions.
 
-- [ ] **Step 4: Run structured-result/lowering suites**
+- [ ] **Step 4: Emit one overall-return container and make derivation intent explicit**
+
+Normalize the `defworkflow` or generated private-procedure `ReturnSpec`
+guidance once and emit it as top-level `result_guidance` beside `outputs`.
+Use exactly the closed non-empty keys `description`, `format_hint`, and
+JSON-native `example`; never emit `guidance_context`. Emit the same shape for a
+direct `__result__`, flattened `return__*` record, or flattened union. Do not
+alter output definitions, refs, generated names, public/private classification,
+or runtime values.
+
+Split contract derivation into explicit APIs:
+
+- `derive_structured_result_contract(...)` is guidance-free, never inspects
+  root or definition-field guidance, and never requires `type_env`;
+- `derive_prompt_guided_structured_result_contract(...)` requires `type_env`
+  and owns root, leaf, ancestor-context, and variant guidance normalization;
+  and
+- both use one private structural derivation implementation so schemas and
+  lineage cannot drift.
+
+Provider/command lowering must call the prompt-guided API. Reusable-state,
+materialization, phase, control-flow, and other runtime-only production callers
+must remain on the guidance-free API. Add a regression using an annotated
+record/union definition with examples through
+`derive_reusable_state_contract_metadata(...)` and at least one other
+production guidance-free caller; neither may raise or emit guidance without a
+type environment. A guided example call without its required environment must
+fail at the named API boundary with a deliberate diagnostic/`TypeError`, not
+from an incidental nested field walk.
+
+- [ ] **Step 5: Run structured-result/lowering suites**
 
 ```bash
 pytest -q tests/test_workflow_lisp_structured_results.py tests/test_workflow_lisp_lowering.py tests/test_prompt_contract_injection.py tests/test_workflow_output_contract_integration.py
@@ -368,7 +420,7 @@ pytest -q tests/test_workflow_lisp_structured_results.py tests/test_workflow_lis
 
 Expected: PASS with existing unannotated contract assertions unchanged.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add orchestrator/workflow_lisp/contracts.py orchestrator/workflow_lisp/result_guidance.py orchestrator/workflow_lisp/lowering/effects.py orchestrator/workflow_lisp/lowering/values.py orchestrator/workflow_lisp/lowering/core.py orchestrator/workflow_lisp/wcc/defunctionalize.py tests/test_workflow_lisp_structured_results.py tests/test_workflow_lisp_lowering.py tests/test_prompt_contract_injection.py tests/test_workflow_output_contract_integration.py
@@ -383,11 +435,19 @@ git commit -m "Lower canonical typed result guidance"
 
 - [ ] **Step 1: Add RED loader tests for every container**
 
-Cover direct field keys, bundle `guidance`, `guidance_context`, and
-`guidance_by_variant`. Reject them before v2.15; reject unknown/nested keys,
+Cover direct field keys, bundle `guidance`, `guidance_context`,
+`guidance_by_variant`, and top-level `result_guidance`. Reject them before
+v2.15; reject unknown/nested keys,
 empty strings/payloads, non-JSON examples, invalid/non-prefix/out-of-order
 context pointers, unknown variants, direct/variant coexistence, and examples
 that violate a field schema.
+
+For `result_guidance`, require at least one declared output and accept only the
+closed `description`, `format_hint`, and `example` vocabulary. Treat an
+explicit JSON `null` example as a present value. Reject `guidance_context` and
+do not try to validate the example against flattened output fields; the shared
+loader owns JSON compatibility, while Workflow Lisp already typechecked it
+against the unflattened declared return.
 
 - [ ] **Step 2: Run RED loader tests**
 
@@ -402,7 +462,9 @@ Expected: FAIL because the loader relies on unknown-key tolerance.
 Keep guidance validation separate from `_validate_output_schema_spec` value
 semantics, but call it from output-bundle and variant-field validation. Use the
 discriminant `allowed` order as the canonical variant order. Bundle examples
-need JSON compatibility only; field examples use their field schema.
+and top-level `result_guidance` examples need JSON compatibility only; field
+examples use their field schema. Add `result_guidance` to the v2.15 top-level
+known-field set without making v2.15 generally supported yet.
 
 - [ ] **Step 4: Run loader suites and commit**
 
@@ -439,6 +501,11 @@ Render bundle guidance before fields, contexts shallow-to-deep, and variant
 payloads in discriminant order. Serialize examples with canonical JSON. Keep
 prompt text a view over the validated executable contract.
 
+Do not render top-level `result_guidance` into a provider step prompt. It
+describes the workflow/callable return, whereas the producing provider or
+command receives its occurrence-specific `output_bundle`/`variant_output`
+guidance.
+
 - [ ] **Step 4: Run prompt/output integration suites and commit**
 
 ```bash
@@ -451,9 +518,16 @@ git commit -m "Render typed result guidance for providers"
 
 **Files:**
 - Modify: `orchestrator/workflow_lisp/contracts.py`
+- Modify: `orchestrator/workflow/surface_ast.py`
+- Modify: `orchestrator/workflow/elaboration.py`
+- Modify: `orchestrator/workflow/core_ast.py`
+- Modify: `orchestrator/workflow/lowering.py`
 - Modify: `orchestrator/workflow/semantic_ir.py`
 - Modify: `orchestrator/workflow/executable_ir.py`
 - Modify: `orchestrator/workflow_lisp/source_map.py` only if accepted metadata needs a bridge change
+- Test: `tests/test_workflow_surface_ast.py`
+- Test: `tests/test_workflow_core_ast.py`
+- Test: `tests/test_workflow_ir_lowering.py`
 - Test: `tests/test_workflow_semantic_ir.py`
 - Test: `tests/test_workflow_lisp_source_map.py`
 - Test: `tests/test_workflow_lisp_runtime_source_map.py`
@@ -470,12 +544,23 @@ identity, Executable IR carries the normalized wire metadata, guidance errors
 point to exact annotations, and runtime field violations still resolve through
 the native-return/variant field subjects.
 
+Assert top-level `result_guidance` survives exactly through
+`SurfaceWorkflow.result_guidance`, `CoreWorkflowAST.result_guidance`,
+`SemanticWorkflow.result_guidance`, and
+`ExecutableWorkflow.result_guidance` for direct, record, union, and generated
+private-procedure returns. Core/Semantic/Executable JSON projections emit the
+key only when present; unannotated artifact payloads remain unchanged, so the
+additive optional metadata retains the current internal `*.v1` schema ids.
+Runtime-plan projections must not acquire a copy.
+
 - [ ] **Step 2: Add runtime-neutrality comparisons**
 
 For identical values, annotated and unannotated contracts must produce equal
 validity, artifacts, routing, exit behavior, reusable-state semantic contract
 fingerprints, checkpoint identities, and resume results. Guidance keys must
 never be read by `_parse_output_bundle_value` or variant value validation.
+Adding or removing `result_guidance` must likewise leave outputs, bound
+addresses, runtime plans, state projections, and checkpoint identities equal.
 
 - [ ] **Step 3: Run RED tests**
 
@@ -495,6 +580,13 @@ strip `guidance`, `description`, `format_hint`, `example`,
 non-runtime metadata if clearer). Do not strip type, pointer, path, optionality,
 or variant-validity data. Preserve source ownership at exact annotation spans.
 
+Elaboration freezes the validated top-level payload on `SurfaceWorkflow`;
+Core-AST construction and executable lowering copy it without reinterpretation;
+Semantic derivation records it on the owning `SemanticWorkflow`, beside that
+workflow's output-contract ids. Serializers omit the field when absent. Include
+`result_guidance` in all non-runtime metadata stripping used by fingerprints or
+checkpoint identity.
+
 - [ ] **Step 5: Run the full IR, identity, and runtime-neutrality suites**
 
 ```bash
@@ -508,7 +600,7 @@ Expected: PASS.
 Stage the exact Task 8 paths that changed and commit:
 
 ```bash
-git add orchestrator/workflow_lisp/contracts.py orchestrator/workflow/semantic_ir.py orchestrator/workflow/executable_ir.py orchestrator/workflow_lisp/source_map.py tests/test_workflow_semantic_ir.py tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_runtime_source_map.py tests/test_workflow_lisp_phase_stdlib.py tests/test_workflow_lisp_checkpoint_identity_comparison.py tests/test_workflow_lisp_build_artifacts.py tests/test_output_contract.py tests/test_output_contract_collections.py
+git add orchestrator/workflow_lisp/contracts.py orchestrator/workflow/surface_ast.py orchestrator/workflow/elaboration.py orchestrator/workflow/core_ast.py orchestrator/workflow/lowering.py orchestrator/workflow/semantic_ir.py orchestrator/workflow/executable_ir.py orchestrator/workflow_lisp/source_map.py tests/test_workflow_surface_ast.py tests/test_workflow_core_ast.py tests/test_workflow_ir_lowering.py tests/test_workflow_semantic_ir.py tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_runtime_source_map.py tests/test_workflow_lisp_phase_stdlib.py tests/test_workflow_lisp_checkpoint_identity_comparison.py tests/test_workflow_lisp_build_artifacts.py tests/test_output_contract.py tests/test_output_contract_collections.py
 git commit -m "Preserve typed guidance provenance and neutrality"
 ```
 
@@ -541,6 +633,11 @@ root guidance. Prove the provider receives the semantic contract, runtime state
 matches the unannotated case, the source branch consumes `Bool`, and no wrapper,
 stdout extraction, or authored hidden artifact appears.
 
+Prove separately that the workflow's overall guidance is present once as
+top-level `result_guidance`, survives the loaded bundle and emitted
+Core/Semantic/Executable artifacts, and is not injected into the provider's
+occurrence-specific output instructions.
+
 - [ ] **Step 2: Add nested/union end-to-end contract checks**
 
 Compile one nested record and one union with differing shared-field guidance.
@@ -563,7 +660,8 @@ smoke gates recorded in Task 1.
 
 Document exact source syntax, v2.15 wire containers and validation, typed
 examples, path-example non-existence behavior, composition rules, prompt-only
-semantics, and the now-complete native-return plus guidance release contract.
+semantics, top-level overall-return `result_guidance`, and the now-complete
+native-return plus guidance release contract.
 
 - [ ] **Step 5: Promote v2.15 only after the combined gate passes**
 
@@ -572,7 +670,8 @@ Move `2.15` from the compiler-only preview path into
 it is no longer needed, and prove ordinary YAML and Workflow Lisp loader paths
 accept the complete schema. Before this step, ordinary loader entrypoints must
 still reject v2.15. Update `specs/io.md` with the exact `guidance`,
-`guidance_context`, and `guidance_by_variant` wire containers.
+`guidance_context`, `guidance_by_variant`, and top-level `result_guidance`
+wire containers.
 
 - [ ] **Step 6: Run the fresh post-promotion gate**
 
@@ -583,6 +682,9 @@ pytest -q tests/test_loader_validation.py tests/test_workflow_lisp_result_guidan
 Expected: ordinary YAML and Workflow Lisp entrypoints accept the complete
 v2.15 schema; v2.14 rejects every guidance container; and v2.15 public optional,
 list, and map outputs remain accepted without the preview-only condition.
+The gate also proves v2.14 rejects top-level `result_guidance`, v2.15 accepts
+it for direct and flattened output maps, and no runtime output/state shape
+changes when it is present.
 
 - [ ] **Step 7: Request implementation review**
 
@@ -606,6 +708,12 @@ Update roadmap routing only after fresh evidence proves both plans complete.
 - Examples are typed pure constants; path existence is not checked at compile time.
 - Schema/include/import/specialization/flattening/union composition matches the design.
 - Public v2.15 guidance schemas validate strictly and render canonically.
+- Overall scalar/record/union/private-procedure return guidance uses one
+  top-level `result_guidance` container and survives Surface/Core/Semantic/
+  Executable IR without changing outputs or runtime plans.
+- Guidance-free production contract callers require no type environment and
+  cannot accidentally expand field guidance; provider/command callers opt into
+  the prompt-guided API with an explicit environment.
 - Ordinary loader entrypoints accept v2.15 only after the complete combined
   native-return and typed-guidance gate passes.
 - Annotated/unannotated runtime behavior is identical.
