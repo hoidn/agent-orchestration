@@ -14,49 +14,49 @@
       "nodeid": "tests/test_workflow_output_contract_integration.py::test_provider_valid_output_bundle_overrides_raw_nonzero_exit",
       "category": "established_unrelated",
       "normalized_failure_signature": "AssertionError | assert result[\"exit_code\"] == 0 | compared: 2 == 0",
-      "normalized_failure_sha256": "e23e31925fb3d7488ca7cf62217e57e1c811587d1ffd3414074498875913fe2d"
+      "normalized_failure_sha256": "58edf05cdda00547d9218a5938c8fc03801101e013c674ec7980dc39b956d3be"
     },
     {
       "nodeid": "tests/test_workflow_semantic_ir.py::test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence",
       "category": "established_unrelated",
       "normalized_failure_signature": "AssertionError | assert getattr(prompt_surface, \"typed_prompt_inputs\") | compared: () is truthy",
-      "normalized_failure_sha256": "fab886194b3e7305d7da58f8965ef181a9ba5ec0696309d53c3a4e034753fd00"
+      "normalized_failure_sha256": "6f475adbe48a0cc6e4b3140c29f3ed3cf792e0ac2f37f37c40c948f42b862e41"
     },
     {
       "nodeid": "tests/test_workflow_semantic_ir.py::test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys",
       "category": "established_unrelated",
       "normalized_failure_signature": "AssertionError | assert \"form_path\" not in serialized | compared: \"form_path\" is contained in serialized",
-      "normalized_failure_sha256": "a4a6d4b2d12dc58fd3a00e2295e265561314a51fd0470d9220854d19be069ae7"
+      "normalized_failure_sha256": "a841f6f2534f43b3ef3780afa96cd16ef6c3956b32e77b5acf34c8a462e53710"
     },
     {
       "nodeid": "tests/test_workflow_semantic_ir.py::test_compiled_bundle_semantic_ir_preserves_command_boundary_classification",
       "category": "established_unrelated",
       "normalized_failure_signature": "AssertionError | assert any(step.boundary_kind == \"certified_adapter\" and step.boundary_name == \"apply_resource_transition\" for step in resource_command_steps) | compared: False is truthy",
-      "normalized_failure_sha256": "d31974984680ef73e7927807a1dbd8f65a2f4591516798b09fc15edcdf6b9fe8"
+      "normalized_failure_sha256": "d01fea8e04306f331e1610b74c11538daa1a3ae44fd113f749f8799f01b27b1d"
     },
     {
       "nodeid": "tests/test_provider_role_routing.py::test_design_delta_drain_defaults_route_work_to_codex_gpt54",
       "category": "established_unrelated",
       "normalized_failure_signature": "AssertionError | assert workflow[\"inputs\"][\"design_gap_draft_provider\"][\"default\"] == \"codex\" | compared: \"claude\" == \"codex\"",
-      "normalized_failure_sha256": "90a8ccbf5fbd908c1e911860c54432e4433e13d574566398d5db055759361a59"
+      "normalized_failure_sha256": "ef20b51acbd115fbf35fe1338f60c44ebed325e4fe97b7ed80018a39a06bb4d4"
     },
     {
       "nodeid": "tests/test_neurips_steered_backlog_runtime.py::test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch",
       "category": "established_unrelated",
       "normalized_failure_signature": "FileNotFoundError | [Errno 2] No such file or directory: \"$PYTEST_TMP/test_neurips_steered_backlog_r0/workspace/artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog-drain-summary.json\"",
-      "normalized_failure_sha256": "7eb30e5f77f503b95bbc3da0e77a9d0c19088e1d22b0f53aa2481a17fd77e47d"
+      "normalized_failure_sha256": "908a4f623f045b0762da26bf732c4e0a7df8ca1568cdff605b0d3ad688da3367"
     },
     {
       "nodeid": "tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_is_explicit_inline_procedure",
       "category": "intentional_pilot_red",
       "normalized_failure_signature": "AssertionError | tracked-plan-phase remains a defworkflow; expected defproc with requested/resolved lowering inline | compared: None is not None",
-      "normalized_failure_sha256": "c82257eec5d30836141e7a019398877eef338850b89c30701b6b97872d2d6f64"
+      "normalized_failure_sha256": "0419d3b317a617470d3d5bbc6abd63177633dd86f32a4c436ba2b5b842ba40bf"
     },
     {
       "nodeid": "tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_wrapper_uses_procedure_call",
       "category": "intentional_pilot_red",
       "normalized_failure_signature": "AssertionError | design-plan-impl-review-stack still uses (call tracked-plan-phase ...); expected an ordinary positional procedure call | compared: \"examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase\" in set()",
-      "normalized_failure_sha256": "7ede0dbc27bad8983f6aad9904231522c3b10b92b08687e1afc41b066e05fa22"
+      "normalized_failure_sha256": "c49ce773ec2edfb1a547f1d7db19e829c3cce65bd1ba1241a1dd3c213a22ddbd"
     }
   ]
 }
