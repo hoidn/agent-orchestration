@@ -435,7 +435,7 @@ def _schema1_iteration_private_override_applies(
     """Expose the legacy call-local override as an observable boolean decision."""
 
     # schema1_compatibility: classify the legacy iteration-scope override;
-    # default WCC lowering never consults this call-local predicate.
+    # default WCC lowering never applies this inline-only override.
     if not (
         procedure.resolved_lowering_mode == ProcedureLoweringMode.INLINE
         and context.iteration_scope is not None
