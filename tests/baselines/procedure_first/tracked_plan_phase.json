@@ -1,0 +1,627 @@
+{
+  "artifact_contracts": [
+    {
+      "kind": "provider",
+      "output_bundle_contract": {
+        "fields": [
+          {
+            "json_pointer": "/execution_report_path",
+            "must_exist_target": true,
+            "name": "execution_report_path",
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        ]
+      },
+      "publishes": [],
+      "step": "$module::design-plan-impl-implementation-phase__attempt",
+      "variant_output_contract": null,
+      "workflow": "$module::design-plan-impl-implementation-phase"
+    },
+    {
+      "kind": "provider",
+      "output_bundle_contract": null,
+      "publishes": [],
+      "step": "$module::design-plan-impl-implementation-phase__review",
+      "variant_output_contract": {
+        "discriminant": {
+          "allowed": [
+            "APPROVE",
+            "REVISE"
+          ],
+          "json_pointer": "/variant",
+          "name": "variant",
+          "type": "enum"
+        },
+        "shared_fields": [
+          {
+            "json_pointer": "/implementation_review_report_path",
+            "must_exist_target": true,
+            "name": "implementation_review_report_path",
+            "type": "relpath",
+            "under": "artifacts/review"
+          },
+          {
+            "allowed": [
+              "APPROVE",
+              "REVISE"
+            ],
+            "json_pointer": "/implementation_review_decision",
+            "name": "implementation_review_decision",
+            "type": "enum"
+          }
+        ],
+        "variants": {
+          "APPROVE": {
+            "fields": []
+          },
+          "REVISE": {
+            "fields": []
+          }
+        }
+      },
+      "workflow": "$module::design-plan-impl-implementation-phase"
+    },
+    {
+      "kind": "provider",
+      "output_bundle_contract": {
+        "fields": [
+          {
+            "json_pointer": "/design_path",
+            "must_exist_target": true,
+            "name": "design_path",
+            "type": "relpath",
+            "under": "docs/plans"
+          }
+        ]
+      },
+      "publishes": [],
+      "step": "$module::tracked-design-phase__draft",
+      "variant_output_contract": null,
+      "workflow": "$module::tracked-design-phase"
+    },
+    {
+      "kind": "provider",
+      "output_bundle_contract": null,
+      "publishes": [],
+      "step": "$module::tracked-design-phase__review",
+      "variant_output_contract": {
+        "discriminant": {
+          "allowed": [
+            "APPROVE",
+            "REVISE",
+            "BLOCK"
+          ],
+          "json_pointer": "/variant",
+          "name": "variant",
+          "type": "enum"
+        },
+        "shared_fields": [
+          {
+            "json_pointer": "/design_review_report_path",
+            "must_exist_target": true,
+            "name": "design_review_report_path",
+            "type": "relpath",
+            "under": "artifacts/review"
+          },
+          {
+            "allowed": [
+              "APPROVE",
+              "REVISE",
+              "BLOCK"
+            ],
+            "json_pointer": "/design_review_decision",
+            "name": "design_review_decision",
+            "type": "enum"
+          }
+        ],
+        "variants": {
+          "APPROVE": {
+            "fields": []
+          },
+          "BLOCK": {
+            "fields": []
+          },
+          "REVISE": {
+            "fields": []
+          }
+        }
+      },
+      "workflow": "$module::tracked-design-phase"
+    },
+    {
+      "kind": "provider",
+      "output_bundle_contract": {
+        "fields": [
+          {
+            "json_pointer": "/plan_path",
+            "must_exist_target": true,
+            "name": "plan_path",
+            "type": "relpath",
+            "under": "docs/plans"
+          }
+        ]
+      },
+      "publishes": [],
+      "step": "draft",
+      "variant_output_contract": null,
+      "workflow": "tracked-plan-phase"
+    },
+    {
+      "kind": "provider",
+      "output_bundle_contract": null,
+      "publishes": [],
+      "step": "review",
+      "variant_output_contract": {
+        "discriminant": {
+          "allowed": [
+            "APPROVE",
+            "REVISE"
+          ],
+          "json_pointer": "/variant",
+          "name": "variant",
+          "type": "enum"
+        },
+        "shared_fields": [
+          {
+            "json_pointer": "/plan_review_report_path",
+            "must_exist_target": true,
+            "name": "plan_review_report_path",
+            "type": "relpath",
+            "under": "artifacts/review"
+          },
+          {
+            "allowed": [
+              "APPROVE",
+              "REVISE"
+            ],
+            "json_pointer": "/plan_review_decision",
+            "name": "plan_review_decision",
+            "type": "enum"
+          }
+        ],
+        "variants": {
+          "APPROVE": {
+            "fields": []
+          },
+          "REVISE": {
+            "fields": []
+          }
+        }
+      },
+      "workflow": "tracked-plan-phase"
+    }
+  ],
+  "caller_visible_effects": [
+    {
+      "kind": "CallsWorkflowEffect",
+      "subject": "$module::design-plan-impl-implementation-phase"
+    },
+    {
+      "kind": "CallsWorkflowEffect",
+      "subject": "$module::tracked-design-phase"
+    },
+    {
+      "kind": "UsesProviderEffect",
+      "subject": "providers.design.draft"
+    },
+    {
+      "kind": "UsesProviderEffect",
+      "subject": "providers.design.review"
+    },
+    {
+      "kind": "UsesProviderEffect",
+      "subject": "providers.implementation.execute"
+    },
+    {
+      "kind": "UsesProviderEffect",
+      "subject": "providers.implementation.review"
+    },
+    {
+      "kind": "UsesProviderEffect",
+      "subject": "providers.plan.draft"
+    },
+    {
+      "kind": "UsesProviderEffect",
+      "subject": "providers.plan.review"
+    }
+  ],
+  "internal_route": {
+    "lowered_step_order": {
+      "$module::design-plan-impl-implementation-phase": [
+        "provider:$module::design-plan-impl-implementation-phase__attempt",
+        "provider:$module::design-plan-impl-implementation-phase__review",
+        "match:$module::design-plan-impl-implementation-phase__match_review"
+      ],
+      "$module::design-plan-impl-review-stack": [
+        "call:$module::design-plan-impl-review-stack__design__call_$module::tracked-design-phase",
+        "call:tracked-plan-phase:call",
+        "call:$module::design-plan-impl-review-stack__implementation__call_$module::design-plan-impl-implementation-phase"
+      ],
+      "$module::tracked-design-phase": [
+        "provider:$module::tracked-design-phase__draft",
+        "provider:$module::tracked-design-phase__review",
+        "match:$module::tracked-design-phase__match_review"
+      ],
+      "$module::tracked-plan-phase": [
+        "provider:tracked-plan-phase:draft",
+        "provider:tracked-plan-phase:review",
+        "match:tracked-plan-phase:match"
+      ]
+    },
+    "public_plan_nodes": [
+      {
+        "call_alias": "$module::tracked-plan-phase",
+        "kind": "call",
+        "name": "$module::design-plan-impl-review-stack__plan__call_$module::tracked-plan-phase",
+        "step_id": "root.$module_slug_design_plan_impl_review_stack__plan__call_$module_slug_tracked_plan_phase"
+      }
+    ],
+    "registered_workflows": [
+      "$module::design-plan-impl-implementation-phase",
+      "$module::design-plan-impl-review-stack",
+      "$module::tracked-design-phase",
+      "$module::tracked-plan-phase"
+    ],
+    "source_map": {
+      "$module::design-plan-impl-review-stack": {
+        "expansion_by_origin": {},
+        "form_path_overrides": {},
+        "lineage_by_origin": {},
+        "step_origin_keys": [
+          "$module::design-plan-impl-review-stack::step_id::$module::design-plan-impl-review-stack__design__call_$module::tracked-design-phase",
+          "$module::design-plan-impl-review-stack::step_id::$module::design-plan-impl-review-stack__implementation__call_$module::design-plan-impl-implementation-phase",
+          "$module::design-plan-impl-review-stack::step_id::$module::design-plan-impl-review-stack__plan__call_$module::tracked-plan-phase",
+          "$module::design-plan-impl-review-stack::step_id::$module_slug_design_plan_impl_review_stack__design__call_$module_slug_tracked_design_phase",
+          "$module::design-plan-impl-review-stack::step_id::$module_slug_design_plan_impl_review_stack__implementation__call_$module_slug_design_plan_impl_implementation_phase",
+          "$module::design-plan-impl-review-stack::step_id::$module_slug_design_plan_impl_review_stack__plan__call_$module_slug_tracked_plan_phase"
+        ],
+        "workflow_origin": {
+          "form_path": [
+            "workflow-lisp",
+            "defworkflow",
+            "design-plan-impl-review-stack"
+          ],
+          "origin_key": "$module::design-plan-impl-review-stack::workflow::$module::design-plan-impl-review-stack"
+        }
+      },
+      "$module::tracked-plan-phase": {
+        "expansion_by_origin": {},
+        "form_path_overrides": {},
+        "lineage_by_origin": {},
+        "step_origin_keys": [
+          "$module::tracked-plan-phase::step_id::$module::tracked-plan-phase__draft",
+          "$module::tracked-plan-phase::step_id::$module::tracked-plan-phase__match_review",
+          "$module::tracked-plan-phase::step_id::$module::tracked-plan-phase__match_review__approve__projection_anchor",
+          "$module::tracked-plan-phase::step_id::$module::tracked-plan-phase__match_review__revise__projection_anchor",
+          "$module::tracked-plan-phase::step_id::$module::tracked-plan-phase__review",
+          "$module::tracked-plan-phase::step_id::$module_slug_tracked_plan_phase__draft",
+          "$module::tracked-plan-phase::step_id::$module_slug_tracked_plan_phase__match_review",
+          "$module::tracked-plan-phase::step_id::$module_slug_tracked_plan_phase__match_review__approve__projection_anchor",
+          "$module::tracked-plan-phase::step_id::$module_slug_tracked_plan_phase__match_review__revise__projection_anchor",
+          "$module::tracked-plan-phase::step_id::$module_slug_tracked_plan_phase__review"
+        ],
+        "workflow_origin": {
+          "form_path": [
+            "workflow-lisp",
+            "defworkflow",
+            "tracked-plan-phase"
+          ],
+          "origin_key": "$module::tracked-plan-phase::workflow::$module::tracked-plan-phase"
+        }
+      }
+    }
+  },
+  "public_contract": {
+    "entry_workflow": "$module::design-plan-impl-review-stack",
+    "exported_workflows": [
+      "design-plan-impl-review-stack"
+    ],
+    "inputs": [
+      {
+        "default": null,
+        "kind": "relpath",
+        "must_exist": true,
+        "name": "brief_path",
+        "type_name": "BriefPath",
+        "under": "workflows/examples/inputs"
+      },
+      {
+        "default": null,
+        "kind": "relpath",
+        "must_exist": false,
+        "name": "design_target_path",
+        "type_name": "DesignDocTarget",
+        "under": "docs/plans"
+      },
+      {
+        "default": null,
+        "kind": "relpath",
+        "must_exist": false,
+        "name": "design_review_report_target_path",
+        "type_name": "ReviewReportTarget",
+        "under": "artifacts/review"
+      },
+      {
+        "default": null,
+        "kind": "relpath",
+        "must_exist": false,
+        "name": "plan_target_path",
+        "type_name": "PlanDocTarget",
+        "under": "docs/plans"
+      },
+      {
+        "default": null,
+        "kind": "relpath",
+        "must_exist": false,
+        "name": "plan_review_report_target_path",
+        "type_name": "ReviewReportTarget",
+        "under": "artifacts/review"
+      },
+      {
+        "default": null,
+        "kind": "relpath",
+        "must_exist": false,
+        "name": "execution_report_target_path",
+        "type_name": "ExecutionReportTarget",
+        "under": "artifacts/work"
+      },
+      {
+        "default": null,
+        "kind": "relpath",
+        "must_exist": false,
+        "name": "implementation_review_report_target_path",
+        "type_name": "ReviewReportTarget",
+        "under": "artifacts/review"
+      }
+    ],
+    "module": "$module",
+    "outputs": [
+      {
+        "kind": "relpath",
+        "must_exist": true,
+        "name": "design_path",
+        "type_name": "DesignDocPath",
+        "under": "docs/plans"
+      },
+      {
+        "kind": "relpath",
+        "must_exist": true,
+        "name": "design_review_report_path",
+        "type_name": "ReviewReportPath",
+        "under": "artifacts/review"
+      },
+      {
+        "allowed_values": [
+          "APPROVE",
+          "REVISE",
+          "BLOCK"
+        ],
+        "name": "design_review_decision",
+        "type_name": "DesignReviewDecision"
+      },
+      {
+        "kind": "relpath",
+        "must_exist": true,
+        "name": "plan_path",
+        "type_name": "PlanDocPath",
+        "under": "docs/plans"
+      },
+      {
+        "kind": "relpath",
+        "must_exist": true,
+        "name": "plan_review_report_path",
+        "type_name": "ReviewReportPath",
+        "under": "artifacts/review"
+      },
+      {
+        "allowed_values": [
+          "APPROVE",
+          "REVISE"
+        ],
+        "name": "plan_review_decision",
+        "type_name": "ReviewDecision"
+      },
+      {
+        "kind": "relpath",
+        "must_exist": true,
+        "name": "execution_report_path",
+        "type_name": "ExecutionReportPath",
+        "under": "artifacts/work"
+      },
+      {
+        "kind": "relpath",
+        "must_exist": true,
+        "name": "implementation_review_report_path",
+        "type_name": "ReviewReportPath",
+        "under": "artifacts/review"
+      },
+      {
+        "allowed_values": [
+          "APPROVE",
+          "REVISE"
+        ],
+        "name": "implementation_review_decision",
+        "type_name": "ReviewDecision"
+      }
+    ],
+    "return_type": "StackOutput",
+    "terminal_outcome": {
+      "finalization_entry_node_id": null,
+      "terminal_node_id": "root.$module_slug_design_plan_impl_review_stack__implementation__call_$module_slug_design_plan_impl_implementation_phase",
+      "terminal_node_kind": "call_boundary"
+    }
+  },
+  "runtime_contract": {
+    "lexical_checkpoints": [
+      {
+        "checkpoint_id": "ckpt:ecba9af744ae06ba202198fa",
+        "origin_key": "$module::design-plan-impl-review-stack::step_id::$module_slug_design_plan_impl_review_stack__design__call_$module_slug_tracked_design_phase",
+        "point_kind": "effect_boundary",
+        "presentation_key": "$module::design-plan-impl-review-stack__design__call_$module::tracked-design-phase",
+        "program_point_id": "pp:d4902cc0189a43c679b58018",
+        "resume_policy_kind": "reuse_validated_workflow_call",
+        "step_kind": "call"
+      },
+      {
+        "checkpoint_id": "ckpt:8d1ba7e4a3f6208430f45807",
+        "origin_key": "$module::design-plan-impl-review-stack::step_id::$module_slug_design_plan_impl_review_stack__plan__call_$module_slug_tracked_plan_phase",
+        "point_kind": "effect_boundary",
+        "presentation_key": "$module::design-plan-impl-review-stack__plan__call_$module::tracked-plan-phase",
+        "program_point_id": "pp:354092bd62145595a7cc1e1d",
+        "resume_policy_kind": "reuse_validated_workflow_call",
+        "step_kind": "call"
+      },
+      {
+        "checkpoint_id": "ckpt:65bda4f814bc721664c59a34",
+        "origin_key": "$module::design-plan-impl-review-stack::step_id::$module_slug_design_plan_impl_review_stack__implementation__call_$module_slug_design_plan_impl_implementation_phase",
+        "point_kind": "effect_boundary",
+        "presentation_key": "$module::design-plan-impl-review-stack__implementation__call_$module::design-plan-impl-implementation-phase",
+        "program_point_id": "pp:7bc4dcebb7a558f1079277c5",
+        "resume_policy_kind": "reuse_validated_workflow_call",
+        "step_kind": "call"
+      },
+      {
+        "checkpoint_id": "ckpt:7315195dfee583a7a632b770",
+        "origin_key": "$module::tracked-plan-phase::step_id::$module_slug_tracked_plan_phase__draft",
+        "point_kind": "effect_boundary",
+        "presentation_key": "$module::tracked-plan-phase__draft",
+        "program_point_id": "pp:99b0650349600f32247c251f",
+        "resume_policy_kind": "reuse_validated_structured_output",
+        "step_kind": "provider"
+      },
+      {
+        "checkpoint_id": "ckpt:18fd9e37be5bddb772f62f7e",
+        "origin_key": "$module::tracked-plan-phase::step_id::$module_slug_tracked_plan_phase__review",
+        "point_kind": "effect_boundary",
+        "presentation_key": "$module::tracked-plan-phase__review",
+        "program_point_id": "pp:7d7ef7dd2464c6e5c973a5cd",
+        "resume_policy_kind": "reuse_validated_structured_output",
+        "step_kind": "provider"
+      }
+    ],
+    "resume_checkpoints": [
+      {
+        "checkpoint_kind": "top_level_node",
+        "node_id": "root.$module_slug_design_plan_impl_review_stack__design__call_$module_slug_tracked_design_phase",
+        "presentation_key": "$module::design-plan-impl-review-stack__design__call_$module::tracked-design-phase",
+        "runtime_step_id_mode": "static"
+      },
+      {
+        "checkpoint_kind": "top_level_node",
+        "node_id": "root.$module_slug_design_plan_impl_review_stack__plan__call_$module_slug_tracked_plan_phase",
+        "presentation_key": "$module::design-plan-impl-review-stack__plan__call_$module::tracked-plan-phase",
+        "runtime_step_id_mode": "static"
+      },
+      {
+        "checkpoint_kind": "top_level_node",
+        "node_id": "root.$module_slug_design_plan_impl_review_stack__implementation__call_$module_slug_design_plan_impl_implementation_phase",
+        "presentation_key": "$module::design-plan-impl-review-stack__implementation__call_$module::design-plan-impl-implementation-phase",
+        "runtime_step_id_mode": "static"
+      },
+      {
+        "checkpoint_kind": "call_boundary",
+        "node_id": "root.$module_slug_design_plan_impl_review_stack__design__call_$module_slug_tracked_design_phase",
+        "presentation_key": "$module::design-plan-impl-review-stack__design__call_$module::tracked-design-phase",
+        "runtime_step_id_mode": "static"
+      },
+      {
+        "checkpoint_kind": "call_boundary",
+        "node_id": "root.$module_slug_design_plan_impl_review_stack__plan__call_$module_slug_tracked_plan_phase",
+        "presentation_key": "$module::design-plan-impl-review-stack__plan__call_$module::tracked-plan-phase",
+        "runtime_step_id_mode": "static"
+      },
+      {
+        "checkpoint_kind": "call_boundary",
+        "node_id": "root.$module_slug_design_plan_impl_review_stack__implementation__call_$module_slug_design_plan_impl_implementation_phase",
+        "presentation_key": "$module::design-plan-impl-review-stack__implementation__call_$module::design-plan-impl-implementation-phase",
+        "runtime_step_id_mode": "static"
+      },
+      {
+        "checkpoint_kind": "top_level_node",
+        "node_id": "root.$module_slug_tracked_plan_phase__draft",
+        "presentation_key": "$module::tracked-plan-phase__draft",
+        "runtime_step_id_mode": "static"
+      },
+      {
+        "checkpoint_kind": "top_level_node",
+        "node_id": "root.$module_slug_tracked_plan_phase__review",
+        "presentation_key": "$module::tracked-plan-phase__review",
+        "runtime_step_id_mode": "static"
+      },
+      {
+        "checkpoint_kind": "top_level_node",
+        "node_id": "root.$module_slug_tracked_plan_phase__match_review.$module_slug_tracked_plan_phase__match_review__approve",
+        "presentation_key": "$module::tracked-plan-phase__match_review.APPROVE",
+        "runtime_step_id_mode": "static"
+      },
+      {
+        "checkpoint_kind": "top_level_node",
+        "node_id": "root.$module_slug_tracked_plan_phase__match_review.$module_slug_tracked_plan_phase__match_review__approve.$module_slug_tracked_plan_phase__match_review__approve__projection_anchor",
+        "presentation_key": "$module::tracked-plan-phase__match_review.APPROVE.$module::tracked-plan-phase__match_review__approve__projection_anchor",
+        "runtime_step_id_mode": "static"
+      },
+      {
+        "checkpoint_kind": "top_level_node",
+        "node_id": "root.$module_slug_tracked_plan_phase__match_review.$module_slug_tracked_plan_phase__match_review__revise",
+        "presentation_key": "$module::tracked-plan-phase__match_review.REVISE",
+        "runtime_step_id_mode": "static"
+      },
+      {
+        "checkpoint_kind": "top_level_node",
+        "node_id": "root.$module_slug_tracked_plan_phase__match_review.$module_slug_tracked_plan_phase__match_review__revise.$module_slug_tracked_plan_phase__match_review__revise__projection_anchor",
+        "presentation_key": "$module::tracked-plan-phase__match_review.REVISE.$module::tracked-plan-phase__match_review__revise__projection_anchor",
+        "runtime_step_id_mode": "static"
+      },
+      {
+        "checkpoint_kind": "top_level_node",
+        "node_id": "root.$module_slug_tracked_plan_phase__match_review",
+        "presentation_key": "$module::tracked-plan-phase__match_review",
+        "runtime_step_id_mode": "static"
+      }
+    ],
+    "state_write_roots": [
+      {
+        "semantic_role": "reusable_call_write_root",
+        "stable_identity": "schema:2/$module::design-plan-impl-review-stack/$module::design-plan-impl-review-stack__design__call_$module::tracked-design-phase/$module::tracked-design-phase/__write_root__$module_slug_tracked_design_phase__draft__result_bundle",
+        "workflow": "$module::design-plan-impl-review-stack"
+      },
+      {
+        "semantic_role": "reusable_call_write_root",
+        "stable_identity": "schema:2/$module::design-plan-impl-review-stack/$module::design-plan-impl-review-stack__design__call_$module::tracked-design-phase/$module::tracked-design-phase/__write_root__$module_slug_tracked_design_phase__review__result_bundle",
+        "workflow": "$module::design-plan-impl-review-stack"
+      },
+      {
+        "semantic_role": "reusable_call_write_root",
+        "stable_identity": "schema:2/$module::design-plan-impl-review-stack/$module::design-plan-impl-review-stack__implementation__call_$module::design-plan-impl-implementation-phase/$module::design-plan-impl-implementation-phase/__write_root__$module_slug_design_plan_impl_implementation_phase__attempt__result_bundle",
+        "workflow": "$module::design-plan-impl-review-stack"
+      },
+      {
+        "semantic_role": "reusable_call_write_root",
+        "stable_identity": "schema:2/$module::design-plan-impl-review-stack/$module::design-plan-impl-review-stack__implementation__call_$module::design-plan-impl-implementation-phase/$module::design-plan-impl-implementation-phase/__write_root__$module_slug_design_plan_impl_implementation_phase__review__result_bundle",
+        "workflow": "$module::design-plan-impl-review-stack"
+      },
+      {
+        "semantic_role": "reusable_call_write_root",
+        "stable_identity": "schema:2/$module::design-plan-impl-review-stack/$module::design-plan-impl-review-stack__plan__call_$module::tracked-plan-phase/$module::tracked-plan-phase/__write_root__$module_slug_tracked_plan_phase__draft__result_bundle",
+        "workflow": "$module::design-plan-impl-review-stack"
+      },
+      {
+        "semantic_role": "reusable_call_write_root",
+        "stable_identity": "schema:2/$module::design-plan-impl-review-stack/$module::design-plan-impl-review-stack__plan__call_$module::tracked-plan-phase/$module::tracked-plan-phase/__write_root__$module_slug_tracked_plan_phase__review__result_bundle",
+        "workflow": "$module::design-plan-impl-review-stack"
+      },
+      {
+        "semantic_role": "entrypoint_managed_write_root",
+        "stable_identity": "schema:2/$module::tracked-plan-phase/$module::tracked-plan-phase__draft/result_bundle/entry",
+        "workflow": "$module::tracked-plan-phase"
+      },
+      {
+        "semantic_role": "entrypoint_managed_write_root",
+        "stable_identity": "schema:2/$module::tracked-plan-phase/$module::tracked-plan-phase__review/result_bundle/entry",
+        "workflow": "$module::tracked-plan-phase"
+      }
+    ]
+  },
+  "schema_version": "procedure_first.tracked_plan_phase_contract.v1"
+}
