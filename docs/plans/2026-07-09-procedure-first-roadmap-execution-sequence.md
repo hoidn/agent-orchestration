@@ -169,10 +169,10 @@ and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is
 complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS.
 Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The
 semantic-migration freeze is lifted. Gate S4 passed holistic specification and
-quality review on 2026-07-13. The active step is **Stage 5 wave 2: Typed Result
-Guidance**, governed by
-`2026-07-10-workflow-lisp-typed-result-guidance-plan.md`. Stage 6 YAML archive
-remains later.
+quality review on 2026-07-13. Both typed-return waves are complete and DSL
+v2.15 is public. The active step is the **resolved-effect substrate**, governed
+by `2026-07-13-procedure-first-substrate-gaps-plan.md`; the tracked-plan pilot
+follows it. Stage 6 YAML archive remains later.
 
 The completed Phase 1 execution order was:
 

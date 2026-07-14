@@ -3009,7 +3009,7 @@ def _native_root_return_request(tmp_path: Path):
 def test_boundary_projection_serializes_root_return_kind_for_native_transportable_return(
     tmp_path: Path,
 ) -> None:
-    """A native-return (v2.15 preview) root-valued public workflow serializes
+    """A native-return (public v2.15) root-valued public workflow serializes
     `return_kind: "root"` in the boundary-projection build artifact, on the
     same schema version as existing record/union boundaries, with a single
     generated `__result__` output."""

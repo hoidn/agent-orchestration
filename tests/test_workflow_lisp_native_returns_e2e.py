@@ -1,6 +1,6 @@
 """Declarative end-to-end acceptance for native transportable returns.
 
-Compiles real preview-v2.15 `.orc` provider and command results that each
+Compiles real public-v2.15 `.orc` provider and command results that each
 write direct JSON `true`/`false`, branches on the resulting `Bool`, persists
 state, resumes, and asserts no wrapper object, no stdout extraction, no
 authored `__result__` access, and no name-specific lowering.
