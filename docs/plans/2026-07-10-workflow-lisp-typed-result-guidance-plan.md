@@ -718,4 +718,5 @@ Update roadmap routing only after fresh evidence proves both plans complete.
   native-return and typed-guidance gate passes.
 - Annotated/unannotated runtime behavior is identical.
 - Normative specs, frontend design, drafting guide, indexes, capability matrix, and roadmap agree.
-- v2.15 can be promoted, and the procedure-first pilot becomes the next Stage 5 item.
+- v2.15 is public; the resolved-effect substrate is next, followed by the
+  procedure-first pilot.

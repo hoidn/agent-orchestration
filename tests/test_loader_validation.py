@@ -3682,6 +3682,31 @@ class TestLoaderValidation:
 
         assert surface["steps"][0]["expected_outputs"][0]["type"] == "string"
 
+    @pytest.mark.parametrize("collection_type", ["optional", "list", "map"])
+    def test_v215_expected_outputs_rejects_collection_types(self, collection_type):
+        """Legacy expected_outputs remains limited to runtime-supported value types."""
+        workflow = {
+            "version": "2.15",
+            "name": "legacy-expected-output-collection",
+            "steps": [{
+                "name": "Collect",
+                "command": ["echo", "ok"],
+                "expected_outputs": [{
+                    "name": "result",
+                    "path": "state/result.txt",
+                    "type": collection_type,
+                }],
+            }],
+        }
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(self.write_workflow(workflow))
+
+        assert any(
+            f"invalid expected_outputs type '{collection_type}'" in str(error.message)
+            for error in exc_info.value.errors
+        )
+
     def test_expected_outputs_under_rejects_parent_escape(self):
         """expected_outputs under must satisfy path safety checks."""
         workflow = {

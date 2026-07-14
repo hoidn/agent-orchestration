@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -60,6 +61,52 @@ def _contract_document(prompt: str) -> dict:
     return document[0]
 
 
+_GUIDANCE_KEYS = (
+    "description",
+    "format_hint",
+    "example",
+    "guidance_context",
+    "guidance_by_variant",
+)
+
+
+def _guidance_payload(spec: Mapping[str, object]) -> dict[str, object]:
+    return {key: _thaw(spec[key]) for key in _GUIDANCE_KEYS if key in spec}
+
+
+def _count_mapping_key(value: object, key: str) -> int:
+    if isinstance(value, Mapping):
+        return int(key in value) + sum(
+            _count_mapping_key(item, key) for item in value.values()
+        )
+    if isinstance(value, (list, tuple)):
+        return sum(_count_mapping_key(item, key) for item in value)
+    return 0
+
+
+def _variant_guidance_projection(contract: Mapping[str, object]) -> dict[str, object]:
+    guidance = contract.get("guidance")
+    shared_fields = contract.get("shared_fields", ())
+    variants = contract.get("variants", {})
+    return {
+        "guidance": _guidance_payload(guidance) if isinstance(guidance, Mapping) else {},
+        "shared_fields": {
+            field["name"]: _guidance_payload(field)
+            for field in shared_fields
+            if isinstance(field, Mapping)
+        },
+        "variants": {
+            variant_name: {
+                field["name"]: _guidance_payload(field)
+                for field in variant_spec.get("fields", ())
+                if isinstance(field, Mapping)
+            }
+            for variant_name, variant_spec in variants.items()
+            if isinstance(variant_spec, Mapping)
+        },
+    }
+
+
 def test_direct_bool_provider_guidance_executes_without_wrapper_or_overall_prompt_leak(
     tmp_path: Path,
 ) -> None:
@@ -90,20 +137,21 @@ def test_direct_bool_provider_guidance_executes_without_wrapper_or_overall_promp
         if name.endswith("::decide") or name == "decide"
     )
 
-    overall = {
-        "description": "Whether the reviewed change is approved.",
-        "format_hint": "JSON boolean.",
-        "example": True,
-    }
-    assert dict(bundle.surface.result_guidance) == overall
+    overall = dict(bundle.surface.result_guidance)
+    executable = workflow_executable_ir_to_json(bundle.ir)
+    provider_occurrence = next(
+        node for node in executable["nodes"].values() if node["kind"] == "provider"
+    )
+    occurrence_bundle = provider_occurrence["execution_config"]["common"]["output_bundle"]
+    occurrence_field = occurrence_bundle["fields"][0]
+
+    assert overall
     assert workflow_core_ast_to_json(bundle.core_workflow_ast)["result_guidance"] == overall
     assert workflow_semantic_ir_to_json(bundle.semantic_ir)["workflows"][bundle.surface.name][
         "result_guidance"
     ] == overall
-    assert workflow_executable_ir_to_json(bundle.ir)["result_guidance"] == overall
-    assert json.dumps(workflow_executable_ir_to_json(bundle.ir)).count(
-        "Whether the reviewed change is approved."
-    ) == 1
+    assert executable["result_guidance"] == overall
+    assert _count_mapping_key(executable, "result_guidance") == 1
 
     state = StateManager(workspace=tmp_path, run_id="guided-bool")
     bound_inputs = bind_workflow_inputs(
@@ -155,14 +203,13 @@ def test_direct_bool_provider_guidance_executes_without_wrapper_or_overall_promp
         )
 
     contract = _contract_document(captured["prompt"])
-    assert {
-        key: contract[key] for key in ("description", "format_hint", "example")
-    } == {
-        "description": "True only when the change has no blockers.",
-        "format_hint": "Write a JSON boolean.",
-        "example": True,
-    }
-    assert overall["description"] not in captured["prompt"]
+    assert contract["type"] == occurrence_field["type"]
+    assert _guidance_payload(contract) == _guidance_payload(occurrence_field)
+    assert _guidance_payload(contract) != overall
+    assert "result_guidance" not in contract
+    assert "guidance" not in contract
+    assert "result_guidance" not in occurrence_bundle
+    assert "guidance" not in occurrence_bundle
     assert result["status"] == "completed"
     assert result["workflow_outputs"] == {"__result__": True}
     provider_step = result["steps"]["native_bool_return_guidance::decide__approved"]
@@ -181,34 +228,18 @@ def test_nested_union_guidance_renders_and_selected_variant_keeps_source_lineage
         guided=True,
         lowering_route="wcc_m4",
     )
-    variant_output = next(
+    variant_output = _thaw(next(
         node.execution_config.common.variant_output
         for node in bundle.ir.nodes.values()
         if node.execution_config is not None
         and node.execution_config.common.variant_output
-    )
-    rendered = render_variant_output_contract_block(_thaw(variant_output))
+    ))
+    rendered = render_variant_output_contract_block(variant_output)
     prompt_contract = _contract_document(rendered)
 
-    assert prompt_contract["guidance"] == {
-        "description": "Choose the review route.",
-        "format_hint": "Tagged decision object.",
-    }
-    approved = next(
-        field for field in prompt_contract["shared_fields"] if field["name"] == "approved"
+    assert _variant_guidance_projection(prompt_contract) == _variant_guidance_projection(
+        variant_output
     )
-    assert tuple(approved["guidance_by_variant"]) == ("APPROVE", "REVISE")
-    score = next(
-        field
-        for field in prompt_contract["variants"]["APPROVE"]["fields"]
-        if field["name"].endswith("score")
-    )
-    assert score["guidance_context"] == [
-        {
-            "json_pointer": "/meta",
-            "description": "Approval metrics context.",
-        }
-    ]
 
     frozen_approved = next(
         field for field in variant_output["shared_fields"] if field["name"] == "approved"

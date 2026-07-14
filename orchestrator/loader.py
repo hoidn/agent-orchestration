@@ -3290,7 +3290,7 @@ class WorkflowLoader:
                 self._add_error(f"{context} missing required 'type'", subject_refs=subject_refs)
             elif not isinstance(spec['type'], str):
                 self._add_error(f"{context} 'type' must be a string", subject_refs=subject_refs)
-            elif spec['type'] not in self._supported_output_types(version):
+            elif spec['type'] not in self._supported_expected_output_types(version):
                 self._add_error(f"{context} invalid expected_outputs type '{spec['type']}'", subject_refs=subject_refs)
 
             if 'under' in spec:
@@ -5478,6 +5478,10 @@ class WorkflowLoader:
         if self._version_at_least(version, self.STRING_CONTRACT_VERSION):
             scalar_types.add("string")
         return scalar_types
+
+    def _supported_expected_output_types(self, version: str) -> Set[str]:
+        """Return types supported by the legacy file-backed result channel."""
+        return self._supported_output_types(version) - self.PRIVATE_COLLECTION_OUTPUT_TYPES
 
     def _scalar_type_list(self, version: str) -> str:
         """Render a deterministic scalar-type list for validation errors."""
