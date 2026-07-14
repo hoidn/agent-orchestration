@@ -110,12 +110,14 @@ checkpoint, node, presentation, and source identities cease to exist. Calling
 that result “parity” either forbids all useful internal cleanup or silently
 breaks persisted state.
 
-The accepted contract currently resolves the tension with an unconditional
-stop: if any persisted checkpoint identifier cannot be preserved exactly, the
-migration stops pending a separate remap design. That is correct for public,
-live, and promoted identities but too broad for a reviewed internal callee
-that exists only as migration evidence and whose old state has no supported
-consumer.
+Before this design was accepted, the procedure-first reuse contract resolved
+the tension with an unconditional stop whenever a persisted checkpoint
+identifier could not be preserved exactly. That pre-acceptance rule correctly
+protected public, live, and promoted identities, but it did not yet express the
+narrow reviewed-internal retirement class for an evidence-only callee with no
+supported old-state consumer. Acceptance commit `61c79cb4` has since landed the
+strict-default/retirement-exception qualification in the reuse contract; the
+remaining work is implementation and evidence, not another contract amendment.
 
 The pilot also exposed generic compiler/runtime defects that must not be
 accepted as migration differences: unreported module-level lowering-mode
@@ -162,10 +164,11 @@ Classification is fail closed. Missing evidence, an unowned known store, an
 unknown consumer, or an unsupported assertion selects strict compatibility.
 An external store that was not enumerated remains **unknown**, not absent.
 
-### Amendment to the accepted procedure-first contract
+### Accepted procedure-first contract amendment
 
-Implementation must amend the current unconditional checkpoint stop in
-`workflow_lisp_procedure_first_reuse_contract.md` to this rule:
+Acceptance commit `61c79cb4` amended
+`workflow_lisp_procedure_first_reuse_contract.md` to the following governing
+rule:
 
 > A procedure-first migration is strict-compatible by default. If it cannot
 > preserve a persisted identity exactly, it must stop unless a separately
@@ -174,9 +177,11 @@ Implementation must amend the current unconditional checkpoint stop in
 > retirement exception never applies to exported/public identities,
 > live/promoted state, or a supported consumer of the old identity.
 
-The migration test's current requirement to preserve checkpoint and resume
-identity receives the same qualification. All other preserved-contract axes
-remain unconditional.
+The same commit qualified the migration test's persisted checkpoint/resume
+identity axis and left all other preserved-contract axes unconditional. These
+acceptance changes are already landed; they do not claim that the generic
+prerequisites, retirement evidence, pilot, or projection hardening are
+implemented.
 
 ### General upgrader boundary
 
@@ -386,23 +391,33 @@ is claimed.
 
 ## Dependencies And Sequencing
 
-1. Accept this clarification and the procedure-first contract amendment.
+1. Treat acceptance of this clarification and the procedure-first contract
+   amendment as a completed historical prerequisite from commit `61c79cb4`;
+   do not re-amend either accepted authority during implementation.
 2. Implement prerequisite A and prove normalized semantic identity stability
    on generic fixtures and both lowering routes.
 3. Implement B and C; prove policy ownership and persisted two-note provenance
    on a generic inline effectful procedure fixture.
 4. Implement the evidence-only retirement record validator and fresh checksum-
    rejection integration proof required by prerequisite D.
-5. Generate the pilot's old/new artifacts and identity delta without changing
-   the frozen old baseline.
-6. Complete known-store scans, owner attestations, and independent
-   specification/runtime-state review. Retirement approval cannot occur before
-   Step 4 passes.
-7. Make the source migration, then run clean execution and a real
-   interruption/resume under the new IDs.
-8. Run negative old-state, focused, family parity, and broad verification.
-9. Update capability/status/routing docs after implementation evidence passes.
-10. Route the separate checksum-compatible projection-integrity hardening to a
+5. Retain the frozen old source/build artifacts and identity baseline without
+   changing the pilot source or refreshing the old baseline.
+6. Complete the known-store scans against the old identities, then obtain a
+   genuine named human-owner attestation for every scanned store. An agent must
+   never synthesize, guess, default, paraphrase, or sign an attestation. Any
+   missing or ambiguous attestation selects strict compatibility and triggers
+   the unattended stop without asking, retrying, or editing source.
+7. Only after Step 6 passes, make the one pilot source migration.
+8. Generate the content-addressed new artifacts, complete old-to-new identity
+   delta and artifact/order comparisons, and produce clean-run plus real
+   interruption/resume evidence under the new IDs.
+9. Assemble and validate the completed retirement record, then obtain
+   independent specification/runtime-state approval before accepting any
+   reviewed retired identity.
+10. Run negative old-state, focused, family parity, and broad verification,
+    then update capability/status/routing docs only after implementation
+    evidence passes.
+11. Route the separate checksum-compatible projection-integrity hardening to a
     named plan and land it before production migration waves; it does not block
     this internal pilot.
 
@@ -574,7 +589,18 @@ Stop and revise this design if:
 
 ## Documentation And Normative Impact
 
-Implementation must update, but this design does not itself edit:
+The following acceptance-level changes already landed in commit `61c79cb4`:
+
+- this design became accepted without claiming its prerequisites implemented;
+- `docs/design/workflow_lisp_procedure_first_reuse_contract.md` gained the
+  strict-default/reviewed-internal-retirement qualification and the same
+  qualification on Migration Test item 6; and
+- the frontend specification gained the concise compatibility qualification
+  and link, while routing/status surfaces selected the prerequisite plan and
+  paused the pilot.
+
+The following updates remain implementation-dependent and must not be reported
+as landed merely because the design is accepted:
 
 - `specs/state.md`, only if the current contract is insufficient: clarify
   root-checksum-first rejection for changed-source resume, existing
@@ -584,12 +610,12 @@ Implementation must update, but this design does not itself edit:
   the distinct root- and callee-checksum negative contracts, the distinction
   between identity parity and supported cross-source resume, and positive
   strict/retirement and negative public-boundary scenarios;
-- `docs/design/workflow_lisp_procedure_first_reuse_contract.md`: the exact
-  strict-default/retirement-exception amendment above;
 - `docs/design/workflow_lisp_source_map.md`: WCC propagation of the existing
   procedure-definition and consuming-call-site notes, with no schema change;
-- the frontend specification, capability matrix, authoring guide, pilot plan,
-  and route-readiness registry after evidence passes.
+- the pilot plan's detailed prerequisite evidence/handoff and retirement-record
+  production gates after the generic prerequisite implementation passes; and
+- the capability matrix, authoring guide, route-readiness registry, and other
+  implementation-status surfaces only after their required evidence passes.
 
 A separate projection-integrity audit must be routed into a named follow-on
 design and plan before production migration waves. It is not a pilot
