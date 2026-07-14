@@ -41,11 +41,14 @@ the transitive summary after generic specialization and ProcRef resolution.
 No runtime procedure values, closures, dynamic dispatch, hidden effects, or
 implicit publication are introduced.
 
-That effect split is an accepted semantic target, not a claim about today's
-carrier fields. The current `procedure_typecheck.direct_effects` carrier
-conservatively includes callee transitive effects. A dedicated Stage 5
-substrate change must represent or derive the body-local direct view and
-recompute the transitive view after specialization before the pilot may start.
+The resolved-effect substrate implements that split.
+`TypedProcedureDef.direct_effect_summary` retains the body-local effect atoms
+and procedure-call edges, while `transitive_effect_summary` is recomputed over
+the fully materialized monomorphic procedure set after generic and `ProcRef`
+specialization. Stage 3 also owns each procedure's resolved lowering mode and
+generated private-workflow name. Classic and WCC lowering consume those
+compiler-owned resolved effects and lowering decisions rather than deriving
+route-local substitutes.
 
 ## Context And Authority
 
@@ -166,22 +169,19 @@ Each procedure has two related summaries:
 - **caller-visible transitive effects:** the direct effects joined with every
   statically resolved callee and selected hook reachable from that procedure.
 
-The accepted model requires generic declarations to retain their direct body
-effects. After type parameters and ProcRefs resolve, the specialized
-monomorphic body must be authoritatively typechecked and its caller-visible
-transitive effects recomputed before lowering. Lowering must consume that
-recomputed summary; inline structural visibility is supporting evidence, not a
-substitute for a truthful summary.
+Generic declarations retain their direct body effects. After type parameters
+and ProcRefs resolve, the compiler authoritatively typechecks each specialized
+monomorphic body and recomputes its caller-visible transitive effects before
+lowering. Inline and private-workflow lowering consume that recomputed
+`transitive_effect_summary`; inline structural visibility remains supporting
+evidence, not a substitute for the resolved summary.
 
-This is accepted semantics. In the current implementation,
-`procedure_typecheck.direct_effects` is a conservative carrier that already
-includes callee transitive effects; it is not evidence of a distinct
-body-local direct summary. Before any procedure-first pilot, mandatory Stage 5
-substrate work must add a distinct representation or derivation for the
-body-local direct view, recompute the caller-visible transitive view after
-generic/ProcRef specialization, and prove both through Semantic IR and
-lowering tests. Until then, inline structural visibility does not authorize a
-family migration.
+The substrate's existence does not authorize a family migration by itself.
+Each adoption still requires explicit lowering, effect visibility through
+Semantic IR, migration parity, identity compatibility, runtime evidence, and
+the family-specific review gates. The classic schema-1 iteration-scope
+inline-to-private override remains compatibility behavior only and cannot be
+used to support a WCC migration or promotion claim.
 
 Procedure composition may use the supported typed boundaries below only when
 the selected lowering path preserves their ordinary validation and Semantic IR
@@ -330,14 +330,14 @@ and does not affect lowering, identity, effects, or migration classification.
 
 ## Implementation Sequencing
 
-The accepted procedure-first authoring and migration rules are Stage 5-gated.
-Before the pilot, a separately reviewable substrate plan must close the current
-effect-carrier gap: establish a body-local direct view, recompute the
-caller-visible transitive view after specialization, feed the recomputed view
-to lowering and Semantic IR, and add positive and negative effect-visibility
-tests. No family may claim procedure-first promotion from this accepted design
-alone. Current capability and adoption status belongs in the capability matrix
-and procedure-first roadmap, not this durable contract.
+The resolved-effect and compiler-owned lowering-decision substrates are
+implemented prerequisites. Procedure-first adoption remains family-gated: the
+pilot and later waves must prove explicit lowering, resolved effect visibility,
+Semantic IR and source-map lineage, checkpoint/state compatibility, runtime
+behavior, and the applicable identity-retirement or strict-compatibility path.
+No family may claim procedure-first promotion from this accepted design or the
+generic substrate alone. Current adoption status belongs in the capability
+matrix and procedure-first roadmap, not this durable contract.
 
 ## Verification Strategy
 
