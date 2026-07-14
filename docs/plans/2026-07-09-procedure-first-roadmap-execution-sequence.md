@@ -38,7 +38,11 @@ design, or the runtime specifications.
 - `docs/plans/2026-07-07-refactoring-dead-code-and-lowering-consolidation.md`
   supplies the original refactoring roadmap.
 - `docs/design/workflow_lisp_language_server.md` owns the `.orc` language
-  server contract implemented by Stage 7 (added by the 2026-07-13 amendment).
+  server contract implemented by Stage 8 (added by the 2026-07-13
+  amendments).
+- `docs/design/workflow_lisp_provider_live_binding.md` owns the tmux-hosted
+  provider transport and `with-live-providers` contract implemented by
+  Stage 7 (added by the second 2026-07-13 amendment).
 - The component execution plans named below govern their own tasks and checks.
 
 If these work instructions disagree with a semantic design or normative spec,
@@ -403,18 +407,72 @@ Use the procedure-first model as the target authoring architecture:
 Do not port a YAML family into a reusable `.orc` workflow when Stage 4
 classifies that unit as a procedure candidate.
 
-### Stage 7: Deliver The `.orc` Language Server
+### Stage 7: Deliver Provider Live Binding
 
-Stage 7 is the final stage (added by the 2026-07-13 amendment). It implements
+Stage 7 (added by the second 2026-07-13 amendment) implements
+`docs/design/workflow_lisp_provider_live_binding.md`: tmux-hosted provider
+invocations with a 1:1 invocation-to-pane invariant as the default transport,
+and `with-live-providers`, a call-site structured-concurrency form that runs
+N provider calls concurrently inside one atomic step, injects declared
+peers' live tmux targets into member prompts, and settles by last-expression
+dataflow while member agents interact free-form through their own tools.
+
+It precedes the language server deliberately: it changes the authoring
+language and the provider transport, and Stage 8's
+ship-against-the-settled-estate rationale requires those changes to land
+first.
+
+Entry conditions:
+
+1. The live-binding design has passed independent design review, with the
+   T3 steering-viability probe outcome folded into the design first; an
+   adverse probe routes to the design's stop/revise criteria (turn-boundary
+   steering) before any planning.
+2. A component execution plan exists under `docs/plans/` following the
+   design's four-phase implementation handoff.
+
+Execution follows the design's phases:
+
+1. Pane transport behind a flag plus the pipe-vs-pane compatibility suite
+   (feasibility item T1). Independently valuable observability; may be
+   closed as its own tranche.
+2. `provider_group` executable node and concurrent member runtime with
+   settlement, grace, and termination semantics (feasibility item T2).
+3. Frontend surface: `with-live-providers`, binding typecheck and
+   `LiveBindingEffect`, lowering with source-map entries, prompt-composer
+   binding injection with prompt-audit flags.
+4. Steering viability (`interactive_input` template capability, T3), the
+   real-CLI end-to-end smoke, spec deltas, and the transport default flip.
+
+Gate S7 (the design's success criteria):
+
+- the compatibility suite is green and the transport default is flipped
+  with fresh evidence; T1-T3 outcomes are recorded;
+- all of the design's verification-strategy checks pass with fresh output,
+  including the fixture-agent interaction proofs and the real-CLI smoke;
+- single-member equivalence is proven at IR and behavior level;
+- spec deltas are landed and the capability matrix and documentation
+  routing reflect implemented status.
+
+Scope guard: Stage 7 covers only the design's v1. Cross-run binding,
+multi-step members, typed steering vocabularies, event-driven wake-ups, and
+background/join primitives are excluded; each requires its own design
+treatment and an explicit amendment to this roadmap.
+
+### Stage 8: Deliver The `.orc` Language Server
+
+Stage 8 is the final stage (added by the first 2026-07-13 amendment as
+Stage 7; renumbered by the second). It implements
 `docs/design/workflow_lisp_language_server.md`: a stdio LSP server that is a
 pure consumer of the existing compile entry points per frontend specification
 §76.1, delivering save-driven diagnostics, go-to-definition, document symbols,
 and completion for `.orc` authoring.
 
 It runs last deliberately: the server's navigation and completion surfaces
-should target the settled procedure-first stdlib and the `.orc`-primary
-authoring estate rather than chase Stage 5-6 surface churn, and its v1
-provides no substrate capability any earlier stage needs.
+should target the settled procedure-first stdlib, the `.orc`-primary
+authoring estate, and the landed live-binding surface rather than chase
+Stage 5-7 churn, and its v1 provides no substrate capability any earlier
+stage needs.
 
 Entry conditions:
 
@@ -434,7 +492,7 @@ Execution follows the design's phases:
 3. Packaging and docs — `lsp` optional-dependency extra, editor-setup
    documentation, capability matrix row, routing updates.
 
-Gate S7 (the design's success criteria):
+Gate S8 (the design's success criteria):
 
 - all of the design's verification-strategy checks pass with fresh output,
   including the stdio integration tests, the CLI diagnostic-parity test, and
@@ -443,11 +501,11 @@ Gate S7 (the design's success criteria):
 - F1-F3 outcomes are recorded with the implementation evidence;
 - the capability matrix and documentation routing reflect implemented status.
 
-Scope guard: Stage 7 covers only the design's v1 (save-driven diagnostics
+Scope guard: Stage 8 covers only the design's v1 (save-driven diagnostics
 plus navigation). The deferred frontend prerequisites P1-P5 (diagnostic
 accumulation, reader error recovery, hover type sidecar, source overlay,
 compile caching) are each a separate frontend change requiring its own design
-treatment and an explicit amendment to this roadmap; Stage 7 must not absorb
+treatment and an explicit amendment to this roadmap; Stage 8 must not absorb
 them.
 
 ## Concurrency Rules
@@ -461,9 +519,12 @@ them.
 - Stage 5 implementation and Stage 6 code changes are serial at shared
   validation/lowering/runtime boundaries. Independent documentation or estate
   inventory may proceed separately.
-- Stage 7 is additive at `orchestrator/lsp/` and packaging metadata and does
+- Stage 7 edits provider-executor, frontend, IR, and checkpoint surfaces and
+  is serial with Stage 5-6 work at those shared surfaces; its phase-1
+  transport tranche stays behind a flag until its compatibility gate passes.
+- Stage 8 is additive at `orchestrator/lsp/` and packaging metadata and does
   not contend with earlier-stage code surfaces; its deferred P1-P5 frontend
-  prerequisites are out of its scope and must not be started from Stage 7.
+  prerequisites are out of its scope and must not be started from Stage 8.
 
 ## Verification Ladder
 
@@ -497,7 +558,10 @@ This roadmap sequence is complete when:
   are retired;
 - YAML retirement proceeds against the procedure-first model rather than
   recreating reusable workflow wrappers;
-- the `.orc` language server v1 has shipped through Gate S7, with editor
+- provider live binding v1 has shipped through Gate S7, with the
+  pane-transport compatibility evidence and the fixture-agent interaction
+  proofs recorded;
+- the `.orc` language server v1 has shipped through Gate S8, with editor
   diagnostics proven at parity with the CLI compile path.
 
 ## Stop And Revise Conditions

@@ -31,9 +31,12 @@
     concurrency-out-of-scope statements this design narrowly amends),
     `specs/examples/multi-agent-inbox.md` (existing sanctioned coordination
     pattern, which remains valid and complementary)
-- **Implementation target:** not scheduled; requires an explicit amendment to
-  `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
-  (see Dependencies And Sequencing)
+- **Implementation target:** scheduled as Stage 7 of
+  `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md` by
+  its second 2026-07-13 amendment, ahead of the language server's final
+  Stage 8; implementation start remains gated on independent design review
+  acceptance (including the T3 steering-viability probe) and on the
+  sequence reaching Stage 7
 
 ## Summary
 
@@ -400,12 +403,13 @@ flags) and by transcripts as evidence.
     capability so authors know which members can be steered; whether any
     builtin CLI supports it today must be probed, and an adverse result
     triggers the stop/revise criteria, not a workaround.
-- **Sequencing:** not roadmap-scheduled; this document does not make the
-  work selectable. It touches the provider executor, frontend, IR, and
-  checkpoint policy, so implementation must serialize with procedure-first
-  Stage 5/6 work at shared surfaces per the roadmap's concurrency rules and
-  requires an explicit roadmap amendment (the same path prompt-queue and the
-  language server took). Part A (pane transport behind a flag) is
+- **Sequencing:** scheduled as Stage 7 of the procedure-first roadmap
+  execution sequence (second 2026-07-13 amendment), deliberately before the
+  language server's final Stage 8 because this design changes the authoring
+  language and the provider transport the server should ship against. It
+  touches the provider executor, frontend, IR, and checkpoint policy, so
+  implementation is serial with Stage 5-6 work at shared surfaces per the
+  roadmap's concurrency rules. Part A (pane transport behind a flag) is
   independently valuable — uniform live observability for every invocation —
   and is deliberately the first phase.
 - Work that can proceed independently: independent design review; the T3

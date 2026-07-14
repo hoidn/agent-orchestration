@@ -20,10 +20,12 @@
   - `docs/design/workflow_language_design_principles.md`
   - `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
     (governing roadmap; see Dependencies And Sequencing)
-- **Implementation target:** scheduled as Stage 7 (final stage) of
-  `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md` by its
-  2026-07-13 amendment; implementation start remains gated on independent
-  design review acceptance and on the sequence reaching Stage 7
+- **Implementation target:** scheduled as Stage 8 (final stage) of
+  `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md` by
+  its 2026-07-13 amendments (initially Stage 7; renumbered when provider
+  live binding was inserted as Stage 7); implementation start remains gated
+  on independent design review acceptance and on the sequence reaching
+  Stage 8
 
 ## Summary
 
@@ -338,14 +340,16 @@ treatment (amendment to this document or a follow-on) plus a roadmap slot:
     representative workflows). If it is not, the two-phase publishing open
     question is resolved before proceeding; caching (P5) is not designed
     speculatively.
-- **Roadmap sequencing:** scheduled as Stage 7, the final stage of the
-  procedure-first roadmap execution sequence (2026-07-13 amendment), entered
-  after Stage 6 with independent design review acceptance as an entry
-  condition. v1 touches no compiler, executor, build, typecheck, or lowering
-  surfaces, so it does not contend with earlier-stage work at shared
-  surfaces. The Tier-2 prerequisites P1–P5 are explicitly outside Stage 7's
-  scope: they touch reader/typecheck/module-resolution surfaces, and each
-  requires its own design treatment and a further roadmap amendment.
+- **Roadmap sequencing:** scheduled as Stage 8, the final stage of the
+  procedure-first roadmap execution sequence (2026-07-13 amendments;
+  renumbered from Stage 7 when provider live binding was inserted ahead of
+  it), entered after Stage 7 with independent design review acceptance as an
+  entry condition. v1 touches no compiler, executor, build, typecheck, or
+  lowering surfaces, so it does not contend with earlier-stage work at
+  shared surfaces. The Tier-2 prerequisites P1–P5 are explicitly outside
+  Stage 8's scope: they touch reader/typecheck/module-resolution surfaces,
+  and each requires its own design treatment and a further roadmap
+  amendment.
 - Work that can proceed independently: independent design review of this
   document; a syntax-highlighting grammar; editor client packaging
   decisions.
