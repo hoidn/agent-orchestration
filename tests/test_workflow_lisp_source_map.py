@@ -36,6 +36,7 @@ IMPORTED_STDLIB_HELPER_MODULE = (
 )
 LEXICAL_CHECKPOINT_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_shadow_points.orc"
 LEXICAL_POLICY_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_effect_policies.orc"
+PROCEDURE_IDENTITY_FIXTURE = FIXTURES / "valid" / "procedure_lowering_identity_modes.orc"
 DESIGN_DELTA_PARENT_DRAIN_COMMANDS = (
     REPO_ROOT
     / "workflows"
@@ -100,6 +101,39 @@ def _build_source_map_document(
         display_name_resolver=lambda workflow_name: workflow_name.rsplit("::", 1)[-1],
     )
     return source_map_module, document, canonical_name
+
+
+def _build_procedure_identity_source_map_document(tmp_path: Path):
+    source_map_module = importlib.import_module("orchestrator.workflow_lisp.source_map")
+    command_payload = json.loads(
+        PROCEDURE_IDENTITY_FIXTURE.with_suffix(".commands.json").read_text(encoding="utf-8")
+    )
+    compile_result = compile_stage3_module(
+        PROCEDURE_IDENTITY_FIXTURE,
+        entry_workflow="orchestrate",
+        provider_externs=json.loads(
+            PROCEDURE_IDENTITY_FIXTURE.with_suffix(".providers.json").read_text(encoding="utf-8")
+        ),
+        prompt_externs=json.loads(
+            PROCEDURE_IDENTITY_FIXTURE.with_suffix(".prompts.json").read_text(encoding="utf-8")
+        ),
+        command_boundaries={
+            name: ExternalToolBinding(name=name, stable_command=tuple(payload["stable_command"]))
+            for name, payload in command_payload.items()
+        },
+        lowering_route="wcc_m4",
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    document = source_map_module.build_source_map_document(
+        SimpleNamespace(
+            compiled_results_by_name={"__main__": compile_result},
+            validated_bundles_by_name=compile_result.validated_bundles,
+        ),
+        selected_name="orchestrate",
+        display_name_resolver=lambda workflow_name: workflow_name.rsplit("::", 1)[-1],
+    )
+    return document, "orchestrate"
 
 
 def _build_entrypoint_source_map_document(
@@ -858,6 +892,25 @@ def test_source_map_preserves_inline_union_contract_field_lineage(
         )
         for subject_name, entry in inline_decision_fields.items()
     )
+
+
+def test_wcc_inline_generated_provider_and_match_entries_keep_definition_and_callsite_notes(
+    tmp_path: Path,
+) -> None:
+    document, workflow_name = _build_procedure_identity_source_map_document(tmp_path)
+    workflow = document.workflows[workflow_name]
+    inline_nodes = [
+        node
+        for node in workflow.core_nodes
+        if node.step_kind in {"provider", "match"} and "inline_plan" in node.step_id
+    ]
+
+    assert {node.step_kind for node in inline_nodes} == {"provider", "match"}
+    assert len(inline_nodes) == 2
+    for node in inline_nodes:
+        notes = workflow.step_ids[node.step_id].notes
+        assert any(note.startswith("procedure definition at") for note in notes)
+        assert any(note.startswith("procedure call site at") for note in notes)
 
 
 def _walk_steps(raw_steps: object) -> tuple[dict[str, object], ...]:

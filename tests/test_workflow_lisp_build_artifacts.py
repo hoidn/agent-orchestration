@@ -2918,6 +2918,44 @@ def test_wcc_m4_full_fixture_source_map_records_review_loop_and_command_lineage(
     assert "wcc-node" not in source_map_text
 
 
+def test_build_persists_wcc_inline_procedure_notes(tmp_path: Path) -> None:
+    result = _build_module().build_frontend_bundle(_procedure_identity_build_request(tmp_path))
+    source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    checkpoint_points = json.loads(
+        result.artifact_paths["lexical_checkpoint_points"].read_text(encoding="utf-8")
+    )
+    workflow = source_map["workflows"]["procedure_lowering_identity_modes::orchestrate"]
+    inline_nodes = [
+        node
+        for node in workflow["core_nodes"]
+        if node["step_kind"] in {"provider", "match"} and "inline_plan" in node["step_id"]
+    ]
+
+    assert {node["step_kind"] for node in inline_nodes} == {"provider", "match"}
+    assert len(inline_nodes) == 2
+    for node in inline_nodes:
+        notes = workflow["step_ids"][node["step_id"]]["notes"]
+        assert any(note.startswith("procedure definition at") for note in notes)
+        assert any(note.startswith("procedure call site at") for note in notes)
+
+    entries_by_origin = {
+        entry["origin_key"]: entry for entry in workflow["step_ids"].values()
+    }
+    inline_checkpoints = [
+        point
+        for point in checkpoint_points["points"]
+        if "inline_plan" in point["executable_identity"]["step_id"]
+    ]
+    assert {point["effect_boundary"]["effect_kind"] for point in inline_checkpoints} == {
+        "provider",
+        "command",
+    }
+    for point in inline_checkpoints:
+        notes = entries_by_origin[point["source_lineage"]["origin_key"]]["notes"]
+        assert any(note.startswith("procedure definition at") for note in notes)
+        assert any(note.startswith("procedure call site at") for note in notes)
+
+
 def test_build_frontend_bundle_emits_imported_stdlib_macro_helper_provenance_across_artifacts(
     tmp_path: Path,
 ) -> None:

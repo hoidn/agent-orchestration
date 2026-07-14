@@ -86,7 +86,16 @@ from ..lowering.phase_resource import (
 from ..loops import RepeatUntilEmitterInput
 from ..lowering.control_loops import _emit_repeat_until_from_emitter_input
 from ..phase import eligible_private_context_source_param_names
-from ..lowering.procedures import LowerableProcedureCall, _private_workflow_from_procedure, _procedure_type_env_for, _validate_resolved_procedure_mapping, _lower_procedure_call, _rewrite_nested_sibling_step_refs
+from ..lowering.procedures import (
+    LowerableProcedureCall,
+    _lower_procedure_call,
+    _merge_origin_notes,
+    _private_workflow_from_procedure,
+    _procedure_provenance_notes,
+    _procedure_type_env_for,
+    _rewrite_nested_sibling_step_refs,
+    _validate_resolved_procedure_mapping,
+)
 from ..lowering.workflow_calls import LowerableWorkflowCall, _lower_workflow_call
 from orchestrator.workflow.state_layout import GeneratedPathPrivacy, GeneratedPathSemanticRole, derive_entrypoint_managed_write_root_allocations
 from .anf import normalize_wcc_body_to_anf
@@ -3425,6 +3434,22 @@ def _lower_wcc_procedure_call(
 
     prefix_ordinal = context.inline_call_counters.get(value.callee_name, 0) + 1
     context.inline_call_counters[value.callee_name] = prefix_ordinal
+    call_source = LowerableProcedureCall(
+        callee_name=value.callee_name,
+        args=arg_exprs,
+        span=value.metadata.source_span,
+        form_path=value.metadata.form_path,
+        expansion_stack=value.metadata.expansion_stack,
+        specialized_callee_name=value.specialized_callee_name,
+    )
+    procedure_notes = _merge_origin_notes(
+        context.origin_notes,
+        _procedure_provenance_notes(
+            call_source,
+            procedure,
+            typed_procedures=context.typed_procedures,
+        ),
+    )
     child_context = replace(
         context,
         step_name_prefix=lowering_core._inline_procedure_step_prefix(
@@ -3454,6 +3479,7 @@ def _lower_wcc_procedure_call(
             default=context.type_env,
         ),
         active_procedure_calls=context.active_procedure_calls | {procedure.signature.name},
+        origin_notes=procedure_notes,
     )
     workflow_return_types = {
         name: workflow.signature.return_type_ref
