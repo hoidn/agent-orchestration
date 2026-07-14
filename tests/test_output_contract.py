@@ -139,6 +139,77 @@ def test_validate_expected_outputs_ignores_guidance_fields(tmp_path: Path):
     assert artifacts == {"review_outcome": "APPROVE"}
 
 
+def test_output_bundle_value_parser_ignores_nested_guidance_metadata(tmp_path: Path) -> None:
+    bundle_path = tmp_path / "state" / "bundle.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text('{"approved": true}\n', encoding="utf-8")
+    plain_field = {
+        "name": "approved",
+        "json_pointer": "/approved",
+        "type": "bool",
+    }
+    guided_field = {
+        **plain_field,
+        "description": "True only when no blockers remain.",
+        "format_hint": "JSON boolean.",
+        "example": True,
+        "guidance_context": [
+            {"json_pointer": "/review", "description": "Review context."}
+        ],
+    }
+
+    plain = validate_output_bundle(
+        {"path": "state/bundle.json", "fields": [plain_field]},
+        workspace=tmp_path,
+    )
+    guided = validate_output_bundle(
+        {
+            "path": "state/bundle.json",
+            "guidance": {"description": "Complete review result."},
+            "fields": [guided_field],
+        },
+        workspace=tmp_path,
+    )
+
+    assert guided == plain == {"approved": True}
+
+
+def test_variant_value_parser_ignores_variant_guidance_metadata(tmp_path: Path) -> None:
+    bundle_path = tmp_path / "state" / "variant.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(
+        '{"variant": "APPROVE", "approved": true}\n',
+        encoding="utf-8",
+    )
+    contract = {
+        "path": "state/variant.json",
+        "guidance": {"description": "Choose one decision."},
+        "discriminant": {
+            "name": "variant",
+            "json_pointer": "/variant",
+            "type": "enum",
+            "allowed": ["APPROVE", "REVISE"],
+        },
+        "shared_fields": [
+            {
+                "name": "approved",
+                "json_pointer": "/approved",
+                "type": "bool",
+                "guidance_by_variant": {
+                    "APPROVE": {"description": "Approval flag.", "example": True},
+                    "REVISE": {"description": "Revision flag.", "example": False},
+                },
+            }
+        ],
+        "variants": {"APPROVE": {"fields": []}, "REVISE": {"fields": []}},
+    }
+
+    assert validate_variant_output_bundle(contract, workspace=tmp_path) == {
+        "variant": "APPROVE",
+        "approved": True,
+    }
+
+
 def test_validate_expected_outputs_preserves_exact_string_contents(tmp_path: Path):
     """type string reads exact file contents without trimming."""
     (tmp_path / "state").mkdir()

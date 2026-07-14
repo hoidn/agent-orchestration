@@ -47,6 +47,7 @@ _NON_SEMANTIC_CONTRACT_PROVENANCE_KEYS = frozenset(
         "example",
         "guidance_context",
         "guidance_by_variant",
+        "result_guidance",
     }
 )
 

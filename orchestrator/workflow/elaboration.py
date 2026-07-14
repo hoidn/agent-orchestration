@@ -246,6 +246,11 @@ def elaborate_surface_workflow(
             root_step_names=root_step_names,
             allow_generated_step_kinds=allow_generated_step_kinds,
         ),
+        result_guidance=(
+            freeze_mapping(surface_workflow["result_guidance"])
+            if isinstance(surface_workflow.get("result_guidance"), Mapping)
+            else None
+        ),
     )
 
 

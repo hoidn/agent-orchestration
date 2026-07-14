@@ -369,6 +369,7 @@ class _IRBuilder:
                     runtime_proof_parent_ref_allowances=self.runtime_proof_parent_ref_allowances,
                 ),
             ),
+            result_guidance=self.surface.result_guidance,
         )
         return executable, self.projection.build()
 

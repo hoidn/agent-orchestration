@@ -296,3 +296,4 @@ class SurfaceWorkflow:
     outputs: Mapping[str, SurfaceContract] = field(default_factory=empty_frozen_mapping)
     imports: Mapping[str, ImportedWorkflowMetadata] = field(default_factory=empty_frozen_mapping)
     finalization: Optional[SurfaceFinallyBlock] = None
+    result_guidance: Mapping[str, Any] | None = None

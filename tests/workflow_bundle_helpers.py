@@ -486,6 +486,8 @@ def _surface_workflow(surface: SurfaceWorkflow) -> dict[str, Any]:
     outputs = _surface_contracts(surface.outputs)
     if outputs:
         payload["outputs"] = outputs
+    if surface.result_guidance is not None:
+        payload["result_guidance"] = _thaw(surface.result_guidance)
     if surface.imports:
         payload["imports"] = {
             alias: str(metadata.workflow_path)

@@ -468,6 +468,7 @@ class ExecutableWorkflow:
     private_artifacts: Mapping[str, ExecutablePrivateArtifact] = field(default_factory=empty_frozen_mapping)
     inputs: Mapping[str, ExecutableContract] = field(default_factory=empty_frozen_mapping)
     outputs: Mapping[str, ExecutableContract] = field(default_factory=empty_frozen_mapping)
+    result_guidance: Mapping[str, Any] | None = None
 
 
 _LEAF_EXECUTION_CONFIG_TYPES = (
@@ -514,7 +515,7 @@ _COMPILE_TIME_TYPE_NAME_FRAGMENTS = ("ProcRef", "WorkflowRef", "SourceSpan", "Sy
 def workflow_executable_ir_to_json(ir: ExecutableWorkflow) -> dict[str, Any]:
     """Serialize executable IR deterministically from the owning shared module."""
 
-    return {
+    payload = {
         "schema_version": ir.schema_version,
         "version": ir.version,
         "name": ir.name,
@@ -543,6 +544,9 @@ def workflow_executable_ir_to_json(ir: ExecutableWorkflow) -> dict[str, Any]:
             for name, contract in sorted(ir.outputs.items())
         },
     }
+    if ir.result_guidance is not None:
+        payload["result_guidance"] = _json_value(ir.result_guidance)
+    return payload
 
 
 def validate_executable_workflow(ir: ExecutableWorkflow) -> None:

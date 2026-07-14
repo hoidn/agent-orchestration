@@ -7,6 +7,7 @@ from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
+from orchestrator.workflow_lisp.contracts import structured_contract_semantic_digest
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
@@ -67,6 +68,27 @@ def test_checkpoint_identity_stable_across_recompiles(tmp_path: Path) -> None:
     second = _executor_for_fixture(tmp_path / "b")
 
     assert checkpoint_identity_map(first) == checkpoint_identity_map(second)
+
+
+def test_result_guidance_is_excluded_from_reusable_contract_identity() -> None:
+    contract = {
+        "fields": [
+            {
+                "name": "__result__",
+                "json_pointer": "",
+                "type": "bool",
+            }
+        ]
+    }
+    guided = {
+        **contract,
+        "result_guidance": {
+            "description": "True only when no blockers remain.",
+            "example": True,
+        },
+    }
+
+    assert structured_contract_semantic_digest(guided) == structured_contract_semantic_digest(contract)
 
 
 # --- Drain checkpoint-identity baselines ------------------------------------

@@ -264,6 +264,7 @@ class CoreWorkflowAST:
     body: tuple[Any, ...]
     finalization: CoreFinally | None = None
     provenance: WorkflowProvenance | None = None
+    result_guidance: Mapping[str, Any] | None = None
     _surface_workflow: SurfaceWorkflow | None = field(default=None, repr=False, compare=False)
 
 
@@ -301,6 +302,7 @@ def build_core_workflow_ast(
             command_boundary_metadata=command_boundary_metadata,
         ),
         provenance=provenance,
+        result_guidance=surface.result_guidance,
         _surface_workflow=surface,
     )
     validate_core_workflow_ast(core_workflow_ast, imports=imports)
@@ -368,7 +370,7 @@ def lower_core_workflow_ast(core_workflow_ast: CoreWorkflowAST):
 
 
 def workflow_core_ast_to_json(core_workflow_ast: CoreWorkflowAST) -> dict[str, Any]:
-    return {
+    payload = {
         "schema_version": core_workflow_ast.schema_version,
         "workflow_name": core_workflow_ast.workflow_name,
         "dsl_version": core_workflow_ast.dsl_version,
@@ -380,6 +382,9 @@ def workflow_core_ast_to_json(core_workflow_ast: CoreWorkflowAST) -> dict[str, A
         "body": [_statement_to_json(statement) for statement in core_workflow_ast.body],
         "finalization": _finally_to_json(core_workflow_ast.finalization),
     }
+    if core_workflow_ast.result_guidance is not None:
+        payload["result_guidance"] = _json_data(core_workflow_ast.result_guidance)
+    return payload
 
 
 def _subject_refs_for_meta(workflow_name: str, meta: CoreStmtMeta) -> tuple[ValidationSubjectRef, ...]:
@@ -804,6 +809,7 @@ def _surface_workflow_from_core_ast(core_workflow_ast: CoreWorkflowAST) -> Surfa
             if core_workflow_ast.finalization is not None
             else None
         ),
+        result_guidance=core_workflow_ast.result_guidance,
     )
 
 

@@ -13,9 +13,13 @@ import yaml
 
 from orchestrator.exceptions import ValidationSubjectRef, WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
+from orchestrator.workflow.core_ast import workflow_core_ast_to_json
+from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
+from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from tests.workflow_bundle_helpers import thaw_surface_workflow
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -25,6 +29,208 @@ LEXICAL_POLICY_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkp
 LEXICAL_RESTORE_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_restore_regions.orc")
 TYPED_PROMPT_INPUT_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/typed_prompt_input_phase.orc")
 ENTRY_PUBLICATION_RUNTIME_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/entry_publication_runtime.orc")
+
+
+@pytest.mark.parametrize("lowering_route", ["legacy", "wcc_m4"])
+def test_compiled_result_guidance_survives_every_shared_ir_layer(
+    tmp_path: Path,
+    lowering_route: str,
+) -> None:
+    source_path = tmp_path / f"result_guidance_{lowering_route}.orc"
+    source_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defworkflow guided ()",
+                '    -> (result Bool :description "Public decision." :example true)',
+                "    (provider-result providers.execute",
+                "      :prompt prompts.execute",
+                "      :inputs ()",
+                '      :returns (result Bool :description "Provider decision." :example true))))',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    result = compile_stage3_module(
+        source_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.execute": "prompts/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=lowering_route,
+    )
+    bundle = result.validated_bundles["guided"]
+    expected = {"description": "Public decision.", "example": True}
+
+    assert dict(bundle.surface.result_guidance) == expected
+    assert dict(bundle.core_workflow_ast.result_guidance) == expected
+    assert dict(bundle.semantic_ir.workflows["guided"].result_guidance) == expected
+    assert dict(bundle.ir.result_guidance) == expected
+    assert thaw_surface_workflow(bundle)["result_guidance"] == expected
+    execution_config = next(iter(bundle.ir.nodes.values())).execution_config
+    assert execution_config.common.output_bundle["fields"][0]["description"] == "Provider decision."
+    assert execution_config.common.output_bundle["fields"][0]["example"] is True
+    semantic_output = bundle.semantic_ir.contracts["contract:guided:output:__result__"]
+    assert "description" not in semantic_output.definition
+    assert "example" not in semantic_output.definition
+    assert workflow_core_ast_to_json(bundle.core_workflow_ast)["result_guidance"] == expected
+    assert workflow_semantic_ir_to_json(bundle.semantic_ir)["workflows"]["guided"]["result_guidance"] == expected
+    assert workflow_executable_ir_to_json(bundle.ir)["result_guidance"] == expected
+    assert not hasattr(bundle.runtime_plan, "result_guidance")
+    assert not hasattr(bundle.projection, "result_guidance")
+
+
+def test_result_guidance_is_omitted_when_absent_and_runtime_plan_neutral(tmp_path: Path) -> None:
+    workflow_path = tmp_path / "result_guidance_neutrality.yaml"
+    workflow = {
+        "version": "2.15",
+        "name": "result-guidance-neutrality",
+        "artifacts": {"ready": {"kind": "scalar", "type": "bool"}},
+        "outputs": {
+            "ready": {
+                "kind": "scalar",
+                "type": "bool",
+                "from": {"ref": "root.steps.SetReady.artifacts.ready"},
+            }
+        },
+        "steps": [
+            {
+                "name": "SetReady",
+                "id": "set_ready",
+                "set_scalar": {"artifact": "ready", "value": True},
+            }
+        ],
+    }
+    _write_yaml(workflow_path, workflow)
+    plain_loader = WorkflowLoader(tmp_path)
+    plain_loader._enabled_preview_versions = frozenset({"2.15"})
+    plain = plain_loader.load_bundle(workflow_path)
+    guided_workflow = {
+        **workflow,
+        "result_guidance": {
+            "description": "True when the workflow is ready.",
+            "example": True,
+        },
+    }
+    _write_yaml(workflow_path, guided_workflow)
+    guided_loader = WorkflowLoader(tmp_path)
+    guided_loader._enabled_preview_versions = frozenset({"2.15"})
+    guided = guided_loader.load_bundle(workflow_path)
+
+    plain_core = workflow_core_ast_to_json(plain.core_workflow_ast)
+    plain_semantic = workflow_semantic_ir_to_json(plain.semantic_ir)
+    plain_executable = workflow_executable_ir_to_json(plain.ir)
+    assert "result_guidance" not in plain_core
+    assert "result_guidance" not in plain_semantic["workflows"][plain.surface.name]
+    assert "result_guidance" not in plain_executable
+    assert plain_core["schema_version"] == "core_workflow_ast.v1"
+    assert plain_semantic["schema_version"] == "workflow_semantic_ir.v1"
+    assert plain_executable["schema_version"] == "workflow_executable_ir.v1"
+
+    assert guided.surface.outputs == plain.surface.outputs
+    assert guided.core_workflow_ast.outputs == plain.core_workflow_ast.outputs
+    assert guided.ir.outputs == plain.ir.outputs
+    assert guided.ir.nodes == plain.ir.nodes
+    assert guided.projection == plain.projection
+    assert guided.runtime_plan == plain.runtime_plan
+    assert guided.runtime_plan.resume_checkpoints == plain.runtime_plan.resume_checkpoints
+
+    guided_core = workflow_core_ast_to_json(guided.core_workflow_ast)
+    guided_core.pop("result_guidance")
+    assert guided_core == plain_core
+    guided_executable = workflow_executable_ir_to_json(guided.ir)
+    guided_executable.pop("result_guidance")
+    assert guided_executable == plain_executable
+    guided_semantic = workflow_semantic_ir_to_json(guided.semantic_ir)
+    guided_semantic["workflows"][guided.surface.name].pop("result_guidance")
+    assert guided_semantic == plain_semantic
+
+
+@pytest.mark.parametrize("lowering_route", ["legacy", "wcc_m4"])
+def test_record_union_and_private_procedure_result_guidance_reaches_shared_ir(
+    tmp_path: Path,
+    lowering_route: str,
+) -> None:
+    source_path = tmp_path / f"result_guidance_shapes_{lowering_route}.orc"
+    source_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defrecord ReviewResult (approved Bool))",
+                "  (defunion Decision",
+                "    (APPROVE (approved Bool))",
+                "    (REVISE (reason String)))",
+                "  (defproc build-review ()",
+                '    -> (result ReviewResult :description "Private review result.")',
+                "    :effects ((uses-command decide))",
+                "    :lowering private-workflow",
+                "    (command-result decide",
+                '      :argv ("python" "scripts/decide.py")',
+                "      :returns ReviewResult))",
+                "  (defworkflow guided-record ()",
+                '    -> (result ReviewResult :description "Public review result.")',
+                "    (command-result decide",
+                '      :argv ("python" "scripts/decide.py")',
+                '      :returns (result ReviewResult :description "Command review result.")))',
+                "  (defworkflow guided-union ()",
+                '    -> (result Decision :description "Public decision result.")',
+                "    (command-result decide",
+                '      :argv ("python" "scripts/decide.py")',
+                '      :returns (result Decision :description "Command decision result.")))',
+                "  (defworkflow invoke-private () -> ReviewResult",
+                "    (build-review)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    result = compile_stage3_module(
+        source_path,
+        command_boundaries={
+            "decide": ExternalToolBinding(
+                name="decide",
+                stable_command=("python", "scripts/decide.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=lowering_route,
+    )
+    expected_by_name = {
+        "guided-record": {"description": "Public review result."},
+        "guided-union": {"description": "Public decision result."},
+    }
+    private_name = next(
+        name for name in result.validated_bundles if name.startswith("%") and "build-review" in name
+    )
+    expected_by_name[private_name] = {"description": "Private review result."}
+
+    for workflow_name, expected in expected_by_name.items():
+        bundle = result.validated_bundles[workflow_name]
+        assert dict(bundle.surface.result_guidance) == expected
+        assert dict(bundle.core_workflow_ast.result_guidance) == expected
+        assert dict(bundle.semantic_ir.workflows[workflow_name].result_guidance) == expected
+        assert dict(bundle.ir.result_guidance) == expected
+
+    record_bundle = result.validated_bundles["guided-record"]
+    record_config = next(iter(record_bundle.ir.nodes.values())).execution_config
+    assert record_config.common.output_bundle["guidance"] == {
+        "description": "Command review result."
+    }
+    union_bundle = result.validated_bundles["guided-union"]
+    union_config = next(iter(union_bundle.ir.nodes.values())).execution_config
+    assert union_config.common.variant_output["guidance"] == {
+        "description": "Command decision result."
+    }
+    for bundle in (record_bundle, union_bundle):
+        for contract in bundle.semantic_ir.contracts.values():
+            if contract.source_kind == "output":
+                assert "guidance" not in contract.definition
 
 
 def _real_union_contract_source_map_payload(tmp_path: Path):

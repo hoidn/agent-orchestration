@@ -182,6 +182,7 @@ class SemanticWorkflow:
     prompt_surface_ids: tuple[str, ...] = ()
     command_boundary_ids: tuple[str, ...] = ()
     publication_ref_ids: tuple[str, ...] = ()
+    result_guidance: Mapping[str, Any] | None = None
     executable_bridge: SemanticExecutableBridge = field(
         default_factory=lambda: SemanticExecutableBridge(workflow_name="", node_ids=(), presentation_keys=())
     )
@@ -711,6 +712,11 @@ def derive_workflow_semantic_ir(
                     prompt_surface_ids=tuple(sorted(prompt_surfaces)),
                     command_boundary_ids=tuple(sorted(command_boundaries)),
                     publication_ref_ids=tuple(publication_ref_ids),
+                    result_guidance=(
+                        core_workflow_ast.result_guidance
+                        if core_workflow_ast is not None
+                        else surface.result_guidance
+                    ),
                     executable_bridge=workflow_bridge,
                 )
             }
@@ -1110,6 +1116,11 @@ def validate_workflow_semantic_ir(
 
 def workflow_semantic_ir_to_json(semantic_ir: SemanticWorkflowIR) -> dict[str, Any]:
     payload = _json_value(semantic_ir)
+    workflows = payload.get("workflows")
+    if isinstance(workflows, Mapping):
+        for workflow in workflows.values():
+            if isinstance(workflow, dict) and workflow.get("result_guidance") is None:
+                workflow.pop("result_guidance", None)
     generated_compatibility_bridges = _generated_compatibility_bridges_from_payload(
         payload
     )
