@@ -87,11 +87,11 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Completed Stage-5 wave 2. Root/field guidance and the combined v2.15 public promotion gate are landed; do not re-execute it. |
 | `2026-07-13-procedure-first-substrate-gaps-plan.md` | Complete and independently gated. Caller-visible transitive effects are recomputed after specialization; do not re-execute this substrate before the tracked-plan pilot. |
 | `2026-07-13-procedure-migration-identity-compatibility-plan.md` | Complete and gated; the final audited handoff to the pilot is `f5adcb79`. Do not re-execute it or edit the pilot family source under this plan. |
-| `2026-07-13-procedure-first-pilot-plan.md` | Current selected plan. The 2026-07-14 architect decision (recorded in `2026-07-14-tracked-plan-pilot-identity-retirement-decision-request.md`) approved Path A — conditional reviewed internal identity retirement. Task 1A harness/evidence work is selectable with the repository run store and dedicated evidence store enumerated under a named owner; every pilot source edit remains prohibited until the complete pre-edit gate commits, and fail-closed reversion to strict compatibility stands. |
+| `2026-07-13-procedure-first-pilot-plan.md` | Current selector. The 2026-07-14 architect decision approved Path A and selected Task 1A. Generic matching-count repairs `e43461f9` and `5f382401` are complete; corrected pre-edit scan regeneration is next. Owner attestations, quiescence, Task 2, and every pilot source edit remain incomplete or prohibited until their gates pass. |
 | `2026-07-13-resume-projection-integrity-hardening-design-plan.md` | Planned after the internal pilot. Its design/specification and resulting implementation plan must complete before migration waves begin; this row is not an implementation claim. |
 | `2026-07-13-procedure-first-migration-waves-plan.md` | Planned after resume projection-integrity hardening implementation completes. Task 1 must rebaseline all prerequisites before any family migration. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
-| `2026-07-07-yaml-retirement-program.md` | Amended 2026-07-14 to deletion-first retirement: survivors are `verified_iteration_drain` and `generic_run_watchdog`, each getting its own `.orc` port through the parity kernel; every other YAML workflow is reclassified delete, and the Task 6 deletion sweep may run as an early independent tranche scheduled around the pilot's quiescence window. See the program's steering amendment and roadmap Stage 6. |
+| `2026-07-07-yaml-retirement-program.md` | Amended 2026-07-14 to deletion-first retirement: survivors are `verified_iteration_drain` and `generic_run_watchdog`, each getting its own `.orc` port through the parity kernel; every other YAML workflow is reclassified delete, and the Task 6 deletion sweep may run as an early independent tranche scheduled around the pilot's quiescence window. That sweep is not selected, has not started, is not full Stage 6, and does not reorder paused top-level stages. See the program's steering amendment and roadmap Stage 6. |
 
 ## Concrete Execution Sequence
 
@@ -180,17 +180,21 @@ semantic-migration freeze is lifted. Gate S4 passed holistic specification and
 quality review on 2026-07-13. Both typed-return waves are complete and DSL
 v2.15 is public. The resolved-effect substrate is complete and independently
 gated. The procedure-migration identity-compatibility prerequisites are
-complete and gated at handoff `f5adcb79`. The current selected plan is
+complete and gated at handoff `f5adcb79`. The current selector is
 `docs/plans/2026-07-13-procedure-first-pilot-plan.md`. The 2026-07-14
 architect decision (Path A, recorded in
 `2026-07-14-tracked-plan-pilot-identity-retirement-decision-request.md`)
-makes Task 1A harness/evidence work selectable; every source edit remains
-prohibited until the complete pre-edit gate commits. The named store owner
-must still supply genuine attributable attestations after the recorded scans,
-with the required isolation, quiescence, and immutable-evidence gate;
+makes Task 1A selected. Generic matching-count repairs `e43461f9` and
+`5f382401` are complete, and corrected pre-edit scan regeneration is next.
+The named store owner must still supply genuine attributable attestations
+after the corrected scans, with the required isolation, quiescence, and
+immutable-evidence gate; Task 2 and every source edit remain prohibited, and
 identity must not be inferred from usernames, filesystem metadata,
-conversation context, or agent claims. Only after the pilot completes is it
-followed by
+conversation context, or agent claims. All later stages remain paused. The
+deletion-first YAML Task 6 estate sweep is the sole scheduling exception: it
+may run as an independent tranche around pilot quiescence, but it is not
+selected, has not started, is not full Stage 6, and does not reorder the
+paused top-level stages. Only after the pilot completes is it followed by
 `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`, completion
 of the resulting implementation plan,
 `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`,
@@ -259,10 +263,12 @@ full-suite comparison, promoted `.orc` compile/dry-run evidence, and preserved
 historical state/YAML twin. The semantic-migration freeze is lifted and Stage 4
 was the next selector at Gate S3; it, both typed-return waves, and the
 resolved-effect substrate and identity-compatibility prerequisites are now
-complete. The tracked-plan pilot is the current selected plan; the 2026-07-14 architect
-decision (Path A) makes Task 1A evidence work selectable while every source
-edit stays behind the pre-edit gate. Projection-integrity hardening remains
-later and must not start first.
+complete. The tracked-plan pilot is the current selector; the 2026-07-14
+architect decision (Path A) selected Task 1A, matching-count repairs
+`e43461f9` and `5f382401` are complete, and corrected pre-edit scan
+regeneration is next. Owner attestations, quiescence, Task 2, and every source
+edit remain incomplete or prohibited. Projection-integrity hardening and all
+later stages remain paused.
 
 ### Stage 4: Design The Broader Procedure-First Contract
 
@@ -368,8 +374,10 @@ plans are the effect-substrate, tracked-plan pilot, and migration-wave plans
 dated 2026-07-13. Typed result guidance is implemented and compatible; the
 resolved-effect substrate is now complete and independently gated. The
 accepted identity-compatibility design's generic prerequisites are complete and
-gated at `f5adcb79`. The pilot is selected next but remains stopped before Task
-1A under the genuine known-store owner-attestation gate recorded in `45eadbdc`.
+gated at `f5adcb79`. The pilot is the current selector; Path A selected Task
+1A, generic matching-count repairs `e43461f9` and `5f382401` are complete, and
+corrected pre-edit scan regeneration is next. Owner attestations, quiescence,
+Task 2, and every source edit remain incomplete or prohibited.
 
 ### Stage 5: Implement Procedure-First Reuse In Waves
 
@@ -393,17 +401,18 @@ Execute only accepted plans, in this order:
    `2026-07-13-procedure-migration-identity-compatibility-plan.md` passed its
    generic implementation, evidence, checksum-negative, and independent-review
    gates; the final audited handoff is `f5adcb79`. Do not re-execute it.
-5. **Pilot wave — current selected plan, Path A approved 2026-07-14.**
-   `2026-07-13-procedure-first-pilot-plan.md` resumes at Task 1A under the
+5. **Pilot wave — current selector, Path A approved 2026-07-14.**
+   `2026-07-13-procedure-first-pilot-plan.md` continues at Task 1A under the
    architect decision recorded in
    `2026-07-14-tracked-plan-pilot-identity-retirement-decision-request.md`:
    conditional reviewed internal identity retirement, evidence collection
-   only. Every source edit remains prohibited until the complete pre-edit
-   gate commits. The named store owner must still supply genuine attributable
-   attestations after the recorded scans, with the required isolation,
-   quiescence, and immutable-evidence gate; identity must not be inferred
-   from usernames, filesystem metadata, conversation context, or agent
-   claims. The
+   only. Matching-count repairs `e43461f9` and `5f382401` are complete, and
+   corrected pre-edit scan regeneration is next. Every source edit and Task 2
+   remain prohibited until the complete pre-edit gate commits. The named store
+   owner must still supply genuine attributable attestations after the
+   corrected scans, with the required isolation, quiescence, and
+   immutable-evidence gate; identity must not be inferred from usernames,
+   filesystem metadata, conversation context, or agent claims. The
    resumed pilot then owns the reviewed internal retirement exception, the one
    family edit, and full public-wrapper parity. Missing or ineligible retirement
    evidence stops the pilot under strict compatibility.
@@ -438,6 +447,11 @@ Use the procedure-first model as the target authoring architecture. The
 2026-07-14 steering amendment to
 `docs/plans/2026-07-07-yaml-retirement-program.md` selects deletion-first
 retirement:
+
+The Task 6 estate deletion sweep is the sole scheduling exception to the
+paused top-level order. It may run as an independent tranche around the pilot
+quiescence window, but it is not selected yet, has not started, is not full
+Stage 6, and does not reorder the later stages.
 
 1. Run the estate deletion sweep as an early independent tranche — it
    touches no governed compiler/runtime/validation surface: delete every

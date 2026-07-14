@@ -8,11 +8,13 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CURRENT_SELECTOR_PATH = (
-    "docs/plans/2026-07-13-procedure-migration-identity-compatibility-plan.md"
+    "docs/plans/2026-07-13-procedure-first-pilot-plan.md"
+)
+CORRECTION_SUBPLAN_PATH = (
+    "docs/plans/2026-07-14-procedure-identity-store-match-scoped-counts-plan.md"
 )
 ORDERED_ROADMAP_PATHS = (
     CURRENT_SELECTOR_PATH,
-    "docs/plans/2026-07-13-procedure-first-pilot-plan.md",
     "docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md",
     "docs/plans/2026-07-13-procedure-first-migration-waves-plan.md",
     "docs/plans/2026-07-07-yaml-retirement-program.md",
@@ -80,6 +82,20 @@ def _assert_exact_ordered_routing_paths(surface: str, label: str) -> None:
         positions.append(canonical.index(path))
     assert positions == sorted(positions), (label, positions)
     assert "paused" in canonical.lower(), label
+    assert canonical.count(CORRECTION_SUBPLAN_PATH) == 0, label
+    assert _normalized_routing_text(surface).count("current selector") == 1, label
+
+
+def _assert_early_yaml_sweep_exception(surface: str, label: str) -> None:
+    normalized = _normalized_routing_text(surface)
+    assert "deletion" in normalized, label
+    assert "sweep" in normalized, label
+    assert "quiescence" in normalized, label
+    assert "independent" in normalized, label
+    assert "not selected" in normalized, label
+    assert "has not started" in normalized, label
+    assert "not full stage 6" in normalized, label
+    assert "does not reorder" in normalized, label
 
 
 def _assert_task_4_3_closeout_state(surface: str, label: str) -> None:
@@ -265,5 +281,49 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
         with pytest.raises(AssertionError):
             _assert_exact_ordered_routing_paths(duplicated, f"{label} duplicate selector")
 
-    assert _normalized_routing_text(docs_index_routing).count("current selector") == 1
-    assert _normalized_routing_text(procedure_first_row).count("current selector") == 1
+        correction_promoted = surface + " " + CORRECTION_SUBPLAN_PATH
+        with pytest.raises(AssertionError):
+            _assert_exact_ordered_routing_paths(
+                correction_promoted,
+                f"{label} correction promoted",
+            )
+
+        missing_selector_declaration = surface.replace("current selector", "active plan", 1)
+        with pytest.raises(AssertionError):
+            _assert_exact_ordered_routing_paths(
+                missing_selector_declaration,
+                f"{label} missing selector declaration",
+            )
+
+        removed_selector_declaration = surface.replace("current selector", "", 1)
+        with pytest.raises(AssertionError):
+            _assert_exact_ordered_routing_paths(
+                removed_selector_declaration,
+                f"{label} removed selector declaration",
+            )
+
+        _assert_early_yaml_sweep_exception(surface, label)
+
+        for mutation, mutation_label in (
+            (
+                surface.replace("has not started", "has started", 1),
+                "started sweep",
+            ),
+            (
+                surface.replace("has not started", "", 1),
+                "missing not-started clause",
+            ),
+            (
+                surface.replace("does not reorder", "does reorder", 1),
+                "reordered stages",
+            ),
+            (
+                surface.replace("does not reorder", "", 1),
+                "missing no-reorder clause",
+            ),
+        ):
+            with pytest.raises(AssertionError):
+                _assert_early_yaml_sweep_exception(
+                    mutation,
+                    f"{label} {mutation_label}",
+                )
