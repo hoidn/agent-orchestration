@@ -1385,6 +1385,7 @@ def _resolve_stage3_procedure_lowering(
     state: ValidationPipelineState,
     *,
     workflow_path: Path,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> ValidationPipelineState:
     """Resolve module-level procedure lowering once after Stage-3 typing/effects."""
 
@@ -1395,14 +1396,14 @@ def _resolve_stage3_procedure_lowering(
         typed_workflows=state.typed_workflows,
         workflow_path=workflow_path,
         type_env=state.type_env,
-        procedure_type_envs={
-            procedure.definition.name: procedure_type_env_for(
-                procedure,
-                procedure_type_envs=None,
-                default=state.type_env,
-            )
-            for procedure in state.typed_procedures
-        },
+        procedure_type_envs=(
+            procedure_type_envs
+            if procedure_type_envs is not None
+            else {
+                procedure.definition.name: state.type_env
+                for procedure in state.typed_procedures
+            }
+        ),
     )
     return replace(
         state,
@@ -2468,21 +2469,6 @@ def _compile_stage3_graph(
             )
             for workflow in typed_workflows
         )
-        resolved_state = _resolve_stage3_procedure_lowering(
-            ValidationPipelineState(
-                module=definition_module,
-                type_env=type_env,
-                typed_procedures=typed_procedures,
-                typed_workflows=typed_workflows,
-            ),
-            workflow_path=module_source.path,
-        )
-        typed_procedures = resolved_state.typed_procedures
-        _validate_family_profile_typed_prompt_input_rows(
-            typed_workflows,
-            typed_procedures=typed_procedures,
-            workflow_catalog=workflow_catalog,
-        )
         lowering_workflow_catalog = workflow_catalog
         if typed_workflows_by_name:
             lowering_workflow_catalog = replace(
@@ -2506,10 +2492,37 @@ def _compile_stage3_graph(
                 procedure_type_envs=combined_procedure_type_envs,
                 default=type_env,
             )
+        local_procedure_names = tuple(
+            procedure.definition.name for procedure in typed_procedures
+        )
+        resolved_state = _resolve_stage3_procedure_lowering(
+            ValidationPipelineState(
+                module=definition_module,
+                type_env=type_env,
+                typed_procedures=tuple(combined_typed_procedures.values()),
+                typed_workflows=typed_workflows,
+            ),
+            workflow_path=module_source.path,
+            procedure_type_envs=combined_procedure_type_envs,
+        )
+        resolved_combined_procedures = resolved_state.typed_procedures
+        resolved_combined_by_name = {
+            procedure.definition.name: procedure
+            for procedure in resolved_combined_procedures
+        }
+        typed_procedures = tuple(
+            resolved_combined_by_name[name]
+            for name in local_procedure_names
+        )
+        _validate_family_profile_typed_prompt_input_rows(
+            typed_workflows,
+            typed_procedures=typed_procedures,
+            workflow_catalog=workflow_catalog,
+        )
         lowered_workflows = _lower_workflows_for_route(
             lowering_route=normalized_lowering_route,
             typed_workflows=typed_workflows,
-            typed_procedures=tuple(combined_typed_procedures.values()),
+            typed_procedures=resolved_combined_procedures,
             available_workflows_by_name=typed_workflows_by_name,
             procedure_type_envs=combined_procedure_type_envs,
             workflow_type_envs=workflow_type_envs_by_name,

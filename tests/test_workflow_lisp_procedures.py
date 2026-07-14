@@ -47,6 +47,7 @@ from orchestrator.workflow_lisp.expressions import (
     WithPhaseExpr,
 )
 from orchestrator.workflow_lisp.lowering import _resolve_procedure_lowering, lower_workflow_definitions
+from orchestrator.workflow_lisp.lowering.procedures import _validate_resolved_procedure_mapping
 from orchestrator.workflow_lisp.phase_stdlib import ProduceOneOfProducerSpec
 from orchestrator.workflow_lisp.procedures import (
     ProcedureLoweringMode,
@@ -6585,11 +6586,12 @@ def test_wcc_m4_lowerer_uses_supplied_resolved_procedure_tuple(
         raise AssertionError("WCC M4 lowerer recomputed procedure lowering")
 
     monkeypatch.setattr(
-        wcc_defunctionalize,
+        procedure_lowering,
         "_resolve_procedure_lowering",
         fail_recomputation,
-        raising=False,
     )
+
+    assert not hasattr(wcc_defunctionalize, "_resolve_procedure_lowering")
 
     lowered = lower_wcc_m4_workflow_definitions(
         compiled.typed_workflows,
@@ -6613,6 +6615,136 @@ def test_wcc_m4_lowerer_uses_supplied_resolved_procedure_tuple(
         workflow.typed_workflow.definition.name == "%test.resolved.helper"
         for workflow in lowered
     )
+
+
+@pytest.mark.parametrize(
+    ("mode", "generated_name"),
+    [
+        (ProcedureLoweringMode.PRIVATE_WORKFLOW, None),
+        (ProcedureLoweringMode.INLINE, "%test.invalid.inline"),
+    ],
+)
+def test_resolved_procedure_mapping_rejects_malformed_mode_name_pairs(
+    tmp_path: Path,
+    mode: ProcedureLoweringMode,
+    generated_name: str | None,
+) -> None:
+    compiled = _compile_procedure_identity_fixture(tmp_path)
+    source = next(
+        procedure
+        for procedure in compiled.typed_procedures
+        if procedure.resolved_lowering_mode is mode
+    )
+    malformed = replace(source, generated_workflow_name=generated_name)
+    supplied = MappingProxyType({malformed.definition.name: malformed})
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _validate_resolved_procedure_mapping((malformed,), supplied)
+
+    assert excinfo.value.diagnostics[0].code == "procedure_lowering_unresolved"
+    assert excinfo.value.diagnostics[0].span == malformed.definition.span
+
+
+def test_resolved_procedure_mapping_preserves_empty_mapping_identity_and_rejects_extras(
+    tmp_path: Path,
+) -> None:
+    empty = MappingProxyType({})
+    assert _validate_resolved_procedure_mapping((), empty) is empty
+
+    compiled = _compile_procedure_identity_fixture(tmp_path)
+    procedure = compiled.typed_procedures[0]
+    nonempty = MappingProxyType({procedure.definition.name: procedure})
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _validate_resolved_procedure_mapping((), nonempty)
+    assert excinfo.value.diagnostics[0].code == "procedure_lowering_unresolved"
+
+
+def test_resolved_procedure_mapping_rejects_wrong_type_and_equal_distinct_rows(
+    tmp_path: Path,
+) -> None:
+    compiled = _compile_procedure_identity_fixture(tmp_path)
+    procedure = compiled.typed_procedures[0]
+
+    with pytest.raises(LispFrontendCompileError) as wrong_type:
+        _validate_resolved_procedure_mapping(
+            (procedure,),
+            {procedure.definition.name: procedure},
+        )
+    assert wrong_type.value.diagnostics[0].code == "procedure_lowering_unresolved"
+
+    equal_but_distinct = replace(procedure)
+    assert equal_but_distinct == procedure
+    assert equal_but_distinct is not procedure
+    with pytest.raises(LispFrontendCompileError) as distinct_row:
+        _validate_resolved_procedure_mapping(
+            (procedure,),
+            MappingProxyType({procedure.definition.name: equal_but_distinct}),
+        )
+    assert distinct_row.value.diagnostics[0].code == "procedure_lowering_unresolved"
+
+
+@pytest.mark.parametrize(
+    ("route", "consumer_name"),
+    [
+        ("legacy", "lower_workflow_definitions"),
+        ("wcc_m1", "lower_wcc_m1_workflow_definitions"),
+        ("wcc_m2", "lower_wcc_m2_workflow_definitions"),
+        ("wcc_m3", "lower_wcc_m3_workflow_definitions"),
+        ("wcc_m4", "lower_wcc_m4_workflow_definitions"),
+    ],
+)
+def test_compiler_dispatch_passes_exact_resolved_mapping_to_every_route(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    route: str,
+    consumer_name: str,
+) -> None:
+    compiled = _compile_procedure_identity_fixture(tmp_path)
+    type_env = FrontendTypeEnvironment.from_module(compiled.module)
+    received: list[object] = []
+    validated: list[object] = []
+
+    def capture_consumer(typed_workflows, **kwargs):
+        supplied = kwargs["resolved_procedures_by_name"]
+        received.append(supplied)
+        validated.append(
+            _validate_resolved_procedure_mapping(
+                kwargs["typed_procedures"],
+                supplied,
+            )
+        )
+        return ()
+
+    monkeypatch.setattr(workflow_lisp_compiler, consumer_name, capture_consumer)
+    for validator_name in (
+        "validate_wcc_m1_route_supported",
+        "validate_wcc_m2_route_supported",
+        "validate_wcc_m3_route_supported",
+        "validate_wcc_m4_route_supported",
+    ):
+        monkeypatch.setattr(workflow_lisp_compiler, validator_name, lambda *args, **kwargs: None)
+
+    workflow_lisp_compiler._lower_workflows_for_route(
+        lowering_route=workflow_lisp_compiler.normalize_lowering_route(route),
+        typed_workflows=compiled.typed_workflows,
+        typed_procedures=compiled.typed_procedures,
+        procedure_type_envs={
+            procedure.definition.name: type_env
+            for procedure in compiled.typed_procedures
+        },
+        procedure_catalog=compiled.procedure_catalog,
+        workflow_path=PROCEDURE_IDENTITY_FIXTURE,
+        workflow_catalog=compiled.workflow_catalog,
+        imported_workflow_bundles=compiled.workflow_catalog.imported_bundles_by_name,
+        extern_environment=compiled.extern_environment,
+        command_boundary_environment=compiled.command_boundary_environment,
+        type_env=type_env,
+        target_dsl_version=compiled.module.target_dsl_version,
+    )
+
+    assert len(received) == 1
+    assert isinstance(received[0], type(MappingProxyType({})))
+    assert validated[0] is received[0]
 
 
 def test_procedure_identity_modes_match_frozen_wcc_m4_observables(tmp_path: Path) -> None:

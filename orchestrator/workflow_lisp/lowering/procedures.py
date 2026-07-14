@@ -223,14 +223,31 @@ def _validate_resolved_procedure_mapping(
 ) -> Mapping[str, TypedProcedureDef]:
     """Require the exact immutable Stage-3 procedure decision mapping."""
 
+    mapping_proxy_type = type(MappingProxyType({}))
     if not typed_procedures:
-        return resolved_procedures_by_name or MappingProxyType({})
+        if resolved_procedures_by_name is None:
+            return MappingProxyType({})
+        if not isinstance(resolved_procedures_by_name, mapping_proxy_type):
+            raise TypeError("resolved procedure mapping must be immutable")
+        if resolved_procedures_by_name:
+            offending = next(iter(resolved_procedures_by_name.values()))
+            if not isinstance(offending, TypedProcedureDef):
+                raise TypeError("resolved procedure mapping contains a non-procedure row")
+            from .context import _compile_error
+
+            raise _compile_error(
+                code="procedure_lowering_unresolved",
+                message="resolved procedure mapping contains rows absent from the typed tuple",
+                span=offending.definition.span,
+                form_path=offending.definition.form_path,
+            )
+        return resolved_procedures_by_name
 
     first = typed_procedures[0]
     reason: str | None = None
     if resolved_procedures_by_name is None:
         reason = "compiler-owned resolved procedure mapping is required"
-    elif not isinstance(resolved_procedures_by_name, type(MappingProxyType({}))):
+    elif not isinstance(resolved_procedures_by_name, mapping_proxy_type):
         reason = "resolved procedure mapping must be immutable"
     elif tuple(resolved_procedures_by_name) != tuple(
         procedure.definition.name for procedure in typed_procedures
@@ -244,6 +261,23 @@ def _validate_resolved_procedure_mapping(
                 break
             if procedure.resolved_lowering_mode is ProcedureLoweringMode.AUTO:
                 reason = f"procedure `{procedure.definition.name}` has unresolved lowering mode"
+                break
+            if (
+                procedure.resolved_lowering_mode is ProcedureLoweringMode.PRIVATE_WORKFLOW
+                and not procedure.generated_workflow_name
+            ):
+                reason = (
+                    f"private-workflow procedure `{procedure.definition.name}` "
+                    "lacks a generated workflow name"
+                )
+                break
+            if (
+                procedure.resolved_lowering_mode is ProcedureLoweringMode.INLINE
+                and procedure.generated_workflow_name is not None
+            ):
+                reason = (
+                    f"inline procedure `{procedure.definition.name}` has a generated workflow name"
+                )
                 break
 
     if reason is not None:
