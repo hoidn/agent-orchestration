@@ -958,12 +958,20 @@ def specialize_typed_procedure(
             where_clauses=(),
         ),
         typed_body=request.procedure.typed_body,
-        # This object is a re-typecheck target, not a completed specialization.
-        # Concrete type/ProcRef bindings can change both the call edges and the
-        # caller-visible effects, so no summary is authoritative until the
-        # compiler's next typecheck/effect-closure iteration.
-        direct_effect_summary=EMPTY_EFFECT_SUMMARY,
-        transitive_effect_summary=EMPTY_EFFECT_SUMMARY,
+        # Deferred objects are compiler-owned re-typecheck targets, not
+        # completed specializations. Non-deferred specializations are still
+        # consumed on the lowering compatibility path, so preserve their
+        # conservative carrier until that path also moves before lowering.
+        direct_effect_summary=(
+            EMPTY_EFFECT_SUMMARY
+            if defer_lowering_resolution
+            else request.procedure.direct_effect_summary
+        ),
+        transitive_effect_summary=(
+            EMPTY_EFFECT_SUMMARY
+            if defer_lowering_resolution
+            else request.procedure.transitive_effect_summary
+        ),
         resolved_lowering_mode=ProcedureLoweringMode.INLINE,
         generated_workflow_name=None,
         specialization=specialization,

@@ -5261,9 +5261,19 @@ def test_lowering_authored_union_variant_constructor_reuses_existing_union_outpu
 
 def test_compile_stage3_supports_forwarded_workflow_ref_procedure_calls(tmp_path: Path) -> None:
     result = _compile_validated(WORKFLOW_REF_FORWARDING_FIXTURE, tmp_path=tmp_path)
+    generated = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name.startswith(
+            "%workflow_refs_forwarding.invoke-runner__spec__"
+        )
+    )
 
     assert "entry" in result.validated_bundles
     assert result.typed_procedures[0].definition.name == "invoke-runner"
+    assert generated.typed_workflow.effect_summary.transitive_effects == frozenset(
+        {CallsWorkflowEffect(subject=("runner",))}
+    )
 
 
 def test_compile_stage3_supports_proc_ref_signature_parameters_and_same_file_literals(
