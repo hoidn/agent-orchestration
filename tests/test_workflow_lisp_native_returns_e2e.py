@@ -9,6 +9,7 @@ authored `__result__` access, and no name-specific lowering.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -19,6 +20,8 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from orchestrator.workflow_lisp.contracts import derive_reusable_state_contract_metadata
+from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, UnionTypeRef
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict
 
@@ -97,6 +100,312 @@ def _bind_and_execute(bundle, workspace: Path, run_id: str, module_path: Path, i
         bound_inputs=bound_inputs,
     )
     return state_manager
+
+
+def _guided_runtime_source(*, guided: bool) -> str:
+    score_field = (
+        '(score Float :description "Confidence score." :format-hint "0 to 1." :example 0.9)'
+        if guided
+        else "(score Float)"
+    )
+    approve_field = (
+        '(approved Bool :description "Approval branch flag." :example true)'
+        if guided
+        else "(approved Bool)"
+    )
+    revise_field = (
+        '(approved Bool :description "Revision branch flag." :example false)'
+        if guided
+        else "(approved Bool)"
+    )
+    meta_field = (
+        '(meta ReviewMeta :description "Approval metrics context.")'
+        if guided
+        else "(meta ReviewMeta)"
+    )
+    reason_field = (
+        '(reason String :description "Required revision." :example "fix tests")'
+        if guided
+        else "(reason String)"
+    )
+    workflow_return = (
+        '(result FinalResult :description "Completed routed review result.")'
+        if guided
+        else "FinalResult"
+    )
+    provider_return = (
+        '(result Decision :description "Choose the review route." '
+        ':format-hint "Tagged decision object.")'
+        if guided
+        else "Decision"
+    )
+    return (
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule guidance_runtime_neutrality)",
+                "  (export orchestrate)",
+                "  (defpath SummaryPath",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ReviewMeta",
+                f"    {score_field})",
+                "  (defunion Decision",
+                "    (APPROVE",
+                f"      {approve_field}",
+                f"      {meta_field})",
+                "    (REVISE",
+                f"      {revise_field}",
+                f"      {reason_field}))",
+                "  (defrecord SummaryValue (approved Bool))",
+                "  (defrecord FinalResult",
+                "    (approved Bool)",
+                "    (summary_path SummaryPath))",
+                "  (defworkflow orchestrate",
+                "    ((summary_target SummaryPath))",
+                f"    -> {workflow_return}",
+                "    (let* ((decision",
+                "             (provider-result providers.review",
+                "               :prompt prompts.review",
+                "               :inputs ()",
+                f"               :returns {provider_return}))",
+                "           (approved",
+                "             (match decision",
+                "               ((APPROVE approved-decision)",
+                "                 (command-result record_approved",
+                '                   :argv ("python" "scripts/record_approved.py")',
+                "                   :returns Bool))",
+                "               ((REVISE revise-decision)",
+                "                 (command-result record_revise",
+                '                   :argv ("python" "scripts/record_revise.py")',
+                "                   :returns Bool))))",
+                "           (summary_path",
+                "             (materialize-view runtime-summary",
+                "               :value (record SummaryValue :approved approved)",
+                "               :renderer canonical-json",
+                "               :renderer-version 1",
+                "               :target summary_target",
+                "               :returns SummaryPath)))",
+                "      (record FinalResult",
+                "        :approved approved",
+                "        :summary_path summary_path))))",
+            ]
+        )
+        + "\n"
+    )
+
+
+def _compile_guidance_runtime_bundle(workspace: Path, *, guided: bool, lowering_route: str):
+    module_path = workspace / "guidance_runtime_neutrality.orc"
+    module_path.write_text(_guided_runtime_source(guided=guided), encoding="utf-8")
+    (workspace / "prompts").mkdir(exist_ok=True)
+    (workspace / "prompts" / "review.md").write_text("Review.\n", encoding="utf-8")
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(workspace,),
+        provider_externs={"providers.review": "fake-review-provider"},
+        prompt_externs={"prompts.review": {"input_file": "prompts/review.md"}},
+        command_boundaries={
+            "record_approved": _bool_bundle_command(workspace, "record_approved", "true"),
+            "record_revise": _bool_bundle_command(workspace, "record_revise", "false"),
+        },
+        validate_shared=True,
+        workspace_root=workspace,
+        lowering_route=lowering_route,
+    )
+    bundle = next(
+        candidate
+        for name, candidate in result.validated_bundles_by_name.items()
+        if name.endswith("::orchestrate") or name == "orchestrate"
+    )
+    compiled_module = result.entry_result.module
+    type_env = FrontendTypeEnvironment.from_module(compiled_module)
+    decision_type = type_env.resolve_type(
+        "Decision",
+        span=compiled_module.span,
+        form_path=("workflow-lisp", "defunion", "Decision"),
+    )
+    assert isinstance(decision_type, UnionTypeRef)
+    _, reusable_fingerprint, _, _ = derive_reusable_state_contract_metadata(
+        decision_type,
+        target_dsl_version="2.15",
+        workflow_name="guidance_runtime_neutrality::orchestrate",
+        step_id="decision",
+        span=compiled_module.span,
+        form_path=("workflow-lisp", "defworkflow", "orchestrate"),
+    )
+    return module_path, bundle, reusable_fingerprint
+
+
+def _runtime_checkpoint_contract_fingerprints(bundle) -> tuple[str, ...]:
+    fingerprints: list[str] = []
+    for point in bundle.runtime_plan.lexical_checkpoint_points:
+        effect_boundary = point.details.get("effect_boundary")
+        if not isinstance(effect_boundary, Mapping):
+            continue
+        policy = effect_boundary.get("policy")
+        if not isinstance(policy, Mapping):
+            continue
+        policy_digest = policy.get("policy_digest")
+        if isinstance(policy_digest, str):
+            fingerprints.append(policy_digest)
+        requirements = policy.get("evidence_requirements")
+        if not isinstance(requirements, Mapping):
+            continue
+        for requirement in requirements.values():
+            if not isinstance(requirement, Mapping):
+                continue
+            fingerprint = requirement.get("contract_digest")
+            if isinstance(fingerprint, str):
+                fingerprints.append(fingerprint)
+    return tuple(fingerprints)
+
+
+def _execute_guidance_runtime_case(workspace: Path, bundle, module_path: Path, *, run_id: str):
+    target = workspace / "artifacts" / "work" / "summary.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("{}\n", encoding="utf-8")
+    state_manager = _bind_and_execute(
+        bundle,
+        workspace,
+        run_id,
+        module_path,
+        {"summary_target": "artifacts/work/summary.json"},
+    )
+    provider_patches = _provider_executor_patches(
+        workspace,
+        '{"variant":"APPROVE","approved":true,"meta":{"score":0.9}}',
+    )
+    with provider_patches[0], provider_patches[1]:
+        first = WorkflowExecutor(bundle, workspace, state_manager, retry_delay_ms=0).execute(
+            on_error="stop"
+        )
+
+    resume_manager = StateManager(workspace=workspace, run_id=run_id)
+    resume_manager.load()
+    provider_patches = _provider_executor_patches(
+        workspace,
+        '{"variant":"APPROVE","approved":true,"meta":{"score":0.9}}',
+    )
+    with provider_patches[0], provider_patches[1]:
+        resumed = WorkflowExecutor(bundle, workspace, resume_manager, retry_delay_ms=0).execute(
+            resume=True
+        )
+    return first, resumed
+
+
+def test_compiled_occurrence_guidance_is_runtime_checkpoint_and_resume_neutral(
+    tmp_path: Path,
+) -> None:
+    lowering_route = "wcc_m4"
+    plain_workspace = tmp_path / "plain"
+    guided_workspace = tmp_path / "guided"
+    plain_workspace.mkdir()
+    guided_workspace.mkdir()
+    plain_path, plain_bundle, plain_reusable_fingerprint = _compile_guidance_runtime_bundle(
+        plain_workspace,
+        guided=False,
+        lowering_route=lowering_route,
+    )
+    guided_path, guided_bundle, guided_reusable_fingerprint = _compile_guidance_runtime_bundle(
+        guided_workspace,
+        guided=True,
+        lowering_route=lowering_route,
+    )
+
+    guided_provider = next(
+        node.execution_config.common.variant_output
+        for node in guided_bundle.ir.nodes.values()
+        if node.execution_config is not None
+        and node.execution_config.common.variant_output
+    )
+    assert guided_provider["guidance"] == {
+        "description": "Choose the review route.",
+        "format_hint": "Tagged decision object.",
+    }
+    shared_approved = next(
+        field for field in guided_provider["shared_fields"] if field["name"] == "approved"
+    )
+    assert set(shared_approved["guidance_by_variant"]) == {"APPROVE", "REVISE"}
+    score_field = next(
+        field
+        for field in guided_provider["variants"]["APPROVE"]["fields"]
+        if field["name"].endswith("score")
+    )
+    assert score_field["description"] == "Confidence score."
+    assert [dict(row) for row in score_field["guidance_context"]] == [
+        {
+            "json_pointer": "/meta",
+            "description": "Approval metrics context.",
+        }
+    ]
+
+    assert plain_bundle.projection == guided_bundle.projection
+    assert plain_bundle.runtime_plan.resume_checkpoints == guided_bundle.runtime_plan.resume_checkpoints
+    assert [point.checkpoint_id for point in plain_bundle.runtime_plan.lexical_checkpoint_points] == [
+        point.checkpoint_id for point in guided_bundle.runtime_plan.lexical_checkpoint_points
+    ]
+    assert _runtime_checkpoint_contract_fingerprints(plain_bundle) == _runtime_checkpoint_contract_fingerprints(
+        guided_bundle
+    )
+    assert _runtime_checkpoint_contract_fingerprints(plain_bundle)
+    assert plain_reusable_fingerprint == guided_reusable_fingerprint
+
+    plain_first, plain_resumed = _execute_guidance_runtime_case(
+        plain_workspace,
+        plain_bundle,
+        plain_path,
+        run_id="plain-guidance-neutrality",
+    )
+    guided_first, guided_resumed = _execute_guidance_runtime_case(
+        guided_workspace,
+        guided_bundle,
+        guided_path,
+        run_id="guided-guidance-neutrality",
+    )
+
+    assert plain_first["status"] == guided_first["status"] == "completed"
+    assert plain_resumed["status"] == guided_resumed["status"] == "completed"
+    expected_outputs = {
+        "return__approved": True,
+        "return__summary_path": "artifacts/work/summary.json",
+    }
+    assert plain_first["workflow_outputs"] == guided_first["workflow_outputs"] == expected_outputs
+    assert plain_resumed["workflow_outputs"] == guided_resumed["workflow_outputs"] == expected_outputs
+
+    def runtime_semantic_state(state):
+        return {
+            "status": state["status"],
+            "workflow_outputs": state["workflow_outputs"],
+            "steps": {
+                name: {
+                    key: step.get(key)
+                    for key in ("status", "exit_code", "artifacts", "skipped", "outcome", "visit_count")
+                }
+                for name, step in state["steps"].items()
+            },
+        }
+
+    assert runtime_semantic_state(plain_first) == runtime_semantic_state(guided_first)
+    assert runtime_semantic_state(plain_resumed) == runtime_semantic_state(guided_resumed)
+    for state in (plain_resumed, guided_resumed):
+        completed_steps = {
+            name for name, step in state["steps"].items() if step["status"] == "completed"
+        }
+        assert any(name.endswith("record_approved") for name in completed_steps)
+        assert not any(name.endswith("record_revise") for name in completed_steps)
+        provider_step = next(
+            step for name, step in state["steps"].items() if name.endswith("__decision")
+        )
+        assert provider_step["exit_code"] == 0
+        assert provider_step["artifacts"] == {
+            "variant": "APPROVE",
+            "approved": True,
+            "meta__score": 0.9,
+        }
 
 
 def test_provider_root_bool_result_drives_branching_persists_and_resumes(
