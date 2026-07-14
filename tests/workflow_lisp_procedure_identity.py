@@ -62,7 +62,15 @@ def _plain(value: Any, *, workspace: Path, repo_root: Path) -> Any:
             for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
             if str(key) not in _DEBUG_ONLY_WCC_KEYS
         }
-    if isinstance(value, (list, tuple, set, frozenset)):
+    if isinstance(value, (set, frozenset)):
+        normalized_items = [
+            _plain(item, workspace=workspace, repo_root=repo_root) for item in value
+        ]
+        return sorted(
+            normalized_items,
+            key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")),
+        )
+    if isinstance(value, (list, tuple)):
         return [_plain(item, workspace=workspace, repo_root=repo_root) for item in value]
     if is_dataclass(value):
         return {
@@ -112,6 +120,14 @@ def _semantic_identities(bundle: Any, *, workspace: Path, repo_root: Path) -> di
                 "workflow_name": name,
                 "authored_statement_ids": list(workflow.authored_statement_ids),
                 "statements": statements,
+                "executable_bridge": {
+                    "workflow_name": workflow.executable_bridge.workflow_name,
+                    "node_ids": list(workflow.executable_bridge.node_ids),
+                    "presentation_keys": list(workflow.executable_bridge.presentation_keys),
+                    "resume_checkpoint_ids": list(
+                        workflow.executable_bridge.resume_checkpoint_ids
+                    ),
+                },
             }
         )
     effects = [
@@ -201,19 +217,172 @@ def _runtime_identities(bundle: Any, *, workspace: Path, repo_root: Path) -> dic
     )
 
 
+def _sorted_identity_rows(
+    rows: list[dict[str, Any]],
+    *,
+    workspace: Path,
+    repo_root: Path,
+) -> list[dict[str, Any]]:
+    normalized = [
+        _canonical(row, workspace=workspace, repo_root=repo_root) for row in rows
+    ]
+    return sorted(
+        normalized,
+        key=lambda row: json.dumps(row, sort_keys=True, separators=(",", ":")),
+    )
+
+
+def _mapped_origin_rows(
+    entries: Mapping[str, Any],
+    *,
+    subject_field: str,
+    workspace: Path,
+    repo_root: Path,
+) -> list[dict[str, Any]]:
+    return _sorted_identity_rows(
+        [
+            {subject_field: subject, "origin_key": entry.origin_key}
+            for subject, entry in entries.items()
+        ],
+        workspace=workspace,
+        repo_root=repo_root,
+    )
+
+
 def _source_map_identities(source_map: Any, *, workspace: Path, repo_root: Path) -> list[dict[str, Any]]:
     workflows = []
     for name, workflow in sorted(source_map.workflows.items()):
         workflows.append(
             {
                 "workflow_name": name,
-                "workflow_origin_key": workflow.workflow_origin.origin_key,
-                "step_origin_keys": sorted({entry.origin_key for entry in workflow.step_ids.values()}),
-                "generated_path_origin_keys": sorted(
-                    {entry.origin_key for entry in workflow.generated_paths.values()}
+                "workflow_origin": {
+                    "entity_kind": workflow.workflow_origin.entity_kind,
+                    "workflow_name": workflow.workflow_origin.workflow_name,
+                    "origin_key": workflow.workflow_origin.origin_key,
+                },
+                "step_ids": _mapped_origin_rows(
+                    workflow.step_ids,
+                    subject_field="step_id",
+                    workspace=workspace,
+                    repo_root=repo_root,
                 ),
-                "executable_node_origin_keys": sorted(
-                    {entry.origin_key for entry in workflow.executable_nodes}
+                "generated_inputs": _mapped_origin_rows(
+                    workflow.generated_inputs,
+                    subject_field="generated_input_name",
+                    workspace=workspace,
+                    repo_root=repo_root,
+                ),
+                "generated_outputs": _mapped_origin_rows(
+                    workflow.generated_outputs,
+                    subject_field="generated_output_name",
+                    workspace=workspace,
+                    repo_root=repo_root,
+                ),
+                "contract_fields": _mapped_origin_rows(
+                    workflow.contract_fields,
+                    subject_field="contract_field",
+                    workspace=workspace,
+                    repo_root=repo_root,
+                ),
+                "generated_paths": _mapped_origin_rows(
+                    workflow.generated_paths,
+                    subject_field="generated_path",
+                    workspace=workspace,
+                    repo_root=repo_root,
+                ),
+                "generated_internal_inputs": _mapped_origin_rows(
+                    workflow.generated_internal_inputs,
+                    subject_field="generated_internal_input_name",
+                    workspace=workspace,
+                    repo_root=repo_root,
+                ),
+                "generated_path_allocations": _sorted_identity_rows(
+                    [
+                        {
+                            "allocation_id": row.allocation_id,
+                            "semantic_role": row.semantic_role,
+                            "privacy": row.privacy,
+                            "resume_scope": row.resume_scope,
+                            "stable_identity": row.stable_identity,
+                            "concrete_path_template": row.concrete_path_template,
+                            "generated_input_name": row.generated_input_name,
+                            "path_safety_policy": row.path_safety_policy,
+                            "origin_key": row.origin_key,
+                        }
+                        for row in workflow.generated_path_allocations
+                    ],
+                    workspace=workspace,
+                    repo_root=repo_root,
+                ),
+                "generated_semantic_effects": _sorted_identity_rows(
+                    [
+                        {
+                            "effect_key": row.effect_key,
+                            "step_id": row.step_id,
+                            "effect_kind": row.effect_kind,
+                            "origin_key": row.origin_key,
+                        }
+                        for row in workflow.generated_semantic_effects
+                    ],
+                    workspace=workspace,
+                    repo_root=repo_root,
+                ),
+                "core_nodes": _sorted_identity_rows(
+                    [
+                        {
+                            "statement_id": row.statement_id,
+                            "step_id": row.step_id,
+                            "step_kind": row.step_kind,
+                            "origin_key": row.origin_key,
+                        }
+                        for row in workflow.core_nodes
+                    ],
+                    workspace=workspace,
+                    repo_root=repo_root,
+                ),
+                "command_boundaries": _sorted_identity_rows(
+                    [
+                        {
+                            "step_id": row.step_id,
+                            "command_name": row.command_name,
+                            "boundary_kind": row.boundary_kind,
+                            "adapter_name": row.adapter_name,
+                            "source_map_behavior": row.source_map_behavior,
+                            "declared_effects": list(row.declared_effects),
+                            "origin_key": row.origin_key,
+                        }
+                        for row in workflow.command_boundaries
+                    ],
+                    workspace=workspace,
+                    repo_root=repo_root,
+                ),
+                "validation_subjects": _sorted_identity_rows(
+                    [
+                        {
+                            "subject_kind": row.subject_ref.subject_kind,
+                            "subject_name": row.subject_ref.subject_name,
+                            "workflow_name": row.subject_ref.workflow_name,
+                            "origin_key": row.origin_key,
+                        }
+                        for row in workflow.validation_subjects
+                    ],
+                    workspace=workspace,
+                    repo_root=repo_root,
+                ),
+                "executable_nodes": _sorted_identity_rows(
+                    [
+                        {
+                            "node_id": row.node_id,
+                            "step_id": row.step_id,
+                            "kind": row.kind,
+                            "region": row.region,
+                            "presentation_name": row.presentation_name,
+                            "origin_key": row.origin_key,
+                        }
+                        for row in workflow.executable_nodes
+                    ],
+                    workspace=workspace,
+                    repo_root=repo_root,
                 ),
             }
         )
