@@ -1,13 +1,13 @@
 # Workflow Lisp Procedure-Migration Identity Compatibility
 
-- **Status:** accepted (contract only; implementation prerequisites remain
-  planned)
+- **Status:** accepted (generic prerequisites implemented; final prerequisite
+  verification/reviews and pilot remain pending)
 - **Kind:** migration architecture decision and compatibility clarification
 - **Owner:** Workflow Lisp frontend and runtime-state owners
 - **Reviewers:** procedure-first specification review, runtime-state review, and
   the owner of each known state store named by a retirement record
 - **Created:** 2026-07-13
-- **Last material update:** 2026-07-13
+- **Last material update:** 2026-07-14
 - **Related docs / plans:**
   - `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
   - `docs/design/workflow_lisp_state_layout.md`
@@ -21,8 +21,9 @@
   tracked-plan procedure-first pilot retry
 
 Acceptance establishes the compatibility contract and reviewed implementation
-sequence. It does not claim that the prerequisites, pilot, or separate resume
-projection-integrity hardening are implemented.
+sequence. Generic prerequisite Tasks 1-6 now have implementation and focused
+evidence; this status does not claim the prerequisite plan's Task 8 final gate,
+the pilot, or the separate resume projection-integrity hardening complete.
 
 ## Summary
 
@@ -47,13 +48,15 @@ and callee source-checksum validation. Unknown or external stores cannot be
 inferred absent from a repository scan or from owner attestation about known
 stores.
 
-The tracked-plan pilot may retry under the reviewed retirement class only
-after four generic prerequisites land: lowering mode is resolved once and
-carried by Stage 3; inline checkpoint policy is caller-owned; persisted source
-maps connect generated steps to both procedure definition and consuming call
-site; and stable retirement evidence plus fail-closed checksum negative proof
-exist. No prerequisite or compatibility decision may be keyed to this pilot's
-family, module, procedure, workflow, provider, or step names.
+The four generic prerequisites are implemented: lowering mode is resolved once
+and carried by Stage 3; inline checkpoint policy is caller-owned; persisted
+source maps connect generated steps to both procedure definition and consuming
+call site; and stable retirement evidence plus fail-closed checksum negative
+proof exist. The tracked-plan pilot may retry under the reviewed retirement
+class only after the prerequisite plan's final verification and independent
+reviews pass and the pilot's pre-edit store/owner gate succeeds. No
+prerequisite or compatibility decision may be keyed to this pilot's family,
+module, procedure, workflow, provider, or step names.
 
 ## Context And Authority
 
@@ -64,29 +67,32 @@ the normative owner of persisted call frames, step identities, checkpoint
 state, resume rejection, and any future state upgrader. The state-layout and
 source-map designs own generated state and provenance respectively.
 
-Current repository evidence establishes the design gap:
+Current repository evidence closes the generic design gaps:
 
-- `orchestrator/workflow_lisp/lowering/procedures.py::_resolve_procedure_lowering`
-  resolves module-level modes inside lowering, so
-  `Stage3CompileResult.typed_procedures` can precede the authoritative
-  module-level decision. The same module also contains an iteration-scope
-  call-local promotion from inline to private-workflow. That recheck is
-  schema-1 compatibility behavior, not a promotable/default-WCC semantic, and
-  is distinct from the missing stable module-level result.
-- Both classic lowering and WCC call that resolver independently. A resolved
-  mode is therefore not yet one Stage-3-owned typed-frontend decision.
-- WCC represents procedure application as `WccCall`. Checkpoint construction
-  classifies a `WccCall` as `call` and selects
-  `reuse_validated_workflow_call`, even when inline expansion created no child
-  workflow or call frame.
-- `TypedProcedureDef` already has `resolved_lowering_mode`, and the typed AST
-  serializer already emits typed procedures. The missing capability is
-  decision ownership and propagation, not a new source annotation.
-- Classic inline lowering records procedure-definition and call-site
-  provenance through the existing origin-note machinery. The WCC inline child
-  context currently does not propagate those `origin_notes`, so its generated
-  nodes omit the same persisted notes. This is a WCC propagation gap, not a
-  missing typed source-map schema.
+- `compiler.py::_resolve_stage3_procedure_lowering` invokes the shared
+  `lowering/procedures.py::_resolve_procedure_lowering` decision once after
+  Stage-3 typing/effects. `Stage3CompileResult.typed_procedures`, classic
+  lowering, WCC, and `typed_frontend_ast.json` consume that same resolved
+  tuple/mapping. The remaining classic iteration-scope inline-to-private
+  recheck is explicitly marked schema-1 compatibility behavior, not a
+  promotable/default-WCC semantic.
+- WCC inline `WccCall` expansion no longer adds a synthetic workflow-call
+  checkpoint. The actual inline-body effects own their ordinary checkpoint
+  policies, while real workflow/private-workflow calls retain
+  `reuse_validated_workflow_call`.
+- `TypedProcedureDef.resolved_lowering_mode` and
+  `generated_workflow_name` carry the decision through the typed AST and both
+  lowerers without a new source annotation.
+- WCC inline child contexts merge `_procedure_provenance_notes` through
+  `_merge_origin_notes`, so persisted provider, `match`, and checkpoint
+  lineage retain procedure-definition and consuming-call-site notes without a
+  source-map schema change.
+- `orchestrator/workflow_lisp/procedure_identity_retirement.py` provides the
+  versioned evidence-only record parser, known-store scanner, and fail-closed
+  validator without CLI or runtime coupling. Focused resume tests characterize
+  root rejection before executor construction with a byte-identical run tree
+  and callee rejection before child execution/remap with ordinary parent
+  metadata permitted.
 - `specs/state.md` makes call-frame IDs, step IDs, and nested call-frame state
   durable resume/lineage keys and already rejects incompatible older state in
   other schema migrations unless a tested upgrader ships.
@@ -117,14 +123,15 @@ protected public, live, and promoted identities, but it did not yet express the
 narrow reviewed-internal retirement class for an evidence-only callee with no
 supported old-state consumer. Acceptance commit `61c79cb4` has since landed the
 strict-default/retirement-exception qualification in the reuse contract; the
-remaining work is implementation and evidence, not another contract amendment.
+remaining work is final prerequisite verification/review and pilot evidence,
+not another contract amendment.
 
-The pilot also exposed generic compiler/runtime defects that must not be
-accepted as migration differences: unreported module-level lowering-mode
-resolution, workflow-call resume policy on inline procedure expansion, missing
-WCC propagation of existing procedure/call-site notes, and resume planning that
-does not yet audit every explicit persisted completed-step and call-frame
-caller identity against the current state projection.
+The pilot exposed generic compiler/runtime defects that could not be accepted
+as migration differences. The module-level lowering-mode, inline checkpoint,
+and WCC procedure/call-site provenance defects are now corrected. Resume
+planning still does not audit every explicit persisted completed-step and
+call-frame caller identity against the current state projection; that separate
+checksum-compatible projection-integrity gap remains routed outside the pilot.
 
 ## Goals And Non-Goals
 
@@ -179,9 +186,9 @@ rule:
 
 The same commit qualified the migration test's persisted checkpoint/resume
 identity axis and left all other preserved-contract axes unconditional. These
-acceptance changes are already landed; they do not claim that the generic
-prerequisites, retirement evidence, pilot, or projection hardening are
-implemented.
+acceptance changes are already landed. Generic prerequisite Tasks 1-6 are now
+implemented with focused evidence; Task 8 final verification/reviews, pilot
+evidence, and projection hardening remain unclaimed.
 
 ### General upgrader boundary
 
@@ -426,6 +433,10 @@ family edit. If the current state/acceptance specs do not already state the
 checksum compatibility and upgrader boundary accurately, clarify them before
 the pilot source edit; do not add the separate projection audit to this plan.
 
+The prerequisite implementation plan has completed Steps 2-4 and retained the
+old pilot baseline without editing the pilot source. Its Task 8 full gate and
+independent reviews remain required before Step 6 or any source edit begins.
+
 ## Invariants And Failure Modes
 
 - Strict compatibility is always the fallback.
@@ -599,23 +610,17 @@ The following acceptance-level changes already landed in commit `61c79cb4`:
   and link, while routing/status surfaces selected the prerequisite plan and
   paused the pilot.
 
-The following updates remain implementation-dependent and must not be reported
-as landed merely because the design is accepted:
+With generic Tasks 1-6 implemented, the remaining contract references now
+describe the observed behavior: `specs/state.md` and `specs/acceptance/index.md`
+own the distinct root/callee checksum and future-upgrader rules;
+`docs/design/workflow_lisp_source_map.md` owns WCC propagation of the existing
+procedure-definition and consuming-call-site notes without a schema change;
+and the pilot plan owns the detailed pre-edit store/owner and retirement-record
+production gates. These references do not constitute the prerequisite plan's
+Task 8 final approval or authorize the pilot source edit.
 
-- `specs/state.md`, only if the current contract is insufficient: clarify
-  root-checksum-first rejection for changed-source resume, existing
-  callee-checksum child-boundary behavior and permitted parent-level metadata,
-  and the boundary of a future atomic upgrader without adding callee preflight;
-- `specs/acceptance/`, only if the current contract is insufficient: clarify
-  the distinct root- and callee-checksum negative contracts, the distinction
-  between identity parity and supported cross-source resume, and positive
-  strict/retirement and negative public-boundary scenarios;
-- `docs/design/workflow_lisp_source_map.md`: WCC propagation of the existing
-  procedure-definition and consuming-call-site notes, with no schema change;
-- the pilot plan's detailed prerequisite evidence/handoff and retirement-record
-  production gates after the generic prerequisite implementation passes; and
-- the capability matrix, authoring guide, route-readiness registry, and other
-  implementation-status surfaces only after their required evidence passes.
+The capability matrix, authoring guide, route-readiness registry, and other
+implementation-status surfaces remain gated on their own required evidence.
 
 A separate projection-integrity audit must be routed into a named follow-on
 design and plan before production migration waves. It is not a pilot

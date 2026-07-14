@@ -207,6 +207,10 @@
 194. v2.14 variant selection: `select_variant_output` selects exactly one changed snapshot candidate, validates the selected shape before commit, writes the canonical bundle atomically, and preserves the previous bundle when candidate validation fails
 195. v2.14 variant references: downstream refs to variant-only fields require a matching `match` case or `requires_variant`, and runtime fails before execution with `variant_unavailable` if the asserted variant is not selected
 196. Phase 2 v2.14 NeurIPS ergonomics evidence: the translated four-workflow stack keeps native JSON bundles instead of splitting them into per-field text fanout where the compact contract permits it, and the repo-local LOC comparison evidence must show a net reduction versus the legacy four-file stack
+197. Root changed-source resume rejection: default resume rejects a root workflow-checksum mismatch before `WorkflowExecutor` construction and leaves the persisted run tree byte-identical
+198. Callee checksum rejection boundary: an imported-callee checksum mismatch rejects before child-workflow or child provider/command execution and performs no child-state identity remap, while ordinary parent-level metadata may already exist
+199. Cross-source identity boundary: equality of persisted step, checkpoint, call-frame, or other identities alone is not evidence that changed source can resume a supported old run
+200. Atomic upgrader ownership: any future supported cross-source transition is implemented and tested as one atomic upgrader that owns checksum and program-identity compatibility rather than as an evidence record, alias, or partial remap
 
 ## DSL Evolution Rollout Crosswalk
 

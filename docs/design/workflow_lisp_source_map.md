@@ -3,7 +3,7 @@
 - **Status:** accepted
 - **Kind:** architecture decision and component contract
 - **Created:** 2026-05-30
-- **Last material update:** 2026-07-09
+- **Last material update:** 2026-07-14
 - **Related docs / plans:** `workflow_lisp_frontend_specification.md`,
   `workflow_lisp_core_workflow_ast.md`,
   `../plans/2026-07-08-boundary-report-followups.md`
@@ -141,6 +141,21 @@ their independently constructed `LoweringOriginMap`. When a generated drain
 workflow is cloned under an alias, the clone operation rekeys the field origins
 and rewrites the embedded subject references' `workflow_name` together; it must
 not rebuild only the standard validation bindings and drop custom fields.
+
+### Inline procedure provenance
+
+WCC inline procedure expansion preserves the same provenance carrier as
+classic lowering. The inline child context merges
+`_procedure_provenance_notes` into the caller's existing notes through
+`_merge_origin_notes`. Consequently, persisted provider and `match` entries,
+and the source-lineage entries referenced by effect-owned checkpoint points,
+contain notes for both the procedure definition and the consuming call site.
+Consumers resolve those notes from the persisted source map; they do not
+recompile or read mutable source to reconstruct the expansion.
+
+This propagation uses the existing `SourceMapEntry.notes` field. It is not a
+wire-format extension: the source-map schema remains
+`workflow_lisp_source_map.v1`.
 
 The full authored span is never embedded in the runtime contract. This keeps
 the source-map sidecar authoritative and prevents contract payloads from

@@ -239,6 +239,12 @@ Corruption detection and backups:
 - Atomic updates: write to a temp file then rename.
 - When `--backup-state` or `--debug` is enabled, before each step copy `state.json` to `state.json.step_<Step>.bak` and keep the last 3 backups.
 
+Checksum and program-identity compatibility:
+- Default resume of a run whose root workflow checksum differs from the current source rejects before `WorkflowExecutor` construction and before any mutation of the persisted run tree.
+- An imported-callee checksum mismatch rejects before child-workflow or child provider/command execution and must not remap child-state identities. The parent executor may already have been constructed, and ordinary parent-level metadata may already have been recorded before the child boundary rejects.
+- Equality of step, checkpoint, call-frame, or other persisted identities is not by itself evidence that a run can resume across changed source. The root workflow checksum remains an independent compatibility guard.
+- Any future cross-source compatibility mechanism must be a tested atomic upgrader that owns both checksum and program-identity compatibility, validates the complete old-to-new transition, and either commits the compatible state as one operation or leaves the old state unchanged. Evidence records, identity deltas, aliases, or partial remaps are not such an upgrader.
+
 Recovery mechanisms:
 ```bash
 # Resume with state validation

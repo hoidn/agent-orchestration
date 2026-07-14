@@ -2,13 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** paused until the accepted identity-compatibility prerequisite plan
-passes its implementation, verification, handoff, and independent-review gate.
-Do not select a pilot source-edit task while paused.
+**Status:** paused. Identity-compatibility Tasks 1-6 are implemented, but the
+prerequisite plan's Task 8 full verification and independent reviews have not
+yet passed. Do not select or make a pilot source edit while paused.
 
 **Goal:** Convert only the internal `tracked-plan-phase` in `design_plan_impl_review_stack_v2_call.orc` from a workflow call to an inline typed procedure while retaining `design-plan-impl-review-stack` as the public boundary and proving full executable parity.
 
-**Architecture:** Capture a pre-change, machine-readable contract snapshot for the retained public entry, then make the smallest source migration: `tracked-plan-phase` becomes `defproc :lowering inline`, and its one caller uses an ordinary positional procedure call. The public wrapper continues to own inputs, outputs, artifacts, effects, state, checkpoints, source maps, runtime execution, and resume identity; tests compare those surfaces before accepting the source edit.
+**Architecture:** Retain the frozen pre-change contract snapshot for the public
+entry, then, only after the pre-edit evidence gate passes, make the smallest
+source migration: `tracked-plan-phase` becomes `defproc :lowering inline`, and
+its one caller uses an ordinary positional procedure call. The public wrapper
+continues to own inputs, outputs, artifacts, effects, state, effect-owned
+checkpoints, source maps, and runtime execution. Public identities remain
+strict; eligible old internal call-boundary identities may be retired only by
+the reviewed evidence path defined below.
 
 **Tech Stack:** Workflow Lisp `.orc`, WCC compiler, executable and Semantic IR, source maps, migration parity tooling, orchestrator CLI, pytest.
 
@@ -23,14 +30,14 @@ Do not select a pilot source-edit task while paused.
   `docs/plans/2026-07-13-procedure-migration-identity-compatibility-plan.md`
 - Reviewed inventory row: `internal-call:workflows/examples/design_plan_impl_review_stack_v2_call.orc:tracked-plan-phase:1` in `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
 - Existing family target: `design_plan_impl_stack` in `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json`
-- Execute only after both:
+- The following earlier prerequisites are complete:
   1. `docs/plans/2026-07-10-workflow-lisp-typed-result-guidance-plan.md` is complete; and
   2. `docs/plans/2026-07-13-procedure-first-substrate-gaps-plan.md` is complete and reviewed.
-- Remain paused until Task 7 and the final handoff gate of the identity-
-  compatibility prerequisite plan pass. That task owns the detailed rewrite
-  of this plan's identity stop conditions, pre-edit known-store scans, and
-  retirement-record gates; do not partially execute the older task details
-  below before that handoff is recorded.
+- Identity-compatibility prerequisite Tasks 1-6 are implemented in commits
+  `d5eb0043` through `e4f2ecbe`. The frozen pilot source and old baseline have
+  not been refreshed. Remain paused until Task 8 reruns the focused selectors,
+  broad suite, smoke check, and independent specification/runtime-state and
+  quality reviews, then records its final handoff.
 - When resumed, this plan owns the genuine named-owner attestations for every
   known state store and either proves strict compatibility or applies the
   accepted reviewed internal identity-retirement exception. Missing,
@@ -40,7 +47,11 @@ Do not select a pilot source-edit task while paused.
 - Modify no phase except `tracked-plan-phase`; `tracked-design-phase` and `design-plan-impl-implementation-phase` remain workflows for later waves.
 - Retain the exported public `design-plan-impl-review-stack` workflow. Do not export the pilot procedure or register it as a workflow entry.
 - Do not edit the YAML twin or archive anything in this plan. Stage 6 owns YAML retirement.
-- Any checkpoint-ID, resume-route, public-output, artifact, publication, effect, or source-map loss is a stop condition, not an accepted pilot difference.
+- Any public checkpoint/resume identity, public output, artifact, publication,
+  effect, or source-map loss is a stop condition. An unreviewed or ineligible
+  internal identity change also stops. Only an old internal identity accepted
+  by the validated `reviewed_internal_identity_retirement` record may differ;
+  that exception does not relax any other parity axis.
 
 ## Protected working-tree guard
 
@@ -82,7 +93,73 @@ as a guard baseline; user changes to those paths are not plan failures.
 - `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json`: existing commands and evidence roles; change only if a new named selector is required.
 - `docs/workflow_lisp_route_readiness_registry.json`: change evidence references only after the pilot passes; do not promote the example's copy-safety.
 
+## Mandatory pre-edit retirement gate
+
+This gate runs before Task 2 and before any edit to the pilot `.orc` source.
+It is not satisfied by earlier repository inspection or by a zero-match scan
+of only the current workspace.
+
+1. Confirm the identity-compatibility plan's Task 8 final handoff. Its fresh
+   evidence must include the focused selectors for:
+   - generic identity characterization and one-time Stage-3 resolution in
+     `tests/test_workflow_lisp_procedures.py` and
+     `tests/test_workflow_lisp_build_artifacts.py`;
+   - inline checkpoint ownership in
+     `tests/test_workflow_lisp_lexical_checkpoints.py`;
+   - WCC inline provenance in `tests/test_workflow_lisp_source_map.py` and
+     `tests/test_workflow_lisp_build_artifacts.py`;
+   - the complete retirement validator suite in
+     `tests/test_workflow_lisp_procedure_identity_retirement.py`; and
+   - root/callee checksum characterization in `tests/test_resume_command.py`.
+   Task 8's independent reviews must approve those prerequisite contracts;
+   passing Tasks 1-6 selectors without the final reviews does not authorize a
+   source edit.
+2. Derive the old identity query from the unchanged
+   `tests/baselines/procedure_first/tracked_plan_phase.json` and retained old
+   source/build artifacts, and verify their content digests before editing.
+   Enumerate the repository workspace
+   `.orchestrate/runs` root and every other workspace or run root intentionally
+   used for this example as separate prospective `known_state_stores` entries.
+   Do not combine roots or treat a parent directory as proof about an
+   unenumerated child store.
+3. For every enumerated root call
+   `scan_known_state_store(root, retired_identities=old_identities,
+   query_version="procedure-identity-store-query.v1")`. Record the query time
+   alongside the returned `normalized_scan_digest`,
+   terminal/nonterminal/call-frame/consumer counts,
+   checkpoint-index/checkpoint-record counts, retained-manifest and
+   identity-metadata counts, and scanned-file count. Set
+   `external_store_absence: not_asserted`. EasySpin, PtychoPINN, the paper
+   repository, CI artifacts, backups, and copied workspaces remain unknown
+   unless each concrete root is individually enumerated and scanned.
+4. After each scan, obtain from a genuine named human owner of that exact store
+   an independently attributable timestamped attestation that no supported
+   live/nonterminal run or consumer of the queried old identities remains
+   there. An agent must never synthesize, guess, default, paraphrase, or sign
+   an owner name or attestation.
+5. If any owner or attestation is missing, ambiguous, or not independently
+   attributable, record exactly
+   `STOP: missing known-store owner attestation`, keep
+   `strict_compatibility` selected, and end without asking, retrying, editing
+   source, or fabricating evidence under the standing unattended instruction.
+   Any supported live/nonterminal run or consumer likewise selects strict
+   compatibility and ends the source-edit path.
+
+Only after all five steps pass may Task 2 make its one `.orc` edit. After that
+edit, build content-addressed new artifacts while retaining the old source,
+old build artifacts, frozen baseline, and pre-edit store evidence. Complete
+the full old/new identity delta, keyed artifact-contract multiset, separate
+execution-order comparison, new-ID clean-run and interruption/resume evidence,
+and both checksum negative proofs. Validate the assembled record and obtain
+independent specification and runtime-state approval before accepting any
+retired identity. The record is evidence only, is never supplied to run or
+resume, and makes no claim that an old run resumes across changed source.
+
 ### Task 1: Freeze The Pre-Migration Contract And Write RED Tests
+
+**Execution note:** Completed by commit `453ad2f9`. The checked-in old baseline
+and original-source observations are retained evidence. Do not regenerate,
+refresh, or reinterpret them under the new source.
 
 **Files:**
 - Create: `tests/baselines/procedure_first/tracked_plan_phase.json`
@@ -90,7 +167,7 @@ as a guard baseline; user changes to those paths are not plan failures.
 - Inspect: `tests/test_workflow_lisp_key_migrations.py`
 - Inspect: `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json`
 
-- [ ] **Step 1: Capture the baseline from the unmodified source**
+- [x] **Step 1: Capture the baseline from the unmodified source**
 
 Compile `design-plan-impl-review-stack` through `compile_stage3_entrypoint` with the existing provider/prompt extern JSON files and empty command boundaries. Serialize stable, semantic fields only:
 
@@ -106,15 +183,20 @@ Compile `design-plan-impl-review-stack` through `compile_stage3_entrypoint` with
 
 Do not snapshot whole debug YAML or unstable object reprs.
 
-- [ ] **Step 2: Write the RED source-shape test**
+- [x] **Step 2: Write the RED source-shape test**
 
 Assert the module has exactly one exported `defworkflow`, `design-plan-impl-review-stack`; `tracked-plan-phase` is a `defproc` with requested/resolved lowering `inline`; and the public wrapper contains a procedure call rather than a child-workflow call for that phase.
 
-- [ ] **Step 3: Write the RED contract-comparison test**
+- [x] **Step 3: Write the RED contract-comparison test**
 
-Compile the checked-in source and compare its stable public/output/artifact/effect/source-map/state/checkpoint/resume projection to `tracked_plan_phase.json`. Permit only the reviewed structural delta: the internal `tracked-plan-phase` workflow registry/call node is replaced by inline procedure provenance under the same public owner. Require all public and persisted identity fields to remain equal.
+Compile the checked-in source and compare its stable
+public/output/artifact/effect/source-map/state/checkpoint/resume projection to
+`tracked_plan_phase.json`. The frozen test records the old route; after the
+source edit, compare it through the validated retirement evidence rather than
+refreshing it. Require all public identities and every old identity not
+explicitly classified as an eligible reviewed retirement to remain equal.
 
-- [ ] **Step 4: Run RED tests**
+- [x] **Step 4: Run RED tests**
 
 ```bash
 pytest --collect-only -q tests/test_workflow_lisp_procedure_first_migrations.py
@@ -123,7 +205,7 @@ pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'tracked_pla
 
 Expected: collection succeeds; source-shape and route assertions FAIL because `tracked-plan-phase` is still a `defworkflow` called with `call`.
 
-- [ ] **Step 5: Commit baseline and RED tests**
+- [x] **Step 5: Commit baseline and RED tests**
 
 ```bash
 git add tests/baselines/procedure_first/tracked_plan_phase.json tests/test_workflow_lisp_procedure_first_migrations.py
@@ -137,6 +219,8 @@ git commit -m "test: freeze tracked plan procedure pilot parity"
 - Test: `tests/test_workflow_lisp_procedure_first_migrations.py`
 
 - [ ] **Step 1: Change the definition to an explicit inline procedure**
+
+Do not begin this step until the Mandatory pre-edit retirement gate has passed.
 
 Make the definition header equivalent to:
 
@@ -193,9 +277,16 @@ git commit -m "Migrate tracked plan phase to an inline procedure"
 
 Keep `_execute_design_plan_impl_stack_single_pass_runtime` as the family harness. Assert the completed public output has the same nine fields and values, the plan and review artifacts are created at the same caller-supplied paths, and no private/generated workflow entry named for `tracked-plan-phase` is externally invocable.
 
-- [ ] **Step 2: Add a resume-after-plan-provider-boundary test**
+- [ ] **Step 2: Add a new-ID resume-after-plan-provider-boundary test**
 
-Use the existing deterministic fake provider harness and `StateManager`. Fail once after the plan draft/review boundary, resume the same `run_id`, and assert already completed provider work is reused, the final public output and artifacts match a clean run, and the baseline checkpoint IDs/presentation keys are unchanged.
+Use the existing deterministic fake provider harness and `StateManager` to
+start a run from the new source. Fail once after the plan draft/review
+boundary, resume that new-source run with the same `run_id`, and assert already
+completed provider work is reused and the final public output and artifacts
+match a clean new-source run. Compare checkpoint IDs and presentation keys to
+the full old/new identity delta: public and preserved entries remain exact;
+only validator-approved retired internal entries may be absent, and new
+effect-owned entries must be classified explicitly.
 
 - [ ] **Step 3: Run runtime and resume tests**
 
@@ -206,9 +297,16 @@ pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'checkpoint 
 
 Expected: PASS.
 
-- [ ] **Step 4: Stop on identity mismatch**
+- [ ] **Step 4: Stop on an unreviewed or ineligible identity mismatch**
 
-If inline lowering changes a persisted checkpoint ID or cannot resume the same run state, stop. Record the exact before/after identities and open a separately reviewed compatibility/substrate plan; do not update the baseline to the new identity and do not add an implicit remap.
+If inline lowering changes a public identity, an identity classified as
+preserved, or any internal identity outside the reviewed retirement class,
+stop. Also stop if the new-source run cannot resume under its new identities.
+Do not update the old baseline, claim cross-source old-run resume, or add an
+implicit remap. Eligible internal call-boundary retirement proceeds only
+through the complete validated record, substantive repository/store evidence,
+root and callee checksum negatives, keyed artifact comparison, separate order
+review, and independent approvals.
 
 - [ ] **Step 5: Commit runtime evidence**
 
@@ -304,13 +402,29 @@ Specification review must check every migration-test axis in the accepted contra
 
 ## Completion gate and stop conditions
 
-The pilot is complete only when the source-shape RED test, stable contract comparison, one-pass runtime, resume test, compile, dry-run, family parity, focused suites, broad suite, and both reviews pass.
+The pilot is complete only when the mandatory pre-edit scans and genuine
+owner attestations passed before the source edit; the complete retirement
+record validates; the source-shape test, stable contract and keyed artifact
+comparisons, separate execution-order review, new-ID one-pass runtime and
+resume test, both checksum negatives, compile, dry-run, family parity, focused
+suites, broad suite, and independent specification/runtime-state and quality
+reviews pass. Retained old artifacts and the frozen baseline must still be
+content-addressed and readable.
 
 Stop without widening scope if:
 
 - public `design-plan-impl-review-stack` inputs, outputs, artifacts, terminal behavior, or invocation identity change;
 - either plan provider effect disappears from the caller-visible effect graph or Semantic IR;
 - source-map lineage loses the procedure definition or consuming call site;
-- any persisted checkpoint/resume identity changes;
+- any public or preserved checkpoint/resume identity changes, or an internal
+  identity changes without validator-approved substantive eligibility,
+  pre-edit scans and attestations, checksum negatives, artifact/order review,
+  and independent approval;
+- any known-store owner attestation is missing, ambiguous, unattributable, or
+  agent-authored, or external-store absence is inferred rather than recorded
+  as `not_asserted`;
+- the root changed-source negative reaches executor construction or mutates
+  the persisted run tree, or the callee negative reaches child execution or
+  remaps child state;
 - the migration requires changing another phase, the YAML twin, the runtime result transport, or the public DSL version; or
 - the parity tool cannot distinguish the reviewed structural delta from a public contract regression.
