@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from copy import deepcopy
 from dataclasses import fields, is_dataclass
 from enum import Enum
@@ -17,6 +18,25 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 _DEBUG_ONLY_WCC_KEYS = frozenset({"wcc_node_id", "wcc_scope_id"})
+_PYTEST_SESSION_ROOT_PATTERN = re.compile(r"/tmp/pytest-of-[^/\s'\"]+/pytest-\d+")
+_PYTEST_ELAPSED_SUMMARY_PATTERN = re.compile(
+    r"(?<= in )\d+(?:\.\d+)?s(?=\s*$)",
+    flags=re.MULTILINE,
+)
+_PYTHON_REPR_ADDRESS_PATTERN = re.compile(r"at 0x[0-9A-Fa-f]+")
+
+
+def normalize_procedure_prerequisite_failure_log(
+    text: str,
+    *,
+    repo_root: Path,
+) -> str:
+    """Normalize only nondeterministic prerequisite failure-log fragments."""
+
+    normalized = text.replace(repo_root.resolve().as_posix(), "$REPO")
+    normalized = _PYTEST_SESSION_ROOT_PATTERN.sub("$PYTEST_TMP", normalized)
+    normalized = _PYTEST_ELAPSED_SUMMARY_PATTERN.sub("$TIME", normalized)
+    return _PYTHON_REPR_ADDRESS_PATTERN.sub("at $ADDR", normalized)
 
 
 def _load_json(path: Path) -> dict[str, Any]:

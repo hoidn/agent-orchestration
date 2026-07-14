@@ -109,7 +109,7 @@ Expected: each selector fails independently with the same failure class/message 
 
 - [ ] **Step 3: Create and commit the baseline authority before implementation**
 
-Write schema `procedure_migration_identity_compatibility_baseline.v1` with `captured_at` (UTC), `repository_commit` from `git rev-parse HEAD`, the exact broad command, and eight ordered `failures` rows. Each row contains `nodeid`, `category`, `normalized_failure_signature`, and `normalized_failure_sha256`. Normalize the isolated output by replacing the repository root with `$REPO`, pytest temp roots with `$PYTEST_TMP`, and elapsed durations with `$TIME`; retain exception/assertion type, compared values, and first substantive failure message before hashing the normalized UTF-8 text. Mark exactly the first six nodeids above `established_unrelated` and exactly the last two `intentional_pilot_red`.
+Write schema `procedure_migration_identity_compatibility_baseline.v1` with `captured_at` (UTC), `repository_commit` from `git rev-parse HEAD`, the exact broad command, and eight ordered `failures` rows. Each row contains `nodeid`, `category`, `normalized_failure_signature`, and `normalized_failure_sha256`. Normalize the isolated output by replacing the repository root with `$REPO`, pytest temp roots with `$PYTEST_TMP`, elapsed durations with `$TIME`, and Python repr memory addresses matching `at 0x[0-9A-Fa-f]+` with `at $ADDR`; do not normalize arbitrary hexadecimal values, hashes, or compared values. Retain exception/assertion type, compared values, and first substantive failure message before hashing the normalized UTF-8 text. Mark exactly the first six nodeids above `established_unrelated` and exactly the last two `intentional_pilot_red`.
 
 ```bash
 git add docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json
@@ -494,7 +494,7 @@ Use the `tmux` skill and run from repo root:
 pytest -q -n 16 --dist=worksteal
 ```
 
-Expected: exactly the eight nodeids in `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json`: its six `established_unrelated` rows plus its two `intentional_pilot_red` rows and no others. Compare nodeids as an exact set, not by count. Rerun every baseline row in isolation, apply the baseline's root/temp/time normalization, and require exact equality of both `normalized_failure_signature` and `normalized_failure_sha256`; a replacement failure cannot hide behind the same nodeid or category. The two pilot rows must be:
+Expected: exactly the eight nodeids in `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json`: its six `established_unrelated` rows plus its two `intentional_pilot_red` rows and no others. Compare nodeids as an exact set, not by count. Rerun every baseline row in isolation, apply the baseline's root/temp/time/Python-repr-address normalization (only `at 0x[0-9A-Fa-f]+` becomes `at $ADDR`; arbitrary hexadecimal values remain evidence), and require exact equality of both `normalized_failure_signature` and `normalized_failure_sha256`; a replacement failure cannot hide behind the same nodeid or category. The two pilot rows must be:
 
 - `tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_is_explicit_inline_procedure`
 - `tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_wrapper_uses_procedure_call`

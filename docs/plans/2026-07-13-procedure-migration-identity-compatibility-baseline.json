@@ -7,6 +7,7 @@
     "repository_root": "$REPO",
     "pytest_temp_root": "$PYTEST_TMP",
     "elapsed_duration": "$TIME",
+    "python_repr_address": "at 0x[0-9A-Fa-f]+ -> at $ADDR",
     "signature_projection": "exception/assertion type | first substantive failure message or assertion | compared values"
   },
   "failures": [
@@ -32,7 +33,7 @@
       "nodeid": "tests/test_workflow_semantic_ir.py::test_compiled_bundle_semantic_ir_preserves_command_boundary_classification",
       "category": "established_unrelated",
       "normalized_failure_signature": "AssertionError | assert any(step.boundary_kind == \"certified_adapter\" and step.boundary_name == \"apply_resource_transition\" for step in resource_command_steps) | compared: False is truthy",
-      "normalized_failure_sha256": "d01fea8e04306f331e1610b74c11538daa1a3ae44fd113f749f8799f01b27b1d"
+      "normalized_failure_sha256": "b0ae95ae8725578714724c86fea1479e15374d28c476a1ed5ae9ce2e9fbe6c5d"
     },
     {
       "nodeid": "tests/test_provider_role_routing.py::test_design_delta_drain_defaults_route_work_to_codex_gpt54",

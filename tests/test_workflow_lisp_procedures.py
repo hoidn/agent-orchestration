@@ -1,4 +1,5 @@
 import ast
+import hashlib
 import importlib
 import json
 from dataclasses import fields, replace
@@ -77,6 +78,7 @@ from orchestrator.workflow_lisp.wcc.defunctionalize import lower_wcc_m4_workflow
 from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
 from tests.workflow_lisp_procedure_identity import (
     build_procedure_identity_observation,
+    normalize_procedure_prerequisite_failure_log,
     remove_reviewed_synthetic_inline_call_checkpoint,
 )
 
@@ -6442,6 +6444,61 @@ def test_wcc_anonymous_effect_terminal_pure_op_compiles_cleanly(tmp_path: Path) 
     )
 
     assert result.diagnostics == ()
+
+
+def test_procedure_prerequisite_failure_log_normalizes_only_repr_addresses() -> None:
+    first = (
+        "E assert <generator object collect at 0x7c1717026330> == "
+        "<Widget object at 0x7C1717026ABC>\n"
+        "E assert 0xDEADBEEF == 0xCAFE\n"
+    )
+    second = (
+        "E assert <generator object collect at 0x7395eef2e670> == "
+        "<Widget object at 0x7395EEF2FFFF>\n"
+        "E assert 0xDEADBEEF == 0xCAFE\n"
+    )
+
+    normalized = normalize_procedure_prerequisite_failure_log(
+        first,
+        repo_root=Path("/unused/repo"),
+    )
+
+    assert normalized == normalize_procedure_prerequisite_failure_log(
+        second,
+        repo_root=Path("/unused/repo"),
+    )
+    assert normalized.count("at $ADDR") == 2
+    assert "0xDEADBEEF == 0xCAFE" in normalized
+
+
+def test_procedure_prerequisite_failure_log_normalizes_root_temp_and_time() -> None:
+    repo_root = Path("/srv/work/agent-orchestration")
+    raw = (
+        "root: /srv/work/agent-orchestration/tests/test_example.py\n"
+        "tmp: /tmp/pytest-of-ollie/pytest-3936/test_example0/result.json\n"
+        "1 failed in 0.35s\n"
+    )
+
+    assert normalize_procedure_prerequisite_failure_log(raw, repo_root=repo_root) == (
+        "root: $REPO/tests/test_example.py\n"
+        "tmp: $PYTEST_TMP/test_example0/result.json\n"
+        "1 failed in $TIME\n"
+    )
+
+
+def test_procedure_prerequisite_failure_log_preserves_newline_and_utf8_digest() -> None:
+    raw = "répr: <generator object work at 0x1234ABCD>\n1 failed in 8.25s\n"
+
+    normalized = normalize_procedure_prerequisite_failure_log(
+        raw,
+        repo_root=Path("/unused/repo"),
+    )
+
+    assert normalized == "répr: <generator object work at $ADDR>\n1 failed in $TIME\n"
+    assert normalized.endswith("\n")
+    assert hashlib.sha256(normalized.encode("utf-8")).hexdigest() == (
+        "eea2456d4cf60095f3a40233c4c8dbcd1d47ffe339e14fe46fe1b176d42ab11c"
+    )
 
 
 def test_procedure_identity_modes_match_frozen_legacy_observables(tmp_path: Path) -> None:
