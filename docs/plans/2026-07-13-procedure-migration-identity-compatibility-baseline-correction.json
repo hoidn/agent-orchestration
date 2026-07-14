@@ -1,6 +1,6 @@
 {
   "schema": "procedure_migration_identity_compatibility_baseline_correction.v1",
-  "correction_status": "accepted_values_pending_independent_review",
+  "review_gate": "Task 8 independent specification and quality reviews must approve this correction before pilot handoff.",
   "original_baseline": {
     "path": "docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json",
     "capture_commit": "d5eb004309a544bfad56b80439dc106c628f2d63",
@@ -32,6 +32,28 @@
         "bfabb614dd927a2c121f1e7220c21aa1ee180f63",
         "ffd4503de7d40dbbadb388655adce4e140a516a0"
       ]
+    }
+  ],
+  "correction_history": [
+    {
+      "commit": "5c4d6bdce87e1feb587201677c78b63f49925951",
+      "baseline_file_bytes": 4451,
+      "baseline_file_sha256": "a4c610b38b79ede40a7cb9e9baaa92aae5524ddc61bca57840e0d9d8753bfdb8",
+      "effect": "Replaced all eight signature-string digests with normalized complete-log digests; the semantic-command-boundary row still included a Python repr address."
+    },
+    {
+      "commit": "50f78791320c540181946fb3a29dce355b19fed3",
+      "baseline_file_bytes": 4511,
+      "baseline_file_sha256": "2b4db936e3747e72fc67aab77ee738d2d0179ec40db170ee7648e6471ce5ec6e",
+      "effect": "Added Python repr-address normalization and replaced the semantic-command-boundary digest with its stable value."
+    },
+    {
+      "commit": "bfabb614dd927a2c121f1e7220c21aa1ee180f63",
+      "effect": "Bound repr-address and elapsed-summary normalization so compared hexadecimal and duration evidence remains visible."
+    },
+    {
+      "commit": "ffd4503de7d40dbbadb388655adce4e140a516a0",
+      "effect": "Bound absolute pytest session-root normalization across POSIX, Windows-drive, and UNC forms while preserving prefixes and relative lookalikes."
     }
   ],
   "corrected_normalization": {

@@ -2,8 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** paused. Identity-compatibility Tasks 1-6 are implemented, but the
-prerequisite plan's Task 8 full verification and independent reviews have not
+**Status:** PAUSED. Identity-compatibility Tasks 1-7 are implemented, but the
+prerequisite plan's Task 8 repair and final verification/review gate have not
 yet passed. Do not select or make a pilot source edit while paused.
 
 **Goal:** Convert only the internal `tracked-plan-phase` in `design_plan_impl_review_stack_v2_call.orc` from a workflow call to an inline typed procedure while retaining `design-plan-impl-review-stack` as the public boundary and proving full executable parity.
@@ -33,11 +33,12 @@ the reviewed evidence path defined below.
 - The following earlier prerequisites are complete:
   1. `docs/plans/2026-07-10-workflow-lisp-typed-result-guidance-plan.md` is complete; and
   2. `docs/plans/2026-07-13-procedure-first-substrate-gaps-plan.md` is complete and reviewed.
-- Identity-compatibility prerequisite Tasks 1-6 are implemented in commits
-  `d5eb0043` through `e4f2ecbe`. The frozen pilot source and old baseline have
-  not been refreshed. Remain paused until Task 8 reruns the focused selectors,
-  broad suite, smoke check, and independent specification/runtime-state and
-  quality reviews, then records its final handoff.
+- Identity-compatibility prerequisite Tasks 1-7 are implemented in commits
+  `d5eb0043` through `8ae270ea`. The frozen pilot source and old baseline have
+  not been refreshed. Remain paused until Task 8 completes its pending repair,
+  reruns the focused selectors, broad suite, smoke check, and independent
+  specification/runtime-state and quality reviews, then records its final
+  handoff.
 - When resumed, this plan owns the genuine named-owner attestations for every
   known state store and either proves strict compatibility or applies the
   accepted reviewed internal identity-retirement exception. Missing,
@@ -155,7 +156,7 @@ of only the current workspace.
      `tests/test_workflow_lisp_procedure_identity_retirement.py`; and
    - root/callee checksum characterization in `tests/test_resume_command.py`.
    Task 8's independent reviews must approve those prerequisite contracts;
-   passing Tasks 1-6 selectors without the final reviews does not authorize a
+   passing Tasks 1-7 selectors without the final reviews does not authorize a
    source edit.
 2. Derive the old identity query from the unchanged
    `tests/baselines/procedure_first/tracked_plan_phase.json` and retained old
@@ -419,20 +420,44 @@ Replace the keyword `call` form with the positional procedure application:
 
 Do not change the other two `(call ...)` forms.
 
-- [ ] **Step 3: Run the source and compile parity tests**
+- [ ] **Step 3: Add the POST-EDIT actual-pilot cross-route characterization**
+
+In `tests/test_workflow_lisp_procedure_first_migrations.py`, add
+`test_post_edit_tracked_plan_phase_does_not_use_schema1_iteration_override_across_routes`.
+Compile the edited pilot source through `compile_stage3_entrypoint` once with
+the classic `legacy` route and once with `wcc_m4`, using the actual pilot entry
+and extern/command inputs. Instrument the exact legacy predicate
+`orchestrator.workflow_lisp.lowering.procedures._schema1_iteration_private_override_applies`
+for both compilations and record only decisions for the actual
+`tracked-plan-phase` procedure.
+
+Require the classic compilation to observe at least one predicate decision for
+`tracked-plan-phase` and require every such decision to be false: no call site
+may select the schema-1 private override. Require the WCC compilation to record
+zero calls to that legacy-only predicate. For each route, also require the
+procedure's requested and resolved lowering modes to be `inline`,
+`generated_workflow_name` to be `None`, and the lowered-workflow inventory to
+contain no generated private workflow for `tracked-plan-phase`. This is a
+post-edit characterization of the real pilot, not a substitute for the generic
+fixture or permission to refresh the frozen pre-edit baseline.
+
+- [ ] **Step 4: Run the source and compile parity tests**
 
 ```bash
 pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'tracked_plan_phase'
 pytest -q tests/test_workflow_lisp_key_migrations.py -k 'design_plan_impl_stack_orc_compiles_with_phase_family_contracts'
 ```
 
-Expected: the source/compile characterization passes provisionally. The
+Expected: the source/compile and actual-pilot cross-route characterizations
+pass provisionally. Classic reports no private-override selection for
+`tracked-plan-phase`; WCC never consults the schema-1 predicate; and neither
+route produces a generated private workflow for the procedure. The
 lowered workflow-name assertion in the existing key-migration test may need to
 distinguish the one removed internal workflow from the retained public and two
 untouched phase workflows; update that assertion, not the contract. Do not
 treat this result as accepted retirement evidence.
 
-- [ ] **Step 4: Commit the one-phase migration**
+- [ ] **Step 5: Commit the one-phase migration**
 
 ```bash
 git add workflows/examples/design_plan_impl_review_stack_v2_call.orc tests/test_workflow_lisp_procedure_first_migrations.py tests/test_workflow_lisp_key_migrations.py
