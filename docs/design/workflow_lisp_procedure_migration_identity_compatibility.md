@@ -625,7 +625,7 @@ capability, status, and route-readiness updates wait for passing evidence.
 
 ## Open Questions
 
-None blocks this proposed architecture. Concrete artifact paths, the command
-that enumerates known stores, and the named human owners belong in the pilot
-implementation plan and retirement record. They must not be defaulted or
-inferred by the compiler.
+None remains open for this accepted architecture. Concrete artifact paths, the
+command that enumerates known stores, and the named human owners belong in the
+pilot implementation plan and retirement record. They must not be defaulted
+or inferred by the compiler.
