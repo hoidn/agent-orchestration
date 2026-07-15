@@ -659,6 +659,65 @@ def _validate_tracked_plan_phase_recovery_authorization_semantics(
     return bindings, harness
 
 
+def _validate_tracked_plan_phase_recovery_authorization_lifecycle(
+    authorization: dict[str, object],
+) -> str:
+    evidence_status = authorization.get("evidence_status")
+    if evidence_status == "owner_confirmed":
+        _validate_tracked_plan_phase_recovery_authorization_semantics(authorization)
+        return "owner_confirmed"
+
+    assert evidence_status == "pending_owner_confirmation", (
+        "recovery authorization lifecycle status is invalid"
+    )
+    expected_pending_keys = {
+        "record_type",
+        "version",
+        "evidence_status",
+        "authorized_disposition",
+        "intended_owner",
+        "bindings",
+        "authorization_scope",
+        "owner_action_required",
+        "template_prepared_by",
+        "claims_not_made",
+    }
+    assert set(authorization) == expected_pending_keys, (
+        "pending recovery authorization contains unexpected fields"
+    )
+    bindings = authorization.get("bindings")
+    assert isinstance(bindings, dict)
+    harness = bindings.get("second_recovery_harness")
+    expected_harness_keys = {
+        "commit",
+        "commit_tree",
+        "primary_review_complete_candidate_sha256",
+        "secondary_review_complete_candidate_sha256",
+    }
+    assert isinstance(harness, dict) and set(harness) == expected_harness_keys, (
+        "pending second recovery harness binding schema is invalid"
+    )
+    is_unbound = harness == dict(_TRACKED_PLAN_PILOT_PENDING_HARNESS_BINDING)
+    is_bound = bool(
+        isinstance(harness.get("commit"), str)
+        and re.fullmatch(r"[0-9a-f]{40}", harness["commit"])
+        and isinstance(harness.get("commit_tree"), str)
+        and re.fullmatch(r"[0-9a-f]{40}", harness["commit_tree"])
+        and _is_sha256(harness.get("primary_review_complete_candidate_sha256"))
+        and _is_sha256(harness.get("secondary_review_complete_candidate_sha256"))
+    )
+    assert is_unbound or is_bound, (
+        "pending second recovery harness must be a complete placeholder or populated set"
+    )
+    expected = _tracked_plan_phase_pending_recovery_authorization_fixture(
+        second_recovery_harness=harness
+    )
+    assert authorization == expected, (
+        "pending recovery authorization differs from its exact lifecycle schema"
+    )
+    return "unbound_pending" if is_unbound else "bound_pending"
+
+
 def _validate_tracked_plan_phase_recovery_preflight_contract(
     *,
     authorization: dict[str, object],
@@ -1736,89 +1795,75 @@ def test_tracked_plan_phase_recovery_uses_the_second_authorization_path() -> Non
     )
 
 
-def test_tracked_plan_phase_second_recovery_form_is_pending_owner_confirmation() -> None:
+def test_tracked_plan_phase_actual_recovery_record_matches_its_lifecycle_contract() -> None:
     assert TRACKED_PLAN_PILOT_RECOVERY_AUTHORIZATION.is_file()
-    pending = _load_json(TRACKED_PLAN_PILOT_RECOVERY_AUTHORIZATION)
-    assert pending["evidence_status"] == "pending_owner_confirmation"
-    assert pending["authorized_disposition"] == "pending_owner_decision"
-    assert not {
-        "owner",
-        "owner_confirmations",
-        "prepared_by",
-        "prepared_at",
-        "owner_adoption",
-    }.intersection(pending)
+    record = _load_json(TRACKED_PLAN_PILOT_RECOVERY_AUTHORIZATION)
 
-
-def test_tracked_plan_phase_second_recovery_form_has_exact_pending_schema() -> None:
-    pending = _load_json(TRACKED_PLAN_PILOT_RECOVERY_AUTHORIZATION)
-
-    assert set(pending) == {
-        "record_type",
-        "version",
-        "evidence_status",
-        "authorized_disposition",
-        "intended_owner",
-        "bindings",
-        "authorization_scope",
-        "owner_action_required",
-        "template_prepared_by",
-        "claims_not_made",
+    lifecycle = _validate_tracked_plan_phase_recovery_authorization_lifecycle(record)
+    assert lifecycle in {
+        "unbound_pending",
+        "bound_pending",
+        "owner_confirmed",
     }
-    assert pending["bindings"] == _tracked_plan_phase_recovery_bindings_fixture(
-        second_recovery_harness=_TRACKED_PLAN_PILOT_PENDING_HARNESS_BINDING
+    clean, interruption = _tracked_plan_phase_projection_fixtures()
+    if lifecycle == "owner_confirmed":
+        _validate_tracked_plan_phase_retained_projections(clean, interruption)
+    else:
+        with pytest.raises(AssertionError, match="owner-confirmed"):
+            _validate_tracked_plan_phase_retained_projections(clean, interruption)
+
+
+@pytest.mark.parametrize(
+    ("harness", "expected_lifecycle"),
+    (
+        (_TRACKED_PLAN_PILOT_PENDING_HARNESS_BINDING, "unbound_pending"),
+        (_TRACKED_PLAN_PILOT_TEST_HARNESS_BINDING, "bound_pending"),
+    ),
+)
+def test_tracked_plan_phase_pure_pending_recovery_record_lifecycle_contracts(
+    harness: Mapping[str, object],
+    expected_lifecycle: str,
+) -> None:
+    pending = _tracked_plan_phase_pending_recovery_authorization_fixture(
+        second_recovery_harness=harness
     )
-    assert pending["authorization_scope"] == (
-        _tracked_plan_phase_recovery_authorization_scope_fixture()
+
+    assert _validate_tracked_plan_phase_recovery_authorization_lifecycle(pending) == (
+        expected_lifecycle
     )
-    assert set(pending["owner_action_required"]) == {
-        "status",
-        "instructions",
-        "pre_adoption_sequence",
-        "required_replacements",
-        "fixed_owner_confirmation_statements",
-        "fixed_confirmed_claims_not_made",
-    }
-    assert pending["owner_action_required"]["status"] == "not_reviewed_or_adopted"
-    assert pending["owner_action_required"]["pre_adoption_sequence"] == [
-        (
-            "Complete both ordered reviews against the exact pending recovery-harness "
-            "candidate."
-        ),
-        (
-            "Commit the recovery harness, routed status documents, incident records, "
-            "and immutable input records while this form remains pending and "
-            "non-authorizing."
-        ),
-        (
-            "Mechanically replace all four second_recovery_harness placeholders with "
-            "the actual committed harness commit, commit tree, primary reviewed "
-            "complete-candidate SHA256, and secondary reviewed complete-candidate "
-            "SHA256; keep this form pending."
-        ),
-        (
-            "Only after those exact bindings are populated may the intended owner "
-            "review the whole record and explicitly adopt the owner-confirmed schema."
-        ),
-        (
-            "After adoption, complete final exact owner-record verification and ordered "
-            "reviews before any live recovery action."
-        ),
-    ]
-    assert pending["owner_action_required"]["fixed_owner_confirmation_statements"] == (
-        _tracked_plan_phase_recovery_owner_statements_fixture()
+
+
+def test_tracked_plan_phase_pure_owner_confirmed_recovery_record_lifecycle_contract(
+) -> None:
+    confirmed = _tracked_plan_phase_owner_confirmed_recovery_authorization_fixture()
+
+    assert _validate_tracked_plan_phase_recovery_authorization_lifecycle(confirmed) == (
+        "owner_confirmed"
     )
-    assert pending["owner_action_required"]["fixed_confirmed_claims_not_made"] == (
-        _tracked_plan_phase_recovery_confirmed_claims_fixture()
+
+
+@pytest.mark.parametrize("binding_field", tuple(_TRACKED_PLAN_PILOT_TEST_HARNESS_BINDING))
+def test_tracked_plan_phase_pending_recovery_record_rejects_mixed_harness_population(
+    binding_field: str,
+) -> None:
+    mixed = dict(_TRACKED_PLAN_PILOT_PENDING_HARNESS_BINDING)
+    mixed[binding_field] = _TRACKED_PLAN_PILOT_TEST_HARNESS_BINDING[binding_field]
+    pending = _tracked_plan_phase_pending_recovery_authorization_fixture(
+        second_recovery_harness=mixed
     )
-    serialized = json.dumps(pending, sort_keys=True)
-    for forbidden_field in (
-        '"confirmed_at"',
-        '"prepared_at"',
-        '"adopted_at"',
-        '"provenance_statement"',
-    ):
-        assert forbidden_field not in serialized
+
+    with pytest.raises(AssertionError, match="complete placeholder or populated set"):
+        _validate_tracked_plan_phase_recovery_authorization_lifecycle(pending)
+
+
+def test_tracked_plan_phase_pending_recovery_record_rejects_extra_fields() -> None:
+    pending = _tracked_plan_phase_pending_recovery_authorization_fixture(
+        second_recovery_harness=_TRACKED_PLAN_PILOT_TEST_HARNESS_BINDING
+    )
+    pending["unexpected"] = True
+
+    with pytest.raises(AssertionError, match="unexpected fields"):
+        _validate_tracked_plan_phase_recovery_authorization_lifecycle(pending)
 
 
 def _tracked_plan_phase_recovery_authorization_scope_fixture() -> dict[str, object]:
@@ -2040,6 +2085,118 @@ def _tracked_plan_phase_recovery_confirmed_claims_fixture() -> list[str]:
     ]
 
 
+def _tracked_plan_phase_pending_owner_action_fixture() -> dict[str, object]:
+    return {
+        "status": "not_reviewed_or_adopted",
+        "instructions": (
+            "This is a pending form, not authorization. The intended owner must review "
+            "every fixed binding, scope item, confirmation statement, and claim boundary. "
+            "Only the owner or an agent acting under the owner's explicit direction may "
+            "replace this form with the exact owner-confirmed schema; preparation of this "
+            "form is not adoption."
+        ),
+        "pre_adoption_sequence": [
+            "Complete both ordered reviews against the exact pending recovery-harness candidate.",
+            (
+                "Commit the recovery harness, routed status documents, incident records, "
+                "and immutable input records while this form remains pending and "
+                "non-authorizing."
+            ),
+            (
+                "Mechanically replace all four second_recovery_harness placeholders with "
+                "the actual committed harness commit, commit tree, primary reviewed "
+                "complete-candidate SHA256, and secondary reviewed complete-candidate "
+                "SHA256; keep this form pending."
+            ),
+            (
+                "Only after those exact bindings are populated may the intended owner "
+                "review the whole record and explicitly adopt the owner-confirmed schema."
+            ),
+            (
+                "After adoption, complete final exact owner-record verification and ordered "
+                "reviews before any live recovery action."
+            ),
+        ],
+        "required_replacements": [
+            (
+                "Replace all four second_recovery_harness placeholders mechanically with "
+                "the actual post-review harness commit, commit tree, and ordered reviewed "
+                "complete-candidate SHA256 bindings while evidence_status remains "
+                "pending_owner_confirmation."
+            ),
+            "Replace evidence_status with owner_confirmed.",
+            (
+                "Replace authorized_disposition with "
+                "replace_failed_interrupted_run_same_id_once_after_fresh_child_fix."
+            ),
+            "Replace intended_owner with owner using the same exact owner object.",
+            (
+                "Remove owner_action_required and add owner_confirmations with a genuine "
+                "confirmed_at timestamp and the exact fixed statements below."
+            ),
+            (
+                "Add prepared_by naming the actual mechanical writer and prepared_at with "
+                "the genuine write timestamp."
+            ),
+            (
+                "Add owner_adoption with the exact owner object, a genuine adopted_at "
+                "timestamp, and a provenance_statement describing the owner's actual "
+                "review, explicit adoption, and direction to the mechanical writer."
+            ),
+            (
+                "Replace claims_not_made with the exact fixed confirmed-record claim "
+                "boundaries below."
+            ),
+        ],
+        "fixed_owner_confirmation_statements": (
+            _tracked_plan_phase_recovery_owner_statements_fixture()
+        ),
+        "fixed_confirmed_claims_not_made": (
+            _tracked_plan_phase_recovery_confirmed_claims_fixture()
+        ),
+    }
+
+
+def _tracked_plan_phase_pending_claims_fixture() -> list[str]:
+    return [
+        (
+            "This pending form is not owner authorization, owner confirmation, owner "
+            "adoption, or owner provenance."
+        ),
+        (
+            "It authorizes no deletion, recreation, interruption, resume, publication, "
+            "workflow execution, or other mutation."
+        ),
+        "It does not attest Task 3, retirement validation, or pilot completion.",
+        (
+            "It does not assert historical clean artifact equality; that remains "
+            "not_asserted under the retained correction authorization."
+        ),
+    ]
+
+
+def _tracked_plan_phase_pending_recovery_authorization_fixture(
+    *,
+    second_recovery_harness: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        "record_type": (
+            "procedure_first_pilot_task3_fresh_child_resume_recovery_authorization"
+        ),
+        "version": 1,
+        "evidence_status": "pending_owner_confirmation",
+        "authorized_disposition": "pending_owner_decision",
+        "intended_owner": {"name": "Ollie", "email": "ohoidn@stanford.edu"},
+        "bindings": _tracked_plan_phase_recovery_bindings_fixture(
+            second_recovery_harness=second_recovery_harness
+        ),
+        "authorization_scope": _tracked_plan_phase_recovery_authorization_scope_fixture(),
+        "owner_action_required": _tracked_plan_phase_pending_owner_action_fixture(),
+        "template_prepared_by": "Codex /root — non-owner template preparation only",
+        "claims_not_made": _tracked_plan_phase_pending_claims_fixture(),
+    }
+
+
 def _tracked_plan_phase_owner_confirmed_recovery_authorization_fixture(
     *,
     second_recovery_harness: Mapping[str, object] = (
@@ -2186,14 +2343,28 @@ def test_tracked_plan_phase_recovery_preflight_contract_binds_observed_harness_h
     _validate_tracked_plan_phase_recovery_preflight_contract(**arguments)
 
 
-def test_tracked_plan_phase_pending_second_authorization_rejects_before_actions() -> None:
+@pytest.mark.parametrize(
+    "harness",
+    (
+        _TRACKED_PLAN_PILOT_PENDING_HARNESS_BINDING,
+        _TRACKED_PLAN_PILOT_TEST_HARNESS_BINDING,
+    ),
+)
+def test_tracked_plan_phase_pure_pending_authorization_rejects_preflight_before_actions(
+    harness: Mapping[str, object],
+) -> None:
     arguments = _tracked_plan_phase_recovery_preflight_fixture()
-    arguments["authorization"] = _load_json(TRACKED_PLAN_PILOT_RECOVERY_AUTHORIZATION)
-    arguments["authorization_sha256"] = _sha256_path(
-        TRACKED_PLAN_PILOT_RECOVERY_AUTHORIZATION
+    pending = _tracked_plan_phase_pending_recovery_authorization_fixture(
+        second_recovery_harness=harness
     )
+    digest = "sha256:" + "5" * 64
+    arguments["authorization"] = pending
+    arguments["authorization_sha256"] = digest
 
-    with patch("shutil.rmtree", side_effect=AssertionError("deletion forbidden")), patch.object(
+    with patch(
+        f"{__name__}._load_json_with_sha256",
+        return_value=(pending, digest),
+    ), patch("shutil.rmtree", side_effect=AssertionError("deletion forbidden")), patch.object(
         StateManager,
         "__init__",
         side_effect=AssertionError("runtime forbidden"),
@@ -2205,6 +2376,32 @@ def test_tracked_plan_phase_pending_second_authorization_rejects_before_actions(
         ProviderExecutor,
         "execute",
         side_effect=AssertionError("provider execution forbidden"),
+    ), pytest.raises(AssertionError, match="owner-confirmed"):
+        _validate_tracked_plan_phase_recovery_preflight(**arguments)
+
+
+def test_tracked_plan_phase_bound_pending_mechanical_population_is_valid_but_not_authority(
+) -> None:
+    bound_pending = _tracked_plan_phase_pending_recovery_authorization_fixture(
+        second_recovery_harness=_TRACKED_PLAN_PILOT_PENDING_HARNESS_BINDING
+    )
+    bound_pending["bindings"]["second_recovery_harness"].update(
+        _TRACKED_PLAN_PILOT_TEST_HARNESS_BINDING
+    )
+    assert bound_pending == _tracked_plan_phase_pending_recovery_authorization_fixture(
+        second_recovery_harness=_TRACKED_PLAN_PILOT_TEST_HARNESS_BINDING
+    )
+    assert _validate_tracked_plan_phase_recovery_authorization_lifecycle(
+        bound_pending
+    ) == "bound_pending"
+
+    arguments = _tracked_plan_phase_recovery_preflight_fixture()
+    digest = "sha256:" + "6" * 64
+    arguments["authorization"] = bound_pending
+    arguments["authorization_sha256"] = digest
+    with patch(
+        f"{__name__}._load_json_with_sha256",
+        return_value=(bound_pending, digest),
     ), pytest.raises(AssertionError, match="owner-confirmed"):
         _validate_tracked_plan_phase_recovery_preflight(**arguments)
 
@@ -2354,14 +2551,28 @@ def test_tracked_plan_phase_retained_projections_reject_same_noncurrent_recovery
         _validate_tracked_plan_phase_retained_projections(clean, interruption)
 
 
-def test_tracked_plan_phase_retained_replay_rejects_pending_current_authorization(
+@pytest.mark.parametrize(
+    "harness",
+    (
+        _TRACKED_PLAN_PILOT_PENDING_HARNESS_BINDING,
+        _TRACKED_PLAN_PILOT_TEST_HARNESS_BINDING,
+    ),
+)
+def test_tracked_plan_phase_retained_replay_rejects_pure_pending_authorization(
+    harness: Mapping[str, object],
 ) -> None:
     clean, interruption = _tracked_plan_phase_projection_fixtures()
-    assert clean["fresh_child_resume_recovery_authorization"]["sha256"] == (
-        _sha256_path(TRACKED_PLAN_PILOT_RECOVERY_AUTHORIZATION)
+    pending = _tracked_plan_phase_pending_recovery_authorization_fixture(
+        second_recovery_harness=harness
     )
+    digest = "sha256:" + "7" * 64
+    for projection in (clean, interruption):
+        projection["fresh_child_resume_recovery_authorization"]["sha256"] = digest
 
-    with pytest.raises(AssertionError, match="owner-confirmed"):
+    with patch(
+        f"{__name__}._load_json_with_sha256",
+        return_value=(pending, digest),
+    ), pytest.raises(AssertionError, match="owner-confirmed"):
         _validate_tracked_plan_phase_retained_projections(clean, interruption)
 
 
