@@ -123,6 +123,20 @@ class ExecutionOrderEntry:
 
 
 @dataclass(frozen=True)
+class RetiredIdentityQueryEvidence:
+    evidence_path: str
+    evidence_sha256: str
+    query_version: str
+    query_list_sha256: str
+    identity_count: int
+    identities_by_domain_sha256: str
+    baseline_path: str
+    baseline_sha256: str
+    old_source_path: str
+    old_source_sha256: str
+
+
+@dataclass(frozen=True)
 class ProcedureIdentityRetirementRecord:
     schema: str
     migration: Mapping[str, Any]
@@ -132,6 +146,7 @@ class ProcedureIdentityRetirementRecord:
     supporting_labels: tuple[str, ...]
     known_state_stores: tuple[KnownStateStoreEvidence, ...]
     external_store_absence: str
+    retired_identity_query_evidence: RetiredIdentityQueryEvidence
     artifacts: tuple[ContentAddressedArtifact, ...]
     identity_delta: tuple[IdentityDeltaRow, ...]
     artifact_multiset: tuple[ArtifactMultisetRow, ...]
@@ -236,6 +251,10 @@ def _json_object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, A
             )
         result[key] = value
     return result
+
+
+def _reject_nonfinite_json_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON constant {value!r} is forbidden")
 
 
 def _parse_metadata(payload: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
@@ -429,6 +448,38 @@ def _parse_artifacts(value: Any) -> tuple[ContentAddressedArtifact, ...]:
             _string(row[key], f"{path}.{key}")
         artifacts.append(ContentAddressedArtifact(**row))
     return tuple(artifacts)
+
+
+def _parse_retired_identity_query_evidence(value: Any) -> RetiredIdentityQueryEvidence:
+    path = "$.retired_identity_query_evidence"
+    fields = {
+        "evidence_path",
+        "evidence_sha256",
+        "query_version",
+        "query_list_sha256",
+        "identity_count",
+        "identities_by_domain_sha256",
+        "baseline_path",
+        "baseline_sha256",
+        "old_source_path",
+        "old_source_sha256",
+    }
+    row = _object(value, path, allowed=fields, required=fields)
+    for field in fields - {"identity_count"}:
+        _string(row[field], f"{path}.{field}")
+    identity_count = _integer(row["identity_count"], f"{path}.identity_count")
+    return RetiredIdentityQueryEvidence(
+        evidence_path=row["evidence_path"],
+        evidence_sha256=row["evidence_sha256"],
+        query_version=row["query_version"],
+        query_list_sha256=row["query_list_sha256"],
+        identity_count=identity_count,
+        identities_by_domain_sha256=row["identities_by_domain_sha256"],
+        baseline_path=row["baseline_path"],
+        baseline_sha256=row["baseline_sha256"],
+        old_source_path=row["old_source_path"],
+        old_source_sha256=row["old_source_sha256"],
+    )
 
 
 def _parse_identity_delta(value: Any) -> tuple[IdentityDeltaRow, ...]:
@@ -647,6 +698,7 @@ def load_retirement_record(path: str | Path) -> ProcedureIdentityRetirementRecor
         "supporting_labels",
         "known_state_stores",
         "external_store_absence",
+        "retired_identity_query_evidence",
         "artifacts",
         "identity_delta",
         "artifact_multiset",
@@ -675,6 +727,9 @@ def load_retirement_record(path: str | Path) -> ProcedureIdentityRetirementRecor
         supporting_labels=labels,
         known_state_stores=_parse_stores(payload["known_state_stores"]),
         external_store_absence=external_store_absence,
+        retired_identity_query_evidence=_parse_retired_identity_query_evidence(
+            payload["retired_identity_query_evidence"]
+        ),
         artifacts=_parse_artifacts(payload["artifacts"]),
         identity_delta=_parse_identity_delta(payload["identity_delta"]),
         artifact_multiset=_parse_artifact_multiset(payload["artifact_multiset"]),
@@ -848,16 +903,23 @@ def _load_content_addressed_file(
     raw_path: str,
     declared_digest: str,
 ) -> tuple[bytes | None, str | None, str]:
-    relative = Path(raw_path)
-    if relative.is_absolute() or ".." in relative.parts:
-        return None, "procedure_identity_retirement_artifact_path_outside_repository", "path must be repository-relative"
-    if _path_has_symlink_component(root, relative):
-        return None, "procedure_identity_retirement_artifact_symlink_forbidden", "path must not contain symlink components"
-    candidate = (root / relative).resolve()
-    if candidate != root and root not in candidate.parents:
-        return None, "procedure_identity_retirement_artifact_path_outside_repository", "path resolves outside repo_root"
-    if not candidate.is_file():
-        return None, "procedure_identity_retirement_artifact_missing", f"file does not exist: {raw_path}"
+    try:
+        relative = Path(raw_path)
+        if relative.is_absolute() or ".." in relative.parts:
+            return None, "procedure_identity_retirement_artifact_path_outside_repository", "path must be repository-relative"
+        if _path_has_symlink_component(root, relative):
+            return None, "procedure_identity_retirement_artifact_symlink_forbidden", "path must not contain symlink components"
+        candidate = (root / relative).resolve()
+        if candidate != root and root not in candidate.parents:
+            return None, "procedure_identity_retirement_artifact_path_outside_repository", "path resolves outside repo_root"
+        if not candidate.is_file():
+            return None, "procedure_identity_retirement_artifact_missing", f"file does not exist: {raw_path}"
+    except (OSError, RuntimeError, ValueError) as exc:
+        return (
+            None,
+            "procedure_identity_retirement_artifact_path_invalid",
+            f"path cannot be inspected safely: {exc}",
+        )
     try:
         content = _read_stable_bytes(candidate)
     except ValueError as exc:
@@ -992,11 +1054,682 @@ def _projection_digest(value: Any) -> str:
     return f"sha256:{sha256(encoded).hexdigest()}"
 
 
+def _canonical_json_digest(value: Any) -> str:
+    encoded = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return f"sha256:{sha256(encoded).hexdigest()}"
+
+
+def _add_identity(
+    identities: dict[str, set[str]],
+    identity_kind: str,
+    value: Any,
+) -> None:
+    if isinstance(value, str):
+        identities[identity_kind].add(value)
+
+
+def _collect_source_map_workflow_origins(
+    identities: dict[str, set[str]],
+    workflow_map: Mapping[str, Any],
+) -> None:
+    for field in (
+        "command_boundaries",
+        "core_nodes",
+        "executable_nodes",
+        "generated_path_allocations",
+        "generated_semantic_effects",
+        "validation_subjects",
+    ):
+        for row in _mapping_rows(workflow_map.get(field)):
+            _add_identity(identities, "source_map_origin", row.get("origin_key"))
+    for field in (
+        "contract_fields",
+        "generated_inputs",
+        "generated_internal_inputs",
+        "generated_outputs",
+        "generated_paths",
+        "step_ids",
+    ):
+        rows = workflow_map.get(field)
+        for row in rows.values() if isinstance(rows, Mapping) else ():
+            if isinstance(row, Mapping):
+                _add_identity(
+                    identities,
+                    "source_map_origin",
+                    row.get("origin_key"),
+                )
+    workflow_origin = workflow_map.get("workflow_origin")
+    if isinstance(workflow_origin, Mapping):
+        _add_identity(
+            identities,
+            "source_map_origin",
+            workflow_origin.get("origin_key"),
+        )
+
+
+def _mapping_rows(value: Any) -> tuple[Mapping[str, Any], ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(row for row in value if isinstance(row, Mapping))
+
+
+def _collect_call_frame_identity(
+    identities: dict[str, set[str]],
+    row: Mapping[str, Any],
+) -> None:
+    step_id = row.get("step_id")
+    if row.get("kind") == "call_boundary" and isinstance(step_id, str):
+        identities["call_frame"].add(f"{step_id}::visit::1")
+
+
+def _collect_production_identity_carriers(
+    payloads: Mapping[tuple[str, str], Mapping[str, Any]],
+    side: str,
+) -> dict[str, set[str]]:
+    identities = {kind: set() for kind in REQUIRED_IDENTITY_DOMAINS}
+    typed = payloads[(side, "typed_frontend_ast")]
+    semantic = payloads[(side, "semantic_ir")]
+    executable = payloads[(side, "executable_ir")]
+    runtime = payloads[(side, "runtime_plan")]
+    points_payload = payloads[(side, "lexical_checkpoint_points")]
+    source_map = payloads[(side, "source_map")]
+
+    modules = typed.get("modules")
+    for module in modules.values() if isinstance(modules, Mapping) else ():
+        workflows = module.get("typed_workflows") if isinstance(module, Mapping) else None
+        for workflow in _mapping_rows(workflows):
+            definition = workflow.get("definition")
+            if isinstance(definition, Mapping):
+                _add_identity(identities, "workflow", definition.get("name"))
+    _add_identity(identities, "workflow", executable.get("name"))
+
+    semantic_workflows = semantic.get("workflows")
+    if isinstance(semantic_workflows, Mapping):
+        for workflow_key, workflow_payload in semantic_workflows.items():
+            _add_identity(identities, "workflow", workflow_key)
+            if not isinstance(workflow_payload, Mapping):
+                continue
+            _add_identity(
+                identities,
+                "workflow",
+                workflow_payload.get("workflow_name"),
+            )
+            bridge = workflow_payload.get("executable_bridge")
+            if not isinstance(bridge, Mapping):
+                continue
+            bridge_node_ids = bridge.get("node_ids")
+            for node_id in bridge_node_ids if isinstance(bridge_node_ids, list) else ():
+                _add_identity(identities, "executable_node", node_id)
+            bridge_presentation_keys = bridge.get("presentation_keys")
+            for presentation_key in (
+                bridge_presentation_keys
+                if isinstance(bridge_presentation_keys, list)
+                else ()
+            ):
+                _add_identity(identities, "presentation_key", presentation_key)
+
+    source_map_workflows = source_map.get("workflows")
+    if isinstance(source_map_workflows, Mapping):
+        for workflow_key, workflow_map in source_map_workflows.items():
+            _add_identity(identities, "workflow", workflow_key)
+            if isinstance(workflow_map, Mapping):
+                _add_identity(
+                    identities,
+                    "workflow",
+                    workflow_map.get("workflow_name"),
+                )
+                selected_entry = workflow_map.get("selected_entry_workflow")
+                if isinstance(selected_entry, str):
+                    _add_identity(identities, "workflow", selected_entry)
+    _add_identity(identities, "workflow", runtime.get("workflow_name"))
+    _add_identity(identities, "workflow", points_payload.get("workflow_name"))
+
+    executable_nodes = executable.get("nodes")
+    if isinstance(executable_nodes, Mapping):
+        for node_key, node in executable_nodes.items():
+            _add_identity(identities, "executable_node", node_key)
+            if not isinstance(node, Mapping):
+                continue
+            _add_identity(identities, "executable_node", node.get("node_id"))
+            _add_identity(identities, "step", node.get("step_id"))
+            _add_identity(identities, "presentation_key", node.get("presentation_name"))
+            _collect_call_frame_identity(identities, node)
+
+    runtime_nodes = runtime.get("nodes")
+    if isinstance(runtime_nodes, Mapping):
+        for node_key, node in runtime_nodes.items():
+            _add_identity(identities, "executable_node", node_key)
+            if not isinstance(node, Mapping):
+                continue
+            _add_identity(identities, "executable_node", node.get("node_id"))
+            _add_identity(identities, "step", node.get("step_id"))
+            _add_identity(identities, "presentation_key", node.get("presentation_key"))
+            _collect_call_frame_identity(identities, node)
+
+    for checkpoint in _mapping_rows(runtime.get("resume_checkpoints")):
+        _add_identity(identities, "executable_node", checkpoint.get("node_id"))
+        _add_identity(identities, "step", checkpoint.get("step_id"))
+        _add_identity(
+            identities,
+            "presentation_key",
+            checkpoint.get("presentation_key"),
+        )
+
+    for point in _mapping_rows(runtime.get("lexical_checkpoint_points")):
+        _add_identity(identities, "executable_node", point.get("node_id"))
+        _add_identity(identities, "step", point.get("step_id"))
+        _add_identity(identities, "presentation_key", point.get("presentation_key"))
+        _add_identity(identities, "program_point", point.get("program_point_id"))
+        _add_identity(identities, "checkpoint", point.get("checkpoint_id"))
+        _add_identity(identities, "source_map_origin", point.get("origin_key"))
+        details = point.get("details")
+        if isinstance(details, Mapping):
+            storage = details.get("storage")
+            if isinstance(storage, Mapping):
+                _add_identity(
+                    identities,
+                    "state_allocation",
+                    storage.get("allocation_id"),
+                )
+
+    for point in _mapping_rows(points_payload.get("points")):
+        _add_identity(identities, "program_point", point.get("program_point_id"))
+        _add_identity(identities, "checkpoint", point.get("checkpoint_id"))
+        executable_identity = point.get("executable_identity")
+        if isinstance(executable_identity, Mapping):
+            _add_identity(identities, "step", executable_identity.get("step_id"))
+            _add_identity(
+                identities,
+                "presentation_key",
+                executable_identity.get("presentation_key"),
+            )
+        storage = point.get("storage")
+        if isinstance(storage, Mapping):
+            _add_identity(
+                identities,
+                "state_allocation",
+                storage.get("allocation_id"),
+            )
+        source_lineage = point.get("source_lineage")
+        if isinstance(source_lineage, Mapping):
+            _add_identity(
+                identities,
+                "source_map_origin",
+                source_lineage.get("origin_key"),
+            )
+
+    for workflow_map in (
+        source_map_workflows.values()
+        if isinstance(source_map_workflows, Mapping)
+        else ()
+    ):
+        if not isinstance(workflow_map, Mapping):
+            continue
+        _collect_source_map_workflow_origins(identities, workflow_map)
+        for node in _mapping_rows(workflow_map.get("executable_nodes")):
+            _add_identity(identities, "executable_node", node.get("node_id"))
+            _add_identity(identities, "step", node.get("step_id"))
+            _add_identity(
+                identities,
+                "presentation_key",
+                node.get("presentation_name"),
+            )
+            _collect_call_frame_identity(identities, node)
+        for allocation in _mapping_rows(workflow_map.get("generated_path_allocations")):
+            _add_identity(
+                identities,
+                "state_allocation",
+                allocation.get("allocation_id"),
+            )
+    return identities
+
+
+def _collect_production_leak_carriers(
+    payloads: Mapping[tuple[str, str], Mapping[str, Any]],
+    side: str,
+) -> dict[str, set[str]]:
+    identities = {
+        kind: set(values)
+        for kind, values in _collect_production_identity_carriers(
+            payloads,
+            side,
+        ).items()
+    }
+    semantic = payloads[(side, "semantic_ir")]
+    executable = payloads[(side, "executable_ir")]
+    runtime = payloads[(side, "runtime_plan")]
+    points_payload = payloads[(side, "lexical_checkpoint_points")]
+
+    for point in _mapping_rows(points_payload.get("points")):
+        executable_identity = point.get("executable_identity")
+        if isinstance(executable_identity, Mapping):
+            _add_identity(
+                identities,
+                "executable_node",
+                executable_identity.get("node_id"),
+            )
+
+    for field in ("body_region", "finalization_region"):
+        values = executable.get(field)
+        for node_id in values if isinstance(values, list) else ():
+            _add_identity(identities, "executable_node", node_id)
+    _add_identity(
+        identities,
+        "executable_node",
+        executable.get("finalization_entry_node_id"),
+    )
+
+    ordered_node_ids = runtime.get("ordered_node_ids")
+    for node_id in ordered_node_ids if isinstance(ordered_node_ids, list) else ():
+        _add_identity(identities, "executable_node", node_id)
+
+    semantic_workflows = semantic.get("workflows")
+    for workflow in (
+        semantic_workflows.values()
+        if isinstance(semantic_workflows, Mapping)
+        else ()
+    ):
+        if not isinstance(workflow, Mapping):
+            continue
+        statements = workflow.get("statements")
+        for statement in (
+            statements.values() if isinstance(statements, Mapping) else ()
+        ):
+            if not isinstance(statement, Mapping):
+                continue
+            node_ids = statement.get("executable_node_ids")
+            for node_id in node_ids if isinstance(node_ids, list) else ():
+                _add_identity(identities, "executable_node", node_id)
+            presentation_keys = statement.get("presentation_keys")
+            for presentation_key in (
+                presentation_keys if isinstance(presentation_keys, list) else ()
+            ):
+                _add_identity(
+                    identities,
+                    "presentation_key",
+                    presentation_key,
+                )
+            _add_identity(identities, "step", statement.get("step_id"))
+
+    semantic_source_map = semantic.get("source_map")
+    for entry in (
+        semantic_source_map.values()
+        if isinstance(semantic_source_map, Mapping)
+        else ()
+    ):
+        if isinstance(entry, Mapping):
+            _add_identity(
+                identities,
+                "source_map_origin",
+                entry.get("origin_key"),
+            )
+    return identities
+
+
+def _validate_retired_identity_query_evidence(
+    record: ProcedureIdentityRetirementRecord,
+    issues: list[RetirementIssue],
+    repo_root: Path,
+) -> dict[str, set[str]] | None:
+    binding = record.retired_identity_query_evidence
+    binding_path = "$.retired_identity_query_evidence"
+    content, error_code, error_message = _load_content_addressed_file(
+        repo_root.resolve(),
+        raw_path=binding.evidence_path,
+        declared_digest=binding.evidence_sha256,
+    )
+    if content is None:
+        if error_code in {
+            "procedure_identity_retirement_artifact_path_outside_repository",
+            "procedure_identity_retirement_artifact_path_invalid",
+            "procedure_identity_retirement_artifact_symlink_forbidden",
+        }:
+            code = "procedure_identity_retirement_query_evidence_path_invalid"
+            path = f"{binding_path}.evidence_path"
+        elif error_code in {
+            "procedure_identity_retirement_artifact_missing",
+            "procedure_identity_retirement_artifact_read_failed",
+        }:
+            code = "procedure_identity_retirement_query_evidence_unavailable"
+            path = f"{binding_path}.evidence_path"
+        elif error_code == "procedure_identity_retirement_artifact_digest_mismatch":
+            code = "procedure_identity_retirement_query_evidence_digest_mismatch"
+            path = f"{binding_path}.evidence_sha256"
+        else:
+            code = "procedure_identity_retirement_query_evidence_unavailable"
+            path = f"{binding_path}.evidence_path"
+        _issue(issues, code, path, error_message)
+        return None
+    try:
+        evidence = json.loads(
+            content,
+            object_pairs_hook=_json_object_without_duplicates,
+            parse_constant=_reject_nonfinite_json_constant,
+        )
+    except (json.JSONDecodeError, ValueError) as exc:
+        _issue(
+            issues,
+            "procedure_identity_retirement_query_evidence_content_invalid",
+            f"{binding_path}.evidence_path",
+            f"pre-edit query evidence must be duplicate-free JSON: {exc}",
+        )
+        return None
+    try:
+        _reject_forbidden_runtime_keys(evidence)
+    except ValueError as exc:
+        _issue(
+            issues,
+            "procedure_identity_retirement_query_evidence_content_invalid",
+            f"{binding_path}.evidence_path",
+            f"pre-edit query evidence contains forbidden runtime authority: {exc}",
+        )
+        return None
+    allowed_evidence_fields = {
+        "schema",
+        "capture_commit",
+        "external_store_absence",
+        "fact_class",
+        "isolation_facts",
+        "old_identity_query",
+        "root_scope",
+        "scans",
+    }
+    if (
+        not isinstance(evidence, Mapping)
+        or set(evidence) - allowed_evidence_fields
+        or not isinstance(evidence.get("schema"), str)
+        or not isinstance(evidence.get("old_identity_query"), Mapping)
+    ):
+        _issue(
+            issues,
+            "procedure_identity_retirement_query_evidence_content_invalid",
+            f"{binding_path}.evidence_path",
+            "pre-edit query evidence must use the closed generic scan envelope and contain schema plus old_identity_query",
+        )
+        return None
+
+    query = evidence["old_identity_query"]
+    allowed_query_fields = {
+        "baseline_projection_matches_unchanged_source",
+        "baseline_repo_relative_path",
+        "baseline_sha256",
+        "derivation_method",
+        "derivation_method_version",
+        "identities",
+        "identities_by_domain",
+        "identity_count",
+        "query_list_digest_encoding",
+        "query_list_sha256",
+        "query_version",
+        "source_boundary_validation",
+        "source_repo_relative_path",
+        "source_sha256",
+        "temporary_candidate_repo_relative_path",
+    }
+    required_query_fields = {
+        "query_version",
+        "query_list_sha256",
+        "identities",
+        "identity_count",
+        "identities_by_domain",
+        "baseline_repo_relative_path",
+        "baseline_sha256",
+        "source_repo_relative_path",
+        "source_sha256",
+    }
+    if set(query) - allowed_query_fields or not required_query_fields.issubset(query):
+        _issue(
+            issues,
+            "procedure_identity_retirement_query_evidence_content_invalid",
+            f"{binding_path}.evidence_path.old_identity_query",
+            "old_identity_query must use the closed generic query field set and contain all replay fields",
+        )
+        return None
+
+    query_version = query.get("query_version")
+    if (
+        not isinstance(query_version, str)
+        or query_version != STORE_QUERY_VERSION
+        or query_version != binding.query_version
+    ):
+        _issue(
+            issues,
+            "procedure_identity_retirement_query_version_mismatch",
+            f"{binding_path}.query_version",
+            "query version must match the supported version and retained evidence",
+        )
+
+    raw_identities = query.get("identities")
+    raw_list_valid = (
+        isinstance(raw_identities, list)
+        and all(isinstance(identity, str) for identity in raw_identities)
+        and raw_identities == sorted(raw_identities)
+        and len(raw_identities) == len(set(raw_identities))
+    )
+    if not raw_list_valid:
+        _issue(
+            issues,
+            "procedure_identity_retirement_query_list_invalid",
+            f"{binding_path}.evidence_path.old_identity_query.identities",
+            "retired identities must be a sorted duplicate-free string array",
+        )
+        raw_identities = []
+    canonical_list_digest = _canonical_json_digest(raw_identities)
+    if (
+        query.get("query_list_sha256") != canonical_list_digest
+        or binding.query_list_sha256 != canonical_list_digest
+    ):
+        _issue(
+            issues,
+            "procedure_identity_retirement_query_list_digest_mismatch",
+            f"{binding_path}.query_list_sha256",
+            "canonical retired-identity list digest does not match all bindings",
+        )
+    if (
+        isinstance(query.get("identity_count"), bool)
+        or not isinstance(query.get("identity_count"), int)
+        or query.get("identity_count") != len(raw_identities)
+        or binding.identity_count != len(raw_identities)
+    ):
+        _issue(
+            issues,
+            "procedure_identity_retirement_query_identity_count_mismatch",
+            f"{binding_path}.identity_count",
+            "retired-identity count does not match the canonical raw list",
+        )
+
+    raw_domains = query.get("identities_by_domain")
+    domain_map: dict[str, set[str]] = {
+        domain: set() for domain in REQUIRED_IDENTITY_DOMAINS
+    }
+    domain_map_valid = isinstance(raw_domains, Mapping) and set(raw_domains) == set(
+        REQUIRED_IDENTITY_DOMAINS
+    )
+    if not domain_map_valid:
+        _issue(
+            issues,
+            "procedure_identity_retirement_query_domain_map_invalid",
+            f"{binding_path}.evidence_path.old_identity_query.identities_by_domain",
+            "domain map must contain exactly the required identity domains",
+        )
+    else:
+        for domain in sorted(REQUIRED_IDENTITY_DOMAINS):
+            identities = raw_domains[domain]
+            path = (
+                f"{binding_path}.evidence_path.old_identity_query."
+                f"identities_by_domain.{domain}"
+            )
+            if not isinstance(identities, list) or not all(
+                isinstance(identity, str) for identity in identities
+            ):
+                _issue(
+                    issues,
+                    "procedure_identity_retirement_query_domain_map_invalid",
+                    path,
+                    "each identity domain must be a string array",
+                )
+                domain_map_valid = False
+                continue
+            if len(identities) != len(set(identities)):
+                _issue(
+                    issues,
+                    "procedure_identity_retirement_query_domain_duplicate",
+                    path,
+                    "an identity may occur at most once within one domain",
+                )
+                domain_map_valid = False
+                continue
+            if identities != sorted(identities):
+                _issue(
+                    issues,
+                    "procedure_identity_retirement_query_domain_map_invalid",
+                    path,
+                    "each identity domain must be sorted",
+                )
+                domain_map_valid = False
+                continue
+            domain_map[domain] = set(identities)
+    if isinstance(raw_domains, Mapping):
+        canonical_domain_digest = _canonical_json_digest(raw_domains)
+        if binding.identities_by_domain_sha256 != canonical_domain_digest:
+            _issue(
+                issues,
+                "procedure_identity_retirement_query_domain_map_digest_mismatch",
+                f"{binding_path}.identities_by_domain_sha256",
+                "exact domain-membership map digest does not match the record binding",
+            )
+    if domain_map_valid:
+        flattened = sorted(set().union(*domain_map.values()))
+        if flattened != raw_identities:
+            _issue(
+                issues,
+                "procedure_identity_retirement_query_domain_membership_mismatch",
+                f"{binding_path}.evidence_path.old_identity_query.identities_by_domain",
+                "sorted unique domain flattening must equal the canonical raw list",
+            )
+
+    retained_files = (
+        (
+            "baseline",
+            query.get("baseline_repo_relative_path"),
+            query.get("baseline_sha256"),
+            binding.baseline_path,
+            binding.baseline_sha256,
+        ),
+        (
+            "old_source",
+            query.get("source_repo_relative_path"),
+            query.get("source_sha256"),
+            binding.old_source_path,
+            binding.old_source_sha256,
+        ),
+    )
+    for label, query_path, query_digest, bound_path, bound_digest in retained_files:
+        field_prefix = "baseline" if label == "baseline" else "old_source"
+        path_field = f"{field_prefix}_path"
+        digest_field = f"{field_prefix}_sha256"
+        if not isinstance(query_path, str) or query_path != bound_path:
+            _issue(
+                issues,
+                f"procedure_identity_retirement_query_{label}_path_mismatch",
+                f"{binding_path}.{path_field}",
+                "retained query path does not match the record binding",
+            )
+            continue
+        if not isinstance(query_digest, str):
+            _issue(
+                issues,
+                f"procedure_identity_retirement_query_{label}_digest_mismatch",
+                f"{binding_path}.{digest_field}",
+                "retained query digest must be a string",
+            )
+            continue
+        retained_content, retained_error, retained_message = _load_content_addressed_file(
+            repo_root.resolve(),
+            raw_path=query_path,
+            declared_digest=query_digest,
+        )
+        if retained_content is None:
+            if retained_error in {
+                "procedure_identity_retirement_artifact_path_outside_repository",
+                "procedure_identity_retirement_artifact_path_invalid",
+                "procedure_identity_retirement_artifact_symlink_forbidden",
+            }:
+                issue_code = f"procedure_identity_retirement_query_{label}_path_invalid"
+                issue_path = f"{binding_path}.{path_field}"
+            elif retained_error in {
+                "procedure_identity_retirement_artifact_missing",
+                "procedure_identity_retirement_artifact_read_failed",
+            }:
+                issue_code = f"procedure_identity_retirement_query_{label}_unavailable"
+                issue_path = f"{binding_path}.{path_field}"
+            elif retained_error == "procedure_identity_retirement_artifact_digest_mismatch":
+                issue_code = f"procedure_identity_retirement_query_{label}_digest_mismatch"
+                issue_path = f"{binding_path}.{digest_field}"
+            else:
+                issue_code = f"procedure_identity_retirement_query_{label}_unavailable"
+                issue_path = f"{binding_path}.{path_field}"
+            _issue(
+                issues,
+                issue_code,
+                issue_path,
+                f"retained bytes could not satisfy the query binding: {retained_error}: {retained_message}",
+            )
+        if query_digest != bound_digest:
+            _issue(
+                issues,
+                f"procedure_identity_retirement_query_{label}_digest_mismatch",
+                f"{binding_path}.{digest_field}",
+                "retained query digest does not match the record binding",
+            )
+
+    old_source_artifact = next(
+        (
+            artifact
+            for artifact in record.artifacts
+            if artifact.side == "old" and artifact.role == "source"
+        ),
+        None,
+    )
+    if old_source_artifact is not None:
+        if binding.old_source_path != old_source_artifact.path:
+            _issue(
+                issues,
+                "procedure_identity_retirement_query_old_source_path_mismatch",
+                f"{binding_path}.old_source_path",
+                "retired-query old source path must equal the old production source path",
+            )
+        if binding.old_source_sha256 != old_source_artifact.sha256:
+            _issue(
+                issues,
+                "procedure_identity_retirement_query_old_source_digest_mismatch",
+                f"{binding_path}.old_source_sha256",
+                "retired-query old source digest must equal the old production source digest",
+            )
+
+    blocking_codes = {
+        "procedure_identity_retirement_query_evidence_content_invalid",
+        "procedure_identity_retirement_query_list_invalid",
+        "procedure_identity_retirement_query_domain_map_invalid",
+        "procedure_identity_retirement_query_domain_duplicate",
+        "procedure_identity_retirement_query_domain_membership_mismatch",
+    }
+    if any(issue.code in blocking_codes for issue in issues):
+        return None
+    return domain_map
+
+
 def _validate_production_artifact_relations(
     record: ProcedureIdentityRetirementRecord,
     issues: list[RetirementIssue],
     payloads: Mapping[tuple[str, str], Mapping[str, Any]],
     repo_root: Path,
+    retired_query_domains: Mapping[str, set[str]] | None,
 ) -> None:
     eligible_sides = {
         side
@@ -1291,40 +2024,7 @@ def _validate_production_artifact_relations(
         map_payload = payloads.get((side, "source_map"))
         if typed is None or executable is None or points_payload is None or map_payload is None:
             continue
-        modules = typed.get("modules")
-        for module in modules.values() if isinstance(modules, Mapping) else ():
-            workflows = module.get("typed_workflows") if isinstance(module, Mapping) else None
-            for workflow in workflows if isinstance(workflows, list) else ():
-                definition = workflow.get("definition") if isinstance(workflow, Mapping) else None
-                name = definition.get("name") if isinstance(definition, Mapping) else None
-                if isinstance(name, str):
-                    expected_identities[side]["workflow"].add(name)
-        nodes = executable.get("nodes")
-        if isinstance(nodes, Mapping):
-            for node in nodes.values():
-                if not isinstance(node, Mapping):
-                    continue
-                for kind, identity in (
-                    ("executable_node", node.get("node_id")),
-                    ("presentation_key", node.get("presentation_name")),
-                    ("step", node.get("step_id")),
-                ):
-                    if isinstance(identity, str):
-                        expected_identities[side][kind].add(identity)
-                if node.get("kind") == "call_boundary" and isinstance(node.get("step_id"), str):
-                    expected_identities[side]["call_frame"].add(f"{node['step_id']}::visit::1")
-        points = points_payload.get("points")
-        for point in points if isinstance(points, list) else ():
-            if not isinstance(point, Mapping):
-                continue
-            storage = point.get("storage")
-            for kind, identity in (
-                ("program_point", point.get("program_point_id")),
-                ("checkpoint", point.get("checkpoint_id")),
-                ("state_allocation", storage.get("allocation_id") if isinstance(storage, Mapping) else None),
-            ):
-                if isinstance(identity, str):
-                    expected_identities[side][kind].add(identity)
+        expected_identities[side] = _collect_production_identity_carriers(payloads, side)
         program_identity = points_payload.get("program_identity")
         source_digest = program_identity.get("source_module_digest") if isinstance(program_identity, Mapping) else None
         declared_source_digest = next(
@@ -1342,29 +2042,6 @@ def _validate_production_artifact_relations(
                 f"$.artifacts.{side}.source",
                 "source digest must match the compiler-produced program identity",
             )
-        workflows = map_payload.get("workflows")
-        def collect_origins(value: Any) -> None:
-            if isinstance(value, Mapping):
-                origin = value.get("origin_key")
-                if isinstance(origin, str):
-                    expected_identities[side]["source_map_origin"].add(origin)
-                for item in value.values():
-                    collect_origins(item)
-            elif isinstance(value, list):
-                for item in value:
-                    collect_origins(item)
-
-        collect_origins(workflows)
-        for workflow_map in workflows.values() if isinstance(workflows, Mapping) else ():
-            allocations = (
-                workflow_map.get("generated_path_allocations")
-                if isinstance(workflow_map, Mapping)
-                else None
-            )
-            for allocation in allocations if isinstance(allocations, list) else ():
-                identity = allocation.get("allocation_id") if isinstance(allocation, Mapping) else None
-                if isinstance(identity, str):
-                    expected_identities[side]["state_allocation"].add(identity)
 
     actual_identities = {
         "old": {
@@ -1388,18 +2065,67 @@ def _validate_production_artifact_relations(
             for kind in REQUIRED_IDENTITY_DOMAINS
         },
     }
-    for side, opposite in (("old", "new"), ("new", "old")):
-        expected_table = {
-            kind: {
-                identity: (
-                    "preserved"
-                    if identity in expected_identities[opposite][kind]
-                    else "retired" if side == "old" else "new"
-                )
-                for identity in identities
-            }
+    production_identities = {
+        side: {
+            kind: set(identities)
             for kind, identities in expected_identities[side].items()
         }
+        for side in ("old", "new")
+    }
+    if retired_query_domains is not None:
+        query_retired_rows = {
+            (kind, identity)
+            for kind, identities in retired_query_domains.items()
+            for identity in identities
+        }
+        declared_retired_rows = {
+            (row.identity_kind, row.old_identity)
+            for row in record.identity_delta
+            if row.old_disposition == "retired" and row.old_identity is not None
+        }
+        if query_retired_rows != declared_retired_rows:
+            _issue(
+                issues,
+                "procedure_identity_retirement_query_retired_membership_mismatch",
+                "$.retired_identity_query_evidence.evidence_path.old_identity_query.identities_by_domain",
+                "frozen query domain memberships must exactly equal declared retired old identities",
+            )
+        query_raw_identities = set().union(*retired_query_domains.values())
+        new_raw_identities: set[str] = set()
+        if "new" in eligible_sides:
+            new_leak_carriers = _collect_production_leak_carriers(payloads, "new")
+            new_raw_identities = set().union(*new_leak_carriers.values())
+        leaked = sorted(query_raw_identities & new_raw_identities)
+        if leaked:
+            _issue(
+                issues,
+                "procedure_identity_retirement_leaked_retired_identity",
+                "$.retired_identity_query_evidence",
+                "retired raw identities occur in new production domains: "
+                + ", ".join(leaked),
+            )
+        for kind, identities in retired_query_domains.items():
+            expected_identities["old"][kind].update(identities)
+
+    for side, opposite in (("old", "new"), ("new", "old")):
+        expected_table: dict[str, dict[str, str]] = {}
+        for kind, identities in expected_identities[side].items():
+            expected_table[kind] = {}
+            for identity in identities:
+                is_retired_query_identity = (
+                    side == "old"
+                    and retired_query_domains is not None
+                    and identity in retired_query_domains[kind]
+                )
+                expected_table[kind][identity] = (
+                    "retired"
+                    if is_retired_query_identity
+                    else "preserved"
+                    if identity in production_identities[opposite][kind]
+                    else "retired"
+                    if side == "old"
+                    else "new"
+                )
         if actual_identities[side] != expected_table:
             _issue(
                 issues,
@@ -2048,7 +2774,18 @@ def validate_retirement_record(
         )
     artifact_payloads = _validate_artifacts(record, issues, repository_root)
     _validate_retained_inventory(record, issues, repository_root)
-    _validate_production_artifact_relations(record, issues, artifact_payloads, repository_root)
+    retired_query_domains = _validate_retired_identity_query_evidence(
+        record,
+        issues,
+        repository_root,
+    )
+    _validate_production_artifact_relations(
+        record,
+        issues,
+        artifact_payloads,
+        repository_root,
+        retired_query_domains,
+    )
     _validate_identity_delta(record, issues)
     _validate_contracts_and_order(record, issues)
     if not record.lineage_notes or any(

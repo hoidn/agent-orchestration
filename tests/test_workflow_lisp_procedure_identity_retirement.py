@@ -128,6 +128,84 @@ def test_parser_rejects_unknown_or_mistyped_structural_fields(
         load_retirement_record(_write_payload(tmp_path, payload))
 
 
+def test_retired_identity_query_evidence_is_required(tmp_path: Path) -> None:
+    payload = _payload()
+    payload.pop("retired_identity_query_evidence", None)
+
+    with pytest.raises(
+        ValueError,
+        match=r"missing required fields:.*retired_identity_query_evidence",
+    ):
+        load_retirement_record(_write_payload(tmp_path, payload))
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid", "message"),
+    [
+        ("evidence_path", 42, "evidence_path must be a string"),
+        ("evidence_sha256", 42, "evidence_sha256 must be a string"),
+        ("query_version", 42, "query_version must be a string"),
+        ("query_list_sha256", 42, "query_list_sha256 must be a string"),
+        ("identity_count", "1", "identity_count must be an integer"),
+        (
+            "identities_by_domain_sha256",
+            42,
+            "identities_by_domain_sha256 must be a string",
+        ),
+        ("baseline_path", 42, "baseline_path must be a string"),
+        ("baseline_sha256", 42, "baseline_sha256 must be a string"),
+        ("old_source_path", 42, "old_source_path must be a string"),
+        ("old_source_sha256", 42, "old_source_sha256 must be a string"),
+    ],
+)
+def test_retired_identity_query_evidence_parser_requires_field_types(
+    tmp_path: Path,
+    field: str,
+    invalid: object,
+    message: str,
+) -> None:
+    payload = _payload()
+    payload["retired_identity_query_evidence"] = {
+        "evidence_path": "evidence.json",
+        "evidence_sha256": "sha256:" + "0" * 64,
+        "query_version": "procedure-identity-store-query.v1",
+        "query_list_sha256": "sha256:" + "0" * 64,
+        "identity_count": 1,
+        "identities_by_domain_sha256": "sha256:" + "0" * 64,
+        "baseline_path": "baseline.json",
+        "baseline_sha256": "sha256:" + "0" * 64,
+        "old_source_path": "source.orc",
+        "old_source_sha256": "sha256:" + "0" * 64,
+    }
+    payload["retired_identity_query_evidence"][field] = invalid
+
+    with pytest.raises(ValueError, match=message):
+        load_retirement_record(_write_payload(tmp_path, payload))
+
+
+def test_retired_identity_query_evidence_parser_is_closed(tmp_path: Path) -> None:
+    payload = _payload()
+    payload["retired_identity_query_evidence"] = {
+        "evidence_path": "evidence.json",
+        "evidence_sha256": "sha256:" + "0" * 64,
+        "query_version": "procedure-identity-store-query.v1",
+        "query_list_sha256": "sha256:" + "0" * 64,
+        "identity_count": 1,
+        "identities_by_domain_sha256": "sha256:" + "0" * 64,
+        "baseline_path": "baseline.json",
+        "baseline_sha256": "sha256:" + "0" * 64,
+        "old_source_path": "source.orc",
+        "old_source_sha256": "sha256:" + "0" * 64,
+        "unknown": True,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=r"\$\.retired_identity_query_evidence has unknown fields: unknown",
+    ):
+        load_retirement_record(_write_payload(tmp_path, payload))
+
+
 @pytest.mark.parametrize(
     "field",
     ["store_terminal_run_count", "store_nonterminal_run_count"],
@@ -1578,6 +1656,955 @@ def _copied_retirement_repo(tmp_path: Path) -> tuple[Path, Path]:
     copied = repo / FIXTURE.relative_to(REPO_ROOT).parent
     shutil.copytree(FIXTURE.parent, copied, ignore=shutil.ignore_patterns(".reproduction"))
     return repo, copied
+
+
+def _sha256_path(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _canonical_json_sha256(value: object) -> str:
+    encoded = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _mutate_retired_query_fixture(
+    tmp_path: Path,
+    mutation: Callable[[dict[str, Any], dict[str, Any], Path], None],
+) -> tuple[Path, Path]:
+    repo, copied = _copied_retirement_repo(tmp_path)
+    record_path = copied / "valid_internal_retirement.json"
+    evidence_path = copied / "pre_edit_scan.json"
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    mutation(record, evidence, copied)
+    evidence_path.write_text(
+        json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    record["retired_identity_query_evidence"]["evidence_sha256"] = _sha256_path(
+        evidence_path
+    )
+    record_path.write_text(json.dumps(record), encoding="utf-8")
+    return repo, record_path
+
+
+def _issue_pairs(record_path: Path, repo: Path) -> set[tuple[str, str]]:
+    result = validate_retirement_record(load_retirement_record(record_path), repo_root=repo)
+    return {(issue.code, issue.path) for issue in result.issues}
+
+
+def _rewrite_fixture_artifacts(
+    record: dict[str, Any],
+    copied: Path,
+    *,
+    side: str,
+    changed: dict[str, dict[str, Any]],
+) -> None:
+    output_digests: dict[str, str] = {}
+    for role, payload in changed.items():
+        path = copied / side / f"{role}.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        output_digests[role] = _sha256_path(path)
+        next(
+            row
+            for row in record["artifacts"]
+            if row["side"] == side and row["role"] == role
+        )["sha256"] = output_digests[role]
+    manifest_path = copied / side / "build_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for role, digest in output_digests.items():
+        manifest["outputs"][role]["sha256"] = digest
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    next(
+        row
+        for row in record["artifacts"]
+        if row["side"] == side and row["role"] == "build_manifest"
+    )["sha256"] = _sha256_path(manifest_path)
+
+
+def _rebind_retired_query(
+    record: dict[str, Any],
+    evidence: dict[str, Any],
+) -> None:
+    query = evidence["old_identity_query"]
+    query["identities"] = sorted(query["identities"])
+    query["identity_count"] = len(query["identities"])
+    query["query_list_sha256"] = _canonical_json_sha256(query["identities"])
+    record["retired_identity_query_evidence"]["identity_count"] = query[
+        "identity_count"
+    ]
+    record["retired_identity_query_evidence"]["query_list_sha256"] = query[
+        "query_list_sha256"
+    ]
+    record["retired_identity_query_evidence"][
+        "identities_by_domain_sha256"
+    ] = _canonical_json_sha256(query["identities_by_domain"])
+
+
+def test_retired_query_evidence_validates_overlapping_domain_membership() -> None:
+    payload = json.loads(
+        (FIXTURE.parent / "pre_edit_scan.json").read_text(encoding="utf-8")
+    )
+    domains = payload["old_identity_query"]["identities_by_domain"]
+
+    assert "legacy-shared-token" in domains["executable_node"]
+    assert "legacy-shared-token" in domains["presentation_key"]
+    assert validate_retirement_record(
+        load_retirement_record(FIXTURE), repo_root=REPO_ROOT
+    ).valid
+
+
+def test_retired_query_evidence_rejects_outer_byte_tamper(tmp_path: Path) -> None:
+    repo, copied = _copied_retirement_repo(tmp_path)
+    evidence_path = copied / "pre_edit_scan.json"
+    evidence_path.write_bytes(evidence_path.read_bytes() + b" ")
+    record_path = copied / "valid_internal_retirement.json"
+
+    assert (
+        "procedure_identity_retirement_query_evidence_digest_mismatch",
+        "$.retired_identity_query_evidence.evidence_sha256",
+    ) in _issue_pairs(record_path, repo)
+
+
+@pytest.mark.parametrize("location", ["evidence_root", "old_identity_query"])
+def test_retired_query_evidence_rejects_unknown_fields(
+    tmp_path: Path,
+    location: str,
+) -> None:
+    def mutate(_record: dict[str, Any], evidence: dict[str, Any], _copied: Path) -> None:
+        target = evidence if location == "evidence_root" else evidence["old_identity_query"]
+        target["unknown_contract_field"] = "not-authoritative"
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        "procedure_identity_retirement_query_evidence_content_invalid",
+        (
+            "$.retired_identity_query_evidence.evidence_path"
+            if location == "evidence_root"
+            else "$.retired_identity_query_evidence.evidence_path.old_identity_query"
+        ),
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_retired_query_evidence_rejects_forbidden_runtime_authority(
+    tmp_path: Path,
+) -> None:
+    def mutate(_record: dict[str, Any], evidence: dict[str, Any], _copied: Path) -> None:
+        evidence["old_identity_query"]["runtime_remap"] = {"old": "new"}
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        "procedure_identity_retirement_query_evidence_content_invalid",
+        "$.retired_identity_query_evidence.evidence_path",
+    ) in _issue_pairs(record_path, repo)
+
+
+@pytest.mark.parametrize(
+    ("failure", "code"),
+    [
+        ("traversal", "procedure_identity_retirement_query_evidence_path_invalid"),
+        ("symlink", "procedure_identity_retirement_query_evidence_path_invalid"),
+        ("missing", "procedure_identity_retirement_query_evidence_unavailable"),
+    ],
+)
+def test_retired_query_evidence_outer_path_failures_are_precise(
+    tmp_path: Path,
+    failure: str,
+    code: str,
+) -> None:
+    repo, copied = _copied_retirement_repo(tmp_path)
+    record_path = copied / "valid_internal_retirement.json"
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    if failure == "traversal":
+        evidence_path = "../outside-pre-edit-scan.json"
+    elif failure == "symlink":
+        link = copied / "pre_edit_scan_link.json"
+        link.symlink_to("pre_edit_scan.json")
+        evidence_path = str(link.relative_to(repo))
+    else:
+        evidence_path = str((copied / "missing-pre-edit-scan.json").relative_to(repo))
+    record["retired_identity_query_evidence"]["evidence_path"] = evidence_path
+    record_path.write_text(json.dumps(record), encoding="utf-8")
+
+    assert (
+        code,
+        "$.retired_identity_query_evidence.evidence_path",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_retired_query_version_mismatch_is_targeted(tmp_path: Path) -> None:
+    repo, record_path = _mutate_retired_query_fixture(
+        tmp_path,
+        lambda _record, evidence, _copied: evidence["old_identity_query"].__setitem__(
+            "query_version", "procedure-identity-store-query.v2"
+        ),
+    )
+
+    assert (
+        "procedure_identity_retirement_query_version_mismatch",
+        "$.retired_identity_query_evidence.query_version",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_retired_query_list_digest_mismatch_is_targeted(tmp_path: Path) -> None:
+    def mutate(_record: dict[str, Any], evidence: dict[str, Any], _copied: Path) -> None:
+        evidence["old_identity_query"]["query_list_sha256"] = "sha256:" + "0" * 64
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        "procedure_identity_retirement_query_list_digest_mismatch",
+        "$.retired_identity_query_evidence.query_list_sha256",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_retired_query_identity_count_mismatch_is_targeted(tmp_path: Path) -> None:
+    repo, record_path = _mutate_retired_query_fixture(
+        tmp_path,
+        lambda _record, evidence, _copied: evidence["old_identity_query"].__setitem__(
+            "identity_count", 3
+        ),
+    )
+
+    assert (
+        "procedure_identity_retirement_query_identity_count_mismatch",
+        "$.retired_identity_query_evidence.identity_count",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_retired_query_rejects_duplicate_within_one_domain(tmp_path: Path) -> None:
+    def mutate(record: dict[str, Any], evidence: dict[str, Any], _copied: Path) -> None:
+        domains = evidence["old_identity_query"]["identities_by_domain"]
+        domains["executable_node"].append("legacy-shared-token")
+        record["retired_identity_query_evidence"]["identities_by_domain_sha256"] = (
+            _canonical_json_sha256(domains)
+        )
+
+    repo, record_path = _mutate_retired_query_fixture(
+        tmp_path,
+        mutate,
+    )
+
+    assert (
+        "procedure_identity_retirement_query_domain_duplicate",
+        "$.retired_identity_query_evidence.evidence_path.old_identity_query.identities_by_domain.executable_node",
+    ) in _issue_pairs(record_path, repo)
+
+
+@pytest.mark.parametrize("membership", ["missing", "extra"])
+def test_retired_query_rejects_inexact_domain_flattening(
+    tmp_path: Path,
+    membership: str,
+) -> None:
+    def mutate(record: dict[str, Any], evidence: dict[str, Any], _copied: Path) -> None:
+        query = evidence["old_identity_query"]
+        if membership == "missing":
+            query["identities_by_domain"]["workflow"] = []
+        else:
+            query["identities_by_domain"]["workflow"].append("not-in-raw-list")
+            query["identities_by_domain"]["workflow"].sort()
+        record["retired_identity_query_evidence"]["identities_by_domain_sha256"] = (
+            _canonical_json_sha256(query["identities_by_domain"])
+        )
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        "procedure_identity_retirement_query_domain_membership_mismatch",
+        "$.retired_identity_query_evidence.evidence_path.old_identity_query.identities_by_domain",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_retired_query_domain_map_digest_mismatch_is_targeted(tmp_path: Path) -> None:
+    def mutate(record: dict[str, Any], evidence: dict[str, Any], _copied: Path) -> None:
+        evidence["old_identity_query"]["identities_by_domain"]["presentation_key"] = []
+        record["identity_delta"] = [
+            row
+            for row in record["identity_delta"]
+            if not (
+                row["identity_kind"] == "presentation_key"
+                and row["old_identity"] == "legacy-shared-token"
+            )
+        ]
+
+    repo, record_path = _mutate_retired_query_fixture(
+        tmp_path,
+        mutate,
+    )
+
+    assert (
+        "procedure_identity_retirement_query_domain_map_digest_mismatch",
+        "$.retired_identity_query_evidence.identities_by_domain_sha256",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_retired_query_baseline_digest_mismatch_is_targeted(tmp_path: Path) -> None:
+    def mutate(_record: dict[str, Any], evidence: dict[str, Any], copied: Path) -> None:
+        baseline = copied / "old" / "identity_baseline.json"
+        baseline.write_bytes(baseline.read_bytes() + b" ")
+        evidence["old_identity_query"]["baseline_sha256"] = _sha256_path(baseline)
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        "procedure_identity_retirement_query_baseline_digest_mismatch",
+        "$.retired_identity_query_evidence.baseline_sha256",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_retired_query_old_source_digest_mismatch_is_targeted(tmp_path: Path) -> None:
+    def mutate(record: dict[str, Any], evidence: dict[str, Any], copied: Path) -> None:
+        source = copied / "old" / "source.orc"
+        source.write_bytes(source.read_bytes() + b"; retained-byte mutation\n")
+        source_digest = _sha256_path(source)
+        query = evidence["old_identity_query"]
+        query["source_sha256"] = source_digest
+        next(
+            row
+            for row in record["artifacts"]
+            if row["side"] == "old" and row["role"] == "source"
+        )["sha256"] = source_digest
+
+        points_path = copied / "old" / "lexical_checkpoint_points.json"
+        points = json.loads(points_path.read_text(encoding="utf-8"))
+        points["program_identity"]["source_module_digest"] = source_digest
+        points_path.write_text(json.dumps(points), encoding="utf-8")
+        points_digest = _sha256_path(points_path)
+        next(
+            row
+            for row in record["artifacts"]
+            if row["side"] == "old" and row["role"] == "lexical_checkpoint_points"
+        )["sha256"] = points_digest
+
+        manifest_path = copied / "old" / "build_manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["inputs"]["source"]["sha256"] = source_digest
+        manifest["outputs"]["lexical_checkpoint_points"]["sha256"] = points_digest
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        next(
+            row
+            for row in record["artifacts"]
+            if row["side"] == "old" and row["role"] == "build_manifest"
+        )["sha256"] = _sha256_path(manifest_path)
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        "procedure_identity_retirement_query_old_source_digest_mismatch",
+        "$.retired_identity_query_evidence.old_source_sha256",
+    ) in _issue_pairs(record_path, repo)
+
+
+@pytest.mark.parametrize("delta", ["missing", "extra"])
+def test_retired_query_requires_exact_domain_qualified_identity_delta(
+    tmp_path: Path,
+    delta: str,
+) -> None:
+    def mutate(record: dict[str, Any], _evidence: dict[str, Any], _copied: Path) -> None:
+        if delta == "missing":
+            record["identity_delta"] = [
+                row
+                for row in record["identity_delta"]
+                if not (
+                    row["identity_kind"] == "workflow"
+                    and row["old_identity"] == "legacy-singleton-token"
+                )
+            ]
+        else:
+            record["identity_delta"].append(
+                {
+                    "identity_kind": "checkpoint",
+                    "old_identity": "fabricated-retired-checkpoint",
+                    "old_disposition": "retired",
+                    "new_identity": None,
+                    "new_disposition": None,
+                }
+            )
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        "procedure_identity_retirement_identity_artifact_mismatch",
+        "$.identity_delta",
+    ) in _issue_pairs(record_path, repo)
+
+
+@pytest.mark.parametrize("mismatch", ["query_missing", "query_extra"])
+def test_retired_query_memberships_must_exactly_equal_retired_delta(
+    tmp_path: Path,
+    mismatch: str,
+) -> None:
+    def mutate(record: dict[str, Any], evidence: dict[str, Any], _copied: Path) -> None:
+        query = evidence["old_identity_query"]
+        domains = query["identities_by_domain"]
+        if mismatch == "query_missing":
+            domains["executable_node"].remove(
+                "root.source_internal_phase__run_checks"
+            )
+        else:
+            extra = "query-only-retired-checkpoint"
+            domains["checkpoint"].append(extra)
+            domains["checkpoint"].sort()
+            query["identities"].append(extra)
+        _rebind_retired_query(record, evidence)
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        "procedure_identity_retirement_query_retired_membership_mismatch",
+        "$.retired_identity_query_evidence.evidence_path.old_identity_query.identities_by_domain",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_leaked_retired_raw_identity_in_any_new_domain_is_rejected(tmp_path: Path) -> None:
+    def mutate(record: dict[str, Any], _evidence: dict[str, Any], copied: Path) -> None:
+        executable_path = copied / "new" / "executable_ir.json"
+        executable = json.loads(executable_path.read_text(encoding="utf-8"))
+        node = next(iter(executable["nodes"].values()))
+        previous = node["presentation_name"]
+        node["presentation_name"] = "legacy-singleton-token"
+        executable_path.write_text(json.dumps(executable), encoding="utf-8")
+        executable_digest = _sha256_path(executable_path)
+        next(
+            row
+            for row in record["artifacts"]
+            if row["side"] == "new" and row["role"] == "executable_ir"
+        )["sha256"] = executable_digest
+        manifest_path = copied / "new" / "build_manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["outputs"]["executable_ir"]["sha256"] = executable_digest
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        next(
+            row
+            for row in record["artifacts"]
+            if row["side"] == "new" and row["role"] == "build_manifest"
+        )["sha256"] = _sha256_path(manifest_path)
+        row = next(
+            row
+            for row in record["identity_delta"]
+            if row["identity_kind"] == "presentation_key"
+            and row["new_identity"] == previous
+        )
+        row["new_identity"] = "legacy-singleton-token"
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        "procedure_identity_retirement_leaked_retired_identity",
+        "$.retired_identity_query_evidence",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_leaked_retired_executable_mapping_key_is_rejected(tmp_path: Path) -> None:
+    def mutate(record: dict[str, Any], _evidence: dict[str, Any], copied: Path) -> None:
+        replacement = "legacy-singleton-token"
+        executable_path = copied / "new" / "executable_ir.json"
+        executable = json.loads(executable_path.read_text(encoding="utf-8"))
+        previous = next(iter(executable["nodes"]))
+        executable["nodes"] = {replacement: executable["nodes"][previous]}
+
+        semantic_path = copied / "new" / "semantic_ir.json"
+        semantic = json.loads(semantic_path.read_text(encoding="utf-8"))
+        semantic["workflows"]["source::orchestrate"]["executable_bridge"][
+            "node_ids"
+        ] = [replacement]
+
+        runtime_path = copied / "new" / "runtime_plan.json"
+        runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+        runtime["nodes"] = {replacement: runtime["nodes"][previous]}
+        runtime["ordered_node_ids"] = [replacement]
+
+        changed = {
+            "executable_ir": (executable_path, executable),
+            "semantic_ir": (semantic_path, semantic),
+            "runtime_plan": (runtime_path, runtime),
+        }
+        output_digests: dict[str, str] = {}
+        for role, (path, payload) in changed.items():
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            output_digests[role] = _sha256_path(path)
+            next(
+                row
+                for row in record["artifacts"]
+                if row["side"] == "new" and row["role"] == role
+            )["sha256"] = output_digests[role]
+
+        manifest_path = copied / "new" / "build_manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for role, digest in output_digests.items():
+            manifest["outputs"][role]["sha256"] = digest
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        next(
+            row
+            for row in record["artifacts"]
+            if row["side"] == "new" and row["role"] == "build_manifest"
+        )["sha256"] = _sha256_path(manifest_path)
+        record["identity_delta"].append(
+            {
+                "identity_kind": "executable_node",
+                "old_identity": None,
+                "old_disposition": None,
+                "new_identity": replacement,
+                "new_disposition": "new",
+            }
+        )
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+    issues = _issue_pairs(record_path, repo)
+
+    assert (
+        "procedure_identity_retirement_leaked_retired_identity",
+        "$.retired_identity_query_evidence",
+    ) in issues
+    assert (
+        "procedure_identity_retirement_identity_artifact_mismatch",
+        "$.identity_delta",
+    ) not in issues
+
+
+@pytest.mark.parametrize("nonfinite", [float("nan"), float("inf"), float("-inf")])
+def test_retired_query_evidence_rejects_nonfinite_json_constant(
+    tmp_path: Path,
+    nonfinite: float,
+) -> None:
+    repo, record_path = _mutate_retired_query_fixture(
+        tmp_path,
+        lambda _record, evidence, _copied: evidence["old_identity_query"].__setitem__(
+            "identity_count", nonfinite
+        ),
+    )
+
+    assert (
+        "procedure_identity_retirement_query_evidence_content_invalid",
+        "$.retired_identity_query_evidence.evidence_path",
+    ) in _issue_pairs(record_path, repo)
+
+
+@pytest.mark.parametrize(
+    ("target", "path_value", "code", "field"),
+    [
+        (
+            "baseline",
+            "../outside-baseline.json",
+            "procedure_identity_retirement_query_baseline_path_invalid",
+            "baseline_path",
+        ),
+        (
+            "old_source",
+            "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/missing.orc",
+            "procedure_identity_retirement_query_old_source_unavailable",
+            "old_source_path",
+        ),
+    ],
+)
+def test_retired_query_retained_file_path_failures_are_precise(
+    tmp_path: Path,
+    target: str,
+    path_value: str,
+    code: str,
+    field: str,
+) -> None:
+    def mutate(record: dict[str, Any], evidence: dict[str, Any], _copied: Path) -> None:
+        query_field = (
+            "baseline_repo_relative_path"
+            if target == "baseline"
+            else "source_repo_relative_path"
+        )
+        query = evidence["old_identity_query"]
+        query[query_field] = path_value
+        record["retired_identity_query_evidence"][field] = path_value
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        code,
+        f"$.retired_identity_query_evidence.{field}",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_leaked_retired_workflow_identity_from_authoritative_artifacts_is_rejected(
+    tmp_path: Path,
+) -> None:
+    def mutate(record: dict[str, Any], _evidence: dict[str, Any], copied: Path) -> None:
+        replacement = "legacy-shared-token"
+        executable_path = copied / "new" / "executable_ir.json"
+        executable = json.loads(executable_path.read_text(encoding="utf-8"))
+        executable["name"] = replacement
+
+        semantic_path = copied / "new" / "semantic_ir.json"
+        semantic = json.loads(semantic_path.read_text(encoding="utf-8"))
+        previous = next(iter(semantic["workflows"]))
+        semantic_entry = semantic["workflows"].pop(previous)
+        semantic_entry["workflow_name"] = replacement
+        semantic_entry["executable_bridge"]["workflow_name"] = replacement
+        semantic["workflows"][replacement] = semantic_entry
+
+        runtime_path = copied / "new" / "runtime_plan.json"
+        runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+        runtime["workflow_name"] = replacement
+
+        changed = {
+            "executable_ir": (executable_path, executable),
+            "semantic_ir": (semantic_path, semantic),
+            "runtime_plan": (runtime_path, runtime),
+        }
+        output_digests: dict[str, str] = {}
+        for role, (path, payload) in changed.items():
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            output_digests[role] = _sha256_path(path)
+            next(
+                row
+                for row in record["artifacts"]
+                if row["side"] == "new" and row["role"] == role
+            )["sha256"] = output_digests[role]
+
+        manifest_path = copied / "new" / "build_manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for role, digest in output_digests.items():
+            manifest["outputs"][role]["sha256"] = digest
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        next(
+            row
+            for row in record["artifacts"]
+            if row["side"] == "new" and row["role"] == "build_manifest"
+        )["sha256"] = _sha256_path(manifest_path)
+        record["identity_delta"].append(
+            {
+                "identity_kind": "workflow",
+                "old_identity": None,
+                "old_disposition": None,
+                "new_identity": replacement,
+                "new_disposition": "new",
+            }
+        )
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+    issues = _issue_pairs(record_path, repo)
+
+    assert (
+        "procedure_identity_retirement_leaked_retired_identity",
+        "$.retired_identity_query_evidence",
+    ) in issues
+    assert (
+        "procedure_identity_retirement_identity_artifact_mismatch",
+        "$.identity_delta",
+    ) not in issues
+
+
+@pytest.mark.parametrize("target", ["outer", "baseline"])
+def test_retired_query_malformed_path_is_reported_without_raising(
+    tmp_path: Path,
+    target: str,
+) -> None:
+    malformed = "bad\x00path"
+    if target == "outer":
+        repo, copied = _copied_retirement_repo(tmp_path)
+        record_path = copied / "valid_internal_retirement.json"
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        record["retired_identity_query_evidence"]["evidence_path"] = malformed
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        code = "procedure_identity_retirement_query_evidence_path_invalid"
+        field = "evidence_path"
+    else:
+        def mutate(
+            record: dict[str, Any],
+            evidence: dict[str, Any],
+            _copied: Path,
+        ) -> None:
+            evidence["old_identity_query"]["baseline_repo_relative_path"] = malformed
+            record["retired_identity_query_evidence"]["baseline_path"] = malformed
+
+        repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+        code = "procedure_identity_retirement_query_baseline_path_invalid"
+        field = "baseline_path"
+
+    assert (
+        code,
+        f"$.retired_identity_query_evidence.{field}",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_leaked_retired_workflow_identity_from_checkpoint_carriers_is_rejected(
+    tmp_path: Path,
+) -> None:
+    def mutate(record: dict[str, Any], _evidence: dict[str, Any], copied: Path) -> None:
+        replacement = "legacy-shared-token"
+        points_path = copied / "new" / "lexical_checkpoint_points.json"
+        points = json.loads(points_path.read_text(encoding="utf-8"))
+        points["workflow_name"] = replacement
+        for point in points["points"]:
+            point["workflow_name"] = replacement
+
+        runtime_path = copied / "new" / "runtime_plan.json"
+        runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+        for point in runtime["lexical_checkpoint_points"]:
+            point["workflow_name"] = replacement
+
+        changed = {
+            "lexical_checkpoint_points": (points_path, points),
+            "runtime_plan": (runtime_path, runtime),
+        }
+        output_digests: dict[str, str] = {}
+        for role, (path, payload) in changed.items():
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            output_digests[role] = _sha256_path(path)
+            next(
+                row
+                for row in record["artifacts"]
+                if row["side"] == "new" and row["role"] == role
+            )["sha256"] = output_digests[role]
+
+        manifest_path = copied / "new" / "build_manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for role, digest in output_digests.items():
+            manifest["outputs"][role]["sha256"] = digest
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        next(
+            row
+            for row in record["artifacts"]
+            if row["side"] == "new" and row["role"] == "build_manifest"
+        )["sha256"] = _sha256_path(manifest_path)
+        record["identity_delta"].append(
+            {
+                "identity_kind": "workflow",
+                "old_identity": None,
+                "old_disposition": None,
+                "new_identity": replacement,
+                "new_disposition": "new",
+            }
+        )
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+    issues = _issue_pairs(record_path, repo)
+
+    assert (
+        "procedure_identity_retirement_leaked_retired_identity",
+        "$.retired_identity_query_evidence",
+    ) in issues
+    assert (
+        "procedure_identity_retirement_identity_artifact_mismatch",
+        "$.identity_delta",
+    ) not in issues
+
+
+@pytest.mark.parametrize(
+    ("field", "identity_kind"),
+    [
+        ("program_point_id", "program_point"),
+        ("step_id", "step"),
+        ("presentation_key", "presentation_key"),
+        ("origin_key", "source_map_origin"),
+    ],
+)
+def test_leaked_retired_identity_from_runtime_lexical_checkpoint_is_rejected(
+    tmp_path: Path,
+    field: str,
+    identity_kind: str,
+) -> None:
+    def mutate(record: dict[str, Any], _evidence: dict[str, Any], copied: Path) -> None:
+        replacement = "legacy-shared-token"
+        runtime_path = copied / "new" / "runtime_plan.json"
+        runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+        runtime["lexical_checkpoint_points"][0][field] = replacement
+        _rewrite_fixture_artifacts(
+            record,
+            copied,
+            side="new",
+            changed={"runtime_plan": runtime},
+        )
+        record["identity_delta"].append(
+            {
+                "identity_kind": identity_kind,
+                "old_identity": None,
+                "old_disposition": None,
+                "new_identity": replacement,
+                "new_disposition": "new",
+            }
+        )
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+    issues = _issue_pairs(record_path, repo)
+
+    assert (
+        "procedure_identity_retirement_leaked_retired_identity",
+        "$.retired_identity_query_evidence",
+    ) in issues
+    assert (
+        "procedure_identity_retirement_identity_artifact_mismatch",
+        "$.identity_delta",
+    ) not in issues
+
+
+@pytest.mark.parametrize(
+    ("carrier", "role", "identity_kind"),
+    [
+        ("runtime_node", "runtime_plan", "step"),
+        ("runtime_resume", "runtime_plan", "presentation_key"),
+        ("semantic_bridge", "semantic_ir", "presentation_key"),
+        ("source_map", "source_map", "step"),
+        ("source_map_contract_field", "source_map", "source_map_origin"),
+    ],
+)
+def test_leaked_retired_identity_from_additional_production_carrier_is_rejected(
+    tmp_path: Path,
+    carrier: str,
+    role: str,
+    identity_kind: str,
+) -> None:
+    def mutate(record: dict[str, Any], _evidence: dict[str, Any], copied: Path) -> None:
+        replacement = "legacy-shared-token"
+        path = copied / "new" / f"{role}.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if carrier == "runtime_node":
+            next(iter(payload["nodes"].values()))["step_id"] = replacement
+        elif carrier == "runtime_resume":
+            payload["resume_checkpoints"][0]["presentation_key"] = replacement
+        elif carrier == "semantic_bridge":
+            payload["workflows"]["source::orchestrate"]["executable_bridge"][
+                "presentation_keys"
+            ][0] = replacement
+        elif carrier == "source_map_contract_field":
+            payload["workflows"]["source::orchestrate"]["contract_fields"][
+                "contract-probe"
+            ] = {"origin_key": replacement}
+        else:
+            payload["workflows"]["source::orchestrate"]["executable_nodes"][0][
+                "step_id"
+            ] = replacement
+        _rewrite_fixture_artifacts(
+            record,
+            copied,
+            side="new",
+            changed={role: payload},
+        )
+        record["identity_delta"].append(
+            {
+                "identity_kind": identity_kind,
+                "old_identity": None,
+                "old_disposition": None,
+                "new_identity": replacement,
+                "new_disposition": "new",
+            }
+        )
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+    issues = _issue_pairs(record_path, repo)
+
+    assert (
+        "procedure_identity_retirement_leaked_retired_identity",
+        "$.retired_identity_query_evidence",
+    ) in issues
+    assert (
+        "procedure_identity_retirement_identity_artifact_mismatch",
+        "$.identity_delta",
+    ) not in issues
+
+
+@pytest.mark.parametrize(
+    ("carrier", "role"),
+    [
+        ("dedicated_executable_identity_node", "lexical_checkpoint_points"),
+        ("executable_body_region", "executable_ir"),
+        ("executable_finalization_entry", "executable_ir"),
+        ("executable_finalization_region", "executable_ir"),
+        ("runtime_ordered_nodes", "runtime_plan"),
+        ("semantic_statement_nodes", "semantic_ir"),
+        ("semantic_statement_presentations", "semantic_ir"),
+        ("semantic_statement_step", "semantic_ir"),
+        ("semantic_source_map_origin", "semantic_ir"),
+    ],
+)
+def test_leaked_retired_identity_from_leak_only_carrier_is_rejected(
+    tmp_path: Path,
+    carrier: str,
+    role: str,
+) -> None:
+    def mutate(record: dict[str, Any], _evidence: dict[str, Any], copied: Path) -> None:
+        replacement = "legacy-shared-token"
+        path = copied / "new" / f"{role}.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if carrier == "dedicated_executable_identity_node":
+            payload["points"][0]["executable_identity"]["node_id"] = replacement
+        elif carrier == "executable_body_region":
+            payload["body_region"][0] = replacement
+        elif carrier == "executable_finalization_entry":
+            payload["finalization_entry_node_id"] = replacement
+        elif carrier == "executable_finalization_region":
+            payload["finalization_region"] = [replacement]
+        elif carrier == "runtime_ordered_nodes":
+            payload["ordered_node_ids"][0] = replacement
+        elif carrier.startswith("semantic_statement_"):
+            statement = next(
+                iter(payload["workflows"]["source::orchestrate"]["statements"].values())
+            )
+            if carrier == "semantic_statement_nodes":
+                statement["executable_node_ids"][0] = replacement
+            elif carrier == "semantic_statement_presentations":
+                statement["presentation_keys"][0] = replacement
+            else:
+                statement["step_id"] = replacement
+        else:
+            payload["source_map"]["leak_probe"] = {
+                "origin_key": replacement,
+            }
+        _rewrite_fixture_artifacts(
+            record,
+            copied,
+            side="new",
+            changed={role: payload},
+        )
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        "procedure_identity_retirement_leaked_retired_identity",
+        "$.retired_identity_query_evidence",
+    ) in _issue_pairs(record_path, repo)
+
+
+@pytest.mark.parametrize(
+    ("carrier", "role"),
+    [
+        ("context_workflow_name", "semantic_ir"),
+        ("source_map_policy_origin", "source_map"),
+        ("semantic_policy_origin", "semantic_ir"),
+    ],
+)
+def test_arbitrary_context_policy_fields_are_not_identity_carriers(
+    tmp_path: Path,
+    carrier: str,
+    role: str,
+) -> None:
+    def mutate(record: dict[str, Any], _evidence: dict[str, Any], copied: Path) -> None:
+        path = copied / "new" / f"{role}.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if carrier == "context_workflow_name":
+            payload["context"] = {"workflow_name": "context-only-workflow"}
+        elif carrier == "source_map_policy_origin":
+            payload["workflows"]["source::orchestrate"]["policy"] = {
+                "origin_key": "policy-only-origin",
+            }
+        else:
+            payload["source_map"]["policy"] = {
+                "details": {"origin_key": "legacy-shared-token"},
+            }
+        _rewrite_fixture_artifacts(
+            record,
+            copied,
+            side="new",
+            changed={role: payload},
+        )
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert not _issue_pairs(record_path, repo)
 
 
 def test_production_identity_inventory_rejects_extra_and_relabelled_rows(tmp_path: Path) -> None:

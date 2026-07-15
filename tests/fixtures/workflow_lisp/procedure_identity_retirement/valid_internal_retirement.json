@@ -40,7 +40,7 @@
       "owner": "Fictional Fixture Owner — NEVER COPY",
       "query_version": "procedure-identity-store-query.v1",
       "query_time": "2026-07-13T00:00:00Z",
-      "normalized_scan_digest": "sha256:218f96c7d3f6c721180eb921db5f57bbaa56584ebe2a0c657e8fee9992992661",
+      "normalized_scan_digest": "sha256:950f1962ea1d577416039cf97e2276648316ae503a40738e7c3681d70623c57a",
       "terminal_run_count": 0,
       "nonterminal_run_count": 0,
       "store_terminal_run_count": 1,
@@ -57,6 +57,18 @@
     }
   ],
   "external_store_absence": "not_asserted",
+  "retired_identity_query_evidence": {
+    "evidence_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/pre_edit_scan.json",
+    "evidence_sha256": "sha256:83681a629614a0ade97588ed18c0334992410280a7b300f38fe93b860fe01531",
+    "query_version": "procedure-identity-store-query.v1",
+    "query_list_sha256": "sha256:f9938619784ffc711d216811552d41cecd6100937d6efdbcdebcc0cce57cbff6",
+    "identity_count": 27,
+    "identities_by_domain_sha256": "sha256:f5e8f499b19f495f5de02d744dfadc882d9100aa3a038a21eb66de291672335f",
+    "baseline_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/identity_baseline.json",
+    "baseline_sha256": "sha256:029e660948278ec97179d85db7dcb98531bc29f2b957002f23c816fb1aef8766",
+    "old_source_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/source.orc",
+    "old_source_sha256": "sha256:a2f91555578522ecb6e0a9e6100265570e46c4d1e235cee3e37f06a2a9b47a0c"
+  },
   "artifacts": [
     {
       "side": "old",
@@ -456,6 +468,48 @@
       "old_disposition": null,
       "new_identity": "source::orchestrate::generated_path::.orchestrate/workflow_lisp/entry/${runtime.run_id}/source_orchestrate/__write_root__source_orchestrate__source_internal_phase_1__run_checks__result_bundle.json",
       "new_disposition": "new"
+    },
+    {
+      "identity_kind": "workflow",
+      "old_identity": "legacy-singleton-token",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "executable_node",
+      "old_identity": "legacy-shared-token",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "presentation_key",
+      "old_identity": "legacy-shared-token",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "executable_node",
+      "old_identity": "root.source_internal_phase__run_checks",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "presentation_key",
+      "old_identity": "source::internal-phase__run_checks",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
+    },
+    {
+      "identity_kind": "step",
+      "old_identity": "root.source_internal_phase__run_checks",
+      "old_disposition": "retired",
+      "new_identity": null,
+      "new_disposition": null
     }
   ],
   "artifact_multiset": {

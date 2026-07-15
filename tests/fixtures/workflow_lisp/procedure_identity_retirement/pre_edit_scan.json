@@ -1,0 +1,100 @@
+{
+  "schema": "fictional_pre_edit_store_scan.v1",
+  "fact_class": "FICTIONAL TEST DATA - NEVER COPY AS EVIDENCE",
+  "old_identity_query": {
+    "baseline_projection_matches_unchanged_source": true,
+    "query_version": "procedure-identity-store-query.v1",
+    "query_list_sha256": "sha256:f9938619784ffc711d216811552d41cecd6100937d6efdbcdebcc0cce57cbff6",
+    "identities": [
+      "alloc:source_internal-phase:command_result_bundle:524e4e703040a868",
+      "alloc:source_internal-phase:entrypoint_managed_write_root:08d932ba332269f8",
+      "alloc:source_orchestrate:lexical_checkpoint_record:0ca2ad80f358327f",
+      "alloc:source_orchestrate:reusable_call_write_root:003c8199b5bff6e0",
+      "ckpt:6f366562859b3c60af1f2363",
+      "legacy-shared-token",
+      "legacy-singleton-token",
+      "pp:bcfcee4edeee0d60262b27b9",
+      "root.source_internal_phase__run_checks",
+      "root.source_orchestrate__call_source_internal_phase",
+      "root.source_orchestrate__call_source_internal_phase::visit::1",
+      "source::internal-phase",
+      "source::internal-phase::generated_input::report_path",
+      "source::internal-phase::generated_internal_input::__write_root__source_internal_phase__run_checks__result_bundle",
+      "source::internal-phase::generated_output::return__approved",
+      "source::internal-phase::generated_output::return__decision",
+      "source::internal-phase::generated_output::return__report",
+      "source::internal-phase::generated_path::${inputs.__write_root__source_internal_phase__run_checks__result_bundle}",
+      "source::internal-phase::generated_path::.orchestrate/workflow_lisp/entry/${runtime.run_id}/source_internal-phase/__write_root__source_internal_phase__run_checks__result_bundle.json",
+      "source::internal-phase::step_id::source::internal-phase__run_checks",
+      "source::internal-phase::step_id::source_internal_phase__run_checks",
+      "source::internal-phase::workflow::source::internal-phase",
+      "source::internal-phase__run_checks",
+      "source::orchestrate::generated_path::.orchestrate/workflow_lisp/calls/source::orchestrate/source::orchestrate__call_source::internal-phase/source::internal-phase/__write_root__source_internal_phase__run_checks__result_bundle.json",
+      "source::orchestrate::step_id::source::orchestrate__call_source::internal-phase",
+      "source::orchestrate::step_id::source_orchestrate__call_source_internal_phase",
+      "source::orchestrate__call_source::internal-phase"
+    ],
+    "identity_count": 27,
+    "derivation_method": "FICTIONAL TEST METHOD - NEVER COPY: enumerate frozen retired identities.",
+    "derivation_method_version": "fictional-retired-identity-query.v1",
+    "query_list_digest_encoding": "UTF-8 canonical JSON array; sort_keys=true; separators=(',', ':'); ensure_ascii=false",
+    "identities_by_domain": {
+      "workflow": [
+        "legacy-singleton-token",
+        "source::internal-phase"
+      ],
+      "call_frame": [
+        "root.source_orchestrate__call_source_internal_phase::visit::1"
+      ],
+      "executable_node": [
+        "legacy-shared-token",
+        "root.source_internal_phase__run_checks",
+        "root.source_orchestrate__call_source_internal_phase"
+      ],
+      "step": [
+        "root.source_internal_phase__run_checks",
+        "root.source_orchestrate__call_source_internal_phase"
+      ],
+      "presentation_key": [
+        "legacy-shared-token",
+        "source::internal-phase__run_checks",
+        "source::orchestrate__call_source::internal-phase"
+      ],
+      "program_point": [
+        "pp:bcfcee4edeee0d60262b27b9"
+      ],
+      "checkpoint": [
+        "ckpt:6f366562859b3c60af1f2363"
+      ],
+      "state_allocation": [
+        "alloc:source_internal-phase:command_result_bundle:524e4e703040a868",
+        "alloc:source_internal-phase:entrypoint_managed_write_root:08d932ba332269f8",
+        "alloc:source_orchestrate:lexical_checkpoint_record:0ca2ad80f358327f",
+        "alloc:source_orchestrate:reusable_call_write_root:003c8199b5bff6e0"
+      ],
+      "source_map_origin": [
+        "source::internal-phase::generated_input::report_path",
+        "source::internal-phase::generated_internal_input::__write_root__source_internal_phase__run_checks__result_bundle",
+        "source::internal-phase::generated_output::return__approved",
+        "source::internal-phase::generated_output::return__decision",
+        "source::internal-phase::generated_output::return__report",
+        "source::internal-phase::generated_path::${inputs.__write_root__source_internal_phase__run_checks__result_bundle}",
+        "source::internal-phase::generated_path::.orchestrate/workflow_lisp/entry/${runtime.run_id}/source_internal-phase/__write_root__source_internal_phase__run_checks__result_bundle.json",
+        "source::internal-phase::step_id::source::internal-phase__run_checks",
+        "source::internal-phase::step_id::source_internal_phase__run_checks",
+        "source::internal-phase::workflow::source::internal-phase",
+        "source::orchestrate::generated_path::.orchestrate/workflow_lisp/calls/source::orchestrate/source::orchestrate__call_source::internal-phase/source::internal-phase/__write_root__source_internal_phase__run_checks__result_bundle.json",
+        "source::orchestrate::step_id::source::orchestrate__call_source::internal-phase",
+        "source::orchestrate::step_id::source_orchestrate__call_source_internal_phase"
+      ]
+    },
+    "baseline_repo_relative_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/identity_baseline.json",
+    "baseline_sha256": "sha256:029e660948278ec97179d85db7dcb98531bc29f2b957002f23c816fb1aef8766",
+    "source_boundary_validation": {
+      "fixture_only": true
+    },
+    "source_repo_relative_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/source.orc",
+    "source_sha256": "sha256:a2f91555578522ecb6e0a9e6100265570e46c4d1e235cee3e37f06a2a9b47a0c",
+    "temporary_candidate_repo_relative_path": "tmp/fictional-retirement-query-candidate.orc"
+  }
+}
