@@ -1,0 +1,166 @@
+{
+  "artifact_evidence_correction_authorization": {
+    "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/task-3/artifact-parity-evidence-correction-authorization.json",
+    "sha256": "sha256:5dcec17ccd0ebef24f8b0025501df2acf8ac90517227a6161e9e32d26aa1963d"
+  },
+  "artifact_hash_provenance": "observed_post_resume_workspace_files",
+  "artifacts": {
+    "design_path": {
+      "path": "docs/plans/runtime-design.md",
+      "sha256": "sha256:5c29fa583a23a590e6e4e3a70f74dcb05e2febb8d2959beaa13fcf8ada89a7e0"
+    },
+    "design_review_report_path": {
+      "path": "artifacts/review/runtime-design-review.md",
+      "sha256": "sha256:4363961457737ff39cb1f784a55ddb4062537473ed0b2bbc20664f44ecd2bc45"
+    },
+    "execution_report_path": {
+      "path": "artifacts/work/runtime-execution-report.md",
+      "sha256": "sha256:69ec090d5e5479c1ead0d8a5a0245484c7c7910c441c7da5f6b235df9868946d"
+    },
+    "implementation_review_report_path": {
+      "path": "artifacts/review/runtime-implementation-review.md",
+      "sha256": "sha256:4363961457737ff39cb1f784a55ddb4062537473ed0b2bbc20664f44ecd2bc45"
+    },
+    "plan_path": {
+      "path": "docs/plans/runtime-plan.md",
+      "sha256": "sha256:24798bc6fe9767bc770f8e8c4c1e5f44f83f19699189eef7c7d17fe4cd2feffa"
+    },
+    "plan_review_report_path": {
+      "path": "artifacts/review/runtime-plan-review.md",
+      "sha256": "sha256:4363961457737ff39cb1f784a55ddb4062537473ed0b2bbc20664f44ecd2bc45"
+    }
+  },
+  "checkpoint_ids": [
+    "ckpt:65bda4f814bc721664c59a34",
+    "ckpt:85bebe726bc9eed0e4ee7c63",
+    "ckpt:da29481dd96843184de8136f",
+    "ckpt:ecba9af744ae06ba202198fa"
+  ],
+  "comparison": {
+    "historical_clean_artifact_equality": "not_asserted",
+    "public_output_equal_to_clean": true,
+    "recovered_artifacts_conform_to_deterministic_provider_contract": true
+  },
+  "evidence_status": "provisional_characterization",
+  "fresh_child_resume_recovery_authorization": {
+    "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/task-3/fresh-child-resume-recovery-authorization.json",
+    "sha256": "sha256:909b6f69cef824239c9ff83b8968a20a800aa798f192648dd697b2a62c9590b2"
+  },
+  "historical_clean_artifact_bytes_retained": false,
+  "historical_clean_artifact_equality": "not_asserted",
+  "identity_comparison": {
+    "approval_asserted": false,
+    "classification": "provisional_old_new_identity_characterization",
+    "frozen_baseline_sha256": "sha256:167e0cb48c857acc728058fe0bfa7bcc8939ef1457c34768389ff1fb4035af9d",
+    "new_checkpoint_ids": [
+      "ckpt:65bda4f814bc721664c59a34",
+      "ckpt:85bebe726bc9eed0e4ee7c63",
+      "ckpt:da29481dd96843184de8136f",
+      "ckpt:ecba9af744ae06ba202198fa"
+    ],
+    "new_presentation_keys": [
+      "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__implementation__call_examples/design_plan_impl_review_stack_v2_call::design-plan-impl-implementation-phase",
+      "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__draft",
+      "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__match_review",
+      "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__match_review.APPROVE",
+      "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__match_review.APPROVE.examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__match_review__approve__projection_anchor",
+      "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__match_review.REVISE",
+      "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__match_review.REVISE.examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__match_review__revise__projection_anchor",
+      "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__review"
+    ],
+    "old_checkpoint_ids": [
+      "ckpt:18fd9e37be5bddb772f62f7e",
+      "ckpt:65bda4f814bc721664c59a34",
+      "ckpt:7315195dfee583a7a632b770",
+      "ckpt:8d1ba7e4a3f6208430f45807",
+      "ckpt:ecba9af744ae06ba202198fa"
+    ],
+    "old_presentation_keys": [
+      "$module::design-plan-impl-review-stack__design__call_$module::tracked-design-phase",
+      "$module::design-plan-impl-review-stack__implementation__call_$module::design-plan-impl-implementation-phase",
+      "$module::design-plan-impl-review-stack__plan__call_$module::tracked-plan-phase",
+      "$module::tracked-plan-phase__draft",
+      "$module::tracked-plan-phase__match_review",
+      "$module::tracked-plan-phase__match_review.APPROVE",
+      "$module::tracked-plan-phase__match_review.APPROVE.$module::tracked-plan-phase__match_review__approve__projection_anchor",
+      "$module::tracked-plan-phase__match_review.REVISE",
+      "$module::tracked-plan-phase__match_review.REVISE.$module::tracked-plan-phase__match_review__revise__projection_anchor",
+      "$module::tracked-plan-phase__review"
+    ]
+  },
+  "interruption": {
+    "completed_provider_roles": [
+      "design.draft",
+      "design.review",
+      "plan.draft"
+    ],
+    "interruption_point": "post_plan_draft_checkpoint_commit",
+    "next_provider_role_not_attempted": "plan.review",
+    "persisted_status": "running",
+    "status": "process_interrupted",
+    "successful_provider_role_count": 3
+  },
+  "presentation_keys": [
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__implementation__call_examples/design_plan_impl_review_stack_v2_call::design-plan-impl-implementation-phase",
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__draft",
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__match_review",
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__match_review.APPROVE",
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__match_review.APPROVE.examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__match_review__approve__projection_anchor",
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__match_review.REVISE",
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__match_review.REVISE.examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__match_review__revise__projection_anchor",
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__review"
+  ],
+  "registered_workflows": [
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-implementation-phase",
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+    "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase"
+  ],
+  "resume": {
+    "executed_provider_roles": [
+      "plan.review",
+      "implementation.execute",
+      "implementation.review"
+    ],
+    "provider_role_attempts": {
+      "design.draft": 1,
+      "design.review": 1,
+      "implementation.execute": 1,
+      "implementation.review": 1,
+      "plan.draft": 1,
+      "plan.review": 1
+    },
+    "reused_provider_roles": [
+      "design.draft",
+      "design.review",
+      "plan.draft"
+    ],
+    "status": "completed"
+  },
+  "run": {
+    "entry_count": 38,
+    "id": "tracked-plan-phase-interrupted-new-id",
+    "relative_path": "tracked-plan-phase-interrupted-new-id",
+    "tree_sha256": "sha256:1bd9997f907882aafc3a7063acae8a494d2b846c9020d139264d52b3e89fbcd7"
+  },
+  "run_id": "tracked-plan-phase-interrupted-new-id",
+  "run_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
+  "schema": "procedure_first_pilot_tracked_plan_interruption_resume.v1",
+  "source": {
+    "path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+    "sha256": "sha256:be0a2660444488793169d8016152f62ab0996213c32632be334c03c2b31c1624"
+  },
+  "workflow_name": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+  "workflow_outputs": {
+    "return__design_path": "docs/plans/runtime-design.md",
+    "return__design_review_decision": "APPROVE",
+    "return__design_review_report_path": "artifacts/review/runtime-design-review.md",
+    "return__execution_report_path": "artifacts/work/runtime-execution-report.md",
+    "return__implementation_review_decision": "APPROVE",
+    "return__implementation_review_report_path": "artifacts/review/runtime-implementation-review.md",
+    "return__plan_path": "docs/plans/runtime-plan.md",
+    "return__plan_review_decision": "APPROVE",
+    "return__plan_review_report_path": "artifacts/review/runtime-plan-review.md"
+  }
+}
