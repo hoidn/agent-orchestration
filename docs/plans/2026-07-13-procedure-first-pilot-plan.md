@@ -7,9 +7,12 @@ conditional `reviewed_internal_identity_retirement`; see the decision request
 below). Task 1A Steps 1-6 are complete, and the immutable pre-edit evidence
 package is committed at `63e03330`. Corrected scans, owner records, isolation,
 quiescence, incident recovery, final rechecks, and two-stage reviews passed;
-fresh post-commit hold probes pass, and the pilot source and frozen baseline
-remain unchanged. Task 2 is now selectable but remains `not_selected` and not
-started; no pilot source edit has occurred. Any matching supported
+fresh post-commit hold probes pass. Task 2 Steps 1-5 are complete at
+`e6a85cb7`: the one-phase source migration, provisional compile-only
+characterization, and two-stage review passed without launching a runtime
+run; the frozen baseline remains unchanged. Task 3 is selected under the
+exact-two-run evidence protocol below, and no post-edit runtime run has
+started. Any matching supported
 live/nonterminal run or queried old-identity consumer reverts to strict
 compatibility.
 
@@ -51,15 +54,17 @@ the reviewed evidence path defined below.
   Task 1A's corrected scans, owner records, isolation, quiescence, incident
   recovery, final rechecks, and two-stage reviews passed, and its immutable
   pre-edit evidence package is committed at `63e03330`. Fresh post-commit hold
-  probes pass. The frozen pilot source and old baseline remain unchanged. Task
-  2 is selectable but remains `not_selected` and not started; no source edit
-  has occurred.
+  probes pass. Task 2's source edit and provisional compile-only
+  characterization landed at `e6a85cb7` and passed two-stage review without
+  launching a runtime run; the frozen old baseline remains unchanged. Task 3
+  is selected under the exact-two-run evidence protocol below.
 - When resumed, this plan owns the genuine named-owner attestations for every
   known state store and either proves strict compatibility or applies the
   accepted reviewed internal identity-retirement exception. Missing,
   ambiguous, public/exported, promoted/live, or supported-consumer evidence
-  stops the pilot without a source edit. A retirement record is evidence only
-  and makes no old-state remap or cross-source resume claim.
+  stops retirement acceptance and every further source or runtime mutation.
+  A retirement record is evidence only and makes no old-state remap or
+  cross-source resume claim.
 - Modify no phase except `tracked-plan-phase`; `tracked-design-phase` and `design-plan-impl-implementation-phase` remain workflows for later waves.
 - Retain the exported public `design-plan-impl-review-stack` workflow. Do not export the pilot procedure or register it as a workflow entry.
 - Do not edit the YAML twin or archive anything in this plan. Stage 6 owns YAML retirement.
@@ -68,6 +73,39 @@ the reviewed evidence path defined below.
   internal identity change also stops. Only an old internal identity accepted
   by the validated `reviewed_internal_identity_retirement` record may differ;
   that exception does not relax any other parity axis.
+
+### Exact-two-run execution sequencing correction (2026-07-14)
+
+The accepted identity-compatibility design's **Dependencies And Sequencing**
+section is the higher authority for this pilot's execution order: produce the
+new-ID clean/resume evidence, assemble and validate the retirement record and
+obtain independent approval, and only then run family-parity, focused, and
+broad verification. The owner-controlled dedicated-root attestation permits
+exactly two runtime mutations before the final validator and review. The task
+order below therefore applies that authority directly; it does not relax or
+remove any pilot completion gate.
+
+Before the final validator and independent review, all live orchestrator
+execution is limited to exactly these two retained run directories:
+
+- root:
+  `/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs`;
+- clean run ID: `tracked-plan-phase-clean-new-id`; and
+- interrupted/resumed run ID: `tracked-plan-phase-interrupted-new-id` (resume
+  reuses this same ID and is not a third run).
+
+The pre-run guard requires the dedicated root to contain zero immediate run
+directories, every enumerated legacy store to remain byte/count-identical to
+its bound pre-edit facts, and no `/tmp/design-plan-impl-stack-*` directory to
+exist. The post-run guard requires the dedicated root's immediate directory
+set to equal exactly the two IDs above, all legacy stores to remain unchanged,
+and no `/tmp/design-plan-impl-stack-*` directory to exist. Any other run ID,
+run root, legacy-root write, temporary run directory, or unexpected write is a
+fail-closed `STOP`. Compile, CLI `--dry-run`, collection, manifest comparison,
+and deterministic retained-evidence replay are no-run operations. Ordinary
+runtime selectors, `migration-parity`, and focused or broad suites that launch
+the harness are run-bearing and remain prohibited until the final validator,
+independent review, and explicit owner hold release are complete.
 
 ### Identity-compatibility prerequisite handoff (2026-07-14)
 
@@ -138,8 +176,9 @@ unchanged. The prerequisite handoff is complete. The superseding Path A
 decision selected Task 1A, whose corrected scan, owner-attestation,
 quiescence, isolation, immutable-evidence, incident-recovery, recheck, and
 two-stage-review gates passed and committed at `63e03330`. Fresh post-commit
-hold probes pass. Task 2 is selectable but remains `not_selected` and not
-started; no source edit has occurred.
+hold probes passed before Task 2. Task 2 later landed at `e6a85cb7` with
+compile-only evidence and no runtime run; Task 3 is now selected under the
+exact-two-run protocol.
 
 ### Read-only Task 1A preflight stop (2026-07-14)
 
@@ -243,7 +282,7 @@ as a guard baseline; user changes to those paths are not plan failures.
 - `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/`:
   stable `identity_delta.json`, `artifact_contract_multiset.json`,
   `execution_order.json`, `clean_run.json`, `interruption_resume.json`,
-  `root_checksum_negative.json`, and `callee_checksum_characterization.json`
+  `root_checksum_characterization.json`, and `callee_checksum_characterization.json`
   evidence projections, plus the time-bounded
   `live_validator_pytest.txt` and `live_validator_result.json` proof.
 - `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence_index.json`:
@@ -342,8 +381,9 @@ attestation; a legacy-root mismatch requires stopping this pilot attempt, not
 fabricating or backdating an attestation. Then complete the full old/new
 identity delta, keyed artifact-contract multiset, separate execution-order
 comparison, new-ID clean-run and interruption/resume evidence, and both
-checksum negative proofs. The record makes no claim that an old run resumes
-across changed source.
+checksum-characterization projections. The record makes no claim that these
+characterizations prove actual-pilot rejection behavior or that an old run
+resumes across changed source.
 
 ### Task 1: Freeze The Pre-Migration Contract And Write RED Tests
 
@@ -516,11 +556,19 @@ after this commit and the quiescence recheck pass.
 Passing it does not authorize identity retirement; only Task 4A's complete
 record, mandatory live validator, and independent approval can do so.
 
+**Execution note (2026-07-14):** Steps 1-5 landed at `e6a85cb7`. The edited
+source, actual-pilot cross-route characterization, provisional runtime-identity
+delta assertions, and lowered-family compile assertion passed two-stage
+review. Only compile/source-shape checks were executed; no orchestrator runtime
+run, `/tmp` harness run, migration-parity run, or dedicated-root run was
+launched. Task 2 is complete, the frozen pre-edit baseline is unchanged, and
+Task 3 is selected under the exact-two-run protocol.
+
 **Files:**
 - Modify: `workflows/examples/design_plan_impl_review_stack_v2_call.orc`
 - Test: `tests/test_workflow_lisp_procedure_first_migrations.py`
 
-- [ ] **Step 1: Change the definition to an explicit inline procedure**
+- [x] **Step 1: Change the definition to an explicit inline procedure**
 
 Do not begin this step until the Mandatory pre-edit retirement gate has passed.
 
@@ -540,7 +588,7 @@ Make the definition header equivalent to:
 
 Preserve its body and typed `PlanPhaseOutput` return exactly.
 
-- [ ] **Step 2: Replace only its caller**
+- [x] **Step 2: Replace only its caller**
 
 Replace the keyword `call` form with the positional procedure application:
 
@@ -553,7 +601,7 @@ Replace the keyword `call` form with the positional procedure application:
 
 Do not change the other two `(call ...)` forms.
 
-- [ ] **Step 3: Add the POST-EDIT actual-pilot cross-route characterization**
+- [x] **Step 3: Add the POST-EDIT actual-pilot cross-route characterization**
 
 In `tests/test_workflow_lisp_procedure_first_migrations.py`, add
 `test_post_edit_tracked_plan_phase_does_not_use_schema1_iteration_override_across_routes`.
@@ -574,7 +622,7 @@ contain no generated private workflow for `tracked-plan-phase`. This is a
 post-edit characterization of the real pilot, not a substitute for the generic
 fixture or permission to refresh the frozen pre-edit baseline.
 
-- [ ] **Step 4: Run the source and compile parity tests**
+- [x] **Step 4: Run the source and compile parity tests**
 
 ```bash
 pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'tracked_plan_phase'
@@ -590,7 +638,7 @@ distinguish the one removed internal workflow from the retained public and two
 untouched phase workflows; update that assertion, not the contract. Do not
 treat this result as accepted retirement evidence.
 
-- [ ] **Step 5: Commit the one-phase migration**
+- [x] **Step 5: Commit the one-phase migration**
 
 ```bash
 git add workflows/examples/design_plan_impl_review_stack_v2_call.orc tests/test_workflow_lisp_procedure_first_migrations.py tests/test_workflow_lisp_key_migrations.py
@@ -601,36 +649,114 @@ git commit -m "Migrate tracked plan phase to an inline procedure"
 
 **Evidence status:** Task 3 produces provisional runtime characterization
 under the new source. It cannot classify or approve a retired identity before
-Task 4A validates and reviews the complete record.
+Task 4A validates and reviews the complete record. This is the selected task.
+Its one opt-in evidence invocation owns the only two permitted runtime runs;
+default tests and every review rerun use no-run or retained-evidence paths.
 
 **Files:**
 - Modify: `tests/test_workflow_lisp_key_migrations.py`
 - Modify only if a missing comparison is proven: `tests/test_workflow_lisp_procedure_first_migrations.py`
+- Create retained projections:
+  `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/clean_run.json`
+  and
+  `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/interruption_resume.json`
 
-- [ ] **Step 1: Extend the existing single-pass runtime smoke**
+- [ ] **Step 1: Add no-run contract tests and one opt-in evidence harness**
 
-Keep `_execute_design_plan_impl_stack_single_pass_runtime` as the family harness. Assert the completed public output has the same nine fields and values, the plan and review artifacts are created at the same caller-supplied paths, and no private/generated workflow entry named for `tracked-plan-phase` is externally invocable.
+Keep `_execute_design_plan_impl_stack_single_pass_runtime` as the family
+harness, but do not invoke it from a default test. Add compile/no-run tests for
+the retained public contract and the fixed opt-in test
+`tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_exact_two_run_evidence`.
+It is skipped unless
+`ORCHESTRATOR_RUN_LIVE_TRACKED_PLAN_PILOT_EVIDENCE=1`. The test must resolve
+and require the exact canonical dedicated root, refuse a nonempty root, refuse
+any root or ID override, prove the legacy-store digests/counts and `/tmp`
+absence still match the pre-run guard, and then create exactly
+`tracked-plan-phase-clean-new-id` and
+`tracked-plan-phase-interrupted-new-id`, retain the clean and
+interruption/resume projections at the Task 4A evidence paths, and refuse any
+other root or ID. Assert the completed public output has the same nine fields
+and values, the plan and review artifacts are created at the same
+caller-supplied paths, and no private/generated workflow entry named for
+`tracked-plan-phase` is externally invocable.
 
-- [ ] **Step 2: Add a new-ID resume-after-plan-provider-boundary test**
+- [ ] **Step 2: Add the new-ID resume-after-plan-provider-boundary evidence path**
 
-Use the existing deterministic fake provider harness and `StateManager` to
-start a run from the new source. Fail once after the plan draft/review
-boundary, resume that new-source run with the same `run_id`, and assert already
-completed provider work is reused and the final public output and artifacts
-match a clean new-source run. Compare checkpoint IDs and presentation keys to
-the provisional old/new identity delta: public and expected-preserved entries
-remain exact; candidate internal differences and new effect-owned entries are
-recorded for Task 4A classification. No Task 3 assertion approves an identity.
+Use the deterministic fake provider harness and `StateManager` in that same
+opt-in invocation. Fail once after the plan draft/review boundary in
+`tracked-plan-phase-interrupted-new-id`, resume that new-source run under the
+same ID, and assert already completed provider work is reused and the final
+public output and artifacts match `tracked-plan-phase-clean-new-id`. Compare
+checkpoint IDs and presentation keys to the provisional old/new identity
+delta: public and expected-preserved entries remain exact; candidate internal
+differences and new effect-owned entries are recorded for Task 4A
+classification. No Task 3 assertion approves an identity.
 
-- [ ] **Step 3: Run runtime and resume tests**
+Add the fixed deterministic no-run replay selector
+`tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_retained_run_evidence_replays`
+for default reruns and reviews. It must consume the retained
+clean/interruption projections, validate their run IDs,
+output/artifact/checkpoint facts, and relationship, and never construct
+`WorkflowExecutor`, call run/resume, or create a run directory. Step 3 runs it
+immediately after the one live invocation and its postflight guards with:
 
 ```bash
-pytest -q tests/test_workflow_lisp_key_migrations.py -k 'design_plan_impl_stack'
-pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'checkpoint or resume or artifact or public_boundary'
+pytest -q tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_retained_run_evidence_replays
 ```
 
-Expected: the runtime/resume characterization passes provisionally; no retired
-identity is accepted yet.
+- [ ] **Step 3: Execute the exact-two-run evidence protocol once**
+
+Run only compile/no-run selectors before live evidence exists. Immediately
+before the opt-in evidence invocation, run these exact shell guards; both must
+print nothing:
+
+```bash
+find /home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs -mindepth 1 -maxdepth 1 -type d -print -quit
+find /tmp -maxdepth 1 -type d -name 'design-plan-impl-stack-*' -print -quit
+```
+
+The fixed evidence test itself must also require fresh legacy-root scan
+digests/counts to equal the bound pre-edit facts before writing. Then
+invoke the evidence test exactly once:
+
+```bash
+ORCHESTRATOR_RUN_LIVE_TRACKED_PLAN_PILOT_EVIDENCE=1 pytest -q tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_exact_two_run_evidence
+```
+
+Immediately afterward, require
+the dedicated root's immediate directory set to equal exactly
+`tracked-plan-phase-clean-new-id` and
+`tracked-plan-phase-interrupted-new-id`, require every legacy root to remain
+unchanged, require no matching `/tmp` directory, and freeze all run roots.
+The exact post-run directory guard is:
+
+```bash
+find /home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort
+find /tmp -maxdepth 1 -type d -name 'design-plan-impl-stack-*' -print -quit
+```
+
+The first command must print exactly the two fixed IDs in lexical order; the
+second must print nothing. The test's postflight must independently enforce
+the same set equality and unchanged legacy scans.
+Retain both projections. A second invocation of the exact command must fail
+closed because the dedicated root is nonempty; do not execute it merely to
+prove that negative. Immediately after the postflight guards, run exactly:
+
+```bash
+pytest -q tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_retained_run_evidence_replays
+```
+
+Every subsequent Task 3 runtime/resume characterization rerun must use only
+that retained-evidence replay selector without the environment gate; the live
+selector is never relaunched. This Task 3 restriction does not block the named
+no-run/scanner checks in Tasks 4 and 4A: production compile, CLI `--dry-run`,
+manifest and checksum-characterization replay, retirement-record replay,
+known-store scans, and the scanner-only live validator remain permitted at
+their specified steps.
+
+Expected: exactly two retained new-ID runs exist, the interrupted run resumed
+under its original ID, runtime/resume characterization passes provisionally,
+and no retired identity is accepted yet.
 
 - [ ] **Step 4: Stop on an unreviewed or ineligible identity mismatch**
 
@@ -640,23 +766,33 @@ stop. Also stop if the new-source run cannot resume under its new identities.
 Do not update the old baseline, claim cross-source old-run resume, or add an
 implicit remap. Eligible internal call-boundary retirement proceeds only
 through the complete validated record, substantive repository/store evidence,
-root and callee checksum negatives, keyed artifact comparison, separate order
+root and callee checksum characterizations, keyed artifact comparison, separate order
 review, and independent approvals.
 
-- [ ] **Step 5: Commit runtime evidence**
+- [ ] **Step 5: Commit the harness and retained provisional evidence**
 
 ```bash
-git add tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_procedure_first_migrations.py
+git add tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_procedure_first_migrations.py docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/clean_run.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/interruption_resume.json
 git commit -m "Prove tracked plan procedure runtime parity"
 ```
 
-### Task 4: Run Compile, Dry-Run, Semantic, And Family Parity Gates
+### Task 4: Run Compile, Dry-Run, Semantic, And No-Run Parity Gates
+
+Task 4 runs before the final scan and review while the owner hold is active.
+It may compile, use CLI `--dry-run`, inspect manifests, and replay retained
+evidence, but it must not launch a runtime run. Full family parity and route
+readiness remain pilot completion gates and are deferred to Task 5 after the
+explicit hold release.
 
 **Files:**
-- Modify only if a new evidence selector is required: `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json`
-- Modify only if the existing report cannot express the evidence: `tests/test_workflow_lisp_migration_parity.py`
-- Refresh generated evidence: `artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/`
-- Modify after evidence passes: `docs/workflow_lisp_route_readiness_registry.json`
+- Modify only if a no-run comparison selector is required:
+  `tests/test_workflow_lisp_procedure_first_migrations.py`
+- Generate only compile/no-run artifacts under:
+  `.orchestrate/tmp/procedure-first-pilot/`
+- Deferred to Task 5: `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json`,
+  `tests/test_workflow_lisp_migration_parity.py`,
+  `artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/`, and
+  `docs/workflow_lisp_route_readiness_registry.json`
 
 - [ ] **Step 1: Compile through the production route**
 
@@ -674,28 +810,46 @@ python -m orchestrator run workflows/examples/design_plan_impl_review_stack_v2_c
 
 Expected: exit 0.
 
-- [ ] **Step 3: Rerun the existing family parity gate**
+- [ ] **Step 3: Run no-run manifest and retained-evidence parity checks**
+
+Compare the old/new manifest roles and labels, public contract projection,
+artifact-contract multiset, execution-order projection, and Task 3's retained
+clean/interruption evidence without calling run or resume. Collection-only and
+deterministic replay selectors are permitted. Require the exact-two-directory
+post-run cardinality guard before and after these checks.
+
+Do **not** run `python -m orchestrator migration-parity ...` or any parity test
+selector that launches the family harness here. Task 4 proves compile,
+dry-run, semantic, manifest, and retained-evidence consistency only; it must
+not claim full family runtime parity.
+
+- [ ] **Step 4: Defer route evidence without changing labels**
+
+Do not update `docs/workflow_lisp_route_readiness_registry.json` while the hold
+is active. Task 5 will add the new procedure-first comparison selector only
+after run-bearing family parity passes. It must keep
+`route_label: migration_candidate`, `readiness_label: leaf_runtime_candidate`,
+and `copy_safety: migration_evidence_only` unchanged.
+
+- [ ] **Step 5: Commit only no-run evidence changes**
+
+The only allowed tracked path at this boundary is
+`tests/test_workflow_lisp_procedure_first_migrations.py`, and only if Task 4
+actually changed its no-run comparison coverage. `.orchestrate/tmp/procedure-first-pilot/`
+is generated scratch and must never be staged. If the tracked test changed,
+run exactly:
 
 ```bash
-python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity --target design_plan_impl_stack
-pytest -q tests/test_workflow_lisp_migration_parity.py -k 'design_plan_impl_stack'
+git add tests/test_workflow_lisp_procedure_first_migrations.py
+git diff --cached --name-only
+git commit -m "Record tracked plan no-run parity evidence"
 ```
 
-Expected: the `design_plan_impl_stack` row passes compile, dry-run, runtime, artifact, output, and resume evidence. Do not alter unrelated target rows.
-
-- [ ] **Step 4: Update route evidence without promotion**
-
-Add the new procedure-first comparison selector to the existing route-readiness entry. Keep `route_label: migration_candidate`, `readiness_label: leaf_runtime_candidate`, and `copy_safety: migration_evidence_only` unchanged.
-
-- [ ] **Step 5: Commit evidence routing**
-
-```bash
-git add workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json tests/test_workflow_lisp_migration_parity.py artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/design_plan_impl_stack.json artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/design_plan_impl_stack.md artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/index.json docs/workflow_lisp_route_readiness_registry.json
-git commit -m "Record tracked plan procedure pilot evidence"
-```
-
-Stage only the listed files that actually changed; never stage the parity
-directory wholesale.
+The cached list must contain only that exact path. If Task 4 produced only
+temporary compile/dry-run outputs and no tracked path changed, record the
+no-op in execution evidence and do not create an empty commit. Do not stage
+family-parity reports or route-readiness changes; those exact paths and their
+commit remain Task 5 after hold release.
 
 ### Task 4A: Assemble, Validate, Review, And Commit The Retirement Record
 
@@ -703,6 +857,8 @@ directory wholesale.
 - Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/final_known_store_scans.json`
 - Create owner-supplied:
   `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/dedicated-evidence-root.json`
+- Create owner-supplied:
+  `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/hold-release.json`
 - Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/source.orc`
 - Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/build_manifest.json`
 - Create the six new production artifacts under that same `new/` directory:
@@ -710,45 +866,61 @@ directory wholesale.
   `runtime_plan.json`, `lexical_checkpoint_points.json`, and `source_map.json`
 - Create under `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/`:
   `identity_delta.json`, `artifact_contract_multiset.json`,
-  `execution_order.json`, `clean_run.json`, `interruption_resume.json`,
-  `root_checksum_negative.json`, `callee_checksum_characterization.json`,
-  `live_validator_pytest.txt`, and `live_validator_result.json`
+  `execution_order.json`, verify Task 3's `clean_run.json` and
+  `interruption_resume.json`,
+  `root_checksum_characterization.json`, `callee_checksum_characterization.json`,
+  `live_validator_pytest.txt`, `live_validator_result.json`, and
+  reviewer-generated `retirement_record_review.json`
 - Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/retirement_record.json`
 - Modify: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence_index.json`
 - Modify: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json`
 - Modify: `tests/test_workflow_lisp_procedure_first_migrations.py`
 
-- [ ] **Step 1: Produce new-ID run/resume evidence only in the dedicated root**
+- [ ] **Step 1: Verify and project Task 3's exact two retained runs**
 
-Create the clean new-ID run and the distinct interrupted/resumed new-ID run in
-`.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs`.
-No legacy root may receive a write. Retain the clean and interruption/resume
-projections at the exact tracked paths above, then stop writes to the dedicated
-root.
+Do not create or resume a run in Task 4A. Require the dedicated root's
+immediate directory set to equal exactly `tracked-plan-phase-clean-new-id` and
+`tracked-plan-phase-interrupted-new-id`. Verify the interrupted projection
+records a resume under that same run ID, verify both tracked projections bind
+the corresponding retained directories, and derive the record's run/resume
+facts from those retained bytes. Require every legacy root to remain
+unchanged and require no `/tmp/design-plan-impl-stack-*` directory. Any
+missing, extra, renamed, or newly written run is a fail-closed `STOP`.
 
-- [ ] **Step 2: Drain ephemeral harnesses, then final-scan and freeze every root**
+- [ ] **Step 2: Run no-run pre-scan checks, then final-scan and freeze every root**
 
-Run the focused and broad gates that exercise the ordinary runtime harness
-before taking final scan facts. Those tests must use only their
-`TemporaryDirectory` yield fixtures, and every fixture finalizer must prove its
-scratch workspace was removed. Assert that no `design-plan-impl-stack-*`
-scratch directory or other unenumerated persistent run store remains. Normal
-test scratch is never added to `known_state_stores`; any surviving directory
-is a `STOP` until its ownership is established and cleanup succeeds. After the
-source edit there may be no unenumerated persistent store.
+Before taking final scan facts, run only `pytest --collect-only`, compile/no-run
+contract selectors, manifest checks, and deterministic retained-evidence
+replay. Do not run a focused or broad runtime suite, an ordinary runtime
+selector, or `migration-parity`. Check the exact two-directory cardinality,
+the absence of `/tmp/design-plan-impl-stack-*`, and unchanged legacy roots
+before and after every permitted check. No unenumerated persistent store may
+exist.
 
 Then rescan every enumerated root with the same old identities and query version.
 Write the raw normalized facts to `final_known_store_scans.json`. Require every
-legacy digest/count to equal its pre-edit value exactly. Obtain the genuine
-named owner's second timestamped attestation for the dedicated root's final
-snapshot and store it verbatim at the fixed final-attestation path. Freeze all
-roots from this point through the live validator and independent review. A
-legacy mismatch stops acceptance; only the dedicated root's planned new-ID
-run mutations explain its pre/final delta.
+legacy digest/count to equal its pre-edit value exactly. Publish the exact
+final-attestation form and fixed path, then stop for the genuine named owner to
+author or adopt the second timestamped attestation for the dedicated root's
+final snapshot. Store that owner-supplied record verbatim. Freeze all roots
+from this point through the live validator and independent review. A legacy
+mismatch stops acceptance; only the dedicated root's planned new-ID run
+mutations explain its pre/final delta.
+
+**Fail-closed owner boundary:** after publishing the exact final snapshot,
+digest/counts, and the required attestation form/path
+`docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/dedicated-evidence-root.json`,
+the executing agent must `PAUSE` and stop. Step 3 must not begin until a
+genuine owner-authored or owner-adopted record exists at that exact path, is
+independently attributable to the named owner, and binds the exact dedicated
+root plus the exact final scan artifact digest, normalized snapshot digest,
+query, timestamp, and all counts. An agent may publish the form and path but
+must not author, paraphrase, adopt, or infer the attestation.
 
 - [ ] **Step 3: Build new artifacts and assemble the complete record**
 
-Copy the one edited source to `new/source.orc`; compile/build the new side
+First verify the Step 2 owner boundary is satisfied exactly; otherwise remain
+paused. Then copy the one edited source to `new/source.orc`; compile/build the new side
 through the same production WCC route; retain its manifest and six production
 artifacts. Write `new/build_manifest.json` with schema
 `workflow_lisp_procedure_retirement_build_manifest.v1`, the reviewed
@@ -760,12 +932,49 @@ both manifests against the repository, require every referenced source/input/
 output digest to match readable bytes, and require old/new compiler/build
 labels and role sets to agree.
 
+Only after the new production side exists and both manifests replay, project
+the pilot-specific checksum evidence without launching or resuming a run. The
+accepted generic guard characterizations are commits `7e4b3428` and
+`e4f2ecbe` at these exact nodeids:
+
+- `tests/test_resume_command.py::test_default_resume_root_checksum_mismatch_is_pre_executor_and_byte_immutable`; and
+- `tests/test_resume_command.py::test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch`.
+
+Bind those accepted guard facts to the now-readable, content-addressed actual
+pilot old/new source and build checksums plus the applicable root/callee
+mismatch identity. Generate `evidence/root_checksum_characterization.json` and
+`evidence/callee_checksum_characterization.json` with scope explicitly labeled
+`accepted generic guard characterization bound to actual pilot checksum delta`;
+neither file is
+a live old-run resume, an actual-pilot rejection negative, or a cross-source
+compatibility claim. These are generic guard characterizations bound to the
+pilot's actual checksum delta; actual pilot rejection behavior remains a Task
+5 post-release gate. Do not run either
+`tests/test_resume_command.py` nodeid while the hold is active.
+
+Then add
+`tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_checksum_evidence_projection_replays`
+and run exactly:
+
+```bash
+pytest -q tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_checksum_evidence_projection_replays
+```
+
+The selector must validate commit/nodeid provenance, old/new checksum binding,
+mismatch identity, guard result, and both projection digests. It must not call
+`StateManager.initialize`, construct `WorkflowExecutor`, call run/resume, or
+create any run directory. Only after this selector passes may the retirement
+record be assembled.
+
 Bind every old/new exact relative artifact path and SHA-256 in
 `retirement_record.json`. Populate its `known_state_stores` from the final scan
 facts and applicable genuine attestations, keep
 `external_store_absence: not_asserted`, and populate the full identity delta,
 keyed artifact multiset, separate execution order, lineage notes, new-ID
-run/resume facts, and root/callee checksum evidence. Update
+run/resume facts, and a `checksum_evidence` section whose fields are populated
+from the two digest-bound projections above and explicitly classified as
+generic guard characterization provenance required by the validator, not
+actual-pilot rejection proof. Update
 `evidence_index.json` and the attestation index with content digests. Neither
 the record nor either index is a run/resume input.
 
@@ -818,7 +1027,9 @@ bash -o pipefail -c 'ORCHESTRATOR_RUN_LIVE_PROCEDURE_RETIREMENT_VALIDATION=1 pyt
 Record the exit status, record digest, final-scan digest, live observed store
 digests/counts, and stdout digest in `live_validator_result.json`, then update
 `evidence_index.json`. This is the mandatory one-time live proof; the replay
-test is its durable contract check, not a replacement for it.
+test is its durable contract check, not a replacement for it. The live
+validator is scanner-only: it must not construct or resume a workflow run and
+must leave the exact-two-directory and legacy-store guards unchanged.
 
 - [ ] **Step 6: Obtain independent specification/runtime-state approval**
 
@@ -829,44 +1040,178 @@ facts; every owner record is genuine and properly attributed; the dedicated
 root is the only mutated root; the three build-input snapshots are readable
 and digest-bound; both v1 manifests replay with matching labels, roles, and
 content; the old/new artifact set is complete; and the record contains no
-runtime directive or cross-source resume claim. The review
+runtime directive or cross-source resume claim. The reviewer must also verify
+the checksum characterizations bind the accepted generic fail-closed guards at
+`7e4b3428`/`e4f2ecbe` to the actual pilot checksum delta without claiming
+actual-pilot rejection behavior or a live old-run resume. The review
 must explicitly recognize that live validation is time-bound and that the
 default replay test asserts retained evidence consistency, not current
 external-store absence.
+
+The independent reviewer must generate
+`docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/retirement_record_review.json`.
+It records the reviewer identity and role, result, review timestamp, and bound
+paths plus SHA-256 digests for `retirement_record.json`,
+`final_known_store_scans.json`, and `live_validator_result.json`. Index this
+review artifact in `evidence_index.json` before requesting release.
+
+After the review passes, publish the exact owner release form at
+`docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/hold-release.json`,
+then hard `PAUSE` and stop. Publish this exact field shape, with placeholders
+replaced only by accurate values and current SHA-256 digests:
+
+```json
+{
+  "record_type": "procedure_first_pilot_hold_release",
+  "version": 1,
+  "evidence_status": "owner_confirmed",
+  "owner": {
+    "name": "Ollie",
+    "role": "owner of the legacy and dedicated tracked-plan pilot roots"
+  },
+  "released_at": "<RFC3339 timestamp with offset>",
+  "roots": {
+    "legacy": "/home/ollie/Documents/agent-orchestration/.orchestrate/runs",
+    "dedicated": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs"
+  },
+  "bindings": {
+    "retirement_record": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/retirement_record.json",
+      "sha256": "<sha256>"
+    },
+    "final_known_store_scans": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/final_known_store_scans.json",
+      "sha256": "<sha256>"
+    },
+    "live_validator_result": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/live_validator_result.json",
+      "sha256": "<sha256>"
+    },
+    "retirement_record_review": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/retirement_record_review.json",
+      "sha256": "<sha256>"
+    }
+  },
+  "confirmations": {
+    "validator_and_independent_review_complete": true,
+    "hold_explicitly_released_for_task_5_family_parity_focused_and_broad_gates": true
+  },
+  "prepared_by": "<mechanical writer identity>",
+  "prepared_at": "<RFC3339 timestamp with offset>",
+  "owner_adoption": {
+    "owner": "Ollie",
+    "adopted_at": "<RFC3339 timestamp with offset>",
+    "statement": "I reviewed this complete record, confirm the bound live validator and independent review are complete, and explicitly release the legacy-root and dedicated-root hold for the deferred Task 5 family-parity, focused, and broad gates."
+  }
+}
+```
+
+An agent must not infer release from elapsed time, validator success, review
+success, a commit, or an ephemeral direction. Do not continue until the exact
+record is genuinely owner-authored or owner-adopted and independently
+attributable. Bind the release record and digest in `attestations/index.json`
+and `evidence_index.json`. Task 5 remains blocked until the reviewed release
+record and both updated indexes are committed.
 
 - [ ] **Step 7: Commit the reviewed production record and validation tests**
 
 Run the protected staging guard, then:
 
 ```bash
-git add docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/final_known_store_scans.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/dedicated-evidence-root.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/retirement_record.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence_index.json tests/test_workflow_lisp_procedure_first_migrations.py
+git add docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/final_known_store_scans.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/dedicated-evidence-root.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/hold-release.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/source.orc docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/build_manifest.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/typed_frontend_ast.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/semantic_ir.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/executable_ir.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/runtime_plan.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/lexical_checkpoint_points.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/source_map.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/identity_delta.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/artifact_contract_multiset.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/execution_order.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/clean_run.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/interruption_resume.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/root_checksum_characterization.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/callee_checksum_characterization.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/live_validator_pytest.txt docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/live_validator_result.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/retirement_record_review.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/retirement_record.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence_index.json tests/test_workflow_lisp_procedure_first_migrations.py
 git diff --cached --name-only
+test "$(git diff --cached --name-only | LC_ALL=C sort)" = "$(git diff --cached --name-only -- docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/final_known_store_scans.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/dedicated-evidence-root.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/hold-release.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/source.orc docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/build_manifest.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/typed_frontend_ast.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/semantic_ir.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/executable_ir.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/runtime_plan.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/lexical_checkpoint_points.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/source_map.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/identity_delta.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/artifact_contract_multiset.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/execution_order.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/clean_run.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/interruption_resume.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/root_checksum_characterization.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/callee_checksum_characterization.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/live_validator_pytest.txt docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/live_validator_result.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/retirement_record_review.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/retirement_record.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence_index.json tests/test_workflow_lisp_procedure_first_migrations.py | LC_ALL=C sort)"
 git commit -m "evidence: validate tracked plan identity retirement"
 ```
 
 Expected: the commit contains only the exact record/artifact/evidence/test
-paths owned above. The live proof and review occurred before the time-bounded
+paths owned above; directory-wide staging is forbidden. Already committed
+`clean_run.json` and `interruption_resume.json` remain absent from the cached
+set when unchanged. The live proof and review occurred before the time-bounded
 freeze ended; default future tests use the deterministic replay seam and do
 not rescan mutable roots.
 
 ### Task 5: Complete The Pilot Gate
 
 **Files:**
-- No expected source changes.
+- Modify only if a new evidence selector is required:
+  `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json`
+- Modify only if the existing report cannot express the evidence:
+  `tests/test_workflow_lisp_migration_parity.py`
+- Refresh generated family evidence:
+  `artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/`
+- Modify after family evidence passes:
+  `docs/workflow_lisp_route_readiness_registry.json`
+- Modify for actual-pilot post-release checksum negatives:
+  `tests/test_workflow_lisp_procedure_first_migrations.py`
+- Test accepted generic guards without modifying unless a defect is proven:
+  `tests/test_resume_command.py`
+- No pilot `.orc` source change is expected.
 
-- [ ] **Step 1: Run focused collection and integration suites**
+- [ ] **Step 1: Confirm the owner hold release, then run family parity**
+
+Require the committed and indexed fixed record
+`docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/hold-release.json`.
+Validate its digest, owner adoption, four artifact bindings, exact roots, and
+release confirmation against the committed attestation/evidence indexes. An
+ephemeral direction is never sufficient. Then run the deferred family gate:
 
 ```bash
-pytest --collect-only -q tests/test_workflow_lisp_procedure_first_migrations.py tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_migration_parity.py
-pytest -q tests/test_workflow_lisp_procedure_first_migrations.py tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_migration_parity.py tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_checkpoint_identity_comparison.py tests/test_workflow_lisp_route_readiness.py
+python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity --target design_plan_impl_stack
+pytest -q tests/test_workflow_lisp_migration_parity.py -k 'design_plan_impl_stack'
 ```
+
+Expected: the `design_plan_impl_stack` row passes compile, dry-run, runtime,
+artifact, output, and resume evidence without changing the already reviewed
+retirement record. Do not alter unrelated target rows.
+
+- [ ] **Step 2: Prove actual pilot checksum negatives, then run focused suites**
+
+After release, use TDD to add these actual-pilot tests to
+`tests/test_workflow_lisp_procedure_first_migrations.py`:
+
+- `test_tracked_plan_phase_root_checksum_negative_is_pre_executor_and_byte_immutable`; and
+- `test_tracked_plan_phase_callee_checksum_negative_is_pre_child_and_no_remap`.
+
+They must exercise the actual pilot old/new checksum delta and prove the root
+failure occurs before executor construction with byte-immutable persisted
+state, and the callee failure occurs before child/provider/command execution
+with no child-state remap. Temporary/synthetic run state is permitted only now,
+after the committed hold release. Preserve the prohibition on claiming that an
+old real run can resume across source versions.
+
+Run the two actual-pilot negatives plus the accepted generic guards exactly:
+
+```bash
+pytest -q tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_root_checksum_negative_is_pre_executor_and_byte_immutable tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_callee_checksum_negative_is_pre_child_and_no_remap tests/test_resume_command.py::test_default_resume_root_checksum_mismatch_is_pre_executor_and_byte_immutable tests/test_resume_command.py::test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch
+```
+
+Then run focused collection and integration suites:
+
+```bash
+pytest --collect-only -q tests/test_workflow_lisp_procedure_first_migrations.py tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_migration_parity.py tests/test_resume_command.py
+pytest -q tests/test_workflow_lisp_procedure_first_migrations.py tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_migration_parity.py tests/test_resume_command.py tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_checkpoint_identity_comparison.py tests/test_workflow_lisp_route_readiness.py
+```
+
+After the actual-pilot negatives and focused suites pass, run the protected
+staging guard and commit the added pilot tests separately:
+
+```bash
+git add tests/test_workflow_lisp_procedure_first_migrations.py
+git diff --cached --name-only
+git commit -m "Prove tracked plan checksum rejection"
+```
+
+The cached list must contain only that exact test path. Do not modify or stage
+`tests/test_resume_command.py` unless a separately proven generic-test defect
+requires its own reviewed change.
 
 Expected: PASS. The deterministic retained-scan replay test passes. The
 time-bounded live validator test is skipped unless its explicit environment
 gate is set; its mandatory frozen-window result is already retained under the
 pilot evidence root and is reviewed independently.
 
-- [ ] **Step 2: Run the broad suite in tmux**
+- [ ] **Step 3: Run the broad suite in tmux**
 
 Use the `tmux` skill:
 
@@ -876,17 +1221,36 @@ pytest -q -n 16 --dist=worksteal
 
 Expected: PASS except only established unrelated failures with fresh isolated reruns and explicit disposition.
 
-- [ ] **Step 3: Review scope and public-negative preservation**
+- [ ] **Step 4: Update and commit route evidence without promotion**
+
+After family parity and the focused/broad gates pass, add the new
+procedure-first comparison selector to the existing route-readiness entry.
+Keep `route_label: migration_candidate`,
+`readiness_label: leaf_runtime_candidate`, and
+`copy_safety: migration_evidence_only` unchanged. Stage only the exact changed
+selector, report, index, test, and route-readiness files; never stage the
+parity directory wholesale.
+
+Run the protected staging guard, then stage and commit only these exact paths:
 
 ```bash
-git diff --check HEAD~5..HEAD
-git diff HEAD~5..HEAD -- workflows/examples/design_plan_impl_review_stack_v2_call.orc
+git add workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json tests/test_workflow_lisp_migration_parity.py artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/design_plan_impl_stack.json artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/design_plan_impl_stack.md artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/index.json docs/workflow_lisp_route_readiness_registry.json
+git diff --cached --name-only
+git commit -m "Record tracked plan procedure pilot evidence"
+```
+
+Stage only listed files that actually changed. Do not use a directory-wide
+`git add`.
+
+- [ ] **Step 5: Review scope, public-negative preservation, and final quality**
+
+```bash
+git diff --check e6a85cb7^..HEAD
+git diff e6a85cb7^..HEAD -- workflows/examples/design_plan_impl_review_stack_v2_call.orc
 rg -n '^  \(export|^  \(defworkflow|^  \(defproc tracked-plan-phase|\(call tracked-plan-phase' workflows/examples/design_plan_impl_review_stack_v2_call.orc
 ```
 
 Expected: only `tracked-plan-phase` and its one call changed; `design-plan-impl-review-stack` remains the sole export/public workflow; no `(call tracked-plan-phase` remains.
-
-- [ ] **Step 4: Obtain independent specification and quality reviews**
 
 Specification review must check every migration-test axis in the accepted
 contract and reconcile the retained live-validator result with the
@@ -894,19 +1258,28 @@ deterministic replay facts. Quality review must check that the baseline is
 semantic rather than textual, the runtime test is non-tautological, the
 structural tests were not used to authorize retirement, mutable external roots
 are not consulted by default tests, and no Stage 6 retirement leaked into the
-pilot. Resolve findings and rerun both reviews whole.
+pilot. The reviews must also confirm that pre-review execution was limited to
+the two retained run IDs and that run-bearing family/focused/broad gates began
+only after explicit owner hold release. Resolve findings and rerun both reviews
+whole.
 
 ## Completion gate and stop conditions
 
 The pilot is complete only when the mandatory pre-edit scans and genuine
 owner attestations passed before the source edit; the complete retirement
 record passes the time-bounded live validator and the deterministic retained-
-scan replay; the source-shape test, stable contract and keyed artifact
+scan replay; the explicit owner hold release follows that validator and its
+independent review; the source-shape test, stable contract and keyed artifact
 comparisons, separate execution-order review, new-ID one-pass runtime and
-resume test, both checksum negatives, compile, dry-run, family parity, focused
+resume test, both checksum-characterization projections and their deterministic
+replay, the retained generic guard characterization provenance, both post-release actual-
+pilot checksum negatives, compile, dry-run, family parity, focused
 suites, broad suite, and independent specification/runtime-state and quality
-reviews pass. Retained old artifacts and the frozen baseline must still be
-content-addressed and readable.
+reviews pass. Task 5's route-readiness selector/update must also pass, preserve
+the three non-promotion labels, and be committed by the exact per-file
+`git add` / cached-list guard / `Record tracked plan procedure pilot evidence`
+commit boundary in Task 5 Step 4. Retained old artifacts and the frozen
+baseline must still be content-addressed and readable.
 
 Stop without widening scope if:
 
@@ -915,8 +1288,9 @@ Stop without widening scope if:
 - source-map lineage loses the procedure definition or consuming call site;
 - any public or preserved checkpoint/resume identity changes, or an internal
   identity changes without validator-approved substantive eligibility,
-  pre-edit scans and attestations, checksum negatives, artifact/order review,
-  and independent approval;
+  pre-edit scans and attestations, pre-release checksum characterizations,
+  post-release actual-pilot checksum negatives, artifact/order review, and
+  independent approval;
 - any known-store owner attestation is missing, ambiguous, unattributable, or
   agent-authored, or external-store absence is inferred rather than recorded
   as `not_asserted`;
