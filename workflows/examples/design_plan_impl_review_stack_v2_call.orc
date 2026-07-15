@@ -160,11 +160,14 @@
            :design_review_report_path revise.design_review_report_path
            :design_review_decision revise.design_review_decision)))))
 
-  (defworkflow tracked-plan-phase
+  (defproc tracked-plan-phase
     ((design_path DesignDocPath)
      (plan_target_path PlanDocTarget)
      (plan_review_report_target_path ReviewReportTarget))
     -> PlanPhaseOutput
+    :effects ((uses-provider providers.plan.draft)
+              (uses-provider providers.plan.review))
+    :lowering inline
     (let* ((draft
              (provider-result providers.plan.draft
                :prompt prompts.plan.draft
@@ -234,10 +237,10 @@
                :design_target_path design_target_path
                :design_review_report_target_path design_review_report_target_path))
            (plan
-             (call tracked-plan-phase
-               :design_path design.design_path
-               :plan_target_path plan_target_path
-               :plan_review_report_target_path plan_review_report_target_path))
+             (tracked-plan-phase
+               design.design_path
+               plan_target_path
+               plan_review_report_target_path))
            (implementation
              (call design-plan-impl-implementation-phase
                :design_path design.design_path

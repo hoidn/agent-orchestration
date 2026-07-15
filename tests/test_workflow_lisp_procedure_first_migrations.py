@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import fields, is_dataclass
 from enum import Enum
 from pathlib import Path
@@ -11,6 +12,7 @@ import pytest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.expressions import CallExpr, ProcedureCallExpr
+from orchestrator.workflow_lisp.lowering import procedures as procedure_lowering
 from orchestrator.workflow_lisp.source_map import build_source_map_document
 
 
@@ -26,6 +28,130 @@ MODULE_TOKEN = "$module"
 MODULE_SLUG = "examples_design_plan_impl_review_stack_v2_call"
 PUBLIC_ENTRY_TOKEN = "$module::design-plan-impl-review-stack"
 TRACKED_PLAN_TOKEN = "$module::tracked-plan-phase"
+_OLD_CALL_NODE_ID = (
+    "root.$module_slug_design_plan_impl_review_stack__plan__call_"
+    "$module_slug_tracked_plan_phase"
+)
+_OLD_PRIVATE_NODE_BASE = "root.$module_slug_tracked_plan_phase"
+_OLD_PRIVATE_STEP_ID_BASE = "$module_slug_tracked_plan_phase"
+_OLD_PRIVATE_PRESENTATION_BASE = TRACKED_PLAN_TOKEN
+_NEW_INLINE_STEP_ID_BASE = (
+    "$module_slug_design_plan_impl_review_stack__plan__"
+    "$module_slug_tracked_plan_phase_1"
+)
+_NEW_INLINE_NODE_BASE = f"root.{_NEW_INLINE_STEP_ID_BASE}"
+_NEW_INLINE_PRESENTATION_BASE = (
+    f"{PUBLIC_ENTRY_TOKEN}__plan__$module::tracked-plan-phase_1"
+)
+
+
+def _phase_resume_identities(
+    *,
+    node_base: str,
+    step_id_base: str,
+    presentation_base: str,
+) -> tuple[tuple[str, str], ...]:
+    match_node = f"{node_base}__match_review"
+    match_presentation = f"{presentation_base}__match_review"
+    rows = [
+        (f"{node_base}__draft", f"{presentation_base}__draft"),
+        (f"{node_base}__review", f"{presentation_base}__review"),
+    ]
+    for variant in ("APPROVE", "REVISE"):
+        branch_id = f"{step_id_base}__match_review__{variant.lower()}"
+        branch_presentation = f"{match_presentation}.{variant}"
+        rows.extend(
+            (
+                (f"{match_node}.{branch_id}", branch_presentation),
+                (
+                    f"{match_node}.{branch_id}.{branch_id}__projection_anchor",
+                    f"{branch_presentation}."
+                    f"{presentation_base}__match_review__{variant.lower()}__projection_anchor",
+                ),
+            )
+        )
+    rows.append((match_node, match_presentation))
+    return tuple(rows)
+
+
+_RETIRED_OLD_WRITE_ROOT_KEYS = (
+    "schema:2/$module::design-plan-impl-review-stack/"
+    "$module::design-plan-impl-review-stack__plan__call_$module::tracked-plan-phase/"
+    "$module::tracked-plan-phase/__write_root__$module_slug_tracked_plan_phase__draft__result_bundle",
+    "schema:2/$module::design-plan-impl-review-stack/"
+    "$module::design-plan-impl-review-stack__plan__call_$module::tracked-plan-phase/"
+    "$module::tracked-plan-phase/__write_root__$module_slug_tracked_plan_phase__review__result_bundle",
+    "schema:2/$module::tracked-plan-phase/"
+    "$module::tracked-plan-phase__draft/result_bundle/entry",
+    "schema:2/$module::tracked-plan-phase/"
+    "$module::tracked-plan-phase__review/result_bundle/entry",
+)
+_RETIRED_OLD_RESUME_KEYS = (
+    ("top_level_node", _OLD_CALL_NODE_ID),
+    ("call_boundary", _OLD_CALL_NODE_ID),
+    *(
+        ("top_level_node", node_id)
+        for node_id, _ in _phase_resume_identities(
+            node_base=_OLD_PRIVATE_NODE_BASE,
+            step_id_base=_OLD_PRIVATE_STEP_ID_BASE,
+            presentation_base=_OLD_PRIVATE_PRESENTATION_BASE,
+        )
+    ),
+)
+_RETIRED_OLD_LEXICAL_KEYS = (
+    "ckpt:8d1ba7e4a3f6208430f45807",
+    "ckpt:7315195dfee583a7a632b770",
+    "ckpt:18fd9e37be5bddb772f62f7e",
+)
+
+_NEW_INLINE_WRITE_ROOT_ROWS = (
+    {
+        "workflow": PUBLIC_ENTRY_TOKEN,
+        "semantic_role": "entrypoint_managed_write_root",
+        "stable_identity": f"schema:2/{PUBLIC_ENTRY_TOKEN}/"
+        f"{_NEW_INLINE_PRESENTATION_BASE}__draft/result_bundle/entry",
+    },
+    {
+        "workflow": PUBLIC_ENTRY_TOKEN,
+        "semantic_role": "entrypoint_managed_write_root",
+        "stable_identity": f"schema:2/{PUBLIC_ENTRY_TOKEN}/"
+        f"{_NEW_INLINE_PRESENTATION_BASE}__review/result_bundle/entry",
+    },
+)
+_NEW_INLINE_RESUME_IDENTITIES = _phase_resume_identities(
+    node_base=_NEW_INLINE_NODE_BASE,
+    step_id_base=_NEW_INLINE_STEP_ID_BASE,
+    presentation_base=_NEW_INLINE_PRESENTATION_BASE,
+)
+_NEW_INLINE_RESUME_ROWS = tuple(
+    {
+        "checkpoint_kind": "top_level_node",
+        "node_id": node_id,
+        "presentation_key": presentation_key,
+        "runtime_step_id_mode": "static",
+    }
+    for node_id, presentation_key in _NEW_INLINE_RESUME_IDENTITIES
+)
+_NEW_INLINE_LEXICAL_ROWS = (
+    {
+        "checkpoint_id": "ckpt:85bebe726bc9eed0e4ee7c63",
+        "program_point_id": "pp:e3313af95c03607cfd0291b1",
+        "point_kind": "effect_boundary",
+        "origin_key": f"{PUBLIC_ENTRY_TOKEN}::step_id::{_NEW_INLINE_STEP_ID_BASE}__draft",
+        "presentation_key": f"{_NEW_INLINE_PRESENTATION_BASE}__draft",
+        "step_kind": "provider",
+        "resume_policy_kind": "reuse_validated_structured_output",
+    },
+    {
+        "checkpoint_id": "ckpt:da29481dd96843184de8136f",
+        "program_point_id": "pp:1ce01c3ef1f9efb56700de21",
+        "point_kind": "effect_boundary",
+        "origin_key": f"{PUBLIC_ENTRY_TOKEN}::step_id::{_NEW_INLINE_STEP_ID_BASE}__review",
+        "presentation_key": f"{_NEW_INLINE_PRESENTATION_BASE}__review",
+        "step_kind": "provider",
+        "resume_policy_kind": "reuse_validated_structured_output",
+    },
+)
 
 
 def _load_json(path: Path) -> dict[str, object]:
@@ -199,7 +325,7 @@ def _artifact_contracts(compile_result) -> list[dict[str, object]]:
                     "publishes": _json_value(publishes),
                 }
             )
-    return rows
+    return sorted(rows, key=lambda row: (str(row["workflow"]), str(row["step"])))
 
 
 def _source_map_rows(linked_result) -> dict[str, object]:
@@ -523,6 +649,158 @@ def _assert_reviewed_structural_delta(
     }
 
 
+def _assert_provisional_runtime_delta(
+    expected_runtime: dict[str, object],
+    actual_runtime: dict[str, object],
+) -> None:
+    frozen_runtime = _load_json(BASELINE)["runtime_contract"]
+    assert expected_runtime == frozen_runtime
+
+    def partition_rows(rows, *, key, candidate_keys):
+        candidate_key_set = set(candidate_keys)
+        candidates = [row for row in rows if key(row) in candidate_key_set]
+        preserved = [row for row in rows if key(row) not in candidate_key_set]
+        assert tuple(key(row) for row in candidates) == candidate_keys
+        assert len({key(row) for row in rows}) == len(rows)
+        return candidates, preserved
+
+    expected_write_roots = expected_runtime["state_write_roots"]
+    actual_write_roots = actual_runtime["state_write_roots"]
+    expected_resume = expected_runtime["resume_checkpoints"]
+    actual_resume = actual_runtime["resume_checkpoints"]
+    expected_lexical = expected_runtime["lexical_checkpoints"]
+    actual_lexical = actual_runtime["lexical_checkpoints"]
+    for rows in (
+        expected_write_roots,
+        actual_write_roots,
+        expected_resume,
+        actual_resume,
+        expected_lexical,
+        actual_lexical,
+    ):
+        assert isinstance(rows, list)
+
+    old_write_roots, preserved_write_roots = partition_rows(
+        expected_write_roots,
+        key=lambda row: row["stable_identity"],
+        candidate_keys=_RETIRED_OLD_WRITE_ROOT_KEYS,
+    )
+    old_resume, preserved_resume = partition_rows(
+        expected_resume,
+        key=lambda row: (row["checkpoint_kind"], row["node_id"]),
+        candidate_keys=_RETIRED_OLD_RESUME_KEYS,
+    )
+    old_lexical, preserved_lexical = partition_rows(
+        expected_lexical,
+        key=lambda row: row["checkpoint_id"],
+        candidate_keys=_RETIRED_OLD_LEXICAL_KEYS,
+    )
+
+    new_write_root_keys = tuple(
+        row["stable_identity"] for row in _NEW_INLINE_WRITE_ROOT_ROWS
+    )
+    new_resume_keys = tuple(
+        (row["checkpoint_kind"], row["node_id"])
+        for row in _NEW_INLINE_RESUME_ROWS
+    )
+    new_lexical_keys = tuple(row["checkpoint_id"] for row in _NEW_INLINE_LEXICAL_ROWS)
+    new_write_roots, actual_preserved_write_roots = partition_rows(
+        actual_write_roots,
+        key=lambda row: row["stable_identity"],
+        candidate_keys=new_write_root_keys,
+    )
+    new_resume, actual_preserved_resume = partition_rows(
+        actual_resume,
+        key=lambda row: (row["checkpoint_kind"], row["node_id"]),
+        candidate_keys=new_resume_keys,
+    )
+    new_lexical, actual_preserved_lexical = partition_rows(
+        actual_lexical,
+        key=lambda row: row["checkpoint_id"],
+        candidate_keys=new_lexical_keys,
+    )
+
+    assert old_write_roots == [
+        row
+        for row in frozen_runtime["state_write_roots"]
+        if row["stable_identity"] in set(_RETIRED_OLD_WRITE_ROOT_KEYS)
+    ]
+    assert old_resume == [
+        row
+        for row in frozen_runtime["resume_checkpoints"]
+        if (row["checkpoint_kind"], row["node_id"])
+        in set(_RETIRED_OLD_RESUME_KEYS)
+    ]
+    assert old_lexical == [
+        row
+        for row in frozen_runtime["lexical_checkpoints"]
+        if row["checkpoint_id"] in set(_RETIRED_OLD_LEXICAL_KEYS)
+    ]
+    assert new_write_roots == list(_NEW_INLINE_WRITE_ROOT_ROWS)
+    assert new_resume == list(_NEW_INLINE_RESUME_ROWS)
+    assert new_lexical == list(_NEW_INLINE_LEXICAL_ROWS)
+
+    assert actual_preserved_write_roots == preserved_write_roots
+    assert actual_preserved_resume == preserved_resume
+    assert actual_preserved_lexical == preserved_lexical
+    assert len(preserved_write_roots) == 4
+    assert len(preserved_resume) == 4
+    assert len(preserved_lexical) == 2
+
+    assert actual_write_roots == [*new_write_roots, *preserved_write_roots]
+    assert actual_resume == [
+        preserved_resume[0],
+        *new_resume,
+        *preserved_resume[1:],
+    ]
+    assert actual_lexical == [
+        preserved_lexical[0],
+        *new_lexical,
+        preserved_lexical[1],
+    ]
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ("preserved_public", "retired_old_candidate", "inline_candidate"),
+)
+def test_provisional_runtime_delta_rejects_identity_corruption(
+    tracked_plan_compile,
+    corruption: str,
+) -> None:
+    expected_runtime = deepcopy(_load_json(BASELINE)["runtime_contract"])
+    actual_runtime = deepcopy(
+        _tracked_plan_projection(tracked_plan_compile)["runtime_contract"]
+    )
+
+    if corruption == "preserved_public":
+        row = next(
+            row
+            for row in actual_runtime["resume_checkpoints"]
+            if row["presentation_key"]
+            == f"{PUBLIC_ENTRY_TOKEN}__design__call_$module::tracked-design-phase"
+            and row["checkpoint_kind"] == "call_boundary"
+        )
+        row["runtime_step_id_mode"] = "corrupt"
+    elif corruption == "retired_old_candidate":
+        row = next(
+            row
+            for row in expected_runtime["lexical_checkpoints"]
+            if row["presentation_key"] == "$module::tracked-plan-phase__draft"
+        )
+        row["checkpoint_id"] = f"{row['checkpoint_id']}:corrupt"
+    else:
+        row = next(
+            row
+            for row in actual_runtime["state_write_roots"]
+            if "tracked-plan-phase_1__draft" in row["stable_identity"]
+        )
+        row["stable_identity"] = f"{row['stable_identity']}:corrupt"
+
+    with pytest.raises(AssertionError):
+        _assert_provisional_runtime_delta(expected_runtime, actual_runtime)
+
+
 def test_tracked_plan_phase_is_explicit_inline_procedure(tracked_plan_compile) -> None:
     compile_result = tracked_plan_compile.entry_result
     procedure = next(
@@ -550,6 +828,72 @@ def test_tracked_plan_phase_is_explicit_inline_procedure(tracked_plan_compile) -
         for step in public_bundle.surface.steps
         if "tracked-plan-phase" in step.name
     ] == ["provider", "provider", "match"]
+
+
+def test_post_edit_tracked_plan_phase_does_not_use_schema1_iteration_override_across_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_predicate = procedure_lowering._schema1_iteration_private_override_applies
+    active_route: list[str | None] = [None]
+    predicate_call_counts = {"legacy": 0, "wcc_m4": 0}
+    tracked_plan_decisions = {"legacy": [], "wcc_m4": []}
+
+    def spy_on_override_predicate(procedure, *, context):
+        route = active_route[0]
+        assert route is not None
+        predicate_call_counts[route] += 1
+        decision = original_predicate(procedure, context=context)
+        if procedure.definition.name == TRACKED_PLAN:
+            tracked_plan_decisions[route].append(decision)
+        return decision
+
+    monkeypatch.setattr(
+        procedure_lowering,
+        "_schema1_iteration_private_override_applies",
+        spy_on_override_predicate,
+    )
+
+    compile_results = {}
+    for route in ("legacy", "wcc_m4"):
+        active_route[0] = route
+        compile_results[route] = compile_stage3_entrypoint(
+            EXAMPLE,
+            source_roots=(WORKFLOWS,),
+            entry_workflow="design-plan-impl-review-stack",
+            provider_externs=_load_json(
+                MIGRATION_INPUTS / "design_plan_impl_stack.providers.json"
+            ),
+            prompt_externs=_load_json(
+                MIGRATION_INPUTS / "design_plan_impl_stack.prompts.json"
+            ),
+            command_boundaries=_load_json(
+                MIGRATION_INPUTS / "design_plan_impl_stack.commands.json"
+            ),
+            validate_shared=True,
+            workspace_root=REPO_ROOT,
+            lowering_route=route,
+        )
+    active_route[0] = None
+
+    assert tracked_plan_decisions["legacy"]
+    assert not any(tracked_plan_decisions["legacy"])
+    assert predicate_call_counts["wcc_m4"] == 0
+    assert tracked_plan_decisions["wcc_m4"] == []
+    for linked_result in compile_results.values():
+        compile_result = linked_result.entry_result
+        procedure = next(
+            procedure
+            for procedure in compile_result.typed_procedures
+            if procedure.definition.name == TRACKED_PLAN
+        )
+        assert procedure.signature.requested_lowering_mode.value == "inline"
+        assert procedure.resolved_lowering_mode.value == "inline"
+        assert procedure.generated_workflow_name is None
+        assert not any(
+            workflow.typed_workflow.definition.name == TRACKED_PLAN
+            or workflow.typed_workflow.definition.name.startswith(f"{TRACKED_PLAN}.")
+            for workflow in compile_result.lowered_workflows
+        )
 
 
 def test_tracked_plan_phase_wrapper_uses_procedure_call(tracked_plan_compile) -> None:
@@ -591,5 +935,8 @@ def test_tracked_plan_phase_contract_matches_frozen_pre_migration_baseline(
     assert expected["runtime_contract"]["lexical_checkpoints"]
     expected_route = expected.pop("internal_route")
     actual_route = actual.pop("internal_route")
+    expected_runtime = expected.pop("runtime_contract")
+    actual_runtime = actual.pop("runtime_contract")
     assert expected == actual
     _assert_reviewed_structural_delta(expected_route, actual_route)
+    _assert_provisional_runtime_delta(expected_runtime, actual_runtime)

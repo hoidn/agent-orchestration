@@ -309,16 +309,21 @@ def test_design_plan_impl_stack_orc_compiles_with_phase_family_contracts(tmp_pat
 
     assert set(lowered_by_short_name) == {
         "tracked-design-phase",
-        "tracked-plan-phase",
         "design-plan-impl-implementation-phase",
         "design-plan-impl-review-stack",
     }
 
     assert lowered_by_short_name["tracked-design-phase"]["steps"][0]["provider"] == "codex"
-    assert lowered_by_short_name["tracked-plan-phase"]["steps"][0]["provider"] == "codex"
     assert lowered_by_short_name["design-plan-impl-implementation-phase"]["steps"][0]["provider"] == "codex"
 
-    stack_outputs = lowered_by_short_name["design-plan-impl-review-stack"]["outputs"]
+    stack_mapping = lowered_by_short_name["design-plan-impl-review-stack"]
+    assert [
+        step["provider"]
+        for step in stack_mapping["steps"]
+        if "tracked-plan-phase" in step["name"] and "provider" in step
+    ] == ["codex", "codex"]
+
+    stack_outputs = stack_mapping["outputs"]
     output_names = {name.removeprefix("return__") for name in stack_outputs}
     assert output_names == {
         "design_path",
