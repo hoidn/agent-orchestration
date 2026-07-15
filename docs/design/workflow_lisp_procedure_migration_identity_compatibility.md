@@ -396,9 +396,9 @@ are replayed independently. Because one raw identity may validly inhabit more
 than one domain, the validator expands the domain map into unique
 `(identity_kind, identity)` rows for the production-table and `identity_delta`
 union; it does not require the domain lists to be disjoint. A query identity
-that occurs in the new production identity table in any of its declared
-domains is a leaked retired identity and is a hard validation failure, not a
-preserved identity or a reason to trim the frozen query. Any mismatch in the
+that occurs anywhere in the new production identity table is a leaked retired
+identity and is a hard validation failure, not a preserved identity or a
+reason to trim the frozen query. Any mismatch in the
 query version, canonical digest, identity count, exact domain membership map,
 frozen-baseline digest, or old-source digest fails closed.
 
