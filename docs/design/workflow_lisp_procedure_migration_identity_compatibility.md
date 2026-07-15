@@ -348,6 +348,18 @@ A retirement record uses schema
   `preserved` or `retired`; each new identity is marked `preserved` or `new`.
   Retirement records contain no runtime remap directive and are never inputs
   to resume planning or execution;
+- a closed `retired_identity_query_evidence` object that content-addresses the
+  frozen pre-edit scan containing `old_identity_query`. Every reviewed
+  retirement record carries this binding, even when its production artifacts
+  happen to enumerate every reviewed identity. This evidence is the
+  authoritative source for the retired side only; it does not replace the
+  production-derived preserved or new identities; it supplements the
+  production table only for retired domain-qualified rows absent from those
+  artifacts. The binding includes the evidence path and digest, query version,
+  canonical query-list digest, identity count and exact domain membership map,
+  frozen-baseline path and digest, and retained old-source path and digest. The
+  validator reads retained bytes only: it neither recompiles the old source
+  with the current compiler nor requires full per-workflow production bundles;
 - artifact-contract comparison as a **keyed multiset**, preserving duplicate
   contracts. Keys include owning public entry, semantic step role, contract
   kind, artifact/field name, JSON pointer, type/variant, and publication role;
@@ -373,6 +385,28 @@ retirement record. The record is not retroactively a remap authorization.
 Historical old source and build artifacts are retained and readable for audit,
 reports, and diagnosis. They are not selectable as current executable state
 and are not rewritten to resemble the new build.
+
+The validator derives the production identity table from the content-addressed
+old/new artifacts and unions the frozen retired-identity query into the old
+side. That union must match `identity_delta` exactly, including dispositions;
+missing and extra identities both fail. Every query identity must occur in its
+declared domain at most once. The sorted unique flattening of the domain lists
+must equal the canonical sorted raw-identity query list, whose digest and count
+are replayed independently. Because one raw identity may validly inhabit more
+than one domain, the validator expands the domain map into unique
+`(identity_kind, identity)` rows for the production-table and `identity_delta`
+union; it does not require the domain lists to be disjoint. A query identity
+that occurs in the new production identity table in any of its declared
+domains is a leaked retired identity and is a hard validation failure, not a
+preserved identity or a reason to trim the frozen query. Any mismatch in the
+query version, canonical digest, identity count, exact domain membership map,
+frozen-baseline digest, or old-source digest fails closed.
+
+This query evidence is evidence-only. Validation has no mutation output and
+cannot authorize or perform a state-store, workflow-source, or build-artifact
+write or mutation, identity alias, runtime remap, resume decision, or compiler
+fallback. The mechanism and schema are migration-family-neutral and must not
+select behavior from module, workflow, procedure, pilot, or repository names.
 
 `terminal_run_count` and `nonterminal_run_count` are query-scoped counts of
 distinct top-level runs containing at least one queried-identity match. Several
