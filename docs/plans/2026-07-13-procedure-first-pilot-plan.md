@@ -10,9 +10,13 @@ quiescence, incident recovery, final rechecks, and two-stage reviews passed;
 fresh post-commit hold probes pass. Task 2 Steps 1-5 are complete at
 `e6a85cb7`: the one-phase source migration, provisional compile-only
 characterization, and two-stage review passed without launching a runtime
-run; the frozen baseline remains unchanged. Task 3 is selected under the
-exact-two-run evidence protocol below, and no post-edit runtime run has
-started. Any matching supported
+run; the frozen baseline remains unchanged. Task 3 remains selected, but its
+first interrupted-run attempt is unacceptable evidence because it stopped via
+a failed `plan.review` provider result rather than an abrupt post-`plan.draft`
+checkpoint-commit interruption. Both run roots are frozen through the generic
+prior-boundary prerequisite implementation and ordered reviews. No deletion,
+recreation, resume, or replacement run is authorized until a later
+owner-adopted recovery authorization binds the exact interrupted run ID. Any matching supported
 live/nonterminal run or queried old-identity consumer reverts to strict
 compatibility.
 
@@ -653,6 +657,18 @@ Task 4A validates and reviews the complete record. This is the selected task.
 Its one opt-in evidence invocation owns the only two permitted runtime runs;
 default tests and every review rerun use no-run or retained-evidence paths.
 
+**Active recovery amendment:** The existing failed interrupted run is not Task
+3 evidence and must remain byte-for-byte frozen while the generic
+prior-boundary default-resume prerequisite and corrected no-run harness are
+implemented and reviewed. During that freeze, neither run root may be written,
+deleted, moved, resumed, or used for another workflow run, and `clean_run.json`
+and `interruption_resume.json` must not be created. After the prerequisite is
+committed and both ordered reviews approve the same intended diff, a separate
+incident record and genuine owner-adopted authorization may permit deletion and
+recreation of exactly `tracked-plan-phase-interrupted-new-id`, followed by one
+same-ID resume. That authorization must preserve the clean run byte-for-byte
+and forbid a third run.
+
 **Files:**
 - Modify: `tests/test_workflow_lisp_key_migrations.py`
 - Modify only if a missing comparison is proven: `tests/test_workflow_lisp_procedure_first_migrations.py`
@@ -683,9 +699,14 @@ caller-supplied paths, and no private/generated workflow entry named for
 - [ ] **Step 2: Add the new-ID resume-after-plan-provider-boundary evidence path**
 
 Use the deterministic fake provider harness and `StateManager` in that same
-opt-in invocation. Fail once after the plan draft/review boundary in
-`tracked-plan-phase-interrupted-new-id`, resume that new-source run under the
-same ID, and assert already completed provider work is reused and the final
+opt-in invocation. After the successful `plan.draft` result is durably
+persisted, wrap the executor's post-persist hook so it first completes the
+production lexical-checkpoint hook, verifies the draft record and completed
+effect reference, and then raises a one-shot test-only `BaseException` at the
+compiler-derived draft step identity. `plan.review` must not be attempted on
+the interrupted process. Resume that new-source run under the same ID and
+assert the first three provider roles are reused, each remaining role executes
+once, and the final
 public output and artifacts match `tracked-plan-phase-clean-new-id`. Compare
 checkpoint IDs and presentation keys to the provisional old/new identity
 delta: public and expected-preserved entries remain exact; candidate internal
@@ -789,10 +810,11 @@ explicit hold release.
   `tests/test_workflow_lisp_procedure_first_migrations.py`
 - Generate only compile/no-run artifacts under:
   `.orchestrate/tmp/procedure-first-pilot/`
+- Conservatively update only the affected entry in
+  `docs/workflow_lisp_route_readiness_registry.json` as described below.
 - Deferred to Task 5: `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json`,
   `tests/test_workflow_lisp_migration_parity.py`,
-  `artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/`, and
-  `docs/workflow_lisp_route_readiness_registry.json`
+  and `artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/`.
 
 - [ ] **Step 1: Compile through the production route**
 
@@ -823,33 +845,46 @@ selector that launches the family harness here. Task 4 proves compile,
 dry-run, semantic, manifest, and retained-evidence consistency only; it must
 not claim full family runtime parity.
 
-- [ ] **Step 4: Defer route evidence without changing labels**
+- [ ] **Step 4: Record the conservative temporary readiness downgrade**
 
-Do not update `docs/workflow_lisp_route_readiness_registry.json` while the hold
-is active. Task 5 will add the new procedure-first comparison selector only
-after run-bearing family parity passes. It must keep
-`route_label: migration_candidate`, `readiness_label: leaf_runtime_candidate`,
-and `copy_safety: migration_evidence_only` unchanged.
+The ordinary one-pass runtime selector was retired so default tests cannot
+violate Task 3's exact-two-run protocol. Therefore the affected route-readiness
+entry must temporarily retain only
+`test_design_plan_impl_stack_orc_compiles_with_phase_family_contracts` and use
+`readiness_label: leaf_compile_candidate`. Keep
+`route_label: migration_candidate` and `copy_safety: migration_evidence_only`
+unchanged. This is a conservative evidence correction, not a regression claim
+or promotion. Task 5 restores runtime readiness only after its run-bearing
+parity and procedure-comparison evidence pass.
 
-- [ ] **Step 5: Commit only no-run evidence changes**
+- [ ] **Step 5: Commit the reviewed prerequisite/recovery evidence correction**
 
-The only allowed tracked path at this boundary is
+The required tracked path at this boundary is
+`docs/workflow_lisp_route_readiness_registry.json`, which records Step 4's
+temporary compile-only downgrade. The only additional permitted path is
 `tests/test_workflow_lisp_procedure_first_migrations.py`, and only if Task 4
 actually changed its no-run comparison coverage. `.orchestrate/tmp/procedure-first-pilot/`
-is generated scratch and must never be staged. If the tracked test changed,
-run exactly:
+is generated scratch and must never be staged. Run exactly:
 
 ```bash
-git add tests/test_workflow_lisp_procedure_first_migrations.py
+git add docs/workflow_lisp_route_readiness_registry.json
+if ! git diff --quiet -- tests/test_workflow_lisp_procedure_first_migrations.py; then
+  git add tests/test_workflow_lisp_procedure_first_migrations.py
+fi
 git diff --cached --name-only
-git commit -m "Record tracked plan no-run parity evidence"
+test "$(git diff --cached --name-only -- docs/workflow_lisp_route_readiness_registry.json)" = \
+  "docs/workflow_lisp_route_readiness_registry.json"
+test -z "$(git diff --cached --name-only -- . \
+  ':(exclude)docs/workflow_lisp_route_readiness_registry.json' \
+  ':(exclude)tests/test_workflow_lisp_procedure_first_migrations.py')"
+git commit -m "Record prior-boundary prerequisite recovery evidence"
 ```
 
-The cached list must contain only that exact path. If Task 4 produced only
-temporary compile/dry-run outputs and no tracked path changed, record the
-no-op in execution evidence and do not create an empty commit. Do not stage
-family-parity reports or route-readiness changes; those exact paths and their
-commit remain Task 5 after hold release.
+The cached list must contain the registry path and may additionally contain the
+test path only when Task 4 changed that test's no-run coverage. Do not stage
+family-parity reports or any other path. Only the later runtime-evidence
+selector replacement and restoration of the registry entry to
+`leaf_runtime_candidate` remain Task 5 after hold release.
 
 ### Task 4A: Assemble, Validate, Review, And Commit The Retirement Record
 
@@ -1154,7 +1189,11 @@ Require the committed and indexed fixed record
 `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/hold-release.json`.
 Validate its digest, owner adoption, four artifact bindings, exact roots, and
 release confirmation against the committed attestation/evidence indexes. An
-ephemeral direction is never sufficient. Then run the deferred family gate:
+ephemeral direction is never sufficient. Before running the deferred family
+gate, update only the `design_plan_impl_stack` parity-target mechanics to
+replace commands that still name the retired ordinary runtime selector and add
+the procedure-first comparison selector/evidence required by the reviewed
+pilot. Do not change unrelated target rows. Then run:
 
 ```bash
 python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity --target design_plan_impl_stack
@@ -1223,10 +1262,11 @@ Expected: PASS except only established unrelated failures with fresh isolated re
 
 - [ ] **Step 4: Update and commit route evidence without promotion**
 
-After family parity and the focused/broad gates pass, add the new
-procedure-first comparison selector to the existing route-readiness entry.
-Keep `route_label: migration_candidate`,
-`readiness_label: leaf_runtime_candidate`, and
+After the corrected run-bearing family parity, procedure comparison, and the
+focused/broad gates pass, replace the compile-only evidence set with the
+accepted runtime/procedure evidence and restore
+`readiness_label: leaf_runtime_candidate` on the existing route-readiness
+entry. Keep `route_label: migration_candidate` and
 `copy_safety: migration_evidence_only` unchanged. Stage only the exact changed
 selector, report, index, test, and route-readiness files; never stage the
 parity directory wholesale.

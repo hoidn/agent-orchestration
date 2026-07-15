@@ -50,6 +50,12 @@ _ERROR_DIAGNOSTICS = frozenset(
         "lexical_default_resume_step_granular_bypass",
         "lexical_default_resume_command_glue_invalid",
         "lexical_default_resume_checkpoint_used_as_authority",
+        "lexical_default_resume_prior_boundary_missing",
+        "lexical_default_resume_prior_boundary_unordered",
+        "lexical_default_resume_prior_boundary_duplicate_order",
+        "lexical_default_resume_prior_boundary_duplicate",
+        "lexical_default_resume_prior_boundary_ambiguous",
+        "lexical_default_resume_prior_boundary_not_restorable",
     }
 )
 
@@ -58,6 +64,61 @@ AUTHORITY_FORBIDDEN_SOURCES = {
     "checkpoint_path": "lexical_default_resume_checkpoint_used_as_authority",
     "report_path": "lexical_default_resume_checkpoint_used_as_authority",
 }
+
+
+def _nearest_prior_effect_boundary(
+    *,
+    runtime_plan: Any,
+    restart_node_id: str,
+) -> tuple[Any | None, str | None]:
+    ordered_node_ids = tuple(getattr(runtime_plan, "ordered_node_ids", ()) or ())
+    if len(set(ordered_node_ids)) != len(ordered_node_ids):
+        return None, "lexical_default_resume_prior_boundary_duplicate_order"
+    if ordered_node_ids.count(restart_node_id) != 1:
+        return None, "lexical_default_resume_prior_boundary_unordered"
+
+    order = {node_id: index for index, node_id in enumerate(ordered_node_ids)}
+    restart_index = order[restart_node_id]
+    checkpoint_points = tuple(
+        getattr(runtime_plan, "lexical_checkpoint_points", ()) or ()
+    )
+    effect_points = tuple(
+        point
+        for point in checkpoint_points
+        if getattr(point, "point_kind", None) == "effect_boundary"
+    )
+    if any(getattr(point, "node_id", None) not in order for point in effect_points):
+        return None, "lexical_default_resume_prior_boundary_unordered"
+
+    prior_points = tuple(
+        point
+        for point in effect_points
+        if order[str(getattr(point, "node_id"))] < restart_index
+    )
+    if not prior_points:
+        return None, "lexical_default_resume_prior_boundary_missing"
+    nearest_index = max(order[str(getattr(point, "node_id"))] for point in prior_points)
+    nearest_points = tuple(
+        point
+        for point in prior_points
+        if order[str(getattr(point, "node_id"))] == nearest_index
+    )
+    checkpoint_ids = tuple(getattr(point, "checkpoint_id", None) for point in nearest_points)
+    if any(not isinstance(checkpoint_id, str) or not checkpoint_id for checkpoint_id in checkpoint_ids):
+        return None, "lexical_default_resume_prior_boundary_unordered"
+    if len(set(checkpoint_ids)) != len(checkpoint_ids):
+        return None, "lexical_default_resume_prior_boundary_duplicate"
+    if len(nearest_points) != 1:
+        return None, "lexical_default_resume_prior_boundary_ambiguous"
+    if (
+        sum(
+            getattr(point, "checkpoint_id", None) == checkpoint_ids[0]
+            for point in checkpoint_points
+        )
+        != 1
+    ):
+        return None, "lexical_default_resume_prior_boundary_duplicate"
+    return nearest_points[0], None
 
 
 def serialize_default_resume_payload(payload: Mapping[str, Any]) -> str:
@@ -156,6 +217,7 @@ def determine_runtime_default_resume_decision(
         "checkpoint_id": None,
         "record_id": None,
         "source_map_origin_key": None,
+        "selection_reason": None,
         "compatibility_reason": None,
         "diagnostics": list(policy["diagnostics"]),
     }
@@ -206,12 +268,17 @@ def determine_runtime_default_resume_decision(
                 "transition_resume": _json_data(
                     getattr(restore_decision, "transition_resume", None)
                 ),
+                "selection_observation": getattr(
+                    restore_decision, "selection_observation", None
+                ),
+                "selection_reason": "node_local",
             },
             "checkpoint_id": getattr(restore_decision, "checkpoint_id", None),
             "record_id": getattr(restore_decision, "record_id", None),
             "source_map_origin_key": getattr(
                 restore_decision, "source_map_origin_key", None
             ),
+            "selection_reason": "node_local",
         }
     )
     decision_diagnostics = list(getattr(restore_decision, "diagnostics", ()) or ())
@@ -233,6 +300,82 @@ def determine_runtime_default_resume_decision(
         return payload
     if payload["restore_decision"] == "NOT_RESTORABLE":
         if relevant_points:
+            if (
+                getattr(restore_decision, "selection_observation", None)
+                == "record_absent"
+            ):
+                prior_point, prior_diagnostic = _nearest_prior_effect_boundary(
+                    runtime_plan=runtime_plan,
+                    restart_node_id=restart_node_id,
+                )
+                if prior_diagnostic is not None:
+                    payload["mode"] = MODE_FAIL_CLOSED
+                    payload["diagnostics"] = [prior_diagnostic]
+                    return payload
+                prior_decision = restore_selector(
+                    state_manager=state_manager,
+                    runtime_plan=runtime_plan,
+                    state=state,
+                    checkpoint_id=getattr(prior_point, "checkpoint_id"),
+                    executable_workflow=executable_workflow,
+                    loaded_workflow=loaded_workflow,
+                )
+                prior_diagnostics = list(
+                    getattr(prior_decision, "diagnostics", ()) or ()
+                )
+                payload.update(
+                    {
+                        "restore_decision": getattr(prior_decision, "kind", None),
+                        "restore_candidate": {
+                            "kind": getattr(prior_decision, "kind", None),
+                            "checkpoint_id": getattr(
+                                prior_decision, "checkpoint_id", None
+                            ),
+                            "record_id": getattr(prior_decision, "record_id", None),
+                            "source_map_origin_key": getattr(
+                                prior_decision, "source_map_origin_key", None
+                            ),
+                            "restore_payload": _json_data(
+                                getattr(prior_decision, "restore_payload", None)
+                            ),
+                            "policy_decision": getattr(
+                                prior_decision, "policy_decision", None
+                            ),
+                            "diagnostics": prior_diagnostics,
+                            "transition_resume": _json_data(
+                                getattr(prior_decision, "transition_resume", None)
+                            ),
+                            "selection_observation": getattr(
+                                prior_decision, "selection_observation", None
+                            ),
+                            "selection_reason": "validated_prior_boundary",
+                        },
+                        "checkpoint_id": getattr(
+                            prior_decision, "checkpoint_id", None
+                        ),
+                        "record_id": getattr(prior_decision, "record_id", None),
+                        "source_map_origin_key": getattr(
+                            prior_decision, "source_map_origin_key", None
+                        ),
+                        "selection_reason": "validated_prior_boundary",
+                    }
+                )
+                if payload["restore_decision"] == "RESTORED":
+                    payload["mode"] = MODE_LEXICAL_CHECKPOINT_DEFAULT
+                    payload["diagnostics"].extend(prior_diagnostics)
+                    return payload
+                payload["mode"] = MODE_FAIL_CLOSED
+                if payload["restore_decision"] == "INVALID":
+                    payload["diagnostics"] = [
+                        "lexical_default_resume_invalid_checkpoint",
+                        *prior_diagnostics,
+                    ]
+                else:
+                    payload["diagnostics"] = [
+                        "lexical_default_resume_prior_boundary_not_restorable",
+                        *prior_diagnostics,
+                    ]
+                return payload
             payload["mode"] = MODE_FAIL_CLOSED
             payload["diagnostics"] = [
                 "lexical_default_resume_not_restorable",
@@ -288,6 +431,7 @@ def build_runtime_default_resume_report(
             "record_id": decision.get("record_id"),
             "restart_node_id": decision.get("restart_node_id"),
             "source_map_origin_key": decision.get("source_map_origin_key"),
+            "selection_reason": decision.get("selection_reason"),
             "compatibility_reason": decision.get("compatibility_reason"),
         },
         "evidence": {
@@ -313,6 +457,7 @@ def build_runtime_default_resume_report(
             "record_id": decision.get("record_id"),
             "restart_node_id": decision.get("restart_node_id"),
             "source_map_origin_key": decision.get("source_map_origin_key"),
+            "selection_reason": decision.get("selection_reason"),
             "compatibility_reason": decision.get("compatibility_reason"),
             "call_frame_bound_inputs": [
                 dict(entry) for entry in (call_frame_bound_inputs or [])

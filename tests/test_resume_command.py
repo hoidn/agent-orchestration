@@ -1599,6 +1599,34 @@ def test_resume_planner_uses_lexical_checkpoint_default_for_eligible_wcc_route(
     assert called["count"] == 1
 
 
+def test_default_resume_report_identifies_validated_prior_boundary_selection() -> None:
+    from orchestrator.workflow_lisp.lexical_checkpoint_default_resume import (
+        build_runtime_default_resume_report,
+    )
+
+    report = build_runtime_default_resume_report(
+        workflow_name="generic::workflow",
+        decision={
+            "route": {"lowering_schema_version": 2, "route_kind": "wcc_schema_2"},
+            "required_evidence": {},
+            "mode": "LEXICAL_CHECKPOINT_DEFAULT",
+            "restore_decision": "RESTORED",
+            "checkpoint_id": "checkpoint:prior",
+            "record_id": "record:prior",
+            "restart_node_id": "root.restart",
+            "source_map_origin_key": "source:prior",
+            "selection_reason": "validated_prior_boundary",
+            "diagnostics": [],
+        },
+    )
+
+    assert report["selection_reason"] == "validated_prior_boundary"
+    assert (
+        report["checked_workflows"][0]["decision"]["selection_reason"]
+        == "validated_prior_boundary"
+    )
+
+
 def test_resume_planner_marks_legacy_orc_route_historical_compatible_without_lexical_restore(
     tmp_path: Path,
 ) -> None:

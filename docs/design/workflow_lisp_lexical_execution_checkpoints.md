@@ -270,9 +270,10 @@ except the resuming runtime.
 4. Every effect boundary has an explicit, declared resume policy; the
    default for non-idempotent external effects is fail-closed.
 5. Checkpoints are schema-versioned, executable-digest checked,
-   source-mapped, and validated before use; a stale, corrupt, or
-   mismatched checkpoint degrades to a coarser consistent boundary, never
-   to undefined behavior.
+   source-mapped, and validated before use. Automatic default resume fails
+   closed on a stale, corrupt, or mismatched nearest checkpoint; selecting a
+   coarser or older consistent boundary is an explicit operator/future
+   recovery path, never an automatic best-effort scan.
 6. Variant proof scopes survive resume soundly: restored by re-proof from
    validated values, never by trusting recorded claims.
 7. Public boundary inspection can prove goal 2 mechanically.
@@ -307,8 +308,9 @@ except the resuming runtime.
 1. Two ledgers, one authority. Execution checkpoints are a private,
    disposable cache of position; resources/transitions are the durable
    record of meaning. On inconsistency, the domain ledger wins and the
-   checkpoint is discarded back to the last boundary consistent with audit
-   evidence.
+   checkpoint is rejected. Default resume does not silently search past an
+   invalid nearest boundary; explicit recovery may later select a coarser
+   boundary consistent with audit evidence.
 2. Checkpoint loss is never a correctness event. Any checkpoint may be
    deleted at any time; the run must still resume (more coarsely) or fail
    closed with a taxonomy diagnostic — never produce different semantics.
@@ -642,11 +644,47 @@ holds across the family corpus; retire resume machinery the new route
 makes redundant. Deletion-only where evidence proves redundancy; gated on
 R2-R5 acceptance.
 
+Node-local selection is primary. A prior-boundary fallback is eligible only
+when the restart node owns lexical checkpoint metadata and node-local selection
+positively reports `record_absent`. Missing indexes and structurally valid
+empty canonical indexes establish absence only when their program-point and
+allocation identities match the runtime-plan point; present unreadable,
+malformed, incomplete, foreign, stale, or otherwise invalid indexes do not.
+An index record ID must be one safe filename component and cannot introduce
+path structure. Index entries must name the exact canonical workspace-relative
+record path derived from that ID, point, and storage scope. The lexical path
+must be a direct child of the canonical record family; its normalized, resolved
+path must remain a direct child of the resolved family below the resolved
+workspace. Absolute, escaping, or symlinked paths fail closed before record
+I/O, as do entry identities that disagree with the point or loaded record. The
+loaded record and restore payload still pass the ordinary complete validators.
+Index and record JSON are read from already-open no-follow descriptors beneath
+a pinned workspace directory descriptor. Each parent is opened
+descriptor-relative as a directory with no-follow semantics, followed by a
+descriptor-relative no-follow and nonblocking final-file open. The final
+descriptor is accepted only when `fstat` identifies a regular file, so a FIFO
+or other nonregular target fails closed without waiting for a peer; validation
+followed by pathname reopen is forbidden. Only canonical-index
+`FileNotFoundError` establishes absence. Symlinked/invalid parents,
+permissions, unavailable descriptor/no-follow/nonblocking support, nonregular
+targets, and mutation during read fail closed as present-unusable.
+The runtime derives the
+complete nearest-prior effect-boundary set exclusively from canonical
+`runtime_plan.ordered_node_ids` and requires exactly one point. The selected
+checkpoint ID must also occur exactly once across all
+`runtime_plan.lexical_checkpoint_points`, including older, later, and
+non-effect points, before it is sent through the same restore validator without
+weakening program, source, binding, effect, completed-reference, checksum, or
+authoritative-state checks. Successful restore retains the original restart
+node. Missing, unordered, duplicate, ambiguous, unsafe, invalid, or
+non-restorable nearest points fail closed, and the automatic route never
+searches older points.
+
 ### 15.2 Tasks
 
-- Flip the default with the coarse route retained as fallback for
-  checkpointless runs (invariant 2 makes this permanent, not
-  transitional: the floor semantics must always exist).
+- Flip the default with the historical coarse route retained for ineligible or
+  explicitly selected recovery. It is not an automatic fallback past an
+  invalid nearest lexical checkpoint.
 - Retire loop-frame and state-clearing workarounds that exist only to
   approximate sub-step resume, after per-mechanism redundancy evidence.
 - CI guards: no new authored surface classified `resume_only`; no
@@ -662,7 +700,7 @@ R2-R5 acceptance.
 
 | Failure | Detection | Response |
 | --- | --- | --- |
-| Checkpoint corrupt / truncated | structural validation (8.3.3) | discard; resume from previous consistent checkpoint or coarse boundary |
+| Checkpoint corrupt / truncated | structural validation (8.3.3) | fail closed for automatic default resume; an operator may explicitly select a coarse/older recovery path, but the runtime does not scan past the invalid nearest point |
 | Executable changed since checkpoint | digest mismatch (8.3.2) | fail closed for fine-grained resume; offer coarse boundary or fresh run; never best-effort map old positions onto new programs |
 | Stored value fails type revalidation | 8.3.4 | discard checkpoint; taxonomy diagnostic with source-mapped binding identity |
 | Checkpoint claims proof its value disproves | re-proof (invariant 9) | reject checkpoint; this is the soundness backstop against tampered or buggy proof records |

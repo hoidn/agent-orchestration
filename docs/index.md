@@ -355,7 +355,7 @@ document owns the answer.
 **Use this when:** Planning or reviewing the runtime ontology simplification, the pure-expression operator set, adapter retirement evidence, boundary authority classification, or stdlib migration of `with-phase` / `finalize-selected-item` / `backlog-drain`.
 
 ### [Workflow Lisp Private Runtime State And Consumer Value Flow](design/workflow_lisp_private_runtime_state_and_consumer_value_flow.md)
-**Description:** Draft future umbrella target for removing runtime/file plumbing from authored `.orc`: Track R makes execution resumability private through schema-versioned lexical checkpoints over WCC identity, while Track C makes rendering consumer-owned through prompt injection, observability summaries, entry-boundary publication policy, and compatibility bridge metadata. Typed values and resources remain semantic authority.
+**Description:** Governing umbrella for removing runtime/file plumbing from authored `.orc`. Track R's fail-closed default-resume prerequisite is implemented: node-local restore is primary and positive next-record absence permits only one fully validated unique-nearest prior boundary, never an automatic scan past an invalid nearest point. Broader resume-plumbing retirement and Track C consumer rendering remain target work. Typed values and resources remain semantic authority.
 **Keywords:** lisp-frontend, resume, checkpoints, rendering, materialized-views, prompts, observability, publish-policy, compatibility-bridges, boundary-cleanup, values-before-artifacts
 **Use this when:** Planning or reviewing the combined cleanup of resume-only and render-only path plumbing from Workflow Lisp workflows.
 
@@ -375,7 +375,7 @@ document owns the answer.
 **Use this when:** You need detailed source notes behind the umbrella target's Track C; use the umbrella target for next-work routing.
 
 ### [Workflow Lisp Lexical Execution Checkpoints](design/workflow_lisp_lexical_execution_checkpoints.md)
-**Description:** Predecessor draft for the umbrella target's private lexical-checkpoint track.
+**Description:** Detailed source note for the umbrella target's private lexical-checkpoint track, including the implemented node-local/unique-nearest-prior default-resume prerequisite and explicit/operator-only older-boundary recovery distinction.
 **Keywords:** lisp-frontend, resume, checkpoints, lexical-state, wcc, transitions, idempotency, audit, fail-closed
 **Use this when:** You need detailed source notes behind the umbrella target's Track R; use the umbrella target for next-work routing.
 

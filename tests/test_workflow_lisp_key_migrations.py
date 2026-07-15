@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Mapping
 import hashlib
 import json
+import os
 import tempfile
 import re
 from dataclasses import replace
@@ -16,7 +17,12 @@ import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.loaded_bundle import workflow_input_contracts, workflow_managed_write_root_inputs
+from orchestrator.workflow.loaded_bundle import (
+    workflow_generated_path_allocations,
+    workflow_input_contracts,
+    workflow_managed_write_root_inputs,
+)
+from orchestrator.workflow.state_layout import render_generated_path_template
 from orchestrator.workflow_lisp.adapters import (
     load_canonical_phase_result,
     validate_reusable_phase_state,
@@ -40,10 +46,451 @@ RUNCTX_ONLY_DRAIN_ENTRY_FIXTURE = LISP_FIXTURES / "context_generalization_runctx
 STD_CONTEXT_IMPORT_FIXTURE = LISP_FIXTURES / "context_generalization_std_context_import.orc"
 ANCHORLESS_STATE_PATH_FIXTURE = LISP_INVALID_FIXTURES / "context_generalization_anchorless_state_path.orc"
 ROLELESS_BINDING_FIXTURE = LISP_INVALID_FIXTURES / "context_generalization_roleless_binding.orc"
+TRACKED_PLAN_PILOT_EVIDENCE = (
+    REPO_ROOT / "docs" / "plans" / "evidence" / "procedure-first-pilot" / "tracked-plan-phase"
+)
+TRACKED_PLAN_PILOT_WORKSPACE = (
+    REPO_ROOT
+    / ".orchestrate"
+    / "procedure-first-pilot-evidence"
+    / "tracked-plan-phase"
+    / "workspace"
+)
+TRACKED_PLAN_PILOT_RUN_ROOT = TRACKED_PLAN_PILOT_WORKSPACE / ".orchestrate" / "runs"
+TRACKED_PLAN_PILOT_LEGACY_RUN_ROOT = REPO_ROOT / ".orchestrate" / "runs"
+TRACKED_PLAN_PILOT_RUN_IDS = (
+    "tracked-plan-phase-clean-new-id",
+    "tracked-plan-phase-interrupted-new-id",
+)
+TRACKED_PLAN_PILOT_PROVIDER_ROLES = (
+    "design.draft",
+    "design.review",
+    "plan.draft",
+    "plan.review",
+    "implementation.execute",
+    "implementation.review",
+)
+TRACKED_PLAN_PILOT_REGISTERED_WORKFLOWS = (
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-implementation-phase",
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+    "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+)
+TRACKED_PLAN_PILOT_NEW_CHECKPOINT_IDS = (
+    "ckpt:65bda4f814bc721664c59a34",
+    "ckpt:85bebe726bc9eed0e4ee7c63",
+    "ckpt:da29481dd96843184de8136f",
+    "ckpt:ecba9af744ae06ba202198fa",
+)
+_TRACKED_PLAN_PILOT_PUBLIC = (
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack"
+)
+_TRACKED_PLAN_PILOT_INLINE_BASE = (
+    f"{_TRACKED_PLAN_PILOT_PUBLIC}__plan__"
+    "examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1"
+)
+TRACKED_PLAN_PILOT_NEW_PRESENTATION_KEYS = (
+    f"{_TRACKED_PLAN_PILOT_PUBLIC}__design__call_"
+    "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+    f"{_TRACKED_PLAN_PILOT_PUBLIC}__implementation__call_"
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-implementation-phase",
+    f"{_TRACKED_PLAN_PILOT_INLINE_BASE}__draft",
+    f"{_TRACKED_PLAN_PILOT_INLINE_BASE}__match_review",
+    f"{_TRACKED_PLAN_PILOT_INLINE_BASE}__match_review.APPROVE",
+    f"{_TRACKED_PLAN_PILOT_INLINE_BASE}__match_review.APPROVE."
+    f"{_TRACKED_PLAN_PILOT_INLINE_BASE}__match_review__approve__projection_anchor",
+    f"{_TRACKED_PLAN_PILOT_INLINE_BASE}__match_review.REVISE",
+    f"{_TRACKED_PLAN_PILOT_INLINE_BASE}__match_review.REVISE."
+    f"{_TRACKED_PLAN_PILOT_INLINE_BASE}__match_review__revise__projection_anchor",
+    f"{_TRACKED_PLAN_PILOT_INLINE_BASE}__review",
+)
+TRACKED_PLAN_PILOT_LIVE_ENV = "ORCHESTRATOR_RUN_LIVE_TRACKED_PLAN_PILOT_EVIDENCE"
+TRACKED_PLAN_PILOT_CLEAN_EVIDENCE = TRACKED_PLAN_PILOT_EVIDENCE / "evidence" / "clean_run.json"
+TRACKED_PLAN_PILOT_RESUME_EVIDENCE = (
+    TRACKED_PLAN_PILOT_EVIDENCE / "evidence" / "interruption_resume.json"
+)
+TRACKED_PLAN_PILOT_PRE_EDIT_SCAN = TRACKED_PLAN_PILOT_EVIDENCE / "pre_edit_known_store_scans.json"
+TRACKED_PLAN_PILOT_EVIDENCE_INDEX = TRACKED_PLAN_PILOT_EVIDENCE / "evidence_index.json"
+TRACKED_PLAN_PILOT_PRE_EDIT_SCAN_SHA256 = (
+    "sha256:422e465bc1391fd2ea186490f39c59ff677f9cd9b1c502ba70f684d38b54f155"
+)
+
+_TRACKED_PLAN_PILOT_SCAN_FACT_KEYS = (
+    "query_version",
+    "normalized_scan_digest",
+    "terminal_run_count",
+    "nonterminal_run_count",
+    "store_terminal_run_count",
+    "store_nonterminal_run_count",
+    "call_frame_count",
+    "consumer_count",
+    "checkpoint_index_count",
+    "checkpoint_record_count",
+    "retained_manifest_count",
+    "identity_metadata_count",
+    "scanned_file_count",
+)
 
 
 def _load_json(path: Path) -> dict[str, str]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _sha256_path(path: Path) -> str:
+    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+
+
+def _is_sha256(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", value) is not None
+
+
+def _tracked_plan_pilot_scan_facts(payload: dict[str, object]) -> dict[str, object]:
+    missing = [key for key in _TRACKED_PLAN_PILOT_SCAN_FACT_KEYS if key not in payload]
+    assert not missing, f"legacy scan is missing required facts: {missing}"
+    return {key: payload[key] for key in _TRACKED_PLAN_PILOT_SCAN_FACT_KEYS}
+
+
+def _validate_tracked_plan_phase_preflight_projection(
+    *,
+    expected_run_root: str,
+    observed_run_root: str,
+    dedicated_run_ids: tuple[str, ...],
+    scratch_paths: tuple[str, ...],
+    expected_legacy_scan: dict[str, object],
+    observed_legacy_scan: dict[str, object],
+    expected_dedicated_scan: dict[str, object],
+    observed_dedicated_scan: dict[str, object],
+) -> None:
+    assert observed_run_root == expected_run_root, "dedicated run root does not match the fixed root"
+    assert not dedicated_run_ids, "dedicated run root must be empty"
+    assert not scratch_paths, "top-level /tmp design-plan fixture must be absent"
+    assert _tracked_plan_pilot_scan_facts(observed_legacy_scan) == _tracked_plan_pilot_scan_facts(
+        expected_legacy_scan
+    ), "legacy store facts changed from the bound pre-edit scan"
+    assert _tracked_plan_pilot_scan_facts(
+        observed_dedicated_scan
+    ) == _tracked_plan_pilot_scan_facts(expected_dedicated_scan), (
+        "dedicated store facts changed from the bound pre-edit scan"
+    )
+
+
+def _validate_tracked_plan_phase_postflight_projection(
+    *,
+    dedicated_run_ids: tuple[str, ...],
+    scratch_paths: tuple[str, ...],
+    expected_legacy_scan: dict[str, object],
+    observed_legacy_scan: dict[str, object],
+    expected_dedicated_scan: dict[str, object],
+    observed_dedicated_scan: dict[str, object],
+) -> None:
+    assert tuple(sorted(dedicated_run_ids)) == tuple(sorted(TRACKED_PLAN_PILOT_RUN_IDS)), (
+        "dedicated root must contain exactly the two approved run IDs"
+    )
+    assert not scratch_paths, "top-level /tmp design-plan fixture must be absent"
+    assert _tracked_plan_pilot_scan_facts(observed_legacy_scan) == _tracked_plan_pilot_scan_facts(
+        expected_legacy_scan
+    ), "legacy store facts changed from the bound pre-edit scan"
+    assert observed_dedicated_scan.get("query_version") == expected_dedicated_scan.get(
+        "query_version"
+    ), "dedicated store query version changed"
+    assert observed_dedicated_scan.get("retired_identities") == expected_dedicated_scan.get(
+        "retired_identities"
+    ), "dedicated store query identity set changed"
+    assert observed_dedicated_scan.get("root") == TRACKED_PLAN_PILOT_RUN_ROOT.as_posix()
+    assert observed_dedicated_scan.get("matches") in ((), []), (
+        "dedicated store contains a queried old identity"
+    )
+    for key in (
+        "terminal_run_count",
+        "nonterminal_run_count",
+        "call_frame_count",
+        "consumer_count",
+    ):
+        assert observed_dedicated_scan.get(key) == 0, (
+            f"dedicated store match-scoped {key} must be zero"
+        )
+    assert observed_dedicated_scan.get("store_terminal_run_count") == 2
+    assert observed_dedicated_scan.get("store_nonterminal_run_count") == 0
+
+
+def _tracked_plan_phase_expected_outputs() -> dict[str, str]:
+    return {
+        "return__design_path": "docs/plans/runtime-design.md",
+        "return__design_review_report_path": "artifacts/review/runtime-design-review.md",
+        "return__design_review_decision": "APPROVE",
+        "return__plan_path": "docs/plans/runtime-plan.md",
+        "return__plan_review_report_path": "artifacts/review/runtime-plan-review.md",
+        "return__plan_review_decision": "APPROVE",
+        "return__execution_report_path": "artifacts/work/runtime-execution-report.md",
+        "return__implementation_review_report_path": (
+            "artifacts/review/runtime-implementation-review.md"
+        ),
+        "return__implementation_review_decision": "APPROVE",
+    }
+
+
+def _tracked_plan_phase_projection_fixtures() -> tuple[dict[str, object], dict[str, object]]:
+    roles = list(TRACKED_PLAN_PILOT_PROVIDER_ROLES)
+    artifacts = {
+        name.removeprefix("return__"): {
+            "path": value,
+            "sha256": "sha256:" + "a" * 64,
+        }
+        for name, value in _tracked_plan_phase_expected_outputs().items()
+        if name.endswith("_path")
+    }
+    baseline_path = REPO_ROOT / "tests" / "baselines" / "procedure_first" / "tracked_plan_phase.json"
+    baseline = _load_json(baseline_path)
+    old_runtime = baseline["runtime_contract"]
+    identity_comparison = {
+        "classification": "provisional_old_new_identity_characterization",
+        "frozen_baseline_sha256": _sha256_path(baseline_path),
+        "old_checkpoint_ids": sorted(
+            row["checkpoint_id"] for row in old_runtime["lexical_checkpoints"]
+        ),
+        "new_checkpoint_ids": list(TRACKED_PLAN_PILOT_NEW_CHECKPOINT_IDS),
+        "old_presentation_keys": sorted(
+            {row["presentation_key"] for row in old_runtime["resume_checkpoints"]}
+        ),
+        "new_presentation_keys": list(TRACKED_PLAN_PILOT_NEW_PRESENTATION_KEYS),
+        "approval_asserted": False,
+    }
+    common = {
+        "evidence_status": "provisional_characterization",
+        "run_root": TRACKED_PLAN_PILOT_RUN_ROOT.as_posix(),
+        "workflow_name": (
+            "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack"
+        ),
+        "workflow_outputs": _tracked_plan_phase_expected_outputs(),
+        "source": {
+            "path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+            "sha256": _sha256_path(
+                EXAMPLES / "design_plan_impl_review_stack_v2_call.orc"
+            ),
+        },
+        "artifacts": artifacts,
+        "checkpoint_ids": list(TRACKED_PLAN_PILOT_NEW_CHECKPOINT_IDS),
+        "presentation_keys": list(TRACKED_PLAN_PILOT_NEW_PRESENTATION_KEYS),
+        "registered_workflows": list(TRACKED_PLAN_PILOT_REGISTERED_WORKFLOWS),
+        "identity_comparison": identity_comparison,
+    }
+    clean = {
+        "schema": "procedure_first_pilot_tracked_plan_clean_run.v1",
+        **common,
+        "run_id": TRACKED_PLAN_PILOT_RUN_IDS[0],
+        "run": {
+            "id": TRACKED_PLAN_PILOT_RUN_IDS[0],
+            "relative_path": TRACKED_PLAN_PILOT_RUN_IDS[0],
+            "tree_sha256": "sha256:" + "b" * 64,
+            "entry_count": 12,
+        },
+        "status": "completed",
+        "provider_roles": roles,
+    }
+    interruption = {
+        "schema": "procedure_first_pilot_tracked_plan_interruption_resume.v1",
+        **common,
+        "run_id": TRACKED_PLAN_PILOT_RUN_IDS[1],
+        "run": {
+            "id": TRACKED_PLAN_PILOT_RUN_IDS[1],
+            "relative_path": TRACKED_PLAN_PILOT_RUN_IDS[1],
+            "tree_sha256": "sha256:" + "c" * 64,
+            "entry_count": 13,
+        },
+        "interruption": {
+            "status": "process_interrupted",
+            "persisted_status": "running",
+            "interruption_point": "post_plan_draft_checkpoint_commit",
+            "completed_provider_roles": roles[:3],
+            "successful_provider_role_count": 3,
+            "next_provider_role_not_attempted": "plan.review",
+        },
+        "resume": {
+            "status": "completed",
+            "reused_provider_roles": roles[:3],
+            "executed_provider_roles": roles[3:],
+            "provider_role_attempts": {
+                role: 1 for role in roles
+            },
+        },
+        "comparison": {
+            "public_output_equal_to_clean": True,
+            "artifacts_equal_to_clean": True,
+        },
+    }
+    return clean, interruption
+
+
+def _validate_tracked_plan_phase_retained_projections(
+    clean: dict[str, object],
+    interruption: dict[str, object],
+) -> None:
+    assert clean.get("schema") == "procedure_first_pilot_tracked_plan_clean_run.v1"
+    assert interruption.get("schema") == (
+        "procedure_first_pilot_tracked_plan_interruption_resume.v1"
+    )
+    assert clean.get("evidence_status") == "provisional_characterization"
+    assert interruption.get("evidence_status") == "provisional_characterization"
+    assert clean.get("run_id") == TRACKED_PLAN_PILOT_RUN_IDS[0], "clean run ID changed"
+    assert interruption.get("run_id") == TRACKED_PLAN_PILOT_RUN_IDS[1], (
+        "interrupted run ID changed"
+    )
+    assert clean.get("run_root") == TRACKED_PLAN_PILOT_RUN_ROOT.as_posix()
+    assert interruption.get("run_root") == TRACKED_PLAN_PILOT_RUN_ROOT.as_posix()
+    expected_source = {
+        "path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+        "sha256": _sha256_path(EXAMPLES / "design_plan_impl_review_stack_v2_call.orc"),
+    }
+    assert clean.get("source") == expected_source, "clean source binding is invalid"
+    assert interruption.get("source") == expected_source, "interrupted source binding is invalid"
+    for payload, run_id in zip(
+        (clean, interruption), TRACKED_PLAN_PILOT_RUN_IDS, strict=True
+    ):
+        run = payload.get("run")
+        assert isinstance(run, dict), "run tree binding is missing"
+        assert set(run) == {"id", "relative_path", "tree_sha256", "entry_count"}, (
+            "run tree binding structure is invalid"
+        )
+        assert run["id"] == run_id and run["relative_path"] == run_id, (
+            "run tree identity/path is invalid"
+        )
+        assert _is_sha256(run["tree_sha256"]), "run tree SHA256 is invalid"
+        assert isinstance(run["entry_count"], int) and run["entry_count"] > 0, (
+            "run tree entry count is invalid"
+        )
+    assert clean.get("status") == "completed"
+    assert clean.get("provider_roles") == list(TRACKED_PLAN_PILOT_PROVIDER_ROLES), (
+        "clean provider roles are not the exact ordered six-role contract"
+    )
+    interruption_fact = interruption.get("interruption")
+    resume_fact = interruption.get("resume")
+    comparison = interruption.get("comparison")
+    assert isinstance(interruption_fact, dict)
+    assert isinstance(resume_fact, dict)
+    assert isinstance(comparison, dict)
+    expected_reused = ["design.draft", "design.review", "plan.draft"]
+    assert interruption_fact == {
+        "status": "process_interrupted",
+        "persisted_status": "running",
+        "interruption_point": "post_plan_draft_checkpoint_commit",
+        "completed_provider_roles": expected_reused,
+        "successful_provider_role_count": 3,
+        "next_provider_role_not_attempted": "plan.review",
+    }
+    assert resume_fact.get("status") == "completed"
+    assert resume_fact.get("reused_provider_roles") == expected_reused
+    assert resume_fact.get("executed_provider_roles") == [
+        "plan.review",
+        "implementation.execute",
+        "implementation.review",
+    ]
+    attempts = resume_fact.get("provider_role_attempts")
+    assert isinstance(attempts, dict)
+    assert attempts == {
+        "design.draft": 1,
+        "design.review": 1,
+        "plan.draft": 1,
+        "plan.review": 1,
+        "implementation.execute": 1,
+        "implementation.review": 1,
+    }
+    assert clean.get("workflow_outputs") == _tracked_plan_phase_expected_outputs()
+    assert interruption.get("workflow_outputs") == clean.get("workflow_outputs")
+    expected_artifact_paths = {
+        name.removeprefix("return__"): path
+        for name, path in _tracked_plan_phase_expected_outputs().items()
+        if name.endswith("_path")
+    }
+    frozen_baseline = _load_json(
+        REPO_ROOT / "tests" / "baselines" / "procedure_first" / "tracked_plan_phase.json"
+    )
+    frozen_runtime = frozen_baseline["runtime_contract"]
+    expected_old_checkpoint_ids = sorted(
+        row["checkpoint_id"] for row in frozen_runtime["lexical_checkpoints"]
+    )
+    expected_old_presentation_keys = sorted(
+        {row["presentation_key"] for row in frozen_runtime["resume_checkpoints"]}
+    )
+    for payload in (clean, interruption):
+        artifacts = payload.get("artifacts")
+        assert isinstance(artifacts, dict), "artifact bindings are missing"
+        assert set(artifacts) == set(expected_artifact_paths), "artifact role set is invalid"
+        for role, expected_path in expected_artifact_paths.items():
+            binding = artifacts[role]
+            assert isinstance(binding, dict) and set(binding) == {"path", "sha256"}, (
+                "artifact binding structure is invalid"
+            )
+            assert binding["path"] == expected_path, "artifact path binding is invalid"
+            assert _is_sha256(binding["sha256"]), "artifact SHA256 binding is invalid"
+    assert interruption.get("artifacts") == clean.get("artifacts"), (
+        "artifact bindings differ between clean and resumed runs"
+    )
+    assert comparison == {
+        "public_output_equal_to_clean": True,
+        "artifacts_equal_to_clean": True,
+    }
+    for payload in (clean, interruption):
+        assert payload.get("workflow_name") == (
+            "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack"
+        )
+        checkpoint_ids = payload.get("checkpoint_ids")
+        presentation_keys = payload.get("presentation_keys")
+        registered = payload.get("registered_workflows")
+        identity_comparison = payload.get("identity_comparison")
+        assert isinstance(checkpoint_ids, list) and checkpoint_ids
+        assert all(isinstance(value, str) and value for value in checkpoint_ids)
+        assert checkpoint_ids == sorted(set(checkpoint_ids))
+        assert isinstance(presentation_keys, list) and presentation_keys
+        assert all(isinstance(value, str) and value for value in presentation_keys)
+        assert presentation_keys == sorted(set(presentation_keys))
+        assert isinstance(registered, list)
+        assert registered == list(TRACKED_PLAN_PILOT_REGISTERED_WORKFLOWS), (
+            "registered workflows are not the exact ordered public runtime set"
+        )
+        assert isinstance(identity_comparison, dict), "identity comparison is missing"
+        assert set(identity_comparison) == {
+            "classification",
+            "frozen_baseline_sha256",
+            "old_checkpoint_ids",
+            "new_checkpoint_ids",
+            "old_presentation_keys",
+            "new_presentation_keys",
+            "approval_asserted",
+        }, "identity comparison structure is invalid"
+        assert identity_comparison["classification"] == (
+            "provisional_old_new_identity_characterization"
+        ), "identity comparison classification is invalid"
+        assert identity_comparison["frozen_baseline_sha256"] == _sha256_path(
+            REPO_ROOT / "tests" / "baselines" / "procedure_first" / "tracked_plan_phase.json"
+        ), "identity comparison baseline binding is invalid"
+        assert identity_comparison["approval_asserted"] is False, (
+            "identity comparison must not assert approval"
+        )
+        for key in (
+            "old_checkpoint_ids",
+            "new_checkpoint_ids",
+            "old_presentation_keys",
+            "new_presentation_keys",
+        ):
+            values = identity_comparison[key]
+            assert isinstance(values, list) and values, "identity comparison rows are invalid"
+            assert values == sorted(set(values)), "identity comparison rows are not canonical"
+        assert identity_comparison["old_checkpoint_ids"] == expected_old_checkpoint_ids, (
+            "old identity checkpoint rows differ from the frozen baseline"
+        )
+        assert identity_comparison["old_presentation_keys"] == expected_old_presentation_keys, (
+            "old identity presentation rows differ from the frozen baseline"
+        )
+        assert identity_comparison["new_checkpoint_ids"] == list(
+            TRACKED_PLAN_PILOT_NEW_CHECKPOINT_IDS
+        ), "new checkpoint rows differ from the accepted no-run characterization"
+        assert identity_comparison["new_presentation_keys"] == list(
+            TRACKED_PLAN_PILOT_NEW_PRESENTATION_KEYS
+        ), "new presentation rows differ from the accepted no-run characterization"
+        assert identity_comparison["new_checkpoint_ids"] == checkpoint_ids
+        assert identity_comparison["new_presentation_keys"] == presentation_keys
+    assert interruption.get("identity_comparison") == clean.get("identity_comparison"), (
+        "identity comparisons differ between run projections"
+    )
 
 
 def _workflow_short_name(name: str) -> str:
@@ -338,35 +785,550 @@ def test_design_plan_impl_stack_orc_compiles_with_phase_family_contracts(tmp_pat
     }
 
 
+def test_tracked_plan_phase_preflight_projection_rejects_a_nonempty_dedicated_root() -> None:
+    with pytest.raises(AssertionError, match="dedicated run root must be empty"):
+        _validate_tracked_plan_phase_preflight_projection(
+            expected_run_root="/repo/.orchestrate/pilot/workspace/.orchestrate/runs",
+            observed_run_root="/repo/.orchestrate/pilot/workspace/.orchestrate/runs",
+            dedicated_run_ids=("unexpected",),
+            scratch_paths=(),
+            expected_legacy_scan={"normalized_scan_digest": "sha256:" + "1" * 64},
+            observed_legacy_scan={"normalized_scan_digest": "sha256:" + "1" * 64},
+            expected_dedicated_scan={"normalized_scan_digest": "sha256:" + "1" * 64},
+            observed_dedicated_scan={"normalized_scan_digest": "sha256:" + "1" * 64},
+        )
+
+
+def _tracked_plan_phase_scan_fact_fixture(digest_character: str = "1") -> dict[str, object]:
+    return {
+        "query_version": "procedure-identity-store-query.v1",
+        "normalized_scan_digest": "sha256:" + digest_character * 64,
+        "terminal_run_count": 0,
+        "nonterminal_run_count": 0,
+        "store_terminal_run_count": 4074,
+        "store_nonterminal_run_count": 90,
+        "call_frame_count": 0,
+        "consumer_count": 0,
+        "checkpoint_index_count": 1,
+        "checkpoint_record_count": 2,
+        "retained_manifest_count": 3,
+        "identity_metadata_count": 4,
+        "scanned_file_count": 5,
+    }
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ({"observed_run_root": "/wrong/root"}, "fixed root"),
+        ({"scratch_paths": ("/tmp/design-plan-impl-stack-leak",)}, "must be absent"),
+        (
+            {"observed_legacy_scan": _tracked_plan_phase_scan_fact_fixture("2")},
+            "legacy store facts changed",
+        ),
+    ],
+)
+def test_tracked_plan_phase_preflight_projection_fails_closed(
+    mutation: dict[str, object],
+    message: str,
+) -> None:
+    scan = _tracked_plan_phase_scan_fact_fixture()
+    arguments: dict[str, object] = {
+        "expected_run_root": "/repo/.orchestrate/pilot/workspace/.orchestrate/runs",
+        "observed_run_root": "/repo/.orchestrate/pilot/workspace/.orchestrate/runs",
+        "dedicated_run_ids": (),
+        "scratch_paths": (),
+        "expected_legacy_scan": scan,
+        "observed_legacy_scan": dict(scan),
+        "expected_dedicated_scan": scan,
+        "observed_dedicated_scan": dict(scan),
+    }
+    arguments.update(mutation)
+
+    with pytest.raises(AssertionError, match=message):
+        _validate_tracked_plan_phase_preflight_projection(**arguments)
+
+
+def test_tracked_plan_phase_retained_projection_rejects_wrong_run_relationship() -> None:
+    clean, interruption = _tracked_plan_phase_projection_fixtures()
+    interruption["run_id"] = "wrong-run"
+
+    with pytest.raises(AssertionError, match="interrupted run ID"):
+        _validate_tracked_plan_phase_retained_projections(clean, interruption)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda clean: clean["source"].__setitem__("sha256", "sha256:" + "0" * 64), "source"),
+        (lambda clean: clean["run"].__setitem__("tree_sha256", "not-a-digest"), "run tree"),
+        (
+            lambda clean: clean["artifacts"]["plan_path"].__setitem__(
+                "path", "docs/plans/not-the-bound-plan.md"
+            ),
+            "artifact",
+        ),
+        (
+            lambda clean: clean["identity_comparison"].__setitem__("approval_asserted", True),
+            "identity comparison",
+        ),
+        (lambda clean: clean.__setitem__("provider_roles", []), "provider roles"),
+        (lambda clean: clean.__setitem__("registered_workflows", []), "registered workflows"),
+        (
+            lambda clean: clean.__setitem__("registered_workflows", ["changed"]),
+            "registered workflows",
+        ),
+        (
+            lambda clean: clean["identity_comparison"].__setitem__(
+                "old_checkpoint_ids", ["ckpt:changed"]
+            ),
+            "old identity",
+        ),
+        (
+            lambda clean: clean["identity_comparison"].__setitem__(
+                "new_checkpoint_ids", ["ckpt:changed"]
+            ),
+            "new checkpoint",
+        ),
+        (
+            lambda clean: clean["identity_comparison"].__setitem__(
+                "new_presentation_keys", ["changed"]
+            ),
+            "new presentation",
+        ),
+    ],
+)
+def test_tracked_plan_phase_retained_projection_rejects_bound_evidence_tampering(
+    mutate,
+    message: str,
+) -> None:
+    clean, interruption = _tracked_plan_phase_projection_fixtures()
+    mutate(clean)
+
+    with pytest.raises(AssertionError, match=message):
+        _validate_tracked_plan_phase_retained_projections(clean, interruption)
+
+
+def test_tracked_plan_phase_pair_publication_removes_singleton_after_second_replace_failure(
+    tmp_path: Path,
+) -> None:
+    clean, interruption = _tracked_plan_phase_projection_fixtures()
+    clean_target = tmp_path / "clean.json"
+    interruption_target = tmp_path / "interruption.json"
+    real_replace = os.replace
+    replacements = {"count": 0}
+
+    def fail_second_replace(source: Path, target: Path) -> None:
+        replacements["count"] += 1
+        if replacements["count"] == 2:
+            raise OSError("injected second replace failure")
+        real_replace(source, target)
+
+    with patch("os.replace", side_effect=fail_second_replace), pytest.raises(
+        OSError, match="injected second replace failure"
+    ):
+        _publish_tracked_plan_phase_evidence_pair_atomically(
+            clean,
+            interruption,
+            targets=(clean_target, interruption_target),
+        )
+
+    assert not clean_target.exists()
+    assert not interruption_target.exists()
+
+
+def test_tracked_plan_phase_postflight_projection_rejects_a_third_run() -> None:
+    scan = _tracked_plan_phase_scan_fact_fixture()
+
+    with pytest.raises(AssertionError, match="exactly the two approved run IDs"):
+        _validate_tracked_plan_phase_postflight_projection(
+            dedicated_run_ids=(*TRACKED_PLAN_PILOT_RUN_IDS, "third-run"),
+            scratch_paths=(),
+            expected_legacy_scan=scan,
+            observed_legacy_scan=dict(scan),
+            expected_dedicated_scan=scan,
+            observed_dedicated_scan={
+                **scan,
+                "root": TRACKED_PLAN_PILOT_RUN_ROOT.as_posix(),
+                "retired_identities": ["old"],
+                "matches": [],
+                "store_terminal_run_count": 2,
+                "store_nonterminal_run_count": 0,
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        ({"gate": "0"}, "authorization gate"),
+        ({"run_id": TRACKED_PLAN_PILOT_RUN_IDS[0], "resume": True}, "clean run cannot resume"),
+        ({"run_exists": True}, "initial interrupted run directory must be absent"),
+        ({"control": {"interrupt_after_role": "implementation.execute"}}, "plan.draft"),
+    ],
+)
+def test_tracked_plan_phase_runtime_lifecycle_rejects_unauthorized_transitions(
+    arguments: dict[str, object],
+    message: str,
+) -> None:
+    values: dict[str, object] = {
+        "gate": "1",
+        "run_id": TRACKED_PLAN_PILOT_RUN_IDS[1],
+        "resume": False,
+        "run_exists": False,
+        "run_is_symlink": False,
+        "persisted_status": None,
+        "control": {"interrupt_after_role": "plan.draft"},
+    }
+    values.update(arguments)
+    with pytest.raises(AssertionError, match=message):
+        _validate_tracked_plan_phase_runtime_lifecycle(**values)
+
+
+def test_tracked_plan_phase_runtime_lifecycle_accepts_only_bound_resume_state() -> None:
+    _validate_tracked_plan_phase_runtime_lifecycle(
+        gate="1",
+        run_id=TRACKED_PLAN_PILOT_RUN_IDS[1],
+        resume=True,
+        run_exists=True,
+        run_is_symlink=False,
+        persisted_status="running",
+        control={
+            "interrupt_after_role": "plan.draft",
+            "interruption_emitted": True,
+            "checkpoint_hook_completed": True,
+            "interruption_target_step_id": "root.plan_draft",
+            "successful_roles": ["design.draft", "design.review", "plan.draft"],
+            "attempts": {
+                "design.draft": 1,
+                "design.review": 1,
+                "plan.draft": 1,
+            },
+        },
+        expected_interruption_target_step_id="root.plan_draft",
+    )
+
+
+def test_post_persist_interruption_hook_delegates_before_raising_once_at_exact_target(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp.lexical_checkpoints import (
+        resolve_checkpoint_index_path,
+    )
+
+    target = SimpleNamespace(
+        node_id="root.plan_draft",
+        checkpoint_id="checkpoint:plan-draft",
+        workflow_name="generic::workflow",
+    )
+    control: dict[str, object] = {"interrupt_after_role": "plan.draft"}
+    record_path = tmp_path / "checkpoint-record.json"
+
+    class FakeStateManager:
+        workspace = tmp_path
+        run_id = "no-run"
+
+        def __init__(self) -> None:
+            self.production_completed = False
+
+        def load(self):
+            return SimpleNamespace(
+                steps={
+                    "draft": {
+                        "status": "completed",
+                        "step_id": target.node_id,
+                    }
+                }
+            )
+
+        def read_runtime_sidecar_json(self, path):
+            assert self.production_completed
+            if Path(path) == resolve_checkpoint_index_path(
+                state_manager=self,
+                workflow_name=target.workflow_name,
+                checkpoint_id=target.checkpoint_id,
+            ):
+                return {"records": [{"record_path": record_path.name}]}
+            assert Path(path) == record_path
+            return {"completed_effect_refs": [{"effect_kind": "provider"}]}
+
+    manager = FakeStateManager()
+    calls: list[str] = []
+
+    def production_hook(*_args) -> None:
+        calls.append("production")
+        manager.production_completed = True
+
+    hook = _tracked_plan_phase_one_shot_post_persist_interruption(
+        production_hook,
+        target_point=target,
+        state_manager=manager,
+        control=control,
+    )
+    hook({}, "other", object(), {"status": "completed", "step_id": "root.other"})
+    with pytest.raises(_TrackedPlanPhaseProcessInterruption):
+        hook({}, "draft", object(), {"status": "completed", "step_id": target.node_id})
+    hook({}, "draft", object(), {"status": "completed", "step_id": target.node_id})
+
+    assert calls == ["production", "production", "production"]
+    assert control == {
+        "interrupt_after_role": "plan.draft",
+        "interruption_emitted": True,
+        "checkpoint_hook_completed": True,
+        "interruption_target_step_id": target.node_id,
+    }
+
+
+def _validate_tracked_plan_phase_runtime_lifecycle(
+    *,
+    gate: object,
+    run_id: object,
+    resume: object,
+    run_exists: object,
+    run_is_symlink: object,
+    persisted_status: object,
+    control: object,
+    expected_interruption_target_step_id: object = None,
+) -> None:
+    assert gate == "1", "live runtime authorization gate must equal 1"
+    assert isinstance(control, dict)
+    if run_id == TRACKED_PLAN_PILOT_RUN_IDS[0]:
+        assert resume is False, "clean run cannot resume"
+        assert run_exists is False, "initial clean run directory must be absent"
+        assert control == {}, "clean run control must be pristine"
+        return
+    assert run_id == TRACKED_PLAN_PILOT_RUN_IDS[1], "runtime run ID is not authorized"
+    if resume is False:
+        assert run_exists is False, "initial interrupted run directory must be absent"
+        assert control == {"interrupt_after_role": "plan.draft"}, (
+            "initial interrupted control must interrupt exactly after plan.draft once"
+        )
+        return
+    assert resume is True
+    assert run_exists is True, "interrupted resume run directory must exist"
+    assert run_is_symlink is False, "interrupted resume run directory cannot be a symlink"
+    assert persisted_status == "running", "interrupted resume requires persisted nonterminal state"
+    assert control == {
+        "interrupt_after_role": "plan.draft",
+        "interruption_emitted": True,
+        "checkpoint_hook_completed": True,
+        "interruption_target_step_id": expected_interruption_target_step_id,
+        "successful_roles": ["design.draft", "design.review", "plan.draft"],
+        "attempts": {
+            "design.draft": 1,
+            "design.review": 1,
+            "plan.draft": 1,
+        },
+    }, "interrupted resume control does not prove the bound first attempt"
+
+
+class _TrackedPlanPhaseProcessInterruption(BaseException):
+    """Test-only abrupt process stop after a committed checkpoint hook."""
+
+
+def _tracked_plan_phase_one_shot_post_persist_interruption(
+    production_hook,
+    *,
+    target_point: object,
+    state_manager: object,
+    control: dict[str, object],
+):
+    from orchestrator.workflow_lisp.lexical_checkpoints import (
+        resolve_checkpoint_index_path,
+    )
+
+    target_step_id = getattr(target_point, "node_id", None)
+    checkpoint_id = getattr(target_point, "checkpoint_id", None)
+    workflow_name = getattr(target_point, "workflow_name", None)
+    assert isinstance(target_step_id, str) and target_step_id
+    assert isinstance(checkpoint_id, str) and checkpoint_id
+    assert isinstance(workflow_name, str) and workflow_name
+
+    def interrupt_after_production_hook(state, step_name, step, finalized) -> None:
+        production_hook(state, step_name, step, finalized)
+        if finalized.get("step_id") != target_step_id:
+            return
+        if control.get("interruption_emitted") is True:
+            return
+        assert finalized.get("status") == "completed"
+        persisted_steps = getattr(state_manager.load(), "steps", {})
+        persisted_matches = [
+            value
+            for value in persisted_steps.values()
+            if isinstance(value, Mapping)
+            and value.get("step_id") == target_step_id
+            and value.get("status") == "completed"
+        ]
+        assert len(persisted_matches) == 1, "plan.draft result was not durably persisted"
+        index_path = resolve_checkpoint_index_path(
+            state_manager=state_manager,
+            workflow_name=workflow_name,
+            checkpoint_id=checkpoint_id,
+        )
+        index_payload = state_manager.read_runtime_sidecar_json(index_path)
+        assert isinstance(index_payload, Mapping)
+        records = index_payload.get("records")
+        assert isinstance(records, list) and records
+        latest = records[-1]
+        assert isinstance(latest, Mapping)
+        record_path = latest.get("record_path")
+        assert isinstance(record_path, str) and record_path
+        record = state_manager.read_runtime_sidecar_json(
+            getattr(state_manager, "workspace") / record_path
+        )
+        assert isinstance(record, Mapping)
+        completed_effect_refs = record.get("completed_effect_refs")
+        assert isinstance(completed_effect_refs, list) and completed_effect_refs
+        control["interruption_emitted"] = True
+        control["checkpoint_hook_completed"] = True
+        control["interruption_target_step_id"] = target_step_id
+        raise _TrackedPlanPhaseProcessInterruption(
+            "test-only interruption after plan.draft checkpoint commit"
+        )
+
+    return interrupt_after_production_hook
+
+
+def _tracked_plan_phase_compiler_output_path_roles(
+    compile_result: object,
+    public_bundle: object,
+    *,
+    run_id: str,
+) -> dict[str, str]:
+    role_by_contract_fields = {
+        frozenset(("design_path",)): "design.draft",
+        frozenset(("design_review_report_path", "design_review_decision")): "design.review",
+        frozenset(("plan_path",)): "plan.draft",
+        frozenset(("plan_review_report_path", "plan_review_decision")): "plan.review",
+        frozenset(("execution_report_path",)): "implementation.execute",
+        frozenset(
+            ("implementation_review_report_path", "implementation_review_decision")
+        ): "implementation.review",
+    }
+    public_allocations = workflow_generated_path_allocations(public_bundle)
+    output_path_roles: dict[str, str] = {}
+    observed_roles: set[str] = set()
+    for provider_bundle in compile_result.validated_bundles.values():
+        for step in provider_bundle.surface.steps:
+            if step.kind.value != "provider":
+                continue
+            contract = step.common.variant_output or step.common.output_bundle
+            assert contract is not None
+            fields = (
+                contract.get("shared_fields", ())
+                if step.common.variant_output is not None
+                else contract.get("fields", ())
+            )
+            field_names = frozenset(field["name"] for field in fields)
+            role = role_by_contract_fields.get(field_names)
+            assert role is not None, f"unrecognized provider structured-output contract: {field_names}"
+            assert role not in observed_roles, f"duplicate provider evidence role: {role}"
+            observed_roles.add(role)
+            path_template = contract["path"]
+            match = re.fullmatch(r"\$\{inputs\.([^}]+)\}", path_template)
+            assert match is not None, path_template
+            generated_input_name = match.group(1)
+            matching_allocations = {
+                allocation.concrete_path_template: allocation
+                for allocation in public_allocations
+                if allocation.generated_input_name == generated_input_name
+                and not allocation.concrete_path_template.startswith("${inputs.")
+            }
+            assert len(matching_allocations) == 1, generated_input_name
+            rendered_path = render_generated_path_template(
+                next(iter(matching_allocations.values())), run_id=run_id
+            )
+            assert rendered_path not in output_path_roles
+            output_path_roles[rendered_path] = role
+    assert observed_roles == set(role_by_contract_fields.values())
+    assert len(output_path_roles) == 6
+    return output_path_roles
+
+
+def _tracked_plan_phase_checkpoint_point_for_provider_role(
+    public_bundle: object,
+    output_path_roles: Mapping[str, str],
+    *,
+    role: str,
+    run_id: str,
+) -> object:
+    public_allocations = workflow_generated_path_allocations(public_bundle)
+    candidates: list[object] = []
+    for point in public_bundle.runtime_plan.lexical_checkpoint_points:
+        if getattr(point, "point_kind", None) != "effect_boundary":
+            continue
+        details = getattr(point, "details", {})
+        policy = details.get("effect_boundary", {}).get("policy", {})
+        bundle_path_ref = (
+            policy.get("evidence_requirements", {})
+            .get("structured_output", {})
+            .get("bundle_path_ref")
+        )
+        if not isinstance(bundle_path_ref, str) or not bundle_path_ref.startswith("inputs."):
+            continue
+        generated_input_name = bundle_path_ref.removeprefix("inputs.")
+        allocations = [
+            allocation
+            for allocation in public_allocations
+            if allocation.generated_input_name == generated_input_name
+            and not allocation.concrete_path_template.startswith("${inputs.")
+        ]
+        assert len(allocations) == 1
+        rendered_path = render_generated_path_template(allocations[0], run_id=run_id)
+        if output_path_roles.get(rendered_path) == role:
+            candidates.append(point)
+    assert len(candidates) == 1, f"compiler did not derive one checkpoint for {role}"
+    return candidates[0]
+
+
 def _execute_design_plan_impl_stack_single_pass_runtime(
     workspace: Path,
-) -> tuple[Path, dict[str, object], dict[str, str]]:
+    *,
+    run_id: str,
+    provider_control: dict[str, object],
+    resume: bool = False,
+) -> tuple[dict[str, object], dict[str, str], object]:
+    assert workspace.resolve(strict=True) == TRACKED_PLAN_PILOT_WORKSPACE.resolve(strict=True)
+    assert run_id in TRACKED_PLAN_PILOT_RUN_IDS, "runtime helper received an unapproved run ID"
+    run_path = TRACKED_PLAN_PILOT_RUN_ROOT / run_id
+    run_is_symlink = run_path.is_symlink()
+    run_exists = run_path.exists() or run_is_symlink
+    persisted_status: object = None
+    if resume and run_exists and not run_is_symlink:
+        persisted_state = _load_json(run_path / "state.json")
+        persisted_status = persisted_state.get("status")
+    _validate_tracked_plan_phase_runtime_lifecycle(
+        gate=os.environ.get(TRACKED_PLAN_PILOT_LIVE_ENV),
+        run_id=run_id,
+        resume=resume,
+        run_exists=run_exists,
+        run_is_symlink=run_is_symlink,
+        persisted_status=persisted_status,
+        control=provider_control,
+        expected_interruption_target_step_id=provider_control.get(
+            "interruption_target_step_id"
+        ),
+    )
     workflow_relpath = Path("workflows/examples/design_plan_impl_review_stack_v2_call.orc")
     workflow_path = workspace / workflow_relpath
     workflow_path.parent.mkdir(parents=True, exist_ok=True)
-    workflow_path.write_text((REPO_ROOT / workflow_relpath).read_text(encoding="utf-8"), encoding="utf-8")
+    workflow_path.write_bytes((REPO_ROOT / workflow_relpath).read_bytes())
 
     provider_externs = _load_json(MIGRATION_INPUTS / "design_plan_impl_stack.providers.json")
     prompt_externs = _load_json(MIGRATION_INPUTS / "design_plan_impl_stack.prompts.json")
     for prompt_relpath in prompt_externs.values():
         prompt_path = workspace / prompt_relpath
         prompt_path.parent.mkdir(parents=True, exist_ok=True)
-        prompt_path.write_text((REPO_ROOT / prompt_relpath).read_text(encoding="utf-8"), encoding="utf-8")
+        prompt_path.write_bytes((REPO_ROOT / prompt_relpath).read_bytes())
 
         nested_prompt_path = workflow_path.parent / prompt_relpath
         nested_prompt_path.parent.mkdir(parents=True, exist_ok=True)
-        nested_prompt_path.write_text(
-            (REPO_ROOT / prompt_relpath).read_text(encoding="utf-8"),
-            encoding="utf-8",
-        )
+        nested_prompt_path.write_bytes((REPO_ROOT / prompt_relpath).read_bytes())
 
     brief_relpath = "workflows/examples/inputs/major_project_brief.md"
     brief_path = workspace / brief_relpath
     brief_path.parent.mkdir(parents=True, exist_ok=True)
-    brief_path.write_text(
-        (REPO_ROOT / brief_relpath).read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    brief_path.write_bytes((REPO_ROOT / brief_relpath).read_bytes())
 
     result = compile_stage3_entrypoint(
         workflow_path,
@@ -399,21 +1361,22 @@ def _execute_design_plan_impl_stack_single_pass_runtime(
         "implementation_review_report_path": bound_inputs["implementation_review_report_target_path"],
     }
 
-    state_manager = StateManager(workspace=workspace, run_id="design-plan-impl-stack-runtime")
-    state_manager.initialize(
-        workflow_relpath.as_posix(),
-        context=bundle_context_dict(bundle),
-        bound_inputs=bound_inputs,
-    )
+    state_manager = StateManager(workspace=workspace, run_id=run_id)
+    if not resume:
+        state_manager.initialize(
+            workflow_relpath.as_posix(),
+            context=bundle_context_dict(bundle),
+            bound_inputs=bound_inputs,
+        )
 
-    provider_steps = [
-        {
+    provider_steps = {
+        "design.draft": {
             "artifacts": [(output_paths["design_path"], "# Runtime Design\n")],
             "bundle": {
                 "design_path": output_paths["design_path"],
             },
         },
-        {
+        "design.review": {
             "artifacts": [(output_paths["design_review_report_path"], "APPROVE\n")],
             "bundle": {
                 "variant": "APPROVE",
@@ -421,13 +1384,13 @@ def _execute_design_plan_impl_stack_single_pass_runtime(
                 "design_review_decision": "APPROVE",
             },
         },
-        {
+        "plan.draft": {
             "artifacts": [(output_paths["plan_path"], "# Runtime Plan\n")],
             "bundle": {
                 "plan_path": output_paths["plan_path"],
             },
         },
-        {
+        "plan.review": {
             "artifacts": [(output_paths["plan_review_report_path"], "APPROVE\n")],
             "bundle": {
                 "variant": "APPROVE",
@@ -435,13 +1398,13 @@ def _execute_design_plan_impl_stack_single_pass_runtime(
                 "plan_review_decision": "APPROVE",
             },
         },
-        {
+        "implementation.execute": {
             "artifacts": [(output_paths["execution_report_path"], "# Runtime Execution Report\n")],
             "bundle": {
                 "execution_report_path": output_paths["execution_report_path"],
             },
         },
-        {
+        "implementation.review": {
             "artifacts": [(output_paths["implementation_review_report_path"], "APPROVE\n")],
             "bundle": {
                 "variant": "APPROVE",
@@ -449,23 +1412,45 @@ def _execute_design_plan_impl_stack_single_pass_runtime(
                 "implementation_review_decision": "APPROVE",
             },
         },
-    ]
-    provider_control = {"index": 0}
+    }
 
-    def _prepare_invocation(_self, provider_name=None, prompt_content=None, **_kwargs):
+    output_path_roles = _tracked_plan_phase_compiler_output_path_roles(
+        result,
+        bundle,
+        run_id=run_id,
+    )
+    interruption_target = _tracked_plan_phase_checkpoint_point_for_provider_role(
+        bundle,
+        output_path_roles,
+        role="plan.draft",
+        run_id=run_id,
+    )
+    if resume:
+        assert provider_control.get("interruption_target_step_id") == getattr(
+            interruption_target, "node_id"
+        ), "interrupted resume target is not the compiler-derived plan.draft boundary"
+
+    def _prepare_invocation(
+        _self,
+        provider_name=None,
+        prompt_content=None,
+        env=None,
+        **_kwargs,
+    ):
+        bundle_path = (env or {}).get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH")
+        assert isinstance(bundle_path, str) and bundle_path
+        role = output_path_roles.get(bundle_path)
+        assert role is not None, f"runtime bundle path is not compiler-derived: {bundle_path}"
         return (
             SimpleNamespace(
                 input_mode="stdin",
                 prompt=prompt_content or "",
                 provider_name=provider_name,
+                evidence_role=role,
+                output_bundle_path=bundle_path,
             ),
             None,
         )
-
-    def _bundle_path_from_prompt(prompt: str) -> Path:
-        match = re.search(r"(?m)^-?\s*path: (.+)$", prompt)
-        assert match is not None, prompt
-        return workspace / match.group(1).strip()
 
     def _write_bundle(bundle_path: Path, payload: dict[str, object]) -> None:
         bundle_path.parent.mkdir(parents=True, exist_ok=True)
@@ -486,95 +1471,622 @@ def _execute_design_plan_impl_stack_single_pass_runtime(
         )
 
     def _execute(_self, invocation, **_kwargs):
-        provider_index = provider_control["index"]
-        provider_control["index"] += 1
-        spec = provider_steps[provider_index]
+        role = getattr(invocation, "evidence_role")
+        assert role in provider_steps
+        attempts = provider_control.setdefault("attempts", {})
+        assert isinstance(attempts, dict)
+        attempts[role] = attempts.get(role, 0) + 1
+        spec = provider_steps[role]
         for relpath, content in spec["artifacts"]:
             target = workspace / relpath
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
-        _write_bundle(_bundle_path_from_prompt(getattr(invocation, "prompt", "")), spec["bundle"])
+        _write_bundle(workspace / getattr(invocation, "output_bundle_path"), spec["bundle"])
+        successful_roles = provider_control.setdefault("successful_roles", [])
+        assert isinstance(successful_roles, list)
+        successful_roles.append(role)
         return _success()
 
     with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
         ProviderExecutor, "execute", _execute
     ):
-        state = WorkflowExecutor(bundle, workspace, state_manager, retry_delay_ms=0).execute()
+        executor = WorkflowExecutor(bundle, workspace, state_manager, retry_delay_ms=0)
+        if provider_control.get("interrupt_after_role") == "plan.draft":
+            production_hook = executor.outcome_recorder.post_persist_hook
+            assert production_hook is not None
+            executor.outcome_recorder.post_persist_hook = (
+                _tracked_plan_phase_one_shot_post_persist_interruption(
+                    production_hook,
+                    target_point=interruption_target,
+                    state_manager=state_manager,
+                    control=provider_control,
+                )
+            )
+        try:
+            state = executor.execute(
+                run_id=run_id if resume else None,
+                resume=resume,
+                on_error="stop",
+            )
+        except _TrackedPlanPhaseProcessInterruption:
+            assert resume is False
+            assert provider_control.get("interruption_emitted") is True
+            state = state_manager.load().to_dict()
 
-    assert provider_control["index"] == len(provider_steps)
-    return workspace, state, output_paths
-
-
-@pytest.fixture
-def design_plan_impl_stack_workspace() -> Iterator[Path]:
-    temporary_directory = tempfile.TemporaryDirectory(prefix="design-plan-impl-stack-", dir="/tmp")
-    workspace = Path(temporary_directory.name)
-    yield workspace
-    temporary_directory.cleanup()
-    assert not workspace.exists()
-
-
-def test_design_plan_impl_stack_orc_runtime_uses_fixture_workspace(
-    design_plan_impl_stack_workspace: Path,
-) -> None:
-    workspace, _state, _output_paths = _execute_design_plan_impl_stack_single_pass_runtime(
-        design_plan_impl_stack_workspace
+    return state, output_paths, SimpleNamespace(
+        runtime_plan=bundle.runtime_plan,
+        registered_workflows=tuple(sorted(result.validated_bundles)),
     )
 
-    assert workspace == design_plan_impl_stack_workspace
 
-
-def test_design_plan_impl_stack_orc_runtime_smoke_executes_single_pass_stack(
-    design_plan_impl_stack_workspace: Path,
-) -> None:
-    _workspace, state, _output_paths = _execute_design_plan_impl_stack_single_pass_runtime(
-        design_plan_impl_stack_workspace
+def _tracked_plan_phase_scratch_paths() -> tuple[str, ...]:
+    return tuple(
+        path.as_posix()
+        for path in sorted(Path("/tmp").glob("design-plan-impl-stack-*"))
+        if path.is_dir()
     )
 
-    assert state["status"] == "completed"
+
+def _tracked_plan_phase_run_root_entries() -> tuple[str, ...]:
+    entries = sorted(TRACKED_PLAN_PILOT_RUN_ROOT.iterdir(), key=lambda path: path.name)
+    for entry in entries:
+        assert not entry.is_symlink(), f"dedicated run-root entry is a symlink: {entry}"
+        assert entry.is_dir(), f"dedicated run-root entry is not a directory: {entry}"
+    return tuple(path.name for path in entries)
 
 
-def test_design_plan_impl_stack_orc_runtime_output_contract_matches_stack_outputs(
-    design_plan_impl_stack_workspace: Path,
-) -> None:
-    _workspace, state, output_paths = _execute_design_plan_impl_stack_single_pass_runtime(
-        design_plan_impl_stack_workspace
-    )
-
-    assert state["workflow_outputs"] == {
-        "return__design_path": output_paths["design_path"],
-        "return__design_review_report_path": output_paths["design_review_report_path"],
-        "return__design_review_decision": "APPROVE",
-        "return__plan_path": output_paths["plan_path"],
-        "return__plan_review_report_path": output_paths["plan_review_report_path"],
-        "return__plan_review_decision": "APPROVE",
-        "return__execution_report_path": output_paths["execution_report_path"],
-        "return__implementation_review_report_path": output_paths["implementation_review_report_path"],
-        "return__implementation_review_decision": "APPROVE",
+def _tracked_plan_phase_run_tree_projection(run_id: str) -> dict[str, object]:
+    assert run_id in TRACKED_PLAN_PILOT_RUN_IDS
+    run_path = TRACKED_PLAN_PILOT_RUN_ROOT / run_id
+    assert run_path.is_dir() and not run_path.is_symlink()
+    rows: list[tuple[str, str, str | None]] = []
+    for current, directories, filenames in os.walk(run_path, followlinks=False):
+        directories.sort()
+        filenames.sort()
+        current_path = Path(current)
+        for name in (*directories, *filenames):
+            path = current_path / name
+            assert not path.is_symlink(), f"run tree contains a symlink: {path}"
+            relative = path.relative_to(run_path).as_posix()
+            if path.is_dir():
+                rows.append((relative, "directory", None))
+            else:
+                assert path.is_file(), f"run tree contains unsupported entry: {path}"
+                rows.append((relative, "file", _sha256_path(path)))
+    canonical = json.dumps(
+        sorted(rows), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return {
+        "id": run_id,
+        "relative_path": run_id,
+        "tree_sha256": f"sha256:{hashlib.sha256(canonical).hexdigest()}",
+        "entry_count": len(rows),
     }
 
 
-def test_design_plan_impl_stack_orc_runtime_completes_with_expected_terminal_state(
-    design_plan_impl_stack_workspace: Path,
+def _assert_tracked_plan_phase_fixed_root() -> None:
+    assert TRACKED_PLAN_PILOT_RUN_ROOT.exists() and TRACKED_PLAN_PILOT_RUN_ROOT.is_dir()
+    assert not TRACKED_PLAN_PILOT_RUN_ROOT.is_symlink(), "dedicated run root cannot be a symlink"
+    assert TRACKED_PLAN_PILOT_RUN_ROOT.resolve(strict=True) == (
+        REPO_ROOT.resolve(strict=True)
+        / ".orchestrate"
+        / "procedure-first-pilot-evidence"
+        / "tracked-plan-phase"
+        / "workspace"
+        / ".orchestrate"
+        / "runs"
+    )
+    current = Path(TRACKED_PLAN_PILOT_RUN_ROOT.anchor)
+    for part in TRACKED_PLAN_PILOT_RUN_ROOT.parts[1:]:
+        current /= part
+        assert not current.is_symlink(), f"dedicated run root has symlink component: {current}"
+
+
+def _load_tracked_plan_phase_bound_pre_edit_scan(
+) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+    assert _sha256_path(TRACKED_PLAN_PILOT_PRE_EDIT_SCAN) == TRACKED_PLAN_PILOT_PRE_EDIT_SCAN_SHA256
+    evidence_index = _load_json(TRACKED_PLAN_PILOT_EVIDENCE_INDEX)
+    indexed = evidence_index["artifacts"]["pre_edit_known_store_scans"]
+    assert indexed == {
+        "path": (
+            "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/"
+            "pre_edit_known_store_scans.json"
+        ),
+        "sha256": TRACKED_PLAN_PILOT_PRE_EDIT_SCAN_SHA256,
+    }
+    pre_edit = _load_json(TRACKED_PLAN_PILOT_PRE_EDIT_SCAN)
+    assert pre_edit["schema"] == "procedure_first_pilot_pre_edit_known_store_scans.v1"
+    root_scope = pre_edit["root_scope"]
+    assert root_scope["legacy_repository_root"] == TRACKED_PLAN_PILOT_LEGACY_RUN_ROOT.as_posix()
+    assert root_scope["dedicated_runtime_evidence_root"] == TRACKED_PLAN_PILOT_RUN_ROOT.as_posix()
+    expected_legacy_scan = pre_edit["scans"]["legacy_repository_root"]["scanner_result"]
+    expected_dedicated_scan = pre_edit["scans"]["dedicated_runtime_evidence_root"][
+        "scanner_result"
+    ]
+    assert isinstance(expected_legacy_scan, dict)
+    assert isinstance(expected_dedicated_scan, dict)
+    return pre_edit, expected_legacy_scan, expected_dedicated_scan
+
+
+def _scan_tracked_plan_phase_store(
+    pre_edit: dict[str, object],
+    root: Path,
+) -> dict[str, object]:
+    from orchestrator.workflow_lisp.procedure_identity_retirement import scan_known_state_store
+
+    query = pre_edit["old_identity_query"]
+    observed = scan_known_state_store(
+        root,
+        retired_identities=set(query["identities"]),
+        query_version=query["query_version"],
+    )
+    assert isinstance(observed, dict)
+    return observed
+
+
+def _tracked_plan_phase_runtime_identity_projection(bundle: object) -> dict[str, object]:
+    baseline = _load_json(
+        REPO_ROOT / "tests" / "baselines" / "procedure_first" / "tracked_plan_phase.json"
+    )
+    old_runtime = baseline["runtime_contract"]
+    runtime_plan = bundle.runtime_plan
+    observed_checkpoint_ids = sorted(
+        checkpoint.checkpoint_id for checkpoint in runtime_plan.lexical_checkpoint_points
+    )
+    observed_presentation_keys = sorted(
+        {checkpoint.presentation_key for checkpoint in runtime_plan.resume_checkpoints}
+    )
+    return {
+        "classification": "provisional_old_new_identity_characterization",
+        "frozen_baseline_sha256": _sha256_path(
+            REPO_ROOT / "tests" / "baselines" / "procedure_first" / "tracked_plan_phase.json"
+        ),
+        "old_checkpoint_ids": sorted(
+            row["checkpoint_id"] for row in old_runtime["lexical_checkpoints"]
+        ),
+        "new_checkpoint_ids": observed_checkpoint_ids,
+        "old_presentation_keys": sorted(
+            {row["presentation_key"] for row in old_runtime["resume_checkpoints"]}
+        ),
+        "new_presentation_keys": observed_presentation_keys,
+        "approval_asserted": False,
+    }
+
+
+def _tracked_plan_phase_artifact_projection(
+    workspace: Path,
+    output_paths: dict[str, str],
+) -> dict[str, object]:
+    artifacts: dict[str, object] = {}
+    for name, relpath in sorted(output_paths.items()):
+        path = workspace / relpath
+        assert path.is_file(), relpath
+        artifacts[name] = {"path": relpath, "sha256": _sha256_path(path)}
+    return artifacts
+
+
+def _tracked_plan_phase_common_run_projection(
+    *,
+    run_id: str,
+    state: dict[str, object],
+    output_paths: dict[str, str],
+    bundle: object,
+) -> dict[str, object]:
+    identity_projection = _tracked_plan_phase_runtime_identity_projection(bundle)
+    return {
+        "evidence_status": "provisional_characterization",
+        "run_id": run_id,
+        "run_root": TRACKED_PLAN_PILOT_RUN_ROOT.as_posix(),
+        "workflow_name": (
+            "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack"
+        ),
+        "workflow_outputs": state["workflow_outputs"],
+        "source": {
+            "path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+            "sha256": _sha256_path(
+                EXAMPLES / "design_plan_impl_review_stack_v2_call.orc"
+            ),
+        },
+        "run": _tracked_plan_phase_run_tree_projection(run_id),
+        "artifacts": _tracked_plan_phase_artifact_projection(
+            TRACKED_PLAN_PILOT_WORKSPACE,
+            output_paths,
+        ),
+        "checkpoint_ids": identity_projection["new_checkpoint_ids"],
+        "presentation_keys": identity_projection["new_presentation_keys"],
+        "registered_workflows": list(bundle.registered_workflows),
+        "identity_comparison": identity_projection,
+    }
+
+
+def _publish_tracked_plan_phase_evidence_pair_atomically(
+    clean: dict[str, object],
+    interruption: dict[str, object],
+    *,
+    targets: tuple[Path, Path] = (
+        TRACKED_PLAN_PILOT_CLEAN_EVIDENCE,
+        TRACKED_PLAN_PILOT_RESUME_EVIDENCE,
+    ),
 ) -> None:
-    _workspace, state, _output_paths = _execute_design_plan_impl_stack_single_pass_runtime(
-        design_plan_impl_stack_workspace
+    _validate_tracked_plan_phase_retained_projections(clean, interruption)
+    assert all(not target.exists() for target in targets), (
+        "retained evidence targets must both be absent before publication"
+    )
+    target_payloads = tuple(zip(targets, (clean, interruption), strict=True))
+    temporary_paths: list[Path] = []
+    published_paths: list[Path] = []
+    try:
+        for target, payload in target_payloads:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+            assert not temporary.exists(), f"stale evidence staging file exists: {temporary}"
+            temporary.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            temporary_paths.append(temporary)
+        for temporary, (target, _payload) in zip(
+            temporary_paths, target_payloads, strict=True
+        ):
+            os.replace(temporary, target)
+            published_paths.append(target)
+    except BaseException:
+        for published in published_paths:
+            published.unlink(missing_ok=True)
+        raise
+    finally:
+        for temporary in temporary_paths:
+            temporary.unlink(missing_ok=True)
+
+
+@pytest.mark.skipif(
+    os.environ.get(TRACKED_PLAN_PILOT_LIVE_ENV) != "1",
+    reason="exact two-run pilot evidence is an explicit one-time owner-authorized gate",
+)
+def test_tracked_plan_phase_exact_two_run_evidence() -> None:
+    _assert_tracked_plan_phase_fixed_root()
+    assert not TRACKED_PLAN_PILOT_CLEAN_EVIDENCE.exists()
+    assert not TRACKED_PLAN_PILOT_RESUME_EVIDENCE.exists()
+    pre_edit, expected_legacy_scan, expected_dedicated_scan = (
+        _load_tracked_plan_phase_bound_pre_edit_scan()
+    )
+    observed_preflight_scan = _scan_tracked_plan_phase_store(
+        pre_edit, TRACKED_PLAN_PILOT_LEGACY_RUN_ROOT
+    )
+    observed_preflight_dedicated_scan = _scan_tracked_plan_phase_store(
+        pre_edit, TRACKED_PLAN_PILOT_RUN_ROOT
+    )
+    _validate_tracked_plan_phase_preflight_projection(
+        expected_run_root=TRACKED_PLAN_PILOT_RUN_ROOT.as_posix(),
+        observed_run_root=TRACKED_PLAN_PILOT_RUN_ROOT.resolve(strict=True).as_posix(),
+        dedicated_run_ids=_tracked_plan_phase_run_root_entries(),
+        scratch_paths=_tracked_plan_phase_scratch_paths(),
+        expected_legacy_scan=expected_legacy_scan,
+        observed_legacy_scan=observed_preflight_scan,
+        expected_dedicated_scan=expected_dedicated_scan,
+        observed_dedicated_scan=observed_preflight_dedicated_scan,
     )
 
-    assert state["status"] == "completed"
-    assert state.get("error") is None
+    clean_control: dict[str, object] = {}
+    clean_state, output_paths, clean_bundle = _execute_design_plan_impl_stack_single_pass_runtime(
+        TRACKED_PLAN_PILOT_WORKSPACE,
+        run_id=TRACKED_PLAN_PILOT_RUN_IDS[0],
+        provider_control=clean_control,
+    )
+    expected_roles = [
+        "design.draft",
+        "design.review",
+        "plan.draft",
+        "plan.review",
+        "implementation.execute",
+        "implementation.review",
+    ]
+    assert clean_state["status"] == "completed"
+    assert clean_state.get("error") is None
+    assert clean_state["workflow_outputs"] == _tracked_plan_phase_expected_outputs()
+    assert clean_control == {
+        "attempts": {role: 1 for role in expected_roles},
+        "successful_roles": expected_roles,
+    }
+    clean_projection = {
+        "schema": "procedure_first_pilot_tracked_plan_clean_run.v1",
+        **_tracked_plan_phase_common_run_projection(
+            run_id=TRACKED_PLAN_PILOT_RUN_IDS[0],
+            state=clean_state,
+            output_paths=output_paths,
+            bundle=clean_bundle,
+        ),
+        "status": "completed",
+        "provider_roles": expected_roles,
+    }
 
+    interruption_control: dict[str, object] = {
+        "interrupt_after_role": "plan.draft"
+    }
+    interrupted_state, interrupted_paths, interrupted_bundle = (
+        _execute_design_plan_impl_stack_single_pass_runtime(
+            TRACKED_PLAN_PILOT_WORKSPACE,
+            run_id=TRACKED_PLAN_PILOT_RUN_IDS[1],
+            provider_control=interruption_control,
+        )
+    )
+    assert interrupted_state["status"] == "running"
+    assert interrupted_state.get("error") is None
+    assert interruption_control["successful_roles"] == expected_roles[:3]
+    assert interruption_control["attempts"] == {
+        role: 1 for role in expected_roles[:3]
+    }
+    assert interruption_control["checkpoint_hook_completed"] is True
+    assert interruption_control["interruption_emitted"] is True
+    assert isinstance(interruption_control["interruption_target_step_id"], str)
 
-def test_design_plan_impl_stack_orc_runtime_materializes_expected_artifacts(
-    design_plan_impl_stack_workspace: Path,
-) -> None:
-    workspace, state, output_paths = _execute_design_plan_impl_stack_single_pass_runtime(
-        design_plan_impl_stack_workspace
+    resumed_state, resumed_paths, resumed_bundle = _execute_design_plan_impl_stack_single_pass_runtime(
+        TRACKED_PLAN_PILOT_WORKSPACE,
+        run_id=TRACKED_PLAN_PILOT_RUN_IDS[1],
+        provider_control=interruption_control,
+        resume=True,
+    )
+    assert resumed_state["status"] == "completed"
+    assert resumed_state.get("error") is None
+    assert resumed_state["workflow_outputs"] == clean_state["workflow_outputs"]
+    assert interrupted_paths == resumed_paths == output_paths
+    assert interruption_control["successful_roles"] == expected_roles
+    assert interruption_control["attempts"] == {
+        "design.draft": 1,
+        "design.review": 1,
+        "plan.draft": 1,
+        "plan.review": 1,
+        "implementation.execute": 1,
+        "implementation.review": 1,
+    }
+    interruption_projection = {
+        "schema": "procedure_first_pilot_tracked_plan_interruption_resume.v1",
+        **_tracked_plan_phase_common_run_projection(
+            run_id=TRACKED_PLAN_PILOT_RUN_IDS[1],
+            state=resumed_state,
+            output_paths=resumed_paths,
+            bundle=resumed_bundle,
+        ),
+        "interruption": {
+            "status": "process_interrupted",
+            "persisted_status": interrupted_state["status"],
+            "interruption_point": "post_plan_draft_checkpoint_commit",
+            "completed_provider_roles": expected_roles[:3],
+            "successful_provider_role_count": 3,
+            "next_provider_role_not_attempted": "plan.review",
+        },
+        "resume": {
+            "status": "completed",
+            "reused_provider_roles": expected_roles[:3],
+            "executed_provider_roles": expected_roles[3:],
+            "provider_role_attempts": interruption_control["attempts"],
+        },
+        "comparison": {
+            "public_output_equal_to_clean": True,
+            "artifacts_equal_to_clean": (
+                _tracked_plan_phase_artifact_projection(
+                    TRACKED_PLAN_PILOT_WORKSPACE,
+                    resumed_paths,
+                )
+                == clean_projection["artifacts"]
+            ),
+        },
+    }
+    _validate_tracked_plan_phase_retained_projections(clean_projection, interruption_projection)
+
+    observed_postflight_scan = _scan_tracked_plan_phase_store(
+        pre_edit, TRACKED_PLAN_PILOT_LEGACY_RUN_ROOT
+    )
+    observed_postflight_dedicated_scan = _scan_tracked_plan_phase_store(
+        pre_edit, TRACKED_PLAN_PILOT_RUN_ROOT
+    )
+    _validate_tracked_plan_phase_postflight_projection(
+        dedicated_run_ids=_tracked_plan_phase_run_root_entries(),
+        scratch_paths=_tracked_plan_phase_scratch_paths(),
+        expected_legacy_scan=expected_legacy_scan,
+        observed_legacy_scan=observed_postflight_scan,
+        expected_dedicated_scan=expected_dedicated_scan,
+        observed_dedicated_scan=observed_postflight_dedicated_scan,
+    )
+    _publish_tracked_plan_phase_evidence_pair_atomically(
+        clean_projection,
+        interruption_projection,
     )
 
-    assert state["status"] == "completed"
-    for relpath in output_paths.values():
-        assert (workspace / relpath).is_file(), relpath
+
+@pytest.mark.skipif(
+    not (
+        TRACKED_PLAN_PILOT_CLEAN_EVIDENCE.exists()
+        and TRACKED_PLAN_PILOT_RESUME_EVIDENCE.exists()
+    ),
+    reason="retained pilot evidence has not been published",
+)
+def test_tracked_plan_phase_retained_run_evidence_replays() -> None:
+    with patch.object(StateManager, "__init__", side_effect=AssertionError("runtime forbidden")), patch.object(
+        WorkflowExecutor,
+        "__init__",
+        side_effect=AssertionError("runtime forbidden"),
+    ), patch(
+        "orchestrator.workflow_lisp.procedure_identity_retirement.scan_known_state_store",
+        side_effect=AssertionError("scanner forbidden"),
+    ):
+        clean = _load_json(TRACKED_PLAN_PILOT_CLEAN_EVIDENCE)
+        interruption = _load_json(TRACKED_PLAN_PILOT_RESUME_EVIDENCE)
+        _validate_tracked_plan_phase_retained_projections(clean, interruption)
+
+
+def test_design_plan_impl_stack_orc_retains_public_contract_without_a_runtime_run(
+    tmp_path: Path,
+) -> None:
+    provider_externs = _load_json(MIGRATION_INPUTS / "design_plan_impl_stack.providers.json")
+    prompt_externs = _load_json(MIGRATION_INPUTS / "design_plan_impl_stack.prompts.json")
+    with patch.object(StateManager, "__init__", side_effect=AssertionError("runtime forbidden")), patch.object(
+        WorkflowExecutor,
+        "__init__",
+        side_effect=AssertionError("runtime forbidden"),
+    ):
+        result = compile_stage3_entrypoint(
+            EXAMPLES / "design_plan_impl_review_stack_v2_call.orc",
+            source_roots=(WORKFLOWS,),
+            provider_externs=provider_externs,
+            prompt_externs=prompt_externs,
+            command_boundaries={},
+            validate_shared=True,
+            workspace_root=tmp_path,
+        ).entry_result
+
+    assert set(result.validated_bundles) == {
+        "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+        (
+            "examples/design_plan_impl_review_stack_v2_call::"
+            "design-plan-impl-implementation-phase"
+        ),
+        "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+    }
+    baseline = _load_json(
+        REPO_ROOT / "tests" / "baselines" / "procedure_first" / "tracked_plan_phase.json"
+    )
+    expected_public = baseline["public_contract"]
+    module_name = "examples/design_plan_impl_review_stack_v2_call"
+    assert result.module.module_name == module_name
+    assert list(result.module.exports) == expected_public["exported_workflows"] == [
+        "design-plan-impl-review-stack"
+    ]
+    public_bundle = result.validated_bundles[
+        "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack"
+    ]
+    public_workflow = next(
+        workflow
+        for workflow in result.typed_workflows
+        if workflow.definition.name
+        == "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack"
+    )
+
+    def type_contract(type_ref) -> dict[str, object]:
+        contract: dict[str, object] = {"type_name": type_ref.name}
+        definition = getattr(type_ref, "definition", None)
+        if definition is not None:
+            for field_name in ("kind", "under", "must_exist"):
+                if hasattr(definition, field_name):
+                    contract[field_name] = getattr(definition, field_name)
+        allowed_values = getattr(type_ref, "allowed_values", ())
+        if allowed_values:
+            contract["allowed_values"] = list(allowed_values)
+        return contract
+
+    signature = public_workflow.signature
+    actual_inputs = [
+        {
+            "name": name,
+            "default": signature.param_defaults.get(name),
+            **type_contract(type_ref),
+        }
+        for name, type_ref in signature.params
+    ]
+    return_type = signature.return_type_ref
+    actual_outputs = [
+        {"name": field.name, **type_contract(return_type.field_types[field.name])}
+        for field in return_type.definition.fields
+    ]
+    assert actual_inputs == expected_public["inputs"]
+    assert actual_outputs == expected_public["outputs"]
+    assert return_type.name == expected_public["return_type"] == "StackOutput"
+    assert len(actual_inputs) == 7
+    assert len(actual_outputs) == 9
+
+    def field_projection(field) -> tuple[tuple[str, object], ...]:
+        return tuple(
+            (
+                key,
+                tuple(field[key])
+                if isinstance(field[key], (list, tuple))
+                else field[key],
+            )
+            for key in ("name", "json_pointer", "type", "under", "must_exist_target", "allowed")
+            if key in field
+        )
+
+    def contract_projection(output_bundle, variant_output, publishes) -> tuple[object, ...]:
+        if output_bundle is not None:
+            body = ("output", tuple(field_projection(field) for field in output_bundle["fields"]))
+        else:
+            assert variant_output is not None
+            body = (
+                "variant",
+                field_projection(variant_output["discriminant"]),
+                tuple(field_projection(field) for field in variant_output["shared_fields"]),
+                tuple(sorted(variant_output["variants"])),
+            )
+        return body, tuple(publishes)
+
+    actual_artifact_contracts = sorted(
+        contract_projection(step.common.output_bundle, step.common.variant_output, step.common.publishes)
+        for bundle in result.validated_bundles.values()
+        for step in bundle.surface.steps
+        if step.kind.value == "provider"
+    )
+    expected_artifact_contracts = sorted(
+        contract_projection(
+            row["output_bundle_contract"], row["variant_output_contract"], row["publishes"]
+        )
+        for row in baseline["artifact_contracts"]
+    )
+    assert actual_artifact_contracts == expected_artifact_contracts
+    actual_effects = sorted(
+        tuple(
+            sorted(
+                {
+                    "kind": type(effect).__name__,
+                    "subject": ".".join(effect.subject),
+                }.items()
+            )
+        )
+        for effect in public_workflow.effect_summary.transitive_effects
+        if not (
+            type(effect).__name__ == "CallsWorkflowEffect"
+            and ".".join(effect.subject) == f"{module_name}::tracked-plan-phase"
+        )
+    )
+    expected_effects = sorted(
+        tuple(
+            sorted(
+                {
+                    **row,
+                    "subject": row["subject"].replace("$module", module_name),
+                }.items()
+            )
+        )
+        for row in baseline["caller_visible_effects"]
+    )
+    assert actual_effects == expected_effects
+    output_path_roles = _tracked_plan_phase_compiler_output_path_roles(
+        result,
+        public_bundle,
+        run_id=TRACKED_PLAN_PILOT_RUN_IDS[0],
+    )
+    assert set(output_path_roles.values()) == {
+        "design.draft",
+        "design.review",
+        "plan.draft",
+        "plan.review",
+        "implementation.execute",
+        "implementation.review",
+    }
+    interruption_target = _tracked_plan_phase_checkpoint_point_for_provider_role(
+        public_bundle,
+        output_path_roles,
+        role="plan.draft",
+        run_id=TRACKED_PLAN_PILOT_RUN_IDS[0],
+    )
+    assert interruption_target.checkpoint_id in TRACKED_PLAN_PILOT_NEW_CHECKPOINT_IDS
+    assert interruption_target.node_id in public_bundle.runtime_plan.ordered_node_ids
+    identity_projection = _tracked_plan_phase_runtime_identity_projection(public_bundle)
+    assert identity_projection["new_checkpoint_ids"] == list(
+        TRACKED_PLAN_PILOT_NEW_CHECKPOINT_IDS
+    )
+    assert identity_projection["new_presentation_keys"] == list(
+        TRACKED_PLAN_PILOT_NEW_PRESENTATION_KEYS
+    )
 
 
 def test_library_orc_variants_compile_independently(tmp_path: Path) -> None:

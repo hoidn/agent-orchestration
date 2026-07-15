@@ -378,13 +378,12 @@
     {
       "copy_safety": "migration_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_key_migrations.py::test_design_plan_impl_stack_orc_compiles_with_phase_family_contracts",
-        "tests/test_workflow_lisp_key_migrations.py::test_design_plan_impl_stack_orc_runtime_smoke_executes_single_pass_stack"
+        "tests/test_workflow_lisp_key_migrations.py::test_design_plan_impl_stack_orc_compiles_with_phase_family_contracts"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
       "path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
-      "readiness_label": "leaf_runtime_candidate",
+      "readiness_label": "leaf_compile_candidate",
       "route_label": "migration_candidate",
       "surface_id": "workflows.examples.design_plan_impl_review_stack_v2_call",
       "surface_kind": "workflow_example"

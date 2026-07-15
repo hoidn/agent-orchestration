@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
+import os
 import re
-from dataclasses import dataclass
+import stat
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 from orchestrator.workflow_lisp.lexical_checkpoint_transition_resume import (
     AUDIT_STALE,
     COMMITTED_RESULT_REUSED,
@@ -24,10 +28,14 @@ RESTORE_PAYLOAD_SCHEMA_VERSION = "workflow_lisp_lexical_restore_payload.v1"
 RESTORE_DECISION_RESTORED = "RESTORED"
 RESTORE_DECISION_NOT_RESTORABLE = "NOT_RESTORABLE"
 RESTORE_DECISION_INVALID = "INVALID"
+RESTORE_SELECTION_RECORD_ABSENT = "record_absent"
+RESTORE_SELECTION_RECORD_PRESENT = "record_present"
+RESTORE_SELECTION_RECORD_PRESENT_UNUSABLE = "record_present_unusable"
 RESTORE_ELIGIBILITY_CLASSES = frozenset(
     {"pure_binding", "let_continuation", "match_branch", "loop_frame"}
 )
 RESTORE_TRANSPORTS = frozenset({"inline_json", "private_artifact_ref"})
+_SAFE_RECORD_ID_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*\Z")
 
 
 @dataclass(frozen=True)
@@ -44,6 +52,12 @@ class RestoreDiagnosticCodes:
     effect_policy_barrier: str = "lexical_restore_effect_policy_barrier"
     resource_observation_mismatch: str = "lexical_restore_resource_observation_mismatch"
     used_as_semantic_authority: str = "lexical_restore_used_as_semantic_authority"
+    checkpoint_index_unreadable: str = "lexical_restore_checkpoint_index_unreadable"
+    checkpoint_index_malformed: str = "lexical_restore_checkpoint_index_malformed"
+    checkpoint_index_identity_mismatch: str = "lexical_restore_checkpoint_index_identity_mismatch"
+    checkpoint_record_reference_invalid: str = "lexical_restore_checkpoint_record_reference_invalid"
+    checkpoint_record_unreadable: str = "lexical_restore_checkpoint_record_unreadable"
+    checkpoint_record_malformed: str = "lexical_restore_checkpoint_record_malformed"
 
 
 DIAGNOSTIC_CODES = RestoreDiagnosticCodes()
@@ -59,6 +73,7 @@ class RestoreDecision:
     policy_decision: str | None = None
     diagnostics: tuple[str, ...] = ()
     transition_resume: Mapping[str, Any] | None = None
+    selection_observation: str | None = None
 
     @property
     def restored_bindings(self) -> int:
@@ -70,6 +85,14 @@ class RestoreDecision:
     def restored_loop_frames(self) -> int:
         payload = self.restore_payload or {}
         return 1 if isinstance(payload, Mapping) and isinstance(payload.get("loop_frame"), Mapping) else 0
+
+
+class _WorkspaceBeneathPathInvalid(OSError):
+    pass
+
+
+class _WorkspaceBeneathReadUnavailable(OSError):
+    pass
 
 
 def canonical_json_dumps(value: Any) -> str:
@@ -96,6 +119,18 @@ def _non_empty_string(value: Any, diagnostic: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(diagnostic)
     return value
+
+
+def _is_safe_record_id_component(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and value not in {".", ".."}
+        and "/" not in value
+        and "\\" not in value
+        and "\x00" not in value
+        and _SAFE_RECORD_ID_COMPONENT.fullmatch(value) is not None
+    )
 
 
 def _binding_schema_digest(binding: Mapping[str, Any]) -> str:
@@ -619,6 +654,109 @@ def _workflow_path_from_state(state_manager: Any, state: Mapping[str, Any]) -> P
     return candidate if candidate.exists() else None
 
 
+def _path_has_symlink_below_workspace(*, workspace: Path, path: Path) -> bool:
+    workspace_path = Path(workspace).absolute()
+    candidate_path = Path(path).absolute()
+    try:
+        relative = candidate_path.relative_to(workspace_path)
+    except ValueError:
+        return True
+    current = workspace_path
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+    return False
+
+
+def _read_workspace_beneath_json(
+    *,
+    workspace: Path,
+    relative_path: str,
+) -> Any:
+    if (
+        not isinstance(relative_path, str)
+        or not relative_path
+        or relative_path.startswith("/")
+        or "\\" in relative_path
+        or "\x00" in relative_path
+    ):
+        raise _WorkspaceBeneathPathInvalid("invalid workspace-relative path")
+    components = relative_path.split("/")
+    if any(component in {"", ".", ".."} for component in components):
+        raise _WorkspaceBeneathPathInvalid("invalid workspace-relative path")
+    required_flags = ("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC", "O_NONBLOCK")
+    if any(not hasattr(os, name) for name in required_flags):
+        raise _WorkspaceBeneathReadUnavailable("no-follow descriptor reads unsupported")
+
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
+    opened_fds: list[int] = []
+    try:
+        current_fd = os.open(Path(workspace), directory_flags)
+        opened_fds.append(current_fd)
+        for component in components[:-1]:
+            current_fd = os.open(
+                component,
+                directory_flags,
+                dir_fd=current_fd,
+            )
+            opened_fds.append(current_fd)
+        file_fd = os.open(
+            components[-1],
+            file_flags,
+            dir_fd=current_fd,
+        )
+        opened_fds.append(file_fd)
+        before = os.fstat(file_fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise _WorkspaceBeneathReadUnavailable(
+                "workspace-relative path is not a regular file"
+            )
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(file_fd, 65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        after = os.fstat(file_fd)
+        before_identity = (
+            before.st_dev,
+            before.st_ino,
+            before.st_mode,
+            before.st_size,
+            before.st_mtime_ns,
+            before.st_ctime_ns,
+        )
+        after_identity = (
+            after.st_dev,
+            after.st_ino,
+            after.st_mode,
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        )
+        if before_identity != after_identity:
+            raise _WorkspaceBeneathReadUnavailable("file changed during read")
+        return json.loads(b"".join(chunks).decode("utf-8"))
+    except (TypeError, NotImplementedError) as exc:
+        raise _WorkspaceBeneathReadUnavailable(
+            "descriptor-relative reads unsupported"
+        ) from exc
+    except OSError as exc:
+        if isinstance(exc, (_WorkspaceBeneathPathInvalid, _WorkspaceBeneathReadUnavailable)):
+            raise
+        if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+            raise _WorkspaceBeneathPathInvalid("symlinked or invalid path component") from exc
+        raise
+    finally:
+        for descriptor in reversed(opened_fds):
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
 def _resolve_authoritative_transition_resource(
     *,
     loaded_workflow: Any | None,
@@ -1077,37 +1215,231 @@ def select_restore_candidate(
             return "BARRIER", (DIAGNOSTIC_CODES.pending_effect_unsafe,), None
         return "INVALID", (DIAGNOSTIC_CODES.pending_effect_unsafe,), None
 
-    def _select_for_points(points: Sequence[Any], *, selected_checkpoint_id: str | None = None) -> RestoreDecision:
+    def _select_for_points_unobserved(
+        points: Sequence[Any],
+        *,
+        selected_checkpoint_id: str | None = None,
+    ) -> RestoreDecision:
         if not points:
             return RestoreDecision(kind=RESTORE_DECISION_NOT_RESTORABLE, checkpoint_id=selected_checkpoint_id)
 
         invalid_diagnostics: list[str] = []
         saw_non_restorable = False
+        saw_record = False
 
         for point in points:
+            point_payload = checkpoints._point_payload(point)
             index_path = checkpoints.resolve_checkpoint_index_path(
                 state_manager=state_manager,
                 workflow_name=point.workflow_name,
                 checkpoint_id=point.checkpoint_id,
             )
+            index_path = Path(index_path)
             try:
-                index_payload = state_manager.read_runtime_sidecar_json(index_path)
+                index_relative = index_path.relative_to(
+                    state_manager.workspace
+                ).as_posix()
+            except ValueError:
+                return RestoreDecision(
+                    kind=RESTORE_DECISION_INVALID,
+                    checkpoint_id=point.checkpoint_id,
+                    diagnostics=(DIAGNOSTIC_CODES.checkpoint_index_unreadable,),
+                )
+            try:
+                index_payload = _read_workspace_beneath_json(
+                    workspace=state_manager.workspace,
+                    relative_path=index_relative,
+                )
+            except FileNotFoundError:
+                continue
+            except (json.JSONDecodeError, ValueError):
+                return RestoreDecision(
+                    kind=RESTORE_DECISION_INVALID,
+                    checkpoint_id=point.checkpoint_id,
+                    diagnostics=(DIAGNOSTIC_CODES.checkpoint_index_malformed,),
+                )
             except Exception:
-                continue
-            records = index_payload.get("records") if isinstance(index_payload, Mapping) else None
-            if not isinstance(records, list):
-                continue
+                return RestoreDecision(
+                    kind=RESTORE_DECISION_INVALID,
+                    checkpoint_id=point.checkpoint_id,
+                    diagnostics=(DIAGNOSTIC_CODES.checkpoint_index_unreadable,),
+                )
+            if not isinstance(index_payload, Mapping):
+                return RestoreDecision(
+                    kind=RESTORE_DECISION_INVALID,
+                    checkpoint_id=point.checkpoint_id,
+                    diagnostics=(DIAGNOSTIC_CODES.checkpoint_index_malformed,),
+                )
+            records = index_payload.get("records")
+            if (
+                index_payload.get("workflow_name") != point.workflow_name
+                or index_payload.get("checkpoint_id") != point.checkpoint_id
+                or not isinstance(index_payload.get("program_point_id"), str)
+                or not index_payload.get("program_point_id")
+                or not isinstance(index_payload.get("storage_allocation_id"), str)
+                or not index_payload.get("storage_allocation_id")
+                or not isinstance(records, list)
+            ):
+                return RestoreDecision(
+                    kind=RESTORE_DECISION_INVALID,
+                    checkpoint_id=point.checkpoint_id,
+                    diagnostics=(DIAGNOSTIC_CODES.checkpoint_index_malformed,),
+                )
+            index_allocation = checkpoints.allocate_checkpoint_storage(
+                workflow_name=point.workflow_name,
+                checkpoint_id=point.checkpoint_id,
+                semantic_role=GeneratedPathSemanticRole.LEXICAL_CHECKPOINT_INDEX.value,
+            )
+            if (
+                index_payload.get("program_point_id")
+                != point_payload.get("program_point_id")
+                or index_payload.get("storage_allocation_id")
+                != index_allocation.allocation_id
+            ):
+                return RestoreDecision(
+                    kind=RESTORE_DECISION_INVALID,
+                    checkpoint_id=point.checkpoint_id,
+                    diagnostics=(
+                        DIAGNOSTIC_CODES.checkpoint_index_identity_mismatch,
+                    ),
+                )
+            if records:
+                saw_record = True
             for entry in reversed(records):
-                entry_map = _mapping(entry)
+                if not isinstance(entry, Mapping):
+                    return RestoreDecision(
+                        kind=RESTORE_DECISION_INVALID,
+                        checkpoint_id=point.checkpoint_id,
+                        diagnostics=(DIAGNOSTIC_CODES.checkpoint_record_reference_invalid,),
+                    )
+                entry_map = entry
                 record_path_value = entry_map.get("record_path")
-                if not isinstance(record_path_value, str) or not record_path_value:
-                    continue
+                if (
+                    not _is_safe_record_id_component(entry_map.get("record_id"))
+                    or entry_map.get("program_point_id")
+                    != point_payload.get("program_point_id")
+                    or entry_map.get("point_kind") != point_payload.get("point_kind")
+                    or not isinstance(entry_map.get("frame_identity"), Mapping)
+                    or not isinstance(record_path_value, str)
+                    or not record_path_value
+                ):
+                    return RestoreDecision(
+                        kind=RESTORE_DECISION_INVALID,
+                        checkpoint_id=point.checkpoint_id,
+                        diagnostics=(DIAGNOSTIC_CODES.checkpoint_record_reference_invalid,),
+                    )
+                storage_scope = _mapping(point_payload.get("storage")).get(
+                    "resume_scope"
+                )
+                canonical_record_family = (
+                    checkpoints.resolve_checkpoint_record_family_path(
+                        state_manager=state_manager,
+                        workflow_name=point.workflow_name,
+                        checkpoint_id=point.checkpoint_id,
+                        storage_scope=(
+                            str(storage_scope)
+                            if isinstance(storage_scope, str) and storage_scope
+                            else None
+                        ),
+                    )
+                )
+                canonical_record_path = checkpoints.resolve_checkpoint_record_path(
+                    state_manager=state_manager,
+                    workflow_name=point.workflow_name,
+                    checkpoint_id=point.checkpoint_id,
+                    record_id=str(entry_map["record_id"]),
+                    storage_scope=(
+                        str(storage_scope)
+                        if isinstance(storage_scope, str) and storage_scope
+                        else None
+                    ),
+                )
+                workspace_resolved = Path(state_manager.workspace).resolve()
+                family_resolved = canonical_record_family.resolve()
+                record_resolved = canonical_record_path.resolve()
                 try:
-                    record = state_manager.read_runtime_sidecar_json(state_manager.workspace / record_path_value)
+                    canonical_record_relative = canonical_record_path.relative_to(
+                        state_manager.workspace
+                    ).as_posix()
+                    family_resolved.relative_to(workspace_resolved)
+                    record_resolved.relative_to(workspace_resolved)
+                except ValueError:
+                    return RestoreDecision(
+                        kind=RESTORE_DECISION_INVALID,
+                        checkpoint_id=point.checkpoint_id,
+                        record_id=str(entry_map.get("record_id")),
+                        diagnostics=(
+                            DIAGNOSTIC_CODES.checkpoint_record_reference_invalid,
+                        ),
+                    )
+                if (
+                    record_path_value != canonical_record_relative
+                    or canonical_record_path.parent != canonical_record_family
+                    or record_resolved.parent != family_resolved
+                    or _path_has_symlink_below_workspace(
+                        workspace=state_manager.workspace,
+                        path=canonical_record_path,
+                    )
+                ):
+                    return RestoreDecision(
+                        kind=RESTORE_DECISION_INVALID,
+                        checkpoint_id=point.checkpoint_id,
+                        record_id=str(entry_map.get("record_id")),
+                        diagnostics=(
+                            DIAGNOSTIC_CODES.checkpoint_record_reference_invalid,
+                        ),
+                    )
+                try:
+                    record = _read_workspace_beneath_json(
+                        workspace=state_manager.workspace,
+                        relative_path=canonical_record_relative,
+                    )
+                except _WorkspaceBeneathPathInvalid:
+                    return RestoreDecision(
+                        kind=RESTORE_DECISION_INVALID,
+                        checkpoint_id=point.checkpoint_id,
+                        record_id=str(entry_map.get("record_id")),
+                        diagnostics=(
+                            DIAGNOSTIC_CODES.checkpoint_record_reference_invalid,
+                        ),
+                    )
+                except (json.JSONDecodeError, ValueError):
+                    return RestoreDecision(
+                        kind=RESTORE_DECISION_INVALID,
+                        checkpoint_id=point.checkpoint_id,
+                        record_id=str(entry_map.get("record_id")),
+                        diagnostics=(DIAGNOSTIC_CODES.checkpoint_record_malformed,),
+                    )
                 except Exception:
-                    continue
+                    return RestoreDecision(
+                        kind=RESTORE_DECISION_INVALID,
+                        checkpoint_id=point.checkpoint_id,
+                        record_id=str(entry_map.get("record_id")),
+                        diagnostics=(DIAGNOSTIC_CODES.checkpoint_record_unreadable,),
+                    )
                 if not isinstance(record, Mapping):
-                    continue
+                    return RestoreDecision(
+                        kind=RESTORE_DECISION_INVALID,
+                        checkpoint_id=point.checkpoint_id,
+                        record_id=str(entry_map.get("record_id")),
+                        diagnostics=(DIAGNOSTIC_CODES.checkpoint_record_unreadable,),
+                    )
+                if (
+                    record.get("record_id") != entry_map.get("record_id")
+                    or record.get("program_point_id")
+                    != entry_map.get("program_point_id")
+                    or record.get("point_kind") != entry_map.get("point_kind")
+                    or record.get("frame_identity")
+                    != entry_map.get("frame_identity")
+                ):
+                    return RestoreDecision(
+                        kind=RESTORE_DECISION_INVALID,
+                        checkpoint_id=point.checkpoint_id,
+                        record_id=str(entry_map.get("record_id")),
+                        diagnostics=(
+                            DIAGNOSTIC_CODES.checkpoint_record_reference_invalid,
+                        ),
+                    )
 
                 record_id = record.get("record_id") if isinstance(record.get("record_id"), str) else None
                 origin_key = point.origin_key if isinstance(getattr(point, "origin_key", None), str) else None
@@ -1140,7 +1472,7 @@ def select_restore_candidate(
                         diagnostics=(DIAGNOSTIC_CODES.source_lineage_mismatch,),
                     )
                 if record.get("binding_schema_digest") != checkpoints.checkpoint_record_binding_schema_digest(
-                    checkpoints._point_payload(point)
+                    point_payload
                 ):
                     return RestoreDecision(
                         kind=RESTORE_DECISION_INVALID,
@@ -1158,6 +1490,24 @@ def select_restore_candidate(
                         source_map_origin_key=origin_key,
                         policy_decision=policy_decision,
                         diagnostics=policy_diagnostics,
+                        transition_resume=transition_resume,
+                    )
+                record_envelope = dict(record)
+                record_envelope.pop("restore_payload", None)
+                try:
+                    checkpoints.validate_checkpoint_record(
+                        record_envelope,
+                        expected_point=point_payload,
+                        expected_program_identity=expected_program_identity,
+                    )
+                except ValueError as exc:
+                    return RestoreDecision(
+                        kind=RESTORE_DECISION_INVALID,
+                        checkpoint_id=point.checkpoint_id,
+                        record_id=record_id,
+                        source_map_origin_key=origin_key,
+                        policy_decision=policy_decision,
+                        diagnostics=(str(exc),),
                         transition_resume=transition_resume,
                     )
                 if policy_decision == "BARRIER":
@@ -1339,10 +1689,46 @@ def select_restore_candidate(
                 checkpoint_id=selected_checkpoint_id,
                 source_map_origin_key=None,
                 diagnostics=tuple(invalid_diagnostics),
+                selection_observation=RESTORE_SELECTION_RECORD_PRESENT,
             )
         if saw_non_restorable:
-            return RestoreDecision(kind=RESTORE_DECISION_NOT_RESTORABLE, checkpoint_id=selected_checkpoint_id)
-        return RestoreDecision(kind=RESTORE_DECISION_NOT_RESTORABLE, checkpoint_id=selected_checkpoint_id)
+            return RestoreDecision(
+                kind=RESTORE_DECISION_NOT_RESTORABLE,
+                checkpoint_id=selected_checkpoint_id,
+                selection_observation=RESTORE_SELECTION_RECORD_PRESENT,
+            )
+        return RestoreDecision(
+            kind=RESTORE_DECISION_NOT_RESTORABLE,
+            checkpoint_id=selected_checkpoint_id,
+            selection_observation=(
+                RESTORE_SELECTION_RECORD_PRESENT
+                if saw_record
+                else RESTORE_SELECTION_RECORD_ABSENT
+            ),
+        )
+
+    def _select_for_points(
+        points: Sequence[Any],
+        *,
+        selected_checkpoint_id: str | None = None,
+    ) -> RestoreDecision:
+        decision = _select_for_points_unobserved(
+            points,
+            selected_checkpoint_id=selected_checkpoint_id,
+        )
+        if decision.selection_observation is not None:
+            return decision
+        if decision.kind == RESTORE_DECISION_RESTORED:
+            return replace(
+                decision,
+                selection_observation=RESTORE_SELECTION_RECORD_PRESENT,
+            )
+        if decision.kind == RESTORE_DECISION_INVALID:
+            return replace(
+                decision,
+                selection_observation=RESTORE_SELECTION_RECORD_PRESENT_UNUSABLE,
+            )
+        return decision
 
     if checkpoint_id is not None:
         selected_points = tuple(point for point in all_points if getattr(point, "checkpoint_id", None) == checkpoint_id)

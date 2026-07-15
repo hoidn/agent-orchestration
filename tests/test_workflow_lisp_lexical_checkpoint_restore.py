@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import importlib
 import json
+import multiprocessing
+import os
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -112,6 +115,12 @@ def _checkpoints_module():
 
 def _restore_module():
     return importlib.import_module("orchestrator.workflow_lisp.lexical_checkpoint_restore")
+
+
+def _default_resume_module():
+    return importlib.import_module(
+        "orchestrator.workflow_lisp.lexical_checkpoint_default_resume"
+    )
 
 
 def _compile_fixture(tmp_path: Path):
@@ -2038,3 +2047,977 @@ def test_runtime_resume_restores_private_artifact_ref_binding_before_effect_boun
     payload = json.loads(restore_report.read_text(encoding="utf-8"))
     assert payload["decision_kind"] == "RESTORED"
     assert payload["restored_bindings"] >= 3
+
+
+def _generic_resume_point(
+    checkpoint_id: str,
+    node_id: str,
+    *,
+    point_kind: str = "effect_boundary",
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        checkpoint_id=checkpoint_id,
+        node_id=node_id,
+        step_id=node_id,
+        point_kind=point_kind,
+        workflow_name="generic::workflow",
+        origin_key=f"source:{node_id}",
+        details={
+            "restore": {"eligibility": ["pure_binding"]},
+            "effect_boundary": {"effect_kind": "provider"},
+        },
+    )
+
+
+def _generic_default_resume_plan(
+    *,
+    ordered_node_ids: tuple[str, ...],
+    points: tuple[SimpleNamespace, ...],
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        workflow_name="generic::workflow",
+        ordered_node_ids=ordered_node_ids,
+        lexical_checkpoint_points=points,
+    )
+
+
+def _generic_restore_decision(
+    kind: str,
+    *,
+    checkpoint_id: str | None = None,
+    selection_observation: str | None = None,
+    diagnostics: tuple[str, ...] = (),
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        kind=kind,
+        checkpoint_id=checkpoint_id,
+        record_id="record:prior" if kind == "RESTORED" else None,
+        source_map_origin_key="source:prior" if kind == "RESTORED" else None,
+        restore_payload={"bindings": []} if kind == "RESTORED" else None,
+        policy_decision="REUSABLE" if kind == "RESTORED" else None,
+        diagnostics=diagnostics,
+        transition_resume=None,
+        selection_observation=selection_observation,
+    )
+
+
+def test_default_resume_restores_unique_nearest_prior_effect_boundary_after_record_absence() -> None:
+    default_resume = _default_resume_module()
+    prior = _generic_resume_point("checkpoint:prior", "root.prior")
+    restart = _generic_resume_point("checkpoint:restart", "root.restart")
+    runtime_plan = _generic_default_resume_plan(
+        ordered_node_ids=("root.prior", "root.restart"),
+        points=(prior, restart),
+    )
+    calls: list[dict[str, object]] = []
+
+    def selector(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return _generic_restore_decision(
+                "NOT_RESTORABLE",
+                selection_observation="record_absent",
+            )
+        return _generic_restore_decision(
+            "RESTORED",
+            checkpoint_id="checkpoint:prior",
+            selection_observation="record_present",
+        )
+
+    decision = default_resume.determine_runtime_default_resume_decision(
+        state={"context": {"workflow_lisp": {"lowering_schema_version": 2}}},
+        runtime_plan=runtime_plan,
+        restart_node_id="root.restart",
+        restore_selector=selector,
+        is_workflow_lisp=True,
+    )
+
+    assert decision["mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
+    assert decision["restore_decision"] == "RESTORED"
+    assert decision["restart_node_id"] == "root.restart"
+    assert decision["checkpoint_id"] == "checkpoint:prior"
+    assert decision["restore_candidate"]["selection_reason"] == "validated_prior_boundary"
+    assert len(calls) == 2
+    assert calls[0]["restart_node_id"] == "root.restart"
+    assert calls[1]["checkpoint_id"] == "checkpoint:prior"
+    assert "restart_node_id" not in calls[1]
+
+
+def test_default_resume_validates_and_restores_materialized_nearest_prior_boundary(
+    tmp_path: Path,
+) -> None:
+    default_resume = _default_resume_module()
+    checkpoints = _checkpoints_module()
+    bundle, state_manager, _ = _materialize_restore_sidecars(
+        tmp_path,
+        run_id="restore-materialized-nearest-prior",
+    )
+    order = {
+        node_id: index
+        for index, node_id in enumerate(bundle.runtime_plan.ordered_node_ids)
+    }
+    effect_points = sorted(
+        (
+            point
+            for point in bundle.runtime_plan.lexical_checkpoint_points
+            if point.point_kind == "effect_boundary"
+        ),
+        key=lambda point: order[point.node_id],
+    )
+    prior, restart = effect_points[-2:]
+    restart_index = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=restart.workflow_name,
+        checkpoint_id=restart.checkpoint_id,
+    )
+    restart_index.unlink()
+
+    decision = default_resume.determine_runtime_default_resume_decision(
+        state=state_manager.load().to_dict(),
+        runtime_plan=bundle.runtime_plan,
+        restart_node_id=restart.node_id,
+        state_manager=state_manager,
+        loaded_workflow=bundle,
+        executable_workflow=bundle.ir,
+        is_workflow_lisp=True,
+    )
+
+    assert decision["mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
+    assert decision["restore_decision"] == "RESTORED"
+    assert decision["restart_node_id"] == restart.node_id
+    assert decision["checkpoint_id"] == prior.checkpoint_id
+    assert decision["selection_reason"] == "validated_prior_boundary"
+
+
+@pytest.mark.parametrize(
+    ("ordered_node_ids", "points", "expected_diagnostic"),
+    (
+        (
+            ("root.restart",),
+            (_generic_resume_point("checkpoint:restart", "root.restart"),),
+            "lexical_default_resume_prior_boundary_missing",
+        ),
+        (
+            ("root.prior", "root.restart"),
+            (
+                _generic_resume_point("checkpoint:prior-a", "root.prior"),
+                _generic_resume_point("checkpoint:prior-b", "root.prior"),
+                _generic_resume_point("checkpoint:restart", "root.restart"),
+            ),
+            "lexical_default_resume_prior_boundary_ambiguous",
+        ),
+        (
+            ("root.prior",),
+            (
+                _generic_resume_point("checkpoint:prior", "root.prior"),
+                _generic_resume_point("checkpoint:restart", "root.restart"),
+            ),
+            "lexical_default_resume_prior_boundary_unordered",
+        ),
+        (
+            ("root.prior", "root.restart", "root.restart"),
+            (
+                _generic_resume_point("checkpoint:prior", "root.prior"),
+                _generic_resume_point("checkpoint:restart", "root.restart"),
+            ),
+            "lexical_default_resume_prior_boundary_duplicate_order",
+        ),
+    ),
+)
+def test_default_resume_fails_closed_when_unique_prior_boundary_cannot_be_derived(
+    ordered_node_ids: tuple[str, ...],
+    points: tuple[SimpleNamespace, ...],
+    expected_diagnostic: str,
+) -> None:
+    default_resume = _default_resume_module()
+    calls = 0
+
+    def selector(**_kwargs):
+        nonlocal calls
+        calls += 1
+        return _generic_restore_decision(
+            "NOT_RESTORABLE",
+            selection_observation="record_absent",
+        )
+
+    decision = default_resume.determine_runtime_default_resume_decision(
+        state={"context": {"workflow_lisp": {"lowering_schema_version": 2}}},
+        runtime_plan=_generic_default_resume_plan(
+            ordered_node_ids=ordered_node_ids,
+            points=points,
+        ),
+        restart_node_id="root.restart",
+        restore_selector=selector,
+        is_workflow_lisp=True,
+    )
+
+    assert decision["mode"] == "FAIL_CLOSED"
+    assert expected_diagnostic in decision["diagnostics"]
+    assert calls == 1
+
+
+@pytest.mark.parametrize(
+    ("duplicate_node_id", "duplicate_point_kind", "ordered_node_ids"),
+    (
+        (
+            "root.older",
+            "effect_boundary",
+            ("root.older", "root.prior", "root.restart"),
+        ),
+        (
+            "root.later",
+            "binding",
+            ("root.prior", "root.restart", "root.later"),
+        ),
+    ),
+)
+def test_default_resume_fails_closed_when_selected_prior_checkpoint_id_is_duplicated_anywhere(
+    duplicate_node_id: str,
+    duplicate_point_kind: str,
+    ordered_node_ids: tuple[str, ...],
+) -> None:
+    default_resume = _default_resume_module()
+    selected = _generic_resume_point("checkpoint:prior", "root.prior")
+    restart = _generic_resume_point("checkpoint:restart", "root.restart")
+    duplicate = _generic_resume_point(
+        "checkpoint:prior",
+        duplicate_node_id,
+        point_kind=duplicate_point_kind,
+    )
+    points = (
+        (duplicate, selected, restart)
+        if duplicate_node_id == "root.older"
+        else (selected, restart, duplicate)
+    )
+    calls: list[dict[str, object]] = []
+
+    def selector(**kwargs):
+        calls.append(kwargs)
+        if "checkpoint_id" in kwargs:
+            return _generic_restore_decision(
+                "RESTORED",
+                checkpoint_id="checkpoint:prior",
+                selection_observation="record_present",
+            )
+        return _generic_restore_decision(
+            "NOT_RESTORABLE",
+            selection_observation="record_absent",
+        )
+
+    decision = default_resume.determine_runtime_default_resume_decision(
+        state={"context": {"workflow_lisp": {"lowering_schema_version": 2}}},
+        runtime_plan=_generic_default_resume_plan(
+            ordered_node_ids=ordered_node_ids,
+            points=points,
+        ),
+        restart_node_id="root.restart",
+        restore_selector=selector,
+        is_workflow_lisp=True,
+    )
+
+    assert decision["mode"] == "FAIL_CLOSED"
+    assert decision["diagnostics"] == [
+        "lexical_default_resume_prior_boundary_duplicate"
+    ]
+    assert len(calls) == 1
+    assert "checkpoint_id" not in calls[0]
+
+
+@pytest.mark.parametrize(
+    ("node_local", "prior", "expected_diagnostic"),
+    (
+        (
+            _generic_restore_decision(
+                "INVALID",
+                selection_observation="record_present_unusable",
+                diagnostics=("lexical_restore_checkpoint_index_unreadable",),
+            ),
+            None,
+            "lexical_restore_checkpoint_index_unreadable",
+        ),
+        (
+            _generic_restore_decision(
+                "NOT_RESTORABLE",
+                selection_observation="record_present",
+                diagnostics=("lexical_restore_pending_effect_unsafe",),
+            ),
+            None,
+            "lexical_restore_pending_effect_unsafe",
+        ),
+        (
+            _generic_restore_decision(
+                "NOT_RESTORABLE",
+                selection_observation="record_absent",
+            ),
+            _generic_restore_decision(
+                "NOT_RESTORABLE",
+                checkpoint_id="checkpoint:prior",
+                selection_observation="record_absent",
+            ),
+            "lexical_default_resume_prior_boundary_not_restorable",
+        ),
+        (
+            _generic_restore_decision(
+                "NOT_RESTORABLE",
+                selection_observation="record_absent",
+            ),
+            _generic_restore_decision(
+                "INVALID",
+                checkpoint_id="checkpoint:prior",
+                selection_observation="record_present_unusable",
+                diagnostics=("lexical_restore_program_identity_mismatch",),
+            ),
+            "lexical_restore_program_identity_mismatch",
+        ),
+    ),
+)
+def test_default_resume_never_searches_past_unusable_node_local_or_nearest_prior_record(
+    node_local: SimpleNamespace,
+    prior: SimpleNamespace | None,
+    expected_diagnostic: str,
+) -> None:
+    default_resume = _default_resume_module()
+    older = _generic_resume_point("checkpoint:older", "root.older")
+    nearest = _generic_resume_point("checkpoint:prior", "root.prior")
+    restart = _generic_resume_point("checkpoint:restart", "root.restart")
+    calls: list[dict[str, object]] = []
+
+    def selector(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return node_local
+        if len(calls) == 2 and prior is not None:
+            return prior
+        raise AssertionError("default resume searched past the nearest prior boundary")
+
+    decision = default_resume.determine_runtime_default_resume_decision(
+        state={"context": {"workflow_lisp": {"lowering_schema_version": 2}}},
+        runtime_plan=_generic_default_resume_plan(
+            ordered_node_ids=("root.older", "root.prior", "root.restart"),
+            points=(older, nearest, restart),
+        ),
+        restart_node_id="root.restart",
+        restore_selector=selector,
+        is_workflow_lisp=True,
+    )
+
+    assert decision["mode"] == "FAIL_CLOSED"
+    assert expected_diagnostic in decision["diagnostics"]
+    assert len(calls) == (1 if prior is None else 2)
+    assert all(call.get("checkpoint_id") != "checkpoint:older" for call in calls)
+
+
+@pytest.mark.parametrize(
+    ("index_mutation", "expected_diagnostic"),
+    (
+        ("unreadable", "lexical_restore_checkpoint_index_unreadable"),
+        ("dangling_symlink", "lexical_restore_checkpoint_index_unreadable"),
+        ("symlink_to_file", "lexical_restore_checkpoint_index_unreadable"),
+        ("malformed", "lexical_restore_checkpoint_index_malformed"),
+        ("incomplete", "lexical_restore_checkpoint_record_reference_invalid"),
+    ),
+)
+def test_restore_selector_treats_present_unusable_index_as_invalid_not_absent(
+    tmp_path: Path,
+    index_mutation: str,
+    expected_diagnostic: str,
+) -> None:
+    restore = _restore_module()
+    checkpoints = _checkpoints_module()
+    bundle, state_manager, _ = _materialize_restore_sidecars(
+        tmp_path,
+        run_id=f"restore-present-unusable-{index_mutation}",
+    )
+    point = next(
+        candidate
+        for candidate in bundle.runtime_plan.lexical_checkpoint_points
+        if candidate.details.get("restore", {}).get("eligibility")
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    if index_mutation == "unreadable":
+        index_path.unlink()
+        index_path.mkdir()
+    elif index_mutation == "dangling_symlink":
+        index_path.unlink()
+        index_path.symlink_to(index_path.with_name("missing-index.json"))
+    elif index_mutation == "symlink_to_file":
+        symlink_target = index_path.with_name("symlink-target-index.json")
+        symlink_target.write_text(json.dumps(index_payload), encoding="utf-8")
+        index_path.unlink()
+        index_path.symlink_to(symlink_target)
+    elif index_mutation == "malformed":
+        index_path.write_text("{", encoding="utf-8")
+    else:
+        index_payload["records"] = [{"record_id": "record:incomplete"}]
+        index_path.write_text(
+            json.dumps(index_payload),
+            encoding="utf-8",
+        )
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "INVALID"
+    assert decision.selection_observation == "record_present_unusable"
+    assert expected_diagnostic in decision.diagnostics
+
+
+def test_restore_selector_rejects_index_reached_through_symlinked_parent(
+    tmp_path: Path,
+) -> None:
+    restore = _restore_module()
+    checkpoints = _checkpoints_module()
+    bundle, state_manager, _ = _materialize_restore_sidecars(
+        tmp_path,
+        run_id="restore-index-symlinked-parent",
+    )
+    point = next(
+        candidate
+        for candidate in bundle.runtime_plan.lexical_checkpoint_points
+        if candidate.details.get("restore", {}).get("eligibility")
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_parent = index_path.parent
+    target_parent = index_parent.with_name(f"{index_parent.name}-target")
+    index_parent.rename(target_parent)
+    index_parent.symlink_to(target_parent.name, target_is_directory=True)
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "INVALID"
+    assert decision.selection_observation == "record_present_unusable"
+    assert decision.diagnostics == (
+        "lexical_restore_checkpoint_index_unreadable",
+    )
+
+
+@pytest.mark.filterwarnings(
+    r"ignore:This process .* is multi-threaded, use of fork\(\) may lead to "
+    r"deadlocks in the child\.:DeprecationWarning"
+)
+@pytest.mark.parametrize(
+    ("fifo_target", "expected_diagnostics"),
+    (
+        ("index", {("lexical_restore_checkpoint_index_unreadable",)}),
+        (
+            "record",
+            {
+                ("lexical_restore_checkpoint_record_reference_invalid",),
+                ("lexical_restore_checkpoint_record_unreadable",),
+            },
+        ),
+    ),
+)
+def test_restore_selector_rejects_fifo_without_blocking(
+    tmp_path: Path,
+    fifo_target: str,
+    expected_diagnostics: set[tuple[str, ...]],
+) -> None:
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("FIFO creation is unavailable on this platform")
+    if "fork" not in multiprocessing.get_all_start_methods():
+        pytest.skip("forked process isolation is unavailable on this platform")
+
+    restore = _restore_module()
+    checkpoints = _checkpoints_module()
+    bundle, state_manager, _ = _materialize_restore_sidecars(
+        tmp_path,
+        run_id=f"restore-{fifo_target}-fifo",
+    )
+    point = next(
+        candidate
+        for candidate in bundle.runtime_plan.lexical_checkpoint_points
+        if candidate.details.get("restore", {}).get("eligibility")
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    if fifo_target == "index":
+        fifo_path = index_path
+    else:
+        index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+        fifo_path = tmp_path / index_payload["records"][-1]["record_path"]
+    fifo_path.unlink()
+    os.mkfifo(fifo_path)
+    state = state_manager.load().to_dict()
+
+    context = multiprocessing.get_context("fork")
+    parent_connection, child_connection = context.Pipe(duplex=False)
+
+    def select_in_child() -> None:
+        try:
+            decision = restore.select_restore_candidate(
+                state_manager=state_manager,
+                runtime_plan=bundle.runtime_plan,
+                state=state,
+                checkpoint_id=point.checkpoint_id,
+                executable_workflow=bundle.ir,
+                loaded_workflow=bundle,
+            )
+            child_connection.send(
+                (
+                    decision.kind,
+                    decision.selection_observation,
+                    decision.diagnostics,
+                )
+            )
+        except BaseException as exc:
+            child_connection.send(("ERROR", type(exc).__name__, str(exc)))
+        finally:
+            child_connection.close()
+
+    process = context.Process(target=select_in_child)
+    process.start()
+    child_connection.close()
+    process.join(timeout=2.0)
+    timed_out = process.is_alive()
+    if timed_out:
+        process.terminate()
+        process.join(timeout=1.0)
+    if process.is_alive() and hasattr(process, "kill"):
+        process.kill()
+        process.join(timeout=1.0)
+
+    try:
+        assert not timed_out, f"restore selector blocked while opening {fifo_target} FIFO"
+        assert process.exitcode == 0
+        assert parent_connection.poll(0.5), "child exited without a selector result"
+        kind, observation, diagnostics = parent_connection.recv()
+    finally:
+        parent_connection.close()
+
+    assert kind == "INVALID"
+    assert observation == "record_present_unusable"
+    assert diagnostics in expected_diagnostics
+
+
+@pytest.mark.parametrize(
+    ("record_mutation", "expected_diagnostic"),
+    (
+        ("unreadable", "lexical_restore_checkpoint_record_unreadable"),
+        ("malformed", "lexical_restore_checkpoint_record_malformed"),
+        ("incomplete", "lexical_restore_checkpoint_record_reference_invalid"),
+    ),
+)
+def test_restore_selector_treats_referenced_unusable_record_as_invalid_not_absent(
+    tmp_path: Path,
+    record_mutation: str,
+    expected_diagnostic: str,
+) -> None:
+    restore = _restore_module()
+    checkpoints = _checkpoints_module()
+    bundle, state_manager, _ = _materialize_restore_sidecars(
+        tmp_path,
+        run_id=f"restore-referenced-unusable-{record_mutation}",
+    )
+    point = next(
+        candidate
+        for candidate in bundle.runtime_plan.lexical_checkpoint_points
+        if candidate.details.get("restore", {}).get("eligibility")
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    record_path = tmp_path / index_payload["records"][-1]["record_path"]
+    if record_mutation == "unreadable":
+        record_path.unlink()
+        record_path.mkdir()
+    elif record_mutation == "malformed":
+        record_path.write_text("{", encoding="utf-8")
+    else:
+        record_path.write_text("{}", encoding="utf-8")
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "INVALID"
+    assert decision.selection_observation == "record_present_unusable"
+    assert expected_diagnostic in decision.diagnostics
+
+
+@pytest.mark.parametrize("index_state", ("missing", "empty"))
+def test_restore_selector_positively_reports_record_absent_only_for_missing_or_empty_index(
+    tmp_path: Path,
+    index_state: str,
+) -> None:
+    restore = _restore_module()
+    checkpoints = _checkpoints_module()
+    bundle, state_manager, _ = _materialize_restore_sidecars(
+        tmp_path,
+        run_id=f"restore-record-absent-{index_state}",
+    )
+    point = next(
+        candidate
+        for candidate in bundle.runtime_plan.lexical_checkpoint_points
+        if candidate.details.get("restore", {}).get("eligibility")
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    if index_state == "missing":
+        index_path.unlink()
+    else:
+        index_payload["records"] = []
+        index_path.write_text(json.dumps(index_payload), encoding="utf-8")
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "NOT_RESTORABLE"
+    assert decision.selection_observation == "record_absent"
+
+
+@pytest.mark.parametrize(
+    "foreign_index_field",
+    ("program_point_id", "storage_allocation_id"),
+)
+def test_default_resume_rejects_foreign_empty_index_before_prior_checkpoint_selection(
+    tmp_path: Path,
+    foreign_index_field: str,
+) -> None:
+    default_resume = _default_resume_module()
+    restore = _restore_module()
+    checkpoints = _checkpoints_module()
+    bundle, state_manager, _ = _materialize_restore_sidecars(
+        tmp_path,
+        run_id=f"restore-foreign-empty-index-{foreign_index_field}",
+    )
+    order = {
+        node_id: index
+        for index, node_id in enumerate(bundle.runtime_plan.ordered_node_ids)
+    }
+    effect_points = sorted(
+        (
+            point
+            for point in bundle.runtime_plan.lexical_checkpoint_points
+            if point.point_kind == "effect_boundary"
+        ),
+        key=lambda point: order[point.node_id],
+    )
+    _prior, restart = effect_points[-2:]
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=restart.workflow_name,
+        checkpoint_id=restart.checkpoint_id,
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    index_payload[foreign_index_field] = f"foreign:{foreign_index_field}"
+    index_payload["records"] = []
+    state_manager.write_runtime_sidecar_json(index_path, index_payload)
+    calls: list[dict[str, object]] = []
+
+    def selector(**kwargs):
+        calls.append(kwargs)
+        return restore.select_restore_candidate(**kwargs)
+
+    decision = default_resume.determine_runtime_default_resume_decision(
+        state=state_manager.load().to_dict(),
+        runtime_plan=bundle.runtime_plan,
+        restart_node_id=restart.node_id,
+        state_manager=state_manager,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+        restore_selector=selector,
+        is_workflow_lisp=True,
+    )
+
+    assert decision["mode"] == "FAIL_CLOSED"
+    assert decision["restore_decision"] == "INVALID"
+    assert decision["diagnostics"] == [
+        "lexical_default_resume_invalid_checkpoint",
+        "lexical_restore_checkpoint_index_identity_mismatch",
+    ]
+    assert len(calls) == 1
+    assert "checkpoint_id" not in calls[0]
+
+
+@pytest.mark.parametrize(
+    "record_reference",
+    ("canonical", "absolute", "parent_escape", "record_symlink", "parent_symlink"),
+)
+def test_restore_selector_requires_canonical_non_symlink_record_reference(
+    tmp_path: Path,
+    record_reference: str,
+) -> None:
+    restore = _restore_module()
+    checkpoints = _checkpoints_module()
+    bundle, state_manager, _ = _materialize_restore_sidecars(
+        tmp_path,
+        run_id=f"restore-record-reference-{record_reference}",
+    )
+    point = next(
+        candidate
+        for candidate in bundle.runtime_plan.lexical_checkpoint_points
+        if candidate.details.get("restore", {}).get("eligibility")
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    entry = index_payload["records"][-1]
+    record_path = tmp_path / entry["record_path"]
+    if record_reference == "absolute":
+        entry["record_path"] = record_path.as_posix()
+    elif record_reference == "parent_escape":
+        entry["record_path"] = f"../{tmp_path.name}/{entry['record_path']}"
+    elif record_reference == "record_symlink":
+        target = record_path.with_name(f"{record_path.stem}-target.json")
+        record_path.rename(target)
+        record_path.symlink_to(target.name)
+    elif record_reference == "parent_symlink":
+        record_family = record_path.parent
+        target_family = record_family.with_name(f"{record_family.name}-target")
+        record_family.rename(target_family)
+        record_family.symlink_to(target_family.name, target_is_directory=True)
+    if record_reference in {"absolute", "parent_escape"}:
+        state_manager.write_runtime_sidecar_json(index_path, index_payload)
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    if record_reference == "canonical":
+        assert decision.kind == "RESTORED"
+        assert decision.selection_observation == "record_present"
+    else:
+        assert decision.kind == "INVALID"
+        assert decision.selection_observation == "record_present_unusable"
+        assert decision.diagnostics == (
+            "lexical_restore_checkpoint_record_reference_invalid",
+        )
+
+
+def test_restore_selector_rejects_traversal_record_id_before_crafted_record_read(
+    tmp_path: Path,
+) -> None:
+    restore = _restore_module()
+    checkpoints = _checkpoints_module()
+    bundle, state_manager, _ = _materialize_restore_sidecars(
+        tmp_path,
+        run_id="restore-traversal-record-id",
+    )
+    point = next(
+        candidate
+        for candidate in bundle.runtime_plan.lexical_checkpoint_points
+        if candidate.details.get("restore", {}).get("eligibility")
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    entry = index_payload["records"][-1]
+    original_record_path = tmp_path / entry["record_path"]
+    crafted_record = json.loads(original_record_path.read_text(encoding="utf-8"))
+    traversal_record_id = "../../../../../crafted"
+    crafted_record_path = checkpoints.resolve_checkpoint_record_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+        record_id=traversal_record_id,
+        storage_scope=point.details["storage"]["resume_scope"],
+    )
+    crafted_record["record_id"] = traversal_record_id
+    state_manager.write_runtime_sidecar_json(crafted_record_path, crafted_record)
+    entry["record_id"] = traversal_record_id
+    entry["record_path"] = crafted_record_path.relative_to(tmp_path).as_posix()
+    state_manager.write_runtime_sidecar_json(index_path, index_payload)
+    original_reader = state_manager.read_runtime_sidecar_json
+    read_paths: list[Path] = []
+
+    def recording_reader(path: Path):
+        read_paths.append(Path(path))
+        return original_reader(path)
+
+    with patch.object(
+        state_manager,
+        "read_runtime_sidecar_json",
+        side_effect=recording_reader,
+    ):
+        decision = restore.select_restore_candidate(
+            state_manager=state_manager,
+            runtime_plan=bundle.runtime_plan,
+            state=state_manager.load().to_dict(),
+            checkpoint_id=point.checkpoint_id,
+            executable_workflow=bundle.ir,
+            loaded_workflow=bundle,
+        )
+
+    assert decision.kind == "INVALID"
+    assert decision.selection_observation == "record_present_unusable"
+    assert decision.diagnostics == (
+        "lexical_restore_checkpoint_record_reference_invalid",
+    )
+    crafted_target = crafted_record_path.resolve()
+    assert all(path.resolve() != crafted_target for path in read_paths)
+
+
+def test_restore_selector_rejects_record_symlink_swapped_at_final_open(
+    tmp_path: Path,
+) -> None:
+    restore = _restore_module()
+    checkpoints = _checkpoints_module()
+    bundle, state_manager, _ = _materialize_restore_sidecars(
+        tmp_path,
+        run_id="restore-record-final-open-swap",
+    )
+    point = next(
+        candidate
+        for candidate in bundle.runtime_plan.lexical_checkpoint_points
+        if candidate.details.get("restore", {}).get("eligibility")
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    record_path = tmp_path / index_payload["records"][-1]["record_path"]
+    target_path = record_path.with_name(f"{record_path.stem}-target.json")
+    real_os_open = os.open
+    swapped = False
+
+    def swapping_open(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal swapped
+        if (
+            not swapped
+            and dir_fd is not None
+            and Path(path).name == record_path.name
+            and not flags & getattr(os, "O_DIRECTORY", 0)
+        ):
+            record_path.rename(target_path)
+            record_path.symlink_to(target_path.name)
+            swapped = True
+        return real_os_open(path, flags, mode, dir_fd=dir_fd)
+
+    with patch("os.open", side_effect=swapping_open):
+        decision = restore.select_restore_candidate(
+            state_manager=state_manager,
+            runtime_plan=bundle.runtime_plan,
+            state=state_manager.load().to_dict(),
+            checkpoint_id=point.checkpoint_id,
+            executable_workflow=bundle.ir,
+            loaded_workflow=bundle,
+        )
+
+    assert swapped
+    assert decision.kind == "INVALID"
+    assert decision.selection_observation == "record_present_unusable"
+    assert decision.diagnostics in {
+        ("lexical_restore_checkpoint_record_reference_invalid",),
+        ("lexical_restore_checkpoint_record_unreadable",),
+    }
+
+
+@pytest.mark.parametrize(
+    "identity_mismatch",
+    ("record_id", "program_point_id", "point_kind", "frame_identity"),
+)
+def test_restore_selector_rejects_checkpoint_index_entry_identity_mismatch(
+    tmp_path: Path,
+    identity_mismatch: str,
+) -> None:
+    restore = _restore_module()
+    checkpoints = _checkpoints_module()
+    bundle, state_manager, _ = _materialize_restore_sidecars(
+        tmp_path,
+        run_id=f"restore-entry-identity-{identity_mismatch}",
+    )
+    point = next(
+        candidate
+        for candidate in bundle.runtime_plan.lexical_checkpoint_points
+        if candidate.details.get("restore", {}).get("eligibility")
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    entry = index_payload["records"][-1]
+    record_path = tmp_path / entry["record_path"]
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    if identity_mismatch == "record_id":
+        record["record_id"] = "record:foreign"
+        state_manager.write_runtime_sidecar_json(record_path, record)
+    elif identity_mismatch == "program_point_id":
+        entry["program_point_id"] = "pp:foreign"
+        state_manager.write_runtime_sidecar_json(index_path, index_payload)
+    elif identity_mismatch == "point_kind":
+        entry["point_kind"] = (
+            "loop_back_edge"
+            if point.point_kind == "effect_boundary"
+            else "effect_boundary"
+        )
+        state_manager.write_runtime_sidecar_json(index_path, index_payload)
+    else:
+        entry["frame_identity"] = {
+            **entry["frame_identity"],
+            "visit_count": entry["frame_identity"]["visit_count"] + 1,
+        }
+        state_manager.write_runtime_sidecar_json(index_path, index_payload)
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "INVALID"
+    assert decision.selection_observation == "record_present_unusable"
+    assert decision.diagnostics == (
+        "lexical_restore_checkpoint_record_reference_invalid",
+    )

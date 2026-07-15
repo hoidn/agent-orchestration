@@ -316,6 +316,42 @@ A checkpoint is valid only when all of the following match:
 Mismatch fails closed. The runtime may recompute from a prior safe boundary, but
 it must not silently reuse a stale checkpoint.
 
+For eligible WCC default resume, node-local restore remains primary. Only when
+the restart node owns lexical checkpoint metadata and restore selection
+positively reports typed `record_absent` may the runtime consider a prior
+effect boundary. Only a missing canonical index or a canonical index whose
+program-point and allocation identities match the runtime-plan point and whose
+`records` list is valid and empty establishes absence. Foreign or stale index
+identity is present-unusable evidence and fails closed. It derives the complete
+nearest-prior candidate set solely from `runtime_plan.ordered_node_ids`;
+exactly one candidate is required, and
+its checkpoint ID must occur exactly once across all
+`runtime_plan.lexical_checkpoint_points`, including older, later, and
+non-effect points, before it may pass through the ordinary restore validator
+unchanged. Resume continues from the original restart node with the validated
+prior payload. An index record ID is one safe filename component and cannot
+introduce path structure. Index entries may reference only the exact canonical
+workspace-relative record path for their record ID, point, and storage scope.
+That path must be a lexical direct child of the canonical record family and,
+after normalization and symlink resolution, remain a direct child of the
+resolved family below the resolved workspace. Absolute, escaping, or symlinked
+paths fail closed before record I/O. Entry identities must match the point and
+loaded record, which still passes the complete checkpoint-record and restore
+validators. Both index and record JSON are opened beneath a trusted workspace
+directory descriptor: every parent uses descriptor-relative directory open
+with no-follow semantics, and the final file uses descriptor-relative
+no-follow and nonblocking open, is verified as regular with `fstat`, and is
+decoded from that already-open descriptor. A FIFO or other nonregular target
+therefore fails closed without waiting for a peer. There is no pathname reopen
+after validation. Only `FileNotFoundError` for the canonical index establishes
+absence; unsupported descriptor/no-follow/nonblocking operation, symlinked or
+invalid parents, permissions, nonregular targets, and mutation during read fail
+closed as present-unusable. Missing or duplicate order, no candidate, global
+checkpoint-ID duplication, ambiguity, present-but-unreadable, malformed,
+foreign, or incomplete index/record state, unsafe evidence, or validation
+failure all fail closed. Default resume never skips an invalid nearest point to
+search older checkpoints.
+
 ### 7.5 Effect-boundary resume policies
 
 Every effect boundary has an explicit policy:
@@ -443,6 +479,11 @@ with compatibility behavior retained only for historical runs.
 Acceptance:
 
 - default restore uses checkpoints in eligible regions;
+- positive next-record absence may restore exactly one uniquely ordered,
+  globally checkpoint-ID-unique, fully validated nearest prior effect boundary
+  while preserving the original restart node;
+- absent, ambiguous, unordered, unsafe, invalid, or present-but-unusable
+  candidate state fails closed without scanning older boundaries;
 - legacy step-granular resume remains available for historical compatible runs;
 - cleanup removes dead resume-only public plumbing after evidence proves no
   current consumer.
@@ -600,8 +641,9 @@ Invariants:
 
 Failure modes:
 
-- Checkpoint schema mismatch: fail closed, recompute from prior safe boundary if
-  possible.
+- Checkpoint schema mismatch: fail closed for automatic default resume. Any
+  coarser or older-boundary recovery is an explicit operator or future recovery
+  path, not a scan past the invalid nearest checkpoint.
 - Executable digest mismatch: reject checkpoint reuse.
 - Resource version conflict: invalidate dependent checkpoint and surface
   transition conflict diagnostics.
