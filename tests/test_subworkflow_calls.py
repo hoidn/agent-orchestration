@@ -12,6 +12,7 @@ from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
+from orchestrator.workflow.calls import CallExecutor
 from orchestrator.workflow.executor import WorkflowExecutor
 from tests.workflow_bundle_helpers import (
     bundle_context_dict,
@@ -951,6 +952,365 @@ def test_call_executes_imported_workflow_and_persists_call_frame_state(tmp_path:
     assert frame["state"]["workflow_checksum"].startswith("sha256:")
     assert frame["state"]["workflow_outputs"] == {"approved": True}
     assert frame["state"]["steps"]["SetApproved"]["artifacts"] == {"approved": True}
+
+
+def test_resumed_parent_starts_never_entered_child_call_fresh(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        _library_workflow(),
+    )
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        {
+            "version": "2.5",
+            "name": "resume-reaches-new-child",
+            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "steps": [
+                {
+                    "name": "PersistProgress",
+                    "id": "persist_progress",
+                    "command": ["bash", "-lc", "mkdir -p state && printf 'done\\n' > state/progress.txt"],
+                },
+                {
+                    "name": "ResumeGate",
+                    "id": "resume_gate",
+                    "command": ["bash", "-lc", "test -f state/resume-ready.txt"],
+                },
+                {
+                    "name": "RunReviewLoop",
+                    "id": "run_review_loop",
+                    "call": "review_loop",
+                    "with": {
+                        "max_cycles": 3,
+                        "write_root": "state/review-loop",
+                    },
+                },
+            ],
+        },
+    )
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    state_manager = StateManager(tmp_path, run_id="resume-reaches-new-child")
+    state_manager.initialize("workflow.yaml", context=bundle_context_dict(bundle))
+
+    first_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+
+    assert first_state["status"] == "failed"
+    assert first_state["steps"]["PersistProgress"]["status"] == "completed"
+    assert first_state.get("call_frames", {}) == {}
+    (tmp_path / "state" / "resume-ready.txt").write_text("ready\n", encoding="utf-8")
+
+    child_default_resume_calls: list[dict] = []
+
+    def _default_resume_decision(executor, state):
+        if isinstance(executor.state_manager, StateManager):
+            return {
+                "mode": "LEXICAL_CHECKPOINT_DEFAULT",
+                "restore_decision": "RESTORED",
+                "restore_candidate": {
+                    "kind": "RESTORED",
+                    "checkpoint_id": "checkpoint:prior",
+                    "record_id": "record:prior",
+                    "source_map_origin_key": "source:prior",
+                    "restore_payload": {},
+                    "diagnostics": [],
+                },
+                "checkpoint_id": "checkpoint:prior",
+                "record_id": "record:prior",
+                "selection_reason": "validated_prior_boundary",
+                "diagnostics": [],
+            }
+        child_default_resume_calls.append(state)
+        return {
+            "mode": "FAIL_CLOSED",
+            "restore_decision": None,
+            "diagnostics": ["lexical_default_resume_prior_boundary_missing"],
+        }
+
+    with patch.object(
+        WorkflowExecutor,
+        "_determine_resume_default_resume_decision",
+        _default_resume_decision,
+    ):
+        resumed_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)
+
+    assert resumed_state["status"] == "completed"
+    assert resumed_state["steps"]["RunReviewLoop"]["artifacts"] == {"approved": True}
+    assert child_default_resume_calls == []
+    assert len(resumed_state["call_frames"]) == 1
+    frame = next(iter(resumed_state["call_frames"].values()))
+    assert frame["bound_input_resume_validation"] == {
+        "status": "fresh",
+        "diagnostics": [],
+    }
+
+
+@pytest.mark.parametrize(
+    ("corrupt_call_frames", "expected_detail"),
+    (
+        ("malformed-container", "call_frames_not_mapping"),
+        (
+            {"root.run_review_loop::visit::1": "malformed-frame"},
+            "call_frame_not_mapping",
+        ),
+    ),
+)
+def test_resumed_parent_rejects_malformed_child_call_frame_state_without_overwrite(
+    tmp_path: Path,
+    corrupt_call_frames,
+    expected_detail: str,
+):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        _library_workflow(),
+    )
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        {
+            "version": "2.5",
+            "name": "resume-rejects-corrupt-child-state",
+            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "steps": [
+                {
+                    "name": "ResumeGate",
+                    "id": "resume_gate",
+                    "command": ["bash", "-lc", "test -f state/resume-ready.txt"],
+                },
+                {
+                    "name": "RunReviewLoop",
+                    "id": "run_review_loop",
+                    "call": "review_loop",
+                    "with": {
+                        "max_cycles": 3,
+                        "write_root": "state/review-loop",
+                    },
+                },
+            ],
+        },
+    )
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    state_manager = StateManager(
+        tmp_path,
+        run_id=f"resume-corrupt-child-state-{expected_detail}",
+    )
+    state_manager.initialize("workflow.yaml", context=bundle_context_dict(bundle))
+    first_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    assert first_state["status"] == "failed"
+    assert first_state.get("call_frames", {}) == {}
+
+    persisted = state_manager.load()
+    persisted.call_frames = corrupt_call_frames
+    state_manager._write_state()
+    (tmp_path / "state").mkdir(exist_ok=True)
+    (tmp_path / "state" / "resume-ready.txt").write_text("ready\n", encoding="utf-8")
+    parent_default_resume_calls: list[dict] = []
+
+    def _default_resume_decision(executor, state):
+        parent_default_resume_calls.append(state)
+        return {
+            "mode": "LEXICAL_CHECKPOINT_DEFAULT",
+            "restore_decision": "RESTORED",
+            "restore_candidate": {
+                "kind": "RESTORED",
+                "restore_payload": {},
+                "diagnostics": [],
+            },
+            "selection_reason": "validated_prior_boundary",
+            "diagnostics": [],
+        }
+
+    resume_executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    with patch.object(
+        WorkflowExecutor,
+        "_determine_resume_default_resume_decision",
+        _default_resume_decision,
+    ), patch("orchestrator.workflow.executor.WorkflowExecutor") as child_constructor:
+        child_constructor.return_value.execute.return_value = {
+            "status": "completed",
+            "workflow_outputs": {},
+        }
+        resumed_state = resume_executor.execute(resume=True)
+
+    assert len(parent_default_resume_calls) == 1
+    assert resumed_state["status"] == "failed"
+    error = resumed_state["steps"]["RunReviewLoop"]["error"]
+    assert error["type"] == "contract_violation"
+    assert error["context"] == {
+        "step": "RunReviewLoop",
+        "call": "review_loop",
+        "call_frame_id": "root.run_review_loop::visit::1",
+        "reason": "call_resume_state_invalid",
+        "detail": expected_detail,
+    }
+    child_constructor.assert_not_called()
+    assert resumed_state["call_frames"] == corrupt_call_frames
+    assert state_manager.load().call_frames == corrupt_call_frames
+
+
+def test_resumed_parent_still_fails_closed_for_persisted_child_without_prior_boundary(
+    tmp_path: Path,
+):
+    library = _library_workflow()
+    library["steps"].insert(
+        0,
+        {
+            "name": "ResumeGate",
+            "id": "resume_gate",
+            "command": ["bash", "-lc", "test -f state/child-resume-ready.txt"],
+        },
+    )
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        library,
+    )
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        _caller_workflow(
+            call_step={
+                "name": "RunReviewLoop",
+                "id": "run_review_loop",
+                "call": "review_loop",
+                "with": {
+                    "max_cycles": 3,
+                    "write_root": "state/review-loop",
+                },
+            },
+        ),
+    )
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    state_manager = StateManager(tmp_path, run_id="resume-existing-child-invalid-boundary")
+    state_manager.initialize("workflow.yaml", context=bundle_context_dict(bundle))
+
+    first_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+
+    assert first_state["status"] == "failed"
+    assert len(first_state["call_frames"]) == 1
+    (tmp_path / "state").mkdir(exist_ok=True)
+    (tmp_path / "state" / "child-resume-ready.txt").write_text("ready\n", encoding="utf-8")
+    child_default_resume_calls: list[dict] = []
+
+    def _default_resume_decision(executor, state):
+        if isinstance(executor.state_manager, StateManager):
+            return {
+                "mode": "LEXICAL_CHECKPOINT_DEFAULT",
+                "restore_decision": "RESTORED",
+                "restore_candidate": {
+                    "kind": "RESTORED",
+                    "restore_payload": {},
+                    "diagnostics": [],
+                },
+                "selection_reason": "validated_prior_boundary",
+                "diagnostics": [],
+            }
+        child_default_resume_calls.append(state)
+        return {
+            "mode": "FAIL_CLOSED",
+            "restore_decision": None,
+            "diagnostics": ["lexical_default_resume_prior_boundary_missing"],
+        }
+
+    with patch.object(
+        WorkflowExecutor,
+        "_determine_resume_default_resume_decision",
+        _default_resume_decision,
+    ):
+        resumed_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)
+
+    assert resumed_state["status"] == "failed"
+    assert len(child_default_resume_calls) == 1
+    child_error = resumed_state["steps"]["RunReviewLoop"]["error"]["context"]["error"]
+    assert child_error["type"] == "lexical_default_resume_invalid"
+    assert child_error["context"]["diagnostics"] == [
+        "lexical_default_resume_prior_boundary_missing"
+    ]
+    assert len(resumed_state["call_frames"]) == 1
+    frame = next(iter(resumed_state["call_frames"].values()))
+    assert frame["bound_input_resume_validation"] == {
+        "status": "reused",
+        "diagnostics": [],
+    }
+
+
+def test_failed_workflow_lisp_child_retry_still_allocates_fresh_frame(tmp_path: Path):
+    library = _library_workflow()
+    library["steps"].insert(
+        0,
+        {
+            "name": "ResumeGate",
+            "id": "resume_gate",
+            "command": ["bash", "-lc", "test -f state/child-retry-ready.txt"],
+        },
+    )
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        library,
+    )
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        _caller_workflow(
+            call_step={
+                "name": "RunReviewLoop",
+                "id": "run_review_loop",
+                "call": "review_loop",
+                "with": {
+                    "max_cycles": 3,
+                    "write_root": "state/review-loop",
+                },
+            },
+        ),
+    )
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    state_manager = StateManager(tmp_path, run_id="resume-failed-child-fresh-retry")
+    state_manager.initialize("workflow.yaml", context=bundle_context_dict(bundle))
+
+    first_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+
+    assert first_state["status"] == "failed"
+    assert len(first_state["call_frames"]) == 1
+    failed_frame_id = next(iter(first_state["call_frames"]))
+    (tmp_path / "state").mkdir(exist_ok=True)
+    (tmp_path / "state" / "child-retry-ready.txt").write_text("ready\n", encoding="utf-8")
+    child_default_resume_calls: list[dict] = []
+
+    def _default_resume_decision(executor, state):
+        if isinstance(executor.state_manager, StateManager):
+            return {
+                "mode": "LEXICAL_CHECKPOINT_DEFAULT",
+                "restore_decision": "RESTORED",
+                "restore_candidate": {
+                    "kind": "RESTORED",
+                    "restore_payload": {},
+                    "diagnostics": [],
+                },
+                "selection_reason": "validated_prior_boundary",
+                "diagnostics": [],
+            }
+        child_default_resume_calls.append(state)
+        return {
+            "mode": "FAIL_CLOSED",
+            "restore_decision": None,
+            "diagnostics": ["lexical_default_resume_prior_boundary_missing"],
+        }
+
+    with patch.object(
+        WorkflowExecutor,
+        "_determine_resume_default_resume_decision",
+        _default_resume_decision,
+    ), patch.object(CallExecutor, "_is_workflow_lisp_target", return_value=True):
+        resumed_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)
+
+    assert resumed_state["status"] == "completed"
+    assert child_default_resume_calls == []
+    assert set(resumed_state["call_frames"]) == {
+        failed_frame_id,
+        f"{failed_frame_id}::retry::1",
+    }
+    assert resumed_state["call_frames"][failed_frame_id]["status"] == "failed"
+    retry_frame = resumed_state["call_frames"][f"{failed_frame_id}::retry::1"]
+    assert retry_frame["status"] == "completed"
+    assert retry_frame["bound_input_resume_validation"] == {
+        "status": "fresh",
+        "diagnostics": [],
+    }
 
 
 def test_call_outputs_publish_into_caller_lineage_with_outer_producer(tmp_path: Path):

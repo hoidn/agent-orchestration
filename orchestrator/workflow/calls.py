@@ -552,6 +552,26 @@ class CallExecutor:
             },
         }
 
+    @staticmethod
+    def resume_state_invalid_result(
+        *,
+        step_name: str,
+        call_alias: Any,
+        frame_id: str,
+        detail: str,
+    ) -> Dict[str, Any]:
+        """Build a deterministic failure for malformed persisted child-frame state."""
+        return step_results.contract_violation_result(
+            "Called workflow resume state is invalid",
+            {
+                "step": step_name,
+                "call": call_alias,
+                "call_frame_id": frame_id,
+                "reason": "call_resume_state_invalid",
+                "detail": detail,
+            },
+        )
+
     def validate_resume_bound_inputs(
         self,
         *,
@@ -806,14 +826,33 @@ class CallExecutor:
             step_name=step_name,
             step_id=step_id,
         )
-        call_frames = state.setdefault("call_frames", {})
-        existing_frame = call_frames.get(frame_id) if isinstance(call_frames, dict) else None
+        call_frames = state.get("call_frames", {})
+        if self.executor.resume_mode and not isinstance(call_frames, dict):
+            return self.resume_state_invalid_result(
+                step_name=step_name,
+                call_alias=call_alias,
+                frame_id=frame_id,
+                detail="call_frames_not_mapping",
+            )
         if not isinstance(call_frames, dict):
             call_frames = {}
             state["call_frames"] = call_frames
+        frame_exists = frame_id in call_frames
+        existing_frame = call_frames.get(frame_id)
+        if (
+            self.executor.resume_mode
+            and frame_exists
+            and not isinstance(existing_frame, dict)
+        ):
+            return self.resume_state_invalid_result(
+                step_name=step_name,
+                call_alias=call_alias,
+                frame_id=frame_id,
+                detail="call_frame_not_mapping",
+            )
 
-        child_resume = self.executor.resume_mode
         child_existing_frame = existing_frame if isinstance(existing_frame, dict) else None
+        child_resume = self.executor.resume_mode and child_existing_frame is not None
         force_fresh_workflow_lisp_retry = (
             child_resume
             and child_existing_frame is not None
