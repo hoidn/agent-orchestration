@@ -1,0 +1,168 @@
+{
+  "record_type": "procedure_first_pilot_task3_fresh_child_resume_recovery_authorization",
+  "version": 1,
+  "evidence_status": "pending_owner_confirmation",
+  "authorized_disposition": "pending_owner_decision",
+  "intended_owner": {
+    "name": "Ollie",
+    "email": "ohoidn@stanford.edu"
+  },
+  "bindings": {
+    "prior_incident": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/incidents/task-3-default-resume-not-restorable.json",
+      "sha256": "sha256:95c55a537da047b216bcf274456c400aa59590cfeb9020c2e36cff0d9bbf112f"
+    },
+    "failed_recovery_incident": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/incidents/task-3-fresh-child-inherited-parent-resume.json",
+      "sha256": "sha256:ec5f762f0787568429cce130d20bae7653764e432bb42cc4df4a23f24734f806"
+    },
+    "consumed_first_recovery_authorization": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/task-3/interrupted-run-recovery-authorization.json",
+      "sha256": "sha256:bb0f3bb01ec3ef74b91186a9f227c0b6f41285549cdf176f827a7e8665a5fc0e",
+      "disposition": "consumed_exactly_once"
+    },
+    "artifact_parity_evidence_correction_authorization": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/task-3/artifact-parity-evidence-correction-authorization.json",
+      "sha256": "sha256:5dcec17ccd0ebef24f8b0025501df2acf8ac90517227a6161e9e32d26aa1963d",
+      "authorizes_run_mutation": false
+    },
+    "generic_fresh_child_resume_fix": {
+      "commit": "1cba48c8117370c89827fe19ecf73347725e95e2",
+      "commit_tree": "e2e44c23716d9b94d01ae0ca256b5a248778050e",
+      "subject": "Resume only persisted child call frames",
+      "primary_review_complete_candidate_sha256": "sha256:fd11c2f4f4c6765dc743b472811e2223f7a046e96ebddfe1a1c4081ce2b768f1",
+      "secondary_review_complete_candidate_sha256": "sha256:9be776aa9ef0362aa581cd2ffdc4aabc7cc0a34211163e62537081acfa586f39"
+    },
+    "second_recovery_harness": {
+      "commit": "PENDING_POST_REVIEW_HARNESS_COMMIT",
+      "commit_tree": "PENDING_POST_REVIEW_HARNESS_COMMIT_TREE",
+      "primary_review_complete_candidate_sha256": "PENDING_PRIMARY_REVIEW_BINDING",
+      "secondary_review_complete_candidate_sha256": "PENDING_SECONDARY_REVIEW_BINDING"
+    },
+    "legacy_root": {
+      "canonical_path": "/home/ollie/Documents/agent-orchestration/.orchestrate/runs",
+      "entry_count": 418108,
+      "tree_sha256": "sha256:0a4f6e4ce63731c7a219201356f78c1f1e015770e553a465531e7816f2cd40e8"
+    },
+    "dedicated_root": {
+      "canonical_path": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
+      "entry_count": 70,
+      "tree_sha256": "sha256:198d022c1878df3a86992d3fa8b968bbb537d23e70a31a31f8dfccb769344b1b",
+      "top_level_run_ids": [
+        "tracked-plan-phase-clean-new-id",
+        "tracked-plan-phase-interrupted-new-id"
+      ]
+    },
+    "clean_run": {
+      "run_id": "tracked-plan-phase-clean-new-id",
+      "entry_count": 36,
+      "tree_sha256": "sha256:1f71d1f87d5a00bc3210c9aa6ca868d052e213a64998749cbdc6e3d8bf81fd7d",
+      "state_sha256": "sha256:729ebd7b4670ee73b0f18fbd3566e2ea73e5e8f488ddf729212cbec77e34a73b",
+      "status": "completed",
+      "error": null
+    },
+    "failed_interrupted_run": {
+      "run_id": "tracked-plan-phase-interrupted-new-id",
+      "entry_count": 32,
+      "tree_sha256": "sha256:b13a9c972e01a96d7aeef355366acd0a9f2155b97475fe3590597ba61101297d",
+      "state_sha256": "sha256:6922d406e417b9b17df1e059610ebf372efab88819f8260a91d82d714d6ab0fb",
+      "status": "failed",
+      "error": null,
+      "nested_call_failure": {
+        "status": "failed",
+        "error_type": "lexical_default_resume_invalid",
+        "diagnostics": [
+          "lexical_default_resume_prior_boundary_missing"
+        ]
+      }
+    },
+    "retained_evidence_destination": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence",
+      "status": "absent"
+    },
+    "top_level_design_plan_scratch": {
+      "path_pattern": "/tmp/design-plan-impl-stack-*",
+      "matching_directories": []
+    },
+    "historical_clean_artifact_equality": "not_asserted"
+  },
+  "authorization_scope": {
+    "permitted_operations_in_order": [
+      "Delete exactly the currently bound failed tracked-plan-phase-interrupted-new-id directory once and no other path.",
+      "Recreate exactly tracked-plan-phase-interrupted-new-id once under the bound dedicated root; do not create any other run ID or run root.",
+      "Interrupt that recreated same-ID run once immediately after the committed plan.draft provider boundary, without moving the interruption point.",
+      "Resume exactly that recreated tracked-plan-phase-interrupted-new-id once using the landed fresh-child resume fix.",
+      "Publish only the already-defined clean_run.json and interruption_resume.json retained projections atomically if and only if every required validation passes."
+    ],
+    "required_invariants": [
+      "tracked-plan-phase-clean-new-id remains byte-for-byte equal to its bound 36-entry tree and state hashes before, during, and after recovery.",
+      "The dedicated root contains exactly the two bound top-level run IDs.",
+      "The legacy run root remains byte-for-byte equal to its bound 418108-entry tree.",
+      "The top-level design-plan scratch set remains empty.",
+      "Historical clean artifact equality remains not_asserted; deterministic provider-contract conformance is the only authorized artifact-parity claim."
+    ],
+    "forbidden_operations": [
+      "Any third run or different replacement run ID.",
+      "Any mutation of the protected clean run or legacy root.",
+      "Any temporary orchestrator run root.",
+      "Any workflow execution other than the enumerated same-ID recreation and resume.",
+      "Any second deletion, recreation, interruption, resume, or publication attempt.",
+      "Any publication other than the exact two retained projections."
+    ],
+    "fail_closed_conditions": [
+      "Any authorization, incident, fix, review, root, run, state, or evidence binding differs.",
+      "The pending form has not been genuinely replaced and adopted by the owner.",
+      "The failed interrupted path is absent, symlinked, not a directory, or changed.",
+      "The clean run changes at any point.",
+      "The dedicated root has any top-level entry other than the two bound run IDs.",
+      "The recreated interruption is not the unchanged post-plan.draft committed boundary.",
+      "Resume does not complete through the landed fresh-child resume fix.",
+      "Any parity, artifact-lineage, lifecycle, checksum, scan, or publication validation fails.",
+      "The operation would need another attempt for any reason."
+    ]
+  },
+  "owner_action_required": {
+    "status": "not_reviewed_or_adopted",
+    "instructions": "This is a pending form, not authorization. The intended owner must review every fixed binding, scope item, confirmation statement, and claim boundary. Only the owner or an agent acting under the owner's explicit direction may replace this form with the exact owner-confirmed schema; preparation of this form is not adoption.",
+    "pre_adoption_sequence": [
+      "Complete both ordered reviews against the exact pending recovery-harness candidate.",
+      "Commit the recovery harness, routed status documents, incident records, and immutable input records while this form remains pending and non-authorizing.",
+      "Mechanically replace all four second_recovery_harness placeholders with the actual committed harness commit, commit tree, primary reviewed complete-candidate SHA256, and secondary reviewed complete-candidate SHA256; keep this form pending.",
+      "Only after those exact bindings are populated may the intended owner review the whole record and explicitly adopt the owner-confirmed schema.",
+      "After adoption, complete final exact owner-record verification and ordered reviews before any live recovery action."
+    ],
+    "required_replacements": [
+      "Replace all four second_recovery_harness placeholders mechanically with the actual post-review harness commit, commit tree, and ordered reviewed complete-candidate SHA256 bindings while evidence_status remains pending_owner_confirmation.",
+      "Replace evidence_status with owner_confirmed.",
+      "Replace authorized_disposition with replace_failed_interrupted_run_same_id_once_after_fresh_child_fix.",
+      "Replace intended_owner with owner using the same exact owner object.",
+      "Remove owner_action_required and add owner_confirmations with a genuine confirmed_at timestamp and the exact fixed statements below.",
+      "Add prepared_by naming the actual mechanical writer and prepared_at with the genuine write timestamp.",
+      "Add owner_adoption with the exact owner object, a genuine adopted_at timestamp, and a provenance_statement describing the owner's actual review, explicit adoption, and direction to the mechanical writer.",
+      "Replace claims_not_made with the exact fixed confirmed-record claim boundaries below."
+    ],
+    "fixed_owner_confirmation_statements": [
+      "I acknowledge that the first recovery authorization was consumed exactly once by the failed recovery attempt and cannot be reused.",
+      "I reviewed both bound incident records, the correction authorization, the landed generic fix commit and tree, both reviewed complete-candidate hashes, and every post-failure root and run binding in this record.",
+      "I reviewed and bind the exact second-recovery harness commit and tree and its ordered primary and secondary reviewed complete-candidate SHA256 bindings in this record.",
+      "I authorize only one deletion of the currently bound failed interrupted run, one recreation of the same ID, one interruption at the unchanged post-plan.draft boundary, and one resume of that same ID using the landed fix.",
+      "I authorize atomic publication of only the already-defined two retained projections if and only if all validations pass.",
+      "I require the protected clean run, the exact two run IDs, the legacy root, the absent evidence destination, and the empty scratch set to remain within their exact bound contract.",
+      "I forbid any third run, temporary run root, other workflow execution, legacy-root mutation, moved interruption point, or further attempt, and require fail-closed termination on any mismatch or failure.",
+      "I understand that this authorization does not attest Task 3, retirement validation, or pilot completion and does not change historical clean artifact equality from not_asserted."
+    ],
+    "fixed_confirmed_claims_not_made": [
+      "This authorization permits only the enumerated recovery and conditional atomic publication; it authorizes no other run-root or workflow mutation.",
+      "It does not attest Task 3, retirement validation, or pilot completion.",
+      "It does not assert historical clean artifact equality; that remains not_asserted under the retained correction authorization.",
+      "The pending template, standing preparation direction, and test fixtures are not owner authorization or adoption."
+    ]
+  },
+  "template_prepared_by": "Codex /root — non-owner template preparation only",
+  "claims_not_made": [
+    "This pending form is not owner authorization, owner confirmation, owner adoption, or owner provenance.",
+    "It authorizes no deletion, recreation, interruption, resume, publication, workflow execution, or other mutation.",
+    "It does not attest Task 3, retirement validation, or pilot completion.",
+    "It does not assert historical clean artifact equality; that remains not_asserted under the retained correction authorization."
+  ]
+}

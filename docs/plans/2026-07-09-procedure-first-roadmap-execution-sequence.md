@@ -87,7 +87,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Completed Stage-5 wave 2. Root/field guidance and the combined v2.15 public promotion gate are landed; do not re-execute it. |
 | `2026-07-13-procedure-first-substrate-gaps-plan.md` | Complete and independently gated. Caller-visible transitive effects are recomputed after specialization; do not re-execute this substrate before the tracked-plan pilot. |
 | `2026-07-13-procedure-migration-identity-compatibility-plan.md` | Complete and gated; the final audited handoff to the pilot is `f5adcb79`. Do not re-execute it or edit the pilot family source under this plan. |
-| `2026-07-13-procedure-first-pilot-plan.md` | Current selector. Task 1A's immutable pre-edit evidence is committed at `63e03330`. Task 2's one-phase source edit, provisional compile-only characterization, and two-stage review landed at `e6a85cb7` without a runtime run; the frozen baseline is unchanged. Task 3 is selected under the exact-two-run protocol. Family/focused/broad run-bearing gates remain deferred until retirement-record validation/review and explicit owner hold release. |
+| `2026-07-13-procedure-first-pilot-plan.md` | Current selector. Task 1A's immutable pre-edit evidence is committed at `63e03330`, and Task 2 landed at `e6a85cb7`. Task 3 has one protected completed clean run plus one failed interrupted run. The first recovery authorization was consumed and the attempt failed at fresh-child resume propagation. The generic fix landed and passed ordered reviews at `1cba48c8`; retained evidence remains unpublished. The exact second-recovery form remains pending and awaits ordered harness reviews, the harness commit, mechanical population of its exact commit/tree and review bindings, and genuine owner confirmation. No second attempt has occurred, and runtime evidence remains incomplete. Family/focused/broad run-bearing gates remain deferred until retirement-record validation/review and explicit owner hold release. |
 | `2026-07-13-resume-projection-integrity-hardening-design-plan.md` | Planned after the internal pilot. Its design/specification and resulting implementation plan must complete before migration waves begin; this row is not an implementation claim. |
 | `2026-07-13-procedure-first-migration-waves-plan.md` | Planned after resume projection-integrity hardening implementation completes. Task 1 must rebaseline all prerequisites before any family migration. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
@@ -188,9 +188,15 @@ makes Task 1A selected. Generic matching-count repairs `e43461f9` and
 `5f382401` are complete. Corrected scans, owner records, isolation, quiescence,
 incident recovery, final rechecks, and two-stage reviews passed, and the
 immutable Task 1A evidence package is committed at `63e03330`. Task 2's source
-edit, compile-only characterization, and review are complete at `e6a85cb7`
-without a runtime run; the frozen baseline remains unchanged. Task 3 is
-selected under the exact-two-run protocol. All later stages remain paused. The
+edit, compile-only characterization, and review are complete at `e6a85cb7`;
+the frozen baseline remains unchanged. Task 3 has one protected completed clean
+run plus one failed interrupted run. The exact one-time recovery was consumed
+and failed at fresh-child resume propagation. The generic fix landed and passed
+ordered reviews at `1cba48c8`. Retained evidence remains unpublished. The exact
+second-recovery form remains pending and awaits ordered harness reviews, the
+harness commit, mechanical population of its exact commit/tree and review
+bindings, and genuine owner confirmation. No second attempt has occurred, and
+runtime evidence remains incomplete. All later stages remain paused. The
 deletion-first YAML Task 6 estate sweep is the sole scheduling exception: it
 may run as an independent tranche around pilot quiescence, but it is not
 selected, has not started, is not full Stage 6, and does not reorder the
@@ -268,9 +274,16 @@ architect decision (Path A) selected Task 1A, matching-count repairs
 `e43461f9` and `5f382401` are complete, and Task 1A's corrected scans, owner
 records, isolation, quiescence, incident recovery, final rechecks, and
 two-stage reviews passed. Its immutable pre-edit evidence package is committed
-at `63e03330`; Task 2 is complete at `e6a85cb7` with compile-only evidence and
-no runtime run. The frozen baseline is unchanged, and Task 3 is selected under
-the exact-two-run protocol. Projection-integrity hardening and all
+at `63e03330`; Task 2 is complete at `e6a85cb7` with compile-only evidence.
+The frozen baseline is unchanged. Task 3 has one protected completed clean run
+plus one failed interrupted run. The exact one-time recovery was consumed and
+failed at fresh-child resume propagation. The generic fix landed and passed
+ordered reviews at `1cba48c8`. Retained evidence remains unpublished. The exact
+second-recovery form remains pending and awaits ordered harness reviews, the
+harness commit, mechanical population of its exact commit/tree and review
+bindings, and genuine owner confirmation. No second attempt has occurred, and
+runtime evidence remains incomplete.
+Projection-integrity hardening and all
 later stages remain paused.
 
 ### Stage 4: Design The Broader Procedure-First Contract
@@ -382,8 +395,14 @@ gated at `f5adcb79`. The pilot is the current selector; Path A selected Task
 Task 1A's corrected scans, owner records, isolation, quiescence, incident
 recovery, final rechecks, and two-stage reviews passed. Its immutable pre-edit
 evidence package is committed at `63e03330`. Task 2 is complete at `e6a85cb7`
-with compile-only evidence and no runtime run; the frozen baseline is
-unchanged, and Task 3 is selected under the exact-two-run protocol.
+with compile-only evidence; the frozen baseline is unchanged. Task 3 has one
+protected completed clean run plus one failed interrupted run. The exact
+one-time recovery was consumed and failed at fresh-child resume propagation.
+The generic fix landed and passed ordered reviews at `1cba48c8`. Retained
+evidence remains unpublished. The exact second-recovery form remains pending
+and awaits ordered harness reviews, the harness commit, mechanical population
+of its exact commit/tree and review bindings, and genuine owner confirmation.
+No second attempt has occurred, and runtime evidence remains incomplete.
 
 ### Stage 5: Implement Procedure-First Reuse In Waves
 
@@ -417,9 +436,15 @@ Execute only accepted plans, in this order:
    final rechecks, and two-stage reviews passed; and immutable pre-edit
    evidence is committed at `63e03330`. Task 2's one-family source edit,
    provisional compile-only characterization, and two-stage review landed at
-   `e6a85cb7` without a runtime run; the frozen baseline is unchanged. Task 3
-   is selected under the exact-two-run protocol. The pilot owns the reviewed
-   internal retirement exception and full public-wrapper parity; family,
+   `e6a85cb7`; the frozen baseline is unchanged. Task 3 has one protected
+   completed clean run plus one failed interrupted run. The exact one-time
+   recovery was consumed and failed at fresh-child resume propagation. The
+   generic fix landed and passed ordered reviews at `1cba48c8`. Retained
+   evidence remains unpublished. The exact second-recovery form remains pending
+   and awaits ordered harness reviews, the harness commit, mechanical population
+   of its exact commit/tree and review bindings, and genuine owner confirmation.
+   No second attempt has occurred, and runtime evidence remains incomplete. The pilot
+   owns the reviewed internal retirement exception and full public-wrapper parity; family,
    focused, and broad run-bearing gates execute only after record review and
    explicit owner hold release. Missing or ineligible retirement evidence
    stops the pilot under strict compatibility.

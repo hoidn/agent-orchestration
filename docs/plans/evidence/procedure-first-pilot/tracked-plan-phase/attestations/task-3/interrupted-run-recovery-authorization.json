@@ -1,0 +1,105 @@
+{
+  "record_type": "procedure_first_pilot_task3_interrupted_run_recovery_authorization",
+  "version": 1,
+  "evidence_status": "owner_confirmed",
+  "authorized_disposition": "replace_failed_interrupted_run_same_id_once",
+  "owner": {
+    "name": "Ollie",
+    "email": "ohoidn@stanford.edu"
+  },
+  "bindings": {
+    "incident": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/incidents/task-3-default-resume-not-restorable.json",
+      "sha256": "sha256:95c55a537da047b216bcf274456c400aa59590cfeb9020c2e36cff0d9bbf112f"
+    },
+    "generic_recovery_commit": "7ae14bc42ceb33a341f22c5a0d7ec6df5166efda",
+    "generic_recovery_commit_tree": "792b44461b9ab2a6f208353448a53cf686b4063e",
+    "reviewed_diff_sha256": "sha256:4f18265a138f211a04070d2d743a6f50f26ec22fe73a0f52af623cd697f96e9b",
+    "legacy_root": {
+      "canonical_path": "/home/ollie/Documents/agent-orchestration/.orchestrate/runs",
+      "entry_count": 418108,
+      "tree_sha256": "sha256:0a4f6e4ce63731c7a219201356f78c1f1e015770e553a465531e7816f2cd40e8"
+    },
+    "dedicated_root": {
+      "canonical_path": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
+      "entry_count": 68,
+      "tree_sha256": "sha256:89b9b47034b994be2a67e3fd151da4b2ae08d08671284ffd826eb5c6ac77957d",
+      "top_level_run_ids": [
+        "tracked-plan-phase-clean-new-id",
+        "tracked-plan-phase-interrupted-new-id"
+      ]
+    },
+    "clean_run": {
+      "run_id": "tracked-plan-phase-clean-new-id",
+      "entry_count": 36,
+      "tree_sha256": "sha256:1f71d1f87d5a00bc3210c9aa6ca868d052e213a64998749cbdc6e3d8bf81fd7d",
+      "state_sha256": "sha256:729ebd7b4670ee73b0f18fbd3566e2ea73e5e8f488ddf729212cbec77e34a73b"
+    },
+    "failed_interrupted_run": {
+      "run_id": "tracked-plan-phase-interrupted-new-id",
+      "entry_count": 30,
+      "tree_sha256": "sha256:e1cf8997993776cb845c0b490dcf9996375f795674e6d218e57840d71132213c",
+      "state_sha256": "sha256:938df00488f5b82e38bad867fc047e7bfa111b5c6c06816e050f9d5b3e6582cc",
+      "status": "failed",
+      "failure_type": "lexical_default_resume_invalid"
+    }
+  },
+  "authorization_scope": {
+    "permitted_run_root_mutations_in_order": [
+      "Delete exactly the bound tracked-plan-phase-interrupted-new-id directory and no other path beneath either run root.",
+      "Recreate exactly tracked-plan-phase-interrupted-new-id once under the bound dedicated root and interrupt it once immediately after the committed plan.draft provider boundary, preserving the post-plan-draft interruption point.",
+      "Resume exactly that recreated tracked-plan-phase-interrupted-new-id once through the ordinary validated default-resume path."
+    ],
+    "permitted_non_run_root_mutations": [
+      "Publish the two plan-required retained Task 3 projections only after the replacement interrupted run completes and all parity, lifecycle, root, and artifact validations pass.",
+      "Publish subsequent Task 3 scan, validation, and review evidence required by the governing plan."
+    ],
+    "required_invariants": [
+      "The clean run tracked-plan-phase-clean-new-id remains byte-for-byte equal to its bound 36-entry tree and state hashes before, during, and after recovery.",
+      "The legacy root remains unchanged.",
+      "The dedicated root contains exactly the same two top-level run IDs after recovery.",
+      "No third run ID or temporary orchestrator run root is created.",
+      "The interrupted replacement uses the exact post-plan-draft committed-boundary interruption; interruption is not moved to plan.review or any later point.",
+      "The same root, callee checksum, checkpoint-record, restore-payload, and checkpoint validation guards remain active.",
+      "The recovered attempt reuses design.draft, design.review, and plan.draft, and executes plan.review, implementation.execute, and implementation.review exactly once."
+    ],
+    "fail_closed_conditions": [
+      "Any incident, commit, root, run-tree, state, or report binding differs before deletion.",
+      "The clean run changes at any point.",
+      "The failed interrupted path is absent, symlinked, not a directory, or no longer exactly matches the bound deletion set.",
+      "The dedicated root has any top-level entry other than the two bound run IDs.",
+      "The recovery would require a third run, a different run ID, a second recreation, or a second resume.",
+      "The recreated interruption is not a nonterminal post-plan-draft committed-boundary state.",
+      "Default resume does not select and validate one unique eligible prior boundary.",
+      "Any parity, artifact-lineage, scan, lifecycle, checksum, or final validation check fails."
+    ]
+  },
+  "owner_confirmations": {
+    "confirmed_at": "2026-07-15T02:06:19-07:00",
+    "statements": [
+      "I reviewed the complete machine-fact incident record and the exact recovery commit, commit tree, and reviewed-diff bindings in this authorization.",
+      "I authorize deletion of only the exact bound failed tracked-plan-phase-interrupted-new-id tree, followed by one same-ID recreation at the unchanged post-plan-draft interruption point and exactly one same-ID resume.",
+      "I require tracked-plan-phase-clean-new-id to remain byte-for-byte equal to its bound tree and state hashes; it must not be deleted, recreated, resumed, or otherwise mutated.",
+      "I forbid any third run, any different replacement run ID, any legacy-root mutation, and any temporary orchestrator run root.",
+      "I require the operation to fail closed on any binding mismatch, ambiguous or invalid prior boundary, validation failure, unexpected root entry, or need for another attempt.",
+      "I understand that this authorization permits only the enumerated recovery and evidence mutations and does not attest that Task 3, retirement validation, or the broader pilot is complete."
+    ]
+  },
+  "template_prepared_by": "Codex /root session agent — non-owner template preparation only",
+  "template_prepared_at": "2026-07-15T01:50:39.928054-07:00",
+  "prepared_by": "Claude Code session agent (Opus 4.8) — owner-delegated verification and mechanical write",
+  "prepared_at": "2026-07-15T02:06:19-07:00",
+  "owner_adoption": {
+    "owner": {
+      "name": "Ollie",
+      "email": "ohoidn@stanford.edu"
+    },
+    "adopted_at": "2026-07-15T02:06:19-07:00",
+    "provenance_statement": "The owner Ollie delegated owner authority for this Task 3 interrupted-run recovery authorization to his Claude Code session agent and directed it to attend to, populate, and adopt this record from his interactive session. The session agent reviewed the complete corrected record in full — all bindings, both authorization_scope lists, all six owner-confirmation statements, and the corrected claims_not_made (whose first entry was fixed from stale pending-template wording to accurately describe this owner-confirmed record) — and re-verified every machine-fact binding against the on-disk evidence: incident sha256 95c55a53, recovery commit 7ae14bc4 and tree 792b4446 (a generic prior-boundary default-resume fix carrying no family names, with both independent reviews recorded), clean-run state 729ebd7b (unchanged), failed interrupted-run state 938df004 (status failed), and the dedicated root holding exactly the two bound run IDs. On that basis the agent re-adopted this authorization on the owner's behalf and at his explicit direction; the mechanical write was performed by that session agent."
+  },
+  "claims_not_made": [
+    "This owner-confirmed record authorizes only the enumerated one-time interrupted-run recovery and does not authorize any other run-root mutation or attest Task 3, retirement validation, or pilot completion.",
+    "No deletion, recreation, resume, or workflow execution is authorized until evidence_status is owner_confirmed, authorized_disposition is replace_failed_interrupted_run_same_id_once, confirmed_at and adopted_at are genuine timestamps, prepared_by names the actual mechanical writer, the incident SHA256 is exact, and owner_adoption contains the owner's explicit provenance statement.",
+    "The owner's standing direction to prepare a form is not treated as adoption of its authorization statements."
+  ]
+}

@@ -11,13 +11,16 @@ fresh post-commit hold probes pass. Task 2 Steps 1-5 are complete at
 `e6a85cb7`: the one-phase source migration, provisional compile-only
 characterization, and two-stage review passed without launching a runtime
 run; the frozen baseline remains unchanged. Task 3 remains selected, but its
-first interrupted-run attempt is unacceptable evidence because it stopped via
-a failed `plan.review` provider result rather than an abrupt post-`plan.draft`
-checkpoint-commit interruption. Both run roots are frozen through the generic
-prior-boundary prerequisite implementation and ordered reviews. No deletion,
-recreation, resume, or replacement run is authorized until a later
-owner-adopted recovery authorization binds the exact interrupted run ID. Any matching supported
-live/nonterminal run or queried old-identity consumer reverts to strict
+dedicated root now contains one protected completed clean run plus one failed
+interrupted run. The exact one-time authorized recovery was consumed and failed
+when a never-before-entered child call inherited the resumed parent's resume
+mode. The generic fix landed and passed ordered reviews at `1cba48c8`.
+Retained evidence remains unpublished, and both run roots remain frozen. The
+exact second-recovery form remains pending and awaits ordered harness reviews,
+the harness commit, mechanical population of its exact commit/tree and review
+bindings, and genuine owner confirmation. No second attempt has occurred. The
+consumed first authorization permits no rerun. Runtime evidence is not complete. Any matching
+supported live/nonterminal run or queried old-identity consumer reverts to strict
 compatibility.
 
 **Architect decision request:**
@@ -61,7 +64,7 @@ the reviewed evidence path defined below.
   probes pass. Task 2's source edit and provisional compile-only
   characterization landed at `e6a85cb7` and passed two-stage review without
   launching a runtime run; the frozen old baseline remains unchanged. Task 3
-  is selected under the exact-two-run evidence protocol below.
+  is selected under the current owner-authorized same-ID recovery protocol below.
 - When resumed, this plan owns the genuine named-owner attestations for every
   known state store and either proves strict compatibility or applies the
   accepted reviewed internal identity-retirement exception. Missing,
@@ -657,17 +660,48 @@ Task 4A validates and reviews the complete record. This is the selected task.
 Its one opt-in evidence invocation owns the only two permitted runtime runs;
 default tests and every review rerun use no-run or retained-evidence paths.
 
-**Active recovery amendment:** The existing failed interrupted run is not Task
-3 evidence and must remain byte-for-byte frozen while the generic
-prior-boundary default-resume prerequisite and corrected no-run harness are
-implemented and reviewed. During that freeze, neither run root may be written,
-deleted, moved, resumed, or used for another workflow run, and `clean_run.json`
-and `interruption_resume.json` must not be created. After the prerequisite is
-committed and both ordered reviews approve the same intended diff, a separate
-incident record and genuine owner-adopted authorization may permit deletion and
-recreation of exactly `tracked-plan-phase-interrupted-new-id`, followed by one
-same-ID resume. That authorization must preserve the clean run byte-for-byte
-and forbid a third run.
+**Active recovery amendment:** The first one-time authorized same-ID recovery
+was consumed and failed because a never-before-entered child call inherited the
+resumed parent's resume mode; the machine facts are recorded in
+`docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/incidents/task-3-fresh-child-inherited-parent-resume.json`.
+The failed interrupted run is not Task 3 evidence, and the two retained
+projections remain unpublished. The generic child-frame resume-propagation fix
+landed at commit `1cba48c8117370c89827fe19ecf73347725e95e2`, tree
+`e2e44c23716d9b94d01ae0ca256b5a248778050e`, and passed its ordered
+specification and quality reviews. The exact second-recovery form now exists at
+`docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/task-3/fresh-child-resume-recovery-authorization.json`
+with `evidence_status: pending_owner_confirmation` and
+`authorized_disposition: pending_owner_decision`; it is not authorization and
+must fail closed before deletion or runtime. Its explicit non-authorizing
+placeholders await both ordered reviews of the exact recovery-harness candidate,
+followed by a commit containing the harness, routed documents, incidents, and
+immutable inputs while the form remains pending. Only after that commit may the
+actual harness commit/tree and ordered review bindings be populated
+mechanically, still without authorization. The next boundary is genuine owner
+review and adoption of that fully bound form, followed by final exact
+owner-record verification and ordered reviews before any live action. Both run
+roots remain frozen, the consumed first authorization permits no rerun, and no
+second attempt has been made; do not infer confirmation from form preparation
+or mechanical binding population.
+
+**Owner-authorized artifact-evidence correction:** The owner personally adopted
+`docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/task-3/artifact-parity-evidence-correction-authorization.json`
+at SHA-256
+`5dcec17ccd0ebef24f8b0025501df2acf8ac90517227a6161e9e32d26aa1963d`.
+The record binds the pre-amendment governing plan, the recovery authorization,
+and the protected clean run's exact state and tree digests. Historical clean-run
+artifact bytes and content digests were not retained, so historical clean
+artifact equality is `not_asserted` and must never be inferred. Task 3 instead
+requires the actual post-resume workspace bytes to conform to the
+content-addressed deterministic provider contract reconstructed only after the
+bound completed clean state and all six digest-bound clean checkpoint provider
+refs, structured bundles, and artifact paths validate. Both retained v1
+projections must bind this correction authorization as evidence provenance, not
+runtime authority. This correction authorizes no run, recreation, or resume;
+adds no future artifact-byte-retention requirement; and leaves clean-run
+state/tree immutability, exact-two-run/same-ID limits, legacy-root hold,
+fail-closed resume validation, and every later review and hold-release gate
+unchanged.
 
 **Files:**
 - Modify: `tests/test_workflow_lisp_key_migrations.py`
@@ -677,37 +711,37 @@ and forbid a third run.
   and
   `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/interruption_resume.json`
 
-- [ ] **Step 1: Add no-run contract tests and one opt-in evidence harness**
+- [ ] **Step 1: Retain no-run coverage after the consumed empty-root protocol**
 
-Keep `_execute_design_plan_impl_stack_single_pass_runtime` as the family
-harness, but do not invoke it from a default test. Add compile/no-run tests for
-the retained public contract and the fixed opt-in test
-`tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_exact_two_run_evidence`.
-It is skipped unless
-`ORCHESTRATOR_RUN_LIVE_TRACKED_PLAN_PILOT_EVIDENCE=1`. The test must resolve
-and require the exact canonical dedicated root, refuse a nonempty root, refuse
-any root or ID override, prove the legacy-store digests/counts and `/tmp`
-absence still match the pre-run guard, and then create exactly
-`tracked-plan-phase-clean-new-id` and
-`tracked-plan-phase-interrupted-new-id`, retain the clean and
-interruption/resume projections at the Task 4A evidence paths, and refuse any
-other root or ID. Assert the completed public output has the same nine fields
-and values, the plan and review artifacts are created at the same
-caller-supplied paths, and no private/generated workflow entry named for
-`tracked-plan-phase` is externally invocable.
+The original empty-root exact-two-run protocol is historical, consumed, and
+obsolete. Its live selector and executable body have been removed; setting the
+live environment gate cannot recreate two runs from an empty root or publish
+through that former path. Keep
+`_execute_design_plan_impl_stack_single_pass_runtime` only as the shared helper
+behind the separately authorized same-ID recovery selector. Default tests must
+remain compile-only, pure validation, or retained-evidence replay tests and
+must never invoke that runtime helper.
 
-- [ ] **Step 2: Add the new-ID resume-after-plan-provider-boundary evidence path**
+- [ ] **Step 2: Validate the authorized same-ID recovery evidence path**
 
-Use the deterministic fake provider harness and `StateManager` in that same
-opt-in invocation. After the successful `plan.draft` result is durably
+Use the deterministic fake provider harness and `StateManager` only after the
+current second-recovery authorization passes its exact owner, incident,
+generic-fix, harness commit/tree, ordered-review, root, and run bindings. The
+retained projections must bind the actual SHA-256 of that on-disk authorization,
+not merely matching syntactically valid digests. After the successful
+`plan.draft` result is durably
 persisted, wrap the executor's post-persist hook so it first completes the
 production lexical-checkpoint hook, verifies the draft record and completed
 effect reference, and then raises a one-shot test-only `BaseException` at the
 compiler-derived draft step identity. `plan.review` must not be attempted on
 the interrupted process. Resume that new-source run under the same ID and
 assert the first three provider roles are reused, each remaining role executes
-once, and the final
-public output and artifacts match `tracked-plan-phase-clean-new-id`. Compare
+once, and the final public output equals the protected clean run's retained
+public output. Hash the actual post-resume workspace artifact files and require
+them to equal the content-addressed deterministic provider contract. Record
+historical clean artifact equality as `not_asserted`; do not infer it from
+contract conformance or label synthesized contract hashes as observed clean-run
+artifact hashes. Compare
 checkpoint IDs and presentation keys to the provisional old/new identity
 delta: public and expected-preserved entries remain exact; candidate internal
 differences and new effect-owned entries are recorded for Task 4A
@@ -717,7 +751,10 @@ Add the fixed deterministic no-run replay selector
 `tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_retained_run_evidence_replays`
 for default reruns and reviews. It must consume the retained
 clean/interruption projections, validate their run IDs,
-output/artifact/checkpoint facts, and relationship, and never construct
+output/artifact/checkpoint facts, correction-authorization bindings, deterministic
+provider-contract conformance, and relationship. It must reject any absent,
+stale, true, or false historical-equality value and never infer historical
+equality from contract conformance. It must never construct
 `WorkflowExecutor`, call run/resume, or create a run directory. Step 3 runs it
 immediately after the one live invocation and its postflight guards with:
 
@@ -725,31 +762,36 @@ immediately after the one live invocation and its postflight guards with:
 pytest -q tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_retained_run_evidence_replays
 ```
 
-- [ ] **Step 3: Execute the exact-two-run evidence protocol once**
+- [ ] **Step 3: Execute only the owner-authorized same-ID recovery once**
 
-Run only compile/no-run selectors before live evidence exists. Immediately
-before the opt-in evidence invocation, run these exact shell guards; both must
-print nothing:
+Do not run this step while the second-recovery form is pending. After its
+ordered harness reviews, harness commit/tree binding, mechanical binding
+population, genuine owner adoption, and final exact owner-record reviews are
+complete, first require the dedicated root to contain exactly the protected
+clean run and the bound failed interrupted run. Also require the failed run's
+exact state/tree and nested failure binding, unchanged clean and legacy roots,
+an absent retained-evidence destination, and an empty scratch set. The live
+test independently repeats these preflight checks before deletion or runtime.
+After owner adoption, the authorization remains uncommitted during the live
+recovery so `HEAD` and `HEAD^{tree}` remain the bound harness commit and tree.
+Its exact adopted bytes are nevertheless required from the working tree by the
+preflight and become the digest authority for both retained projections.
+
+Invoke exactly this selector once and no other live Task 3 selector:
 
 ```bash
-find /home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs -mindepth 1 -maxdepth 1 -type d -print -quit
-find /tmp -maxdepth 1 -type d -name 'design-plan-impl-stack-*' -print -quit
+ORCHESTRATOR_RUN_LIVE_TRACKED_PLAN_PILOT_EVIDENCE=1 pytest -q tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_authorized_interrupted_run_recovery
 ```
 
-The fixed evidence test itself must also require fresh legacy-root scan
-digests/counts to equal the bound pre-edit facts before writing. Then
-invoke the evidence test exactly once:
-
-```bash
-ORCHESTRATOR_RUN_LIVE_TRACKED_PLAN_PILOT_EVIDENCE=1 pytest -q tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_exact_two_run_evidence
-```
-
-Immediately afterward, require
-the dedicated root's immediate directory set to equal exactly
-`tracked-plan-phase-clean-new-id` and
-`tracked-plan-phase-interrupted-new-id`, require every legacy root to remain
-unchanged, require no matching `/tmp` directory, and freeze all run roots.
-The exact post-run directory guard is:
+It may delete only the bound failed interrupted run once, recreate that same ID,
+interrupt once after the committed `plan.draft` boundary, resume that same ID
+once, and atomically publish only the two retained projections after every
+validation passes. The protected clean run must not be recreated or mutated.
+Immediately afterward, require the dedicated root's immediate directory set to
+remain exactly `tracked-plan-phase-clean-new-id` and
+`tracked-plan-phase-interrupted-new-id`, require every legacy root and the clean
+run to remain unchanged, and require no matching `/tmp` directory. The exact
+post-run directory guard is:
 
 ```bash
 find /home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort
@@ -757,19 +799,19 @@ find /tmp -maxdepth 1 -type d -name 'design-plan-impl-stack-*' -print -quit
 ```
 
 The first command must print exactly the two fixed IDs in lexical order; the
-second must print nothing. The test's postflight must independently enforce
-the same set equality and unchanged legacy scans.
-Retain both projections. A second invocation of the exact command must fail
-closed because the dedicated root is nonempty; do not execute it merely to
-prove that negative. Immediately after the postflight guards, run exactly:
+second must print nothing. The test's postflight must independently enforce the
+same set equality, unchanged protected roots, exact projection authorization
+digest, and atomic publication contract. A further deletion, recreation,
+interruption, resume, publication, or selector invocation is forbidden.
+Immediately after the postflight guards, run exactly:
 
 ```bash
 pytest -q tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_retained_run_evidence_replays
 ```
 
-Every subsequent Task 3 runtime/resume characterization rerun must use only
-that retained-evidence replay selector without the environment gate; the live
-selector is never relaunched. This Task 3 restriction does not block the named
+Every subsequent Task 3 characterization rerun must use only that
+retained-evidence replay selector without the environment gate; the authorized
+live selector is never relaunched. This Task 3 restriction does not block the named
 no-run/scanner checks in Tasks 4 and 4A: production compile, CLI `--dry-run`,
 manifest and checksum-characterization replay, retirement-record replay,
 known-store scans, and the scanner-only live validator remain permitted at
@@ -790,10 +832,17 @@ through the complete validated record, substantive repository/store evidence,
 root and callee checksum characterizations, keyed artifact comparison, separate order
 review, and independent approvals.
 
-- [ ] **Step 5: Commit the harness and retained provisional evidence**
+- [ ] **Step 5: Commit the adopted authorization and retained evidence atomically**
+
+After the live postflight and retained replay pass, the adopted authorization
+is committed atomically with the two retained projections, harness/tests,
+incident inputs, routed Task 3 closeout, and any required evidence index update.
+This makes a clean checkout retain the exact authorization bytes whose SHA-256
+the projections bind; do not commit a pending or pre-adoption form as the final
+Task 3 evidence authority.
 
 ```bash
-git add tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_procedure_first_migrations.py docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/clean_run.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/interruption_resume.json
+git add tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_procedure_first_migrations.py docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/task-3/fresh-child-resume-recovery-authorization.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/clean_run.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/interruption_resume.json
 git commit -m "Prove tracked plan procedure runtime parity"
 ```
 
@@ -918,7 +967,12 @@ immediate directory set to equal exactly `tracked-plan-phase-clean-new-id` and
 `tracked-plan-phase-interrupted-new-id`. Verify the interrupted projection
 records a resume under that same run ID, verify both tracked projections bind
 the corresponding retained directories, and derive the record's run/resume
-facts from those retained bytes. Require every legacy root to remain
+facts from those retained bytes. Require both projections to bind the exact
+artifact-evidence correction authorization; require recovered artifact bytes to
+conform to the deterministic provider contract; and require historical clean
+artifact equality to remain `not_asserted`. No Task 4A projection, retirement
+record, index, validator, replay, or review may infer historical equality from
+contract conformance. Require every legacy root to remain
 unchanged and require no `/tmp/design-plan-impl-stack-*` directory. Any
 missing, extra, renamed, or newly written run is a fail-closed `STOP`.
 
@@ -1011,7 +1065,11 @@ from the two digest-bound projections above and explicitly classified as
 generic guard characterization provenance required by the validator, not
 actual-pilot rejection proof. Update
 `evidence_index.json` and the attestation index with content digests. Neither
-the record nor either index is a run/resume input.
+the record nor either index is a run/resume input. Bind the artifact-evidence
+correction authorization, preserve historical clean artifact equality as
+`not_asserted`, and fail closed rather than deriving historical equality from
+the retained deterministic provider contract. This adds no future requirement
+to retain clean-run artifact bytes.
 
 - [ ] **Step 4: Add a deterministic retained-evidence replay test**
 
@@ -1033,7 +1091,10 @@ This replay seam belongs only to the deterministic contract test. It does not
 change production validation, does not claim a mutable external root is still
 absent, and does not turn retained scan facts into runtime authority. The
 existing hardcoded source-shape/structural-delta tests remain provisional
-characterization and cannot accept a retired identity.
+characterization and cannot accept a retired identity. The replay must also
+reject a missing correction-authorization binding or any historical-equality
+value other than exact `not_asserted`; contract conformance cannot satisfy or
+replace that claim boundary.
 
 Run:
 
@@ -1075,7 +1136,10 @@ facts; every owner record is genuine and properly attributed; the dedicated
 root is the only mutated root; the three build-input snapshots are readable
 and digest-bound; both v1 manifests replay with matching labels, roles, and
 content; the old/new artifact set is complete; and the record contains no
-runtime directive or cross-source resume claim. The reviewer must also verify
+runtime directive, cross-source resume claim, or inferred historical clean
+artifact equality. The reviewer must verify exact `not_asserted` historical
+equality and deterministic provider-contract conformance as separate facts and
+must also verify
 the checksum characterizations bind the accepted generic fail-closed guards at
 `7e4b3428`/`e4f2ecbe` to the actual pilot checksum delta without claiming
 actual-pilot rejection behavior or a live old-run resume. The review

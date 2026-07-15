@@ -1,0 +1,125 @@
+{
+  "schema": "procedure_first_pilot_task3_runtime_incident.v1",
+  "fact_class": "machine_audit_facts",
+  "incident_type": "fresh_child_inherited_parent_resume_mode",
+  "disposition": "generic_prerequisite_fix_and_new_owner_authorization_required",
+  "owner_acceptance": "not_asserted",
+  "recorded_at": "2026-07-15T10:16:18.482868168-07:00",
+  "execution": {
+    "working_directory": "/home/ollie/Documents/agent-orchestration",
+    "command": "ORCHESTRATOR_RUN_LIVE_TRACKED_PLAN_PILOT_EVIDENCE=1 pytest -q tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_authorized_interrupted_run_recovery",
+    "selector": "tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_authorized_interrupted_run_recovery",
+    "outcome": "failed",
+    "exit_code": 1,
+    "tmux_exit_code": 1,
+    "reported_duration_seconds": 134.92,
+    "live_recovery_authorization_consumed": true,
+    "rerun_performed": false
+  },
+  "reviewed_recovery_harness": {
+    "complete_five_file_diff_sha256": "sha256:446faae3e14a97317810ef27c7fd8a029e634957d673c9ebe6023afc29f779e7",
+    "ordered_reviews": [
+      "specification_compliance_passed",
+      "code_quality_passed"
+    ]
+  },
+  "authorization_bindings": {
+    "interrupted_run_recovery_authorization": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/task-3/interrupted-run-recovery-authorization.json",
+      "sha256": "sha256:bb0f3bb01ec3ef74b91186a9f227c0b6f41285549cdf176f827a7e8665a5fc0e",
+      "disposition_after_attempt": "consumed"
+    },
+    "artifact_parity_evidence_correction_authorization": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/task-3/artifact-parity-evidence-correction-authorization.json",
+      "sha256": "sha256:5dcec17ccd0ebef24f8b0025501df2acf8ac90517227a6161e9e32d26aa1963d",
+      "authorizes_run_mutation": false
+    }
+  },
+  "prior_incident": {
+    "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/incidents/task-3-default-resume-not-restorable.json",
+    "sha256": "sha256:95c55a537da047b216bcf274456c400aa59590cfeb9020c2e36cff0d9bbf112f"
+  },
+  "failure_chain": {
+    "parent_default_resume": {
+      "report_status": "pass",
+      "mode": "LEXICAL_CHECKPOINT_DEFAULT",
+      "restore_decision": "RESTORED",
+      "selection_reason": "validated_prior_boundary",
+      "restart_boundary": "plan.draft"
+    },
+    "new_child_call_frame": {
+      "persisted_before_parent_resume": false,
+      "inherited_parent_resume_mode": true,
+      "expected_mode": "fresh",
+      "status": "failed",
+      "error_type": "lexical_default_resume_invalid",
+      "diagnostics": [
+        "lexical_default_resume_prior_boundary_missing"
+      ]
+    },
+    "generic_root_cause": "Call execution propagated the resumed parent's resume mode to a child workflow even though the exact child call frame did not exist before the interruption."
+  },
+  "post_failure_state": {
+    "protected_clean_run": {
+      "run_id": "tracked-plan-phase-clean-new-id",
+      "status": "completed",
+      "error": null,
+      "state_sha256": "sha256:729ebd7b4670ee73b0f18fbd3566e2ea73e5e8f488ddf729212cbec77e34a73b",
+      "tree_sha256": "sha256:1f71d1f87d5a00bc3210c9aa6ca868d052e213a64998749cbdc6e3d8bf81fd7d",
+      "entry_count": 36,
+      "preserved_byte_for_byte": true
+    },
+    "failed_interrupted_run": {
+      "run_id": "tracked-plan-phase-interrupted-new-id",
+      "status": "failed",
+      "error": null,
+      "state_sha256": "sha256:6922d406e417b9b17df1e059610ebf372efab88819f8260a91d82d714d6ab0fb",
+      "tree_sha256": "sha256:b13a9c972e01a96d7aeef355366acd0a9f2155b97475fe3590597ba61101297d",
+      "entry_count": 32,
+      "nested_call_failure": {
+        "status": "failed",
+        "error_type": "lexical_default_resume_invalid",
+        "diagnostics": [
+          "lexical_default_resume_prior_boundary_missing"
+        ]
+      }
+    },
+    "dedicated_root": {
+      "path": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
+      "tree_sha256": "sha256:198d022c1878df3a86992d3fa8b968bbb537d23e70a31a31f8dfccb769344b1b",
+      "entry_count": 70,
+      "top_level_run_ids": [
+        "tracked-plan-phase-clean-new-id",
+        "tracked-plan-phase-interrupted-new-id"
+      ]
+    },
+    "retained_evidence_destination": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence",
+      "status": "absent"
+    },
+    "top_level_design_plan_scratch": {
+      "path_pattern": "/tmp/design-plan-impl-stack-*",
+      "matching_directories": []
+    }
+  },
+  "recovery_boundary": {
+    "prior_authorization_status": "consumed",
+    "current_run_mutation_authorization": "none",
+    "second_mutation_permitted": false,
+    "required_before_any_future_mutation": [
+      "complete the generic fresh-child resume propagation fix",
+      "pass the required ordered reviews for the exact fix",
+      "obtain a new explicit owner authorization bound to the post-failure state and reviewed fix"
+    ],
+    "clean_run_may_change": false,
+    "failed_run_may_change": false,
+    "third_run_may_be_created": false,
+    "legacy_root_may_change": false
+  },
+  "claims_not_made": [
+    "This incident is not an owner authorization or owner attestation.",
+    "The failed recovery is not accepted as Task 3 retained evidence.",
+    "No second deletion, recreation, resume, live selector invocation, or other run-root mutation is authorized.",
+    "The generic prerequisite fix does not authorize a future run without separate explicit owner authorization after its required reviews."
+  ]
+}

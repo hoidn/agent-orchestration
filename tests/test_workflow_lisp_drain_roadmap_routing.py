@@ -50,6 +50,18 @@ CONTRADICTORY_CLOSEOUT_STATE = re.compile(
     r"|semantic migration freeze (?:remains|is) (?:in force|active)"
     r")\b"
 )
+CURRENT_RECOVERY_FIX_COMMIT = "1cba48c8"
+RECOVERY_STATUS_SURFACES = (
+    "docs/index.md",
+    "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md",
+    "docs/plans/2026-07-09-procedure-first-roadmap-activation-plan.md",
+    CURRENT_SELECTOR_PATH,
+)
+CONTRADICTORY_RECOVERY_STATUS = re.compile(
+    r"\bgeneric prerequisite fix (?:remains|is) (?:open|pending|in progress|underway)\b"
+    r"|\bsecond mutation requires .*\bfix\b.*\breviews?\b"
+    r"|\b(?:second )?recovery harness reviews passed\b"
+)
 
 
 def _markdown_table_row(path: Path, key: str) -> str:
@@ -108,6 +120,78 @@ def _assert_task_4_3_closeout_state(surface: str, label: str) -> None:
     assert GATE_S3_SATISFIED_STATE in normalized, label
     assert SEMANTIC_FREEZE_LIFTED_STATE in normalized, label
     assert CONTRADICTORY_CLOSEOUT_STATE.search(normalized) is None, label
+
+
+def _assert_current_task_3_recovery_status(
+    surface: str,
+    label: str,
+    *,
+    require_explicit_mutation_hold: bool = False,
+) -> None:
+    normalized = _normalized_routing_text(surface)
+    assert CURRENT_RECOVERY_FIX_COMMIT in normalized, label
+    assert "second recovery form" in normalized, label
+    assert "ordered harness reviews" in normalized, label
+    assert "harness commit" in normalized, label
+    assert "owner confirmation" in normalized, label
+    assert "no second attempt" in normalized, label
+    if require_explicit_mutation_hold:
+        assert "no second mutation" in normalized and "authorized" in normalized, label
+    assert CONTRADICTORY_RECOVERY_STATUS.search(normalized) is None, label
+
+
+def test_procedure_first_status_surfaces_share_current_task_3_recovery_boundary() -> None:
+    for relative_path in RECOVERY_STATUS_SURFACES:
+        surface = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+        _assert_current_task_3_recovery_status(
+            surface,
+            relative_path,
+            require_explicit_mutation_hold=relative_path.endswith(
+                "procedure-first-roadmap-activation-plan.md"
+            ),
+        )
+
+
+def test_current_task_3_routes_only_the_authorized_same_id_recovery_selector() -> None:
+    pilot = (REPO_ROOT / CURRENT_SELECTOR_PATH).read_text(encoding="utf-8")
+
+    assert "test_tracked_plan_phase_exact_two_run_evidence" not in pilot
+    assert (
+        "test_tracked_plan_phase_authorized_interrupted_run_recovery" in pilot
+    )
+    assert (
+        "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/"
+        "attestations/task-3/fresh-child-resume-recovery-authorization.json"
+    ) in pilot
+    normalized = _normalized_routing_text(pilot)
+    assert "authorization remains uncommitted" in normalized
+    assert "bound harness commit" in normalized
+    assert "committed atomically with" in normalized
+
+
+@pytest.mark.parametrize(
+    "contradiction",
+    (
+        "The generic prerequisite fix is in progress.",
+        "Any second mutation requires the fix and its ordered reviews to pass.",
+    ),
+)
+def test_task_3_recovery_status_guard_rejects_stale_prerequisite_state(
+    contradiction: str,
+) -> None:
+    current = (
+        f"The generic fix landed at {CURRENT_RECOVERY_FIX_COMMIT}. "
+        "The exact second-recovery form awaits ordered harness reviews, the harness "
+        "commit, mechanical binding population, and owner confirmation. "
+        "No second attempt has occurred, and no second mutation is authorized."
+    )
+
+    with pytest.raises(AssertionError):
+        _assert_current_task_3_recovery_status(
+            f"{current} {contradiction}",
+            "mutated Task 3 recovery status",
+            require_explicit_mutation_hold=True,
+        )
 
 
 def _assert_task_4_2_temporary_pipeline_contract(surface: str, label: str) -> None:

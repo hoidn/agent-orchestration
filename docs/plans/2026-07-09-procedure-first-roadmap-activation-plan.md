@@ -4,7 +4,7 @@
 
 **Goal:** Make the approved procedure-first roadmap executable by reconciling the existing component plans with landed commits, tracking and routing the governing plan set, re-anchoring stale ownership paths, and establishing a verified component-plan handoff.
 
-**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, and drain Phases 1–4 are complete. Gates P3/P4/S3/S4, both typed-return waves, the resolved-effect substrate, and the identity-compatibility prerequisites are complete. DSL v2.15 is public. The current selector is `docs/plans/2026-07-13-procedure-first-pilot-plan.md`; Task 1A's immutable evidence is committed at `63e03330`, and Task 2's source/compile-only work landed at `e6a85cb7` without a runtime run. Task 3 is selected under the exact-two-run protocol; run-bearing family/focused/broad gates wait for final record review and explicit owner hold release. Later stages remain paused.
+**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, and drain Phases 1–4 are complete. Gates P3/P4/S3/S4, both typed-return waves, the resolved-effect substrate, and the identity-compatibility prerequisites are complete. DSL v2.15 is public. The current selector is `docs/plans/2026-07-13-procedure-first-pilot-plan.md`; Task 1A's immutable evidence is committed at `63e03330`, and Task 2 landed at `e6a85cb7`. Task 3 has one protected completed clean run plus one failed interrupted run. The exact one-time recovery was consumed and failed at fresh-child resume propagation. The generic fix landed and passed ordered reviews at `1cba48c8`; retained evidence remains unpublished. The exact second-recovery form remains pending and awaits ordered harness reviews, the harness commit, mechanical population of its exact commit/tree and review bindings, and genuine owner confirmation. No second attempt has occurred, and no second mutation is authorized. Runtime evidence remains incomplete. Run-bearing family/focused/broad gates wait for final record review and explicit owner hold release. Later stages remain paused.
 
 > **Current execution amendment (updated 2026-07-13):** The case 5 design and
 > implementation are complete, and the boundary final gate passed. The
@@ -46,9 +46,16 @@
 > scans, owner records, isolation, quiescence, incident recovery, final
 > rechecks, and two-stage reviews passed; and the immutable Task 1A evidence
 > package is committed at `63e03330`. Task 2's source edit, provisional
-> compile-only characterization, and two-stage review landed at `e6a85cb7`
-> without a runtime run; the frozen baseline remains unchanged. Task 3 is
-> selected under the exact-two-run protocol, with family/focused/broad gates
+> compile-only characterization, and two-stage review landed at `e6a85cb7`;
+> the frozen baseline remains unchanged. Task 3 has one protected completed
+> clean run plus one failed interrupted run. The exact one-time recovery was
+> consumed and failed at fresh-child resume propagation. The generic fix landed
+> and passed ordered reviews at `1cba48c8`. Retained evidence remains
+> unpublished. The exact second-recovery form remains pending and awaits
+> ordered harness reviews, the harness commit, mechanical population of its
+> exact commit/tree and review bindings, and genuine owner confirmation. No
+> second attempt has occurred, and no second mutation is authorized. Runtime evidence remains incomplete,
+> with family/focused/broad gates
 > deferred until record review and explicit owner hold release. All later stages
 > remain paused. The deletion-first YAML Task 6 estate sweep is the sole
 > scheduling exception: it may run as an independent tranche around pilot
@@ -597,8 +604,15 @@ Path A selected Task 1A; matching-count repairs `e43461f9` and `5f382401` are
 complete, and corrected scans, owner records, isolation, quiescence, incident
 recovery, final rechecks, and two-stage reviews passed. The immutable Task 1A
 evidence package is committed at `63e03330`. Task 2 is complete at `e6a85cb7`
-with compile-only evidence and no runtime run; the frozen baseline is
-unchanged, and Task 3 is selected under the exact-two-run protocol.
+with compile-only evidence; the frozen baseline is unchanged. Task 3 has one
+protected completed clean run plus one failed interrupted run. The exact
+one-time recovery was consumed and failed at fresh-child resume propagation.
+The generic fix landed and passed ordered reviews at `1cba48c8`. Retained
+evidence remains unpublished. The exact second-recovery form remains pending
+and awaits ordered harness reviews, the harness commit, mechanical population
+of its exact commit/tree and review bindings, and genuine owner confirmation.
+No second attempt has occurred, and no second mutation is authorized. Runtime
+evidence remains incomplete.
 Later hardening, migration waves, YAML retirement, provider live binding, and
 the language server remain paused in that order. The deletion-first YAML Task
 6 estate sweep is the sole scheduling exception: it may run as an independent

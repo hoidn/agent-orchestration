@@ -1,0 +1,52 @@
+{
+  "record_type": "procedure_first_pilot_task3_artifact_parity_evidence_correction_authorization",
+  "version": 1,
+  "evidence_status": "owner_confirmed",
+  "authorized_disposition": "replace_unprovable_historical_clean_artifact_equality_with_deterministic_provider_contract_conformance",
+  "owner": {
+    "name": "Ollie",
+    "email": "ohoidn@stanford.edu"
+  },
+  "bindings": {
+    "governing_plan": {
+      "path": "docs/plans/2026-07-13-procedure-first-pilot-plan.md",
+      "sha256": "sha256:cbbc25e296424da5c14c75f99a2b60880a43e79ea5a4ad891898e4bd1ee79737"
+    },
+    "recovery_authorization": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/task-3/interrupted-run-recovery-authorization.json",
+      "sha256": "sha256:bb0f3bb01ec3ef74b91186a9f227c0b6f41285549cdf176f827a7e8665a5fc0e"
+    },
+    "clean_run": {
+      "run_id": "tracked-plan-phase-clean-new-id",
+      "state_sha256": "sha256:729ebd7b4670ee73b0f18fbd3566e2ea73e5e8f488ddf729212cbec77e34a73b",
+      "tree_sha256": "sha256:1f71d1f87d5a00bc3210c9aa6ca868d052e213a64998749cbdc6e3d8bf81fd7d"
+    }
+  },
+  "owner_confirmations": {
+    "confirmed_at": "2026-07-15T09:06:59-07:00",
+    "statements": [
+      "Historical clean-run artifact bytes or content digests were not retained.",
+      "Historical clean artifact equality must be recorded as not_asserted, never inferred.",
+      "Task 3 may instead require recovered bytes to match the content-addressed deterministic provider fixture contract, with the clean checkpoints binding all six provider roles, bundles, and artifact paths.",
+      "This does not weaken clean-run tree/state immutability, the exact two-run restriction, same-ID recovery, legacy-root hold, or fail-closed resume validation.",
+      "It authorizes no additional run, recreation, or resume.",
+      "It does not attest Task 3, retirement validation, or pilot completion."
+    ]
+  },
+  "prepared_by": "Claude Code session agent (Opus 4.8) — owner-directed verification and mechanical write",
+  "prepared_at": "2026-07-15T09:06:59-07:00",
+  "owner_adoption": {
+    "owner": {
+      "name": "Ollie",
+      "email": "ohoidn@stanford.edu"
+    },
+    "adopted_at": "2026-07-15T09:06:59-07:00",
+    "provenance_statement": "This record corrects an artifact-parity evidence standard, which is a substantive design judgment; unlike the mechanically-scoped recovery authorization, the owner Ollie personally made this decision. He was shown, in his interactive session, the exact tradeoff — that the deterministic content-addressed provider fixture contract proves recovered artifacts conform to the six digest-bound provider roles, bundles, and paths retained in the clean checkpoints, while byte-identity with the specific historical clean run cannot be proven because those artifact bytes were never retained and is therefore recorded not_asserted rather than inferred — and he explicitly chose to accept contract-conformance as the Task 3 artifact-parity standard. He directed his Claude Code session agent to record and adopt this authorization on that basis. The session agent independently re-verified the governing-plan, recovery-authorization, and clean-run state bindings against the on-disk files immediately before writing (the clean tree hash is as bound by the audited harness); the mechanical write was performed by that session agent at the owner's direction."
+  },
+  "claims_not_made": [
+    "This authorization changes only the Task 3 artifact-parity evidence form; it does not weaken clean-run immutability, the exact two-run restriction, same-ID recovery, the legacy-root hold, or fail-closed resume validation.",
+    "It authorizes no additional run, recreation, resume, or any other run-root mutation.",
+    "It does not attest that Task 3, retirement validation, or the broader pilot is complete.",
+    "It does not assert historical clean-run artifact byte-equality; that is recorded not_asserted and must never be inferred from contract conformance."
+  ]
+}
