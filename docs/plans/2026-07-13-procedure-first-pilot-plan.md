@@ -4,14 +4,14 @@
 
 **Status:** Architect decision recorded 2026-07-14 (APPROVE, Path A —
 conditional `reviewed_internal_identity_retirement`; see the decision request
-below). Task 1A is selected. Its Steps 2-5 are assembled, current, and rechecked
-under the match-scoped store-count contract, but the package remains
-uncommitted. Step 6 and the final independent package review/commit are pending.
-Task 2 is `not_selected`, and every pilot source edit remains prohibited until
-the complete pre-edit gate (corrected scans, genuine owner attestations,
-isolation, quiescence, immutable evidence) commits successfully; any matching
-supported live/nonterminal run or queried old-identity consumer reverts to
-strict compatibility.
+below). Task 1A Steps 1-6 are complete, and the immutable pre-edit evidence
+package is committed at `63e03330`. Corrected scans, owner records, isolation,
+quiescence, incident recovery, final rechecks, and two-stage reviews passed;
+fresh post-commit hold probes pass, and the pilot source and frozen baseline
+remain unchanged. Task 2 is now selectable but remains `not_selected` and not
+started; no pilot source edit has occurred. Any matching supported
+live/nonterminal run or queried old-identity consumer reverts to strict
+compatibility.
 
 **Architect decision request:**
 [Tracked-Plan Pilot Identity-Retirement Architect Decision Request](2026-07-14-tracked-plan-pilot-identity-retirement-decision-request.md).
@@ -48,9 +48,12 @@ the reviewed evidence path defined below.
 - Identity-compatibility prerequisite Tasks 1-7 and Task 8's final
   verification/review gate are complete under the audited handoff below. The
   generic match-scoped store-count repair is also implemented and reviewed.
-  The frozen pilot source and old baseline have not been refreshed. Task 1A is
-  selected only through corrected scan regeneration and the owner-attestation
-  boundary; Task 2 remains unselected and unauthorized.
+  Task 1A's corrected scans, owner records, isolation, quiescence, incident
+  recovery, final rechecks, and two-stage reviews passed, and its immutable
+  pre-edit evidence package is committed at `63e03330`. Fresh post-commit hold
+  probes pass. The frozen pilot source and old baseline remain unchanged. Task
+  2 is selectable but remains `not_selected` and not started; no source edit
+  has occurred.
 - When resumed, this plan owns the genuine named-owner attestations for every
   known state store and either proves strict compatibility or applies the
   accepted reviewed internal identity-retirement exception. Missing,
@@ -132,8 +135,11 @@ Scoped prerequisite/committed-path and protected-excluded diff checks are
 clean; the protected paths remain unstaged and outside this handoff. The pilot
 source and `tests/baselines/procedure_first/tracked_plan_phase.json` remain
 unchanged. The prerequisite handoff is complete. The superseding Path A
-decision selected Task 1A, but Task 2 remains locked until the corrected scan,
-owner-attestation, quiescence, isolation, and immutable-evidence gates pass.
+decision selected Task 1A, whose corrected scan, owner-attestation,
+quiescence, isolation, immutable-evidence, incident-recovery, recheck, and
+two-stage-review gates passed and committed at `63e03330`. Fresh post-commit
+hold probes pass. Task 2 is selectable but remains `not_selected` and not
+started; no source edit has occurred.
 
 ### Read-only Task 1A preflight stop (2026-07-14)
 
@@ -489,7 +495,7 @@ the pre-edit facts. Any unexpected mutation records a stop and leaves the
 source unedited. Confirm the protected staging guard and confirm
 `workflows/examples/design_plan_impl_review_stack_v2_call.orc` has no diff.
 
-- [ ] **Step 6: Commit immutable pre-edit evidence and harness hygiene**
+- [x] **Step 6: Commit immutable pre-edit evidence and harness hygiene**
 
 ```bash
 git add docs/plans/2026-07-13-procedure-first-pilot-plan.md tests/test_workflow_lisp_key_migrations.py docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/pre_edit_known_store_scans.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/incidents docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/inputs docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence_index.json

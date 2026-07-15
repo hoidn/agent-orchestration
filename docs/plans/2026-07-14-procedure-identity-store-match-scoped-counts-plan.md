@@ -336,34 +336,42 @@ regenerating pilot evidence.
 
 ### Task 5: Regenerate The Pilot Pre-Edit Scan
 
+**Completed:** The corrected two-root regeneration, owner re-adoption after
+the recorded precommit quiescence incident, final quiescence rechecks,
+two-stage review, and immutable Task 1A evidence package landed at `63e03330`.
+Fresh post-commit hold probes remain clean; the pilot source and frozen
+baseline are unchanged. This closes the corrective prerequisite and makes
+pilot Task 2 selectable, but Task 2 remains `not_selected` and not started,
+and no source edit has occurred.
+
 **Files:**
 - Regenerate:
   `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/pre_edit_known_store_scans.json`
 - Preserve owner-supplied:
   `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/scratch-provenance-confirmation.json`
 
-- [ ] **Step 1: Reconfirm immutable inputs and empty dedicated root**
+- [x] **Step 1: Reconfirm immutable inputs and empty dedicated root**
 
 Require the pilot source and frozen baseline to remain unchanged, scratch count
 to remain zero, and the dedicated evidence root to remain empty and isolated.
 Reuse the reviewed 64-identity query only after recomputing its baseline/source
 and query digests.
 
-- [ ] **Step 2: Rerun both store scans in tmux**
+- [x] **Step 2: Rerun both store scans in tmux**
 
 Use the corrected `scan_known_state_store` against the same two roots and exact
 query. Regenerate the complete evidence file from scratch at the new repair
 commit. Retain the store-wide `4,074/90` facts under `store_*`; never edit the
 old normalized digest in place.
 
-- [ ] **Step 3: Apply the corrected gate**
+- [x] **Step 3: Apply the corrected gate**
 
 Proceed only if both roots have zero matching nonterminal, call-frame, and
 consumer counts. Store-wide totals do not select strict compatibility. Any
 actual query match, scan race, root mutation, or dedicated-root contamination
 stops the pilot.
 
-- [ ] **Step 4: Independently review regenerated evidence**
+- [x] **Step 4: Independently review regenerated evidence**
 
 Require exact query, digest, count, isolation, and claim-boundary review. Do not
 create owner attestations or begin quiescence during regeneration/review.
@@ -376,7 +384,7 @@ create owner attestations or begin quiescence during regeneration/review.
 - Create only after receiving owner records:
   `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json`
 
-- [ ] **Step 1: Publish exact owner record forms and deterministic paths**
+- [x] **Step 1: Publish exact owner record forms and deterministic paths**
 
 For each scanned root, provide the exact scan digest, query time, matching
 counts, store-wide totals, canonical-root digest filename, required adoption
@@ -387,8 +395,11 @@ If the owner explicitly directs a mechanical write after reviewing and
 adopting the complete record, preserve accurate mechanical-writer attribution
 and the owner's verbatim adoption provenance.
 
-- [ ] **Step 2: Pause**
+- [x] **Step 2: Pause**
 
-The standing owner direction permits mechanical writes only after Ollie reviews
-and adopts the complete record. Stop here until both owner records exist and
-quiescence has explicitly started. Task 2 of the pilot remains prohibited.
+The standing owner direction permitted mechanical writes only after Ollie
+reviewed and adopted each complete record. This boundary was held until both
+owner records existed and quiescence had explicitly started; the resulting
+owner-adopted records and incident-recovery evidence are included in
+`63e03330`. Task 2 became selectable only after that immutable evidence commit
+and remains `not_selected` and not started.
