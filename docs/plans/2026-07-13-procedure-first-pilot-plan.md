@@ -4,15 +4,14 @@
 
 **Status:** Architect decision recorded 2026-07-14 (APPROVE, Path A —
 conditional `reviewed_internal_identity_retirement`; see the decision request
-below). Task 1A is selected. The generic match-scoped store-count correction is
-implemented and reviewed at `e43461f9` and `5f382401`; the prior pre-edit scan
-must now be regenerated and reviewed under that contract before the exact owner
-records are presented for adoption and quiescence begins. No corrected scan,
-owner attestation, or quiescence claim is complete yet. Every pilot source edit
-remains prohibited until the complete pre-edit gate (corrected scans, genuine
-owner attestations, isolation, quiescence, immutable evidence) commits
-successfully; any matching supported live/nonterminal run or queried
-old-identity consumer reverts to strict compatibility.
+below). Task 1A is selected. Its Steps 2-5 are assembled, current, and rechecked
+under the match-scoped store-count contract, but the package remains
+uncommitted. Step 6 and the final independent package review/commit are pending.
+Task 2 is `not_selected`, and every pilot source edit remains prohibited until
+the complete pre-edit gate (corrected scans, genuine owner attestations,
+isolation, quiescence, immutable evidence) commits successfully; any matching
+supported live/nonterminal run or queried old-identity consumer reverts to
+strict compatibility.
 
 **Architect decision request:**
 [Tracked-Plan Pilot Identity-Retirement Architect Decision Request](2026-07-14-tracked-plan-pilot-identity-retirement-decision-request.md).
@@ -400,11 +399,14 @@ git commit -m "test: freeze tracked plan procedure pilot parity"
 ### Task 1A: Freeze Pre-Edit Retirement Evidence And Store Quiescence
 
 **Files:**
+- Modify: `docs/plans/2026-07-13-procedure-first-pilot-plan.md`
 - Modify: `tests/test_workflow_lisp_key_migrations.py`
 - Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/pre_edit_known_store_scans.json`
 - Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json`
 - Create owner-supplied records under:
   `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/<sha256-of-canonical-root>.json`
+- Create machine/audit incident evidence under:
+  `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/incidents/`
 - Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/source.orc`
 - Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/build_manifest.json`
 - Create: `docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/inputs/provider_externs.json`
@@ -439,14 +441,14 @@ scratch, destroyed before final scans, and are never attested durable stores.
 If ownership of a leftover directory is ambiguous, stop rather than delete or
 exclude it silently.
 
-- [ ] **Step 2: Enumerate roots and prove dedicated-root isolation**
+- [x] **Step 2: Enumerate roots and prove dedicated-root isolation**
 
 Complete Mandatory pre-edit gate Steps 1-2. Record every canonical legacy
 root and the dedicated evidence root separately. Prove the dedicated root is
 empty, contains no old identity, and is not equal to or below a legacy root.
 Do not edit the pilot source.
 
-- [ ] **Step 3: Scan, attest, and quiesce every root**
+- [x] **Step 3: Scan, attest, and quiesce every root**
 
 Complete Mandatory pre-edit gate Steps 3-5. Write the exact scanner outputs to
 `pre_edit_known_store_scans.json`, including match-scoped run/consumer counts
@@ -458,7 +460,7 @@ attestations must cover the time-bounded quiescence window through final live
 validation and independent review. Missing evidence takes the exact unattended
 stop path; an agent does not create a placeholder.
 
-- [ ] **Step 4: Snapshot build inputs and retain the old production artifact set**
+- [x] **Step 4: Snapshot build inputs and retain the old production artifact set**
 
 Copy the actual pilot provider externs, prompt externs, and command-boundary
 inputs byte-for-byte from
@@ -480,7 +482,7 @@ binds its exact relative path and SHA-256. Record the manifest and input/output
 digests in the initial `evidence_index.json`. The frozen Task 1 baseline remains
 unchanged and is linked by digest; it is not regenerated.
 
-- [ ] **Step 5: Recheck quiescence immediately before source selection**
+- [x] **Step 5: Recheck quiescence immediately before source selection**
 
 Rescan every root. Legacy and dedicated-root digests/counts must still equal
 the pre-edit facts. Any unexpected mutation records a stop and leaves the
@@ -490,15 +492,17 @@ source unedited. Confirm the protected staging guard and confirm
 - [ ] **Step 6: Commit immutable pre-edit evidence and harness hygiene**
 
 ```bash
-git add tests/test_workflow_lisp_key_migrations.py docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/pre_edit_known_store_scans.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/inputs docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence_index.json
+git add docs/plans/2026-07-13-procedure-first-pilot-plan.md tests/test_workflow_lisp_key_migrations.py docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/pre_edit_known_store_scans.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/incidents docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/inputs docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence_index.json
 git diff --cached --name-only
 git commit -m "evidence: freeze tracked plan retirement pre-edit state"
 ```
 
-Expected: only the harness hygiene and listed pre-edit evidence are committed; genuine
-attestations are byte-for-byte owner-supplied records; the pilot source and
-frozen baseline are unchanged. Task 2 becomes selectable only after this
-commit and the quiescence recheck pass.
+Expected: only the harness hygiene and listed pre-edit evidence are committed;
+every digest-bound machine/audit incident record is included in that package;
+the gate/incident packaging amendment to this plan is committed with that
+evidence; genuine attestations are byte-for-byte owner-supplied records; the
+pilot source and frozen baseline are unchanged. Task 2 becomes selectable only
+after this commit and the quiescence recheck pass.
 
 ### Task 2: Convert Only `tracked-plan-phase`
 

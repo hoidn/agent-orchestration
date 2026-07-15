@@ -1,0 +1,11 @@
+{
+  "providers.design.draft": "codex",
+  "providers.design.review": "codex",
+  "providers.design.revise": "codex",
+  "providers.plan.draft": "codex",
+  "providers.plan.review": "codex",
+  "providers.plan.revise": "codex",
+  "providers.implementation.execute": "codex",
+  "providers.implementation.review": "codex",
+  "providers.implementation.fix": "codex"
+}

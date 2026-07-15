@@ -1,0 +1,59 @@
+{
+  "schema": "procedure_first_pilot_quiescence_incident.v1",
+  "fact_class": "machine_audit_facts",
+  "incident_type": "ephemeral_orchestrator_runtime_test",
+  "disposition": "quiescence_broken_precommit",
+  "owner_acceptance": "not_asserted",
+  "incident_window": {
+    "started_at": "2026-07-14T17:59:23.314337202-07:00",
+    "finished_at": "2026-07-14T17:59:24.081252315-07:00"
+  },
+  "execution": {
+    "working_directory": "/home/ollie/Documents/agent-orchestration",
+    "shell_command": "sed -n '320,365p' tests/test_workflow_lisp_key_migrations.py; sed -n '490,525p' tests/test_workflow_lisp_key_migrations.py\npytest -q tests/test_workflow_lisp_key_migrations.py::test_design_plan_impl_stack_orc_runtime_uses_fixture_workspace",
+    "runtime_test_command": "pytest -q tests/test_workflow_lisp_key_migrations.py::test_design_plan_impl_stack_orc_runtime_uses_fixture_workspace",
+    "result": "passed",
+    "reported_duration_seconds": 0.45,
+    "tool_call_id": "call_NCjb6sHeqEYZ0THgfiihqNhP"
+  },
+  "thread": {
+    "agent_path": "/root/match_count_task2_spec_review",
+    "agent_nickname": "Turing",
+    "task_role": "Task 1A specification and evidence reviewer",
+    "session_file_id": "019f62c2-2ca5-7000-b581-e7f779a2c920",
+    "parent_thread_id": "019f483a-0360-7852-9bd1-0ad48cb56615",
+    "turn_id": "019f6345-2c5e-7793-bff0-2623f517a289"
+  },
+  "temporary_runtime_scope": {
+    "workspace_path_pattern": "/tmp/design-plan-impl-stack-*",
+    "workspace_created_by": "tempfile.TemporaryDirectory(prefix='design-plan-impl-stack-', dir='/tmp')",
+    "created_workspace_count": 1,
+    "exact_generated_workspace_name": "not_emitted_by_test_or_tool_audit",
+    "runtime_run_id": "design-plan-impl-stack-runtime",
+    "runtime_state_path_pattern": "/tmp/design-plan-impl-stack-*/.orchestrate/runs/design-plan-impl-stack-runtime",
+    "authoritative_legacy_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/runs",
+    "authoritative_dedicated_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
+    "inside_either_authoritative_root": false
+  },
+  "cleanup": {
+    "fixture_finalizer": "TemporaryDirectory.cleanup() followed by assert not workspace.exists()",
+    "test_passed_after_finalizer": true,
+    "independent_probe_started_at": "2026-07-14T17:59:27.926-07:00",
+    "independent_probe_finished_at": "2026-07-14T17:59:28.074-07:00",
+    "independent_probe_command": "find /tmp -maxdepth 1 -type d -name 'design-plan-impl-stack-*' -print | wc -l",
+    "surviving_top_level_workspace_count": 0
+  },
+  "review": {
+    "reviewed_by": {
+      "agent_path": "/root/match_count_task2_impl",
+      "review_role": "non-owner machine/audit incident reconstruction"
+    },
+    "reviewed_at": "2026-07-14T18:05:13.676684263-07:00",
+    "audit_source": "/home/ollie/.codex/sessions/2026/07/14/rollout-2026-07-14T15-32-00-019f62c2-2ca5-7000-b581-e7f779a2c920.jsonl"
+  },
+  "claims_not_made": [
+    "No owner acceptance or owner attestation is supplied by this record.",
+    "Cleanup of the ephemeral workspace does not preserve the prior quiescence window.",
+    "This record does not authorize Task 2 or any pilot source edit."
+  ]
+}

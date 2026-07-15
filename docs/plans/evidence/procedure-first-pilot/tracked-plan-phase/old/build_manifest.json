@@ -1,0 +1,52 @@
+{
+  "build_version": "workflow_lisp_build.v1",
+  "compiler_version": "0.1.0",
+  "entry_workflow": "design-plan-impl-review-stack",
+  "inputs": {
+    "command_boundaries": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/inputs/command_boundaries.json",
+      "sha256": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+    },
+    "prompt_externs": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/inputs/prompt_externs.json",
+      "sha256": "sha256:8114b8622236a43c83c8c3430334ac61003921b7b03c8977b7334a8d0c643a5d"
+    },
+    "provider_externs": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/inputs/provider_externs.json",
+      "sha256": "sha256:901e5fa2a1f69c05e44225d3de63ae98a3af0d2ea65710fa9def88273a632919"
+    },
+    "source": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/source.orc",
+      "sha256": "sha256:3a03feac563834cf8b9a0c1a329d006b82ad6ee210537b3e82fc0de786171bfb"
+    }
+  },
+  "lowering_route": "wcc_m4",
+  "outputs": {
+    "executable_ir": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/executable_ir.json",
+      "sha256": "sha256:eb9a7139b43a140fc0b1d4ca7bf1ff2703648cc2024795b04776ec7d139da467"
+    },
+    "lexical_checkpoint_points": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/lexical_checkpoint_points.json",
+      "sha256": "sha256:0bff5087d8202b09d4e93da624816c575afb9aef172a4c96f9d0067dd0cb0822"
+    },
+    "runtime_plan": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/runtime_plan.json",
+      "sha256": "sha256:f0f399acafc6d91627cf92588d21f93ade7e3295952249ed36fa698360271ab6"
+    },
+    "semantic_ir": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/semantic_ir.json",
+      "sha256": "sha256:54c94b66ac7e078a51d3edc29eddc2dcf92fb8a5f3088026409d5b145aa1e384"
+    },
+    "source_map": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/source_map.json",
+      "sha256": "sha256:0fc06048973738242c8006bdf08afcdf9ae5050688c3e4149e9e319e63430c06"
+    },
+    "typed_frontend_ast": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/typed_frontend_ast.json",
+      "sha256": "sha256:6e4e1ad19745a71df9db2a27a8822b13e73ee8b1a32f1936d37b772fb1b98a0a"
+    }
+  },
+  "schema_version": "workflow_lisp_procedure_retirement_build_manifest.v1",
+  "side": "old"
+}

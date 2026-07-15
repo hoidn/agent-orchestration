@@ -1,0 +1,64 @@
+{
+  "record_type": "procedure_first_pilot_known_store_pre_edit_attestation",
+  "version": 1,
+  "evidence_status": "owner_confirmed",
+  "external_store_absence": "not_asserted",
+  "owner": {
+    "name": "Ollie",
+    "email": "ohoidn@stanford.edu"
+  },
+  "canonical_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/runs",
+  "canonical_root_path_sha256": "sha256:976a73eb92cb0ebc3a82da48834d75dff81fd95fe7052ba0a1152e83e86e2711",
+  "canonical_root_path_digest_encoding": "UTF-8 absolute canonical path with no trailing slash or newline",
+  "scan_binding": {
+    "evidence_path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/pre_edit_known_store_scans.json",
+    "evidence_sha256": "sha256:422e465bc1391fd2ea186490f39c59ff677f9cd9b1c502ba70f684d38b54f155",
+    "capture_commit": "80a8bf35a503f122af534e26609be7a18417cdec",
+    "query_version": "procedure-identity-store-query.v1",
+    "query_identity_count": 64,
+    "query_list_sha256": "sha256:e5236ce42b60679811d7c3c7ec688162de49cbd260cc30900b9458a56953a520",
+    "query_started_at": "2026-07-14T18:09:50.539117-07:00",
+    "query_finished_at": "2026-07-14T18:11:39.336114-07:00",
+    "normalized_scan_digest": "sha256:7f6e4749a01e820737f6e0af84f4c9ad905fab37d57d84ad5c7d0aa005be1709",
+    "counts": {
+      "terminal_run_count": 0,
+      "nonterminal_run_count": 0,
+      "store_terminal_run_count": 4074,
+      "store_nonterminal_run_count": 90,
+      "call_frame_count": 0,
+      "consumer_count": 0,
+      "checkpoint_index_count": 0,
+      "checkpoint_record_count": 39,
+      "retained_manifest_count": 4844,
+      "identity_metadata_count": 36,
+      "scanned_file_count": 19926
+    }
+  },
+  "owner_confirmations": {
+    "confirmed_at": "2026-07-14T20:50:24-07:00",
+    "statements": [
+      "I attest that this statement applies to the exact canonical root and exact pre-edit scan bound by this record.",
+      "I attest that no matching supported live/nonterminal run or consumer of the queried old identities remains in this exact canonical root.",
+      "I acknowledge that store_terminal_run_count=4074 and store_nonterminal_run_count=90 are disclosed whole-store hygiene facts and are not queried-identity eligibility counts.",
+      "I confirm that the quiescence mechanism recorded below has held from quiescence.started_at and remains active through final validator execution and independent review.",
+      "I acknowledge that docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/incidents/2026-07-14T17-59-23-314337202-07-00-ephemeral-runtime-test.json, sha256:2218247a71a95429d174d031c8bf6e8bc5a7cc5fb370366fc8eae11b7e76a92a, records disposition quiescence_broken_precommit; it invalidated the prior quiescence window, and this replacement record does not rely on that prior window."
+    ]
+  },
+  "quiescence": {
+    "status": "active",
+    "started_at": "2026-07-14T18:09:26.451771-07:00",
+    "ends_when": "Final validator execution and independent review are complete.",
+    "enforcement_mechanism": "Hold: no new orchestrator runs launched in this repository, and run-launching agent sessions paused, for the window.",
+    "permitted_mutations": []
+  },
+  "prepared_by": "Claude Code session agent — mechanical write at the owner's explicit direction",
+  "prepared_at": "2026-07-14T20:50:24-07:00",
+  "owner_adoption": {
+    "owner": {
+      "name": "Ollie",
+      "email": "ohoidn@stanford.edu"
+    },
+    "adopted_at": "2026-07-14T20:50:24-07:00",
+    "provenance_statement": "The owner Ollie reviewed the complete record content, including all confirmation statements, the quiescence object, and the permitted_mutations list verbatim, then explicitly directed its execution from his interactive session; the mechanical write was performed by his session agent at his direction."
+  }
+}

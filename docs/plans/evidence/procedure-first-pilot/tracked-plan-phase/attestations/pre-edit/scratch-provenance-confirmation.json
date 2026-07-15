@@ -1,0 +1,37 @@
+{
+  "record_type": "tracked_plan_phase_scratch_provenance_confirmation",
+  "version": 1,
+  "evidence_status": "owner_confirmed",
+  "intended_owner": {
+    "name": "Ollie",
+    "email": "ohoidn@stanford.edu"
+  },
+  "observed_set": {
+    "observed_at": "2026-07-14T14:19:11-07:00",
+    "path_glob": "/tmp/design-plan-impl-stack-*",
+    "path_count": 355,
+    "sorted_absolute_path_list_sha256": "sha256:b535f9a6c4debe837ba9d606420380c572c915f2e7492c46a366f37533b24b24",
+    "top_level_symlink_count": 0
+  },
+  "required_owner_confirmations": {
+    "confirmed_at": "2026-07-14T14:43:44-07:00",
+    "provenance_confirmation": "Every directory in the bound observed set was created by the old design-plan-impl-stack test helper.",
+    "durability_confirmation": "The bound directories are ephemeral and contain no supported or durable state.",
+    "authorized_disposition": "delete"
+  },
+  "required_claims": [
+    "Every directory in the bound observed set was created by the old design-plan-impl-stack test helper.",
+    "The bound directories are ephemeral and contain no supported or durable state.",
+    "The owner authorizes deletion of exactly the bound observed set."
+  ],
+  "prepared_by": "Claude Code session agent - mechanical write at the owner's explicit direction",
+  "prepared_at": "2026-07-14T14:45:22-07:00",
+  "owner_adoption": {
+    "owner": {
+      "name": "Ollie",
+      "email": "ohoidn@stanford.edu"
+    },
+    "adopted_at": "2026-07-14T14:45:22-07:00",
+    "provenance_statement": "The owner Ollie reviewed the complete record content including both confirmation statements verbatim, then explicitly directed its execution from his interactive session; the mechanical write was performed by his session agent at his direction."
+  }
+}
