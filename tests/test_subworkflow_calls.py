@@ -1,7 +1,9 @@
 """Loader and runtime coverage for reusable workflow imports and call boundaries."""
 
 import json
+import os
 from pathlib import Path
+import stat
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -14,6 +16,8 @@ from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.calls import CallExecutor
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.loaded_bundle import workflow_import_bundle, workflow_provenance
+from orchestrator.workflow.resume_planner import ResumePlanner, ResumeStateIntegrityError
 from tests.workflow_bundle_helpers import (
     bundle_context_dict,
     materialize_projection_body_steps,
@@ -24,6 +28,66 @@ def _write_yaml(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
     return path
+
+
+def _projection_run_tree_snapshot(run_root: Path) -> tuple[tuple[str, str, bytes], ...]:
+    """Return a deterministic whole-tree snapshot for mutation characterization."""
+    entries: list[tuple[str, str, bytes]] = []
+
+    def visit(directory: Path, relative_directory: Path) -> None:
+        with os.scandir(directory) as children:
+            sorted_children = sorted(children, key=lambda child: child.name)
+        for child in sorted_children:
+            relative_path = relative_directory / child.name
+            relative_text = relative_path.as_posix()
+            mode = child.stat(follow_symlinks=False).st_mode
+            if stat.S_ISDIR(mode):
+                entries.append((relative_text, "dir", b""))
+                visit(Path(child.path), relative_path)
+            elif stat.S_ISREG(mode):
+                entries.append((relative_text, "file", Path(child.path).read_bytes()))
+            elif stat.S_ISLNK(mode):
+                entries.append(
+                    (
+                        relative_text,
+                        "link",
+                        os.readlink(child.path).encode("utf-8"),
+                    )
+                )
+            else:
+                entries.append((relative_text, "other", b""))
+
+    visit(run_root, Path())
+    return tuple(sorted(entries, key=lambda entry: entry[0]))
+
+
+def test_projection_resume_integrity_run_tree_snapshot_tracks_symlink_targets(
+    tmp_path: Path,
+) -> None:
+    """Whole-tree mutation evidence must preserve link identity, not target bytes."""
+    run_root = tmp_path / "run-tree"
+    run_root.mkdir()
+    (run_root / "target-a.txt").write_bytes(b"equal\n")
+    (run_root / "target-b.txt").write_bytes(b"equal\n")
+    link = run_root / "current.txt"
+    link.symlink_to("target-a.txt")
+    first = _projection_run_tree_snapshot(run_root)
+
+    link.unlink()
+    link.symlink_to("target-b.txt")
+    second = _projection_run_tree_snapshot(run_root)
+
+    assert second != first
+    assert ("current.txt", "link", b"target-b.txt") in second
+
+    empty = run_root / "empty-a"
+    empty.mkdir()
+    first_empty_directory = _projection_run_tree_snapshot(run_root)
+    empty.rename(run_root / "empty-b")
+    second_empty_directory = _projection_run_tree_snapshot(run_root)
+
+    assert first_empty_directory != second_empty_directory
+    assert ("empty-b", "dir", b"") in second_empty_directory
 
 
 def _library_workflow(*, version: str = "2.5") -> dict:
@@ -115,6 +179,80 @@ def _run_workflow(
     final_state = executor.execute(on_error=on_error)
     persisted = state_manager.load().to_dict()
     return final_state, persisted
+
+
+def _write_projection_integrity_call_graph(workspace: Path) -> Path:
+    """Write a generic root -> middle -> leaf imported-call graph."""
+    _write_yaml(
+        workspace / "imports" / "leaf.yaml",
+        {
+            "version": "2.5",
+            "name": "projection-leaf",
+            "artifacts": {
+                "ready": {
+                    "kind": "scalar",
+                    "type": "bool",
+                }
+            },
+            "outputs": {
+                "ready": {
+                    "kind": "scalar",
+                    "type": "bool",
+                    "from": {"ref": "root.steps.SetReady.artifacts.ready"},
+                }
+            },
+            "steps": [
+                {
+                    "name": "SetReady",
+                    "id": "set_ready",
+                    "set_scalar": {
+                        "artifact": "ready",
+                        "value": True,
+                    },
+                }
+            ],
+        },
+    )
+    _write_yaml(
+        workspace / "imports" / "middle.yaml",
+        {
+            "version": "2.5",
+            "name": "projection-middle",
+            "imports": {"leaf": "leaf.yaml"},
+            "outputs": {
+                "ready": {
+                    "kind": "scalar",
+                    "type": "bool",
+                    "from": {"ref": "root.steps.InvokeLeaf.artifacts.ready"},
+                }
+            },
+            "steps": [
+                {
+                    "name": "InvokeLeaf",
+                    "id": "invoke_leaf",
+                    "call": "leaf",
+                }
+            ],
+        },
+    )
+    return _write_yaml(
+        workspace / "workflow.yaml",
+        {
+            "version": "2.5",
+            "name": "projection-root",
+            "imports": {
+                "middle": "imports/middle.yaml",
+                "middle_duplicate_alias": "imports/middle.yaml",
+            },
+            "steps": [
+                {
+                    "name": "InvokeMiddle",
+                    "id": "invoke_middle",
+                    "call": "middle",
+                }
+            ],
+        },
+    )
 
 
 def test_imported_workflows_must_validate_independently(tmp_path: Path):
@@ -1685,6 +1823,453 @@ def test_call_debug_exports_use_bound_output_addresses_when_surface_ref_is_corru
         "source_step_id": "root.set_approved",
         "source_step_name": "SetApproved",
     }
+
+
+def test_projection_resume_call_frame_selects_one_current_callee_and_recurses(
+    tmp_path: Path,
+) -> None:
+    """Execute root and middle call boundaries while recording current selection.
+
+    The real `CallExecutor.execute_call` path delegates
+    `workflow_import_bundle(parent_bundle, alias)` first for root -> middle and
+    recursively for middle -> leaf.  Each selected bundle's projection owns
+    the next call scope or leaf-local step scope.
+    """
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    manager = StateManager(tmp_path, run_id="projection-current-callee-selection")
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    root_executor = WorkflowExecutor(root_bundle, tmp_path, manager)
+    state = manager.load().to_dict()
+    selections: list[dict] = []
+    execution_scopes: list[str] = []
+    original_execute_call = CallExecutor.execute_call
+
+    def record_import_selection(parent_bundle, alias):
+        selected = workflow_import_bundle(parent_bundle, alias)
+        assert selected is not None
+        selections.append(
+            {
+                "parent": parent_bundle.surface.name,
+                "alias": alias,
+                "parent_call_boundaries": tuple(
+                    parent_bundle.projection.call_boundaries
+                ),
+                "selected": selected.surface.name,
+                "selected_call_boundaries": tuple(
+                    selected.projection.call_boundaries
+                ),
+                "selected_step_ids": tuple(selected.projection.node_id_by_step_id),
+            }
+        )
+        return selected
+
+    def record_execute_call(call_executor, step, state, **kwargs):
+        execution_scopes.append(call_executor.executor.workflow_name)
+        return original_execute_call(call_executor, step, state, **kwargs)
+
+    with patch(
+        "orchestrator.workflow.calls.workflow_import_bundle",
+        new=record_import_selection,
+    ), patch.object(
+        CallExecutor,
+        "execute_call",
+        record_execute_call,
+    ):
+        result = root_executor.call_executor.execute_call(
+            materialize_projection_body_steps(root_bundle)[0],
+            state,
+        )
+
+    assert result["status"] == "completed"
+    assert result["artifacts"] == {"ready": True}
+    assert execution_scopes == ["projection-root", "projection-middle"]
+    assert selections == [
+        {
+            "parent": "projection-root",
+            "alias": "middle",
+            "parent_call_boundaries": ("root.invoke_middle",),
+            "selected": "projection-middle",
+            "selected_call_boundaries": ("root.invoke_leaf",),
+            "selected_step_ids": ("root.invoke_leaf",),
+        },
+        {
+            "parent": "projection-middle",
+            "alias": "leaf",
+            "parent_call_boundaries": ("root.invoke_leaf",),
+            "selected": "projection-leaf",
+            "selected_call_boundaries": (),
+            "selected_step_ids": ("root.set_ready",),
+        },
+    ]
+
+
+def test_projection_resume_call_frame_unknown_alias_fails_before_frame_or_effect(
+    tmp_path: Path,
+) -> None:
+    """Exercise `CallExecutor.execute_call` rather than import-map inspection.
+
+    An unknown current call alias returns one deterministic contract failure
+    before `frame_id_with_overrides`, `_CallFrameStateManager`, child
+    `WorkflowExecutor`, or any persisted run-tree mutation.
+    """
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    manager = StateManager(tmp_path, run_id="projection-unknown-alias")
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    executor = WorkflowExecutor(root_bundle, tmp_path, manager)
+    executor.resume_mode = True
+    step = dict(materialize_projection_body_steps(root_bundle)[0])
+    step["call"] = "missing"
+    state = manager.load().to_dict()
+    before_state = json.loads(json.dumps(state))
+    before_tree = _projection_run_tree_snapshot(manager.run_root)
+
+    def unexpected_boundary(*_args, **_kwargs):
+        raise AssertionError("unknown alias reached frame or child construction")
+
+    with patch.object(
+        executor.call_executor,
+        "frame_id_with_overrides",
+        side_effect=unexpected_boundary,
+    ) as frame_selection, patch(
+        "orchestrator.workflow.call_frame_state._CallFrameStateManager",
+        side_effect=unexpected_boundary,
+    ) as frame_construction, patch(
+        "orchestrator.workflow.executor.WorkflowExecutor",
+        side_effect=unexpected_boundary,
+    ) as child_construction:
+        result = executor.call_executor.execute_call(step, state)
+
+    assert result["error"]["type"] == "contract_violation"
+    assert result["error"]["context"] == {
+        "step": "InvokeMiddle",
+        "reason": "unknown_import_alias",
+        "call": "missing",
+    }
+    frame_selection.assert_not_called()
+    frame_construction.assert_not_called()
+    child_construction.assert_not_called()
+    assert state == before_state
+    assert _projection_run_tree_snapshot(manager.run_root) == before_tree
+
+
+def test_projection_resume_call_frame_ambiguity_is_an_explicit_feasibility_prerequisite(
+    tmp_path: Path,
+) -> None:
+    """Characterize `CallExecutor.frame_id_with_overrides` duplicate candidates.
+
+    Two nonterminal frames with the same persisted `call_step_id` are currently
+    resolved by mapping insertion order.  No public API enumerates candidates
+    or reports ambiguity, so fail-closed scoped selection remains a prerequisite.
+    """
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    manager = StateManager(tmp_path, run_id="projection-call-ambiguity")
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    executor = WorkflowExecutor(root_bundle, tmp_path, manager)
+    executor.resume_mode = True
+    step = materialize_projection_body_steps(root_bundle)[0]
+    state = {
+        "call_frames": {
+            "frame-first": {
+                "status": "running",
+                "call_step_id": "root.invoke_middle",
+            },
+            "frame-second": {
+                "status": "failed",
+                "call_step_id": "root.invoke_middle",
+            },
+        },
+        "step_visits": {"InvokeMiddle": 1},
+    }
+
+    selected_frame_id = executor.call_executor.frame_id_with_overrides(
+        step,
+        state,
+        step_name="InvokeMiddle",
+        step_id="root.invoke_middle",
+    )
+
+    assert selected_frame_id == "frame-first"
+
+
+def test_projection_resume_call_frame_stale_caller_id_is_not_scoped_to_boundary(
+    tmp_path: Path,
+) -> None:
+    """A stale persisted caller id is ignored and a fresh frame id is derived.
+
+    This freezes the current gap before `CallExecutor.execute_call`: the parent
+    projection is not consulted to reject the stale frame's `call_step_id`.
+    """
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    manager = StateManager(tmp_path, run_id="projection-stale-caller")
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    executor = WorkflowExecutor(root_bundle, tmp_path, manager)
+    executor.resume_mode = True
+    state = {
+        "call_frames": {
+            "stale-frame": {
+                "status": "running",
+                "call_step_id": "root.removed_call",
+            }
+        },
+        "step_visits": {"InvokeMiddle": 1},
+    }
+
+    selected_frame_id = executor.call_executor.frame_id_with_overrides(
+        materialize_projection_body_steps(root_bundle)[0],
+        state,
+        step_name="InvokeMiddle",
+        step_id="root.invoke_middle",
+    )
+
+    assert selected_frame_id == "root.invoke_middle::visit::1"
+
+
+def test_projection_resume_call_frame_stale_callee_local_current_id_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """The selected callee projection rejects a stale local `current_step.step_id`."""
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    middle_bundle = workflow_import_bundle(root_bundle, "middle")
+    assert middle_bundle is not None
+
+    with pytest.raises(ResumeStateIntegrityError) as exc_info:
+        ResumePlanner().determine_restart_node_id(
+            {
+                "steps": {},
+                "current_step": {
+                    "status": "running",
+                    "name": "InvokeLeaf",
+                    "step_id": "root.removed_local_call",
+                },
+            },
+            projection=middle_bundle.projection,
+        )
+
+    assert exc_info.value.context == {
+        "step_id": "root.removed_local_call",
+        "field": "step_id",
+        "expected": "known projection step_id",
+        "actual": "root.removed_local_call",
+    }
+
+
+def test_projection_resume_call_frame_nested_checksum_mismatch_precedes_child_construction(
+    tmp_path: Path,
+) -> None:
+    """Exercise nested checksum rejection through real `CallExecutor.execute_call`.
+
+    A persisted current leaf frame with a mismatched checksum returns the
+    deterministic existing checksum failure before child-frame construction,
+    child executor construction, state writes, provider/command execution, or
+    any run-tree mutation.
+    """
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    middle_bundle = workflow_import_bundle(root_bundle, "middle")
+    assert middle_bundle is not None
+    leaf_bundle = workflow_import_bundle(middle_bundle, "leaf")
+    assert leaf_bundle is not None
+    manager = StateManager(tmp_path, run_id="projection-nested-checksum")
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    middle_executor = WorkflowExecutor(middle_bundle, tmp_path, manager)
+    middle_executor.resume_mode = True
+    frame_id = "root.invoke_leaf::visit::1"
+    persisted_checksum = "sha256:" + ("0" * 64)
+    persisted = manager.load()
+    persisted.call_frames = {
+        frame_id: {
+            "call_frame_id": frame_id,
+            "call_step_name": "InvokeLeaf",
+            "call_step_id": "root.invoke_leaf",
+            "import_alias": "leaf",
+            "status": "running",
+            "bound_inputs": {},
+            "state": {
+                "workflow_checksum": persisted_checksum,
+            },
+        }
+    }
+    persisted.step_visits = {"InvokeLeaf": 1}
+    manager._write_state()
+    step = materialize_projection_body_steps(middle_bundle)[0]
+    state = manager.load().to_dict()
+    before_state = json.loads(json.dumps(state))
+    before_state_bytes = manager.state_file.read_bytes()
+    before_tree = _projection_run_tree_snapshot(manager.run_root)
+    leaf_provenance = workflow_provenance(leaf_bundle)
+    assert leaf_provenance is not None
+    current_checksum = manager.calculate_checksum(leaf_provenance.workflow_path)
+
+    def unexpected_boundary(*_args, **_kwargs):
+        raise AssertionError("checksum mismatch reached a child or effect boundary")
+
+    with patch(
+        "orchestrator.workflow.call_frame_state._CallFrameStateManager",
+        side_effect=unexpected_boundary,
+    ) as frame_construction, patch(
+        "orchestrator.workflow.executor.WorkflowExecutor",
+        side_effect=unexpected_boundary,
+    ) as child_construction, patch.object(
+        manager,
+        "update_call_frame",
+        side_effect=unexpected_boundary,
+    ) as frame_write, patch.object(
+        WorkflowExecutor,
+        "_execute_provider_with_context",
+        side_effect=unexpected_boundary,
+    ) as provider_effect, patch.object(
+        WorkflowExecutor,
+        "_execute_command_with_context",
+        side_effect=unexpected_boundary,
+    ) as command_effect:
+        result = middle_executor.call_executor.execute_call(step, state)
+
+    assert result == {
+        "status": "failed",
+        "exit_code": 2,
+        "duration_ms": 0,
+        "error": {
+            "type": "call_resume_checksum_mismatch",
+            "message": "Called workflow has been modified since the run started",
+            "context": {
+                "step": "InvokeLeaf",
+                "call": "leaf",
+                "call_frame_id": frame_id,
+                "workflow_file": "imports/leaf.yaml",
+                "persisted_checksum": persisted_checksum,
+                "current_checksum": current_checksum,
+                "reason": "workflow_modified",
+            },
+        },
+    }
+    frame_construction.assert_not_called()
+    child_construction.assert_not_called()
+    frame_write.assert_not_called()
+    provider_effect.assert_not_called()
+    command_effect.assert_not_called()
+    assert state == before_state
+    assert manager.state_file.read_bytes() == before_state_bytes
+    assert _projection_run_tree_snapshot(manager.run_root) == before_tree
+
+
+def test_projection_resume_call_frame_mutation_order_stale_caller_id_starts_fresh_child(
+    tmp_path: Path,
+) -> None:
+    """Snapshot the current stale-caller gap across `WorkflowExecutor.execute`.
+
+    A checksum-compatible persisted frame whose `call_step_id` is stale is not
+    rejected against the parent projection.  `CallExecutor.frame_id_with_overrides`
+    misses it, creates a fresh frame for the current call boundary, and the run
+    can complete while retaining both frames.
+    """
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    manager = StateManager(tmp_path, run_id="projection-stale-caller-mutation")
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    first = WorkflowExecutor(root_bundle, tmp_path, manager).execute()
+    assert first["status"] == "completed"
+
+    persisted = manager.load()
+    original_frame_id, original_frame = next(iter(persisted.call_frames.items()))
+    original_frame["call_step_id"] = "root.removed_call"
+    assert root_bundle.projection.call_boundaries.get(
+        original_frame["call_step_id"]
+    ) is None
+    assert root_bundle.projection.entry_for_step_id(
+        original_frame["call_step_id"]
+    ) is None
+    original_frame["status"] = "running"
+    persisted.status = "failed"
+    persisted.steps["InvokeMiddle"]["status"] = "failed"
+    manager._write_state()
+    before = _projection_run_tree_snapshot(manager.run_root)
+
+    resumed = WorkflowExecutor(root_bundle, tmp_path, manager).execute(resume=True)
+    after = _projection_run_tree_snapshot(manager.run_root)
+
+    assert resumed["status"] == "completed"
+    assert before != after
+    assert original_frame_id in resumed["call_frames"]
+    assert resumed["call_frames"][original_frame_id]["call_step_id"] == "root.removed_call"
+    current_frames = [
+        frame
+        for frame in resumed["call_frames"].values()
+        if isinstance(frame, dict) and frame.get("call_step_id") == "root.invoke_middle"
+    ]
+    assert len(current_frames) == 1
+    assert current_frames[0]["status"] == "completed"
+    assert resumed["steps"]["InvokeMiddle"]["status"] == "completed"
+    assert not (manager.run_root / "provider_sessions").exists()
+
+
+def test_projection_resume_call_frame_mutation_order_callee_local_corruption_updates_parent_and_child(
+    tmp_path: Path,
+) -> None:
+    """Snapshot recursive stale-local-id failure after the parent call boundary.
+
+    The parent step/visit has already been re-entered, the existing child frame
+    is persisted again, and the selected callee's planner records a local
+    `resume_state_integrity_error`; no provider sidecar is created.
+    """
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    manager = StateManager(tmp_path, run_id="projection-callee-local-mutation")
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    first = WorkflowExecutor(root_bundle, tmp_path, manager).execute()
+    assert first["status"] == "completed"
+
+    persisted = manager.load()
+    frame_id, frame = next(iter(persisted.call_frames.items()))
+    child_state = frame["state"]
+    child_state["status"] = "failed"
+    child_state["steps"]["InvokeLeaf"]["status"] = "failed"
+    child_state["current_step"] = {
+        "status": "running",
+        "name": "RemovedLocal",
+        "index": 0,
+        "step_id": "root.removed_local_call",
+        "visit_count": 1,
+    }
+    frame["status"] = "running"
+    frame["current_step"] = dict(child_state["current_step"])
+    persisted.status = "failed"
+    persisted.steps["InvokeMiddle"]["status"] = "failed"
+    before_parent_steps = json.loads(json.dumps(persisted.steps))
+    before_parent_visits = dict(persisted.step_visits)
+    manager._write_state()
+    before = _projection_run_tree_snapshot(manager.run_root)
+
+    resumed = WorkflowExecutor(root_bundle, tmp_path, manager).execute(resume=True)
+    after = _projection_run_tree_snapshot(manager.run_root)
+    persisted_after = manager.load().to_dict()
+
+    assert resumed["status"] == "failed"
+    assert before != after
+    assert persisted_after["step_visits"]["InvokeMiddle"] == (
+        before_parent_visits["InvokeMiddle"] + 1
+    )
+    assert persisted_after["steps"]["InvokeMiddle"] != before_parent_steps["InvokeMiddle"]
+    parent_error = persisted_after["steps"]["InvokeMiddle"]["error"]
+    assert parent_error["type"] == "call_failed"
+    child_after = persisted_after["call_frames"][frame_id]["state"]
+    assert child_after["status"] == "failed"
+    assert child_after["error"]["type"] == "resume_state_integrity_error"
+    assert child_after["error"]["context"]["step_id"] == "root.removed_local_call"
+    assert child_after["current_step"]["status"] == "failed"
+    assert not (manager.run_root / "provider_sessions").exists()
 
 
 def test_call_frame_persists_internal_since_last_consume_bookkeeping(tmp_path: Path):

@@ -80,6 +80,71 @@ def _persisted_tree_digest(snapshot: bytes) -> str:
     return f"sha256:{hashlib.sha256(snapshot).hexdigest()}"
 
 
+def _seed_projection_integrity_root_resume(
+    workspace: Path,
+    *,
+    run_id: str,
+) -> tuple[Path, StateManager]:
+    """Seed a checksum-compatible failed v2.0 run with a stale explicit current id."""
+    workflow_path = workspace / "projection_integrity_root.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": "2.0",
+                "name": "projection-integrity-root",
+                "steps": [
+                    {
+                        "name": "NoEffect",
+                        "id": "no_effect",
+                        "command": [
+                            "bash",
+                            "-lc",
+                            "mkdir -p state && printf 'unexpected\\n' > state/effect.txt",
+                        ],
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    manager = StateManager(workspace, run_id=run_id)
+    state = manager.initialize(workflow_path.name)
+    state.status = "failed"
+    state.steps = {
+        "LegacyCompleted": {
+            "status": "completed",
+            "name": "LegacyCompleted",
+            "step_id": "root.legacy_completed",
+        }
+    }
+    state.step_visits = {"LegacyCompleted": 1}
+    state.current_step = {
+        "status": "running",
+        "name": "RemovedStep",
+        "index": 0,
+        "step_id": "root.removed_step",
+        "visit_count": 1,
+    }
+    state.call_frames = {
+        "preserved-child-frame": {
+            "call_frame_id": "preserved-child-frame",
+            "call_step_id": "root.preserved_call",
+            "status": "failed",
+            "state": {
+                "schema_version": StateManager.SCHEMA_VERSION,
+                "steps": {},
+                "call_frames": {},
+            },
+        }
+    }
+    manager._write_state()
+    preserved_sidecar = manager.run_root / "call_frames" / "preserved" / "sidecar.json"
+    preserved_sidecar.parent.mkdir(parents=True)
+    preserved_sidecar.write_text('{"preserved": true}\n', encoding="utf-8")
+    return workflow_path, manager
+
+
 def test_persisted_tree_snapshot_tracks_symlink_targets_and_empty_directories(temp_workspace):
     run_root = temp_workspace / "run-tree"
     run_root.mkdir()
@@ -3373,6 +3438,364 @@ def test_default_resume_root_checksum_mismatch_is_pre_executor_and_byte_immutabl
     assert after_entries == before_entries
     assert after_snapshot == before_snapshot
     assert after_digest == before_digest
+
+
+@pytest.mark.parametrize(
+    ("resume_kwargs", "expected_observability"),
+    [
+        ({}, None),
+        (
+            {"summary_mode": "sync", "summary_provider": "projection-summary"},
+            {
+                "step_summaries": {
+                    "enabled": True,
+                    "mode": "sync",
+                    "provider": "projection-summary",
+                    "timeout_sec": 300,
+                    "max_input_chars": 12000,
+                    "best_effort": True,
+                }
+            },
+        ),
+    ],
+)
+def test_projection_resume_integrity_mutation_order_cli_root_explicit_id_corruption(
+    temp_workspace: Path,
+    resume_kwargs: dict,
+    expected_observability: dict | None,
+) -> None:
+    """Characterize public `resume_workflow` mutation order for a stale root id.
+
+    Symbol anchors: `StateManager.load`, `_load_resume_workflow_bundle`,
+    `StateManager.validate_checksum`, observability `_write_state`,
+        `open_executor_session`, `write_process_metadata`, `WorkflowExecutor`,
+        `_execute_prologue`, `_ensure_entry_managed_write_root_bindings`,
+        `_ensure_entry_runtime_context_bindings`, and
+        `ResumePlanner.detect_interrupted_provider_session_visit`, then
+        `ResumePlanner.determine_restart_node_id`.
+    """
+    run_id = (
+        "projection-root-override"
+        if resume_kwargs
+        else "projection-root-default"
+    )
+    _workflow_path, manager = _seed_projection_integrity_root_resume(
+        temp_workspace,
+        run_id=run_id,
+    )
+    before_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+    before_entries = _persisted_tree_entries(manager.run_root)
+    before_snapshot = _persisted_tree_snapshot(manager.run_root)
+    events: list[str] = []
+
+    original_init = WorkflowExecutor.__init__
+    original_managed = WorkflowExecutor._ensure_entry_managed_write_root_bindings
+    original_context = WorkflowExecutor._ensure_entry_runtime_context_bindings
+    original_state_write = StateManager._write_state
+    original_bundle_load = resume_command._load_resume_workflow_bundle
+    original_checksum = StateManager.validate_checksum
+    original_open_session = resume_command.open_executor_session
+    original_process_metadata = resume_command.write_process_metadata
+    original_quarantine_check = ResumePlanner.detect_interrupted_provider_session_visit
+    original_restart = ResumePlanner.determine_restart_node_id
+
+    def record_state_write(state_manager):
+        if (
+            expected_observability is not None
+            and "observability.persist" not in events
+            and "bundle.load" not in events
+            and state_manager.state is not None
+            and state_manager.state.observability == expected_observability
+            and state_manager.state.runtime_observability is None
+        ):
+            events.append("observability.persist")
+        return original_state_write(state_manager)
+
+    def record_bundle_load(**kwargs):
+        events.append("bundle.load")
+        return original_bundle_load(**kwargs)
+
+    def record_checksum(state_manager, workflow_file):
+        events.append("root_checksum.validate")
+        return original_checksum(state_manager, workflow_file)
+
+    def record_open_session(state, **kwargs):
+        events.append("executor_session.open")
+        return original_open_session(state, **kwargs)
+
+    def record_process_metadata(run_root, **kwargs):
+        events.append("process_metadata.write")
+        return original_process_metadata(run_root, **kwargs)
+
+    def record_init(executor, *args, **kwargs):
+        events.append("executor.construct")
+        original_init(executor, *args, **kwargs)
+
+    def record_managed(executor, state, *, resume):
+        events.append("executor.prologue.managed_write_root")
+        return original_managed(executor, state, resume=resume)
+
+    def record_context(executor, state, *, resume):
+        events.append("executor.prologue.runtime_context")
+        return original_context(executor, state, resume=resume)
+
+    def record_quarantine_check(planner, state, projection=None):
+        events.append("resume_planner.detect_interrupted_provider_session_visit")
+        return original_quarantine_check(planner, state, projection=projection)
+
+    def record_restart(planner, state, projection=None):
+        events.append("resume_planner.determine_restart_node_id")
+        return original_restart(planner, state, projection=projection)
+
+    def unexpected_effect(*_args, **_kwargs):
+        raise AssertionError("projection integrity failure reached a provider or command effect")
+
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch.object(
+        StateManager,
+        "_write_state",
+        record_state_write,
+    ), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        new=record_bundle_load,
+    ), patch.object(
+        StateManager,
+        "validate_checksum",
+        record_checksum,
+    ), patch(
+        "orchestrator.cli.commands.resume.open_executor_session",
+        new=record_open_session,
+    ), patch(
+        "orchestrator.cli.commands.resume.write_process_metadata",
+        new=record_process_metadata,
+    ), patch.object(
+        WorkflowExecutor,
+        "__init__",
+        record_init,
+    ), patch.object(
+        WorkflowExecutor,
+        "_ensure_entry_managed_write_root_bindings",
+        record_managed,
+    ), patch.object(
+        WorkflowExecutor,
+        "_ensure_entry_runtime_context_bindings",
+        record_context,
+    ), patch.object(
+        ResumePlanner,
+        "detect_interrupted_provider_session_visit",
+        record_quarantine_check,
+    ), patch.object(
+        ResumePlanner,
+        "determine_restart_node_id",
+        record_restart,
+    ), patch.object(
+        WorkflowExecutor,
+        "_execute_provider_with_context",
+        side_effect=unexpected_effect,
+    ) as provider_effect, patch.object(
+        WorkflowExecutor,
+        "_execute_command_with_context",
+        side_effect=unexpected_effect,
+    ) as command_effect:
+        result = resume_workflow(run_id=run_id, **resume_kwargs)
+
+    after_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+    after_entries = _persisted_tree_entries(manager.run_root)
+    after_snapshot = _persisted_tree_snapshot(manager.run_root)
+
+    assert result == 1
+    expected_events = [
+        "bundle.load",
+        "root_checksum.validate",
+        "executor_session.open",
+        "process_metadata.write",
+        "executor.construct",
+        "executor.prologue.managed_write_root",
+        "executor.prologue.runtime_context",
+        "resume_planner.detect_interrupted_provider_session_visit",
+        "resume_planner.determine_restart_node_id",
+    ]
+    if expected_observability is not None:
+        expected_events.insert(0, "observability.persist")
+    assert events == expected_events
+    provider_effect.assert_not_called()
+    command_effect.assert_not_called()
+    assert before_snapshot != after_snapshot
+    assert before_entries != after_entries
+    if expected_observability is not None:
+        assert after_state["observability"] == expected_observability
+    else:
+        assert "observability" not in after_state
+    sessions = after_state["runtime_observability"]["executor_sessions"]
+    assert len(sessions) == 1
+    assert sessions[0]["entrypoint"] == "resume"
+    assert sessions[0]["status"] == "failed"
+    assert sessions[0]["ended_at"]
+    assert (manager.run_root / "monitor_process.json").is_file()
+    assert after_state["status"] == "failed"
+    assert after_state["error"]["type"] == "resume_state_integrity_error"
+    assert after_state["error"]["context"]["step_id"] == "root.removed_step"
+    assert after_state["updated_at"] != before_state["updated_at"]
+    assert after_state["steps"] == before_state["steps"]
+    assert after_state["step_visits"] == before_state["step_visits"]
+    assert after_state["current_step"]["step_id"] == "root.removed_step"
+    assert after_state["current_step"]["status"] == "failed"
+    assert after_state["call_frames"] == before_state["call_frames"]
+    assert (
+        manager.run_root / "call_frames" / "preserved" / "sidecar.json"
+    ).read_text(encoding="utf-8") == '{"preserved": true}\n'
+    assert not (manager.run_root / "provider_sessions").exists()
+    assert not (temp_workspace / "state" / "effect.txt").exists()
+
+
+def test_projection_resume_integrity_mutation_order_direct_executor_root_explicit_id_corruption(
+    temp_workspace: Path,
+) -> None:
+    """Direct `WorkflowExecutor.execute(resume=True)` bypasses CLI session metadata."""
+    _workflow_path, manager = _seed_projection_integrity_root_resume(
+        temp_workspace,
+        run_id="projection-root-direct",
+    )
+    bundle = WorkflowLoader(temp_workspace).load_bundle(
+        temp_workspace / "projection_integrity_root.yaml"
+    )
+    before_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+    before_snapshot = _persisted_tree_snapshot(manager.run_root)
+    events: list[str] = []
+    original_init = WorkflowExecutor.__init__
+    original_managed = WorkflowExecutor._ensure_entry_managed_write_root_bindings
+    original_context = WorkflowExecutor._ensure_entry_runtime_context_bindings
+
+    def record_init(executor, *args, **kwargs):
+        events.append("executor.construct")
+        original_init(executor, *args, **kwargs)
+
+    def record_managed(executor, state, *, resume):
+        events.append("executor.prologue.managed_write_root")
+        return original_managed(executor, state, resume=resume)
+
+    def record_context(executor, state, *, resume):
+        events.append("executor.prologue.runtime_context")
+        return original_context(executor, state, resume=resume)
+
+    with patch.object(WorkflowExecutor, "__init__", record_init), patch.object(
+        WorkflowExecutor,
+        "_ensure_entry_managed_write_root_bindings",
+        record_managed,
+    ), patch.object(
+        WorkflowExecutor,
+        "_ensure_entry_runtime_context_bindings",
+        record_context,
+    ):
+        result = WorkflowExecutor(bundle, temp_workspace, manager).execute(resume=True)
+
+    after_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+    after_snapshot = _persisted_tree_snapshot(manager.run_root)
+
+    assert result["status"] == "failed"
+    assert events == [
+        "executor.construct",
+        "executor.prologue.managed_write_root",
+        "executor.prologue.runtime_context",
+    ]
+    assert after_snapshot != before_snapshot
+    assert after_state["error"]["type"] == "resume_state_integrity_error"
+    assert after_state["updated_at"] != before_state["updated_at"]
+    assert after_state["steps"] == before_state["steps"]
+    assert after_state["step_visits"] == before_state["step_visits"]
+    assert after_state["call_frames"] == before_state["call_frames"]
+    assert "runtime_observability" not in after_state
+    assert not (manager.run_root / "monitor_process.json").exists()
+    assert not (manager.run_root / "provider_sessions").exists()
+
+
+@pytest.mark.parametrize(
+    ("workflow_version", "schema_version", "with_reusable_call"),
+    [
+        ("2.0", "1.1.1", False),
+        ("2.5", "2.0", True),
+    ],
+)
+def test_projection_resume_schema_boundary_rejects_pre_v2_and_pre_2_1_call_state(
+    temp_workspace: Path,
+    workflow_version: str,
+    schema_version: str,
+    with_reusable_call: bool,
+    capsys,
+) -> None:
+    """`resume_workflow` rejects both historical schema boundaries pre-bundle."""
+    run_id = f"projection-schema-{schema_version.replace('.', '-')}"
+    child_path = temp_workspace / "projection_schema_child.yaml"
+    child_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": workflow_version,
+                "name": "projection-schema-child",
+                "steps": [
+                    {
+                        "name": "ChildStep",
+                        "id": "child_step",
+                        "command": ["bash", "-lc", "true"],
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    workflow = {
+        "version": workflow_version,
+        "name": "projection-schema-root",
+        "steps": [
+            (
+                {
+                    "name": "InvokeChild",
+                    "id": "invoke_child",
+                    "call": "child",
+                }
+                if with_reusable_call
+                else {
+                    "name": "RootStep",
+                    "id": "root_step",
+                    "command": ["bash", "-lc", "true"],
+                }
+            )
+        ],
+    }
+    if with_reusable_call:
+        workflow["imports"] = {"child": child_path.name}
+    workflow_path = temp_workspace / "projection_schema_root.yaml"
+    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    manager = StateManager(temp_workspace, run_id=run_id)
+    state = manager.initialize(workflow_path.name)
+    state.schema_version = schema_version
+    state.status = "failed"
+    if with_reusable_call:
+        state.call_frames = {
+            "root.invoke_child::visit::1": {
+                "call_frame_id": "root.invoke_child::visit::1",
+                "call_step_id": "root.invoke_child",
+                "import_alias": "child",
+                "status": "failed",
+                "state": {"schema_version": schema_version},
+            }
+        }
+    manager._write_state()
+    before = _persisted_tree_snapshot(manager.run_root)
+
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        side_effect=AssertionError("schema rejection must precede bundle load"),
+    ), patch(
+        "orchestrator.cli.commands.resume.WorkflowExecutor",
+        side_effect=AssertionError("schema rejection must precede executor construction"),
+    ):
+        result = resume_workflow(run_id=run_id)
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "schema version" in captured.err
+    assert schema_version in captured.err
+    assert _persisted_tree_snapshot(manager.run_root) == before
 
 
 def test_at4_resume_with_checksum_mismatch(temp_workspace, partial_run_state):

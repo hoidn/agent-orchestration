@@ -715,3 +715,151 @@ def test_projection_maps_root_result_output_bundle_step_like_any_other_step(
     assert projection.compatibility_index_by_node_id[node_id] == 0
     assert projection.presentation_key_by_node_id[node_id] == "WriteRootResult"
     assert projection.node_id_by_step_id[node_id] == node_id
+
+
+@pytest.mark.parametrize(
+    ("presentation_key", "step_id", "expected_restart_node_id"),
+    [
+        ("SetReady", "root.set_ready", "root.route_ready.approve_path"),
+        ("SetReady", "root.removed_step", "root.route_ready.approve_path"),
+        ("SetReady", "root.route_ready", "root.route_ready.approve_path"),
+    ],
+)
+def test_projection_resume_integrity_completed_row_feasibility_matrix(
+    tmp_path: Path,
+    presentation_key: str,
+    step_id: str,
+    expected_restart_node_id: str,
+) -> None:
+    """Characterize `ResumePlanner.determine_restart_node_id` completed-row handling.
+
+    The public planner consumes the `WorkflowStateProjection` but currently
+    treats completed rows as presentation-key compatibility state: a valid
+    explicit id, a stale explicit id, and an id owned by another presentation
+    key all produce the same restart point.  The latter two rows therefore
+    freeze the missing whole-state projection-integrity audit prerequisite.
+    """
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_projection_workflow(tmp_path))
+    state = {
+        "steps": {
+            presentation_key: {
+                "status": "completed",
+                "name": presentation_key,
+                "step_id": step_id,
+            }
+        }
+    }
+
+    restart_node_id = ResumePlanner().determine_restart_node_id(
+        state,
+        projection=bundle.projection,
+    )
+
+    assert restart_node_id == expected_restart_node_id
+
+
+def test_projection_resume_integrity_finalization_row_resolves_through_public_projection(
+    tmp_path: Path,
+) -> None:
+    """Freeze finalization ownership through public projection/planner symbols."""
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_projection_workflow(tmp_path))
+    body_rows = {
+        entry.presentation_key: {
+            "status": "completed",
+            "name": entry.presentation_key,
+            "step_id": entry.step_id,
+        }
+        for entry in bundle.projection.entries_by_node_id.values()
+        if entry.compatibility_index is not None
+    }
+    finalization_id = "root.finally.cleanup.write_cleanup_marker"
+    finalization_entry = bundle.projection.entry_for_step_id(finalization_id)
+    assert finalization_entry is not None
+    state = {
+        "steps": {
+            **body_rows,
+            finalization_entry.presentation_key: {
+                "status": "running",
+                "name": finalization_entry.presentation_key,
+                "step_id": finalization_id,
+            },
+        },
+        "current_step": {
+            "status": "running",
+            "name": finalization_entry.presentation_key,
+            "step_id": finalization_id,
+        },
+    }
+
+    assert ResumePlanner().determine_restart_node_id(
+        state,
+        projection=bundle.projection,
+    ) == finalization_id
+
+
+def test_projection_resume_integrity_loop_qualified_ancestry_is_forward_only_prerequisite(
+    tmp_path: Path,
+) -> None:
+    """Public loop/call APIs enumerate ancestry but lack qualified-id reverse resolution.
+
+    `WorkflowStateProjection.repeat_until_runtime_step_id`,
+    `for_each_runtime_step_id`, and `call_boundary_runtime_step_id` construct
+    qualified identities without test-side parsing.  There is no corresponding
+    public scoped reverse resolver, which is an implementation prerequisite
+    rather than a helper to add in this characterization tranche.
+    """
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_projection_call_workflow(tmp_path))
+    projection = bundle.projection
+    repeat_node_id = "root.review_loop.iteration_body.run_review_loop"
+    for_each_node_id = "root.process_items.run_review_loop_from_for_each"
+
+    qualified_ids = {
+        projection.repeat_until_runtime_step_id(
+            "root.review_loop",
+            2,
+            repeat_node_id,
+        ),
+        projection.for_each_runtime_step_id(
+            "root.process_items",
+            3,
+            for_each_node_id,
+        ),
+        projection.call_boundary_runtime_step_id(repeat_node_id, iteration_index=2),
+        projection.call_boundary_runtime_step_id(for_each_node_id, iteration_index=3),
+    }
+
+    assert qualified_ids == {
+        "root.review_loop#2.iteration_body.run_review_loop",
+        "root.process_items#3.run_review_loop_from_for_each",
+    }
+    assert set(projection.call_boundaries) == {repeat_node_id, for_each_node_id}
+    assert not hasattr(projection, "entry_for_runtime_step_id")
+
+
+def test_projection_resume_optional_step_id_supported_row_is_not_backfilled(
+    tmp_path: Path,
+) -> None:
+    """A schema-valid supported completed row may omit optional `step_id`.
+
+    `ResumePlanner.determine_restart_node_id` preserves the name/order
+    compatibility lane and does not mutate or backfill the persisted row.
+    """
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_projection_workflow(tmp_path))
+    state = {
+        "steps": {
+            "SetReady": {
+                "status": "completed",
+                "name": "SetReady",
+            }
+        }
+    }
+    before = yaml.safe_dump(state, sort_keys=True)
+
+    restart_node_id = ResumePlanner().determine_restart_node_id(
+        state,
+        projection=bundle.projection,
+    )
+
+    assert restart_node_id == "root.route_ready.approve_path"
+    assert yaml.safe_dump(state, sort_keys=True) == before
+    assert "step_id" not in state["steps"]["SetReady"]
