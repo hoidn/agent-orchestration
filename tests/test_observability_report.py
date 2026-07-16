@@ -1037,6 +1037,10 @@ def test_failed_projection_envelope_treats_unchanged_current_step_as_forensic(
 ):
     run_root = tmp_path / ".orchestrate" / "runs" / f"forensic-{error_type}"
     (run_root / "logs").mkdir(parents=True)
+    (run_root / "logs" / "DraftPlan.prompt.txt").write_text(
+        "Prompt evidence from the interrupted visit",
+        encoding="utf-8",
+    )
     state = {
         "run_id": f"forensic-{error_type}",
         "status": "failed",

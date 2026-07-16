@@ -310,10 +310,11 @@ def build_status_snapshot(
     bundle = workflow_bundle(workflow)
     if bundle is None:
         raise TypeError("build_status_snapshot requires a LoadedWorkflowBundle")
+    forensic_resume_envelope = _retained_current_step_is_forensic(state)
     steps_state = state.get("steps") if isinstance(state.get("steps"), dict) else {}
     step_visits = state.get("step_visits") if isinstance(state.get("step_visits"), dict) else {}
     current_step = state.get("current_step") if isinstance(state.get("current_step"), dict) else None
-    if _retained_current_step_is_forensic(state):
+    if forensic_resume_envelope:
         current_step = None
     current_step_name = _resolved_current_step_name(workflow, current_step)
 
@@ -331,7 +332,7 @@ def build_status_snapshot(
         status = _coerce_step_status(result) or "pending"
         if is_current_step:
             status = "running"
-        if status == "pending" and prompt_text:
+        if status == "pending" and prompt_text and not forensic_resume_envelope:
             status = "running"
 
         entry = {
