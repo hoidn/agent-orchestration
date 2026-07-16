@@ -1,7 +1,7 @@
 """Characterization tests for IR-to-state compatibility projection tables."""
 
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 from types import MappingProxyType
 
@@ -1476,6 +1476,165 @@ def test_resume_projection_auditor_accepts_valid_scope_and_omitted_result_ids(
 
     assert state == before
     assert all("step_id" not in row for row in state["steps"].values())
+
+
+def test_resume_scope_path_snapshots_mutable_call_frame_input() -> None:
+    from orchestrator.workflow.resume_projection_integrity import ResumeScopePath
+
+    source_frame_ids = ["frame-one"]
+    scope_path = ResumeScopePath(
+        root_workflow_file="workflow.yaml",
+        call_frame_ids=source_frame_ids,
+    )
+
+    source_frame_ids.append("frame-two")
+
+    assert scope_path.call_frame_ids == ("frame-one",)
+    assert scope_path.as_context() == [
+        {"kind": "root", "workflow_file": "workflow.yaml"},
+        {"kind": "call_frame", "frame_id": "frame-one"},
+    ]
+    with pytest.raises(FrozenInstanceError):
+        scope_path.call_frame_ids = ("replacement",)
+
+
+def test_resume_projection_auditor_redacts_secret_list_identity_contents(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import (
+        ResumeProjectionIntegrityError,
+        ResumeScopePath,
+        audit_scope,
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_projection_workflow(tmp_path))
+    state = {
+        "workflow_checksum": "sha256:secret-list",
+        "steps": {
+            "SetReady": {
+                "status": "completed",
+                "step_id": ["secret-one", "secret-two"],
+            }
+        },
+    }
+    before = deepcopy(state)
+
+    with pytest.raises(ResumeProjectionIntegrityError) as exc_info:
+        audit_scope(
+            bundle,
+            state,
+            ResumeScopePath.root(str(bundle.provenance.workflow_path)),
+        )
+
+    assert exc_info.value.error["context"]["reason"] == "unsupported_shape"
+    assert exc_info.value.error["context"]["offending_value"] is None
+    diagnostic_text = yaml.safe_dump(exc_info.value.error, sort_keys=True)
+    assert "secret-one" not in diagnostic_text
+    assert "secret-two" not in diagnostic_text
+    assert state == before
+
+
+@pytest.mark.parametrize(
+    ("steps", "expected_field"),
+    [
+        pytest.param(
+            {7: {"status": "completed"}},
+            "steps",
+            id="non-string-presentation-key",
+        ),
+        pytest.param(
+            {"SetReady": "secret-scalar-row"},
+            "steps.SetReady",
+            id="scalar-row",
+        ),
+        pytest.param(
+            {"ProcessItems": ["secret-list-member"]},
+            "steps.ProcessItems[0]",
+            id="non-mapping-list-member",
+        ),
+        pytest.param(
+            {"ProcessItems": [{"InitializeCount": "secret-nested-row"}]},
+            "steps.ProcessItems[0].InitializeCount",
+            id="non-mapping-nested-row",
+        ),
+    ],
+)
+def test_resume_projection_auditor_rejects_malformed_step_result_shapes(
+    tmp_path: Path,
+    steps: dict,
+    expected_field: str,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import (
+        ResumeProjectionIntegrityError,
+        ResumeScopePath,
+        audit_scope,
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_projection_workflow(tmp_path))
+    state = {
+        "workflow_checksum": "sha256:malformed-step-shape",
+        "steps": steps,
+    }
+    before = deepcopy(state)
+
+    with pytest.raises(ResumeProjectionIntegrityError) as exc_info:
+        audit_scope(
+            bundle,
+            state,
+            ResumeScopePath.root(str(bundle.provenance.workflow_path)),
+        )
+
+    context = exc_info.value.error["context"]
+    assert context["reason"] == "unsupported_shape"
+    assert context["field"] == expected_field
+    assert context["offending_value"] is None
+    diagnostic_text = yaml.safe_dump(exc_info.value.error, sort_keys=True)
+    assert "secret-" not in diagnostic_text
+    assert state == before
+
+
+def test_resume_projection_auditor_accepts_mapping_and_loop_rows_with_omitted_ids(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import (
+        ResumeScopePath,
+        audit_scope,
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_projection_workflow(tmp_path))
+    state = {
+        "workflow_checksum": "sha256:valid-step-shapes",
+        "steps": {
+            "SetReady": {"status": "completed"},
+            "ProcessItems": [
+                {
+                    "InitializeCount": {"status": "completed"},
+                    "IncrementCount": {"status": "skipped"},
+                }
+            ],
+        },
+        "for_each": {
+            "ProcessItems": {
+                "items": ["alpha"],
+                "completed_indices": [0],
+                "current_index": None,
+            }
+        },
+    }
+    before = deepcopy(state)
+
+    audit_scope(
+        bundle,
+        state,
+        ResumeScopePath.root(str(bundle.provenance.workflow_path)),
+    )
+
+    assert state == before
+    assert "step_id" not in state["steps"]["SetReady"]
+    assert all(
+        "step_id" not in row
+        for row in state["steps"]["ProcessItems"][0].values()
+    )
 
 
 _RESUME_PROJECTION_AUDIT_REASONS = (

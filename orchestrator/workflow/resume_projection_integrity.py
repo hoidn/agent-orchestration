@@ -31,6 +31,9 @@ class ResumeScopePath:
     def __post_init__(self) -> None:
         if not isinstance(self.root_workflow_file, str) or not self.root_workflow_file:
             raise ValueError("root_workflow_file must be a non-empty string")
+        if not isinstance(self.call_frame_ids, (list, tuple)):
+            raise ValueError("call_frame_ids must be a list or tuple")
+        object.__setattr__(self, "call_frame_ids", tuple(self.call_frame_ids))
         if any(
             not isinstance(frame_id, str) or not frame_id
             for frame_id in self.call_frame_ids
@@ -86,6 +89,14 @@ class ResumeProjectionIntegrityError(ValueError):
         )
 
 
+class _ResumeStepResultShapeError(ValueError):
+    """Internal shape failure translated into the public bounded diagnostic."""
+
+    def __init__(self, field: str) -> None:
+        self.field = field
+        super().__init__(field)
+
+
 def audit_scope(
     bundle: LoadedWorkflowBundle,
     state: Mapping[str, Any],
@@ -137,51 +148,54 @@ def _audit_explicit_step_results(
         for slot in candidates
     }
 
-    for presentation_key, step_id in _explicit_step_result_rows(steps):
-        field = f"steps.{presentation_key}.step_id"
-        if not isinstance(step_id, str) or not step_id:
-            _raise_integrity_error(
-                bundle,
-                state,
-                scope_path,
-                reason="unsupported_shape",
-                field=field,
-                offending_value=step_id,
-                candidate_count=0,
-            )
+    try:
+        explicit_rows = _explicit_step_result_rows(steps)
+        for presentation_key, step_id in explicit_rows:
+            field = f"steps.{presentation_key}.step_id"
+            if not isinstance(step_id, str) or not step_id:
+                _raise_integrity_error(
+                    bundle,
+                    state,
+                    scope_path,
+                    reason="unsupported_shape",
+                    field=field,
+                    offending_value=step_id,
+                    candidate_count=0,
+                )
 
-        resolution = bundle.projection.resolve_resume_step_id(
-            slot_index,
-            step_id,
-            presentation_key=presentation_key,
-        )
-        exact_count = resolution.exact_identity_candidate_count
-        if exact_count == 0:
-            reason = (
-                "unknown_explicit_step_id"
-                if presentation_key in supported_presentations
-                else "unclaimed_explicit_step_row"
+            resolution = bundle.projection.resolve_resume_step_id(
+                slot_index,
+                step_id,
+                presentation_key=presentation_key,
             )
-            _raise_integrity_error(
-                bundle,
-                state,
-                scope_path,
-                reason=reason,
-                field=field,
-                offending_value=step_id,
-                candidate_count=0,
-            )
-        if resolution.candidate_count == 0:
-            _raise_integrity_error(
-                bundle,
-                state,
-                scope_path,
-                reason="presentation_slot_mismatch",
-                field=field,
-                offending_value=step_id,
-                candidate_count=exact_count,
-            )
-        if exact_count != 1 or resolution.candidate_count != 1:
+            exact_count = resolution.exact_identity_candidate_count
+            if exact_count == 0:
+                reason = (
+                    "unknown_explicit_step_id"
+                    if presentation_key in supported_presentations
+                    else "unclaimed_explicit_step_row"
+                )
+                _raise_integrity_error(
+                    bundle,
+                    state,
+                    scope_path,
+                    reason=reason,
+                    field=field,
+                    offending_value=step_id,
+                    candidate_count=0,
+                )
+            if resolution.candidate_count == 0:
+                _raise_integrity_error(
+                    bundle,
+                    state,
+                    scope_path,
+                    reason="presentation_slot_mismatch",
+                    field=field,
+                    offending_value=step_id,
+                    candidate_count=exact_count,
+                )
+            if exact_count == 1 and resolution.candidate_count == 1:
+                continue
             _raise_integrity_error(
                 bundle,
                 state,
@@ -191,6 +205,15 @@ def _audit_explicit_step_results(
                 offending_value=step_id,
                 candidate_count=resolution.candidate_count,
             )
+    except _ResumeStepResultShapeError as exc:
+        _raise_integrity_error(
+            bundle,
+            state,
+            scope_path,
+            reason="unsupported_shape",
+            field=exc.field,
+            offending_value=None,
+        )
 
 
 def _audit_current_step(
@@ -453,22 +476,33 @@ def _explicit_step_result_rows(
     """Yield explicit step-result identities without inspecting result payloads."""
     for presentation_key, value in steps.items():
         if not isinstance(presentation_key, str):
-            continue
+            raise _ResumeStepResultShapeError("steps")
         if isinstance(value, Mapping):
             if "step_id" in value:
                 yield presentation_key, value.get("step_id")
             continue
         if not isinstance(value, list):
-            continue
+            raise _ResumeStepResultShapeError(
+                f"steps.{presentation_key}",
+            )
         for iteration_index, iteration_rows in enumerate(value):
             if not isinstance(iteration_rows, Mapping):
-                continue
+                raise _ResumeStepResultShapeError(
+                    f"steps.{presentation_key}[{iteration_index}]",
+                )
             for nested_key, nested_value in iteration_rows.items():
-                if (
-                    isinstance(nested_key, str)
-                    and isinstance(nested_value, Mapping)
-                    and "step_id" in nested_value
-                ):
+                if not isinstance(nested_key, str):
+                    raise _ResumeStepResultShapeError(
+                        f"steps.{presentation_key}[{iteration_index}]",
+                    )
+                if not isinstance(nested_value, Mapping):
+                    raise _ResumeStepResultShapeError(
+                        (
+                            f"steps.{presentation_key}[{iteration_index}]"
+                            f".{nested_key}"
+                        ),
+                    )
+                if "step_id" in nested_value:
                     yield (
                         f"{presentation_key}[{iteration_index}].{nested_key}",
                         nested_value.get("step_id"),
@@ -489,10 +523,6 @@ def _identity_only_value(value: Any) -> Any:
         return value
     if isinstance(value, str):
         return value[:_MAX_DIAGNOSTIC_STRING_LENGTH]
-    if isinstance(value, (list, tuple)) and len(value) <= 8:
-        bounded = [_identity_only_value(item) for item in value]
-        if all(item is not None for item in bounded):
-            return bounded
     return None
 
 
