@@ -79,15 +79,17 @@ page, not a replacement for the linked docs.
 The [resume projection-integrity hardening design-and-planning plan](../plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md)
 has completed its characterization, accepted-design, normative-contract, and
 reviewed-plan artifacts, holistic routing reviews, and fresh routing
-validation. The current executable runtime gate is the exact reviewed
-[resume projection-integrity hardening implementation plan](../plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md).
-Neither the accepted design nor the reviewed plan claims runtime
-implementation; migration waves remain blocked until that implementation,
-acceptance evidence, and implementation reviews complete.
+validation. The exact reviewed
+[resume projection-integrity hardening implementation plan](../plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md)
+then completed at `fdf1e06b` with focused acceptance evidence, deterministic
+public CLI smoke, broad baseline equivalence, and independent specification and
+quality reviews. It is now historical implementation evidence; the current
+roadmap selector is the
+[procedure-first migration waves plan](../plans/2026-07-13-procedure-first-migration-waves-plan.md).
 
 | Doc | Applies to | Current checkout? | Normal authoring guidance? | Notes |
 | --- | --- | ---: | ---: | --- |
-| [resume_projection_integrity_hardening.md](resume_projection_integrity_hardening.md) | Checksum-compatible scoped resume projection-integrity auditing | Accepted design / implementation pending | No | Accepted design authority for two-pass root audit (CLI preflight plus structurally-root executor revalidation), distinct checksum envelopes, actual reached-call ordering, typed Workflow Lisp retry lineages, four loop-progress forms, schema-based optional step-result IDs, sticky parent-scope diagnostic promotion, duplicate-import rejection, diagnostics, and schema decision. The reviewed implementation plan is the current selector; runtime implementation remains pending. |
+| [resume_projection_integrity_hardening.md](resume_projection_integrity_hardening.md) | Checksum-compatible scoped resume projection-integrity auditing | Implemented | No | Accepted design authority for the implemented two-pass root audit (CLI preflight plus structurally-root executor revalidation), distinct checksum envelopes, actual reached-call ordering, typed Workflow Lisp retry lineages, four loop-progress forms, schema-based optional step-result IDs, sticky parent-scope diagnostic promotion, duplicate-import rejection, diagnostics, and schema decision. The reviewed implementation completed at `fdf1e06b`; migration-wave execution remains separate. |
 | [dashboard_observability_summary_gui.md](dashboard_observability_summary_gui.md) | Dashboard summary GUI | Designed/partial | No | Product/observability design surface. |
 | [dashboard_summary_invocation_tabs.md](dashboard_summary_invocation_tabs.md) | Dashboard invocation tabs | Designed/partial | No | Product/observability design surface. |
 | [observability_step_visit_summaries.md](observability_step_visit_summaries.md) | Step visit summary observability | Partial/unknown from this index; read the doc and linked evidence | No | Use when changing visit summaries or run reporting. |

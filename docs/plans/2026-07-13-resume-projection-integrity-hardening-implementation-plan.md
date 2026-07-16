@@ -8,6 +8,56 @@
 
 **Tech Stack:** Python 3.11, pytest/pytest-xdist, PyYAML, immutable loaded workflow bundles, `WorkflowStateProjection`, `StateManager`, `WorkflowExecutor`, `CallExecutor`, CLI resume integration, tmux.
 
+**Status:** Complete (verified 2026-07-16). Runtime implementation, focused
+acceptance evidence, deterministic public CLI smoke, broad baseline comparison,
+and independent specification/quality reviews are complete at `fdf1e06b`.
+This closes only the generic resume projection-integrity hardening gate; it does
+not claim that any procedure-first migration wave or YAML-retirement task is
+implemented.
+
+### Execution evidence and commit ledger
+
+- Task 1 loader enforcement: `b095db21`, `af051c79`, `0b5aa4c5`, and
+  `fdf1e06b`.
+- Task 2 exact projection slots and validation: `d2b190a3`, `4ffa470e`, and
+  `9bf3de5f`.
+- Task 3 typed retry lineage and collision handling: `eef10140`, `745c6fdd`,
+  and `35c97547`.
+- Task 4 scoped auditor: `34491e7a`, `38447fd6`, and `86f23c25`.
+- Task 5 atomic failure recording and forensic status: `80be1624` and
+  `ffab73d1`.
+- Task 6 early CLI and structurally-root auditing: `835f0921` and `a11f6ff1`.
+- Task 7 reached-callee auditing: `218c4753`.
+- Task 8 sticky propagation and original-error preservation: `b017203c` and
+  `a5529b68`.
+- Task 9 end-to-end and architecture proof: `30474820`, `fa99f9dc`, and
+  `5daaedaf`.
+- Task 10 verification-found corrections: `e7068d7a`, `ccbfc1cc`, `faef6f70`,
+  `98fe51bf`, `0cfc1901`, and `fe640ab4`; the loader corrections above close
+  the literal-repeat and merge-mediated import-section bypasses found during
+  final review.
+- Fresh syntax and focused gate: `python -m compileall -q orchestrator` passed;
+  the seven owning modules collected 545 tests; the plan selector passed
+  212 tests with 333 deselected.
+- Fresh deterministic CLI smoke: a checksum-compatible state with an unknown
+  explicit step ID failed closed with exit 1 and
+  `unknown_explicit_step_id`; the marker remained `original` and the temporary
+  root was removed.
+- Fresh broad baseline comparison:
+  `pytest -q -n 16 --dist=worksteal` exited 1 with
+  `6 failed, 4913 passed, 13 skipped in 72.65s`. The exact six established
+  unrelated baseline identities were:
+  - `tests/test_workflow_output_contract_integration.py::test_provider_valid_output_bundle_overrides_raw_nonzero_exit`;
+  - `tests/test_workflow_semantic_ir.py::test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence`;
+  - `tests/test_workflow_semantic_ir.py::test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys`;
+  - `tests/test_workflow_semantic_ir.py::test_compiled_bundle_semantic_ir_preserves_command_boundary_classification`;
+  - `tests/test_provider_role_routing.py::test_design_delta_drain_defaults_route_work_to_codex_gpt54`; and
+  - `tests/test_neurips_steered_backlog_runtime.py::test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch`.
+  No new hardening failure was introduced. This is a baseline-equivalence
+  result, not an all-pass claim.
+- Independent final specification and quality reviews approved `fdf1e06b`
+  after the repeated and merge-mediated import-section corrections.
+
 ---
 
 ## Execution Contract
@@ -172,7 +222,7 @@ Stop and return to the accepted design/spec owners if any of these occurs:
 - Modify: `orchestrator/loader.py`
 - Test: `tests/test_loader_validation.py`
 
-- [ ] **Step 1: Add RED loader tests**
+- [x] **Step 1: Add RED loader tests**
 
 Add these tests under `TestLoaderValidation`:
 
@@ -195,7 +245,7 @@ imports.child: duplicate import alias
 Tripwire `build_loaded_workflow_bundle` so the test proves rejection happens
 before bundle construction. Retain one positive unique-import test.
 
-- [ ] **Step 2: Collect and run the RED tests**
+- [x] **Step 2: Collect and run the RED tests**
 
 ```bash
 pytest --collect-only -q tests/test_loader_validation.py
@@ -207,7 +257,7 @@ pytest -q \
 Expected: collection succeeds; both tests fail because `PreservingLoader`
 currently accepts last-wins duplicate keys.
 
-- [ ] **Step 3: Implement import-boundary duplicate detection**
+- [x] **Step 3: Implement import-boundary duplicate detection**
 
 In `orchestrator/loader.py`, add a narrow node-level validator that:
 
@@ -246,7 +296,7 @@ Requirements:
   `build_loaded_workflow_bundle(...)`.
 - Do not globally reject unrelated duplicate YAML mappings in this tranche.
 
-- [ ] **Step 4: Run loader verification**
+- [x] **Step 4: Run loader verification**
 
 ```bash
 pytest -q tests/test_loader_validation.py -k 'duplicate and import'
@@ -256,7 +306,7 @@ pytest -q tests/test_loader_validation.py -k 'import or call'
 Expected: duplicate aliases reject before bundle construction; existing valid
 classic YAML and Workflow Lisp import tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add orchestrator/loader.py tests/test_loader_validation.py
@@ -273,7 +323,7 @@ git commit -m "Reject duplicate workflow import aliases"
 - Modify: `orchestrator/workflow/lowering.py`
 - Test: `tests/test_workflow_state_projection.py`
 
-- [ ] **Step 1: Add RED typed-slot and loop tests**
+- [x] **Step 1: Add RED typed-slot and loop tests**
 
 Add:
 
@@ -308,7 +358,7 @@ Cover:
 - stale loop-local and loop-contained call-boundary IDs;
 - candidate multiplicity without duplicate-overwriting maps.
 
-- [ ] **Step 2: Collect and run RED selectors**
+- [x] **Step 2: Collect and run RED selectors**
 
 ```bash
 pytest --collect-only -q tests/test_workflow_state_projection.py
@@ -318,7 +368,7 @@ pytest -q tests/test_workflow_state_projection.py -k 'resume_slot_index or inval
 Expected: FAIL because reverse slot/index APIs and import alias metadata do not
 exist.
 
-- [ ] **Step 3: Add minimal projection interfaces**
+- [x] **Step 3: Add minimal projection interfaces**
 
 Implement immutable typed records in
 `orchestrator/workflow/state_projection.py`:
@@ -354,7 +404,7 @@ call node in `orchestrator/workflow/lowering.py`.
 Candidate generation must use the existing forward formatters and validated
 finite loop domains. Do not parse qualified IDs.
 
-- [ ] **Step 4: Run projection verification**
+- [x] **Step 4: Run projection verification**
 
 ```bash
 pytest -q tests/test_workflow_state_projection.py
@@ -364,7 +414,7 @@ pytest -q tests/test_resume_command.py -k 'projection and schema_boundary'
 Expected: all projection tests pass; pre-v2.0 and pre-`2.1` reusable-call
 rejection remains unchanged.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add \
@@ -384,7 +434,7 @@ git commit -m "Add exact resume projection slots"
 - Modify: `orchestrator/workflow/calls.py`
 - Test: `tests/test_subworkflow_calls.py`
 
-- [ ] **Step 1: Add RED lineage tests**
+- [x] **Step 1: Add RED lineage tests**
 
 Add:
 
@@ -408,7 +458,7 @@ multiple running members, mixed bases, duplicate/missing/malformed ordinals,
 nested retry markers, caller/alias mismatch, unlimited completed history, and
 non-Workflow-Lisp multi-noncompleted ambiguity.
 
-- [ ] **Step 2: Collect and run RED selectors**
+- [x] **Step 2: Collect and run RED selectors**
 
 ```bash
 pytest --collect-only -q tests/test_subworkflow_calls.py
@@ -418,7 +468,7 @@ pytest -q tests/test_subworkflow_calls.py -k 'retry_lineage or typed_frontend_ki
 Expected: FAIL because typed lineage APIs do not exist and current selection is
 mapping-order/suffix based.
 
-- [ ] **Step 3: Implement minimal lineage APIs**
+- [x] **Step 3: Implement minimal lineage APIs**
 
 Create `orchestrator/workflow/resume_projection_integrity.py` with:
 
@@ -448,7 +498,7 @@ Move selection policy out of `frame_id_with_overrides`; `CallExecutor` consumes
 the typed index. Replace `_is_workflow_lisp_target` suffix behavior with
 `LoadedWorkflowBundle.provenance.frontend_kind == "workflow_lisp"`.
 
-- [ ] **Step 4: Run lineage and existing call tests**
+- [x] **Step 4: Run lineage and existing call tests**
 
 ```bash
 pytest -q tests/test_subworkflow_calls.py -k 'retry or call_frame'
@@ -457,7 +507,7 @@ pytest -q tests/test_subworkflow_calls.py -k 'retry or call_frame'
 Expected: typed lineage tests pass; the existing fresh-retry test still
 allocates the next deterministic frame.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add \
@@ -477,7 +527,7 @@ git commit -m "Add deterministic call frame retry lineage"
 - Test: `tests/test_workflow_state_projection.py`
 - Test: `tests/test_subworkflow_calls.py`
 
-- [ ] **Step 1: Add RED pure-auditor tests**
+- [x] **Step 1: Add RED pure-auditor tests**
 
 Add:
 
@@ -506,7 +556,7 @@ Assert exact:
 - input state deep-equality before/after;
 - no evidence reads and no child checksum/load.
 
-- [ ] **Step 2: Collect and run RED selectors**
+- [x] **Step 2: Collect and run RED selectors**
 
 ```bash
 pytest --collect-only -q \
@@ -520,7 +570,7 @@ pytest -q \
 
 Expected: FAIL because `audit_scope` and exact diagnostics do not exist.
 
-- [ ] **Step 3: Implement the pure auditor**
+- [x] **Step 3: Implement the pure auditor**
 
 Add:
 
@@ -547,7 +597,7 @@ The auditor:
 - never writes, remaps, backfills, loads evidence, checksums child sources, or
   recursively enters child frame state.
 
-- [ ] **Step 4: Run pure-auditor and projection suites**
+- [x] **Step 4: Run pure-auditor and projection suites**
 
 ```bash
 pytest -q tests/test_workflow_state_projection.py tests/test_subworkflow_calls.py -k 'projection or auditor or call_frame'
@@ -555,7 +605,7 @@ pytest -q tests/test_workflow_state_projection.py tests/test_subworkflow_calls.p
 
 Expected: all focused tests pass with no state mutation.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add \
@@ -576,7 +626,7 @@ git commit -m "Add scoped resume projection auditor"
 - Test: `tests/test_state_manager.py`
 - Test: `tests/test_observability_report.py`
 
-- [ ] **Step 1: Add RED recorder and forensic-status tests**
+- [x] **Step 1: Add RED recorder and forensic-status tests**
 
 Under `TestStateManager`, add:
 
@@ -600,7 +650,7 @@ Snapshot the raw JSON object and whole run tree. Assert the recorder preserves
 steps, visits, loops, frames, unknown compatible rows, omitted IDs,
 observability, sidecars, backups, and child directories.
 
-- [ ] **Step 2: Collect and run RED selectors**
+- [x] **Step 2: Collect and run RED selectors**
 
 ```bash
 pytest --collect-only -q tests/test_state_manager.py tests/test_observability_report.py
@@ -610,7 +660,7 @@ pytest -q tests/test_state_manager.py tests/test_observability_report.py -k 'pro
 Expected: FAIL because dedicated recorders do not exist and `fail_run` mutates
 `current_step`.
 
-- [ ] **Step 3: Implement atomic recorders**
+- [x] **Step 3: Implement atomic recorders**
 
 Add to `StateManager`:
 
@@ -634,7 +684,7 @@ Preserve all other deserialized state exactly. Update report/status projection
 so root failed status/error prevents a retained running `current_step` from
 being presented as live.
 
-- [ ] **Step 4: Run recorder/report verification**
+- [x] **Step 4: Run recorder/report verification**
 
 ```bash
 pytest -q tests/test_state_manager.py tests/test_observability_report.py
@@ -643,7 +693,7 @@ pytest -q tests/test_state_manager.py tests/test_observability_report.py
 Expected: exact delta and diagnostic tests pass; existing report behavior
 remains stable.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add \
@@ -665,7 +715,7 @@ git commit -m "Add atomic resume integrity failure recorders"
 - Modify: `orchestrator/workflow/executor_runtime.py`
 - Test: `tests/test_resume_command.py`
 
-- [ ] **Step 1: Replace characterization expectations with RED target tests**
+- [x] **Step 1: Replace characterization expectations with RED target tests**
 
 Add or retarget:
 
@@ -711,7 +761,7 @@ function or the default CLI command. Assert the audit passes, the fixture's
 normal resume control-flow/result/exit behavior occurs, and the persisted row
 still has no `step_id`; do not accept a backfill as success.
 
-- [ ] **Step 2: Collect and run RED selectors**
+- [x] **Step 2: Collect and run RED selectors**
 
 ```bash
 pytest --collect-only -q tests/test_resume_command.py
@@ -724,7 +774,7 @@ behavior. The omitted-ID selector is a positive compatibility guard: it may
 already pass before wiring, but it must stay green throughout implementation
 and must fail if the new public audit rejects or backfills any supported row.
 
-- [ ] **Step 3: Implement early CLI root audit**
+- [x] **Step 3: Implement early CLI root audit**
 
 In `resume_workflow`:
 
@@ -738,7 +788,7 @@ In `resume_workflow`:
 
 Do not alter force restart.
 
-- [ ] **Step 4: Implement structural executor revalidation**
+- [x] **Step 4: Implement structural executor revalidation**
 
 Use the runtime-checkable `CallFrameStateManager` protocol plus defensive
 `frame_id` check:
@@ -757,7 +807,7 @@ At the beginning of `WorkflowExecutor.execute(resume=True)`, before
 - projection failure: exact projection recorder and failed state;
 - child manager: skip the entire root guard without a flag.
 
-- [ ] **Step 5: Run root integration tests**
+- [x] **Step 5: Run root integration tests**
 
 ```bash
 pytest -q tests/test_resume_command.py -k 'checksum or projection_resume or schema_boundary or public_resume_supported_omitted_step_id'
@@ -768,7 +818,7 @@ structured envelopes and early audits pass; prologue/effects are not reached
 on rejection; all completed/skipped/failed/supported-running omission cases
 take normal public resume paths and remain absent without backfill.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add \
@@ -790,7 +840,7 @@ git commit -m "Audit root resume before mutable execution"
 - Modify: `orchestrator/workflow/executor.py`
 - Test: `tests/test_subworkflow_calls.py`
 
-- [ ] **Step 1: Add RED reached-call ordering tests**
+- [x] **Step 1: Add RED reached-call ordering tests**
 
 Add:
 
@@ -842,7 +892,7 @@ checked first, persisted resume-bound-input validation is checked second when
 checksum passes, and either mismatch wins unchanged without invoking the local
 auditor or constructing the child manager.
 
-- [ ] **Step 2: Collect and run RED selectors**
+- [x] **Step 2: Collect and run RED selectors**
 
 ```bash
 pytest --collect-only -q tests/test_subworkflow_calls.py
@@ -852,7 +902,7 @@ pytest -q tests/test_subworkflow_calls.py -k 'reached_call or failed_history or 
 Expected: FAIL because current call selection is map-order based and no local
 audit occurs before child manager construction.
 
-- [ ] **Step 3: Integrate typed call revalidation**
+- [x] **Step 3: Integrate typed call revalidation**
 
 Refactor `CallExecutor.execute_call` narrowly:
 
@@ -873,7 +923,7 @@ Refactor `CallExecutor.execute_call` narrowly:
 
 Do not add a second child audit or mutate the selected frame on failure.
 
-- [ ] **Step 4: Run call integration**
+- [x] **Step 4: Run call integration**
 
 ```bash
 pytest -q tests/test_subworkflow_calls.py -k 'projection_resume or call_frame or checksum or retry or non_workflow_lisp_resumable_guards'
@@ -884,7 +934,7 @@ and persisted resume-bound-input precedence remain distinct for unique running
 and failed non-Workflow-Lisp frames; no selected-callee frame/effect mutation
 occurs.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add \
@@ -911,7 +961,7 @@ git commit -m "Audit selected callee before child construction"
 - Test: `tests/test_runtime_step_lifecycle.py`
 - Test: `tests/test_resume_command.py`
 
-- [ ] **Step 1: Add RED sticky-propagation tests**
+- [x] **Step 1: Add RED sticky-propagation tests**
 
 Add:
 
@@ -935,7 +985,7 @@ def test_projection_error_survives_epilogue_and_executor_session_close(...):
 Use exact diagnostic deep equality across one- and two-level calls. Assert
 ordinary parent step/current/visit/frame snapshots still persist.
 
-- [ ] **Step 2: Collect and run RED selectors**
+- [x] **Step 2: Collect and run RED selectors**
 
 ```bash
 pytest --collect-only -q \
@@ -952,7 +1002,7 @@ pytest -q \
 Expected: FAIL because current calls wrap child failures as `call_failed`,
 ordinary routing may continue, and successful epilogue may clear the error.
 
-- [ ] **Step 3: Implement typed sticky classification**
+- [x] **Step 3: Implement typed sticky classification**
 
 In `resume_projection_integrity.py`, add:
 
@@ -977,7 +1027,7 @@ Integrate it so:
 
 Do not use an exception unwind.
 
-- [ ] **Step 4: Run lifecycle verification**
+- [x] **Step 4: Run lifecycle verification**
 
 ```bash
 pytest -q \
@@ -990,7 +1040,7 @@ pytest -q \
 Expected: sticky tests pass and non-projection call/finalization behavior remains
 unchanged.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add \
@@ -1019,7 +1069,7 @@ git commit -m "Propagate sticky resume projection failures"
 - Test: `tests/test_state_manager.py`
 - Test: `tests/test_observability_report.py`
 
-- [ ] **Step 1: Add final RED/default-path proof**
+- [x] **Step 1: Add final RED/default-path proof**
 
 Add integration tests covering:
 
@@ -1065,7 +1115,7 @@ Do not scan the whole runtime for generic words such as `family`, `name`, or
 `suffix`, and do not refactor unrelated existing code merely to satisfy an
 architecture test.
 
-- [ ] **Step 2: Collect and run focused proof**
+- [x] **Step 2: Collect and run focused proof**
 
 ```bash
 pytest --collect-only -q \
@@ -1087,7 +1137,7 @@ pytest -q \
 
 Expected: all accepted clauses have executable default-path proof.
 
-- [ ] **Step 3: Run deterministic CLI smoke in a dedicated temporary root**
+- [x] **Step 3: Run deterministic CLI smoke in a dedicated temporary root**
 
 Run from the repository root:
 
@@ -1158,7 +1208,7 @@ test "$(cat "$SMOKE_ROOT/workspace/marker.txt")" = "original"
 Expected: initial run succeeds; checksum-compatible corrupted resume exits `1`
 with the projection diagnostic; the completed command is not executed again.
 
-- [ ] **Step 4: Commit integration proof**
+- [x] **Step 4: Commit integration proof**
 
 ```bash
 git add \
@@ -1177,7 +1227,7 @@ git commit -m "Prove resume projection integrity end to end"
 
 - Verify only; do not create a verification-only source commit.
 
-- [ ] **Step 1: Run syntax, collection, and focused suites**
+- [x] **Step 1: Run syntax, collection, and focused suites**
 
 ```bash
 python -m compileall -q orchestrator
@@ -1202,14 +1252,14 @@ pytest -q \
 
 Expected: compilation and collection succeed; focused suite passes.
 
-- [ ] **Step 2: Run the orchestrator smoke again**
+- [x] **Step 2: Run the orchestrator smoke again**
 
 Repeat Task 9 Step 3 from a new `mktemp -d` root.
 
 Expected: deterministic exit `1`, exact root projection diagnostic, and no
 effect replay.
 
-- [ ] **Step 3: Run the broad suite in tmux**
+- [x] **Step 3: Run the broad suite in tmux**
 
 Use the `tmux` skill to open a repository-root pane. Run exactly:
 
@@ -1221,7 +1271,7 @@ Keep the command in tmux until it exits. Record the fresh command, exit code,
 pass/fail count, and any warnings. Do not infer success from prior runs or
 inspection.
 
-- [ ] **Step 4: Inspect the final diff and protected paths**
+- [x] **Step 4: Inspect the final diff and protected paths**
 
 ```bash
 git status --short
@@ -1240,7 +1290,7 @@ Expected:
 - no receipt, schema bump, evidence reader, family/suffix selector, eager nested
   root audit, pre-publication seam, or unrelated refactor.
 
-- [ ] **Step 5: Produce the execution handoff**
+- [x] **Step 5: Produce the execution handoff**
 
 Report:
 

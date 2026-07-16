@@ -12,10 +12,12 @@
 
 ## Authority, order, and invariants
 
-**Status:** Blocked until
+**Status:** Current selector (activated 2026-07-16). The prerequisite
 `docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
-has been executed completely with fresh acceptance evidence and required
-implementation reviews.
+completed at `fdf1e06b` with fresh focused acceptance evidence, a deterministic
+public CLI smoke, broad baseline equivalence, and independent specification and
+quality reviews. Begin with Task 1's post-hardening rebaseline; no later task is
+activated or reordered by this status transition.
 
 - Accepted contract: `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
 - Reviewed queue: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
@@ -28,15 +30,15 @@ implementation reviews.
   `docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
 - Completed design/specification/plan artifact provenance:
   `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`
-- Execute only after typed result guidance, the effect substrate plan, the
-  tracked-plan pilot, and the full resume projection-integrity hardening
-  implementation are complete and independently reviewed with fresh acceptance
-  evidence. The accepted design and the implementation-plan document establish
-  authority and work order; neither is implementation evidence.
-- No migration task, including a small/library family, may start before that
-  hardening implementation gate passes. Production-family Tasks 5–6 have the
-  same prerequisite and cannot treat pilot success or design acceptance alone
-  as authorization to start.
+- Typed result guidance, the effect substrate plan, the tracked-plan pilot, and
+  the full resume projection-integrity hardening implementation are complete
+  and independently reviewed with fresh acceptance evidence. The hardening
+  implementation plan records the implementation evidence; its accepted design
+  and planning artifacts alone remain insufficient proof.
+- The hardening implementation gate has passed. Task 1 must still rebaseline
+  that evidence and the inventory on the post-hardening checkout before any
+  small/library or production-family source migration begins. Production-family
+  Tasks 5–6 retain every later prerequisite in this plan.
 - Preserve the inventory's separate `public-entry` records. In particular, never migrate:
   - `workflows/library/lisp_frontend_design_delta/drain.orc::drain` away from `defworkflow`; or
   - `workflows/examples/design_plan_impl_review_stack_v2_call.orc::design-plan-impl-review-stack` away from `defworkflow`.

@@ -89,8 +89,8 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-13-procedure-migration-identity-compatibility-plan.md` | Complete and gated; the final audited handoff to the pilot is `f5adcb79`. Do not re-execute it or edit the pilot family source under this plan. |
 | `2026-07-13-procedure-first-pilot-plan.md` | Complete. Evidence landed at `63e03330`, `e6a85cb7`, `de522c76`, `f5dbac88`, `76205d4f`, and `0769e837`; holistic specification and quality reviews approved HEAD `0769e837`. Exactly two dedicated runs completed, and the route remains `leaf_runtime_candidate` / `migration_candidate` / `migration_evidence_only`. Historical clean artifact equality is `not_asserted`. This is one reviewed internal pilot, not a general compatibility, family-wave, promotion, or YAML-retirement claim. |
 | `2026-07-13-resume-projection-integrity-hardening-design-plan.md` | Complete. Characterization landed at `1cd60767`, the accepted design at `52e2b05f`, the normative state/acceptance contract at `00135832`, and the reviewed implementation plan at `26a5d3db`; holistic routing reviews and fresh focused/broad validation passed at closeout. This row does not claim runtime implementation. |
-| `2026-07-13-resume-projection-integrity-hardening-implementation-plan.md` | Current selector. Execute the accepted TDD plan and obtain its required acceptance evidence plus implementation reviews before any migration wave begins. Runtime hardening is not yet implemented. |
-| `2026-07-13-procedure-first-migration-waves-plan.md` | Blocked until the resume projection-integrity implementation plan completes with fresh acceptance evidence and required reviews. Task 1 must rebaseline all prerequisites before any family migration; the accepted design or implementation-plan document alone is insufficient. |
+| `2026-07-13-resume-projection-integrity-hardening-implementation-plan.md` | Complete at `fdf1e06b`. The generic runtime hardening, focused acceptance gate, deterministic public CLI smoke, broad baseline-equivalence check, and independent specification/quality reviews are recorded in the plan. Do not re-execute it as the live selector. |
+| `2026-07-13-procedure-first-migration-waves-plan.md` | Current selector. Its hardening prerequisite is satisfied; execute Task 1's post-hardening rebaseline before any family migration and preserve the plan's existing task order. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
 | `2026-07-07-yaml-retirement-program.md` | Amended 2026-07-14 to deletion-first retirement: survivors are `verified_iteration_drain` and `generic_run_watchdog`, each getting its own `.orc` port through the parity kernel; every other YAML workflow is reclassified delete. The former pilot-quiescence scheduling window is closed. Any early independent Task 6 tranche now requires separate selection and does not reorder Stage 6 authority. See the program's steering amendment and roadmap Stage 6. |
 
@@ -186,13 +186,13 @@ completed at `0769e837` after the six recorded evidence commits, exactly two
 completed dedicated runs, focused 544/2 and broad 4743/13 gates with the six
 accepted unrelated failures, and holistic specification/quality approval.
 The design/specification/implementation-plan artifacts are complete at
-`1cd60767`, `52e2b05f`, `00135832`, and `26a5d3db`, with their required
-artifact reviews and final routing validation approved. The current selector is
-`docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`.
-It must implement the accepted runtime contract and close its acceptance and
-review gates; the landed design/specification/plan artifacts do not themselves
-implement hardening. After that implementation completes, continue with
-`docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`,
+`1cd60767`, `52e2b05f`, `00135832`, and `26a5d3db`. The generic runtime
+hardening then completed at `fdf1e06b` with its focused acceptance gate,
+deterministic public CLI smoke, broad baseline-equivalence check, and final
+independent specification/quality reviews. The completed hardening plan is now
+historical execution evidence. The current selector is
+`docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`; begin with its
+post-hardening Task 1 rebaseline, then continue with
 `docs/plans/2026-07-07-yaml-retirement-program.md`,
 `docs/design/workflow_lisp_provider_live_binding.md`, and
 `docs/design/workflow_lisp_language_server.md`, in that order.
@@ -260,9 +260,9 @@ was the next selector at Gate S3; it, both typed-return waves, and the
 resolved-effect substrate and identity-compatibility prerequisites are now
 complete. The tracked-plan pilot later completed and passed holistic review at
 `0769e837`. Projection-integrity design/specification/plan artifacts are
-complete through `26a5d3db`, and final Task 5 routing validation is complete;
-the accepted implementation plan is now selected and remains a hard gate
-before migration waves.
+complete through `26a5d3db`; the runtime implementation and its reviewed
+acceptance gate later completed at `fdf1e06b`. The hardening plan is historical
+evidence, and the migration-wave plan is now selected.
 
 ### Stage 4: Design The Broader Procedure-First Contract
 
@@ -400,17 +400,16 @@ Execute only accepted plans, in this order:
    internal retirement pilot through `0769e837`. It proves its own retained
    public-wrapper parity and evidence-only retirement only; it does not
    generalize cross-source resume, compatibility, promotion, or family waves.
-6. **Resume projection-integrity runtime hardening — current selector.** The
+6. **Resume projection-integrity runtime hardening — complete.** The
    design/specification/plan artifacts are complete at `1cd60767`, `52e2b05f`,
-   `00135832`, and `26a5d3db`; final Task 5 routing validation is complete.
-   Execute
+   `00135832`, and `26a5d3db`; the implementation and final reviewed gate are
+   complete at `fdf1e06b`. The completed
    `2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
-   and require its fresh acceptance evidence and implementation reviews before
-   closing this item. The accepted design and plan do not claim that runtime
-   hardening is already implemented.
-7. **Small/library wave.** Only after item 6 completes, execute Tasks 1–3 of
+   is historical execution evidence, not the live selector.
+7. **Small/library wave — current selector.** Execute Tasks 1–3 of
    `2026-07-13-procedure-first-migration-waves-plan.md` with the recorded
-   classification and parity gates.
+   classification and parity gates, beginning with Task 1's post-hardening
+   rebaseline.
 8. **Effect-adapter evidence wave.** Execute Task 4 of that migration plan
    before production-family conversion. YAML adapter rows are audited, not
    translated into `.orc` procedure candidates.

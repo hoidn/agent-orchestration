@@ -10,19 +10,57 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PILOT_PLAN_PATH = (
     "docs/plans/2026-07-13-procedure-first-pilot-plan.md"
 )
-CURRENT_SELECTOR_PATH = (
+HARDENING_PLAN_PATH = (
     "docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md"
+)
+CURRENT_SELECTOR_PATH = (
+    "docs/plans/2026-07-13-procedure-first-migration-waves-plan.md"
 )
 CORRECTION_SUBPLAN_PATH = (
     "docs/plans/2026-07-14-procedure-identity-store-match-scoped-counts-plan.md"
 )
 ORDERED_ROADMAP_PATHS = (
     CURRENT_SELECTOR_PATH,
-    "docs/plans/2026-07-13-procedure-first-migration-waves-plan.md",
     "docs/plans/2026-07-07-yaml-retirement-program.md",
     "docs/design/workflow_lisp_provider_live_binding.md",
     "docs/design/workflow_lisp_language_server.md",
 )
+PROJECTION_ACCEPTANCE_OWNERS = {
+    "201-205": (
+        "tests/test_workflow_state_projection.py",
+        "tests/test_resume_command.py",
+    ),
+    "206-207": (
+        "tests/test_resume_command.py",
+        "tests/test_subworkflow_calls.py",
+    ),
+    "208-213": (
+        "tests/test_workflow_state_projection.py",
+        "tests/test_resume_command.py",
+        "tests/test_subworkflow_calls.py",
+    ),
+    "214-224": (
+        "tests/test_subworkflow_calls.py",
+        "tests/test_loader_validation.py",
+    ),
+    "197, 225-227": ("tests/test_resume_command.py",),
+    "228-231": (
+        "tests/test_subworkflow_calls.py",
+        "tests/test_resume_command.py",
+        "tests/test_runtime_step_lifecycle.py",
+    ),
+    "232-233": (
+        "tests/test_state_manager.py",
+        "tests/test_observability_report.py",
+        "tests/test_resume_command.py",
+        "tests/test_subworkflow_calls.py",
+    ),
+    "234": (
+        "tests/test_workflow_state_projection.py",
+        "tests/test_resume_command.py",
+        "tests/test_subworkflow_calls.py",
+    ),
+}
 GATE_P4_REVIEWED_STATE = (
     "gates p3 and p4 are independently reviewed and satisfied"
 )
@@ -143,7 +181,7 @@ def _assert_current_task_3_recovery_status(
     assert CONTRADICTORY_RECOVERY_STATUS.search(normalized) is None, label
 
 
-def test_procedure_first_status_surfaces_share_current_resume_projection_boundary() -> None:
+def test_procedure_first_status_surfaces_share_current_migration_wave_boundary() -> None:
     capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
     docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
         encoding="utf-8"
@@ -163,17 +201,61 @@ def test_procedure_first_status_surfaces_share_current_resume_projection_boundar
         canonical = _canonical_routing_paths(surface)
         assert canonical.count(CURRENT_SELECTOR_PATH) == 1, label
         normalized = _normalized_routing_text(surface)
-        assert "runtime" in normalized, label
-        assert any(
-            marker in normalized
-            for marker in (
-                "pending",
-                "not implemented",
-                "not yet implemented",
-                "must implement",
-                "complete its runtime",
-            )
-        ), label
+        assert "migration wave" in normalized, label
+        assert "current selector" in normalized, label
+        assert "migration waves remain blocked" not in normalized, label
+        assert "runtime hardening remains pending" not in normalized, label
+
+
+def test_resume_projection_hardening_is_closed_without_claiming_migration() -> None:
+    implementation_plan = (REPO_ROOT / HARDENING_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
+    capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
+    hardening_row = _markdown_table_row(
+        capability_matrix_path,
+        "Resume projection-integrity hardening",
+    )
+
+    assert re.search(r"(?m)^- \[ \] \*\*Step", implementation_plan) is None
+    assert "complete" in _normalized_routing_text(implementation_plan[:1600])
+    assert "| Implemented |" in hardening_row
+    normalized_row = _normalized_routing_text(hardening_row)
+    assert "migration waves remain blocked" not in normalized_row
+    assert "migration waves are implemented" not in normalized_row
+
+
+def test_projection_integrity_acceptance_proof_ownership_is_complete() -> None:
+    acceptance = (REPO_ROOT / "specs" / "acceptance" / "index.md").read_text(
+        encoding="utf-8"
+    )
+    normative, proof_routing = acceptance.split(
+        "Resume Projection-Integrity Executable-Proof Routing",
+        1,
+    )
+    proof_routing = proof_routing.split("## DSL Evolution Rollout Crosswalk", 1)[0]
+    normalized = _normalized_routing_text(proof_routing)
+
+    for clause in (197, *range(201, 235)):
+        assert re.search(rf"(?m)^{clause}\. ", normative), clause
+    assert "clauses 197 and 201 234" in normalized
+    assert "runtime implementation is pending" not in normalized
+    assert "pending executable proof ownership" not in normalized
+    assert "runtime implementation" in normalized
+    assert "complete" in normalized
+    assert HARDENING_PLAN_PATH in proof_routing
+    assert "fdf1e06b" in proof_routing
+    assert "baseline equivalence" in normalized
+    assert "all pass" in normalized and "not" in normalized
+
+    for clauses, owners in PROJECTION_ACCEPTANCE_OWNERS.items():
+        row = next(
+            line
+            for line in proof_routing.splitlines()
+            if line.startswith(f"| {clauses} |")
+        )
+        for owner in owners:
+            assert owner in row, (clauses, owner)
 
 
 def test_historical_and_durable_authorities_do_not_claim_live_selector_ownership() -> None:
@@ -192,11 +274,12 @@ def test_historical_and_durable_authorities_do_not_claim_live_selector_ownership
 
     assert "current selector" not in _normalized_routing_text(activation)
     assert "historical" in _normalized_routing_text(activation)
-    assert CURRENT_SELECTOR_PATH in activation
+    assert HARDENING_PLAN_PATH in activation
     assert "current selector" not in _normalized_routing_text(compatibility_design)
     assert "durable compatibility design" in _normalized_routing_text(
         compatibility_design
     )
+    assert HARDENING_PLAN_PATH in compatibility_design
     assert CURRENT_SELECTOR_PATH in compatibility_design
 
 
@@ -379,12 +462,12 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
         _assert_exact_ordered_routing_paths(surface, label)
 
         missing = surface.replace(
-            "2026-07-13-resume-projection-integrity-hardening-implementation-plan.md",
-            "missing-hardening-plan.md",
+            "2026-07-13-procedure-first-migration-waves-plan.md",
+            "missing-migration-plan.md",
             1,
         )
         with pytest.raises(AssertionError):
-            _assert_exact_ordered_routing_paths(missing, f"{label} missing hardening")
+            _assert_exact_ordered_routing_paths(missing, f"{label} missing migration")
 
         duplicated = surface + " " + CURRENT_SELECTOR_PATH
         with pytest.raises(AssertionError):
@@ -397,8 +480,8 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
                 f"{label} correction promoted",
             )
 
-        migration_name = Path(ORDERED_ROADMAP_PATHS[1]).name
-        yaml_name = Path(ORDERED_ROADMAP_PATHS[2]).name
+        migration_name = Path(ORDERED_ROADMAP_PATHS[0]).name
+        yaml_name = Path(ORDERED_ROADMAP_PATHS[1]).name
         reordered = (
             surface.replace(migration_name, "__MIGRATION_PLAN__", 1)
             .replace(yaml_name, migration_name, 1)

@@ -19,18 +19,21 @@
   - `docs/design/resume_projection_integrity_hardening.md`
   - `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`
   - `docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
+  - `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`
   - `specs/state.md`
-- **Implementation dependency:** the accepted resume projection-integrity
-  design and its reviewed implementation plan define the separate runtime
-  hardening gate; migration waves remain gated behind completed implementation
-  evidence and reviews
+- **Implementation dependency:** satisfied at `fdf1e06b`; the accepted resume
+  projection-integrity design and its reviewed implementation plan define the
+  separate runtime hardening gate whose implementation evidence and reviews
+  now authorize the migration-wave plan's Task 1 rebaseline
 
 Acceptance establishes the compatibility contract and reviewed implementation
 sequence. Generic prerequisite Tasks 1-8 completed at handoff `f5adcb79`. The
 tracked-plan pilot then completed through `0769e837`, with exactly two
 completed dedicated runs and holistic specification/quality approval. This is
 not a general cross-source resume/compatibility, family-wave, promotion, or
-YAML-retirement claim, and projection-integrity hardening is not implemented.
+YAML-retirement claim. The separate generic projection-integrity hardening
+completed later at `fdf1e06b`; it satisfies a production-wave prerequisite but
+does not broaden the pilot's claim.
 Live roadmap selection is owned by the governing execution sequence, not this
 durable compatibility design.
 
@@ -139,10 +142,11 @@ separately gated.
 
 The pilot exposed generic compiler/runtime defects that could not be accepted
 as migration differences. The module-level lowering-mode, inline checkpoint,
-and WCC procedure/call-site provenance defects are now corrected. Resume
-planning still does not audit every explicit persisted completed-step and
-call-frame caller identity against the current state projection; that separate
-checksum-compatible projection-integrity gap remains routed outside the pilot.
+and WCC procedure/call-site provenance defects were corrected before the pilot.
+At pilot closeout, resume planning still did not audit every explicit persisted
+completed-step and call-frame caller identity against the current state
+projection. That gap remained outside the pilot and was subsequently closed by
+the separate generic hardening implementation at `fdf1e06b`.
 
 ## Goals And Non-Goals
 
@@ -311,12 +315,11 @@ observability-order refactor.
 ### Separate runtime-hardening follow-up
 
 Review discovered a broader integrity gap on checksum-compatible resumes:
-explicit completed-step and call-frame caller identities are not exhaustively
-audited against their scoped current projections. This is not required for the
+explicit completed-step and call-frame caller identities were not exhaustively
+audited against their scoped current projections. This was not required for the
 internal pilot because changed source is rejected earlier by the root checksum
-guard.
-It must be routed to a named runtime-hardening plan before production migration
-waves.
+guard. The gap was routed to the named hardening design and implementation plan
+and completed at `fdf1e06b` before production migration waves.
 
 That follow-up's goal is to audit explicit completed/call-frame identities on
 checksum-compatible resumes using the applicable scoped projection: retained
@@ -700,11 +703,13 @@ these references alone, authorized the completed source edit.
 The capability matrix, authoring guide, route-readiness registry, and other
 implementation-status surfaces remain gated on their own required evidence.
 
-A separate projection-integrity audit must be routed into a named follow-on
-design and plan before production migration waves. It is not a pilot
-prerequisite or a normative impact of this design. Any necessary checksum and
-acceptance clarification must land before the pilot claims migration success;
-capability, status, and route-readiness updates wait for passing evidence.
+The separate projection-integrity audit was routed into its named follow-on
+design and implementation plan and completed at `fdf1e06b` before production
+migration waves. It was not a pilot prerequisite or a normative impact of this
+design. Its capability and routing status changed only after focused acceptance
+evidence, deterministic public smoke, broad baseline equivalence, and final
+independent reviews passed. The governing execution sequence now owns live
+selection of `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`.
 
 ## Open Questions
 

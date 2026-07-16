@@ -246,14 +246,20 @@
 233. Schema and selector independence: projection integrity remains additive under schema `2.1`, runtime does not read migration/retirement evidence, and behavior is not selected by workflow/module/procedure name, basename, family, or persisted alias
 234. Exact-resolution architecture: root, loop, and call-frame acceptance is proven through projection-owned exact candidates, with no ad hoc qualified-ID parsing, prefix matching, remapping, or backfill
 
-### Pending Resume Projection-Integrity Executable-Proof Routing
+### Completed Resume Projection-Integrity Executable-Proof Routing
 
-Clauses 201-234 are normative target behavior whose runtime implementation is
-pending. Task 1 characterization records the pre-implementation gap and does
-not satisfy these clauses. The later implementation must add public/default-path
-proof at least as follows:
+Clauses 197 and 201-234 remain normative behavior. Their runtime implementation
+and public/default-path executable proof completed at `fdf1e06b` under
+`docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`.
+The completed proof collected 545 owning tests and passed the focused selector
+with 212 passed and 333 deselected; the deterministic public CLI smoke rejected
+an unknown explicit step ID without effect replay. The fresh broad gate recorded
+6 established unrelated failures, 4913 passes, and 13 skips, matching the
+accepted baseline, followed by independent specification and quality approval.
+This is baseline equivalence, not an all-pass claim. Executable proof ownership
+remains mapped as follows:
 
-| Clauses | Pending executable proof ownership |
+| Clauses | Executable proof ownership |
 | --- | --- |
 | 201-205 | `tests/test_workflow_state_projection.py` for root scoped candidates, presentation/scope mismatch, and schema-supported omission compatibility; `tests/test_resume_command.py` for public root resume |
 | 206-207 | `tests/test_resume_command.py` for required root selectors and pre-v2.0 rejection; `tests/test_subworkflow_calls.py` for required `call_frames.*.call_step_id` and explicit pre-`schema_version: "2.1"` reusable-call rejection |
