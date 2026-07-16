@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping, Optional
@@ -12,6 +13,15 @@ from .surface_ast import empty_frozen_mapping
 
 def _runtime_step_id(loop_node_id: str, iteration_index: int, nested_suffix: str) -> str:
     return f"{loop_node_id}#{iteration_index}.{nested_suffix}"
+
+
+class ResumeProjectionValidationError(ValueError):
+    """Typed projection failure with a stable reason separate from its message."""
+
+    def __init__(self, reason: str, message: str) -> None:
+        self.reason = reason
+        self.message = message
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
@@ -394,7 +404,10 @@ class WorkflowStateProjection:
         frozen_candidates = _freeze_resume_slot_map(candidates)
         frozen_boundaries = _freeze_resume_slot_map(call_boundaries)
         unclaimed_rows = tuple(
-            (presentation_key, step_id)
+            (
+                presentation_key,
+                _snapshot_resume_identity(step_id),
+            )
             for presentation_key, step_id in _explicit_step_result_rows(steps_state)
             if len(
                 tuple(
@@ -513,7 +526,7 @@ class WorkflowStateProjection:
             )
         )
         return ResumeIdentityResolution(
-            step_id=step_id,
+            step_id=_snapshot_resume_identity(step_id),
             presentation_key=presentation_key,
             candidates=candidates,
             matching_candidates=matching_candidates,
@@ -536,7 +549,7 @@ class WorkflowStateProjection:
             else None
         )
         return ResumeCallBoundaryResolution(
-            call_step_id=call_step_id,
+            call_step_id=_snapshot_resume_identity(call_step_id),
             candidates=candidates,
             boundary=boundary,
         )
@@ -567,6 +580,10 @@ def _resume_slot_candidates(
     if not isinstance(identity, str):
         return ()
     return slots.get(identity, ())
+
+
+def _snapshot_resume_identity(identity: Any) -> Any:
+    return deepcopy(identity)
 
 
 def _optional_loop_container(
@@ -847,4 +864,4 @@ def _explicit_step_result_rows(
 
 
 def _raise_resume_projection_state_error(reason: str, message: str) -> None:
-    raise ValueError(f"{reason}: {message}")
+    raise ResumeProjectionValidationError(reason, message)

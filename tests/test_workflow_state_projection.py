@@ -1,5 +1,6 @@
 """Characterization tests for IR-to-state compatibility projection tables."""
 
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 from types import MappingProxyType
@@ -11,6 +12,7 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.state_projection import (
     CallBoundaryProjection,
     CompatibilityNodeProjection,
+    ResumeProjectionValidationError,
 )
 from orchestrator.workflow.resume_planner import ResumePlanner, ResumeStateIntegrityError
 from tests.workflow_bundle_helpers import (
@@ -1022,6 +1024,47 @@ def test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_s
 
 
 @pytest.mark.parametrize(
+    "malformed_step_id",
+    [[{"nested": []}], {"nested": []}],
+    ids=["nested_list", "nested_mapping"],
+)
+def test_projection_resume_slot_index_snapshots_malformed_identity_values(
+    tmp_path: Path,
+    malformed_step_id: object,
+) -> None:
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_projection_workflow(tmp_path))
+    original_snapshot = deepcopy(malformed_step_id)
+    state = {
+        "steps": {
+            "SetReady": {
+                "status": "completed",
+                "step_id": malformed_step_id,
+            }
+        }
+    }
+
+    slot_index = bundle.projection.enumerate_resume_slots(state)
+    step_resolution = bundle.projection.resolve_resume_step_id(
+        slot_index,
+        malformed_step_id,
+        presentation_key="SetReady",
+    )
+    call_resolution = bundle.projection.resolve_call_boundary(
+        slot_index,
+        malformed_step_id,
+    )
+
+    if isinstance(malformed_step_id, list):
+        malformed_step_id[0]["nested"].append("mutated")
+    else:
+        malformed_step_id["nested"].append("mutated")
+
+    assert slot_index.unclaimed_explicit_rows == (("SetReady", original_snapshot),)
+    assert step_resolution.step_id == original_snapshot
+    assert call_resolution.call_step_id == original_snapshot
+
+
+@pytest.mark.parametrize(
     ("repeat_progress", "repeat_frame"),
     [
         (
@@ -1193,52 +1236,82 @@ def _valid_resume_loop_state() -> dict:
     }
 
 
-def _corrupt_resume_loop_state(state: dict, corruption: str) -> str:
+def _corrupt_resume_loop_state(state: dict, corruption: str) -> tuple[str, str]:
     if corruption == "for_each_container":
         state["for_each"] = []
-        return "unsupported_shape"
+        return "unsupported_shape", "for_each must be a mapping"
     if corruption == "for_each_progress":
         state["for_each"]["ProcessItems"] = []
-        return "unsupported_shape"
+        return "unsupported_shape", "for_each.ProcessItems must be a mapping"
     if corruption == "for_each_items":
         state["for_each"]["ProcessItems"]["items"] = "alpha"
-        return "unsupported_shape"
+        return "unsupported_shape", "for_each.ProcessItems.items must be a list"
     if corruption == "for_each_boolean_index":
         state["for_each"]["ProcessItems"]["current_index"] = True
-        return "unsupported_shape"
+        return (
+            "unsupported_shape",
+            "for_each.ProcessItems.current_index must be null or a non-boolean integer",
+        )
     if corruption == "for_each_duplicate_index":
         state["for_each"]["ProcessItems"]["completed_indices"] = [0, 0]
-        return "invalid_loop_progress"
+        return (
+            "invalid_loop_progress",
+            "for_each.ProcessItems.completed_indices must not contain duplicate indices",
+        )
     if corruption == "for_each_out_of_range":
         state["for_each"]["ProcessItems"]["completed_indices"] = [2]
-        return "invalid_loop_progress"
+        return (
+            "invalid_loop_progress",
+            "for_each.ProcessItems.completed_indices contains an out-of-range index",
+        )
     if corruption == "for_each_current_completed_conflict":
         state["for_each"]["ProcessItems"]["completed_indices"] = [0, 1]
-        return "invalid_loop_progress"
+        return (
+            "invalid_loop_progress",
+            "for_each.ProcessItems.current_index is already completed",
+        )
     if corruption == "repeat_container":
         state["repeat_until"] = []
-        return "unsupported_shape"
+        return "unsupported_shape", "repeat_until must be a mapping"
     if corruption == "repeat_progress":
         state["repeat_until"]["ReviewLoop"] = []
-        return "unsupported_shape"
+        return "unsupported_shape", "repeat_until.ReviewLoop must be a mapping"
     if corruption == "repeat_boolean_index":
         state["repeat_until"]["ReviewLoop"]["current_iteration"] = True
-        return "unsupported_shape"
+        return (
+            "unsupported_shape",
+            "repeat_until.ReviewLoop.current_iteration must be null or a non-boolean integer",
+        )
     if corruption == "repeat_duplicate_index":
         state["repeat_until"]["ReviewLoop"]["completed_iterations"] = [0, 0]
-        return "invalid_loop_progress"
+        return (
+            "invalid_loop_progress",
+            "repeat_until.ReviewLoop.completed_iterations must not contain duplicate indices",
+        )
     if corruption == "repeat_out_of_range":
         state["repeat_until"]["ReviewLoop"]["current_iteration"] = 4
-        return "invalid_loop_progress"
+        return (
+            "invalid_loop_progress",
+            "repeat_until.ReviewLoop.current_iteration is out of range",
+        )
     if corruption == "repeat_current_completed_conflict":
         state["repeat_until"]["ReviewLoop"]["completed_iterations"] = [0, 1]
-        return "invalid_loop_progress"
+        return (
+            "invalid_loop_progress",
+            "repeat_until.ReviewLoop.completed_iterations is not valid prior history",
+        )
     if corruption == "repeat_condition_result_conflict":
         state["repeat_until"]["ReviewLoop"]["last_condition_result"] = False
-        return "invalid_loop_progress"
+        return (
+            "invalid_loop_progress",
+            "repeat_until.ReviewLoop.condition result conflicts with evaluation state",
+        )
     if corruption == "repeat_exhausted_type":
         state["repeat_until"]["ReviewLoop"]["exhausted"] = 1
-        return "unsupported_shape"
+        return (
+            "unsupported_shape",
+            "repeat_until.ReviewLoop.exhausted must be boolean when present",
+        )
     if corruption == "repeat_terminal_success_without_history":
         state["repeat_until"]["ReviewLoop"] = {
             "current_iteration": None,
@@ -1246,7 +1319,10 @@ def _corrupt_resume_loop_state(state: dict, corruption: str) -> str:
             "condition_evaluated_for_iteration": None,
             "last_condition_result": True,
         }
-        return "invalid_loop_progress"
+        return (
+            "invalid_loop_progress",
+            "repeat_until.ReviewLoop.terminal progress requires completed evaluated history",
+        )
     if corruption == "repeat_successful_exhaustion_wrong_status":
         state["repeat_until"]["ReviewLoop"] = {
             "current_iteration": None,
@@ -1256,7 +1332,10 @@ def _corrupt_resume_loop_state(state: dict, corruption: str) -> str:
             "exhausted": True,
         }
         state["steps"]["ReviewLoop"] = {"status": "failed"}
-        return "invalid_loop_progress"
+        return (
+            "invalid_loop_progress",
+            "repeat_until.ReviewLoop.successful exhaustion requires a completed frame",
+        )
     if corruption == "repeat_failed_exhaustion_wrong_error":
         state["repeat_until"]["ReviewLoop"] = {
             "current_iteration": None,
@@ -1268,7 +1347,10 @@ def _corrupt_resume_loop_state(state: dict, corruption: str) -> str:
             "status": "failed",
             "error": {"type": "repeat_until_body_step_failed"},
         }
-        return "invalid_loop_progress"
+        return (
+            "invalid_loop_progress",
+            "repeat_until.ReviewLoop.failed exhaustion requires the terminal exhaustion error",
+        )
     raise AssertionError(f"Unhandled corruption case: {corruption}")
 
 
@@ -1279,10 +1361,14 @@ def test_projection_resume_slot_index_rejects_invalid_loop_progress(
 ) -> None:
     bundle = WorkflowLoader(tmp_path).load_bundle(_write_projection_workflow(tmp_path))
     state = _valid_resume_loop_state()
-    reason = _corrupt_resume_loop_state(state, corruption)
+    reason, message = _corrupt_resume_loop_state(state, corruption)
 
-    with pytest.raises(ValueError, match=f"^{reason}:"):
+    with pytest.raises(ResumeProjectionValidationError) as exc_info:
         bundle.projection.enumerate_resume_slots(state)
+
+    assert exc_info.value.reason == reason
+    assert exc_info.value.message == message
+    assert str(exc_info.value) == message
 
 
 def test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids(
