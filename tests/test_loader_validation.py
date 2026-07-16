@@ -568,6 +568,139 @@ steps:
         assert "line 5, column 1" in message
         assert "duplicate import alias" not in message
 
+    def test_top_level_merged_and_explicit_import_sections_are_rejected_before_bundle_construction(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        for filename, workflow_name in (
+            ("child.yaml", "child"),
+            ("sibling.yaml", "sibling"),
+        ):
+            (self.workspace / filename).write_text(
+                f"""\
+version: "2.5"
+name: {workflow_name}
+steps:
+  - name: Done
+    command: [echo, done]
+""",
+                encoding="utf-8",
+            )
+        path = self.workspace / "workflow.yml"
+        path.write_text(
+            """\
+<<: &workflow_defaults
+  imports:
+    child: child.yaml
+version: "2.5"
+name: merged-and-explicit-import-sections
+imports:
+  sibling: sibling.yaml
+steps:
+  - name: Done
+    command: [echo, done]
+""",
+            encoding="utf-8",
+        )
+
+        def reject_bundle_construction(*args, **kwargs):
+            pytest.fail("bundle construction must not run for duplicate import sections")
+
+        monkeypatch.setattr(
+            "orchestrator.loader.build_loaded_workflow_bundle",
+            reject_bundle_construction,
+        )
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        message = str(exc_info.value)
+        assert message.count("imports: duplicate top-level mapping") == 1
+        assert "line 2, column 3" in message
+        assert "line 6, column 1" in message
+        assert "duplicate import alias" not in message
+
+    def test_top_level_merge_sources_with_duplicate_alias_are_rejected_before_bundle_construction(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        for filename in ("child.yaml", "replacement.yaml"):
+            (self.workspace / filename).write_text(
+                """\
+version: "2.5"
+name: imported
+steps:
+  - name: Done
+    command: [echo, done]
+""",
+                encoding="utf-8",
+            )
+        path = self.workspace / "workflow.yml"
+        path.write_text(
+            """\
+<<:
+  - &first_defaults
+    imports:
+      child: child.yaml
+  - &second_defaults
+    imports:
+      child: replacement.yaml
+version: "2.5"
+name: merged-import-alias-collision
+steps:
+  - name: Done
+    command: [echo, done]
+""",
+            encoding="utf-8",
+        )
+
+        def reject_bundle_construction(*args, **kwargs):
+            pytest.fail("bundle construction must not run for duplicate import aliases")
+
+        monkeypatch.setattr(
+            "orchestrator.loader.build_loaded_workflow_bundle",
+            reject_bundle_construction,
+        )
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        message = str(exc_info.value)
+        assert message.count("imports.child: duplicate import alias") == 1
+        assert "line 4, column 7" in message
+        assert "line 7, column 7" in message
+        assert "duplicate top-level mapping" not in message
+
+    def test_single_top_level_merged_import_section_loads(self):
+        (self.workspace / "child.yaml").write_text(
+            """\
+version: "2.5"
+name: child
+steps:
+  - name: Done
+    command: [echo, done]
+""",
+            encoding="utf-8",
+        )
+        path = self.workspace / "workflow.yml"
+        path.write_text(
+            """\
+<<: &workflow_defaults
+  imports:
+    child: child.yaml
+version: "2.5"
+name: single-merged-import-section
+steps:
+  - name: Done
+    command: [echo, done]
+""",
+            encoding="utf-8",
+        )
+
+        loaded = self.loader.load(path)
+
+        assert tuple(loaded.imports) == ("child",)
+
     def test_unique_import_aliases_load(self):
         for filename, workflow_name in (
             ("child.yaml", "child"),

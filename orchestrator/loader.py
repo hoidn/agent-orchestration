@@ -125,12 +125,15 @@ def _scan_duplicate_import_aliases(
     loader: PreservingLoader,
     document: yaml.Node,
 ) -> Optional[_DuplicateImportAliasScan]:
-    """Return marked duplicate effective aliases from top-level imports."""
+    """Return marked duplicate effective top-level imports and aliases."""
     if not isinstance(document, yaml.MappingNode):
         return None
 
+    effective_document = deepcopy(document)
+    loader.flatten_mapping(effective_document)
+
     imports_entries: list[tuple[yaml.ScalarNode, yaml.Node]] = []
-    for key_node, value_node in document.value:
+    for key_node, value_node in effective_document.value:
         if isinstance(key_node, yaml.ScalarNode) and key_node.value == "imports":
             imports_entries.append((key_node, value_node))
 
