@@ -239,7 +239,10 @@ steps:
         with pytest.raises(WorkflowValidationError) as exc_info:
             self.loader.load(path)
 
-        assert "imports.child: duplicate import alias" in str(exc_info.value)
+        message = str(exc_info.value)
+        assert "imports.child: duplicate import alias" in message
+        assert "line 4, column 3" in message
+        assert "line 5, column 3" in message
 
     def test_merge_induced_duplicate_import_alias_is_rejected_before_bundle_construction(
         self,
@@ -283,7 +286,10 @@ steps:
         with pytest.raises(WorkflowValidationError) as exc_info:
             self.loader.load(path)
 
-        assert "imports.child: duplicate import alias" in str(exc_info.value)
+        message = str(exc_info.value)
+        assert "imports.child: duplicate import alias" in message
+        assert "line 4, column 3" in message
+        assert "line 6, column 3" in message
 
     def test_unique_import_aliases_load(self):
         for filename, workflow_name in (

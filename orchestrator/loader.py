@@ -6,7 +6,7 @@ import re
 from copy import deepcopy
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Set
+from typing import Any, Dict, List, Mapping, NamedTuple, Optional, Set
 import yaml
 
 from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
@@ -60,17 +60,17 @@ class PreservingLoader(yaml.SafeLoader):
         """Validate the composed workflow document before constructing its mapping."""
         document = self.get_single_node()
         if document is not None:
-            duplicate_aliases = _duplicate_import_aliases(self, document)
-            if duplicate_aliases:
+            duplicate_scan = _scan_duplicate_import_aliases(self, document)
+            if duplicate_scan is not None and duplicate_scan.entries:
                 message = "; ".join(
-                    f"imports.{alias}: duplicate import alias"
-                    for alias in duplicate_aliases
+                    f"imports.{entry.alias}: duplicate import alias"
+                    for entry in duplicate_scan.entries
                 )
                 raise yaml.constructor.ConstructorError(
                     "while constructing workflow imports",
-                    document.start_mark,
+                    duplicate_scan.imports_mark,
                     message,
-                    document.start_mark,
+                    duplicate_scan.entries[0].mark,
                 )
             return self.construct_document(document)
         return None
@@ -99,13 +99,23 @@ if 'O' in PreservingLoader.yaml_implicit_resolvers:
     ]
 
 
-def _duplicate_import_aliases(
+class _DuplicateImportAliasEntry(NamedTuple):
+    alias: str
+    mark: yaml.Mark
+
+
+class _DuplicateImportAliasScan(NamedTuple):
+    imports_mark: yaml.Mark
+    entries: tuple[_DuplicateImportAliasEntry, ...]
+
+
+def _scan_duplicate_import_aliases(
     loader: PreservingLoader,
     document: yaml.Node,
-) -> tuple[str, ...]:
-    """Return duplicate effective aliases from the top-level imports mapping."""
+) -> Optional[_DuplicateImportAliasScan]:
+    """Return marked duplicate effective aliases from top-level imports."""
     if not isinstance(document, yaml.MappingNode):
-        return ()
+        return None
 
     imports_node = None
     for key_node, value_node in document.value:
@@ -113,23 +123,37 @@ def _duplicate_import_aliases(
             imports_node = value_node
 
     if not isinstance(imports_node, yaml.MappingNode):
-        return ()
+        return None
 
     effective_imports = deepcopy(imports_node)
     loader.flatten_mapping(effective_imports)
 
     seen: set[str] = set()
-    duplicates: list[str] = []
+    duplicates: list[_DuplicateImportAliasEntry] = []
     for key_node, _ in effective_imports.value:
         alias = loader.construct_object(key_node, deep=True)
         if not isinstance(alias, str):
             continue
         if alias in seen:
-            if alias not in duplicates:
-                duplicates.append(alias)
+            if not any(entry.alias == alias for entry in duplicates):
+                duplicates.append(_DuplicateImportAliasEntry(alias, key_node.start_mark))
             continue
         seen.add(alias)
-    return tuple(duplicates)
+    return _DuplicateImportAliasScan(imports_node.start_mark, tuple(duplicates))
+
+
+def _duplicate_import_aliases(
+    loader: PreservingLoader,
+    document: yaml.Node,
+) -> tuple[str, ...]:
+    """Return duplicate effective aliases from the top-level imports mapping."""
+    duplicate_scan = _scan_duplicate_import_aliases(loader, document)
+    if duplicate_scan is None:
+        return ()
+    return tuple(
+        entry.alias
+        for entry in duplicate_scan.entries
+    )
 
 
 class WorkflowLoader:
