@@ -90,7 +90,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-13-procedure-first-pilot-plan.md` | Complete. Evidence landed at `63e03330`, `e6a85cb7`, `de522c76`, `f5dbac88`, `76205d4f`, and `0769e837`; holistic specification and quality reviews approved HEAD `0769e837`. Exactly two dedicated runs completed, and the route remains `leaf_runtime_candidate` / `migration_candidate` / `migration_evidence_only`. Historical clean artifact equality is `not_asserted`. This is one reviewed internal pilot, not a general compatibility, family-wave, promotion, or YAML-retirement claim. |
 | `2026-07-13-resume-projection-integrity-hardening-design-plan.md` | Complete. Characterization landed at `1cd60767`, the accepted design at `52e2b05f`, the normative state/acceptance contract at `00135832`, and the reviewed implementation plan at `26a5d3db`; holistic routing reviews and fresh focused/broad validation passed at closeout. This row does not claim runtime implementation. |
 | `2026-07-13-resume-projection-integrity-hardening-implementation-plan.md` | Complete at `fdf1e06b`. The generic runtime hardening, focused acceptance gate, deterministic public CLI smoke, broad baseline-equivalence check, and independent specification/quality reviews are recorded in the plan. Do not re-execute it as the live selector. |
-| `2026-07-13-procedure-first-migration-waves-plan.md` | Current selector. Its hardening prerequisite is satisfied; execute Task 1's post-hardening rebaseline before any family migration and preserve the plan's existing task order. |
+| `2026-07-13-procedure-first-migration-waves-plan.md` | Current selector. Task 1's post-hardening rebaseline completed at `4983afff` plus correction `fa16bcf0`; Task 2's small-example family is the current sub-selector. Preserve Tasks 3–8 and the later stage order. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
 | `2026-07-07-yaml-retirement-program.md` | Amended 2026-07-14 to deletion-first retirement: survivors are `verified_iteration_drain` and `generic_run_watchdog`, each getting its own `.orc` port through the parity kernel; every other YAML workflow is reclassified delete. The former pilot-quiescence scheduling window is closed. Any early independent Task 6 tranche now requires separate selection and does not reorder Stage 6 authority. See the program's steering amendment and roadmap Stage 6. |
 
@@ -191,8 +191,9 @@ hardening then completed at `fdf1e06b` with its focused acceptance gate,
 deterministic public CLI smoke, broad baseline-equivalence check, and final
 independent specification/quality reviews. The completed hardening plan is now
 historical execution evidence. The current selector is
-`docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`; begin with its
-post-hardening Task 1 rebaseline, then continue with
+`docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`; its Task 1
+rebaseline completed at `4983afff` plus `fa16bcf0`, and Task 2's small-example
+family is the current sub-selector. After Tasks 2–8, continue with
 `docs/plans/2026-07-07-yaml-retirement-program.md`,
 `docs/design/workflow_lisp_provider_live_binding.md`, and
 `docs/design/workflow_lisp_language_server.md`, in that order.
@@ -406,10 +407,11 @@ Execute only accepted plans, in this order:
    complete at `fdf1e06b`. The completed
    `2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
    is historical execution evidence, not the live selector.
-7. **Small/library wave — current selector.** Execute Tasks 1–3 of
-   `2026-07-13-procedure-first-migration-waves-plan.md` with the recorded
-   classification and parity gates, beginning with Task 1's post-hardening
-   rebaseline.
+7. **Small/library wave — current selector.** Task 1 of
+   `2026-07-13-procedure-first-migration-waves-plan.md` completed its
+   post-hardening rebaseline at `4983afff` plus `fa16bcf0`. Execute Task 2's
+   small-example family now, then Task 3, with the recorded classification and
+   parity gates.
 8. **Effect-adapter evidence wave.** Execute Task 4 of that migration plan
    before production-family conversion. YAML adapter rows are audited, not
    translated into `.orc` procedure candidates.

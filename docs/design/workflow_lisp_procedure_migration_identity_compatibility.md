@@ -23,8 +23,9 @@
   - `specs/state.md`
 - **Implementation dependency:** satisfied at `fdf1e06b`; the accepted resume
   projection-integrity design and its reviewed implementation plan define the
-  separate runtime hardening gate whose implementation evidence and reviews
-  now authorize the migration-wave plan's Task 1 rebaseline
+  separate runtime hardening gate. The migration-wave plan's Task 1 rebaseline
+  completed at `4983afff` plus correction `fa16bcf0`; Task 2 is now its current
+  sub-selector.
 
 Acceptance establishes the compatibility contract and reviewed implementation
 sequence. Generic prerequisite Tasks 1-8 completed at handoff `f5adcb79`. The

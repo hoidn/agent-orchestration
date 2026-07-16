@@ -16,6 +16,7 @@ HARDENING_PLAN_PATH = (
 CURRENT_SELECTOR_PATH = (
     "docs/plans/2026-07-13-procedure-first-migration-waves-plan.md"
 )
+MIGRATION_TASK_1_IMPLEMENTATION_COMMITS = ("4983afff", "fa16bcf0")
 CORRECTION_SUBPLAN_PATH = (
     "docs/plans/2026-07-14-procedure-identity-store-match-scoped-counts-plan.md"
 )
@@ -140,6 +141,12 @@ def _procedure_sequence_current_routing() -> str:
     )[0]
 
 
+def _migration_task_section(plan: str, task_number: int) -> str:
+    section = plan.split(f"### Task {task_number}:", 1)[1]
+    next_heading = f"### Task {task_number + 1}:"
+    return section.split(next_heading, 1)[0] if next_heading in section else section
+
+
 def _assert_exact_ordered_routing_paths(surface: str, label: str) -> None:
     canonical = _canonical_routing_paths(surface)
     positions: list[int] = []
@@ -205,6 +212,52 @@ def test_procedure_first_status_surfaces_share_current_migration_wave_boundary()
         assert "current selector" in normalized, label
         assert "migration waves remain blocked" not in normalized, label
         assert "runtime hardening remains pending" not in normalized, label
+
+
+def test_migration_wave_task_1_closeout_advances_only_to_task_2() -> None:
+    plan = (REPO_ROOT / CURRENT_SELECTOR_PATH).read_text(encoding="utf-8")
+    task_1 = _migration_task_section(plan, 1)
+    later_tasks = "\n".join(
+        _migration_task_section(plan, task_number) for task_number in range(2, 9)
+    )
+    task_1_steps = re.findall(r"(?m)^- \[([ xX])\] \*\*Step", task_1)
+
+    assert task_1_steps == ["x", "x", "x", "x"]
+    assert re.search(r"(?m)^- \[[xX]\] \*\*Step", later_tasks) is None
+
+    status = plan.split("## Authority, order, and invariants", 1)[1].split(
+        "## Protected working-tree guard", 1
+    )[0]
+    normalized_status = _normalized_routing_text(status)
+    assert "task 1" in normalized_status and "complete" in normalized_status
+    assert re.search(r"current sub selector:\s*task 2\b", normalized_status)
+    assert re.search(r"current sub selector:\s*task 1\b", normalized_status) is None
+
+    for commit in MIGRATION_TASK_1_IMPLEMENTATION_COMMITS:
+        assert commit in task_1
+    normalized_task_1 = _normalized_routing_text(task_1)
+    for evidence in (
+        "109 collected",
+        "4 passed, 105 deselected",
+        "108 passed, 1 skipped",
+        "clean run",
+        "same-run resume",
+        "JSON extraction",
+        "independent specification",
+        "quality",
+    ):
+        assert _normalized_routing_text(evidence) in normalized_task_1, evidence
+
+    docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
+        encoding="utf-8"
+    ).split("**Component-plan routing:**", 1)[1].split(
+        "**Current procedure-first substrate:**", 1
+    )[0]
+    for label, surface in {
+        "docs index": docs_index_routing,
+        "procedure sequence": _procedure_sequence_current_routing(),
+    }.items():
+        _assert_exact_ordered_routing_paths(surface, label)
 
 
 def test_resume_projection_hardening_is_closed_without_claiming_migration() -> None:

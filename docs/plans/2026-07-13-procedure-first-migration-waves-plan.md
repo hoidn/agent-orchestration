@@ -12,11 +12,14 @@
 
 ## Authority, order, and invariants
 
-**Status:** Current selector (activated 2026-07-16). The prerequisite
+**Status:** Current selector (activated 2026-07-16). Task 1's post-hardening
+rebaseline is complete at `4983afff` with its narrative correction at
+`fa16bcf0`. **Current sub-selector: Task 2, Finish The Small Example
+Families.** The prerequisite
 `docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
 completed at `fdf1e06b` with fresh focused acceptance evidence, a deterministic
 public CLI smoke, broad baseline equivalence, and independent specification and
-quality reviews. Begin with Task 1's post-hardening rebaseline; no later task is
+quality reviews. No Task 2 family migration is complete, and no later task is
 activated or reordered by this status transition.
 
 - Accepted contract: `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
@@ -35,10 +38,10 @@ activated or reordered by this status transition.
   and independently reviewed with fresh acceptance evidence. The hardening
   implementation plan records the implementation evidence; its accepted design
   and planning artifacts alone remain insufficient proof.
-- The hardening implementation gate has passed. Task 1 must still rebaseline
-  that evidence and the inventory on the post-hardening checkout before any
-  small/library or production-family source migration begins. Production-family
-  Tasks 5–6 retain every later prerequisite in this plan.
+- The hardening implementation gate passed, and Task 1 rebaselined that
+  evidence and the inventory on the post-hardening checkout. Task 2 is now the
+  first authorized family source migration. Production-family Tasks 5–6 retain
+  every later prerequisite in this plan.
 - Preserve the inventory's separate `public-entry` records. In particular, never migrate:
   - `workflows/library/lisp_frontend_design_delta/drain.orc::drain` away from `defworkflow`; or
   - `workflows/examples/design_plan_impl_review_stack_v2_call.orc::design-plan-impl-review-stack` away from `defworkflow`.
@@ -76,14 +79,17 @@ must be a subset of the active task's `Files` list. Never stage, restore, or
 rewrite a protected path. Record its initial `git status --short` output only
 as a guard baseline; user changes to those paths are not plan failures.
 
-## Queue at the reviewed source commit
+## Queue after the Task 1 rebaseline
 
 | Class | Count | Disposition |
 | --- | ---: | --- |
-| `procedure-candidate` | 33 | Migrate by `.orc` family after parity. |
+| `procedure-candidate` | 32 | Migrate by `.orc` family after parity. |
 | `effect-adapter` | 25 | Reclassify only after effect, identity, artifact/publication, source-map, child-call, checkpoint, and resume evidence. |
 | `legacy-retire` | 38 | Do not translate; coordinate with Stage 6 after replacement evidence. |
 | `public-boundary` | 3 separate entries | Preserve as workflows and negative regression coverage. |
+
+The v2 inventory also contains one append-only `migrated` history row for the
+completed pilot call; history is separate from the 95 active records above.
 
 ## Per-family migration protocol
 
@@ -113,7 +119,7 @@ collapse them across families:
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.md`
 - Test: `tests/test_workflow_lisp_procedure_first_migrations.py`
 
-- [ ] **Step 1: Verify prerequisite completion evidence**
+- [x] **Step 1: Verify prerequisite completion evidence**
 
 Confirm typed result guidance is complete, the direct/transitive effect
 substrate gate passed, the tracked-plan pilot passed all applicable strict or
@@ -125,7 +131,7 @@ semantics, and stop before any migration if the hardening implementation gate
 cannot be proven. The accepted design, completed planning tranche, or presence
 of the implementation-plan file is not sufficient proof.
 
-- [ ] **Step 2: Regenerate source locations and current commit provenance**
+- [x] **Step 2: Regenerate source locations and current commit provenance**
 
 ```bash
 rg -n --glob '*.orc' '\(call\s+' workflows | sort
@@ -145,7 +151,7 @@ only, while separate history counts reconcile every completed disposition.
 Update `source_commit`, current line locators, and active totals without
 changing IDs merely because lines moved.
 
-- [ ] **Step 3: Add retained-public-boundary tests**
+- [x] **Step 3: Add retained-public-boundary tests**
 
 Assert the Design Delta `drain` and design-plan stack entry remain exported `defworkflow` entries, are present in route readiness/public entry evidence, and are not procedure-migration candidates.
 
@@ -164,7 +170,7 @@ These baseline harness tests run before any Design Delta family edit and are
 rerun after every Task 3, 5, and 6 source commit. They are behavioral runtime/E2E
 gates, not compile or dry-run aliases.
 
-- [ ] **Step 4: Run the queue gate and commit**
+- [x] **Step 4: Run the queue gate and commit**
 
 ```bash
 pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'public_boundary or inventory or procedure_first_design_delta_public_wrapper'
@@ -172,6 +178,21 @@ git diff --check -- docs/plans/2026-07-13-procedure-first-reuse-inventory.json d
 git add docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md tests/test_workflow_lisp_procedure_first_migrations.py
 git commit -m "Rebaseline procedure-first migration inventory"
 ```
+
+#### Task 1 closeout evidence (2026-07-16)
+
+- Inventory/schema implementation: `4983afff`; narrative-total correction:
+  `fa16bcf0`.
+- Collection and tests: 109 collected; queue selector 4 passed, 105
+  deselected; full module 108 passed, 1 skipped.
+- Runtime evidence: an actual production Design Delta public-wrapper clean run
+  and same-run resume after a committed effect, with no effect replay and
+  equal typed public output, artifacts/publication, effects, source-map owners,
+  and checkpoint identities.
+- Inventory evidence: JSON extraction and validation, authored-source
+  extraction, active/history reconciliation, and clean diff checks.
+- Reviews: final independent specification review PASS and independent quality
+  review APPROVED for `4983afff` plus `fa16bcf0`.
 
 ### Task 2: Finish The Small Example Families
 
