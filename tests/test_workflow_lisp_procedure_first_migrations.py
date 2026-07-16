@@ -209,6 +209,51 @@ def _sha256_path(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _pilot_source_bytes(side: str) -> dict[str, object]:
+    assert side in {"old", "new"}
+    evidence_index = _load_json(PILOT_EVIDENCE / "evidence_index.json")
+    manifest_binding = (
+        evidence_index["artifacts"]["old_build_manifest"]
+        if side == "old"
+        else evidence_index["artifacts"]["new_build"]["build_manifest"]
+    )
+    expected_manifest_sha256 = {
+        "old": "sha256:97c78179655c48cb2ac24e599c17bfb0d1d1e0960a7e31836ce0727a5777d783",
+        "new": "sha256:dc21dcdc7fb5748b2442c5e9b615672c4915cd9b9fba6f69f894991c8ae0f00f",
+    }[side]
+    manifest_path = PILOT_EVIDENCE / side / "build_manifest.json"
+    assert manifest_binding == {
+        "path": manifest_path.relative_to(REPO_ROOT).as_posix(),
+        "sha256": expected_manifest_sha256,
+    }
+    assert _sha256_path(manifest_path) == expected_manifest_sha256
+
+    manifest = _load_json(manifest_path)
+    expected_input_paths = {
+        "source": f"{side}/source.orc",
+        "provider_externs": "inputs/provider_externs.json",
+        "prompt_externs": "inputs/prompt_externs.json",
+        "command_boundaries": "inputs/command_boundaries.json",
+    }
+    assert set(manifest["inputs"]) == set(expected_input_paths)
+    frozen_inputs: dict[str, object] = {}
+    for input_name, expected_relative_path in expected_input_paths.items():
+        input_binding = manifest["inputs"][input_name]
+        assert input_binding["path"] == expected_relative_path
+        input_path = PILOT_EVIDENCE / expected_relative_path
+        assert _sha256_path(input_path) == input_binding["sha256"]
+        frozen_inputs[input_name] = (
+            input_path.read_bytes()
+            if input_name == "source"
+            else _load_json(input_path)
+        )
+    return {
+        "build_manifest_sha256": expected_manifest_sha256,
+        "source_sha256": manifest["inputs"]["source"]["sha256"],
+        **frozen_inputs,
+    }
+
+
 def _run_tree_facts(root: Path) -> dict[str, object]:
     rows: list[tuple[str, str, str | None]] = []
     for current, directories, filenames in os.walk(root, followlinks=False):
@@ -1147,6 +1192,293 @@ def test_tracked_plan_phase_contract_matches_frozen_pre_migration_baseline(
     assert expected == actual
     _assert_reviewed_structural_delta(expected_route, actual_route)
     _assert_provisional_runtime_delta(expected_runtime, actual_runtime)
+
+
+def test_tracked_plan_phase_root_checksum_negative_is_pre_executor_and_byte_immutable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from orchestrator.cli.commands import resume as resume_command
+    from orchestrator.state import StateManager
+    from orchestrator.workflow.executor import WorkflowExecutor
+
+    old_frozen = _pilot_source_bytes("old")
+    new_frozen = _pilot_source_bytes("new")
+    old_source = old_frozen["source"]
+    new_source = new_frozen["source"]
+    old_checksum = old_frozen["source_sha256"]
+    new_checksum = new_frozen["source_sha256"]
+    assert isinstance(old_source, bytes)
+    assert isinstance(new_source, bytes)
+    assert isinstance(old_checksum, str)
+    assert isinstance(new_checksum, str)
+    assert old_frozen["build_manifest_sha256"] == (
+        "sha256:97c78179655c48cb2ac24e599c17bfb0d1d1e0960a7e31836ce0727a5777d783"
+    )
+    assert new_frozen["build_manifest_sha256"] == (
+        "sha256:dc21dcdc7fb5748b2442c5e9b615672c4915cd9b9fba6f69f894991c8ae0f00f"
+    )
+    assert old_checksum != new_checksum
+    assert new_source == EXAMPLE.read_bytes()
+
+    workspace = tmp_path / "workspace"
+    workflow_path = workspace / "workflows" / "examples" / EXAMPLE.name
+    workflow_path.parent.mkdir(parents=True)
+    workflow_path.write_bytes(old_source)
+
+    run_id = "tracked-plan-root-checksum-negative"
+    state_manager = StateManager(workspace=workspace, run_id=run_id)
+    state = state_manager.initialize(str(workflow_path))
+    assert state.workflow_checksum == old_checksum
+    state.status = "failed"
+    state.steps = {
+        "synthetic-old-boundary": {
+            "status": "completed",
+            "step_id": _OLD_CALL_NODE_ID,
+            "exit_code": 0,
+        }
+    }
+    state_manager._write_state()
+    retained_checkpoint = (
+        state_manager.run_root
+        / "workflow_lisp"
+        / "checkpoints"
+        / "records"
+        / "ckpt:synthetic-old"
+        / "record:synthetic-old.json"
+    )
+    retained_checkpoint.parent.mkdir(parents=True)
+    retained_checkpoint.write_bytes(b'{"status":"completed"}\n')
+
+    workflow_path.write_bytes(new_source)
+    assert state_manager.calculate_checksum(workflow_path) == new_checksum
+
+    current_compile = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(workspace / "workflows",),
+        provider_externs=new_frozen["provider_externs"],
+        prompt_externs=new_frozen["prompt_externs"],
+        command_boundaries=new_frozen["command_boundaries"],
+        validate_shared=True,
+        workspace_root=workspace,
+    )
+    current_bundle = current_compile.validated_bundles_by_name[PUBLIC_ENTRY]
+    before_state_bytes = state_manager.state_file.read_bytes()
+    before_tree = _run_tree_facts(state_manager.run_root)
+    loader_calls: list[Path] = []
+
+    def load_current_pilot_bundle(**kwargs):
+        loader_calls.append(Path(kwargs["workflow_path"]).resolve())
+        return current_bundle
+
+    def unexpected_runtime_call(*_args, **_kwargs):
+        raise AssertionError(
+            "actual pilot root checksum mismatch reached executor/provider/command execution"
+        )
+
+    monkeypatch.setattr(
+        resume_command,
+        "_load_resume_workflow_bundle",
+        load_current_pilot_bundle,
+    )
+    monkeypatch.setattr(
+        WorkflowExecutor,
+        "_execute_provider_with_context",
+        unexpected_runtime_call,
+    )
+    monkeypatch.setattr(
+        WorkflowExecutor,
+        "_execute_command_with_context",
+        unexpected_runtime_call,
+    )
+    monkeypatch.setattr(resume_command, "WorkflowExecutor", unexpected_runtime_call)
+    monkeypatch.chdir(workspace)
+
+    result = resume_command.resume_workflow(
+        run_id=run_id,
+        repair=False,
+        force_restart=False,
+    )
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "checksum" in captured.err.lower()
+    assert loader_calls == [workflow_path.resolve()]
+    assert state_manager.state_file.read_bytes() == before_state_bytes
+    assert _run_tree_facts(state_manager.run_root) == before_tree
+
+
+def test_tracked_plan_phase_callee_checksum_negative_is_pre_child_and_no_remap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.state import StateManager
+    from orchestrator.workflow.executable_ir import CallBoundaryNode
+    from orchestrator.workflow.executor import WorkflowExecutor
+    from tests.workflow_bundle_helpers import bundle_context_dict
+
+    old_frozen = _pilot_source_bytes("old")
+    new_frozen = _pilot_source_bytes("new")
+    old_source = old_frozen["source"]
+    new_source = new_frozen["source"]
+    old_checksum = old_frozen["source_sha256"]
+    new_checksum = new_frozen["source_sha256"]
+    assert isinstance(old_source, bytes)
+    assert isinstance(new_source, bytes)
+    assert isinstance(old_checksum, str)
+    assert isinstance(new_checksum, str)
+    assert old_frozen["build_manifest_sha256"] == (
+        "sha256:97c78179655c48cb2ac24e599c17bfb0d1d1e0960a7e31836ce0727a5777d783"
+    )
+    assert new_frozen["build_manifest_sha256"] == (
+        "sha256:dc21dcdc7fb5748b2442c5e9b615672c4915cd9b9fba6f69f894991c8ae0f00f"
+    )
+    assert old_checksum != new_checksum
+    assert new_source == EXAMPLE.read_bytes()
+
+    workspace = tmp_path / "workspace"
+    workflow_path = workspace / "workflows" / "examples" / EXAMPLE.name
+    workflow_path.parent.mkdir(parents=True)
+    workflow_path.write_bytes(old_source)
+    compiled_old = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(workspace / "workflows",),
+        provider_externs=old_frozen["provider_externs"],
+        prompt_externs=old_frozen["prompt_externs"],
+        command_boundaries=old_frozen["command_boundaries"],
+        validate_shared=True,
+        workspace_root=workspace,
+    )
+    parent_bundle = compiled_old.validated_bundles_by_name[PUBLIC_ENTRY]
+    callee_bundle = compiled_old.validated_bundles_by_name[TRACKED_PLAN]
+    assert callee_bundle.provenance.workflow_path == workflow_path
+
+    plan_call = next(
+        node
+        for node in parent_bundle.ir.nodes.values()
+        if isinstance(node, CallBoundaryNode) and node.call_alias == TRACKED_PLAN
+    )
+    design_call = next(
+        node
+        for node in parent_bundle.ir.nodes.values()
+        if isinstance(node, CallBoundaryNode)
+        and node.call_alias.endswith("::tracked-design-phase")
+    )
+    plan_step = {
+        "name": plan_call.presentation_name,
+        "step_id": plan_call.step_id,
+        "call": plan_call.call_alias,
+    }
+
+    design_path = workspace / "docs" / "plans" / "synthetic-design.md"
+    design_path.parent.mkdir(parents=True)
+    design_path.write_text("# Synthetic design\n", encoding="utf-8")
+    state_manager = StateManager(
+        workspace=workspace,
+        run_id="tracked-plan-callee-checksum-negative",
+    )
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(parent_bundle),
+    )
+    assert state_manager.state is not None
+    state = state_manager.state.to_dict()
+    state["bound_inputs"] = {
+        "plan_target_path": "docs/plans/synthetic-plan.md",
+        "plan_review_report_target_path": "artifacts/review/synthetic-plan-review.md",
+    }
+    state["steps"] = {
+        design_call.presentation_name: {
+            "status": "completed",
+            "step_id": design_call.step_id,
+            "artifacts": {"return__design_path": "docs/plans/synthetic-design.md"},
+        }
+    }
+    state["step_visits"] = {plan_call.presentation_name: 1}
+
+    parent_executor = WorkflowExecutor(parent_bundle, workspace, state_manager)
+    parent_executor.resume_mode = True
+    plan_projection = parent_bundle.projection.entries_by_node_id[plan_call.node_id]
+    assert isinstance(plan_projection.compatibility_index, int)
+    parent_executor.current_step = plan_projection.compatibility_index
+    assert plan_call.step_id == _OLD_CALL_NODE_ID.replace("$module_slug", MODULE_SLUG)
+    frame_id = parent_executor.call_executor.frame_id(plan_step, state)
+    assert frame_id == f"{plan_call.step_id}::visit::1"
+    old_frame = {
+        "call_frame_id": frame_id,
+        "call_step_name": plan_call.presentation_name,
+        "call_step_id": plan_call.step_id,
+        "import_alias": TRACKED_PLAN,
+        "workflow_file": workflow_path.relative_to(workspace).as_posix(),
+        "status": "running",
+        "state": {
+            "workflow_file": workflow_path.relative_to(workspace).as_posix(),
+            "workflow_checksum": old_checksum,
+            "status": "running",
+            "steps": {
+                "synthetic-old-provider": {
+                    "status": "completed",
+                    "step_id": _OLD_PRIVATE_NODE_BASE,
+                }
+            },
+        },
+    }
+    state["call_frames"] = {frame_id: deepcopy(old_frame)}
+    state_manager.state.bound_inputs = deepcopy(state["bound_inputs"])
+    state_manager.state.steps = deepcopy(state["steps"])
+    state_manager.state.step_visits = deepcopy(state["step_visits"])
+    state_manager.state.call_frames = deepcopy(state["call_frames"])
+    state_manager._write_state()
+    state = state_manager.state.to_dict()
+    before_frames = deepcopy(state["call_frames"])
+    before_frame_ids = tuple(sorted(before_frames))
+    before_state_bytes = state_manager.state_file.read_bytes()
+    before_tree = _run_tree_facts(state_manager.run_root)
+    assert _load_json(state_manager.state_file)["call_frames"] == before_frames
+
+    workflow_path.write_bytes(new_source)
+    assert state_manager.calculate_checksum(workflow_path) == new_checksum
+
+    def unexpected_runtime_call(*_args, **_kwargs):
+        raise AssertionError(
+            "actual pilot callee checksum mismatch reached child/provider/command execution"
+        )
+
+    monkeypatch.setattr(
+        WorkflowExecutor,
+        "_execute_provider_with_context",
+        unexpected_runtime_call,
+    )
+    monkeypatch.setattr(
+        WorkflowExecutor,
+        "_execute_command_with_context",
+        unexpected_runtime_call,
+    )
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.WorkflowExecutor",
+        unexpected_runtime_call,
+    )
+
+    result = parent_executor.call_executor.execute_call(plan_step, state)
+
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "call_resume_checksum_mismatch"
+    assert result["error"]["context"] == {
+        "step": plan_call.presentation_name,
+        "call": TRACKED_PLAN,
+        "call_frame_id": frame_id,
+        "workflow_file": workflow_path.relative_to(workspace).as_posix(),
+        "persisted_checksum": old_checksum,
+        "current_checksum": new_checksum,
+        "reason": "workflow_modified",
+    }
+    assert state["call_frames"] == before_frames
+    assert tuple(sorted(state["call_frames"])) == before_frame_ids == (frame_id,)
+    assert not any("::retry::" in candidate for candidate in state["call_frames"])
+    assert state_manager.state_file.read_bytes() == before_state_bytes
+    assert _load_json(state_manager.state_file)["call_frames"] == before_frames
+    assert _run_tree_facts(state_manager.run_root) == before_tree
 
 
 def test_tracked_plan_phase_checksum_evidence_projection_replays(
