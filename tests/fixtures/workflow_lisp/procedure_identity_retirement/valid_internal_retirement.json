@@ -658,6 +658,7 @@
   },
   "checksum_evidence": {
     "root": {
+      "evidence_mode": "actual_tree",
       "command": "orchestrator resume fixture-old-run",
       "default_resume": true,
       "observability_overrides": false,

@@ -26,6 +26,7 @@ FIXTURE = (
     / "procedure_identity_retirement"
     / "valid_internal_retirement.json"
 )
+ROOT_CHARACTERIZATION_FIXTURE = FIXTURE.parent / "root_checksum_characterization.json"
 
 
 def _retirement_module():
@@ -52,6 +53,34 @@ def scan_known_state_store(root: Path, *, retired_identities: set[str], query_ve
 
 def _payload() -> dict[str, Any]:
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
+
+
+def _generic_payload(
+    characterization_path: Path = ROOT_CHARACTERIZATION_FIXTURE,
+    *,
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    payload = _payload()
+    characterization = json.loads(characterization_path.read_text(encoding="utf-8"))
+    details = characterization["projection"]["details"]
+    payload["checksum_evidence"]["root"] = {
+        "evidence_mode": "generic_characterization",
+        "command": details["command"],
+        "default_resume": details["default_resume"],
+        "observability_overrides": details["observability_overrides"],
+        "cli_overrides": details["cli_overrides"],
+        "exit_status": details["exit_status"],
+        "executor_constructed": details["executor_constructed"],
+        "provider_executed": details["provider_executed"],
+        "command_executed": details["command_executed"],
+        "characterization_path": characterization_path.relative_to(repo_root).as_posix(),
+        "characterization_sha256": (
+            "sha256:" + hashlib.sha256(characterization_path.read_bytes()).hexdigest()
+        ),
+        "projection_sha256": characterization["projection_sha256"],
+        "tree_immutability": details["tree_immutability"],
+    }
+    return payload
 
 
 def _write_payload(tmp_path: Path, payload: dict[str, Any]) -> Path:
@@ -1016,6 +1045,440 @@ def test_root_checksum_proof_requires_substantive_rejection_evidence(
     code: str,
 ) -> None:
     assert code in _issues_for(tmp_path, lambda payload: payload["checksum_evidence"]["root"].__setitem__(field, value))
+
+
+def test_root_checksum_evidence_requires_explicit_mode(tmp_path: Path) -> None:
+    payload = _payload()
+    payload["checksum_evidence"]["root"].pop("evidence_mode", None)
+
+    with pytest.raises(ValueError, match=r"missing required fields: evidence_mode"):
+        load_retirement_record(_write_payload(tmp_path, payload))
+
+
+def test_generic_root_checksum_characterization_is_content_addressed_and_valid(
+    tmp_path: Path,
+) -> None:
+    record = load_retirement_record(
+        _write_payload(tmp_path, _generic_payload())
+    )
+
+    result = validate_retirement_record(record, repo_root=REPO_ROOT)
+
+    assert result.valid is True
+    assert result.issues == ()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda root: root.__setitem__("evidence_mode", "unknown"),
+        lambda root: root.__setitem__("unexpected", True),
+        lambda root: root.pop("before_tree_digest"),
+        lambda root: root.__setitem__("characterization_path", "evidence.json"),
+    ],
+)
+def test_actual_tree_root_checksum_shape_is_closed(
+    tmp_path: Path,
+    mutation: Callable[[dict[str, Any]], None],
+) -> None:
+    payload = _payload()
+    mutation(payload["checksum_evidence"]["root"])
+
+    with pytest.raises(ValueError):
+        load_retirement_record(_write_payload(tmp_path, payload))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda root: root.__setitem__("unexpected", True),
+        lambda root: root.pop("characterization_path"),
+        lambda root: root.__setitem__("before_tree_digest", "sha256:" + "0" * 64),
+        lambda root: root.__setitem__("after_tree_digest", "sha256:" + "0" * 64),
+    ],
+)
+def test_generic_characterization_root_checksum_shape_is_closed(
+    tmp_path: Path,
+    mutation: Callable[[dict[str, Any]], None],
+) -> None:
+    payload = _generic_payload()
+    mutation(payload["checksum_evidence"]["root"])
+
+    with pytest.raises(ValueError):
+        load_retirement_record(_write_payload(tmp_path, payload))
+
+
+def test_root_characterization_schema_and_projection_are_closed_and_generic() -> None:
+    characterization = json.loads(
+        ROOT_CHARACTERIZATION_FIXTURE.read_text(encoding="utf-8")
+    )
+    projection = characterization["projection"]
+
+    assert set(characterization) == {"schema", "projection", "projection_sha256"}
+    assert characterization["schema"] == "workflow_lisp_root_checksum_characterization.v1"
+    assert set(projection) == {"details", "claim_boundary"}
+    assert set(projection["details"]) == {
+        "command",
+        "default_resume",
+        "observability_overrides",
+        "cli_overrides",
+        "exit_status",
+        "tree_immutability",
+        "executor_constructed",
+        "provider_executed",
+        "command_executed",
+    }
+    assert projection["claim_boundary"] == {
+        "actual_subject_rejection": "not_asserted",
+        "cross_source_compatibility": "not_asserted",
+        "runtime_authority": "none",
+    }
+    assert characterization["projection_sha256"] == _canonical_json_sha256(projection)
+
+
+def _generic_characterization_issue_codes(
+    tmp_path: Path,
+    *,
+    mutate_characterization: Callable[[dict[str, Any]], None] | None = None,
+    mutate_root: Callable[[dict[str, Any]], None] | None = None,
+    refresh_outer_digest: bool = True,
+) -> set[str]:
+    repo, copied = _copied_retirement_repo(tmp_path)
+    characterization_path = copied / "root_checksum_characterization.json"
+    payload = _generic_payload(characterization_path, repo_root=repo)
+    characterization = json.loads(characterization_path.read_text(encoding="utf-8"))
+    if mutate_characterization is not None:
+        mutate_characterization(characterization)
+        characterization_path.write_text(json.dumps(characterization), encoding="utf-8")
+        if refresh_outer_digest:
+            payload["checksum_evidence"]["root"]["characterization_sha256"] = (
+                _sha256_path(characterization_path)
+            )
+    if mutate_root is not None:
+        mutate_root(payload["checksum_evidence"]["root"])
+    record_path = copied / "generic_retirement.json"
+    record_path.write_text(json.dumps(payload), encoding="utf-8")
+    record = load_retirement_record(record_path)
+    return {
+        issue.code
+        for issue in validate_retirement_record(record, repo_root=repo).issues
+    }
+
+
+def _generic_characterization_raw_issue_codes(
+    tmp_path: Path,
+    raw_characterization: bytes,
+) -> set[str]:
+    repo, copied = _copied_retirement_repo(tmp_path)
+    characterization_path = copied / "root_checksum_characterization.json"
+    payload = _generic_payload(characterization_path, repo_root=repo)
+    characterization_path.write_bytes(raw_characterization)
+    payload["checksum_evidence"]["root"]["characterization_sha256"] = (
+        _sha256_path(characterization_path)
+    )
+    record_path = copied / "generic_retirement.json"
+    record_path.write_text(json.dumps(payload), encoding="utf-8")
+    return {
+        issue.code
+        for issue in validate_retirement_record(
+            load_retirement_record(record_path), repo_root=repo
+        ).issues
+    }
+
+
+@pytest.mark.parametrize(
+    ("mutation", "code"),
+    [
+        (
+            lambda characterization: characterization.__setitem__("schema", "unknown"),
+            "procedure_identity_retirement_root_characterization_schema_unsupported",
+        ),
+        (
+            lambda characterization: characterization.__setitem__("unknown", True),
+            "procedure_identity_retirement_root_characterization_structure_invalid",
+        ),
+        (
+            lambda characterization: characterization["projection"]["details"].__setitem__(
+                "command", 42
+            ),
+            "procedure_identity_retirement_root_characterization_structure_invalid",
+        ),
+        (
+            lambda characterization: characterization["projection"]["details"].__setitem__(
+                "exit_status", True
+            ),
+            "procedure_identity_retirement_root_characterization_structure_invalid",
+        ),
+        (
+            lambda characterization: characterization["projection"]["details"].__setitem__(
+                "command", ""
+            ),
+            "procedure_identity_retirement_root_characterization_detail_invalid",
+        ),
+        (
+            lambda characterization: characterization["projection"]["details"].__setitem__(
+                "tree_immutability", "changed"
+            ),
+            "procedure_identity_retirement_root_characterization_tree_immutability_invalid",
+        ),
+        (
+            lambda characterization: characterization["projection"]["details"].pop(
+                "tree_immutability"
+            ),
+            "procedure_identity_retirement_root_characterization_tree_immutability_invalid",
+        ),
+        (
+            lambda characterization: characterization["projection"]["details"].__setitem__(
+                "executor_constructed", True
+            ),
+            "procedure_identity_retirement_root_characterization_execution_observed",
+        ),
+        (
+            lambda characterization: characterization["projection"]["details"].__setitem__(
+                "provider_executed", True
+            ),
+            "procedure_identity_retirement_root_characterization_execution_observed",
+        ),
+        (
+            lambda characterization: characterization["projection"]["details"].__setitem__(
+                "command_executed", True
+            ),
+            "procedure_identity_retirement_root_characterization_execution_observed",
+        ),
+        (
+            lambda characterization: characterization["projection"]["details"].__setitem__(
+                "observability_overrides", True
+            ),
+            "procedure_identity_retirement_root_characterization_overrides_present",
+        ),
+        (
+            lambda characterization: characterization["projection"]["details"].__setitem__(
+                "cli_overrides", True
+            ),
+            "procedure_identity_retirement_root_characterization_overrides_present",
+        ),
+        (
+            lambda characterization: characterization["projection"]["details"].__setitem__(
+                "default_resume", False
+            ),
+            "procedure_identity_retirement_root_characterization_nondefault_resume",
+        ),
+        (
+            lambda characterization: characterization["projection"]["details"].__setitem__(
+                "exit_status", 0
+            ),
+            "procedure_identity_retirement_root_characterization_zero_exit",
+        ),
+        (
+            lambda characterization: characterization["projection"]["claim_boundary"].__setitem__(
+                "actual_subject_rejection", "asserted"
+            ),
+            "procedure_identity_retirement_root_characterization_claim_boundary_invalid",
+        ),
+        (
+            lambda characterization: characterization["projection"]["claim_boundary"].pop(
+                "cross_source_compatibility"
+            ),
+            "procedure_identity_retirement_root_characterization_claim_boundary_invalid",
+        ),
+        (
+            lambda characterization: characterization["projection"]["claim_boundary"].__setitem__(
+                "runtime_authority", "runtime"
+            ),
+            "procedure_identity_retirement_root_characterization_claim_boundary_invalid",
+        ),
+        (
+            lambda characterization: characterization["projection"]["claim_boundary"].__setitem__(
+                "actual_old_state_negative", "asserted"
+            ),
+            "procedure_identity_retirement_root_characterization_claim_boundary_invalid",
+        ),
+        (
+            lambda characterization: characterization["projection"]["claim_boundary"].__setitem__(
+                "completion", "asserted"
+            ),
+            "procedure_identity_retirement_root_characterization_claim_boundary_invalid",
+        ),
+    ],
+)
+def test_generic_characterization_semantics_fail_closed(
+    tmp_path: Path,
+    mutation: Callable[[dict[str, Any]], None],
+    code: str,
+) -> None:
+    assert code in _generic_characterization_issue_codes(
+        tmp_path,
+        mutate_characterization=mutation,
+    )
+
+
+def test_generic_characterization_outer_digest_tamper_fails_closed(
+    tmp_path: Path,
+) -> None:
+    codes = _generic_characterization_issue_codes(
+        tmp_path,
+        mutate_characterization=lambda characterization: characterization.__setitem__(
+            "schema", "tampered"
+        ),
+        refresh_outer_digest=False,
+    )
+
+    assert "procedure_identity_retirement_root_characterization_digest_mismatch" in codes
+
+
+def test_generic_characterization_stale_projection_digest_fails_closed(
+    tmp_path: Path,
+) -> None:
+    codes = _generic_characterization_issue_codes(
+        tmp_path,
+        mutate_characterization=lambda characterization: characterization["projection"][
+            "details"
+        ].__setitem__("command", "orchestrator resume changed-fictional-run"),
+    )
+
+    assert "procedure_identity_retirement_root_characterization_projection_digest_mismatch" in codes
+
+
+def test_generic_characterization_file_projection_digest_is_independently_bound(
+    tmp_path: Path,
+) -> None:
+    codes = _generic_characterization_issue_codes(
+        tmp_path,
+        mutate_characterization=lambda characterization: characterization.__setitem__(
+            "projection_sha256", "sha256:" + "0" * 64
+        ),
+    )
+
+    assert "procedure_identity_retirement_root_characterization_projection_digest_mismatch" in codes
+
+
+def test_generic_characterization_record_projection_digest_is_independently_bound(
+    tmp_path: Path,
+) -> None:
+    codes = _generic_characterization_issue_codes(
+        tmp_path,
+        mutate_root=lambda root: root.__setitem__(
+            "projection_sha256", "sha256:" + "0" * 64
+        ),
+    )
+
+    assert "procedure_identity_retirement_root_characterization_projection_digest_mismatch" in codes
+
+
+def test_generic_characterization_duplicate_nested_json_key_fails_closed(
+    tmp_path: Path,
+) -> None:
+    raw = ROOT_CHARACTERIZATION_FIXTURE.read_bytes().replace(
+        b'"default_resume": true,',
+        b'"default_resume": true,\n      "default_resume": true,',
+        1,
+    )
+
+    codes = _generic_characterization_raw_issue_codes(tmp_path, raw)
+
+    assert "procedure_identity_retirement_root_characterization_structure_invalid" in codes
+
+
+@pytest.mark.parametrize("token", [b"NaN", b"Infinity", b"-Infinity"])
+def test_generic_characterization_nonfinite_json_constant_fails_closed(
+    tmp_path: Path,
+    token: bytes,
+) -> None:
+    raw = ROOT_CHARACTERIZATION_FIXTURE.read_bytes().replace(
+        b'"exit_status": 1',
+        b'"exit_status": ' + token,
+        1,
+    )
+
+    codes = _generic_characterization_raw_issue_codes(tmp_path, raw)
+
+    assert "procedure_identity_retirement_root_characterization_structure_invalid" in codes
+
+
+def test_generic_characterization_record_detail_mismatch_fails_closed(
+    tmp_path: Path,
+) -> None:
+    codes = _generic_characterization_issue_codes(
+        tmp_path,
+        mutate_root=lambda root: root.__setitem__(
+            "command", "orchestrator resume different-fictional-run"
+        ),
+    )
+
+    assert "procedure_identity_retirement_root_characterization_detail_mismatch" in codes
+
+
+@pytest.mark.parametrize(
+    ("raw_path", "code"),
+    [
+        (
+            "../root_checksum_characterization.json",
+            "procedure_identity_retirement_root_characterization_path_outside_repository",
+        ),
+        (
+            "tests/fixtures/workflow_lisp/procedure_identity_retirement/missing.json",
+            "procedure_identity_retirement_root_characterization_missing",
+        ),
+    ],
+)
+def test_generic_characterization_unsafe_or_missing_path_fails_closed(
+    tmp_path: Path,
+    raw_path: str,
+    code: str,
+) -> None:
+    codes = _generic_characterization_issue_codes(
+        tmp_path,
+        mutate_root=lambda root: root.__setitem__("characterization_path", raw_path),
+    )
+
+    assert code in codes
+
+
+def test_generic_characterization_symlink_fails_closed(tmp_path: Path) -> None:
+    repo, copied = _copied_retirement_repo(tmp_path)
+    characterization_path = copied / "root_checksum_characterization.json"
+    outside = tmp_path / "outside.json"
+    outside.write_bytes(characterization_path.read_bytes())
+    characterization_path.unlink()
+    characterization_path.symlink_to(outside)
+    payload = _generic_payload(outside, repo_root=tmp_path)
+    payload["checksum_evidence"]["root"]["characterization_path"] = (
+        characterization_path.relative_to(repo).as_posix()
+    )
+    record_path = copied / "generic_retirement.json"
+    record_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    codes = {
+        issue.code
+        for issue in validate_retirement_record(
+            load_retirement_record(record_path), repo_root=repo
+        ).issues
+    }
+
+    assert "procedure_identity_retirement_root_characterization_symlink_forbidden" in codes
+
+
+def test_generic_characterization_read_failure_is_targeted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _retirement_module()
+    record = load_retirement_record(_write_payload(tmp_path, _generic_payload()))
+    original = module._read_stable_relative_bytes
+
+    def fail_characterization(root: Path, relative: Path) -> bytes:
+        if relative.name == "root_checksum_characterization.json":
+            raise ValueError("fictional unreadable file")
+        return original(root, relative)
+
+    monkeypatch.setattr(module, "_read_stable_relative_bytes", fail_characterization)
+
+    codes = {
+        issue.code
+        for issue in validate_retirement_record(record, repo_root=REPO_ROOT).issues
+    }
+
+    assert "procedure_identity_retirement_root_characterization_read_failed" in codes
 
 
 @pytest.mark.parametrize("field", ["command", "mismatch_identity", "parent_metadata_delta"])

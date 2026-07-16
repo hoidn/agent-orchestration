@@ -222,6 +222,50 @@ test "$(git diff --cached --name-only | LC_ALL=C sort)" = "$expected"
 Inspect the cached diff, then commit. Do not stage pilot evidence, owner
 records, run roots, or unrelated dirty paths.
 
+### Task 3A: Add the root-checksum evidence discriminated union
+
+**Files:**
+- Modify: `orchestrator/workflow_lisp/procedure_identity_retirement.py`
+- Modify: `tests/test_workflow_lisp_procedure_identity_retirement.py`
+- Modify: `tests/fixtures/workflow_lisp/procedure_identity_retirement/valid_internal_retirement.json`
+- Create: `tests/fixtures/workflow_lisp/procedure_identity_retirement/root_checksum_characterization.json`
+
+- [x] **Step 1: Write union parser and validation RED tests**
+
+Require `checksum_evidence.root.evidence_mode` to be exactly `actual_tree` or
+`generic_characterization`. Both modes retain the common command/default/
+override/exit/pre-executor/provider/command fields. `actual_tree` requires only
+`before_tree_digest` and `after_tree_digest` as its variant fields.
+`generic_characterization` requires only `characterization_path`,
+`characterization_sha256`, `projection_sha256`, and `tree_immutability` as its
+variant fields. Add negatives for unknown/missing mode, missing variant fields,
+unknown fields, and either mixed field set.
+
+Add characterization replay negatives for path traversal, symlink, missing or
+unreadable file, outer-byte tamper, stale outer digest, stale canonical inner
+projection digest, wrong generic schema, false or missing
+`before_equals_after`, executor/provider/command execution, observability or
+CLI overrides, non-default resume, and mismatch between retained generic guard
+details and the record's common fields.
+
+- [x] **Step 2: Implement the closed union and content-addressed replay**
+
+Use the hardened repository-relative content reader. Require the generic file
+schema `workflow_lisp_root_checksum_characterization.v1`. Recompute the
+canonical SHA-256 of its `projection`, compare it to the file's
+`projection_sha256` and the record binding, and require the outer file digest
+to match `characterization_sha256`. Require exact generic scope/claim fields
+that state actual subject rejection and cross-source compatibility are not
+asserted and that the file has no runtime authority. Match the generic guard
+details to the record's common fields. Never infer or synthesize tree digests.
+
+- [x] **Step 3: Run focused, full, and ordered reviews**
+
+Run collection, focused union/replay selectors, and the full generic validator
+module. Complete specification review followed by quality/safety review before
+resuming Task 4. Commit only the generic validator/tests/fixture and this
+reviewed design/plan amendment; do not stage pilot evidence.
+
 ### Task 4: Resume Task 4A evidence assembly without a live scan
 
 **Files:**
@@ -266,6 +310,14 @@ environment variable before and after.
 - [ ] **Step 4: Complete both independent pre-live reviews**
 
 Obtain ordered specification and quality/safety approval for the assembled record and replay. Do not invoke the live selector until both approve.
+
+If the record consumes an accepted generic root-checksum characterization,
+set `evidence_mode: generic_characterization` and bind the readable
+characterization path and file SHA-256, its canonical inner projection digest,
+and `tree_immutability: before_equals_after`. Do not place the projection
+digest in `before_tree_digest` or `after_tree_digest`. The alternative
+`evidence_mode: actual_tree` remains valid only when real retained before/after tree
+digests exist; the two modes cannot be mixed.
 
 - [ ] **Step 5: Continue the parent Task 4A plan**
 

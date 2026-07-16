@@ -1063,7 +1063,18 @@ keyed artifact multiset, separate execution order, lineage notes, new-ID
 run/resume facts, and a `checksum_evidence` section whose fields are populated
 from the two digest-bound projections above and explicitly classified as
 generic guard characterization provenance required by the validator, not
-actual-pilot rejection proof. Update
+actual-pilot rejection proof. The root checksum block must use the closed
+`evidence_mode: generic_characterization` mode: bind the readable
+`evidence/root_checksum_characterization.json` file digest, its canonical
+inner projection digest, and `tree_immutability: before_equals_after`; omit
+`before_tree_digest` and `after_tree_digest` because no retained actual tree
+digest values exist at this pre-release boundary. Do not relabel either
+projection digest as a tree digest. Use the generic
+`workflow_lisp_root_checksum_characterization.v1` evidence schema and retain
+explicit `not_asserted` claims for actual-pilot rejection and cross-source
+compatibility. This mode never satisfies Task 5's actual-pilot-negative or
+pilot-completion gate, and Task 5 does not rewrite or reinterpret this record.
+Update
 `evidence_index.json` and the attestation index with content digests. Neither
 the record nor either index is a run/resume input. Bind the artifact-evidence
 correction authorization, preserve historical clean artifact equality as

@@ -373,10 +373,23 @@ A retirement record uses schema
 - persisted `SourceMapEntry.notes` proof for procedure definition and
   consuming call site;
 - clean-run and interruption/resume evidence produced under the new IDs; and
-- root-checksum negative evidence from default resume without observability or
-  CLI override mutations, including before/after digests proving the persisted
-  run tree remained byte-identical and evidence that `WorkflowExecutor`
-  construction and provider/command execution did not occur; and
+- root-checksum evidence from default resume without observability or CLI
+  override mutations, represented as a closed union selected by
+  `evidence_mode`. `actual_tree` carries real `before_tree_digest` and
+  `after_tree_digest` values and proves they are equal.
+  `generic_characterization` instead carries `characterization_path`,
+  `characterization_sha256`, `projection_sha256`, and the exact
+  `tree_immutability: before_equals_after` result; it omits both tree-digest
+  fields. The characterization file is content-addressed, uses the generic
+  `workflow_lisp_root_checksum_characterization.v1` schema, and its inner
+  projection digest is recomputed canonically. Both modes record that
+  `WorkflowExecutor` construction and provider/command execution did not
+  occur, and the closed evidence shape forbids unknown, missing, or mixed mode
+  fields. Mode admissibility follows only from the immutable record fields,
+  not a mutable project phase. Generic characterization never satisfies an
+  actual old-state-negative or pilot-completion gate; a later actual-pilot
+  negative is separate evidence and does not retroactively convert the
+  retirement record; and
 - callee-checksum characterization showing failure before child workflow or
   provider/command execution and no child-state identity remap, while recording
   any ordinary parent-level metadata permitted by the current runtime contract.

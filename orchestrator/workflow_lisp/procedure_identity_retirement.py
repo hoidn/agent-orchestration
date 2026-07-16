@@ -25,6 +25,9 @@ from urllib.parse import unquote
 
 
 SCHEMA = "workflow_lisp_procedure_identity_retirement.v1"
+ROOT_CHECKSUM_CHARACTERIZATION_SCHEMA = (
+    "workflow_lisp_root_checksum_characterization.v1"
+)
 COMPATIBILITY_CLASS = "reviewed_internal_identity_retirement"
 STORE_QUERY_VERSION = "procedure-identity-store-query.v1"
 FORBIDDEN_RUNTIME_KEYS = frozenset(
@@ -637,17 +640,26 @@ def _parse_evidence_blocks(payload: Mapping[str, Any]) -> tuple[Mapping[str, Any
         "$.checksum_evidence",
         allowed={"root", "callee"},
     )
-    root_fields = {
+    root_common_fields = {
+        "evidence_mode",
         "command",
         "default_resume",
         "observability_overrides",
         "cli_overrides",
         "exit_status",
-        "before_tree_digest",
-        "after_tree_digest",
         "executor_constructed",
         "provider_executed",
         "command_executed",
+    }
+    actual_tree_fields = root_common_fields | {
+        "before_tree_digest",
+        "after_tree_digest",
+    }
+    generic_characterization_fields = root_common_fields | {
+        "characterization_path",
+        "characterization_sha256",
+        "projection_sha256",
+        "tree_immutability",
     }
     callee_fields = {
         "command",
@@ -660,12 +672,46 @@ def _parse_evidence_blocks(payload: Mapping[str, Any]) -> tuple[Mapping[str, Any
         "parent_metadata_delta",
     }
     if "root" in checksum:
-        root = _object(checksum["root"], "$.checksum_evidence.root", allowed=root_fields, required=root_fields)
+        raw_root = _object(
+            checksum["root"],
+            "$.checksum_evidence.root",
+            allowed=actual_tree_fields | generic_characterization_fields,
+            required=root_common_fields,
+        )
+        evidence_mode = _string(
+            raw_root["evidence_mode"],
+            "$.checksum_evidence.root.evidence_mode",
+        )
+        if evidence_mode not in {"actual_tree", "generic_characterization"}:
+            raise ValueError(
+                "$.checksum_evidence.root.evidence_mode must be actual_tree or "
+                "generic_characterization"
+            )
+        root_fields = (
+            actual_tree_fields
+            if evidence_mode == "actual_tree"
+            else generic_characterization_fields
+        )
+        root = _object(
+            raw_root,
+            "$.checksum_evidence.root",
+            allowed=root_fields,
+            required=root_fields,
+        )
         _string(root["command"], "$.checksum_evidence.root.command")
         _integer(root["exit_status"], "$.checksum_evidence.root.exit_status")
-        _string(root["before_tree_digest"], "$.checksum_evidence.root.before_tree_digest")
-        _string(root["after_tree_digest"], "$.checksum_evidence.root.after_tree_digest")
-        for key in root_fields - {"command", "exit_status", "before_tree_digest", "after_tree_digest"}:
+        if evidence_mode == "actual_tree":
+            _string(root["before_tree_digest"], "$.checksum_evidence.root.before_tree_digest")
+            _string(root["after_tree_digest"], "$.checksum_evidence.root.after_tree_digest")
+        else:
+            for key in (
+                "characterization_path",
+                "characterization_sha256",
+                "projection_sha256",
+                "tree_immutability",
+            ):
+                _string(root[key], f"$.checksum_evidence.root.{key}")
+        for key in root_common_fields - {"evidence_mode", "command", "exit_status"}:
             _boolean(root[key], f"$.checksum_evidence.root.{key}")
     if "callee" in checksum:
         callee = _object(
@@ -2460,7 +2506,268 @@ def _canonical_artifact_multiset_digest(record: ProcedureIdentityRetirementRecor
     return f"sha256:{sha256(encoded).hexdigest()}"
 
 
-def _validate_evidence_blocks(record: ProcedureIdentityRetirementRecord, issues: list[RetirementIssue]) -> None:
+def _validate_root_checksum_characterization(
+    root: Mapping[str, Any],
+    issues: list[RetirementIssue],
+    repository_root: Path,
+) -> None:
+    path = "$.checksum_evidence.root"
+    if not root["command"].strip():
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_detail_invalid",
+            f"{path}.command",
+            "generic characterization command must be nonempty",
+        )
+    if root["tree_immutability"] != "before_equals_after":
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_tree_immutability_invalid",
+            f"{path}.tree_immutability",
+            "generic characterization must retain before_equals_after",
+        )
+    if root["default_resume"] is not True:
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_nondefault_resume",
+            f"{path}.default_resume",
+            "generic characterization requires default resume behavior",
+        )
+    if root["observability_overrides"] is not False or root["cli_overrides"] is not False:
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_overrides_present",
+            path,
+            "generic characterization forbids observability and CLI overrides",
+        )
+    if root["exit_status"] == 0:
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_zero_exit",
+            f"{path}.exit_status",
+            "generic characterization requires a nonzero rejection exit",
+        )
+    if any(
+        root[key] is not False
+        for key in ("executor_constructed", "provider_executed", "command_executed")
+    ):
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_execution_observed",
+            path,
+            "generic characterization must stop before executor, provider, or command execution",
+        )
+
+    content, error_code, message = _load_content_addressed_file(
+        repository_root,
+        raw_path=root["characterization_path"],
+        declared_digest=root["characterization_sha256"],
+    )
+    error_codes = {
+        "procedure_identity_retirement_artifact_path_outside_repository": (
+            "procedure_identity_retirement_root_characterization_path_outside_repository"
+        ),
+        "procedure_identity_retirement_artifact_symlink_forbidden": (
+            "procedure_identity_retirement_root_characterization_symlink_forbidden"
+        ),
+        "procedure_identity_retirement_artifact_missing": (
+            "procedure_identity_retirement_root_characterization_missing"
+        ),
+        "procedure_identity_retirement_artifact_read_failed": (
+            "procedure_identity_retirement_root_characterization_read_failed"
+        ),
+        "procedure_identity_retirement_artifact_digest_mismatch": (
+            "procedure_identity_retirement_root_characterization_digest_mismatch"
+        ),
+        "procedure_identity_retirement_artifact_path_invalid": (
+            "procedure_identity_retirement_root_characterization_path_invalid"
+        ),
+    }
+    if content is None:
+        _issue(
+            issues,
+            error_codes.get(
+                error_code,
+                "procedure_identity_retirement_root_characterization_read_failed",
+            ),
+            f"{path}.characterization_path",
+            message,
+        )
+        return
+
+    try:
+        characterization = json.loads(
+            content.decode("utf-8"),
+            object_pairs_hook=_json_object_without_duplicates,
+            parse_constant=_reject_nonfinite_json_constant,
+        )
+        characterization = _object(
+            characterization,
+            "$.root_checksum_characterization",
+            allowed={"schema", "projection", "projection_sha256"},
+            required={"schema", "projection", "projection_sha256"},
+        )
+        projection = _object(
+            characterization["projection"],
+            "$.root_checksum_characterization.projection",
+            allowed={"details", "claim_boundary"},
+            required={"details", "claim_boundary"},
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_structure_invalid",
+            f"{path}.characterization_path",
+            f"characterization must be closed canonical JSON: {exc}",
+        )
+        return
+
+    if characterization["schema"] != ROOT_CHECKSUM_CHARACTERIZATION_SCHEMA:
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_schema_unsupported",
+            f"{path}.characterization_path",
+            f"expected {ROOT_CHECKSUM_CHARACTERIZATION_SCHEMA}",
+        )
+
+    observed_projection_digest = _canonical_json_digest(projection)
+    if (
+        characterization["projection_sha256"] != observed_projection_digest
+        or root["projection_sha256"] != observed_projection_digest
+    ):
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_projection_digest_mismatch",
+            f"{path}.projection_sha256",
+            "file and record projection digests must equal the canonical projection digest",
+        )
+
+    detail_fields = {
+        "command",
+        "default_resume",
+        "observability_overrides",
+        "cli_overrides",
+        "exit_status",
+        "tree_immutability",
+        "executor_constructed",
+        "provider_executed",
+        "command_executed",
+    }
+    details = projection["details"]
+    if not isinstance(details, dict):
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_structure_invalid",
+            f"{path}.characterization_path",
+            "projection details must be an object",
+        )
+        return
+    unknown_details = set(details) - detail_fields
+    missing_details = detail_fields - set(details)
+    if unknown_details or (missing_details - {"tree_immutability"}):
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_structure_invalid",
+            f"{path}.characterization_path",
+            "projection details must have exactly the closed detail fields",
+        )
+    detail_types_valid = (
+        isinstance(details.get("command"), str)
+        and isinstance(details.get("default_resume"), bool)
+        and isinstance(details.get("observability_overrides"), bool)
+        and isinstance(details.get("cli_overrides"), bool)
+        and isinstance(details.get("exit_status"), int)
+        and not isinstance(details.get("exit_status"), bool)
+        and isinstance(details.get("tree_immutability"), str)
+        and isinstance(details.get("executor_constructed"), bool)
+        and isinstance(details.get("provider_executed"), bool)
+        and isinstance(details.get("command_executed"), bool)
+    )
+    if not detail_types_valid:
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_structure_invalid",
+            f"{path}.characterization_path",
+            "projection detail values must have their exact scalar types",
+        )
+    if not isinstance(details.get("command"), str) or not details.get("command", "").strip():
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_detail_invalid",
+            f"{path}.characterization_path",
+            "projection command must be nonempty",
+        )
+    if "tree_immutability" not in details or details.get("tree_immutability") != "before_equals_after":
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_tree_immutability_invalid",
+            f"{path}.characterization_path",
+            "projection details must retain before_equals_after",
+        )
+    if details.get("default_resume") is not True:
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_nondefault_resume",
+            f"{path}.characterization_path",
+            "projection details require default resume behavior",
+        )
+    if details.get("observability_overrides") is not False or details.get("cli_overrides") is not False:
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_overrides_present",
+            f"{path}.characterization_path",
+            "projection details forbid observability and CLI overrides",
+        )
+    if details.get("exit_status") == 0:
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_zero_exit",
+            f"{path}.characterization_path",
+            "projection details require a nonzero rejection exit",
+        )
+    if any(
+        details.get(key) is not False
+        for key in ("executor_constructed", "provider_executed", "command_executed")
+    ):
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_execution_observed",
+            f"{path}.characterization_path",
+            "projection details must stop before executor, provider, or command execution",
+        )
+
+    claim_boundary = projection["claim_boundary"]
+    expected_claim_boundary = {
+        "actual_subject_rejection": "not_asserted",
+        "cross_source_compatibility": "not_asserted",
+        "runtime_authority": "none",
+    }
+    if claim_boundary != expected_claim_boundary:
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_claim_boundary_invalid",
+            f"{path}.characterization_path",
+            "claim boundary must disclaim actual rejection and compatibility and have no runtime authority",
+        )
+
+    record_details = {
+        key: root[key]
+        for key in detail_fields
+    }
+    if details != record_details:
+        _issue(
+            issues,
+            "procedure_identity_retirement_root_characterization_detail_mismatch",
+            path,
+            "record common and tree-immutability details must exactly match the retained projection",
+        )
+
+
+def _validate_evidence_blocks(
+    record: ProcedureIdentityRetirementRecord,
+    issues: list[RetirementIssue],
+    repository_root: Path,
+) -> None:
     for block in ("clean_run", "interruption_resume"):
         if block not in record.new_id_evidence:
             _issue(
@@ -2558,7 +2865,10 @@ def _validate_evidence_blocks(record: ProcedureIdentityRetirementRecord, issues:
             "clean and interruption/resume evidence must use distinct run IDs",
         )
     root = record.checksum_evidence.get("root")
-    if isinstance(root, Mapping) and (
+    if (
+        isinstance(root, Mapping)
+        and root.get("evidence_mode") == "actual_tree"
+        and (
         not str(root.get("command", "")).strip()
         or root["default_resume"] is not True
         or root["observability_overrides"] is not False
@@ -2570,6 +2880,7 @@ def _validate_evidence_blocks(record: ProcedureIdentityRetirementRecord, issues:
         or root["executor_constructed"] is not False
         or root["provider_executed"] is not False
         or root["command_executed"] is not False
+        )
     ):
         _issue(
             issues,
@@ -2577,6 +2888,8 @@ def _validate_evidence_blocks(record: ProcedureIdentityRetirementRecord, issues:
             "$.checksum_evidence.root",
             "root proof must be default, byte-immutable, and pre-execution",
         )
+    if isinstance(root, Mapping) and root.get("evidence_mode") == "generic_characterization":
+        _validate_root_checksum_characterization(root, issues, repository_root)
     callee = record.checksum_evidence.get("callee")
     if isinstance(callee, Mapping) and (
         not str(callee.get("command", "")).strip()
@@ -2946,7 +3259,7 @@ def validate_retirement_record(
             "$.lineage_notes",
             "lineage evidence requires definition and consuming call-site notes",
         )
-    _validate_evidence_blocks(record, issues)
+    _validate_evidence_blocks(record, issues, repository_root)
     unique = {
         (issue.code, issue.path, issue.message): issue
         for issue in issues

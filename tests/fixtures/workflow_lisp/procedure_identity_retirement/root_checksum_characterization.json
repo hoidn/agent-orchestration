@@ -1,0 +1,22 @@
+{
+  "schema": "workflow_lisp_root_checksum_characterization.v1",
+  "projection": {
+    "details": {
+      "command": "orchestrator resume fictional-generic-checksum-run",
+      "default_resume": true,
+      "observability_overrides": false,
+      "cli_overrides": false,
+      "exit_status": 1,
+      "tree_immutability": "before_equals_after",
+      "executor_constructed": false,
+      "provider_executed": false,
+      "command_executed": false
+    },
+    "claim_boundary": {
+      "actual_subject_rejection": "not_asserted",
+      "cross_source_compatibility": "not_asserted",
+      "runtime_authority": "none"
+    }
+  },
+  "projection_sha256": "sha256:db3a22d9acc2261e0fa7c510cb31608028eb51cf749f15602800de1842445aee"
+}
