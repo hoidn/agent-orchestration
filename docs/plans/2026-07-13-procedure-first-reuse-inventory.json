@@ -37,21 +37,24 @@
       "resolution": "authored-direct-call",
       "source_class": "example",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "The completed tracked-plan pilot root retains two completed runs with supported tracked-design-phase old-identity consumers; reviewed_internal_identity_retirement requires consumer_count=0 and no remap/upgrader exists.",
+      "reason": "Retain this internal workflow boundary. A read-only generic scanner witness found 26 supported old-identity consumers in the known completed-pilot store, so the accepted strict identity default forbids inline retirement even though the callee is not public.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "The eligibility stop is deterministic and monotonic: a five-identity subset already finds supported consumers, so the complete production query cannot restore the required zero-consumer predicate.",
+          "Reconsider only through a separately accepted state-retention/upgrader contract or after the retained consumer store is legitimately retired by its own owner and evidence contract."
         ]
       },
       "evidence_paths": [
-        "workflows/examples/design_plan_impl_review_stack_v2_call.orc"
+        "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+        "docs/plans/evidence/procedure-first-migration-waves/tracked-design-phase/eligibility_stop.json",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_design_phase_identity_retirement_eligibility_stop_replays"
       ]
     },
     {
@@ -3084,8 +3087,8 @@
     "actionable_internal_calls": {
       "total": 95,
       "by_classification": {
-        "procedure-candidate": 32,
-        "effect-adapter": 25,
+        "procedure-candidate": 31,
+        "effect-adapter": 26,
         "legacy-retire": 38,
         "public-boundary": 0
       }

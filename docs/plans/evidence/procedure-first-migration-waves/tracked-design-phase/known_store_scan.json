@@ -1,0 +1,387 @@
+{
+  "call_frame_count": 0,
+  "checkpoint_index_count": 0,
+  "checkpoint_record_count": 36,
+  "consumer_count": 26,
+  "identity_metadata_count": 0,
+  "matches": [
+    {
+      "field": "step_visits_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "key": "step_visits_key",
+      "location": "tracked-plan-phase-clean-new-id/state.json/step_visits/examples~1design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "path": "tracked-plan-phase-clean-new-id/state.json",
+      "pointer": "/step_visits/examples~1design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase"
+    },
+    {
+      "field": "step_visits_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "key": "step_visits_key",
+      "location": "tracked-plan-phase-interrupted-new-id/state.json/step_visits/examples~1design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "path": "tracked-plan-phase-interrupted-new-id/state.json",
+      "pointer": "/step_visits/examples~1design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase"
+    },
+    {
+      "field": "step_visits_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__draft",
+      "key": "step_visits_key",
+      "location": "tracked-plan-phase-clean-new-id/state.json/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/step_visits/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__draft",
+      "path": "tracked-plan-phase-clean-new-id/state.json",
+      "pointer": "/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/step_visits/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__draft"
+    },
+    {
+      "field": "step_visits_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__draft",
+      "key": "step_visits_key",
+      "location": "tracked-plan-phase-interrupted-new-id/state.json/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/step_visits/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__draft",
+      "path": "tracked-plan-phase-interrupted-new-id/state.json",
+      "pointer": "/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/step_visits/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__draft"
+    },
+    {
+      "field": "step_visits_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__match_review",
+      "key": "step_visits_key",
+      "location": "tracked-plan-phase-clean-new-id/state.json/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/step_visits/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__match_review",
+      "path": "tracked-plan-phase-clean-new-id/state.json",
+      "pointer": "/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/step_visits/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__match_review"
+    },
+    {
+      "field": "step_visits_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__match_review",
+      "key": "step_visits_key",
+      "location": "tracked-plan-phase-interrupted-new-id/state.json/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/step_visits/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__match_review",
+      "path": "tracked-plan-phase-interrupted-new-id/state.json",
+      "pointer": "/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/step_visits/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__match_review"
+    },
+    {
+      "field": "step_visits_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__review",
+      "key": "step_visits_key",
+      "location": "tracked-plan-phase-clean-new-id/state.json/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/step_visits/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__review",
+      "path": "tracked-plan-phase-clean-new-id/state.json",
+      "pointer": "/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/step_visits/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__review"
+    },
+    {
+      "field": "step_visits_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__review",
+      "key": "step_visits_key",
+      "location": "tracked-plan-phase-interrupted-new-id/state.json/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/step_visits/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__review",
+      "path": "tracked-plan-phase-interrupted-new-id/state.json",
+      "pointer": "/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/step_visits/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__review"
+    },
+    {
+      "field": "steps_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "key": "steps_key",
+      "location": "tracked-plan-phase-clean-new-id/state.json/steps/examples~1design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "path": "tracked-plan-phase-clean-new-id/state.json",
+      "pointer": "/steps/examples~1design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase"
+    },
+    {
+      "field": "steps_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "key": "steps_key",
+      "location": "tracked-plan-phase-interrupted-new-id/state.json/steps/examples~1design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "path": "tracked-plan-phase-interrupted-new-id/state.json",
+      "pointer": "/steps/examples~1design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase"
+    },
+    {
+      "field": "steps_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__draft",
+      "key": "steps_key",
+      "location": "tracked-plan-phase-clean-new-id/state.json/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/steps/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__draft",
+      "path": "tracked-plan-phase-clean-new-id/state.json",
+      "pointer": "/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/steps/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__draft"
+    },
+    {
+      "field": "steps_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__draft",
+      "key": "steps_key",
+      "location": "tracked-plan-phase-interrupted-new-id/state.json/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/steps/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__draft",
+      "path": "tracked-plan-phase-interrupted-new-id/state.json",
+      "pointer": "/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/steps/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__draft"
+    },
+    {
+      "field": "steps_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__match_review",
+      "key": "steps_key",
+      "location": "tracked-plan-phase-clean-new-id/state.json/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/steps/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__match_review",
+      "path": "tracked-plan-phase-clean-new-id/state.json",
+      "pointer": "/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/steps/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__match_review"
+    },
+    {
+      "field": "steps_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__match_review",
+      "key": "steps_key",
+      "location": "tracked-plan-phase-interrupted-new-id/state.json/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/steps/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__match_review",
+      "path": "tracked-plan-phase-interrupted-new-id/state.json",
+      "pointer": "/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/steps/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__match_review"
+    },
+    {
+      "field": "steps_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__review",
+      "key": "steps_key",
+      "location": "tracked-plan-phase-clean-new-id/state.json/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/steps/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__review",
+      "path": "tracked-plan-phase-clean-new-id/state.json",
+      "pointer": "/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/steps/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__review"
+    },
+    {
+      "field": "steps_key",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__review",
+      "key": "steps_key",
+      "location": "tracked-plan-phase-interrupted-new-id/state.json/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/steps/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__review",
+      "path": "tracked-plan-phase-interrupted-new-id/state.json",
+      "pointer": "/call_frames/root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase::visit::1/state/steps/examples~1design_plan_impl_review_stack_v2_call::tracked-design-phase__review"
+    },
+    {
+      "field": "workflow_name",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "key": "workflow_name",
+      "location": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/index/ckpt:3de90f0bfcb727ca8962ed7b.json/workflow_name",
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/index/ckpt:3de90f0bfcb727ca8962ed7b.json",
+      "pointer": "/workflow_name"
+    },
+    {
+      "field": "workflow_name",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "key": "workflow_name",
+      "location": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/index/ckpt:43abce9c43d12b57bd2d2266.json/workflow_name",
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/index/ckpt:43abce9c43d12b57bd2d2266.json",
+      "pointer": "/workflow_name"
+    },
+    {
+      "field": "workflow_name",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "key": "workflow_name",
+      "location": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/records/ckpt:3de90f0bfcb727ca8962ed7b/record:2e608f51024cf7c8be67ff1a.json/program_identity/workflow_name",
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/records/ckpt:3de90f0bfcb727ca8962ed7b/record:2e608f51024cf7c8be67ff1a.json",
+      "pointer": "/program_identity/workflow_name"
+    },
+    {
+      "field": "workflow_name",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "key": "workflow_name",
+      "location": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/records/ckpt:43abce9c43d12b57bd2d2266/record:640df3428c65ddc079f3f8eb.json/program_identity/workflow_name",
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/records/ckpt:43abce9c43d12b57bd2d2266/record:640df3428c65ddc079f3f8eb.json",
+      "pointer": "/program_identity/workflow_name"
+    },
+    {
+      "field": "workflow_name",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "key": "workflow_name",
+      "location": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/shadow_report.json/workflow_name",
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/shadow_report.json",
+      "pointer": "/workflow_name"
+    },
+    {
+      "field": "workflow_name",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "key": "workflow_name",
+      "location": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/index/ckpt:3de90f0bfcb727ca8962ed7b.json/workflow_name",
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/index/ckpt:3de90f0bfcb727ca8962ed7b.json",
+      "pointer": "/workflow_name"
+    },
+    {
+      "field": "workflow_name",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "key": "workflow_name",
+      "location": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/index/ckpt:43abce9c43d12b57bd2d2266.json/workflow_name",
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/index/ckpt:43abce9c43d12b57bd2d2266.json",
+      "pointer": "/workflow_name"
+    },
+    {
+      "field": "workflow_name",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "key": "workflow_name",
+      "location": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/records/ckpt:3de90f0bfcb727ca8962ed7b/record:b06b54a3efa00661b8a338d8.json/program_identity/workflow_name",
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/records/ckpt:3de90f0bfcb727ca8962ed7b/record:b06b54a3efa00661b8a338d8.json",
+      "pointer": "/program_identity/workflow_name"
+    },
+    {
+      "field": "workflow_name",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "key": "workflow_name",
+      "location": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/records/ckpt:43abce9c43d12b57bd2d2266/record:cc39c7503a6d24d627fcf89b.json/program_identity/workflow_name",
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/records/ckpt:43abce9c43d12b57bd2d2266/record:cc39c7503a6d24d627fcf89b.json",
+      "pointer": "/program_identity/workflow_name"
+    },
+    {
+      "field": "workflow_name",
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "key": "workflow_name",
+      "location": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/shadow_report.json/workflow_name",
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/shadow_report.json",
+      "pointer": "/workflow_name"
+    }
+  ],
+  "nonterminal_run_count": 0,
+  "normalized_scan_digest": "sha256:94513702975b5aea90d4a991c8a3a7cb9ca066460f15e620785dd6d203db1520",
+  "query_version": "procedure-identity-store-query.v1",
+  "retained_manifest_count": 0,
+  "retired_identities": [
+    "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+    "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+    "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__draft",
+    "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__match_review",
+    "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__review"
+  ],
+  "root": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
+  "scanned_file_count": 38,
+  "scanned_files": [
+    {
+      "path": "tracked-plan-phase-clean-new-id/state.json",
+      "sha256": "sha256:729ebd7b4670ee73b0f18fbd3566e2ea73e5e8f488ddf729212cbec77e34a73b"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/index/ckpt:0b7c450dcd18e4929565933c.json",
+      "sha256": "sha256:1cb8fb3f09fad32b27181779ce81d1f0ca476d9b15ff3080c8233338a142e383"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/index/ckpt:0e2af96f5ca6abedb4fa77a5.json",
+      "sha256": "sha256:3346753ea02524ee46cf5474e3bc7ad287ea84b11cf7f965eda0af82b5b64b1b"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/index/ckpt:3de90f0bfcb727ca8962ed7b.json",
+      "sha256": "sha256:be5bcf8cb0b49061b2a28dc72bf343373b977c87073185a7577faf87021f287d"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/index/ckpt:43abce9c43d12b57bd2d2266.json",
+      "sha256": "sha256:9bf5d753dc718f001cd0c1723d0cad62e6cf26bea39af21d9ba7dfb1040cfe2f"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/index/ckpt:65bda4f814bc721664c59a34.json",
+      "sha256": "sha256:d2bb9b2eff03f0347e2e64a2d1271e9b010818977d9a9df2c130ce59e836a65e"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/index/ckpt:85bebe726bc9eed0e4ee7c63.json",
+      "sha256": "sha256:111f30dbb87415f3a40cb4ae0021b10b0da9d7cbaaf7311bc13c569b5f7bd035"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/index/ckpt:da29481dd96843184de8136f.json",
+      "sha256": "sha256:5f71b239f652c97efc8da84a6ba8f3e7293e503bbbb376cbdd7851ad70fb13f3"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/index/ckpt:ecba9af744ae06ba202198fa.json",
+      "sha256": "sha256:a28cc3cd8a8a6d318014e77da4a626bd683b9e209447a6f3b3cbf9f6894840e3"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/records/ckpt:0b7c450dcd18e4929565933c/record:a7ed6a1794617a47e47dd0cc.json",
+      "sha256": "sha256:d4ce17359a726a840c008fb27b624c4be83c67b4dbfded69096563986f9c771f"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/records/ckpt:0e2af96f5ca6abedb4fa77a5/record:d41a3aa71d68ac870c5378af.json",
+      "sha256": "sha256:6ccb428553d97f334f7519e09343a5ab0ab500b20d90e9857e76306ca8d9d8b7"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/records/ckpt:3de90f0bfcb727ca8962ed7b/record:2e608f51024cf7c8be67ff1a.json",
+      "sha256": "sha256:0fd3c395e6a906c3e2b6ed2be34b617ccef89b441f93574e4ed556a489e4ef28"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/records/ckpt:43abce9c43d12b57bd2d2266/record:640df3428c65ddc079f3f8eb.json",
+      "sha256": "sha256:2280ca425b363af6115afe36a8f4105d09c2c1f2f93f14a9427d6431a281a74a"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/records/ckpt:65bda4f814bc721664c59a34/record:67d2bdc1db2c5daf15b5c73e.json",
+      "sha256": "sha256:0a1ba44457d3363f9377acd526bd3f45d6d042cd1f33c0726164653106208f6c"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/records/ckpt:85bebe726bc9eed0e4ee7c63/record:2d4b5841fdad3c65377ea294.json",
+      "sha256": "sha256:6bf03959c25b280b18826f435b07581d59aefd66796e9f79e0598f59187ee422"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/records/ckpt:da29481dd96843184de8136f/record:f05ec533e181a6634740afba.json",
+      "sha256": "sha256:8ae238e787512ea4e2f5c54251d407070f7afbd3ab3410988b23b327873e3d12"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/records/ckpt:ecba9af744ae06ba202198fa/record:e30ceb4a21a1be8962781629.json",
+      "sha256": "sha256:ed0671b6e19f7ef71578f53623d4382d41bcd95016fe6a0192e9ac91cb5a1469"
+    },
+    {
+      "path": "tracked-plan-phase-clean-new-id/workflow_lisp/checkpoints/shadow_report.json",
+      "sha256": "sha256:b9ac2dde80df3bd102aad1c887d82381676ba71090d9cd42dd3c96cd35924dbc"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/state.json",
+      "sha256": "sha256:b2d2bd8a265515eb50c181e9e7151a8f59efad3668319894a6bf65a4ee568c05"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/default_resume_report.json",
+      "sha256": "sha256:980be7551101fe4322f0ff3cdc2d5c5a183d5dc714fa3854e389d97275a9a782"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/index/ckpt:0b7c450dcd18e4929565933c.json",
+      "sha256": "sha256:7aeafebd13127403305b3d5371c0fc5d967a70736e68208c225bb99b68bf6ee4"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/index/ckpt:0e2af96f5ca6abedb4fa77a5.json",
+      "sha256": "sha256:e7a48995612f8752828d1ec81d88a7d7a27928a3c9bd724fb7c87692fb56c8b7"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/index/ckpt:3de90f0bfcb727ca8962ed7b.json",
+      "sha256": "sha256:622d8fdef0f8f543e920338fc281bab0e8eb9849ec37d804849c45fdbfa056e6"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/index/ckpt:43abce9c43d12b57bd2d2266.json",
+      "sha256": "sha256:828a68900aeab4cf93d373a517ece26282a8ad7b5db5c240e0a254cd2df6ee49"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/index/ckpt:65bda4f814bc721664c59a34.json",
+      "sha256": "sha256:165b0acf203626f639f9f277189107a60e0ebec5d5ec009d0b7c837c58f66f0f"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/index/ckpt:85bebe726bc9eed0e4ee7c63.json",
+      "sha256": "sha256:2192e35ad87d45774e0f43db12f18b823b8e53ad1f2acb8c406b94518bf30acb"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/index/ckpt:da29481dd96843184de8136f.json",
+      "sha256": "sha256:b28aa156aac3374f9fe2f74aab8736762bf39714756b0e3c04efe4be32c1da05"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/index/ckpt:ecba9af744ae06ba202198fa.json",
+      "sha256": "sha256:c7485d2674bd7eb60046537ae100c094956ce96990a85990c148def6c875a304"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/records/ckpt:0b7c450dcd18e4929565933c/record:1061f809651e86c217e1b2ac.json",
+      "sha256": "sha256:0aa87643a1c34af9549df012f727378ce6a67c4a0d15a142f68af81d3562dee5"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/records/ckpt:0e2af96f5ca6abedb4fa77a5/record:f00652251f9aef4b0ae31c5d.json",
+      "sha256": "sha256:55e4ea5d41ab347b30f2d375f03a0d1db17675f30e98d03f6b7671799b261ded"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/records/ckpt:3de90f0bfcb727ca8962ed7b/record:b06b54a3efa00661b8a338d8.json",
+      "sha256": "sha256:96e3c231dae572b08bb6e54071a23d26a7f22a09f046926ed5b962ea090f82c5"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/records/ckpt:43abce9c43d12b57bd2d2266/record:cc39c7503a6d24d627fcf89b.json",
+      "sha256": "sha256:2c7a75caafe2e9e19007328c0c2eb4b59a6a66f982284f43d215e9f4376ad8d8"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/records/ckpt:65bda4f814bc721664c59a34/record:fb30ecfb9f1abf4d4a61628e.json",
+      "sha256": "sha256:2ce47289b1ef57407c0e67055d203b1da4b58ab3f9d708ae753f96ce1da2775c"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/records/ckpt:85bebe726bc9eed0e4ee7c63/record:a77e3bb0a64889b1853118c2.json",
+      "sha256": "sha256:50b72f2648f55cd3cefdd5c6a3037f92039627b4fef69e22ea915ac8b48a2b96"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/records/ckpt:da29481dd96843184de8136f/record:fef44f20eb494cf976ec00a7.json",
+      "sha256": "sha256:ad8f872989bcd874cff20eb1b48566a89a2be1b934b6e3f39329137f8c6d413b"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/records/ckpt:ecba9af744ae06ba202198fa/record:2e79969a1a34eb7166f2dbce.json",
+      "sha256": "sha256:6b9e1df5a5d4f8931cda810455dda2f712ce48babb284822af3f9db9b3b40856"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/restore_report.json",
+      "sha256": "sha256:b08859e84b9ed5a0b5abcb24552db819d5ac0491c50c0aea97b6b0512ca3680c"
+    },
+    {
+      "path": "tracked-plan-phase-interrupted-new-id/workflow_lisp/checkpoints/shadow_report.json",
+      "sha256": "sha256:b9ac2dde80df3bd102aad1c887d82381676ba71090d9cd42dd3c96cd35924dbc"
+    }
+  ],
+  "store_nonterminal_run_count": 0,
+  "store_terminal_run_count": 2,
+  "terminal_run_count": 2
+}

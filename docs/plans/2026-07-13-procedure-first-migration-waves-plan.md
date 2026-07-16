@@ -14,8 +14,13 @@
 
 **Status:** Current selector (activated 2026-07-16). Task 1's post-hardening
 rebaseline is complete at `4983afff` with its narrative correction at
-`fa16bcf0`. **Current sub-selector: Task 2, Finish The Small Example
-Families.** The prerequisite
+`fa16bcf0`. **Current sub-selector: Task 2 Step 2,
+`design-plan-impl-implementation-phase`.** Task 2 Step 1's bounded
+`docs/plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md`
+closed by a fail-closed eligibility stop: the completed pilot store retains 26
+supported old-identity consumers, so `tracked-design-phase` remains a workflow
+and its inventory row is now `effect-adapter`. This is not a new design or a
+reordering of the remaining Task 2 work or Tasks 3-8. The prerequisite
 `docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
 completed at `fdf1e06b` with fresh focused acceptance evidence, a deterministic
 public CLI smoke, broad baseline equivalence, and independent specification and
@@ -79,12 +84,12 @@ must be a subset of the active task's `Files` list. Never stage, restore, or
 rewrite a protected path. Record its initial `git status --short` output only
 as a guard baseline; user changes to those paths are not plan failures.
 
-## Queue after the Task 1 rebaseline
+## Current queue after Task 2 Step 1
 
 | Class | Count | Disposition |
 | --- | ---: | --- |
-| `procedure-candidate` | 32 | Migrate by `.orc` family after parity. |
-| `effect-adapter` | 25 | Reclassify only after effect, identity, artifact/publication, source-map, child-call, checkpoint, and resume evidence. |
+| `procedure-candidate` | 31 | Migrate by `.orc` family after parity. |
+| `effect-adapter` | 26 | Reclassify only after effect, identity, artifact/publication, source-map, child-call, checkpoint, state-consumer, and resume evidence. |
 | `legacy-retire` | 38 | Do not translate; coordinate with Stage 6 after replacement evidence. |
 | `public-boundary` | 3 separate entries | Preserve as workflows and negative regression coverage. |
 
@@ -206,9 +211,23 @@ git commit -m "Rebaseline procedure-first migration inventory"
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.md`
 
-- [ ] **Step 1: Migrate and review `tracked-design-phase`**
+- [x] **Step 1: Resolve `tracked-design-phase` without an ineligible migration**
 
-Add a RED assertion named
+Task 2 Step 1's initial TDD experiment reached the global identity stop: public contract
+shape remained viable, but the old internal workflow-call/checkpoint identity
+set cannot remain exact after inline lowering. Execute
+`docs/plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md` as the
+bounded prerequisite. Its reviewed known-store correction identified the
+completed tracked-plan pilot root, and the generic scanner found 26 supported
+old-identity consumers there using a five-identity witness subset. The accepted
+`reviewed_internal_identity_retirement` class requires zero consumers, so the
+source remains byte-unchanged and the active row is retained as
+`effect-adapter`. The durable scan binding and replay test are recorded in that
+plan. This closes the global stop without weakening identity rules; Step 2 is
+now selected.
+
+Historical unexecuted migration instructions, retained only as the
+counterfactual that triggered the stop, were to add a RED assertion named
 `test_tracked_design_phase_is_inline_procedure_with_public_wrapper` that
 requires the definition to be `defproc :lowering inline`, its one use to be an
 ordinary procedure application, and the public stack to remain the only
@@ -220,12 +239,13 @@ pytest -q tests/test_workflow_lisp_procedure_first_migrations.py tests/test_work
 python -m orchestrator compile workflows/examples/design_plan_impl_review_stack_v2_call.orc --entry-workflow design-plan-impl-review-stack --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_plan_impl_stack.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_plan_impl_stack.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_plan_impl_stack.commands.json
 ```
 
-Expected: PASS with unchanged public outputs, artifacts, effects, checkpoint IDs, and resume behavior.
+Expected: PASS with unchanged public outputs, artifacts, effects, resume
+behavior, and every public or preserved checkpoint ID. The exact eligible
+old-internal/new-inline identity delta is accepted only through the validated
+retirement record; it is never baseline-refreshed or described as unchanged.
 
-Commit only the phase/source and its focused tests as
-`Migrate tracked design phase to a procedure`. Obtain independent specification
-and quality PASS on this phase before continuing; fix and rerun the whole phase
-review on failure.
+No phase/source migration commit exists or is permitted under the observed
+store evidence.
 
 - [ ] **Step 2: Migrate and review `design-plan-impl-implementation-phase`**
 
@@ -268,10 +288,11 @@ pytest -q tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_mi
 pytest -q tests/test_workflow_lisp_examples.py tests/test_workflow_lisp_route_readiness.py -k 'same_file_record_call_binding or design_plan_impl_review_stack'
 ```
 
-- [ ] **Step 5: Record the three new completions after source commits exist**
+- [ ] **Step 5: Record the two migrations and retained Step 1 disposition**
 
-The pilot record is already in v2 history. Move exactly the three newly
-completed example call records from active `records` to
+The pilot record is already in v2 history. Keep the Step 1
+`tracked-design-phase` call active as `effect-adapter` with its eligibility-stop
+evidence. Move exactly the two newly completed example call records from active `records` to
 append-only `history` with `disposition: migrated`, completion commits, and
 evidence selectors. Recompute active counts and history counts, retain the
 design-stack `public-entry` negative as an active record, and keep the
@@ -383,7 +404,7 @@ git commit -m "Record Design Delta library procedure evidence"
 
 Obtain specification plus quality PASS before Task 4.
 
-### Task 4: Reclassify The 25 Effect-Adapter Rows From Evidence
+### Task 4: Reclassify The 25 YAML Effect-Adapter Rows From Evidence
 
 **Files:**
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`

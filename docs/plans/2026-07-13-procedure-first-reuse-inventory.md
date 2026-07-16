@@ -13,8 +13,8 @@ remaining 95 active internal calls classify as:
 
 | Classification | Sites | Meaning |
 | --- | ---: | --- |
-| `procedure-candidate` | 32 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
-| `effect-adapter` | 25 | Live YAML family calls held conservatively until effect, identity, artifact, publication, source-map, child-call, and resume obligations are proven. |
+| `procedure-candidate` | 31 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
+| `effect-adapter` | 26 | Calls retained until effect, identity, artifact, publication, source-map, child-call, state-consumer, and resume obligations are proven. |
 | `legacy-retire` | 38 | Compatibility, legacy, or example-only calls that retire with their family instead of being translated. |
 | `public-boundary` | 0 | Public entries are recorded separately; they are not internal call sites. |
 
@@ -40,6 +40,7 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | Classification | Source | Sites |
 | --- | --- | ---: |
 | `effect-adapter` | `workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml` | 2 |
+| `effect-adapter` | `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | 1 |
 | `effect-adapter` | `workflows/examples/lisp_frontend_autonomous_drain.yaml` | 4 |
 | `effect-adapter` | `workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml` | 1 |
 | `effect-adapter` | `workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml` | 3 |
@@ -69,7 +70,7 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `legacy-retire` | `workflows/library/revision_study_design_plan_impl_stack.yaml` | 3 |
 | `legacy-retire` | `workflows/library/revision_study_priority_design_plan_impl_stack.yaml` | 1 |
 | `legacy-retire` | `workflows/library/seeded_design_plan_impl_stack.yaml` | 1 |
-| `procedure-candidate` | `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | 2 |
+| `procedure-candidate` | `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | 1 |
 | `procedure-candidate` | `workflows/examples/same_file_record_call_binding.orc` | 1 |
 | `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/design_gap_architect.orc` | 4 |
 | `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/drain.orc` | 1 |
@@ -128,7 +129,12 @@ Every `effect-adapter` record carries this named obligation:
 > including checkpoint/state-namespace identity, artifact/publication
 > ownership, source-map attribution, child-workflow effects, and resume parity.
 
-This bucket is intentionally conservative. A Stage 5 family audit may
+This bucket is intentionally conservative. The `tracked-design-phase` row is
+retained specifically because the completed tracked-plan pilot root contains
+26 supported old-identity consumers under the generic scanner; its
+content-addressed replay evidence is
+`docs/plans/evidence/procedure-first-migration-waves/tracked-design-phase/eligibility_stop.json`.
+A Stage 5 family audit may
 reclassify a row when current tests prove that ordinary landed `defproc`
 composition already covers its actual effects. Classification labels alone do
 not authorize substrate work.

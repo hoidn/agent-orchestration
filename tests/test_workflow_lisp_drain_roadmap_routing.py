@@ -16,6 +16,9 @@ HARDENING_PLAN_PATH = (
 CURRENT_SELECTOR_PATH = (
     "docs/plans/2026-07-13-procedure-first-migration-waves-plan.md"
 )
+TRACKED_DESIGN_RETIREMENT_PLAN_PATH = (
+    "docs/plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md"
+)
 MIGRATION_TASK_1_IMPLEMENTATION_COMMITS = ("4983afff", "fa16bcf0")
 CORRECTION_SUBPLAN_PATH = (
     "docs/plans/2026-07-14-procedure-identity-store-match-scoped-counts-plan.md"
@@ -171,7 +174,7 @@ def _procedure_sequence_selector_surfaces() -> dict[str, str]:
     }
 
 
-def _assert_task_2_current_subselector(surface: str, label: str) -> None:
+def _assert_task_2_step_2_current_subselector(surface: str, label: str) -> None:
     normalized = _normalized_routing_text(surface)
     assert re.search(
         r"\btask 1\b.{0,160}(?:"
@@ -179,34 +182,35 @@ def _assert_task_2_current_subselector(surface: str, label: str) -> None:
         r"|\bcomplete\w*\b.{0,80}rebaseline)",
         normalized,
     ), label
-    assert "task 2" in normalized and "small example" in normalized, label
+    assert "task 2 step 1" in normalized, label
+    assert "task 2 step 2" in normalized, label
+    assert "26" in normalized and "consumer" in normalized, label
     for commit in MIGRATION_TASK_1_IMPLEMENTATION_COMMITS:
         assert normalized.count(commit) == 1, (label, commit)
 
     explicit_markers = len(re.findall(r"current sub selector", normalized))
     execute_now_markers = len(
-        re.findall(r"\bexecute\s+task 2\b.{0,120}\bnow\b", normalized)
+        re.findall(r"\bexecute\s+task 2 step 2\b.{0,120}\bnow\b", normalized)
     )
     assert explicit_markers + execute_now_markers == 1, label
     assert re.search(
-        r"(?:current sub selector:?\s*(?:the\s+)?task 2\b"
-        r"|\btask 2\b.{0,80}\b(?:is|as)\b.{0,24}current sub selector"
-        r"|\bexecute\s+task 2\b.{0,120}\bnow\b)",
+        r"(?:current sub selector:?\s*(?:the\s+)?task 2 step 2\b"
+        r"|\btask 2 step 2\b.{0,80}\b(?:is|as)\b.{0,24}current sub selector"
+        r"|\bexecute\s+task 2 step 2\b.{0,120}\bnow\b)",
         normalized,
     ), label
     assert re.search(
-        r"(?:current sub selector:?\s*(?:the\s+)?task (?!2\b)\d+\b"
-        r"|\btask (?!2\b)\d+\b.{0,80}\b(?:is|as)\b.{0,24}"
-        r"current sub selector)",
+        r"current sub selector:?\s*(?:the\s+)?task "
+        r"(?!2 step 2\b)\d+(?: step \d+)?\b",
         normalized,
     ) is None, label
+    assert "task 2 step 1 is the current sub selector" not in normalized, label
     assert re.search(
-        r"(?:current sub selector:?\s*(?:the\s+)?task 1\b"
-        r"|\btask 1\b.{0,80}\b(?:is|as)\b.{0,24}current sub selector"
-        r"|\bbegin with\b.{0,120}\btask 1\b"
-        r"|\btask 1\b.{0,100}\b(?:is|remains)\s+"
+        r"(?:current sub selector:?\s*(?:the\s+)?task (?:1\b|2 step 1\b)"
+        r"|\bbegin with\b.{0,120}\btask (?:1\b|2 step 1\b)"
+        r"|\btask 1\b\s+(?:is|remains)\s+"
         r"(?:open|pending|current|incomplete)\b"
-        r"|\btask 1\b.{0,100}\bmust still\b)",
+        r"|\btask 1\b\s+must still\b)",
         normalized,
     ) is None, label
 
@@ -281,12 +285,16 @@ def test_procedure_first_status_surfaces_share_current_migration_wave_boundary()
 def test_migration_wave_task_1_closeout_advances_only_to_task_2() -> None:
     plan = (REPO_ROOT / CURRENT_SELECTOR_PATH).read_text(encoding="utf-8")
     task_1 = _migration_task_section(plan, 1)
+    task_2 = _migration_task_section(plan, 2)
     later_tasks = "\n".join(
-        _migration_task_section(plan, task_number) for task_number in range(2, 9)
+        _migration_task_section(plan, task_number) for task_number in range(3, 9)
     )
     task_1_steps = re.findall(r"(?m)^- \[([ xX])\] \*\*Step", task_1)
 
     assert task_1_steps == ["x", "x", "x", "x"]
+    assert re.findall(r"(?m)^- \[([ xX])\] \*\*Step", task_2) == [
+        "x", " ", " ", " ", " ", " "
+    ]
     assert re.search(r"(?m)^- \[[xX]\] \*\*Step", later_tasks) is None
 
     for commit in MIGRATION_TASK_1_IMPLEMENTATION_COMMITS:
@@ -308,10 +316,66 @@ def test_migration_wave_task_1_closeout_advances_only_to_task_2() -> None:
         **_procedure_sequence_selector_surfaces(),
     }
     for label, surface in selector_surfaces.items():
-        _assert_task_2_current_subselector(surface, label)
+        _assert_task_2_step_2_current_subselector(surface, label)
 
     for label in ("docs index", "roadmap current routing"):
         _assert_exact_ordered_routing_paths(selector_surfaces[label], label)
+
+
+def test_task_2_step_1_closes_on_bounded_identity_retirement_ineligibility() -> None:
+    migration_plan = (REPO_ROOT / CURRENT_SELECTOR_PATH).read_text(encoding="utf-8")
+    prerequisite = REPO_ROOT / TRACKED_DESIGN_RETIREMENT_PLAN_PATH
+    sequence = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
+    ).read_text(encoding="utf-8")
+    docs_index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+
+    assert prerequisite.is_file()
+    assert TRACKED_DESIGN_RETIREMENT_PLAN_PATH not in ORDERED_ROADMAP_PATHS
+    prerequisite_text = prerequisite.read_text(encoding="utf-8")
+    assert "reviewed_internal_identity_retirement" in prerequisite_text
+    prerequisite_status = prerequisite_text.split("**Status:**", 1)[1].split(
+        "**Goal:**", 1
+    )[0]
+    assert "Complete by fail-closed eligibility stop" in prerequisite_status
+    assert "26 supported old-identity consumers" in prerequisite_status
+    assert "introduced no new" in prerequisite_status
+    assert CURRENT_SELECTOR_PATH in prerequisite_text
+    assert "Parent selector" in prerequisite_text
+    assert "procedure first migration waves task 2 step 2 is the next" in (
+        _normalized_routing_text(prerequisite_text)
+    )
+
+    task_2_step_1 = _migration_task_section(migration_plan, 2).split(
+        "- [ ] **Step 2:", 1
+    )[0]
+    for label, surface in {
+        "migration Task 2 Step 1": task_2_step_1,
+        "roadmap Stage 5": sequence.split(
+            "### Stage 5: Implement Procedure-First Reuse In Waves", 1
+        )[1].split("### Stage 6: Resume YAML Retirement", 1)[0],
+        "docs index component routing": docs_index.split(
+            "**Component-plan routing:**", 1
+        )[1].split("**Current procedure-first substrate:**", 1)[0],
+    }.items():
+        canonical = _canonical_routing_paths(surface)
+        assert canonical.count(TRACKED_DESIGN_RETIREMENT_PLAN_PATH) == 1, label
+        normalized = _normalized_routing_text(surface)
+        assert "task 2 step 1" in normalized, label
+        assert "consumer" in normalized, label
+
+    index_routing = docs_index.split("**Component-plan routing:**", 1)[1].split(
+        "**Current procedure-first substrate:**", 1
+    )[0]
+    canonical_index = _canonical_routing_paths(index_routing)
+    assert canonical_index.count(CURRENT_SELECTOR_PATH) == 1
+    assert _normalized_routing_text(index_routing).count("current selector") == 1
+    assert "task 2 step 2 is the current sub selector" in (
+        _normalized_routing_text(index_routing)
+    )
 
 
 @pytest.mark.parametrize(
@@ -319,14 +383,14 @@ def test_migration_wave_task_1_closeout_advances_only_to_task_2() -> None:
     (
         "Task 1's rebaseline is the current sub-selector.",
         (
-            "Task 2's small-example family is the current sub-selector. "
-            "Task 1's rebaseline remains pending."
+            "Task 2 Step 1 is the current sub-selector. "
+            "Task 2 Step 2 remains pending."
         ),
         (
-            "Task 2's small-example family is the current sub-selector. "
-            "Begin with Task 1's rebaseline."
+            "Task 2 Step 1 is the current sub-selector. "
+            "Begin with Task 2 Step 1."
         ),
-        "Task 2's small-example family remains planned.",
+        "Task 2 Step 2 remains planned.",
     ),
     ids=(
         "stale-task-1-current",
@@ -345,7 +409,9 @@ def test_task_2_current_subselector_guard_rejects_stale_or_ambiguous_routing(
     )[0]
     mutated = re.sub(
         r"Task 1's rebaseline completed at `4983afff` plus `fa16bcf0`, and "
-        r"Task 2's small-example family is the current sub-selector\.",
+        r"Task 2 Step 1's \[tracked-design identity decision\]\([^)]*\) "
+        r"closed by retaining the ineligible old-consumer boundary\. "
+        r"Task 2 Step 2 is the current sub-selector\.",
         replacement,
         docs_index_routing,
         count=1,
@@ -353,7 +419,7 @@ def test_task_2_current_subselector_guard_rejects_stale_or_ambiguous_routing(
     assert mutated != docs_index_routing
 
     with pytest.raises(AssertionError):
-        _assert_task_2_current_subselector(
+        _assert_task_2_step_2_current_subselector(
             mutated,
             "mutated docs-index routing",
         )

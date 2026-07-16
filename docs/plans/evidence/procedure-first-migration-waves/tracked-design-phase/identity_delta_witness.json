@@ -1,0 +1,74 @@
+{
+  "build_inputs": {
+    "entry_workflow": "design-plan-impl-review-stack",
+    "lowering_route": "wcc_m4"
+  },
+  "claims_not_made": [
+    "The proposed inline source exists only as a deterministic in-test transformation and does not authorize a source edit.",
+    "The compiler procedure name remains in typed procedure metadata; the workflow witness is domain-qualified and absent from the proposed production workflow and leak identity domains."
+  ],
+  "input_sha256": {
+    "design_plan_impl_stack.commands.json": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+    "design_plan_impl_stack.prompts.json": "sha256:8114b8622236a43c83c8c3430334ac61003921b7b03c8977b7334a8d0c643a5d",
+    "design_plan_impl_stack.providers.json": "sha256:901e5fa2a1f69c05e44225d3de63ae98a3af0d2ea65710fa9def88273a632919"
+  },
+  "purpose": "Bind the scanner query to compiler-owned production identity domains retired by the exact hypothetical inline conversion without mutating the tracked source.",
+  "retired_identity_witnesses": [
+    {
+      "identity": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "identity_kind": "presentation_key",
+      "old_domains": ["presentation_key"],
+      "old_present": true,
+      "proposed_leak_domains": [],
+      "proposed_leak_present": false,
+      "proposed_production_domains": [],
+      "store_match_count": 4
+    },
+    {
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+      "identity_kind": "workflow",
+      "old_domains": ["workflow"],
+      "old_present": true,
+      "proposed_leak_domains": [],
+      "proposed_leak_present": false,
+      "proposed_production_domains": [],
+      "store_match_count": 10
+    },
+    {
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__draft",
+      "identity_kind": "presentation_key",
+      "old_domains": ["presentation_key"],
+      "old_present": true,
+      "proposed_leak_domains": [],
+      "proposed_leak_present": false,
+      "proposed_production_domains": [],
+      "store_match_count": 4
+    },
+    {
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__match_review",
+      "identity_kind": "presentation_key",
+      "old_domains": ["presentation_key"],
+      "old_present": true,
+      "proposed_leak_domains": [],
+      "proposed_leak_present": false,
+      "proposed_production_domains": [],
+      "store_match_count": 4
+    },
+    {
+      "identity": "examples/design_plan_impl_review_stack_v2_call::tracked-design-phase__review",
+      "identity_kind": "presentation_key",
+      "old_domains": ["presentation_key"],
+      "old_present": true,
+      "proposed_leak_domains": [],
+      "proposed_leak_present": false,
+      "proposed_production_domains": [],
+      "store_match_count": 4
+    }
+  ],
+  "schema": "workflow_lisp_domain_identity_witness.v1",
+  "witness_projection_sha256": "sha256:a063674c8f775c64c5e03b42d97b05f860d32a7c83931d626c4f6451a10b508a",
+  "source": {
+    "current_sha256": "sha256:be0a2660444488793169d8016152f62ab0996213c32632be334c03c2b31c1624",
+    "proposed_inline_sha256": "sha256:7c492cb32ac29cd8291e428262964f6fb6dd2d79cda3d75f310dc3cd051e83bd"
+  }
+}
