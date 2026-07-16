@@ -137,6 +137,7 @@ class _ProjectionBuilder:
         node_id: str,
         frame_key: str,
         nested_presentation_keys: Mapping[str, str],
+        max_iterations: Optional[int],
     ) -> None:
         nested_step_id_suffixes = {
             nested_node_id: _iteration_step_id_suffix(node_id, nested_node_id)
@@ -147,6 +148,7 @@ class _ProjectionBuilder:
             frame_key=frame_key,
             nested_presentation_keys=MappingProxyType(dict(nested_presentation_keys)),
             nested_step_id_suffixes=MappingProxyType(dict(nested_step_id_suffixes)),
+            max_iterations=max_iterations,
         )
 
     def register_for_each(
@@ -171,6 +173,7 @@ class _ProjectionBuilder:
         node_id: str,
         presentation_key: str,
         step_id: str,
+        import_alias: str,
         *,
         iteration_owner_node_id: Optional[str] = None,
     ) -> None:
@@ -181,6 +184,7 @@ class _ProjectionBuilder:
             node_id=node_id,
             presentation_key=presentation_key,
             step_id=step_id,
+            import_alias=import_alias,
             iteration_owner_node_id=iteration_owner_node_id,
             iteration_step_id_suffix=iteration_step_id_suffix,
         )
@@ -439,6 +443,7 @@ class _IRBuilder:
                     node.node_id,
                     node.presentation_name,
                     node.step_id,
+                    node.call_alias,
                     iteration_owner_node_id=context.iteration_owner_node_id,
                 )
             ordered.append(node.node_id)
@@ -557,7 +562,12 @@ class _IRBuilder:
         )
         self._patch_linear_fallthrough(body_node_ids, final_target=step.step_id)
         nested_keys = {node_id: self.nodes[node_id].presentation_name for node_id in body_node_ids}
-        self.projection.register_repeat_until(step.step_id, presentation_name, nested_keys)
+        self.projection.register_repeat_until(
+            step.step_id,
+            presentation_name,
+            nested_keys,
+            step.repeat_until.max_iterations,
+        )
         return RepeatUntilFrameNode(
             node_id=step.step_id,
             step_id=step.step_id,
