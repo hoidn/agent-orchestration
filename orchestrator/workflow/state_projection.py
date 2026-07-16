@@ -124,7 +124,7 @@ class ResumeProjectionSlotIndex:
 class ResumeIdentityResolution:
     """Exact resolution result for one persisted step-result identity."""
 
-    step_id: str
+    step_id: Any
     presentation_key: Optional[str]
     candidates: tuple[ResumeProjectionSlot, ...]
     matching_candidates: tuple[ResumeProjectionSlot, ...]
@@ -145,7 +145,7 @@ class ResumeIdentityResolution:
 class ResumeCallBoundaryResolution:
     """Exact resolution result for one persisted call-boundary identity."""
 
-    call_step_id: str
+    call_step_id: Any
     candidates: tuple[ResumeProjectionSlot, ...]
     boundary: Optional[CallBoundaryProjection]
 
@@ -399,7 +399,10 @@ class WorkflowStateProjection:
             if len(
                 tuple(
                     slot
-                    for slot in frozen_candidates.get(step_id, ())
+                    for slot in _resume_slot_candidates(
+                        frozen_candidates,
+                        step_id,
+                    )
                     if slot.presentation_key == presentation_key
                 )
             )
@@ -492,11 +495,14 @@ class WorkflowStateProjection:
     def resolve_resume_step_id(
         self,
         slot_index: ResumeProjectionSlotIndex,
-        step_id: str,
+        step_id: Any,
         presentation_key: Optional[str] = None,
     ) -> ResumeIdentityResolution:
         """Resolve one exact step identity without parsing qualified ids."""
-        candidates = slot_index.candidates_by_step_id.get(step_id, ())
+        candidates = _resume_slot_candidates(
+            slot_index.candidates_by_step_id,
+            step_id,
+        )
         matching_candidates = (
             candidates
             if presentation_key is None
@@ -517,10 +523,13 @@ class WorkflowStateProjection:
     def resolve_call_boundary(
         self,
         slot_index: ResumeProjectionSlotIndex,
-        call_step_id: str,
+        call_step_id: Any,
     ) -> ResumeCallBoundaryResolution:
         """Resolve one exact call-boundary identity without parsing qualified ids."""
-        candidates = slot_index.call_boundaries_by_step_id.get(call_step_id, ())
+        candidates = _resume_slot_candidates(
+            slot_index.call_boundaries_by_step_id,
+            call_step_id,
+        )
         boundary = (
             candidates[0].call_boundary
             if len(candidates) == 1
@@ -549,6 +558,15 @@ def _freeze_resume_slot_map(
             for step_id, candidates in slots.items()
         }
     )
+
+
+def _resume_slot_candidates(
+    slots: Mapping[str, tuple[ResumeProjectionSlot, ...]],
+    identity: Any,
+) -> tuple[ResumeProjectionSlot, ...]:
+    if not isinstance(identity, str):
+        return ()
+    return slots.get(identity, ())
 
 
 def _optional_loop_container(

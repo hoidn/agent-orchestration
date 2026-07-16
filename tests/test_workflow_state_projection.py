@@ -983,6 +983,45 @@ def test_projection_resume_slot_index_resolves_body_finalization_and_optional_om
 
 
 @pytest.mark.parametrize(
+    "malformed_step_id",
+    [[], {}],
+    ids=["list", "mapping"],
+)
+def test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit(
+    tmp_path: Path,
+    malformed_step_id: object,
+) -> None:
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_projection_workflow(tmp_path))
+    state = {
+        "steps": {
+            "SetReady": {
+                "status": "completed",
+                "name": "SetReady",
+                "step_id": malformed_step_id,
+            }
+        }
+    }
+
+    slot_index = bundle.projection.enumerate_resume_slots(state)
+
+    assert slot_index.unclaimed_explicit_rows == (("SetReady", malformed_step_id),)
+    step_resolution = bundle.projection.resolve_resume_step_id(
+        slot_index,
+        malformed_step_id,
+        presentation_key="SetReady",
+    )
+    assert step_resolution.slot is None
+    assert step_resolution.candidate_count == 0
+    assert step_resolution.exact_identity_candidate_count == 0
+    call_resolution = bundle.projection.resolve_call_boundary(
+        slot_index,
+        malformed_step_id,
+    )
+    assert call_resolution.boundary is None
+    assert call_resolution.candidate_count == 0
+
+
+@pytest.mark.parametrize(
     ("repeat_progress", "repeat_frame"),
     [
         (
