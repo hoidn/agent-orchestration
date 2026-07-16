@@ -68,9 +68,19 @@ class PreservingLoader(yaml.SafeLoader):
                 )
                 raise yaml.constructor.ConstructorError(
                     "while constructing workflow imports",
-                    duplicate_scan.imports_mark,
+                    duplicate_scan.entries[0].first_mark,
                     message,
                     duplicate_scan.entries[0].mark,
+                )
+            if (
+                duplicate_scan is not None
+                and duplicate_scan.duplicate_imports_mark is not None
+            ):
+                raise yaml.constructor.ConstructorError(
+                    "while constructing workflow",
+                    duplicate_scan.imports_key_mark,
+                    "imports: duplicate top-level mapping",
+                    duplicate_scan.duplicate_imports_mark,
                 )
             return self.construct_document(document)
         return None
@@ -101,12 +111,14 @@ if 'O' in PreservingLoader.yaml_implicit_resolvers:
 
 class _DuplicateImportAliasEntry(NamedTuple):
     alias: str
+    first_mark: yaml.Mark
     mark: yaml.Mark
 
 
 class _DuplicateImportAliasScan(NamedTuple):
-    imports_mark: yaml.Mark
+    imports_key_mark: yaml.Mark
     entries: tuple[_DuplicateImportAliasEntry, ...]
+    duplicate_imports_mark: Optional[yaml.Mark]
 
 
 def _scan_duplicate_import_aliases(
@@ -117,29 +129,47 @@ def _scan_duplicate_import_aliases(
     if not isinstance(document, yaml.MappingNode):
         return None
 
-    imports_node = None
+    imports_entries: list[tuple[yaml.ScalarNode, yaml.Node]] = []
     for key_node, value_node in document.value:
         if isinstance(key_node, yaml.ScalarNode) and key_node.value == "imports":
-            imports_node = value_node
+            imports_entries.append((key_node, value_node))
 
-    if not isinstance(imports_node, yaml.MappingNode):
+    if not imports_entries:
         return None
 
-    effective_imports = deepcopy(imports_node)
-    loader.flatten_mapping(effective_imports)
-
-    seen: set[str] = set()
+    seen: dict[str, yaml.Mark] = {}
     duplicates: list[_DuplicateImportAliasEntry] = []
-    for key_node, _ in effective_imports.value:
-        alias = loader.construct_object(key_node, deep=True)
-        if not isinstance(alias, str):
+    first_imports_key = imports_entries[0][0]
+    for _, imports_node in imports_entries:
+        if not isinstance(imports_node, yaml.MappingNode):
             continue
-        if alias in seen:
-            if not any(entry.alias == alias for entry in duplicates):
-                duplicates.append(_DuplicateImportAliasEntry(alias, key_node.start_mark))
-            continue
-        seen.add(alias)
-    return _DuplicateImportAliasScan(imports_node.start_mark, tuple(duplicates))
+        effective_imports = deepcopy(imports_node)
+        loader.flatten_mapping(effective_imports)
+
+        for key_node, _ in effective_imports.value:
+            alias = loader.construct_object(key_node, deep=True)
+            if not isinstance(alias, str):
+                continue
+            if alias in seen:
+                if not any(entry.alias == alias for entry in duplicates):
+                    duplicates.append(
+                        _DuplicateImportAliasEntry(
+                            alias,
+                            seen[alias],
+                            key_node.start_mark,
+                        )
+                    )
+                continue
+            seen[alias] = key_node.start_mark
+    return _DuplicateImportAliasScan(
+        imports_key_mark=first_imports_key.start_mark,
+        entries=tuple(duplicates),
+        duplicate_imports_mark=(
+            imports_entries[1][0].start_mark
+            if len(imports_entries) > 1
+            else None
+        ),
+    )
 
 
 def _duplicate_import_aliases(
