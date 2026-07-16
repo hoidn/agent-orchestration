@@ -93,7 +93,7 @@
     "source_boundary_validation": {
       "fixture_only": true
     },
-    "source_repo_relative_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/source.orc",
+    "source_repo_relative_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/source.orc",
     "source_sha256": "sha256:a2f91555578522ecb6e0a9e6100265570e46c4d1e235cee3e37f06a2a9b47a0c",
     "temporary_candidate_repo_relative_path": "tmp/fictional-retirement-query-candidate.orc"
   }

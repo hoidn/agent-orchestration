@@ -21,7 +21,15 @@
 
 - [ ] **Step 1: Write parser RED tests**
 
-Add tests proving that `retired_identity_query_evidence` is required and closed, and that every field has the required type. The binding fields are `evidence_path`, `evidence_sha256`, `query_version`, `query_list_sha256`, `identity_count`, `identities_by_domain_sha256`, `baseline_path`, `baseline_sha256`, `old_source_path`, and `old_source_sha256`.
+Add tests proving that `retired_identity_query_evidence` is required and closed,
+and that every field has the required type. The binding fields are
+`evidence_path`, `evidence_sha256`, `query_version`, `query_list_sha256`,
+`identity_count`, `identities_by_domain_sha256`, `baseline_path`,
+`baseline_sha256`, `old_source_path`, `retained_old_source_path`, and
+`old_source_sha256`. `old_source_path` binds the historical path recorded by
+the pre-edit query; `retained_old_source_path` binds the content-addressed old
+production artifact. The paths may differ, but both roles must bind the same
+digest.
 
 - [ ] **Step 2: Run the parser RED tests**
 
@@ -71,6 +79,16 @@ missing domain-qualified retired row in `identity_delta`, and a retired raw
 identity appearing anywhere in the new production identity table. Assertions
 target stable issue codes and paths, not message phrasing.
 
+The central source-path positive fixture must use different paths: its frozen
+query records a historical source path whose current bytes differ from the
+pre-edit digest, while `retained_old_source_path` points to retained bytes that
+match that digest and the old production source artifact. Validation must pass
+without rereading or accepting current bytes at the historical path. Add
+targeted negatives for a historical-path binding mismatch, an unsafe
+historical path, a retained-path/artifact mismatch, and retained-path
+traversal, symlink, missing, and digest mismatch. Each must assert its specific
+issue code and field path.
+
 Use a helper that copies the generic fixture tree beneath a temporary
 repository root. The outer-byte-tamper test mutates `pre_edit_scan.json` and
 leaves `evidence_sha256` stale. For version/list/count/map/baseline/source
@@ -92,10 +110,18 @@ Expected: the new validation tests fail for the missing replay/union logic.
 
 - [ ] **Step 3: Implement retained-byte replay**
 
-Load the referenced evidence, baseline, and old source relative to `repo_root`
+Load the referenced evidence, baseline, and retained old source relative to `repo_root`
 with duplicate-key rejection, traversal/symlink rejection, readable-file
 checks, and exact SHA-256 verification. Require the frozen evidence's
 `old_identity_query` to agree with every binding field.
+
+Treat the query's historical `source_repo_relative_path` as content-addressed
+metadata: require it to match `old_source_path` and to be a safe
+repository-relative path, but do not compare its current post-migration bytes.
+Require `retained_old_source_path` to equal the old production source
+artifact's path, content-read that retained snapshot, and require its digest,
+the query's historical source digest, the record binding, and the old artifact
+digest to be identical.
 
 Require `old_identity_query.identities` to be a string-only, sorted,
 duplicate-free array. Require `identities_by_domain` to be a closed object
@@ -206,7 +232,17 @@ records, run roots, or unrelated dirty paths.
 
 - [ ] **Step 1: Add the pilot binding from immutable bytes**
 
-Bind the record to `pre_edit_known_store_scans.json.old_identity_query`, its file digest, 64-entry canonical query digest/count, exact 72-membership domain-map digest, frozen baseline path/digest, and old source path/digest. Do not rewrite any frozen evidence.
+Bind the record to `pre_edit_known_store_scans.json.old_identity_query`, its
+file digest, 64-entry canonical query digest/count, exact 72-membership
+domain-map digest, and frozen baseline path/digest. Set `old_source_path` to
+the immutable query's historical path
+`workflows/examples/design_plan_impl_review_stack_v2_call.orc`; set
+`retained_old_source_path` to
+`docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/source.orc`.
+Require both roles to share the immutable old-source digest
+`sha256:3a03feac563834cf8b9a0c1a329d006b82ad6ee210537b3e82fc0de786171bfb`.
+Do not rewrite any frozen evidence or compare the migrated live source bytes to
+the historical digest.
 
 - [ ] **Step 2: Regenerate the full domain-qualified identity delta**
 

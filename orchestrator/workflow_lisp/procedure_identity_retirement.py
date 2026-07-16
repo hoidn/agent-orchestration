@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Sequence
 from urllib.parse import unquote
@@ -133,6 +134,7 @@ class RetiredIdentityQueryEvidence:
     baseline_path: str
     baseline_sha256: str
     old_source_path: str
+    retained_old_source_path: str
     old_source_sha256: str
 
 
@@ -462,6 +464,7 @@ def _parse_retired_identity_query_evidence(value: Any) -> RetiredIdentityQueryEv
         "baseline_path",
         "baseline_sha256",
         "old_source_path",
+        "retained_old_source_path",
         "old_source_sha256",
     }
     row = _object(value, path, allowed=fields, required=fields)
@@ -478,6 +481,7 @@ def _parse_retired_identity_query_evidence(value: Any) -> RetiredIdentityQueryEv
         baseline_path=row["baseline_path"],
         baseline_sha256=row["baseline_sha256"],
         old_source_path=row["old_source_path"],
+        retained_old_source_path=row["retained_old_source_path"],
         old_source_sha256=row["old_source_sha256"],
     )
 
@@ -921,13 +925,93 @@ def _load_content_addressed_file(
             f"path cannot be inspected safely: {exc}",
         )
     try:
-        content = _read_stable_bytes(candidate)
+        content = _read_stable_relative_bytes(root, relative)
     except ValueError as exc:
         return None, "procedure_identity_retirement_artifact_read_failed", str(exc)
     actual = f"sha256:{sha256(content).hexdigest()}"
     if actual != declared_digest:
         return None, "procedure_identity_retirement_artifact_digest_mismatch", f"declared {declared_digest}, observed {actual}"
     return content, None, ""
+
+
+def _read_stable_relative_bytes(root: Path, relative: Path) -> bytes:
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    nonblock = getattr(os, "O_NONBLOCK", None)
+    close_on_exec = getattr(os, "O_CLOEXEC", 0)
+    if nofollow is None or directory is None or nonblock is None:
+        raise ValueError(
+            "descriptor-relative content-addressed reads require "
+            "O_NOFOLLOW, O_DIRECTORY, and O_NONBLOCK"
+        )
+
+    directory_flags = os.O_RDONLY | directory | nofollow | close_on_exec
+    file_flags = os.O_RDONLY | nofollow | nonblock | close_on_exec
+    directory_descriptor: int | None = None
+    file_descriptor: int | None = None
+    try:
+        directory_descriptor = os.open(root.resolve(strict=True), directory_flags)
+        for component in relative.parts[:-1]:
+            next_descriptor = os.open(
+                component,
+                directory_flags,
+                dir_fd=directory_descriptor,
+            )
+            os.close(directory_descriptor)
+            directory_descriptor = next_descriptor
+        file_descriptor = os.open(
+            relative.parts[-1],
+            file_flags,
+            dir_fd=directory_descriptor,
+        )
+        with os.fdopen(file_descriptor, "rb") as handle:
+            file_descriptor = None
+            before = os.fstat(handle.fileno())
+            if not stat.S_ISREG(before.st_mode):
+                raise ValueError("content-addressed path must name a regular file")
+            content = handle.read()
+            after = os.fstat(handle.fileno())
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError(
+            f"could not read content-addressed file safely: {relative}: {exc}"
+        ) from exc
+    finally:
+        if file_descriptor is not None:
+            os.close(file_descriptor)
+        if directory_descriptor is not None:
+            os.close(directory_descriptor)
+
+    signature_before = (
+        before.st_dev,
+        before.st_ino,
+        before.st_size,
+        before.st_mtime_ns,
+    )
+    signature_after = (
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+        after.st_mtime_ns,
+    )
+    if signature_before != signature_after or len(content) != before.st_size:
+        raise ValueError(
+            f"content-addressed file changed while reading: {relative}"
+        )
+    return content
+
+
+def _is_safe_repository_relative_metadata_path(raw_path: str) -> bool:
+    try:
+        relative = Path(raw_path)
+        return (
+            bool(raw_path)
+            and bool(relative.parts)
+            and "\x00" not in raw_path
+            and not relative.is_absolute()
+            and ".." not in relative.parts
+        )
+    except (OSError, RuntimeError, ValueError):
+        return False
 
 
 def _validate_artifacts(
@@ -1613,46 +1697,30 @@ def _validate_retired_identity_query_evidence(
                 "sorted unique domain flattening must equal the canonical raw list",
             )
 
-    retained_files = (
-        (
-            "baseline",
-            query.get("baseline_repo_relative_path"),
-            query.get("baseline_sha256"),
-            binding.baseline_path,
-            binding.baseline_sha256,
-        ),
-        (
-            "old_source",
-            query.get("source_repo_relative_path"),
-            query.get("source_sha256"),
-            binding.old_source_path,
-            binding.old_source_sha256,
-        ),
-    )
-    for label, query_path, query_digest, bound_path, bound_digest in retained_files:
-        field_prefix = "baseline" if label == "baseline" else "old_source"
-        path_field = f"{field_prefix}_path"
-        digest_field = f"{field_prefix}_sha256"
-        if not isinstance(query_path, str) or query_path != bound_path:
-            _issue(
-                issues,
-                f"procedure_identity_retirement_query_{label}_path_mismatch",
-                f"{binding_path}.{path_field}",
-                "retained query path does not match the record binding",
-            )
-            continue
-        if not isinstance(query_digest, str):
-            _issue(
-                issues,
-                f"procedure_identity_retirement_query_{label}_digest_mismatch",
-                f"{binding_path}.{digest_field}",
-                "retained query digest must be a string",
-            )
-            continue
+    query_baseline_path = query.get("baseline_repo_relative_path")
+    query_baseline_digest = query.get("baseline_sha256")
+    if (
+        not isinstance(query_baseline_path, str)
+        or query_baseline_path != binding.baseline_path
+    ):
+        _issue(
+            issues,
+            "procedure_identity_retirement_query_baseline_path_mismatch",
+            f"{binding_path}.baseline_path",
+            "retained query path does not match the record binding",
+        )
+    elif not isinstance(query_baseline_digest, str):
+        _issue(
+            issues,
+            "procedure_identity_retirement_query_baseline_digest_mismatch",
+            f"{binding_path}.baseline_sha256",
+            "retained query digest must be a string",
+        )
+    else:
         retained_content, retained_error, retained_message = _load_content_addressed_file(
             repo_root.resolve(),
-            raw_path=query_path,
-            declared_digest=query_digest,
+            raw_path=query_baseline_path,
+            declared_digest=query_baseline_digest,
         )
         if retained_content is None:
             if retained_error in {
@@ -1660,33 +1728,112 @@ def _validate_retired_identity_query_evidence(
                 "procedure_identity_retirement_artifact_path_invalid",
                 "procedure_identity_retirement_artifact_symlink_forbidden",
             }:
-                issue_code = f"procedure_identity_retirement_query_{label}_path_invalid"
-                issue_path = f"{binding_path}.{path_field}"
+                issue_code = (
+                    "procedure_identity_retirement_query_baseline_path_invalid"
+                )
+                issue_path = f"{binding_path}.baseline_path"
             elif retained_error in {
                 "procedure_identity_retirement_artifact_missing",
                 "procedure_identity_retirement_artifact_read_failed",
             }:
-                issue_code = f"procedure_identity_retirement_query_{label}_unavailable"
-                issue_path = f"{binding_path}.{path_field}"
+                issue_code = "procedure_identity_retirement_query_baseline_unavailable"
+                issue_path = f"{binding_path}.baseline_path"
             elif retained_error == "procedure_identity_retirement_artifact_digest_mismatch":
-                issue_code = f"procedure_identity_retirement_query_{label}_digest_mismatch"
-                issue_path = f"{binding_path}.{digest_field}"
+                issue_code = (
+                    "procedure_identity_retirement_query_baseline_digest_mismatch"
+                )
+                issue_path = f"{binding_path}.baseline_sha256"
             else:
-                issue_code = f"procedure_identity_retirement_query_{label}_unavailable"
-                issue_path = f"{binding_path}.{path_field}"
+                issue_code = "procedure_identity_retirement_query_baseline_unavailable"
+                issue_path = f"{binding_path}.baseline_path"
             _issue(
                 issues,
                 issue_code,
                 issue_path,
                 f"retained bytes could not satisfy the query binding: {retained_error}: {retained_message}",
             )
-        if query_digest != bound_digest:
+        if query_baseline_digest != binding.baseline_sha256:
             _issue(
                 issues,
-                f"procedure_identity_retirement_query_{label}_digest_mismatch",
-                f"{binding_path}.{digest_field}",
+                "procedure_identity_retirement_query_baseline_digest_mismatch",
+                f"{binding_path}.baseline_sha256",
                 "retained query digest does not match the record binding",
             )
+
+    query_source_path = query.get("source_repo_relative_path")
+    if (
+        not isinstance(query_source_path, str)
+        or query_source_path != binding.old_source_path
+    ):
+        _issue(
+            issues,
+            "procedure_identity_retirement_query_old_source_path_mismatch",
+            f"{binding_path}.old_source_path",
+            "historical source path does not match the record binding",
+        )
+    if not _is_safe_repository_relative_metadata_path(binding.old_source_path) or (
+        isinstance(query_source_path, str)
+        and not _is_safe_repository_relative_metadata_path(query_source_path)
+    ):
+        _issue(
+            issues,
+            "procedure_identity_retirement_query_old_source_path_invalid",
+            f"{binding_path}.old_source_path",
+            "historical source path must be safe repository-relative metadata",
+        )
+
+    query_source_digest = query.get("source_sha256")
+    if (
+        not isinstance(query_source_digest, str)
+        or query_source_digest != binding.old_source_sha256
+    ):
+        _issue(
+            issues,
+            "procedure_identity_retirement_query_old_source_digest_mismatch",
+            f"{binding_path}.old_source_sha256",
+            "historical source digest does not match the record binding",
+        )
+
+    retained_content, retained_error, retained_message = _load_content_addressed_file(
+        repo_root.resolve(),
+        raw_path=binding.retained_old_source_path,
+        declared_digest=binding.old_source_sha256,
+    )
+    if retained_content is None:
+        if retained_error in {
+            "procedure_identity_retirement_artifact_path_outside_repository",
+            "procedure_identity_retirement_artifact_path_invalid",
+            "procedure_identity_retirement_artifact_symlink_forbidden",
+        }:
+            issue_code = (
+                "procedure_identity_retirement_query_retained_old_source_path_invalid"
+            )
+            issue_path = f"{binding_path}.retained_old_source_path"
+        elif retained_error in {
+            "procedure_identity_retirement_artifact_missing",
+            "procedure_identity_retirement_artifact_read_failed",
+        }:
+            issue_code = (
+                "procedure_identity_retirement_query_retained_old_source_unavailable"
+            )
+            issue_path = f"{binding_path}.retained_old_source_path"
+        elif retained_error == "procedure_identity_retirement_artifact_digest_mismatch":
+            issue_code = (
+                "procedure_identity_retirement_query_retained_old_source_digest_mismatch"
+            )
+            issue_path = f"{binding_path}.old_source_sha256"
+        else:
+            issue_code = (
+                "procedure_identity_retirement_query_retained_old_source_unavailable"
+            )
+            issue_path = f"{binding_path}.retained_old_source_path"
+        _issue(
+            issues,
+            issue_code,
+            issue_path,
+            "retained old-source bytes could not satisfy the query binding: "
+            f"{retained_error}: {retained_message}",
+        )
 
     old_source_artifact = next(
         (
@@ -1697,12 +1844,12 @@ def _validate_retired_identity_query_evidence(
         None,
     )
     if old_source_artifact is not None:
-        if binding.old_source_path != old_source_artifact.path:
+        if binding.retained_old_source_path != old_source_artifact.path:
             _issue(
                 issues,
-                "procedure_identity_retirement_query_old_source_path_mismatch",
-                f"{binding_path}.old_source_path",
-                "retired-query old source path must equal the old production source path",
+                "procedure_identity_retirement_query_retained_old_source_path_mismatch",
+                f"{binding_path}.retained_old_source_path",
+                "retained old-source path must equal the old production source path",
             )
         if binding.old_source_sha256 != old_source_artifact.sha256:
             _issue(

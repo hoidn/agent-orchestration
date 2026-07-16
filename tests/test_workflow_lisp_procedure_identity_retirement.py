@@ -139,6 +139,19 @@ def test_retired_identity_query_evidence_is_required(tmp_path: Path) -> None:
         load_retirement_record(_write_payload(tmp_path, payload))
 
 
+def test_retired_identity_query_evidence_retained_source_path_is_required(
+    tmp_path: Path,
+) -> None:
+    payload = _payload()
+    payload["retired_identity_query_evidence"].pop("retained_old_source_path")
+
+    with pytest.raises(
+        ValueError,
+        match=r"missing required fields:.*retained_old_source_path",
+    ):
+        load_retirement_record(_write_payload(tmp_path, payload))
+
+
 @pytest.mark.parametrize(
     ("field", "invalid", "message"),
     [
@@ -155,6 +168,11 @@ def test_retired_identity_query_evidence_is_required(tmp_path: Path) -> None:
         ("baseline_path", 42, "baseline_path must be a string"),
         ("baseline_sha256", 42, "baseline_sha256 must be a string"),
         ("old_source_path", 42, "old_source_path must be a string"),
+        (
+            "retained_old_source_path",
+            42,
+            "retained_old_source_path must be a string",
+        ),
         ("old_source_sha256", 42, "old_source_sha256 must be a string"),
     ],
 )
@@ -175,6 +193,7 @@ def test_retired_identity_query_evidence_parser_requires_field_types(
         "baseline_path": "baseline.json",
         "baseline_sha256": "sha256:" + "0" * 64,
         "old_source_path": "source.orc",
+        "retained_old_source_path": "retained/source.orc",
         "old_source_sha256": "sha256:" + "0" * 64,
     }
     payload["retired_identity_query_evidence"][field] = invalid
@@ -195,6 +214,7 @@ def test_retired_identity_query_evidence_parser_is_closed(tmp_path: Path) -> Non
         "baseline_path": "baseline.json",
         "baseline_sha256": "sha256:" + "0" * 64,
         "old_source_path": "source.orc",
+        "retained_old_source_path": "retained/source.orc",
         "old_source_sha256": "sha256:" + "0" * 64,
         "unknown": True,
     }
@@ -1746,17 +1766,49 @@ def _rebind_retired_query(
     ] = _canonical_json_sha256(query["identities_by_domain"])
 
 
-def test_retired_query_evidence_validates_overlapping_domain_membership() -> None:
+def test_retired_query_accepts_distinct_historical_and_retained_source_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     payload = json.loads(
         (FIXTURE.parent / "pre_edit_scan.json").read_text(encoding="utf-8")
     )
     domains = payload["old_identity_query"]["identities_by_domain"]
+    record_payload = _payload()
+    binding = record_payload["retired_identity_query_evidence"]
+    new_source_artifact = next(
+        artifact
+        for artifact in record_payload["artifacts"]
+        if artifact["side"] == "new" and artifact["role"] == "source"
+    )
+    historical_path = REPO_ROOT / binding["old_source_path"]
+    historical_relative = Path(binding["old_source_path"])
+    retained_path = REPO_ROOT / binding["retained_old_source_path"]
+    module = _retirement_module()
+    original = module._read_stable_relative_bytes
+    historical_read_count = 0
+
+    def count_historical_reads(root: Path, relative: Path) -> bytes:
+        nonlocal historical_read_count
+        if relative == historical_relative:
+            historical_read_count += 1
+        return original(root, relative)
+
+    monkeypatch.setattr(
+        module,
+        "_read_stable_relative_bytes",
+        count_historical_reads,
+    )
 
     assert "legacy-shared-token" in domains["executable_node"]
     assert "legacy-shared-token" in domains["presentation_key"]
+    assert historical_path != retained_path
+    assert _sha256_path(historical_path) == new_source_artifact["sha256"]
+    assert new_source_artifact["sha256"] != binding["old_source_sha256"]
+    assert _sha256_path(retained_path) == binding["old_source_sha256"]
     assert validate_retirement_record(
         load_retirement_record(FIXTURE), repo_root=REPO_ROOT
     ).valid
+    assert historical_read_count == 2  # New artifact and its manifest input only.
 
 
 def test_retired_query_evidence_rejects_outer_byte_tamper(tmp_path: Path) -> None:
@@ -2197,10 +2249,10 @@ def test_retired_query_evidence_rejects_nonfinite_json_constant(
             "baseline_path",
         ),
         (
-            "old_source",
+            "retained_old_source",
             "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/missing.orc",
-            "procedure_identity_retirement_query_old_source_unavailable",
-            "old_source_path",
+            "procedure_identity_retirement_query_retained_old_source_unavailable",
+            "retained_old_source_path",
         ),
     ],
 )
@@ -2212,20 +2264,176 @@ def test_retired_query_retained_file_path_failures_are_precise(
     field: str,
 ) -> None:
     def mutate(record: dict[str, Any], evidence: dict[str, Any], _copied: Path) -> None:
-        query_field = (
-            "baseline_repo_relative_path"
-            if target == "baseline"
-            else "source_repo_relative_path"
-        )
-        query = evidence["old_identity_query"]
-        query[query_field] = path_value
+        if target == "baseline":
+            evidence["old_identity_query"]["baseline_repo_relative_path"] = path_value
         record["retired_identity_query_evidence"][field] = path_value
+        if target == "retained_old_source":
+            next(
+                row
+                for row in record["artifacts"]
+                if row["side"] == "old" and row["role"] == "source"
+            )["path"] = path_value
 
     repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
 
     assert (
         code,
         f"$.retired_identity_query_evidence.{field}",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_retired_query_historical_source_path_binding_mismatch_is_targeted(
+    tmp_path: Path,
+) -> None:
+    def mutate(record: dict[str, Any], _evidence: dict[str, Any], _copied: Path) -> None:
+        record["retired_identity_query_evidence"]["old_source_path"] = (
+            "tests/fixtures/workflow_lisp/procedure_identity_retirement/other/source.orc"
+        )
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        "procedure_identity_retirement_query_old_source_path_mismatch",
+        "$.retired_identity_query_evidence.old_source_path",
+    ) in _issue_pairs(record_path, repo)
+
+
+@pytest.mark.parametrize(
+    "historical_path",
+    [".", "../outside.orc", "/absolute.orc", "bad\x00path"],
+)
+def test_retired_query_historical_source_path_must_be_safe_metadata(
+    tmp_path: Path,
+    historical_path: str,
+) -> None:
+    def mutate(record: dict[str, Any], evidence: dict[str, Any], _copied: Path) -> None:
+        evidence["old_identity_query"]["source_repo_relative_path"] = historical_path
+        record["retired_identity_query_evidence"]["old_source_path"] = historical_path
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        "procedure_identity_retirement_query_old_source_path_invalid",
+        "$.retired_identity_query_evidence.old_source_path",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_retired_query_retained_source_path_must_match_old_source_artifact(
+    tmp_path: Path,
+) -> None:
+    def mutate(record: dict[str, Any], _evidence: dict[str, Any], _copied: Path) -> None:
+        record["retired_identity_query_evidence"]["retained_old_source_path"] = (
+            record["retired_identity_query_evidence"]["old_source_path"]
+        )
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        "procedure_identity_retirement_query_retained_old_source_path_mismatch",
+        "$.retired_identity_query_evidence.retained_old_source_path",
+    ) in _issue_pairs(record_path, repo)
+
+
+@pytest.mark.parametrize(
+    ("retained_path", "code"),
+    [
+        (
+            "../outside.orc",
+            "procedure_identity_retirement_query_retained_old_source_path_invalid",
+        ),
+        (
+            "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/missing.orc",
+            "procedure_identity_retirement_query_retained_old_source_unavailable",
+        ),
+    ],
+)
+def test_retired_query_retained_source_path_failures_are_targeted(
+    tmp_path: Path,
+    retained_path: str,
+    code: str,
+) -> None:
+    def mutate(record: dict[str, Any], _evidence: dict[str, Any], _copied: Path) -> None:
+        record["retired_identity_query_evidence"][
+            "retained_old_source_path"
+        ] = retained_path
+        next(
+            row
+            for row in record["artifacts"]
+            if row["side"] == "old" and row["role"] == "source"
+        )["path"] = retained_path
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        code,
+        "$.retired_identity_query_evidence.retained_old_source_path",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_retired_query_retained_source_symlink_is_rejected(tmp_path: Path) -> None:
+    def mutate(record: dict[str, Any], _evidence: dict[str, Any], copied: Path) -> None:
+        link = copied / "retained-source-link.orc"
+        link.symlink_to(copied / "old" / "source.orc")
+        retained_path = (
+            "tests/fixtures/workflow_lisp/procedure_identity_retirement/"
+            "retained-source-link.orc"
+        )
+        record["retired_identity_query_evidence"][
+            "retained_old_source_path"
+        ] = retained_path
+        next(
+            row
+            for row in record["artifacts"]
+            if row["side"] == "old" and row["role"] == "source"
+        )["path"] = retained_path
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        "procedure_identity_retirement_query_retained_old_source_path_invalid",
+        "$.retired_identity_query_evidence.retained_old_source_path",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_retired_query_retained_source_read_failure_is_targeted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, copied = _copied_retirement_repo(tmp_path)
+    record_path = copied / "valid_internal_retirement.json"
+    retained_relative = Path(
+        "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/source.orc"
+    )
+    module = _retirement_module()
+    original = module._read_stable_relative_bytes
+
+    def fail_retained_read(root: Path, relative: Path) -> bytes:
+        if relative == retained_relative:
+            raise ValueError("simulated stable read failure")
+        return original(root, relative)
+
+    monkeypatch.setattr(
+        module,
+        "_read_stable_relative_bytes",
+        fail_retained_read,
+    )
+
+    assert (
+        "procedure_identity_retirement_query_retained_old_source_unavailable",
+        "$.retired_identity_query_evidence.retained_old_source_path",
+    ) in _issue_pairs(record_path, repo)
+
+
+def test_retired_query_retained_source_digest_failure_is_targeted(tmp_path: Path) -> None:
+    def mutate(_record: dict[str, Any], _evidence: dict[str, Any], copied: Path) -> None:
+        source = copied / "old" / "source.orc"
+        source.write_bytes(source.read_bytes() + b"; unexpected retained mutation\n")
+
+    repo, record_path = _mutate_retired_query_fixture(tmp_path, mutate)
+
+    assert (
+        "procedure_identity_retirement_query_retained_old_source_digest_mismatch",
+        "$.retired_identity_query_evidence.old_source_sha256",
     ) in _issue_pairs(record_path, repo)
 
 
@@ -2799,14 +3007,117 @@ def test_unsafe_artifact_is_not_opened_by_downstream_relation_validation(
     source = next(row for row in record.artifacts if row.side == "old" and row.role == "source")
     changed = replace(source, path=str(unsafe))
     artifacts = tuple(changed if row is source else row for row in record.artifacts)
-    original = module._read_stable_bytes
+    original = module._read_stable_relative_bytes
 
-    def guarded(path: Path) -> bytes:
-        if path == unsafe:
+    def guarded(root: Path, relative: Path) -> bytes:
+        if relative.is_absolute() or root / relative == unsafe:
             raise AssertionError("unsafe artifact was opened")
-        return original(path)
+        return original(root, relative)
 
-    monkeypatch.setattr(module, "_read_stable_bytes", guarded)
+    monkeypatch.setattr(module, "_read_stable_relative_bytes", guarded)
     issues = validate_retirement_record(replace(record, artifacts=artifacts), repo_root=REPO_ROOT).issues
 
     assert "procedure_identity_retirement_artifact_path_outside_repository" in {issue.code for issue in issues}
+
+
+def test_content_addressed_reader_rejects_ancestor_symlink_swap_after_preflight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _retirement_module()
+    repo = tmp_path / "repo"
+    ancestor = repo / "evidence"
+    ancestor.mkdir(parents=True)
+    inside = ancestor / "record.json"
+    inside.write_bytes(b"inside bytes that must not validate")
+    parked = repo / "evidence-before-swap"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside_bytes = b'{"outside":true}\n'
+    (outside / "record.json").write_bytes(outside_bytes)
+    declared_digest = "sha256:" + hashlib.sha256(outside_bytes).hexdigest()
+    original_open = module.os.open
+    swapped = False
+
+    def swap_ancestor_then_open(
+        path: object,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal swapped
+        absolute_final_open = dir_fd is None and Path(path) == inside
+        descriptor_relative_ancestor_open = dir_fd is not None and path == "evidence"
+        if not swapped and (absolute_final_open or descriptor_relative_ancestor_open):
+            swapped = True
+            ancestor.rename(parked)
+            ancestor.symlink_to(outside, target_is_directory=True)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(module.os, "open", swap_ancestor_then_open)
+
+    content, error_code, _message = module._load_content_addressed_file(
+        repo,
+        raw_path="evidence/record.json",
+        declared_digest=declared_digest,
+    )
+
+    assert swapped is True
+    assert content is None
+    assert error_code == "procedure_identity_retirement_artifact_read_failed"
+
+
+def test_content_addressed_reader_rejects_final_fifo_swap_without_blocking(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    evidence = repo / "evidence"
+    evidence.mkdir(parents=True)
+    target = evidence / "record.json"
+    target.write_bytes(b"regular bytes visible during preflight")
+    script = r"""
+import json
+import os
+from pathlib import Path
+import sys
+
+from orchestrator.workflow_lisp import procedure_identity_retirement as module
+
+repo = Path(sys.argv[1])
+target = repo / "evidence" / "record.json"
+original_open = module.os.open
+swapped = False
+
+def swap_final_to_fifo(path, flags, mode=0o777, *, dir_fd=None):
+    global swapped
+    if not swapped and dir_fd is not None and path == "record.json":
+        swapped = True
+        target.unlink()
+        os.mkfifo(target)
+    return original_open(path, flags, mode, dir_fd=dir_fd)
+
+module.os.open = swap_final_to_fifo
+content, error_code, _message = module._load_content_addressed_file(
+    repo,
+    raw_path="evidence/record.json",
+    declared_digest="sha256:" + "0" * 64,
+)
+print(json.dumps({"content": content is not None, "error_code": error_code, "swapped": swapped}))
+"""
+
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(repo)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=2,
+        check=True,
+    )
+    observed = json.loads(result.stdout)
+
+    assert observed == {
+        "content": False,
+        "error_code": "procedure_identity_retirement_artifact_read_failed",
+        "swapped": True,
+    }

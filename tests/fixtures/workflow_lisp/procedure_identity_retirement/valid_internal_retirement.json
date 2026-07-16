@@ -59,14 +59,15 @@
   "external_store_absence": "not_asserted",
   "retired_identity_query_evidence": {
     "evidence_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/pre_edit_scan.json",
-    "evidence_sha256": "sha256:83681a629614a0ade97588ed18c0334992410280a7b300f38fe93b860fe01531",
+    "evidence_sha256": "sha256:70cceef7a13c53a5da4a9c0531f9d43afbaffe09f0629dedbfe5dd400e11c984",
     "query_version": "procedure-identity-store-query.v1",
     "query_list_sha256": "sha256:f9938619784ffc711d216811552d41cecd6100937d6efdbcdebcc0cce57cbff6",
     "identity_count": 27,
     "identities_by_domain_sha256": "sha256:f5e8f499b19f495f5de02d744dfadc882d9100aa3a038a21eb66de291672335f",
     "baseline_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/identity_baseline.json",
     "baseline_sha256": "sha256:029e660948278ec97179d85db7dcb98531bc29f2b957002f23c816fb1aef8766",
-    "old_source_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/source.orc",
+    "old_source_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/new/source.orc",
+    "retained_old_source_path": "tests/fixtures/workflow_lisp/procedure_identity_retirement/old/source.orc",
     "old_source_sha256": "sha256:a2f91555578522ecb6e0a9e6100265570e46c4d1e235cee3e37f06a2a9b47a0c"
   },
   "artifacts": [

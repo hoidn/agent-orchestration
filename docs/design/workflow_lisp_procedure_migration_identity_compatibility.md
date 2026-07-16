@@ -357,9 +357,14 @@ A retirement record uses schema
   production table only for retired domain-qualified rows absent from those
   artifacts. The binding includes the evidence path and digest, query version,
   canonical query-list digest, identity count and exact domain membership map,
-  frozen-baseline path and digest, and retained old-source path and digest. The
-  validator reads retained bytes only: it neither recompiles the old source
-  with the current compiler nor requires full per-workflow production bundles;
+  frozen-baseline path and digest, the historical source path recorded by the
+  pre-edit query, the retained old-source artifact path, and their one required
+  shared digest. The historical and retained paths may differ because the live
+  path can contain migrated source after capture; the validator does not reread
+  current bytes there. It content-verifies the retained old-source artifact
+  against the query's historical digest instead. The validator reads retained
+  evidence bytes only: it neither recompiles the old source with the current
+  compiler nor requires full per-workflow production bundles;
 - artifact-contract comparison as a **keyed multiset**, preserving duplicate
   contracts. Keys include owning public entry, semantic step role, contract
   kind, artifact/field name, JSON pointer, type/variant, and publication role;
@@ -400,7 +405,8 @@ that occurs anywhere in the new production identity table is a leaked retired
 identity and is a hard validation failure, not a preserved identity or a
 reason to trim the frozen query. Any mismatch in the
 query version, canonical digest, identity count, exact domain membership map,
-frozen-baseline digest, or old-source digest fails closed.
+frozen-baseline digest, historical-source path binding, retained old-source
+path binding, or their shared old-source digest fails closed.
 
 This query evidence is evidence-only. Validation has no mutation output and
 cannot authorize or perform a state-store, workflow-source, or build-artifact
