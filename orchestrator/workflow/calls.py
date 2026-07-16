@@ -166,10 +166,26 @@ class CallExecutor:
         imported_workflow: Any | None = None,
     ) -> str:
         """Derive a durable call-frame id from an optional runtime-local step identity."""
+        fresh_frame_id = self._fresh_frame_id(
+            step,
+            state,
+            step_name=step_name,
+            step_id=step_id,
+        )
         if getattr(self.executor, "resume_mode", False):
             call_frames = state.get("call_frames", {})
             effective_step_id = step_id or self.executor._step_id(step)
             if isinstance(call_frames, dict):
+                occupied_fresh_frame = call_frames.get(fresh_frame_id)
+                if (
+                    isinstance(occupied_fresh_frame, Mapping)
+                    and occupied_fresh_frame.get("status") == "completed"
+                ):
+                    raise CallFrameRetryLineageError(
+                        "completed_call_frame_id_collision",
+                        frame_id=fresh_frame_id,
+                        offending_value=occupied_fresh_frame,
+                    )
                 lineage = self._retry_lineage_for_step(
                     step_id=effective_step_id,
                     call_frames=call_frames,
@@ -180,12 +196,7 @@ class CallExecutor:
                 if lineage.failed_predecessors:
                     return lineage.base_frame_id
 
-        return self._fresh_frame_id(
-            step,
-            state,
-            step_name=step_name,
-            step_id=step_id,
-        )
+        return fresh_frame_id
 
     def resolve_bound_inputs(
         self,
@@ -878,16 +889,6 @@ class CallExecutor:
             if self.executor.resume_mode
             else None
         )
-        if retry_lineage is not None and any(
-            member.frame_id == frame_id
-            for member in retry_lineage.completed_members
-        ):
-            return self.resume_state_invalid_result(
-                step_name=step_name,
-                call_alias=call_alias,
-                frame_id=frame_id,
-                detail="completed_call_frame_id_collision",
-            )
         frame_exists = frame_id in call_frames
         existing_frame = call_frames.get(frame_id)
         if (

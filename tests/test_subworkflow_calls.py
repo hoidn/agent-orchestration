@@ -2018,8 +2018,17 @@ def test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_sele
     assert exc_info.value.reason == "ambiguous_resumable_call_frame"
 
 
-def test_completed_call_frame_id_collision_rejects_instead_of_resuming_history(
+@pytest.mark.parametrize(
+    "persisted_call_step_id",
+    [
+        pytest.param("root.run_review_loop", id="matching-caller"),
+        pytest.param("root.stale_call", id="stale-caller"),
+        pytest.param(None, id="missing-caller"),
+    ],
+)
+def test_occupied_completed_call_frame_collision_rejects_before_lineage_grouping(
     tmp_path: Path,
+    persisted_call_step_id: str | None,
 ) -> None:
     _write_yaml(
         tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
@@ -2047,6 +2056,12 @@ def test_completed_call_frame_id_collision_rejects_instead_of_resuming_history(
 
     assert completed_state["step_visits"]["RunReviewLoop"] == 1
     assert completed_state["call_frames"][frame_id]["status"] == "completed"
+    if persisted_call_step_id is None:
+        completed_state["call_frames"][frame_id].pop("call_step_id")
+    else:
+        completed_state["call_frames"][frame_id][
+            "call_step_id"
+        ] = persisted_call_step_id
 
     resume_executor = WorkflowExecutor(bundle, tmp_path, state_manager)
     resume_executor.resume_mode = True
