@@ -55,7 +55,25 @@ from orchestrator.workflow.statements import (
 
 class PreservingLoader(yaml.SafeLoader):
     """Custom YAML loader that preserves string keys like 'on' instead of converting to bool."""
-    pass
+
+    def get_single_data(self):
+        """Validate the composed workflow document before constructing its mapping."""
+        document = self.get_single_node()
+        if document is not None:
+            duplicate_aliases = _duplicate_import_aliases(self, document)
+            if duplicate_aliases:
+                message = "; ".join(
+                    f"imports.{alias}: duplicate import alias"
+                    for alias in duplicate_aliases
+                )
+                raise yaml.constructor.ConstructorError(
+                    "while constructing workflow imports",
+                    document.start_mark,
+                    message,
+                    document.start_mark,
+                )
+            return self.construct_document(document)
+        return None
 
 
 class WorkflowBoundaryValidationPolicy(str, Enum):
@@ -79,6 +97,39 @@ if 'O' in PreservingLoader.yaml_implicit_resolvers:
         (tag, regexp) for tag, regexp in PreservingLoader.yaml_implicit_resolvers['O']
         if tag != 'tag:yaml.org,2002:bool'
     ]
+
+
+def _duplicate_import_aliases(
+    loader: PreservingLoader,
+    document: yaml.Node,
+) -> tuple[str, ...]:
+    """Return duplicate effective aliases from the top-level imports mapping."""
+    if not isinstance(document, yaml.MappingNode):
+        return ()
+
+    imports_node = None
+    for key_node, value_node in document.value:
+        if isinstance(key_node, yaml.ScalarNode) and key_node.value == "imports":
+            imports_node = value_node
+
+    if not isinstance(imports_node, yaml.MappingNode):
+        return ()
+
+    effective_imports = deepcopy(imports_node)
+    loader.flatten_mapping(effective_imports)
+
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for key_node, _ in effective_imports.value:
+        alias = loader.construct_object(key_node, deep=True)
+        if not isinstance(alias, str):
+            continue
+        if alias in seen:
+            if alias not in duplicates:
+                duplicates.append(alias)
+            continue
+        seen.add(alias)
+    return tuple(duplicates)
 
 
 class WorkflowLoader:

@@ -198,6 +198,127 @@ class TestLoaderValidation:
             yaml.dump(content, f)
         return path
 
+    def test_duplicate_import_alias_keys_are_rejected_before_bundle_construction(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        for filename in ("child.yaml", "replacement.yaml"):
+            (self.workspace / filename).write_text(
+                """\
+version: "2.5"
+name: imported
+steps:
+  - name: Done
+    command: [echo, done]
+""",
+                encoding="utf-8",
+            )
+        path = self.workspace / "workflow.yml"
+        path.write_text(
+            """\
+version: "2.5"
+name: duplicate-import-alias
+imports:
+  child: child.yaml
+  child: replacement.yaml
+steps:
+  - name: Done
+    command: [echo, done]
+""",
+            encoding="utf-8",
+        )
+
+        def reject_bundle_construction(*args, **kwargs):
+            pytest.fail("bundle construction must not run for duplicate import aliases")
+
+        monkeypatch.setattr(
+            "orchestrator.loader.build_loaded_workflow_bundle",
+            reject_bundle_construction,
+        )
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert "imports.child: duplicate import alias" in str(exc_info.value)
+
+    def test_merge_induced_duplicate_import_alias_is_rejected_before_bundle_construction(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        for filename in ("child.yaml", "replacement.yaml"):
+            (self.workspace / filename).write_text(
+                """\
+version: "2.5"
+name: imported
+steps:
+  - name: Done
+    command: [echo, done]
+""",
+                encoding="utf-8",
+            )
+        path = self.workspace / "workflow.yml"
+        path.write_text(
+            """\
+version: "2.5"
+name: merge-duplicate-import-alias
+imports:
+  <<: &import_defaults
+    child: child.yaml
+  child: replacement.yaml
+steps:
+  - name: Done
+    command: [echo, done]
+""",
+            encoding="utf-8",
+        )
+
+        def reject_bundle_construction(*args, **kwargs):
+            pytest.fail("bundle construction must not run for duplicate import aliases")
+
+        monkeypatch.setattr(
+            "orchestrator.loader.build_loaded_workflow_bundle",
+            reject_bundle_construction,
+        )
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert "imports.child: duplicate import alias" in str(exc_info.value)
+
+    def test_unique_import_aliases_load(self):
+        for filename, workflow_name in (
+            ("child.yaml", "child"),
+            ("sibling.yaml", "sibling"),
+        ):
+            (self.workspace / filename).write_text(
+                f"""\
+version: "2.5"
+name: {workflow_name}
+steps:
+  - name: Done
+    command: [echo, done]
+""",
+                encoding="utf-8",
+            )
+        path = self.workspace / "workflow.yml"
+        path.write_text(
+            """\
+version: "2.5"
+name: unique-import-aliases
+imports:
+  on: child.yaml
+  sibling: sibling.yaml
+steps:
+  - name: Done
+    command: [echo, done]
+""",
+            encoding="utf-8",
+        )
+
+        loaded = self.loader.load(path)
+
+        assert tuple(loaded.imports) == ("on", "sibling")
+
     def test_at7_env_namespace_rejected(self):
         """AT-7: ${env.*} namespace rejected by schema validator."""
         workflow = {
