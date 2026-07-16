@@ -2018,6 +2018,65 @@ def test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_sele
     assert exc_info.value.reason == "ambiguous_resumable_call_frame"
 
 
+def test_completed_call_frame_id_collision_rejects_instead_of_resuming_history(
+    tmp_path: Path,
+) -> None:
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        _library_workflow(),
+    )
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        _caller_workflow(
+            call_step={
+                "name": "RunReviewLoop",
+                "id": "run_review_loop",
+                "call": "review_loop",
+                "with": {
+                    "max_cycles": 3,
+                    "write_root": "state/review-loop",
+                },
+            },
+        ),
+    )
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    state_manager = StateManager(tmp_path, run_id="completed-frame-id-collision")
+    state_manager.initialize("workflow.yaml", context=bundle_context_dict(bundle))
+    completed_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    frame_id = "root.run_review_loop::visit::1"
+
+    assert completed_state["step_visits"]["RunReviewLoop"] == 1
+    assert completed_state["call_frames"][frame_id]["status"] == "completed"
+
+    resume_executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    resume_executor.resume_mode = True
+    step = materialize_projection_body_steps(bundle)[0]
+    before_frames = dict(completed_state["call_frames"])
+
+    with patch(
+        "orchestrator.workflow.call_frame_state._CallFrameStateManager"
+    ) as child_manager, patch(
+        "orchestrator.workflow.executor.WorkflowExecutor"
+    ) as child_executor:
+        child_executor.return_value.execute.return_value = {
+            "status": "completed",
+            "workflow_outputs": {},
+        }
+        result = resume_executor.call_executor.execute_call(step, completed_state)
+
+    assert result["status"] == "failed"
+    assert result["error"]["context"] == {
+        "step": "RunReviewLoop",
+        "call": "review_loop",
+        "call_frame_id": frame_id,
+        "reason": "call_resume_state_invalid",
+        "detail": "completed_call_frame_id_collision",
+    }
+    child_manager.assert_not_called()
+    child_executor.assert_not_called()
+    assert completed_state["call_frames"] == before_frames
+
+
 def _retry_lineage_frame(
     *,
     status: str,

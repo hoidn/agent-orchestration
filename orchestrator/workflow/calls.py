@@ -869,6 +869,25 @@ class CallExecutor:
         if not isinstance(call_frames, dict):
             call_frames = {}
             state["call_frames"] = call_frames
+        retry_lineage = (
+            self._retry_lineage_for_step(
+                step_id=step_id,
+                call_frames=call_frames,
+                imported_workflow=imported_target,
+            )
+            if self.executor.resume_mode
+            else None
+        )
+        if retry_lineage is not None and any(
+            member.frame_id == frame_id
+            for member in retry_lineage.completed_members
+        ):
+            return self.resume_state_invalid_result(
+                step_name=step_name,
+                call_alias=call_alias,
+                frame_id=frame_id,
+                detail="completed_call_frame_id_collision",
+            )
         frame_exists = frame_id in call_frames
         existing_frame = call_frames.get(frame_id)
         if (
@@ -885,15 +904,6 @@ class CallExecutor:
 
         child_existing_frame = existing_frame if isinstance(existing_frame, dict) else None
         child_resume = self.executor.resume_mode and child_existing_frame is not None
-        retry_lineage = (
-            self._retry_lineage_for_step(
-                step_id=step_id,
-                call_frames=call_frames,
-                imported_workflow=imported_target,
-            )
-            if self.executor.resume_mode
-            else None
-        )
         force_fresh_workflow_lisp_retry = (
             retry_lineage is not None
             and self._is_workflow_lisp_target(imported_target)
