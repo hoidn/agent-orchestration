@@ -2004,6 +2004,131 @@ def test_projection_resume_call_frame_selects_one_current_callee_and_recurses(
     ]
 
 
+def test_projection_integrity_loop_contained_call_uses_exact_boundary_candidate(
+    tmp_path: Path,
+) -> None:
+    _write_yaml(
+        tmp_path / "imports" / "child.yaml",
+        {
+            "version": "2.5",
+            "name": "loop-child",
+            "artifacts": {
+                "ready": {
+                    "kind": "scalar",
+                    "type": "bool",
+                }
+            },
+            "outputs": {
+                "ready": {
+                    "kind": "scalar",
+                    "type": "bool",
+                    "from": {"ref": "root.steps.SetReady.artifacts.ready"},
+                }
+            },
+            "steps": [
+                {
+                    "name": "SetReady",
+                    "id": "set_ready",
+                    "set_scalar": {
+                        "artifact": "ready",
+                        "value": True,
+                    },
+                }
+            ],
+        },
+    )
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        {
+            "version": "2.5",
+            "name": "loop-contained-call-resume",
+            "imports": {"child": "imports/child.yaml"},
+            "steps": [
+                {
+                    "name": "ResumeGate",
+                    "id": "resume_gate",
+                    "command": ["bash", "-lc", "test -f state/resume-ready.txt"],
+                },
+                {
+                    "name": "ReviewItems",
+                    "id": "review_items",
+                    "for_each": {
+                        "items": ["only-item"],
+                        "as": "item",
+                        "steps": [
+                            {
+                                "name": "InvokeChild",
+                                "id": "invoke_child",
+                                "call": "child",
+                            }
+                        ],
+                    },
+                },
+            ],
+        },
+    )
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    manager = StateManager(tmp_path, run_id="loop-contained-call-exact-candidate")
+    manager.initialize("workflow.yaml", context=bundle_context_dict(bundle))
+    first = WorkflowExecutor(bundle, tmp_path, manager).execute()
+    assert first["status"] == "failed"
+    assert first.get("call_frames", {}) == {}
+
+    boundary = next(
+        boundary
+        for boundary in bundle.projection.call_boundaries.values()
+        if boundary.iteration_owner_node_id is not None
+    )
+    expected_call_step_id = bundle.projection.call_boundary_runtime_step_id(
+        boundary.node_id,
+        iteration_index=0,
+    )
+    observed_resolutions: list[tuple[str, int, str | None]] = []
+    projection_type = type(bundle.projection)
+    original_resolve_call_boundary = projection_type.resolve_call_boundary
+
+    def record_exact_resolution(projection, slot_index, call_step_id):
+        resolution = original_resolve_call_boundary(
+            projection,
+            slot_index,
+            call_step_id,
+        )
+        if call_step_id == expected_call_step_id:
+            observed_resolutions.append(
+                (
+                    call_step_id,
+                    resolution.candidate_count,
+                    resolution.boundary.node_id
+                    if resolution.boundary is not None
+                    else None,
+                )
+            )
+        return resolution
+
+    (tmp_path / "state").mkdir(exist_ok=True)
+    (tmp_path / "state" / "resume-ready.txt").write_text(
+        "ready\n",
+        encoding="utf-8",
+    )
+    with patch.object(
+        projection_type,
+        "resolve_call_boundary",
+        record_exact_resolution,
+    ):
+        resumed = WorkflowExecutor(bundle, tmp_path, manager).execute(resume=True)
+
+    assert resumed["status"] == "completed"
+    assert observed_resolutions == [
+        (expected_call_step_id, 1, boundary.node_id),
+    ]
+    assert tuple(resumed["call_frames"]) == (
+        f"{expected_call_step_id}::visit::1",
+    )
+    assert resumed["steps"]["ReviewItems[0].InvokeChild"]["step_id"] == (
+        expected_call_step_id
+    )
+
+
 def test_projection_resume_call_frame_unknown_alias_fails_before_frame_or_effect(
     tmp_path: Path,
 ) -> None:
@@ -3664,8 +3789,7 @@ def test_resume_projection_auditor_does_not_load_or_checksum_child_bundles(
     assert state == before
 
 
-@pytest.mark.parametrize("nesting_depth", [1, 2])
-def test_nested_projection_error_is_not_wrapped_in_call_failed(
+def _assert_nested_projection_error_is_not_wrapped_in_call_failed(
     tmp_path: Path,
     nesting_depth: int,
 ) -> None:
@@ -3761,3 +3885,15 @@ def test_nested_projection_error_is_not_wrapped_in_call_failed(
         assert selected_frame_before is not None
         inner_frame_id = next(iter(outer_after["call_frames"]))
         assert outer_after["call_frames"][inner_frame_id] == selected_frame_before
+
+
+def test_nested_projection_error_is_not_wrapped_in_call_failed(
+    tmp_path: Path,
+) -> None:
+    _assert_nested_projection_error_is_not_wrapped_in_call_failed(tmp_path, 1)
+
+
+def test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic(
+    tmp_path: Path,
+) -> None:
+    _assert_nested_projection_error_is_not_wrapped_in_call_failed(tmp_path, 2)

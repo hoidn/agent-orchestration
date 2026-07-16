@@ -1,5 +1,6 @@
 """Tests for loader DSL validation per specs/dsl.md and acceptance tests."""
 
+import ast
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import replace
@@ -15,6 +16,92 @@ from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_provenance
 from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
 from tests.workflow_bundle_helpers import materialize_projection_body_steps, thaw_surface_workflow
+
+
+def _resume_projection_integrity_module_ast() -> ast.Module:
+    module_path = (
+        Path(__file__).parents[1]
+        / "orchestrator"
+        / "workflow"
+        / "resume_projection_integrity.py"
+    )
+    return ast.parse(
+        module_path.read_text(encoding="utf-8"),
+        filename=str(module_path),
+    )
+
+
+def _ast_qualified_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        owner = _ast_qualified_name(node.value)
+        return f"{owner}.{node.attr}" if owner else node.attr
+    return None
+
+
+def test_resume_projection_integrity_module_has_no_receipt_or_persisted_audit_cache() -> None:
+    tree = _resume_projection_integrity_module_ast()
+    imported_names: list[str] = []
+    called_names: list[str] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_names.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            imported_names.extend(
+                f"{module}.{alias.name}" if module else alias.name
+                for alias in node.names
+            )
+        elif isinstance(node, ast.Call):
+            qualified_name = _ast_qualified_name(node.func)
+            if qualified_name is not None:
+                called_names.append(qualified_name)
+
+    forbidden = [
+        name
+        for name in (*imported_names, *called_names)
+        if "receipt" in name.lower()
+        or "audit_cache" in name.lower()
+        or "persisted_audit_cache" in name.lower()
+    ]
+    assert forbidden == []
+
+
+def test_resume_projection_integrity_module_does_not_import_or_call_retirement_readers() -> None:
+    tree = _resume_projection_integrity_module_ast()
+    forbidden_modules = {
+        "migration_parity",
+        "orchestrator.workflow_lisp.procedure_identity_retirement",
+        "orchestrator.workflow_lisp.migration_parity",
+        "procedure_identity_retirement",
+    }
+    forbidden_readers = {
+        "load_retirement_evidence",
+        "load_retirement_record",
+        "validate_retirement_record",
+        "load_parity_targets",
+    }
+    imported_modules: set[str] = set()
+    imported_symbols: set[str] = set()
+    called_symbols: set[str] = set()
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module is not None:
+                imported_modules.add(node.module)
+            imported_symbols.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.Call):
+            qualified_name = _ast_qualified_name(node.func)
+            if qualified_name is not None:
+                called_symbols.add(qualified_name.rsplit(".", 1)[-1])
+
+    assert imported_modules.isdisjoint(forbidden_modules)
+    assert imported_symbols.isdisjoint(forbidden_readers)
+    assert called_symbols.isdisjoint(forbidden_readers)
 
 
 def _enable_v214_loader(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -3702,6 +3702,77 @@ def test_projection_resume_root_direct_executor_rechecks_checksum_and_audit_befo
     assert not (manager.run_root / "provider_sessions").exists()
 
 
+def test_projection_integrity_public_paths_never_call_retirement_readers(
+    temp_workspace: Path,
+) -> None:
+    from tests.test_subworkflow_calls import (
+        _write_projection_integrity_call_graph,
+    )
+
+    workflow_path = _write_projection_integrity_call_graph(temp_workspace)
+    root_workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    root_workflow["steps"].insert(
+        0,
+        {
+            "name": "ResumeGate",
+            "id": "resume_gate",
+            "command": ["bash", "-lc", "test -f state/resume-ready.txt"],
+        },
+    )
+    workflow_path.write_text(
+        yaml.safe_dump(root_workflow, sort_keys=False),
+        encoding="utf-8",
+    )
+    bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
+    manager = StateManager(
+        temp_workspace,
+        run_id="projection-public-path-retirement-tripwire",
+    )
+    manager.initialize("workflow.yaml", context=bundle_context_dict(bundle))
+    first = WorkflowExecutor(bundle, temp_workspace, manager).execute()
+    assert first["status"] == "failed"
+    assert first.get("call_frames", {}) == {}
+
+    (temp_workspace / "state").mkdir(exist_ok=True)
+    (temp_workspace / "state" / "resume-ready.txt").write_text(
+        "ready\n",
+        encoding="utf-8",
+    )
+
+    def unexpected_reader(*_args, **_kwargs):
+        raise AssertionError("resume projection public path read retirement evidence")
+
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+        "orchestrator.workflow_lisp.procedure_identity_retirement.load_retirement_record",
+        side_effect=unexpected_reader,
+    ) as retirement_record_reader, patch(
+        "orchestrator.workflow_lisp.procedure_identity_retirement.validate_retirement_record",
+        side_effect=unexpected_reader,
+    ) as retirement_record_validator, patch(
+        "orchestrator.workflow_lisp.procedure_identity_retirement.load_retirement_evidence",
+        side_effect=unexpected_reader,
+        create=True,
+    ) as legacy_retirement_reader, patch(
+        "orchestrator.workflow_lisp.migration_parity.load_parity_targets",
+        side_effect=unexpected_reader,
+    ) as migration_evidence_reader:
+        result = resume_workflow(
+            run_id="projection-public-path-retirement-tripwire",
+        )
+
+    after = manager.load().to_dict()
+    assert result == 0
+    assert after["status"] == "completed"
+    assert len(after["call_frames"]) == 1
+    outer_frame = next(iter(after["call_frames"].values()))
+    assert outer_frame["status"] == "completed"
+    assert len(outer_frame["state"]["call_frames"]) == 1
+    retirement_record_reader.assert_not_called()
+    retirement_record_validator.assert_not_called()
+    legacy_retirement_reader.assert_not_called()
+    migration_evidence_reader.assert_not_called()
+
+
 def test_projection_resume_child_executor_skips_root_guard_structurally(
     temp_workspace: Path,
 ) -> None:

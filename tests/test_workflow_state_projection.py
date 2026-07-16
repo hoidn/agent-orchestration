@@ -1,5 +1,6 @@
 """Characterization tests for IR-to-state compatibility projection tables."""
 
+import ast
 from copy import deepcopy
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
@@ -25,6 +26,125 @@ def _write_yaml(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
     return path
+
+
+def _named_ast_function(
+    relative_module: str,
+    function_name: str,
+    *,
+    class_name: str | None = None,
+) -> ast.FunctionDef:
+    module_path = Path(__file__).parents[1] / relative_module
+    tree = ast.parse(
+        module_path.read_text(encoding="utf-8"),
+        filename=str(module_path),
+    )
+    owner: ast.AST = tree
+    if class_name is not None:
+        owner = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == class_name
+        )
+    return next(
+        node
+        for node in owner.body
+        if isinstance(node, ast.FunctionDef) and node.name == function_name
+    )
+
+
+def test_retry_target_and_projection_resolution_functions_use_typed_identity_only() -> None:
+    typed_functions = (
+        _named_ast_function(
+            "orchestrator/workflow/calls.py",
+            "_is_workflow_lisp_target",
+            class_name="CallExecutor",
+        ),
+        _named_ast_function(
+            "orchestrator/workflow/calls.py",
+            "_retry_lineage_for_step",
+            class_name="CallExecutor",
+        ),
+        _named_ast_function(
+            "orchestrator/workflow/resume_projection_integrity.py",
+            "index_retry_lineage",
+        ),
+        _named_ast_function(
+            "orchestrator/workflow/resume_projection_integrity.py",
+            "next_unused_retry_frame_id",
+        ),
+        _named_ast_function(
+            "orchestrator/workflow/state_projection.py",
+            "resolve_resume_step_id",
+            class_name="WorkflowStateProjection",
+        ),
+        _named_ast_function(
+            "orchestrator/workflow/state_projection.py",
+            "resolve_call_boundary",
+            class_name="WorkflowStateProjection",
+        ),
+    )
+    forbidden_identity_names = {
+        "basename",
+        "family",
+        "module_name",
+        "prefix",
+        "procedure_name",
+        "suffix",
+        "workflow_name",
+    }
+    forbidden_parser_calls = {
+        "endswith",
+        "find",
+        "partition",
+        "removeprefix",
+        "removesuffix",
+        "rfind",
+        "rpartition",
+        "rsplit",
+        "split",
+        "startswith",
+    }
+
+    for function in typed_functions:
+        identifiers = {
+            node.id
+            for node in ast.walk(function)
+            if isinstance(node, ast.Name)
+        } | {
+            node.attr
+            for node in ast.walk(function)
+            if isinstance(node, ast.Attribute)
+        }
+        calls = {
+            node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id
+            for node in ast.walk(function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, (ast.Attribute, ast.Name))
+        }
+        string_literals = {
+            node.value
+            for node in ast.walk(function)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+
+        assert identifiers.isdisjoint(forbidden_identity_names), function.name
+        assert calls.isdisjoint(forbidden_parser_calls), function.name
+        assert not any(value.endswith((".orc", ".yaml", ".yml")) for value in string_literals), (
+            function.name
+        )
+
+    assert "frontend_kind" in {
+        node.attr
+        for node in ast.walk(typed_functions[0])
+        if isinstance(node, ast.Attribute)
+    }
+    assert "_resume_slot_candidates" in {
+        node.func.id
+        for function in typed_functions[-2:]
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
 
 
 def _write_projection_workflow(workspace: Path) -> Path:
