@@ -4,6 +4,7 @@ from types import MappingProxyType
 
 import pytest
 
+from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
@@ -400,11 +401,84 @@ def test_compile_stage3_entrypoint_registers_canonical_callable_keys(tmp_path: P
     source_root = VALID_FIXTURES / "callables"
     path = source_root / "neurips" / "entry.orc"
 
-    result = _compile_stage3_entrypoint(path, source_root=source_root, tmp_path=tmp_path)
+    result = _compile_stage3_entrypoint(
+        path,
+        source_root=source_root,
+        validate_shared=True,
+        tmp_path=tmp_path,
+    )
 
+    entry_imports = {
+        imported.module_name
+        for imported in result.graph.modules_by_name["neurips/entry"].syntax_module.imports
+    }
+    helper_imports = {
+        imported.module_name
+        for imported in result.graph.modules_by_name["neurips/helper"].syntax_module.imports
+    }
+    assert "neurips/helper" in entry_imports
+    assert "neurips/types" in helper_imports
     assert "neurips/procedures::build-checks" in result.entry_result.procedure_catalog.signatures_by_name
     assert "neurips/helper::provider-attempt" in result.entry_result.workflow_catalog.signatures_by_name
     assert "neurips/helper::secondary" in result.validated_bundles_by_name
+    assert set(result.validated_bundles_by_name) == {
+        "neurips/entry::orchestrate",
+        "neurips/helper::provider-attempt",
+        "neurips/helper::secondary",
+    }
+    root_bundle = result.validated_bundles_by_name["neurips/entry::orchestrate"]
+    secondary_bundle = root_bundle.imports["neurips/helper::secondary"]
+    leaf_bundle = secondary_bundle.imports["neurips/helper::provider-attempt"]
+    assert leaf_bundle is result.validated_bundles_by_name[
+        "neurips/helper::provider-attempt"
+    ]
+    assert all(
+        bundle.provenance.frontend_kind == "workflow_lisp"
+        for bundle in result.validated_bundles_by_name.values()
+    )
+
+
+def test_compile_stage3_entrypoint_does_not_relabel_explicit_classic_yaml_bundle(
+    tmp_path: Path,
+) -> None:
+    yaml_path = tmp_path / "imported_selector.yaml"
+    yaml_path.write_text(
+        (
+            Path(__file__).parent
+            / "fixtures"
+            / "workflow_lisp"
+            / "cli"
+            / "imported_selector.yaml"
+        ).read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    imported_bundle = WorkflowLoader(tmp_path).load_bundle(yaml_path)
+    assert imported_bundle.provenance.frontend_kind is None
+
+    source_root = VALID_FIXTURES / "imported_bundle_mix"
+    result = _compile_stage3_entrypoint(
+        source_root / "neurips" / "entry.orc",
+        source_root=source_root,
+        imported_workflow_bundles={"selector-run": imported_bundle},
+        validate_shared=True,
+        tmp_path=tmp_path,
+    )
+
+    linked_import = result.entry_result.workflow_catalog.imported_bundles_by_name[
+        "selector-run"
+    ]
+    root_import = result.validated_bundles_by_name[
+        "neurips/entry::orchestrate"
+    ].imports["selector-run"]
+    assert linked_import is imported_bundle
+    assert root_import is imported_bundle
+    assert linked_import.provenance.frontend_kind is None
+    assert root_import.provenance.frontend_kind is None
+    assert imported_bundle.provenance.frontend_kind is None
+    assert all(
+        bundle.provenance.frontend_kind == "workflow_lisp"
+        for bundle in result.validated_bundles_by_name.values()
+    )
 
 
 def test_compile_stage3_entrypoint_resolves_imported_workflow_refs_to_canonical_keys(tmp_path: Path) -> None:

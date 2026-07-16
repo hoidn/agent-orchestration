@@ -384,7 +384,6 @@ def _select_and_reattach(
     source_map_path = build_root / "source_map.json"
     provenance = replace(
         selected_bundle.provenance,
-        frontend_kind="workflow_lisp",
         frontend_build_root=build_root,
         frontend_source_trace_path=source_map_path,
         frontend_entry_workflow=entry_selection.selected_name,

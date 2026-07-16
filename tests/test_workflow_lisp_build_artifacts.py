@@ -974,6 +974,43 @@ def test_build_fingerprint_is_stable_for_identical_inputs(tmp_path: Path) -> Non
     assert first.build_root == second.build_root
 
 
+def test_build_frontend_bundle_preserves_compiler_owned_frontend_kind(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    original_compile_entry = build._compile_entry
+    origin_marker = "compiler-owned-workflow-lisp"
+
+    def _compile_entry_with_origin_marker(*args, **kwargs):
+        compile_result, entry_selection = original_compile_entry(*args, **kwargs)
+        selected_bundle = compile_result.validated_bundles_by_name[
+            entry_selection.canonical_name
+        ]
+        marked_bundle = build._reattach_bundle_provenance(
+            bundle=selected_bundle,
+            provenance=replace(
+                selected_bundle.provenance,
+                frontend_kind=origin_marker,
+            ),
+        )
+        marked_bundles = dict(compile_result.validated_bundles_by_name)
+        marked_bundles[entry_selection.canonical_name] = marked_bundle
+        return (
+            replace(
+                compile_result,
+                validated_bundles_by_name=marked_bundles,
+            ),
+            entry_selection,
+        )
+
+    monkeypatch.setattr(build, "_compile_entry", _compile_entry_with_origin_marker)
+
+    result = build.build_frontend_bundle(_build_request(tmp_path))
+
+    assert result.validated_bundle.provenance.frontend_kind == origin_marker
+
+
 def test_build_fingerprint_changes_when_imported_bundle_manifest_changes(tmp_path: Path) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
