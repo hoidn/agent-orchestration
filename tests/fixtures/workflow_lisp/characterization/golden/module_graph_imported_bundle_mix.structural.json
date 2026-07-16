@@ -108,6 +108,7 @@
       "projection": {
         "call_boundaries": {
           "root.neurips_entry_orchestrate__local__call_neurips_helper_provider_attempt": {
+            "import_alias": "neurips/helper::provider-attempt",
             "iteration_owner_node_id": null,
             "iteration_step_id_suffix": null,
             "node_id": "root.neurips_entry_orchestrate__local__call_neurips_helper_provider_attempt",

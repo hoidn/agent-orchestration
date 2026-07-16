@@ -311,6 +311,7 @@
       "projection": {
         "call_boundaries": {
           "root.orchestrate__call_provider_attempt": {
+            "import_alias": "provider-attempt",
             "iteration_owner_node_id": null,
             "iteration_step_id_suffix": null,
             "node_id": "root.orchestrate__call_provider_attempt",
@@ -318,6 +319,7 @@
             "step_id": "root.orchestrate__call_provider_attempt"
           },
           "root.orchestrate__checks__call_command_checks": {
+            "import_alias": "command-checks",
             "iteration_owner_node_id": null,
             "iteration_step_id_suffix": null,
             "node_id": "root.orchestrate__checks__call_command_checks",

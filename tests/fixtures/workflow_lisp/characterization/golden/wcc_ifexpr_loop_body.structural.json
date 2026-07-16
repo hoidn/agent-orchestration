@@ -462,6 +462,7 @@
         "repeat_until_nodes": {
           "root.choose_summary__loop": {
             "frame_key": "choose-summary__loop",
+            "max_iterations": 2,
             "nested_presentation_keys": {
               "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body": "choose-summary__body",
               "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body.choose_summary__body__else": "choose-summary__body.else",

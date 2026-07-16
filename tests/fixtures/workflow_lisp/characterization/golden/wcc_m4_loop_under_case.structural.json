@@ -1490,6 +1490,7 @@
         "repeat_until_nodes": {
           "root.run__match_attempt__completed__loop": {
             "frame_key": "run__match_attempt__completed__loop",
+            "max_iterations": 1,
             "nested_presentation_keys": {
               "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body": "run__match_attempt__completed__body",
               "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state": "run__match_attempt__completed__body__state",

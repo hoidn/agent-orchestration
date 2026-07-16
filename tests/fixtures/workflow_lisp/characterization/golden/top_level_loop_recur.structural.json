@@ -1453,6 +1453,7 @@
         "repeat_until_nodes": {
           "root.loop_recur_minimal__loop": {
             "frame_key": "loop-recur-minimal__loop",
+            "max_iterations": 3,
             "nested_presentation_keys": {
               "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body": "loop-recur-minimal__body",
               "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body.loop_recur_minimal__body__blocked": "loop-recur-minimal__body.BLOCKED",
