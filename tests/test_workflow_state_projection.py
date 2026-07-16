@@ -53,86 +53,282 @@ def _named_ast_function(
     )
 
 
-def test_retry_target_and_projection_resolution_functions_use_typed_identity_only() -> None:
-    typed_functions = (
-        _named_ast_function(
-            "orchestrator/workflow/calls.py",
-            "_is_workflow_lisp_target",
-            class_name="CallExecutor",
-        ),
-        _named_ast_function(
-            "orchestrator/workflow/calls.py",
-            "_retry_lineage_for_step",
-            class_name="CallExecutor",
-        ),
-        _named_ast_function(
-            "orchestrator/workflow/resume_projection_integrity.py",
-            "index_retry_lineage",
-        ),
-        _named_ast_function(
-            "orchestrator/workflow/resume_projection_integrity.py",
-            "next_unused_retry_frame_id",
-        ),
-        _named_ast_function(
-            "orchestrator/workflow/state_projection.py",
-            "resolve_resume_step_id",
-            class_name="WorkflowStateProjection",
-        ),
-        _named_ast_function(
-            "orchestrator/workflow/state_projection.py",
-            "resolve_call_boundary",
-            class_name="WorkflowStateProjection",
-        ),
-    )
-    forbidden_identity_names = {
+def _typed_identity_architecture_findings(
+    function: ast.FunctionDef,
+    *,
+    allow_retry_id_construction: bool = False,
+) -> tuple[str, ...]:
+    forbidden_attributes = {"name", "stem", "suffix", "suffixes"}
+    forbidden_identifiers = {
         "basename",
         "family",
+        "family_name",
         "module_name",
-        "prefix",
+        "persisted_alias",
         "procedure_name",
         "suffix",
         "workflow_name",
     }
-    forbidden_parser_calls = {
+    forbidden_keys = {
+        "basename",
+        "family",
+        "family_name",
+        "import_alias",
+        "module",
+        "module_name",
+        "name",
+        "persisted_alias",
+        "persisted_import_alias",
+        "procedure",
+        "procedure_name",
+        "workflow_name",
+    }
+    forbidden_calls = {
+        "attrgetter",
+        "basename",
+        "compile",
         "endswith",
         "find",
+        "findall",
+        "finditer",
+        "format",
+        "fullmatch",
+        "getattr",
+        "hasattr",
+        "itemgetter",
+        "join",
+        "lstrip",
+        "match",
         "partition",
         "removeprefix",
         "removesuffix",
+        "replace",
         "rfind",
         "rpartition",
         "rsplit",
+        "rstrip",
+        "search",
         "split",
         "startswith",
+        "strip",
     }
+    findings: set[str] = set()
 
-    for function in typed_functions:
-        identifiers = {
-            node.id
-            for node in ast.walk(function)
-            if isinstance(node, ast.Name)
-        } | {
-            node.attr
-            for node in ast.walk(function)
-            if isinstance(node, ast.Attribute)
-        }
-        calls = {
-            node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id
-            for node in ast.walk(function)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, (ast.Attribute, ast.Name))
-        }
-        string_literals = {
-            node.value
-            for node in ast.walk(function)
-            if isinstance(node, ast.Constant) and isinstance(node.value, str)
-        }
+    def relevant_key(value: object) -> str | None:
+        if not isinstance(value, str):
+            return None
+        lowered = value.lower()
+        return lowered if lowered in forbidden_keys else None
 
-        assert identifiers.isdisjoint(forbidden_identity_names), function.name
-        assert calls.isdisjoint(forbidden_parser_calls), function.name
-        assert not any(value.endswith((".orc", ".yaml", ".yml")) for value in string_literals), (
-            function.name
+    def is_allowed_retry_joined_string(node: ast.JoinedStr) -> bool:
+        if not allow_retry_id_construction or len(node.values) != 3:
+            return False
+        expressions = [
+            value.value
+            for value in node.values
+            if isinstance(value, ast.FormattedValue)
+        ]
+        if len(expressions) != 3:
+            return False
+        base, marker, ordinal = expressions
+        return (
+            isinstance(base, ast.Attribute)
+            and isinstance(base.value, ast.Name)
+            and base.value.id == "lineage"
+            and base.attr == "base_frame_id"
+            and isinstance(marker, ast.Name)
+            and marker.id == "_RETRY_MARKER"
+            and isinstance(ordinal, ast.Name)
+            and ordinal.id == "ordinal"
         )
+
+    def string_like(node: ast.AST) -> bool:
+        if isinstance(node, (ast.JoinedStr, ast.Constant)):
+            return not isinstance(node, ast.Constant) or isinstance(node.value, str)
+        return any(
+            isinstance(child, (ast.Name, ast.Attribute))
+            and (
+                (
+                    child.id
+                    if isinstance(child, ast.Name)
+                    else child.attr
+                ).lower().endswith(
+                    ("alias", "id", "marker", "name", "path", "prefix", "suffix")
+                )
+            )
+            for child in ast.walk(node)
+        )
+
+    for node in ast.walk(function):
+        if isinstance(node, ast.Name) and node.id.lower() in forbidden_identifiers:
+            findings.add(f"identifier:{node.id.lower()}")
+        elif isinstance(node, ast.Attribute) and node.attr.lower() in forbidden_attributes:
+            findings.add(f"attribute:{node.attr.lower()}")
+        elif isinstance(node, ast.arg) and node.arg.lower() in forbidden_identifiers:
+            findings.add(f"argument:{node.arg.lower()}")
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute):
+                call_name = node.func.attr.lower()
+            elif isinstance(node.func, ast.Name):
+                call_name = node.func.id.lower()
+            else:
+                call_name = ""
+            if call_name in forbidden_calls:
+                findings.add(f"call:{call_name}")
+            for argument in (*node.args, *(keyword.value for keyword in node.keywords)):
+                if isinstance(argument, ast.Constant):
+                    key = relevant_key(argument.value)
+                    if key is not None:
+                        findings.add(f"key:{key}")
+        elif isinstance(node, ast.Subscript):
+            if isinstance(node.slice, ast.Slice):
+                findings.add("slice")
+            elif isinstance(node.slice, ast.Constant):
+                key = relevant_key(node.slice.value)
+                if key is not None:
+                    findings.add(f"key:{key}")
+        elif isinstance(node, ast.Constant):
+            key = relevant_key(node.value)
+            if key is not None:
+                findings.add(f"key:{key}")
+            if isinstance(node.value, str) and node.value.lower().endswith(
+                (".orc", ".yaml", ".yml"),
+            ):
+                findings.add(f"path-suffix:{node.value}")
+        elif isinstance(node, ast.BinOp):
+            if isinstance(node.op, (ast.Add, ast.Mod)) and (
+                string_like(node.left) or string_like(node.right)
+            ):
+                findings.add("string-concatenation")
+        elif isinstance(node, ast.JoinedStr):
+            if not is_allowed_retry_joined_string(node):
+                findings.add("string-concatenation")
+
+    return tuple(sorted(findings))
+
+
+def _mutation_function(source: str) -> ast.FunctionDef:
+    tree = ast.parse(
+        "def mutation(workflow, workflow_path, state, frame, step_id):\n"
+        f"{source}"
+    )
+    function = tree.body[0]
+    assert isinstance(function, ast.FunctionDef)
+    return function
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_finding"),
+    (
+        pytest.param("    return workflow.name\n", "attribute:name", id="name-attribute"),
+        pytest.param("    return workflow_path.stem\n", "attribute:stem", id="stem-attribute"),
+        pytest.param("    return state['family']\n", "key:family", id="family-key"),
+        pytest.param(
+            "    return frame.get('import_alias')\n",
+            "key:import_alias",
+            id="persisted-alias-key",
+        ),
+        pytest.param(
+            "    return re.search(r'^root\\\\.', step_id)\n",
+            "call:search",
+            id="regex-selection",
+        ),
+        pytest.param(
+            "    return step_id.replace('.', '')\n",
+            "call:replace",
+            id="replacement-parser",
+        ),
+        pytest.param(
+            "    return step_id[:4]\n",
+            "slice",
+            id="prefix-slice",
+        ),
+        pytest.param(
+            "    return prefix + '.' + step_id\n",
+            "string-concatenation",
+            id="prefix-concatenation",
+        ),
+        pytest.param(
+            "    return f'{prefix}.{step_id}'\n",
+            "string-concatenation",
+            id="prefix-f-string",
+        ),
+    ),
+)
+def test_typed_identity_architecture_guard_rejects_mutation_functions(
+    body: str,
+    expected_finding: str,
+) -> None:
+    findings = _typed_identity_architecture_findings(_mutation_function(body))
+
+    assert any(expected_finding in finding for finding in findings)
+
+
+def test_typed_identity_architecture_guard_allows_exact_candidate_access() -> None:
+    function = _mutation_function(
+        "    candidate = state.get('call_step_id')\n"
+        "    return candidate == step_id\n"
+    )
+
+    assert _typed_identity_architecture_findings(function) == ()
+
+
+def test_retry_target_and_projection_resolution_functions_use_typed_identity_only() -> None:
+    typed_function_specs = (
+        (
+            _named_ast_function(
+                "orchestrator/workflow/calls.py",
+                "_is_workflow_lisp_target",
+                class_name="CallExecutor",
+            ),
+            False,
+        ),
+        (
+            _named_ast_function(
+                "orchestrator/workflow/calls.py",
+                "_retry_lineage_for_step",
+                class_name="CallExecutor",
+            ),
+            False,
+        ),
+        (
+            _named_ast_function(
+                "orchestrator/workflow/resume_projection_integrity.py",
+                "index_retry_lineage",
+            ),
+            False,
+        ),
+        (
+            _named_ast_function(
+                "orchestrator/workflow/resume_projection_integrity.py",
+                "next_unused_retry_frame_id",
+            ),
+            True,
+        ),
+        (
+            _named_ast_function(
+                "orchestrator/workflow/state_projection.py",
+                "resolve_resume_step_id",
+                class_name="WorkflowStateProjection",
+            ),
+            False,
+        ),
+        (
+            _named_ast_function(
+                "orchestrator/workflow/state_projection.py",
+                "resolve_call_boundary",
+                class_name="WorkflowStateProjection",
+            ),
+            False,
+        ),
+    )
+    typed_functions = tuple(function for function, _allow in typed_function_specs)
+
+    for function, allow_retry_id_construction in typed_function_specs:
+        assert _typed_identity_architecture_findings(
+            function,
+            allow_retry_id_construction=allow_retry_id_construction,
+        ) == (), function.name
 
     assert "frontend_kind" in {
         node.attr
