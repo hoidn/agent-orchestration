@@ -1,9 +1,10 @@
 {
-  "generated_at": "2026-06-03T12:38:27Z",
-  "schema_version": "workflow_lisp_migration_parity_index.v1",
+  "generated_at": "2026-07-16T04:39:17Z",
+  "schema_version": "workflow_lisp_migration_parity_index.v2",
   "targets": [
     {
       "candidate": "workflows/examples/cycle_guard_demo.orc",
+      "evidence_complete": true,
       "json_report": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/cycle_guard_demo.json",
       "markdown_report": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/cycle_guard_demo.md",
       "non_regressive": true,
@@ -12,11 +13,13 @@
         "blocked_reason": "demo-only until native bounded-loop parity is intentionally designed later",
         "eligible_for_primary_surface": false
       },
+      "report_valid": true,
       "workflow_family": "cycle_guard_demo",
       "yaml_primary": "workflows/examples/cycle_guard_demo.yaml"
     },
     {
       "candidate": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+      "evidence_complete": true,
       "json_report": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/design_plan_impl_stack.json",
       "markdown_report": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/design_plan_impl_stack.md",
       "non_regressive": true,
@@ -24,6 +27,7 @@
       "promotion_eligibility": {
         "eligible_for_primary_surface": true
       },
+      "report_valid": true,
       "workflow_family": "design_plan_impl_stack",
       "yaml_primary": "workflows/examples/design_plan_impl_review_stack_v2_call.yaml"
     }

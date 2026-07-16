@@ -45,20 +45,19 @@
     },
     "required": {
       "core_workflow_ast": {
-        "path": ".orchestrate/build/51dedba7cee730ce/core_workflow_ast.json",
+        "path": ".orchestrate/build/cb23d16e3c26d7f7/core_workflow_ast.json",
         "status": "pass"
       },
       "semantic_ir": {
-        "path": ".orchestrate/build/51dedba7cee730ce/semantic_ir.json",
+        "path": ".orchestrate/build/cb23d16e3c26d7f7/semantic_ir.json",
         "status": "pass"
       },
       "source_map": {
-        "path": ".orchestrate/build/51dedba7cee730ce/source_map.json",
+        "path": ".orchestrate/build/cb23d16e3c26d7f7/source_map.json",
         "status": "pass"
       }
     }
   },
-  "compiler_version": "workflow_lisp_migration_parity.v1",
   "deprecated_yaml_mechanics": [
     {
       "mechanic": "manual markdown parity summary",
@@ -78,10 +77,10 @@
         "pytest",
         "tests/test_workflow_lisp_key_migrations.py",
         "-k",
-        "design_plan_impl_stack_orc_runtime_materializes_expected_artifacts",
+        "tracked_plan_phase_retained_run_evidence_replays",
         "-q"
       ],
-      "elapsed_seconds": 0.479,
+      "elapsed_seconds": 0.57,
       "exit_code": 0,
       "status": "pass"
     },
@@ -113,7 +112,7 @@
         "implementation_review_decision"
       ],
       "resume_behavior": [
-        "resume-or-start reusable phase-state validation remains part of parity evidence"
+        "same-ID post-plan-draft default resume restores the validated prior boundary, reuses design.draft, design.review, and plan.draft exactly once, and executes plan.review, implementation.execute, and implementation.review exactly once"
       ],
       "status": "pass",
       "terminal_states": [
@@ -138,10 +137,10 @@
         "--command-boundaries-file",
         "workflows/examples/inputs/workflow_lisp_migrations/design_plan_impl_stack.commands.json"
       ],
-      "build_root": ".orchestrate/build/51dedba7cee730ce",
-      "elapsed_seconds": 0.31,
+      "build_root": ".orchestrate/build/cb23d16e3c26d7f7",
+      "elapsed_seconds": 0.408,
       "exit_code": 0,
-      "manifest_path": ".orchestrate/build/51dedba7cee730ce/manifest.json",
+      "manifest_path": ".orchestrate/build/cb23d16e3c26d7f7/manifest.json",
       "status": "pass"
     },
     "dry_run": {
@@ -175,7 +174,7 @@
         "implementation_review_report_target_path=artifacts/review/parity-implementation-review.md",
         "--dry-run"
       ],
-      "elapsed_seconds": 0.313,
+      "elapsed_seconds": 0.414,
       "exit_code": 0,
       "status": "pass"
     },
@@ -185,11 +184,12 @@
         "-m",
         "pytest",
         "tests/test_workflow_lisp_key_migrations.py",
+        "tests/test_workflow_lisp_procedure_first_migrations.py",
         "-k",
-        "design_plan_impl_stack_orc_runtime_output_contract_matches_stack_outputs",
+        "tracked_plan_phase_retained_run_evidence_replays or tracked_plan_phase_contract_matches_frozen_pre_migration_baseline",
         "-q"
       ],
-      "elapsed_seconds": 0.483,
+      "elapsed_seconds": 0.663,
       "exit_code": 0,
       "status": "pass"
     },
@@ -200,10 +200,10 @@
         "pytest",
         "tests/test_workflow_lisp_key_migrations.py",
         "-k",
-        "resume_or_start_plan_gate_reusable_state_parity_path",
+        "tracked_plan_phase_retained_run_evidence_replays",
         "-q"
       ],
-      "elapsed_seconds": 0.396,
+      "elapsed_seconds": 0.609,
       "exit_code": 0,
       "status": "pass"
     },
@@ -217,10 +217,10 @@
         "pytest",
         "tests/test_workflow_lisp_key_migrations.py",
         "-k",
-        "design_plan_impl_stack_orc_runtime_smoke_executes_single_pass_stack",
+        "tracked_plan_phase_retained_run_evidence_replays",
         "-q"
       ],
-      "elapsed_seconds": 0.491,
+      "elapsed_seconds": 0.566,
       "exit_code": 0,
       "status": "pass"
     },
@@ -231,15 +231,109 @@
         "pytest",
         "tests/test_workflow_lisp_key_migrations.py",
         "-k",
-        "design_plan_impl_stack_orc_runtime_completes_with_expected_terminal_state",
+        "tracked_plan_phase_retained_run_evidence_replays",
         "-q"
       ],
-      "elapsed_seconds": 0.478,
+      "elapsed_seconds": 0.586,
       "exit_code": 0,
       "status": "pass"
     }
   },
-  "generated_at": "2026-06-03T12:38:27Z",
+  "evidence_freshness": {
+    "compile_manifest_path": ".orchestrate/build/cb23d16e3c26d7f7/manifest.json",
+    "compile_manifest_sha256": "sha256:02a4fbb1359dae54b1ecea96303f0f2c8b199579a019e31baa8c10fef0f43495",
+    "evidence_refs": {
+      "artifact_parity": {
+        "stderr": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/artifact_parity.stderr.log",
+          "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stdout": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/artifact_parity.stdout.log",
+          "sha256": "sha256:11862bacbcb4e0882154796255cbaf83670039e805373b5e4b4be58f26b596da"
+        }
+      },
+      "compile": {
+        "stderr": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/compile.stderr.log",
+          "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stdout": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/compile.stdout.log",
+          "sha256": "sha256:8a03e74ba7a34134e866f9f9b1a413fbc4a116044020e692bcf1476012d3c9cc"
+        }
+      },
+      "dry_run": {
+        "stderr": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/dry_run.stderr.log",
+          "sha256": "sha256:d0324e54429797c3bbcb3067f5618d51485436327594095f108708df932462d9"
+        },
+        "stdout": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/dry_run.stdout.log",
+          "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "output_contract_parity": {
+        "stderr": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/output_contract_parity.stderr.log",
+          "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stdout": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/output_contract_parity.stdout.log",
+          "sha256": "sha256:2aa8e9821f2739d4f3ef38a9a1f374735d7a8dd8840f3a644f17fc2901a1078b"
+        }
+      },
+      "resume_parity": {
+        "stderr": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/resume_parity.stderr.log",
+          "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stdout": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/resume_parity.stdout.log",
+          "sha256": "sha256:c455702a412e785c5fc363ff26d19ddf137ce2fead217a5e5227c8108c2fdecc"
+        }
+      },
+      "smoke_or_integration": {
+        "stderr": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/smoke_or_integration.stderr.log",
+          "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stdout": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/smoke_or_integration.stdout.log",
+          "sha256": "sha256:11862bacbcb4e0882154796255cbaf83670039e805373b5e4b4be58f26b596da"
+        }
+      },
+      "terminal_state_parity": {
+        "stderr": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/terminal_state_parity.stderr.log",
+          "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stdout": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/terminal_state_parity.stdout.log",
+          "sha256": "sha256:2bee10a967a0bdfe120b66fdb9a33fb00b6918bfdead2ea8056377d780e9c7c4"
+        }
+      }
+    },
+    "generated_at": "2026-07-16T04:39:17Z",
+    "required_artifacts": {
+      "core_workflow_ast": {
+        "path": ".orchestrate/build/cb23d16e3c26d7f7/core_workflow_ast.json",
+        "sha256": "sha256:9b73cbd823d574eabe66d4c10dae582c0c551270acf9656d15668f6d897b6e99",
+        "status": "pass"
+      },
+      "semantic_ir": {
+        "path": ".orchestrate/build/cb23d16e3c26d7f7/semantic_ir.json",
+        "sha256": "sha256:777d6e3a11fe48bac17f656c6051106cb374ba2617fa11353b57e8b64943ec30",
+        "status": "pass"
+      },
+      "source_map": {
+        "path": ".orchestrate/build/cb23d16e3c26d7f7/source_map.json",
+        "sha256": "sha256:405df494812eddb03dcc3daf072015147f544f3cbedc33d768607e172244ff2d",
+        "status": "pass"
+      }
+    }
+  },
+  "generated_at": "2026-07-16T04:39:17Z",
   "generated_by": [
     "python",
     "-m",
@@ -248,16 +342,45 @@
     "--targets-file",
     "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json",
     "--output-root",
-    "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity",
-    "--target",
-    "design_plan_impl_stack"
+    "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity"
   ],
   "non_regressive": true,
   "promotion_eligibility": {
     "eligible_for_primary_surface": true
   },
   "report_path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/design_plan_impl_stack.json",
-  "schema_version": "workflow_lisp_migration_parity_report.v1",
+  "schema_version": "workflow_lisp_migration_parity_report.v2",
+  "target_identity": {
+    "candidate_path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+    "candidate_sha256": "sha256:be0a2660444488793169d8016152f62ab0996213c32632be334c03c2b31c1624",
+    "entry_workflow": "design-plan-impl-review-stack",
+    "target_index": 1,
+    "target_manifest_path": "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json",
+    "target_manifest_sha256": "sha256:9438aef5faa531a063f1af1c5661fb14129da446aef0088f64d4adf8f3a1490b",
+    "targets_schema_version": "workflow_lisp_migration_parity_targets.v1",
+    "workflow_family": "design_plan_impl_stack",
+    "yaml_primary_path": "workflows/examples/design_plan_impl_review_stack_v2_call.yaml"
+  },
+  "tool_version": "workflow_lisp_migration_parity.v2",
+  "workflow_boundary_projection": {
+    "display_name": "design-plan-impl-review-stack",
+    "private_compatibility_bridge_inputs": [],
+    "private_managed_write_root_inputs": [
+      "__write_root__examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__plan__examples_design_plan_impl_review_stack_v2_call_tracked_plan_phase_1__draft__result_bundle",
+      "__write_root__examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__plan__examples_design_plan_impl_review_stack_v2_call_tracked_plan_phase_1__review__result_bundle"
+    ],
+    "private_runtime_context_bindings": [],
+    "public_input_names": [
+      "brief_path",
+      "design_review_report_target_path",
+      "design_target_path",
+      "execution_report_target_path",
+      "implementation_review_report_target_path",
+      "plan_review_report_target_path",
+      "plan_target_path"
+    ],
+    "workflow_name": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack"
+  },
   "workflow_family": "design_plan_impl_stack",
   "yaml_primary": "workflows/examples/design_plan_impl_review_stack_v2_call.yaml"
 }

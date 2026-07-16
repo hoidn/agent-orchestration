@@ -168,7 +168,7 @@
           "implementation review report target"
         ],
         "resume_behavior": [
-          "resume-or-start reusable phase-state validation remains part of parity evidence"
+          "same-ID post-plan-draft default resume restores the validated prior boundary, reuses design.draft, design.review, and plan.draft exactly once, and executes plan.review, implementation.execute, and implementation.review exactly once"
         ]
       },
       "accepted_differences": [
@@ -252,7 +252,7 @@
           "pytest",
           "tests/test_workflow_lisp_key_migrations.py",
           "-k",
-          "design_plan_impl_stack_orc_runtime_smoke_executes_single_pass_stack",
+          "tracked_plan_phase_retained_run_evidence_replays",
           "-q"
         ],
         "output_contract_parity": [
@@ -260,8 +260,9 @@
           "-m",
           "pytest",
           "tests/test_workflow_lisp_key_migrations.py",
+          "tests/test_workflow_lisp_procedure_first_migrations.py",
           "-k",
-          "design_plan_impl_stack_orc_runtime_output_contract_matches_stack_outputs",
+          "tracked_plan_phase_retained_run_evidence_replays or tracked_plan_phase_contract_matches_frozen_pre_migration_baseline",
           "-q"
         ],
         "terminal_state_parity": [
@@ -270,7 +271,7 @@
           "pytest",
           "tests/test_workflow_lisp_key_migrations.py",
           "-k",
-          "design_plan_impl_stack_orc_runtime_completes_with_expected_terminal_state",
+          "tracked_plan_phase_retained_run_evidence_replays",
           "-q"
         ],
         "artifact_parity": [
@@ -279,7 +280,7 @@
           "pytest",
           "tests/test_workflow_lisp_key_migrations.py",
           "-k",
-          "design_plan_impl_stack_orc_runtime_materializes_expected_artifacts",
+          "tracked_plan_phase_retained_run_evidence_replays",
           "-q"
         ],
         "resume_parity": [
@@ -288,7 +289,7 @@
           "pytest",
           "tests/test_workflow_lisp_key_migrations.py",
           "-k",
-          "resume_or_start_plan_gate_reusable_state_parity_path",
+          "tracked_plan_phase_retained_run_evidence_replays",
           "-q"
         ]
       }

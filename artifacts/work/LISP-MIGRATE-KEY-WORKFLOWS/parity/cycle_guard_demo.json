@@ -45,20 +45,19 @@
     },
     "required": {
       "core_workflow_ast": {
-        "path": ".orchestrate/build/48b2e2abdce5c28f/core_workflow_ast.json",
+        "path": ".orchestrate/build/4a891e285623326b/core_workflow_ast.json",
         "status": "pass"
       },
       "semantic_ir": {
-        "path": ".orchestrate/build/48b2e2abdce5c28f/semantic_ir.json",
+        "path": ".orchestrate/build/4a891e285623326b/semantic_ir.json",
         "status": "pass"
       },
       "source_map": {
-        "path": ".orchestrate/build/48b2e2abdce5c28f/source_map.json",
+        "path": ".orchestrate/build/4a891e285623326b/source_map.json",
         "status": "pass"
       }
     }
   },
-  "compiler_version": "workflow_lisp_migration_parity.v1",
   "deprecated_yaml_mechanics": [
     {
       "mechanic": "manual markdown parity summary",
@@ -77,7 +76,7 @@
         "cycle_guard_demo_orc_runtime_materializes_output_bundle",
         "-q"
       ],
-      "elapsed_seconds": 0.409,
+      "elapsed_seconds": 0.575,
       "exit_code": 0,
       "status": "pass"
     },
@@ -113,10 +112,10 @@
         "--command-boundaries-file",
         "workflows/examples/inputs/workflow_lisp_migrations/cycle_guard_demo.commands.json"
       ],
-      "build_root": ".orchestrate/build/48b2e2abdce5c28f",
-      "elapsed_seconds": 0.247,
+      "build_root": ".orchestrate/build/4a891e285623326b",
+      "elapsed_seconds": 0.361,
       "exit_code": 0,
-      "manifest_path": ".orchestrate/build/48b2e2abdce5c28f/manifest.json",
+      "manifest_path": ".orchestrate/build/4a891e285623326b/manifest.json",
       "status": "pass"
     },
     "dry_run": {
@@ -136,7 +135,7 @@
         "guard_cycles=2",
         "--dry-run"
       ],
-      "elapsed_seconds": 0.234,
+      "elapsed_seconds": 0.335,
       "exit_code": 0,
       "status": "pass"
     },
@@ -150,7 +149,7 @@
         "cycle_guard_demo_orc_runtime_materializes_output_bundle",
         "-q"
       ],
-      "elapsed_seconds": 0.403,
+      "elapsed_seconds": 0.624,
       "exit_code": 0,
       "status": "pass"
     },
@@ -164,7 +163,7 @@
         "cycle_guard_demo_orc_runtime_materializes_output_bundle",
         "-q"
       ],
-      "elapsed_seconds": 0.394,
+      "elapsed_seconds": 0.61,
       "exit_code": 0,
       "status": "pass"
     },
@@ -181,7 +180,7 @@
         "cycle_guard_demo_orc_runtime_materializes_output_bundle",
         "-q"
       ],
-      "elapsed_seconds": 0.41,
+      "elapsed_seconds": 0.683,
       "exit_code": 0,
       "status": "pass"
     },
@@ -195,12 +194,106 @@
         "cycle_guard_demo_orc_runtime_materializes_output_bundle",
         "-q"
       ],
-      "elapsed_seconds": 0.41,
+      "elapsed_seconds": 0.598,
       "exit_code": 0,
       "status": "pass"
     }
   },
-  "generated_at": "2026-06-02T13:53:48Z",
+  "evidence_freshness": {
+    "compile_manifest_path": ".orchestrate/build/4a891e285623326b/manifest.json",
+    "compile_manifest_sha256": "sha256:2dc57620a242f7d343a469935a67f6213595f0a09d50b71ae262dde1d9831f9d",
+    "evidence_refs": {
+      "artifact_parity": {
+        "stderr": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/artifact_parity.stderr.log",
+          "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stdout": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/artifact_parity.stdout.log",
+          "sha256": "sha256:c455702a412e785c5fc363ff26d19ddf137ce2fead217a5e5227c8108c2fdecc"
+        }
+      },
+      "compile": {
+        "stderr": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/compile.stderr.log",
+          "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stdout": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/compile.stdout.log",
+          "sha256": "sha256:c9aa5c505c6b2bfc12df1bb81fde15512b040fb4ff49ce5d840570dc20878490"
+        }
+      },
+      "dry_run": {
+        "stderr": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/dry_run.stderr.log",
+          "sha256": "sha256:592503e5f8ccbd8b7cbb773ee3e7984372a92255a59f116e98299b2abf281bf2"
+        },
+        "stdout": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/dry_run.stdout.log",
+          "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "output_contract_parity": {
+        "stderr": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/output_contract_parity.stderr.log",
+          "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stdout": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/output_contract_parity.stdout.log",
+          "sha256": "sha256:c455702a412e785c5fc363ff26d19ddf137ce2fead217a5e5227c8108c2fdecc"
+        }
+      },
+      "resume_parity": {
+        "stderr": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/resume_parity.stderr.log",
+          "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stdout": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/resume_parity.stdout.log",
+          "sha256": "sha256:11931083d60854c9de737f161120a36319bb40971130b1c6da1916b0df606f41"
+        }
+      },
+      "smoke_or_integration": {
+        "stderr": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/smoke_or_integration.stderr.log",
+          "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stdout": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/smoke_or_integration.stdout.log",
+          "sha256": "sha256:c455702a412e785c5fc363ff26d19ddf137ce2fead217a5e5227c8108c2fdecc"
+        }
+      },
+      "terminal_state_parity": {
+        "stderr": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/terminal_state_parity.stderr.log",
+          "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stdout": {
+          "path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/terminal_state_parity.stdout.log",
+          "sha256": "sha256:c455702a412e785c5fc363ff26d19ddf137ce2fead217a5e5227c8108c2fdecc"
+        }
+      }
+    },
+    "generated_at": "2026-07-16T04:39:14Z",
+    "required_artifacts": {
+      "core_workflow_ast": {
+        "path": ".orchestrate/build/4a891e285623326b/core_workflow_ast.json",
+        "sha256": "sha256:c183b645c7f393a17b121f35652c70c5c5db881d54f79a4ccbd62d6b3d4ef89b",
+        "status": "pass"
+      },
+      "semantic_ir": {
+        "path": ".orchestrate/build/4a891e285623326b/semantic_ir.json",
+        "sha256": "sha256:d1759c35b92d670ebd5162645117fc5eb5be90c77e6d65b3202bbe7d3f377985",
+        "status": "pass"
+      },
+      "source_map": {
+        "path": ".orchestrate/build/4a891e285623326b/source_map.json",
+        "sha256": "sha256:a2aac241e9543a6a706999af3d5c4426b6484496cbceba67677cbe31917c0b22",
+        "status": "pass"
+      }
+    }
+  },
+  "generated_at": "2026-07-16T04:39:14Z",
   "generated_by": [
     "python",
     "-m",
@@ -217,7 +310,32 @@
     "eligible_for_primary_surface": false
   },
   "report_path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/cycle_guard_demo.json",
-  "schema_version": "workflow_lisp_migration_parity_report.v1",
+  "schema_version": "workflow_lisp_migration_parity_report.v2",
+  "target_identity": {
+    "candidate_path": "workflows/examples/cycle_guard_demo.orc",
+    "candidate_sha256": "sha256:64e1c84e40c18eb54c2f72f5f8fb8a540b6fe03d8f8a0015b5a779ad64311953",
+    "entry_workflow": "cycle-guard-demo",
+    "target_index": 0,
+    "target_manifest_path": "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json",
+    "target_manifest_sha256": "sha256:9438aef5faa531a063f1af1c5661fb14129da446aef0088f64d4adf8f3a1490b",
+    "targets_schema_version": "workflow_lisp_migration_parity_targets.v1",
+    "workflow_family": "cycle_guard_demo",
+    "yaml_primary_path": "workflows/examples/cycle_guard_demo.yaml"
+  },
+  "tool_version": "workflow_lisp_migration_parity.v2",
+  "workflow_boundary_projection": {
+    "display_name": "cycle-guard-demo",
+    "private_compatibility_bridge_inputs": [],
+    "private_managed_write_root_inputs": [
+      "__write_root__cycle_guard_demo_cycle_guard_demo__emit_cycle_guard_summary__result_bundle"
+    ],
+    "private_runtime_context_bindings": [],
+    "public_input_names": [
+      "guard_cycles",
+      "terminal_status"
+    ],
+    "workflow_name": "cycle_guard_demo::cycle-guard-demo"
+  },
   "workflow_family": "cycle_guard_demo",
   "yaml_primary": "workflows/examples/cycle_guard_demo.yaml"
 }

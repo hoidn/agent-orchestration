@@ -378,12 +378,15 @@
     {
       "copy_safety": "migration_evidence_only",
       "evidence": [
-        "tests/test_workflow_lisp_key_migrations.py::test_design_plan_impl_stack_orc_compiles_with_phase_family_contracts"
+        "tests/test_workflow_lisp_key_migrations.py::test_tracked_plan_phase_retained_run_evidence_replays",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_contract_matches_frozen_pre_migration_baseline",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_root_checksum_negative_is_pre_executor_and_byte_immutable",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_callee_checksum_negative_is_pre_child_and_no_remap"
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
       "path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
-      "readiness_label": "leaf_compile_candidate",
+      "readiness_label": "leaf_runtime_candidate",
       "route_label": "migration_candidate",
       "surface_id": "workflows.examples.design_plan_impl_review_stack_v2_call",
       "surface_kind": "workflow_example"
@@ -738,5 +741,5 @@
       "surface_kind": "test_fixture"
     }
   ],
-  "updated": "2026-07-13"
+  "updated": "2026-07-15"
 }

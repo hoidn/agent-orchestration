@@ -2687,7 +2687,7 @@ def test_run_migration_parity_preserves_unselected_targets_in_aggregate_index(
     ]
 
 
-def test_design_plan_impl_stack_manifest_uses_defaulted_dry_run_and_family_specific_evidence() -> None:
+def test_design_plan_impl_stack_manifest_uses_defaulted_dry_run_and_procedure_first_evidence() -> None:
     payload = json.loads(
         (
             Path(__file__).resolve().parents[1]
@@ -2720,22 +2720,45 @@ def test_design_plan_impl_stack_manifest_uses_defaulted_dry_run_and_family_speci
     ]
     assert not stale
 
-    expected_behavioral_selectors = {
-        "smoke_or_integration": "design_plan_impl_stack_orc_runtime_smoke_executes_single_pass_stack",
-        "output_contract_parity": "design_plan_impl_stack_orc_runtime_output_contract_matches_stack_outputs",
-        "terminal_state_parity": (
-            "design_plan_impl_stack_orc_runtime_completes_with_expected_terminal_state"
-        ),
-        "artifact_parity": "design_plan_impl_stack_orc_runtime_materializes_expected_artifacts",
-    }
-    for role, expected_selector in expected_behavioral_selectors.items():
-        selector = " ".join(target["evidence_commands"][role])
-        assert expected_selector in selector
-        assert "design_plan_impl_stack_orc_compiles_with_phase_family_contracts" not in selector
-        assert "review_loop_parity_fixture" not in selector
+    retained_run_command = [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_workflow_lisp_key_migrations.py",
+        "-k",
+        "tracked_plan_phase_retained_run_evidence_replays",
+        "-q",
+    ]
+    for role in (
+        "smoke_or_integration",
+        "terminal_state_parity",
+        "artifact_parity",
+        "resume_parity",
+    ):
+        assert target["evidence_commands"][role] == retained_run_command
 
-    resume_selector = " ".join(target["evidence_commands"]["resume_parity"])
-    assert "resume_or_start_plan_gate_reusable_state_parity_path" in resume_selector
+    assert target["evidence_commands"]["output_contract_parity"] == [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_workflow_lisp_key_migrations.py",
+        "tests/test_workflow_lisp_procedure_first_migrations.py",
+        "-k",
+        (
+            "tracked_plan_phase_retained_run_evidence_replays or "
+            "tracked_plan_phase_contract_matches_frozen_pre_migration_baseline"
+        ),
+        "-q",
+    ]
+
+    assert target["baseline_characterization"]["resume_behavior"] == [
+        (
+            "same-ID post-plan-draft default resume restores the validated prior boundary, "
+            "reuses design.draft, design.review, and plan.draft exactly once, and executes "
+            "plan.review, implementation.execute, and implementation.review exactly once"
+        )
+    ]
+    assert "resume-or-start reusable phase-state validation" not in json.dumps(target)
 
 
 def test_promoted_design_delta_target_is_retired_but_historical_report_is_preserved() -> None:
