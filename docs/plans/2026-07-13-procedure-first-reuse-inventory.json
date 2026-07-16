@@ -1,8 +1,8 @@
 {
-  "schema_version": "procedure_first_reuse_inventory.v1",
-  "source_commit": "a2a95cf23f4b4b0372ff74d403a3a204acac6096",
+  "schema_version": "procedure_first_reuse_inventory.v2",
+  "source_commit": "db9889937a895d67810dee1ea0b1b53552d30eca",
   "historical_baseline_commit": "f6da1b89bd7d3fa11281ec57a38b9188e7c51b6e",
-  "generated_at": "2026-07-13",
+  "generated_at": "2026-07-16",
   "scope": {
     "roots": [
       "workflows",
@@ -28,7 +28,7 @@
       "record_kind": "internal-call",
       "frontend": "workflow-lisp",
       "source_path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
-      "source_line": 232,
+      "source_line": 235,
       "caller": null,
       "caller_kind": "workflow-or-procedure",
       "call_alias": null,
@@ -55,42 +55,11 @@
       ]
     },
     {
-      "id": "internal-call:workflows/examples/design_plan_impl_review_stack_v2_call.orc:tracked-plan-phase:1",
-      "record_kind": "internal-call",
-      "frontend": "workflow-lisp",
-      "source_path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
-      "source_line": 237,
-      "caller": null,
-      "caller_kind": "workflow-or-procedure",
-      "call_alias": null,
-      "callee_path": null,
-      "callee": "tracked-plan-phase",
-      "resolution": "authored-direct-call",
-      "source_class": "example",
-      "live_status": "live",
-      "classification": "procedure-candidate",
-      "effect_summary": [
-        "workflow-call"
-      ],
-      "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
-      "uncertainty": {
-        "level": "low",
-        "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
-        ]
-      },
-      "evidence_paths": [
-        "workflows/examples/design_plan_impl_review_stack_v2_call.orc"
-      ]
-    },
-    {
       "id": "internal-call:workflows/examples/design_plan_impl_review_stack_v2_call.orc:design-plan-impl-implementation-phase:1",
       "record_kind": "internal-call",
       "frontend": "workflow-lisp",
       "source_path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
-      "source_line": 242,
+      "source_line": 245,
       "caller": null,
       "caller_kind": "workflow-or-procedure",
       "call_alias": null,
@@ -3074,7 +3043,7 @@
       "record_kind": "public-entry",
       "frontend": "workflow-lisp",
       "source_path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
-      "source_line": 222,
+      "source_line": 225,
       "caller": "external",
       "caller_kind": "external",
       "call_alias": null,
@@ -3109,13 +3078,13 @@
   "counts": {
     "raw_authored_call_sites": {
       "yaml": 67,
-      "workflow_lisp": 35,
-      "total": 102
+      "workflow_lisp": 34,
+      "total": 101
     },
     "actionable_internal_calls": {
-      "total": 96,
+      "total": 95,
       "by_classification": {
-        "procedure-candidate": 33,
+        "procedure-candidate": 32,
         "effect-adapter": 25,
         "legacy-retire": 38,
         "public-boundary": 0
@@ -3138,5 +3107,58 @@
         "rg -n --glob '*.yaml' --glob '*.yml' '^[[:space:]-]*call:[[:space:]]' tests/fixtures | wc -l"
       ]
     }
-  }
+  },
+  "history_counts": {
+    "total": 1,
+    "by_disposition": {
+      "migrated": 1,
+      "retired": 0,
+      "retained-public": 0
+    }
+  },
+  "history": [
+    {
+      "id": "internal-call:workflows/examples/design_plan_impl_review_stack_v2_call.orc:tracked-plan-phase:1",
+      "last_active_record": {
+        "id": "internal-call:workflows/examples/design_plan_impl_review_stack_v2_call.orc:tracked-plan-phase:1",
+        "record_kind": "internal-call",
+        "frontend": "workflow-lisp",
+        "source_path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+        "source_line": 237,
+        "caller": null,
+        "caller_kind": "workflow-or-procedure",
+        "call_alias": null,
+        "callee_path": null,
+        "callee": "tracked-plan-phase",
+        "resolution": "authored-direct-call",
+        "source_class": "example",
+        "live_status": "live",
+        "classification": "procedure-candidate",
+        "effect_summary": [
+          "workflow-call"
+        ],
+        "public_boundary_evidence": [],
+        "named_substrate_gap": null,
+        "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+        "uncertainty": {
+          "level": "low",
+          "notes": [
+            "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          ]
+        },
+        "evidence_paths": [
+          "workflows/examples/design_plan_impl_review_stack_v2_call.orc"
+        ]
+      },
+      "disposition": "migrated",
+      "completed_at_commit": "e6a85cb7e9c4499a4c76ee702654b2e9a4c2b328",
+      "evidence_paths": [
+        "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+        "docs/plans/2026-07-13-procedure-first-pilot-plan.md",
+        "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/retirement_record.json",
+        "tests/test_workflow_lisp_procedure_first_migrations.py",
+        "tests/test_workflow_lisp_key_migrations.py"
+      ]
+    }
+  ]
 }

@@ -10,14 +10,27 @@ from dataclasses import fields, is_dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
+from orchestrator.exec.output_capture import CaptureMode, CaptureResult
+from orchestrator.exec.step_executor import ExecutionResult, StepExecutor
+from orchestrator.providers.executor import ProviderExecutionResult, ProviderExecutor
+from orchestrator.state import StateManager
+from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
+from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.expressions import CallExpr, ProcedureCallExpr
 from orchestrator.workflow_lisp.lowering import procedures as procedure_lowering
 from orchestrator.workflow_lisp.source_map import build_source_map_document
+from tests.test_workflow_lisp_design_delta_smoke import (
+    _compile_design_delta_parent_drain_entrypoint,
+)
+from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +46,22 @@ PILOT_EVIDENCE = (
     / "procedure-first-pilot"
     / "tracked-plan-phase"
 )
+REUSE_INVENTORY = (
+    REPO_ROOT / "docs" / "plans" / "2026-07-13-procedure-first-reuse-inventory.json"
+)
+ROUTE_READINESS_REGISTRY = REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json"
+PARITY_TARGETS = MIGRATION_INPUTS / "parity_targets.json"
+DESIGN_DELTA_DRAIN = (
+    WORKFLOWS / "library" / "lisp_frontend_design_delta" / "drain.orc"
+)
+DESIGN_DELTA_PUBLIC_ENTRY = "lisp_frontend_design_delta/drain::drain"
+_DESIGN_DELTA_RUNTIME_PROJECTION_DIGESTS = {
+    "artifacts": "sha256:0c0925b3d70fa64626186ecd608cf01c0039aae5d4edf2a74465f722157c3732",
+    "publications": "sha256:05496b544363c9d5b04dcda52e4d73e2b393c0114947efc8956d9c500f238442",
+    "resource_transitions": "sha256:b8faac2156c83c89a400c4b8f58c323081871d4982700df810fbe420f62470b8",
+    "source_owners": "sha256:f9d41e95505f2577b3ebe84b01974c4273e712a7ae5831bceb60cb1fe0c3b525",
+    "checkpoint_ids": "sha256:d0c2ef05da988b3fb6bd93a30f426ee6dec55ed4f905b72ae6efeaa63c12e8a8",
+}
 MODULE_NAME = "examples/design_plan_impl_review_stack_v2_call"
 PUBLIC_ENTRY = f"{MODULE_NAME}::design-plan-impl-review-stack"
 TRACKED_PLAN = f"{MODULE_NAME}::tracked-plan-phase"
@@ -168,6 +197,630 @@ _NEW_INLINE_LEXICAL_ROWS = (
 
 def _load_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts() -> None:
+    inventory = _load_json(REUSE_INVENTORY)
+
+    assert inventory["schema_version"] == "procedure_first_reuse_inventory.v2"
+    assert inventory["source_commit"] == "db9889937a895d67810dee1ea0b1b53552d30eca"
+    records = inventory["records"]
+    history = inventory["history"]
+    assert len(records) == 98
+    assert len(history) == 1
+    assert len({record["id"] for record in records}) == len(records)
+    assert not ({record["id"] for record in records} & {row["id"] for row in history})
+
+    internal_records = [
+        record for record in records if record["record_kind"] == "internal-call"
+    ]
+    public_records = [
+        record for record in records if record["record_kind"] == "public-entry"
+    ]
+    assert len(internal_records) == 95
+    assert len(public_records) == 3
+    assert inventory["counts"]["raw_authored_call_sites"] == {
+        "yaml": 67,
+        "workflow_lisp": 34,
+        "total": 101,
+    }
+    assert inventory["counts"]["actionable_internal_calls"] == {
+        "total": 95,
+        "by_classification": {
+            "procedure-candidate": 32,
+            "effect-adapter": 25,
+            "legacy-retire": 38,
+            "public-boundary": 0,
+        },
+    }
+    assert inventory["history_counts"] == {
+        "total": 1,
+        "by_disposition": {
+            "migrated": 1,
+            "retired": 0,
+            "retained-public": 0,
+        },
+    }
+
+    migrated = history[0]
+    assert migrated["id"] == (
+        "internal-call:workflows/examples/design_plan_impl_review_stack_v2_call.orc:"
+        "tracked-plan-phase:1"
+    )
+    assert migrated["disposition"] == "migrated"
+    assert migrated["completed_at_commit"] == (
+        "e6a85cb7e9c4499a4c76ee702654b2e9a4c2b328"
+    )
+    assert migrated["last_active_record"]["id"] == migrated["id"]
+    assert migrated["last_active_record"]["source_line"] == 237
+    assert migrated["evidence_paths"]
+
+
+def test_procedure_first_public_boundary_inventory_keeps_exported_wrappers() -> None:
+    inventory = _load_json(REUSE_INVENTORY)
+    registry = _load_json(ROUTE_READINESS_REGISTRY)
+    parity = _load_json(PARITY_TARGETS)
+    active_by_id = {record["id"]: record for record in inventory["records"]}
+
+    drain_id = "public-entry:lisp_frontend_design_delta/drain::drain"
+    stack_id = (
+        "public-entry:examples/design_plan_impl_review_stack_v2_call::"
+        "design-plan-impl-review-stack"
+    )
+    assert {drain_id, stack_id} <= set(active_by_id)
+    for record_id in (drain_id, stack_id):
+        record = active_by_id[record_id]
+        assert record["record_kind"] == "public-entry"
+        assert record["classification"] == "public-boundary"
+        assert record["public_boundary_evidence"]
+        assert record_id not in {
+            candidate["id"]
+            for candidate in inventory["records"]
+            if candidate["classification"] == "procedure-candidate"
+        }
+
+    drain_source = DESIGN_DELTA_DRAIN.read_text(encoding="utf-8")
+    stack_source = EXAMPLE.read_text(encoding="utf-8")
+    assert "(export drain)" in drain_source
+    assert re.search(r"\(defworkflow\s+drain\b", drain_source)
+    assert "(export design-plan-impl-review-stack)" in stack_source
+    assert re.search(r"\(defworkflow\s+design-plan-impl-review-stack\b", stack_source)
+
+    readiness_paths = {row["path"] for row in registry["surfaces"]}
+    assert active_by_id[drain_id]["source_path"] in readiness_paths
+    assert active_by_id[stack_id]["source_path"] in readiness_paths
+    parity_entries = {
+        (row["candidate"], row["entry_workflow"])
+        for row in parity["targets"]
+    }
+    assert (
+        active_by_id[stack_id]["source_path"],
+        "design-plan-impl-review-stack",
+    ) in parity_entries
+
+
+def _design_delta_default_state_value(type_payload: Mapping[str, object]) -> object:
+    kind = type_payload.get("kind")
+    if kind == "primitive":
+        return {"String": "", "Bool": False, "Int": 0}[type_payload["name"]]
+    if kind == "record":
+        return {
+            str(field["name"]): _design_delta_default_state_value(field["type"])
+            for field in type_payload.get("fields", ())
+        }
+    if kind == "list":
+        return []
+    if kind == "path":
+        return ""
+    if kind == "enum":
+        allowed = tuple(type_payload.get("allowed", ()))
+        assert allowed
+        return allowed[0]
+    raise AssertionError(f"unsupported native state seed type: {type_payload!r}")
+
+
+def _iter_design_delta_surface_steps(steps):
+    if hasattr(steps, "steps"):
+        steps = steps.steps
+    for step in steps or ():
+        yield step
+        yield from _iter_design_delta_surface_steps(step.then_branch)
+        yield from _iter_design_delta_surface_steps(step.else_branch)
+        yield from _iter_design_delta_surface_steps(step.for_each_steps)
+        for case in step.match_cases.values():
+            yield from _iter_design_delta_surface_steps(case.steps)
+
+
+def _seed_design_delta_native_resources(bundles, workspace: Path) -> None:
+    for bundle in bundles:
+        for step in _iter_design_delta_surface_steps(bundle.surface.steps):
+            declaration = step.resource_transition.get("declaration")
+            resource = step.resource_transition.get("resource")
+            if declaration is None or resource is None:
+                continue
+            if declaration.resource.backing.kind != "native":
+                continue
+            state_path = workspace / str(resource["state_path"])
+            if state_path.exists():
+                continue
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "transition_schema_version": 1,
+                        "resource_id": resource["resource_id"],
+                        "resource_kind": resource["resource_kind"],
+                        "state_version": "native:0:seed",
+                        "state": _design_delta_default_state_value(
+                            declaration.resource.state_type
+                        ),
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+
+def _write_design_delta_runtime_inputs(workspace: Path) -> dict[str, object]:
+    existing = {
+        "docs/steering.md": "steering\n",
+        "docs/design/target.md": "target\n",
+        "docs/design/baseline.md": "baseline\n",
+        "state/manifest.json": "{}\n",
+        "state/progress.json": "{}\n",
+        "artifacts/work/architecture-index.md": "index\n",
+    }
+    for relative_path, content in existing.items():
+        target = workspace / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    return {
+        "steering_path": "docs/steering.md",
+        "target_design_path": "docs/design/target.md",
+        "baseline_design_path": "docs/design/baseline.md",
+        "manifest_path": "state/manifest.json",
+        "progress_ledger_path": "state/progress.json",
+        "architecture_bundle_path": "state/architecture-bundle.json",
+        "architecture_targets__design_gap_id": "task-1-contract-gap",
+        "architecture_targets__architecture_path": "docs/plans/task-1-architecture.md",
+        "architecture_targets__work_item_context_path": "artifacts/work/task-1-context.md",
+        "architecture_targets__check_commands_path": "state/task-1-checks.json",
+        "architecture_targets__plan_target_path": "docs/plans/task-1-plan.md",
+        "existing_architecture_index_path": "artifacts/work/architecture-index.md",
+    }
+
+
+def _write_json_bundle(workspace: Path, relative_path: str, payload: object) -> None:
+    target = Path(relative_path)
+    if not target.is_absolute():
+        target = workspace / target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _design_delta_command_success(step_name: str, mode: CaptureMode) -> ExecutionResult:
+    return ExecutionResult(
+        step_name, 0, CaptureResult(mode=mode, output="ok", exit_code=0), 1
+    )
+
+
+def _selector_bundle(workspace: Path, *, done: bool) -> dict[str, object]:
+    selection_path = "state/selector-done.json" if done else "state/selector-gap.json"
+    _write_json_bundle(workspace, selection_path, {"selected": not done})
+    return {
+        "selection_status": "DONE" if done else "DRAFT_DESIGN_GAP",
+        "selection_bundle_path": selection_path,
+        "work_item_bootstrap": {
+            "work_item_source": "DESIGN_GAP",
+            "work_item_id": "task-1-contract-gap",
+            "plan_target_path": "docs/plans/task-1-plan.md",
+            "check_commands": {"commands": []},
+            "architecture_path": "docs/plans/task-1-architecture.md",
+        },
+        "is_selected": False,
+        "is_design_gap": not done,
+        "is_done": done,
+        "is_blocked": False,
+        "blocked_reason": "",
+    }
+
+
+def _design_delta_artifact_projection(workspace: Path) -> dict[str, str]:
+    artifacts = workspace / "artifacts"
+    return {
+        path.relative_to(workspace).as_posix(): _sha256_path(path)
+        for path in sorted(artifacts.rglob("*"))
+        if path.is_file()
+    }
+
+
+def _design_delta_runtime_effect_projection(state) -> dict[str, object]:
+    publications = {}
+    transitions = []
+    for result in state["steps"].values():
+        debug = result.get("debug") or {}
+        if materialized := debug.get("materialize_view"):
+            target = materialized["target_path"]
+            if target.startswith("artifacts/"):
+                publications[target] = materialized["view_digest"]
+        if transition := debug.get("resource_transition"):
+            transitions.append(
+                {
+                    "step_id": result["step_id"],
+                    "resource_id": transition["resource_id"],
+                    "replayed": transition["replayed"],
+                }
+            )
+    return {"publications": publications, "resource_transitions": transitions}
+
+
+def _design_delta_compile_projection(linked_result) -> dict[str, object]:
+    document = build_source_map_document(
+        linked_result,
+        selected_name=DESIGN_DELTA_PUBLIC_ENTRY,
+        display_name_resolver=lambda name: name.rsplit("::", 1)[-1],
+    )
+    relevant = {
+        DESIGN_DELTA_PUBLIC_ENTRY,
+        "lisp_frontend_design_delta/selector::select-next-work",
+        "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture-stdlib",
+        "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib",
+    }
+    source_owners = {
+        name: Path(workflow.workflow_origin.path).relative_to(REPO_ROOT).as_posix()
+        for name, workflow in document.workflows.items()
+        if name in relevant
+    }
+    checkpoint_ids = sorted(
+        point.checkpoint_id
+        for bundle in linked_result.validated_bundles_by_name.values()
+        for point in bundle.runtime_plan.lexical_checkpoint_points
+        if point.point_kind == "effect_boundary"
+    )
+    return {"source_owners": source_owners, "checkpoint_ids": checkpoint_ids}
+
+
+class _DesignDeltaProcessInterruption(BaseException):
+    """Test-only abrupt stop after a public-wrapper effect checkpoint commits."""
+
+
+def _design_delta_first_public_resource_transition(bundle) -> object:
+    candidates = [
+        point
+        for point in bundle.runtime_plan.lexical_checkpoint_points
+        if point.point_kind == "effect_boundary"
+        and point.details["effect_boundary"]["effect_kind"]
+        == "resource_transition"
+    ]
+    assert candidates
+    return candidates[0]
+
+
+def _design_delta_interrupt_after_checkpoint(
+    production_hook,
+    *,
+    target_point: object,
+    state_manager: StateManager,
+    control: dict[str, object],
+):
+    from orchestrator.workflow_lisp.lexical_checkpoints import (
+        resolve_checkpoint_index_path,
+    )
+
+    def interrupt(state, step_name, step, finalized) -> None:
+        production_hook(state, step_name, step, finalized)
+        if finalized.get("step_id") != target_point.node_id:
+            return
+        persisted = state_manager.load().steps
+        matches = [
+            value
+            for value in persisted.values()
+            if value.get("step_id") == target_point.node_id
+            and value.get("status") == "completed"
+        ]
+        assert len(matches) == 1
+        index = state_manager.read_runtime_sidecar_json(
+            resolve_checkpoint_index_path(
+                state_manager=state_manager,
+                workflow_name=target_point.workflow_name,
+                checkpoint_id=target_point.checkpoint_id,
+            )
+        )
+        record_path = index["records"][-1]["record_path"]
+        record = state_manager.read_runtime_sidecar_json(
+            state_manager.workspace / record_path
+        )
+        assert record["completed_effect_refs"]
+        control["interrupted_step_id"] = target_point.node_id
+        raise _DesignDeltaProcessInterruption
+
+    return interrupt
+
+
+def _execute_design_delta_public_wrapper(
+    workspace: Path,
+    *,
+    run_id: str,
+    provider_roles: list[str],
+    command_roles: list[str],
+    resume: bool = False,
+    interrupt_after_committed_effect: bool = False,
+) -> dict[str, object]:
+    workflow_relative_path = DESIGN_DELTA_DRAIN.relative_to(REPO_ROOT)
+    workflow_path = workspace / workflow_relative_path
+    workflow_path.parent.mkdir(parents=True, exist_ok=True)
+    workflow_path.write_bytes(DESIGN_DELTA_DRAIN.read_bytes())
+    linked_result, _ = _compile_design_delta_parent_drain_entrypoint(workspace)
+    bundle = linked_result.entry_result.validated_bundles[DESIGN_DELTA_PUBLIC_ENTRY]
+    bundles = tuple(linked_result.validated_bundles_by_name.values())
+    _seed_design_delta_native_resources(bundles, workspace)
+    public_inputs = _write_design_delta_runtime_inputs(workspace)
+    state_manager = StateManager(workspace=workspace, run_id=run_id)
+    if not resume:
+        state_manager.initialize(
+            workflow_relative_path.as_posix(),
+            context=bundle_context_dict(bundle),
+            bound_inputs=bind_workflow_inputs(
+                {
+                    name: workflow_runtime_input_contracts(bundle)[name]
+                    for name in public_inputs
+                },
+                public_inputs,
+                workspace,
+            ),
+        )
+
+    control = {
+        "provider_queue": list(provider_roles),
+        "command_queue": list(command_roles),
+        "provider_attempts": [],
+        "provider_successes": [],
+        "command_attempts": [],
+    }
+
+    def prepare_provider(_self, provider_name=None, prompt_content=None, env=None, **_kwargs):
+        assert control["provider_queue"], "unexpected provider effect"
+        role = control["provider_queue"].pop(0)
+        bundle_path = (env or {}).get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH")
+        assert isinstance(bundle_path, str) and bundle_path
+        invocation = SimpleNamespace(
+            input_mode="stdin",
+            prompt=prompt_content or "",
+            provider_name=provider_name,
+            evidence_role=role,
+            output_bundle_path=bundle_path,
+        )
+        return invocation, None
+
+    def execute_provider(_self, invocation, **_kwargs):
+        role = invocation.evidence_role
+        control["provider_attempts"].append(role)
+        payload = {
+            "selector-gap": _selector_bundle(workspace, done=False),
+            "selector-done": _selector_bundle(workspace, done=True),
+            "architect": {"draft_status": "DRAFTED"},
+        }[role]
+        if role == "architect":
+            _write_json_bundle(
+                workspace,
+                "artifacts/work/draft_architecture_bundle.json",
+                {"status": "drafted"},
+            )
+        _write_json_bundle(workspace, invocation.output_bundle_path, payload)
+        control["provider_successes"].append(role)
+        return ProviderExecutionResult(0, b"ok", b"", 1)
+
+    def execute_command(
+        _self,
+        step_name,
+        command,
+        env=None,
+        output_capture=CaptureMode.TEXT,
+        **_kwargs,
+    ):
+        bundle_path = (env or {}).get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH")
+        assert isinstance(bundle_path, str) and bundle_path
+        if str(step_name).endswith("__managed_write_roots"):
+            args = list(command[4:]) if isinstance(command, list) else []
+            _write_json_bundle(
+                workspace,
+                bundle_path,
+                {
+                    str(args[index]): str(args[index + 1])
+                    for index in range(0, len(args), 2)
+                },
+            )
+            return _design_delta_command_success(step_name, output_capture)
+        assert control["command_queue"], "unexpected command effect"
+        role = control["command_queue"].pop(0)
+        assert role == "validate-architecture"
+        control["command_attempts"].append(role)
+        report_path = "artifacts/work/task-1-validation.md"
+        report = workspace / report_path
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("validated\n", encoding="utf-8")
+        _write_json_bundle(
+            workspace,
+            bundle_path,
+            {
+                "architecture_validation_status": "VALID",
+                "work_item_bundle_path": report_path,
+            },
+        )
+        return _design_delta_command_success(step_name, output_capture)
+
+    with patch.object(
+        ProviderExecutor, "prepare_invocation", prepare_provider
+    ), patch.object(ProviderExecutor, "execute", execute_provider), patch.object(
+        StepExecutor, "execute_command", execute_command
+    ):
+        executor = WorkflowExecutor(
+            bundle,
+            workspace,
+            state_manager,
+            max_retries=0,
+            retry_delay_ms=0,
+        )
+        interruption_control: dict[str, object] = {}
+        if interrupt_after_committed_effect:
+            target_point = _design_delta_first_public_resource_transition(bundle)
+            production_hook = executor.outcome_recorder.post_persist_hook
+            assert production_hook is not None
+            executor.outcome_recorder.post_persist_hook = (
+                _design_delta_interrupt_after_checkpoint(
+                    production_hook,
+                    target_point=target_point,
+                    state_manager=state_manager,
+                    control=interruption_control,
+                )
+            )
+        try:
+            state = executor.execute(
+                run_id=run_id if resume else None,
+                resume=resume,
+                on_error="stop",
+            )
+        except _DesignDeltaProcessInterruption:
+            assert not resume
+            state = state_manager.load().to_dict()
+
+    failed_steps = {
+        name: json.dumps(result.get("error"), sort_keys=True)
+        for name, result in state.get("steps", {}).items()
+        if isinstance(result, Mapping) and result.get("status") == "failed"
+    }
+    assert not control["provider_queue"], failed_steps
+    assert not control["command_queue"], failed_steps
+    resume_report_path = (
+        state_manager.run_root
+        / "workflow_lisp"
+        / "checkpoints"
+        / "default_resume_report.json"
+    )
+    projections = _design_delta_runtime_effect_projection(state)
+    compile_projection = _design_delta_compile_projection(linked_result)
+    return {
+        "state": state,
+        "provider_attempts": control["provider_attempts"],
+        "provider_successes": control["provider_successes"],
+        "command_attempts": control["command_attempts"],
+        "interruption": interruption_control,
+        "artifacts": _design_delta_artifact_projection(workspace),
+        **projections,
+        **compile_projection,
+        "resume_report": (
+            json.loads(resume_report_path.read_text(encoding="utf-8"))
+            if resume_report_path.exists()
+            else None
+        ),
+    }
+
+
+def test_procedure_first_design_delta_public_wrapper_runtime_contract(
+    tmp_path: Path,
+) -> None:
+    runtime = _execute_design_delta_public_wrapper(
+        tmp_path,
+        run_id="procedure-first-design-delta-clean",
+        provider_roles=["selector-gap", "architect", "selector-done"],
+        command_roles=["validate-architecture"],
+    )
+
+    assert runtime["state"]["status"] == "completed"
+    assert runtime["provider_attempts"] == [
+        "selector-gap",
+        "architect",
+        "selector-done",
+    ]
+    assert runtime["provider_successes"] == runtime["provider_attempts"]
+    assert runtime["command_attempts"] == ["validate-architecture"]
+    assert runtime["state"]["workflow_outputs"] == {
+        "return__variant": "DONE",
+        "return__drain-summary__drain_status": "DONE",
+        "return__drain-summary__drain_status_reason": "",
+        "return__drain-summary__state_version": (
+            "lisp_frontend_autonomous_drain_run_state/v1"
+        ),
+    }
+    assert runtime["artifacts"]
+    assert set(runtime["publications"]) == {
+        "artifacts/work/drain-progress-report.md",
+        "artifacts/work/drain_summary.json",
+    }
+    assert len(runtime["resource_transitions"]) == 2
+    assert all(
+        transition["resource_id"] == "drain-run-state"
+        and transition["replayed"] is False
+        for transition in runtime["resource_transitions"]
+    )
+    assert set(runtime["source_owners"]) == {
+        DESIGN_DELTA_PUBLIC_ENTRY,
+        "lisp_frontend_design_delta/selector::select-next-work",
+        "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture-stdlib",
+        "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib",
+    }
+    assert runtime["checkpoint_ids"]
+    assert {
+        name: _projection_sha256(runtime[name])
+        for name in _DESIGN_DELTA_RUNTIME_PROJECTION_DIGESTS
+    } == _DESIGN_DELTA_RUNTIME_PROJECTION_DIGESTS
+
+
+def test_procedure_first_design_delta_public_wrapper_resume_contract(
+    tmp_path: Path,
+) -> None:
+    clean_workspace = tmp_path / "clean"
+    interrupted_workspace = tmp_path / "interrupted"
+    clean_workspace.mkdir()
+    interrupted_workspace.mkdir()
+    clean = _execute_design_delta_public_wrapper(
+        clean_workspace,
+        run_id="procedure-first-design-delta-clean",
+        provider_roles=["selector-gap", "architect", "selector-done"],
+        command_roles=["validate-architecture"],
+    )
+    first = _execute_design_delta_public_wrapper(
+        interrupted_workspace,
+        run_id="procedure-first-design-delta-resume",
+        provider_roles=["selector-gap", "architect", "selector-done"],
+        command_roles=["validate-architecture"],
+        interrupt_after_committed_effect=True,
+    )
+    assert first["state"]["status"] == "running"
+    interrupted_step_id = first["interruption"]["interrupted_step_id"]
+    assert first["provider_successes"] == [
+        "selector-gap",
+        "architect",
+        "selector-done",
+    ]
+
+    resumed = _execute_design_delta_public_wrapper(
+        interrupted_workspace,
+        run_id="procedure-first-design-delta-resume",
+        provider_roles=[],
+        command_roles=[],
+        resume=True,
+    )
+
+    assert resumed["state"]["status"] == "completed"
+    assert resumed["provider_attempts"] == []
+    assert resumed["provider_successes"] == resumed["provider_attempts"]
+    assert resumed["command_attempts"] == []
+    interrupted_visits = [
+        value["visit_count"]
+        for value in resumed["state"]["steps"].values()
+        if value.get("step_id") == interrupted_step_id
+    ]
+    assert interrupted_visits == [1]
+    assert resumed["state"]["workflow_outputs"] == clean["state"]["workflow_outputs"]
+    assert resumed["artifacts"] == clean["artifacts"]
+    assert resumed["publications"] == clean["publications"]
+    assert resumed["resource_transitions"] == clean["resource_transitions"]
+    assert resumed["source_owners"] == clean["source_owners"]
+    assert resumed["checkpoint_ids"] == clean["checkpoint_ids"]
+    assert resumed["resume_report"]["status"] == "pass"
+    assert resumed["resume_report"]["restore_decision"] == "RESTORED"
 
 
 def _projection_sha256(value: object) -> str:
