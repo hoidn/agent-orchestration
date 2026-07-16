@@ -16,11 +16,14 @@
   - `docs/plans/2026-07-13-procedure-migration-identity-compatibility-plan.md`
   - `docs/plans/2026-07-14-procedure-identity-store-match-scoped-counts-plan.md`
   - `docs/plans/2026-07-13-procedure-first-pilot-plan.md`
+  - `docs/design/resume_projection_integrity_hardening.md`
   - `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`
+  - `docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
   - `specs/state.md`
-- **Implementation target:** current selector is the separate resume
-  projection-integrity hardening design/planning plan; migration waves remain
-  gated behind its resulting implementation
+- **Implementation dependency:** the accepted resume projection-integrity
+  design and its reviewed implementation plan define the separate runtime
+  hardening gate; migration waves remain gated behind completed implementation
+  evidence and reviews
 
 Acceptance establishes the compatibility contract and reviewed implementation
 sequence. Generic prerequisite Tasks 1-8 completed at handoff `f5adcb79`. The
@@ -28,6 +31,8 @@ tracked-plan pilot then completed through `0769e837`, with exactly two
 completed dedicated runs and holistic specification/quality approval. This is
 not a general cross-source resume/compatibility, family-wave, promotion, or
 YAML-retirement claim, and projection-integrity hardening is not implemented.
+Live roadmap selection is owned by the governing execution sequence, not this
+durable compatibility design.
 
 ## Summary
 

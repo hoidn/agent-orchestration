@@ -7,15 +7,17 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CURRENT_SELECTOR_PATH = (
+PILOT_PLAN_PATH = (
     "docs/plans/2026-07-13-procedure-first-pilot-plan.md"
+)
+CURRENT_SELECTOR_PATH = (
+    "docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md"
 )
 CORRECTION_SUBPLAN_PATH = (
     "docs/plans/2026-07-14-procedure-identity-store-match-scoped-counts-plan.md"
 )
 ORDERED_ROADMAP_PATHS = (
     CURRENT_SELECTOR_PATH,
-    "docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md",
     "docs/plans/2026-07-13-procedure-first-migration-waves-plan.md",
     "docs/plans/2026-07-07-yaml-retirement-program.md",
     "docs/design/workflow_lisp_provider_live_binding.md",
@@ -51,12 +53,6 @@ CONTRADICTORY_CLOSEOUT_STATE = re.compile(
     r")\b"
 )
 CURRENT_RECOVERY_FIX_COMMIT = "1cba48c8"
-RECOVERY_STATUS_SURFACES = (
-    "docs/index.md",
-    "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md",
-    "docs/plans/2026-07-09-procedure-first-roadmap-activation-plan.md",
-    CURRENT_SELECTOR_PATH,
-)
 CONTRADICTORY_RECOVERY_STATUS = re.compile(
     r"\bgeneric prerequisite fix (?:remains|is) (?:open|pending|in progress|underway)\b"
     r"|\bsecond mutation requires .*\bfix\b.*\breviews?\b"
@@ -84,30 +80,37 @@ def _normalized_routing_text(text: str) -> str:
     )
 
 
-def _assert_exact_ordered_routing_paths(surface: str, label: str) -> None:
-    canonical = surface.replace("(plans/", "(docs/plans/").replace(
+def _canonical_routing_paths(surface: str) -> str:
+    canonical = surface.replace("../plans/", "docs/plans/")
+    canonical = canonical.replace("(plans/", "(docs/plans/").replace(
         "(design/", "(docs/design/"
     )
+    for path in ORDERED_ROADMAP_PATHS:
+        canonical = canonical.replace(f"`{Path(path).name}`", f"`{path}`")
+    return canonical
+
+
+def _procedure_sequence_current_routing() -> str:
+    sequence = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
+    ).read_text(encoding="utf-8")
+    return sequence.split("The tracked-plan pilot subsequently", 1)[1].split(
+        "The completed Phase 1 execution order was:", 1
+    )[0]
+
+
+def _assert_exact_ordered_routing_paths(surface: str, label: str) -> None:
+    canonical = _canonical_routing_paths(surface)
     positions: list[int] = []
     for path in ORDERED_ROADMAP_PATHS:
         assert canonical.count(path) == 1, (label, path, canonical.count(path))
         positions.append(canonical.index(path))
     assert positions == sorted(positions), (label, positions)
-    assert "paused" in canonical.lower(), label
     assert canonical.count(CORRECTION_SUBPLAN_PATH) == 0, label
     assert _normalized_routing_text(surface).count("current selector") == 1, label
-
-
-def _assert_early_yaml_sweep_exception(surface: str, label: str) -> None:
-    normalized = _normalized_routing_text(surface)
-    assert "deletion" in normalized, label
-    assert "sweep" in normalized, label
-    assert "quiescence" in normalized, label
-    assert "independent" in normalized, label
-    assert "not selected" in normalized, label
-    assert "has not started" in normalized, label
-    assert "not full stage 6" in normalized, label
-    assert "does not reorder" in normalized, label
 
 
 def _assert_task_4_3_closeout_state(surface: str, label: str) -> None:
@@ -140,20 +143,65 @@ def _assert_current_task_3_recovery_status(
     assert CONTRADICTORY_RECOVERY_STATUS.search(normalized) is None, label
 
 
-def test_procedure_first_status_surfaces_share_current_task_3_recovery_boundary() -> None:
-    for relative_path in RECOVERY_STATUS_SURFACES:
-        surface = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
-        _assert_current_task_3_recovery_status(
-            surface,
-            relative_path,
-            require_explicit_mutation_hold=relative_path.endswith(
-                "procedure-first-roadmap-activation-plan.md"
-            ),
-        )
+def test_procedure_first_status_surfaces_share_current_resume_projection_boundary() -> None:
+    capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
+    docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
+        encoding="utf-8"
+    ).split("**Component-plan routing:**", 1)[1].split(
+        "**Current procedure-first substrate:**", 1
+    )[0]
+    routing_surfaces = {
+        "docs index": docs_index_routing,
+        "procedure sequence": _procedure_sequence_current_routing(),
+        "capability matrix": _markdown_table_row(
+            capability_matrix_path,
+            "Workflow Lisp procedure-first reuse contract",
+        ),
+    }
+
+    for label, surface in routing_surfaces.items():
+        canonical = _canonical_routing_paths(surface)
+        assert canonical.count(CURRENT_SELECTOR_PATH) == 1, label
+        normalized = _normalized_routing_text(surface)
+        assert "runtime" in normalized, label
+        assert any(
+            marker in normalized
+            for marker in (
+                "pending",
+                "not implemented",
+                "not yet implemented",
+                "must implement",
+                "complete its runtime",
+            )
+        ), label
+
+
+def test_historical_and_durable_authorities_do_not_claim_live_selector_ownership() -> None:
+    activation = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "2026-07-09-procedure-first-roadmap-activation-plan.md"
+    ).read_text(encoding="utf-8")
+    compatibility_design = (
+        REPO_ROOT
+        / "docs"
+        / "design"
+        / "workflow_lisp_procedure_migration_identity_compatibility.md"
+    ).read_text(encoding="utf-8")
+
+    assert "current selector" not in _normalized_routing_text(activation)
+    assert "historical" in _normalized_routing_text(activation)
+    assert CURRENT_SELECTOR_PATH in activation
+    assert "current selector" not in _normalized_routing_text(compatibility_design)
+    assert "durable compatibility design" in _normalized_routing_text(
+        compatibility_design
+    )
+    assert CURRENT_SELECTOR_PATH in compatibility_design
 
 
 def test_current_task_3_routes_only_the_authorized_same_id_recovery_selector() -> None:
-    pilot = (REPO_ROOT / CURRENT_SELECTOR_PATH).read_text(encoding="utf-8")
+    pilot = (REPO_ROOT / PILOT_PLAN_PATH).read_text(encoding="utf-8")
 
     assert "test_tracked_plan_phase_exact_two_run_evidence" not in pilot
     assert (
@@ -317,44 +365,21 @@ def test_task_4_2_inventory_guard_rejects_incomplete_pipeline_contract(
 
 
 def test_drain_authorities_share_one_current_selector_and_preserve_later_order() -> None:
-    capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
-    procedure_first_row = _markdown_table_row(
-        capability_matrix_path, "Workflow Lisp procedure-first reuse contract"
-    )
     docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
         encoding="utf-8"
     ).split("**Component-plan routing:**", 1)[1].split(
         "**Current procedure-first substrate:**", 1
     )[0]
-    procedure_sequence = (
-        REPO_ROOT
-        / "docs"
-        / "plans"
-        / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
-    ).read_text(encoding="utf-8").split(
-        "**Current next selection (2026-07-13):**", 1
-    )[1].split("The completed Phase 1 execution order was:", 1)[0]
-    activation_routing = (
-        REPO_ROOT
-        / "docs"
-        / "plans"
-        / "2026-07-09-procedure-first-roadmap-activation-plan.md"
-    ).read_text(encoding="utf-8").split(
-        "> **Routing amendment (2026-07-13):**", 1
-    )[1].split("**Tech Stack:**", 1)[0]
-
     routing_surfaces = {
         "docs index": docs_index_routing,
-        "procedure sequence": procedure_sequence,
-        "activation": activation_routing,
-        "capability matrix": procedure_first_row,
+        "procedure sequence": _procedure_sequence_current_routing(),
     }
-    assert len(routing_surfaces) == 4
+    assert len(routing_surfaces) == 2
     for label, surface in routing_surfaces.items():
         _assert_exact_ordered_routing_paths(surface, label)
 
         missing = surface.replace(
-            "2026-07-13-resume-projection-integrity-hardening-design-plan.md",
+            "2026-07-13-resume-projection-integrity-hardening-implementation-plan.md",
             "missing-hardening-plan.md",
             1,
         )
@@ -372,42 +397,38 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
                 f"{label} correction promoted",
             )
 
-        missing_selector_declaration = surface.replace("current selector", "active plan", 1)
+        migration_name = Path(ORDERED_ROADMAP_PATHS[1]).name
+        yaml_name = Path(ORDERED_ROADMAP_PATHS[2]).name
+        reordered = (
+            surface.replace(migration_name, "__MIGRATION_PLAN__", 1)
+            .replace(yaml_name, migration_name, 1)
+            .replace("__MIGRATION_PLAN__", yaml_name, 1)
+        )
+        with pytest.raises(AssertionError):
+            _assert_exact_ordered_routing_paths(reordered, f"{label} reordered")
+
+        missing_selector_declaration = re.sub(
+            "current selector",
+            "active plan",
+            surface,
+            count=1,
+            flags=re.IGNORECASE,
+        )
         with pytest.raises(AssertionError):
             _assert_exact_ordered_routing_paths(
                 missing_selector_declaration,
                 f"{label} missing selector declaration",
             )
 
-        removed_selector_declaration = surface.replace("current selector", "", 1)
+        removed_selector_declaration = re.sub(
+            "current selector",
+            "",
+            surface,
+            count=1,
+            flags=re.IGNORECASE,
+        )
         with pytest.raises(AssertionError):
             _assert_exact_ordered_routing_paths(
                 removed_selector_declaration,
                 f"{label} removed selector declaration",
             )
-
-        _assert_early_yaml_sweep_exception(surface, label)
-
-        for mutation, mutation_label in (
-            (
-                surface.replace("has not started", "has started", 1),
-                "started sweep",
-            ),
-            (
-                surface.replace("has not started", "", 1),
-                "missing not-started clause",
-            ),
-            (
-                surface.replace("does not reorder", "does reorder", 1),
-                "reordered stages",
-            ),
-            (
-                surface.replace("does not reorder", "", 1),
-                "missing no-reorder clause",
-            ),
-        ):
-            with pytest.raises(AssertionError):
-                _assert_early_yaml_sweep_exception(
-                    mutation,
-                    f"{label} {mutation_label}",
-                )

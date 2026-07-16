@@ -88,8 +88,9 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-13-procedure-first-substrate-gaps-plan.md` | Complete and independently gated. Caller-visible transitive effects are recomputed after specialization; do not re-execute this substrate before the tracked-plan pilot. |
 | `2026-07-13-procedure-migration-identity-compatibility-plan.md` | Complete and gated; the final audited handoff to the pilot is `f5adcb79`. Do not re-execute it or edit the pilot family source under this plan. |
 | `2026-07-13-procedure-first-pilot-plan.md` | Complete. Evidence landed at `63e03330`, `e6a85cb7`, `de522c76`, `f5dbac88`, `76205d4f`, and `0769e837`; holistic specification and quality reviews approved HEAD `0769e837`. Exactly two dedicated runs completed, and the route remains `leaf_runtime_candidate` / `migration_candidate` / `migration_evidence_only`. Historical clean artifact equality is `not_asserted`. This is one reviewed internal pilot, not a general compatibility, family-wave, promotion, or YAML-retirement claim. |
-| `2026-07-13-resume-projection-integrity-hardening-design-plan.md` | Current selector. It designs/specifies generic checksum-compatible projection-integrity hardening and writes the resulting implementation plan; it does not itself implement runtime hardening. Both it and the resulting implementation must complete before migration waves begin. |
-| `2026-07-13-procedure-first-migration-waves-plan.md` | Planned after resume projection-integrity hardening implementation completes. Task 1 must rebaseline all prerequisites before any family migration. |
+| `2026-07-13-resume-projection-integrity-hardening-design-plan.md` | Complete. Characterization landed at `1cd60767`, the accepted design at `52e2b05f`, the normative state/acceptance contract at `00135832`, and the reviewed implementation plan at `26a5d3db`; holistic routing reviews and fresh focused/broad validation passed at closeout. This row does not claim runtime implementation. |
+| `2026-07-13-resume-projection-integrity-hardening-implementation-plan.md` | Current selector. Execute the accepted TDD plan and obtain its required acceptance evidence plus implementation reviews before any migration wave begins. Runtime hardening is not yet implemented. |
+| `2026-07-13-procedure-first-migration-waves-plan.md` | Blocked until the resume projection-integrity implementation plan completes with fresh acceptance evidence and required reviews. Task 1 must rebaseline all prerequisites before any family migration; the accepted design or implementation-plan document alone is insufficient. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
 | `2026-07-07-yaml-retirement-program.md` | Amended 2026-07-14 to deletion-first retirement: survivors are `verified_iteration_drain` and `generic_run_watchdog`, each getting its own `.orc` port through the parity kernel; every other YAML workflow is reclassified delete. The former pilot-quiescence scheduling window is closed. Any early independent Task 6 tranche now requires separate selection and does not reorder Stage 6 authority. See the program's steering amendment and roadmap Stage 6. |
 
@@ -184,11 +185,13 @@ complete and gated at handoff `f5adcb79`. The tracked-plan pilot subsequently
 completed at `0769e837` after the six recorded evidence commits, exactly two
 completed dedicated runs, focused 544/2 and broad 4743/13 gates with the six
 accepted unrelated failures, and holistic specification/quality approval.
-The current selector is
-`docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`,
-which designs/specifies the hardening and writes its implementation plan but
-does not implement runtime hardening. After that design/planning work and the
-resulting implementation both complete, continue with
+The design/specification/implementation-plan artifacts are complete at
+`1cd60767`, `52e2b05f`, `00135832`, and `26a5d3db`, with their required
+artifact reviews and final routing validation approved. The current selector is
+`docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`.
+It must implement the accepted runtime contract and close its acceptance and
+review gates; the landed design/specification/plan artifacts do not themselves
+implement hardening. After that implementation completes, continue with
 `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`,
 `docs/plans/2026-07-07-yaml-retirement-program.md`,
 `docs/design/workflow_lisp_provider_live_binding.md`, and
@@ -256,8 +259,10 @@ historical state/YAML twin. The semantic-migration freeze is lifted and Stage 4
 was the next selector at Gate S3; it, both typed-return waves, and the
 resolved-effect substrate and identity-compatibility prerequisites are now
 complete. The tracked-plan pilot later completed and passed holistic review at
-`0769e837`. Projection-integrity design/planning is now selected; its resulting
-implementation remains a hard gate before migration waves.
+`0769e837`. Projection-integrity design/specification/plan artifacts are
+complete through `26a5d3db`, and final Task 5 routing validation is complete;
+the accepted implementation plan is now selected and remains a hard gate
+before migration waves.
 
 ### Stage 4: Design The Broader Procedure-First Contract
 
@@ -395,11 +400,14 @@ Execute only accepted plans, in this order:
    internal retirement pilot through `0769e837`. It proves its own retained
    public-wrapper parity and evidence-only retirement only; it does not
    generalize cross-source resume, compatibility, promotion, or family waves.
-6. **Resume projection-integrity hardening — current selector.** Execute
-   `2026-07-13-resume-projection-integrity-hardening-design-plan.md`, accept its
-   generic design/specification and detailed implementation plan, then complete
-   that implementation plan. This is a production-wave prerequisite, not a
-   claim that hardening is already implemented.
+6. **Resume projection-integrity runtime hardening — current selector.** The
+   design/specification/plan artifacts are complete at `1cd60767`, `52e2b05f`,
+   `00135832`, and `26a5d3db`; final Task 5 routing validation is complete.
+   Execute
+   `2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
+   and require its fresh acceptance evidence and implementation reviews before
+   closing this item. The accepted design and plan do not claim that runtime
+   hardening is already implemented.
 7. **Small/library wave.** Only after item 6 completes, execute Tasks 1–3 of
    `2026-07-13-procedure-first-migration-waves-plan.md` with the recorded
    classification and parity gates.

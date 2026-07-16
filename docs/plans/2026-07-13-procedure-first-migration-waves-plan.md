@@ -12,17 +12,27 @@
 
 ## Authority, order, and invariants
 
+**Status:** Blocked until
+`docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
+has been executed completely with fresh acceptance evidence and required
+implementation reviews.
+
 - Accepted contract: `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
 - Reviewed queue: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
 - Human-readable inventory: `docs/plans/2026-07-13-procedure-first-reuse-inventory.md`
 - Stage 6 owner: `docs/plans/2026-07-07-yaml-retirement-program.md`
 - Migration parity owner: `docs/design/workflow_lisp_key_migration_parity_architecture.md`
-- Resume-integrity prerequisite owner:
+- Accepted resume-integrity design:
+  `docs/design/resume_projection_integrity_hardening.md`
+- Resume-integrity implementation gate:
+  `docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
+- Completed design/specification/plan artifact provenance:
   `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`
 - Execute only after typed result guidance, the effect substrate plan, the
-  tracked-plan pilot, the accepted resume projection-integrity target and
-  implementation plan produced by that design-and-planning plan, and the full
-  hardening implementation are complete and independently reviewed.
+  tracked-plan pilot, and the full resume projection-integrity hardening
+  implementation are complete and independently reviewed with fresh acceptance
+  evidence. The accepted design and the implementation-plan document establish
+  authority and work order; neither is implementation evidence.
 - No migration task, including a small/library family, may start before that
   hardening implementation gate passes. Production-family Tasks 5–6 have the
   same prerequisite and cannot treat pilot success or design acceptance alone
@@ -95,8 +105,8 @@ collapse them across families:
 - Inspect: `docs/plans/2026-07-13-procedure-first-substrate-gaps-plan.md`
 - Inspect: `docs/plans/2026-07-13-procedure-first-pilot-plan.md`
 - Inspect: `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`
-- Inspect: the accepted resume projection-integrity design and completed
-  implementation plan produced by that plan
+- Inspect: `docs/design/resume_projection_integrity_hardening.md`
+- Inspect: `docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.md`
 - Test: `tests/test_workflow_lisp_procedure_first_migrations.py`
@@ -110,7 +120,8 @@ accepted, implemented, and independently reviewed with fresh completion
 evidence. Rebaseline the inventory and family selectors against that
 post-hardening checkout. Do not duplicate or reopen direct-root/guidance
 semantics, and stop before any migration if the hardening implementation gate
-cannot be proven.
+cannot be proven. The accepted design, completed planning tranche, or presence
+of the implementation-plan file is not sufficient proof.
 
 - [ ] **Step 2: Regenerate source locations and current commit provenance**
 

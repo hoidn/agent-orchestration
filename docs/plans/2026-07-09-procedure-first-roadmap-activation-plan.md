@@ -7,11 +7,11 @@
 **Architecture:** This historical activation plan changes planning and routing
 artifacts only; component plans retain their detailed gates. The tracked-plan
 pilot completed through `0769e837` with holistic specification and quality
-approval. The current selector is
-`docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`.
-It designs/specifies the hardening and writes an implementation plan; runtime
-hardening remains unimplemented until that resulting plan executes. Migration
-waves remain gated behind both steps.
+approval. This file no longer owns the live selector; follow
+`docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`. That
+governing sequence currently routes execution through
+`docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
+before migration waves.
 
 > **Current execution amendment (updated 2026-07-13):** The case 5 design and
 > implementation are complete, and the boundary final gate passed. The
@@ -47,11 +47,13 @@ waves remain gated behind both steps.
 > **Routing amendment (2026-07-15):** The preceding amendment remains the
 > historical closeout record. The tracked-plan pilot completed through
 > `0769e837`, after its six evidence commits, exactly two completed dedicated
-> runs, focused/broad gates, and holistic specification/quality approval. The
-> current selector is
-> `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`.
-> Complete its design/specification and the implementation plan it produces
-> before starting
+> runs, focused/broad gates, and holistic specification/quality approval. This
+> dated amendment is historical routing provenance and is superseded for live
+> selection by
+> `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`. The
+> reviewed runtime gate is
+> `docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`;
+> complete it before starting
 > `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`. Later order
 > remains `docs/plans/2026-07-07-yaml-retirement-program.md`,
 > `docs/design/workflow_lisp_provider_live_binding.md`, then
@@ -592,6 +594,6 @@ satisfied. DSL v2.15 is public. The resolved-effect substrate is complete and
 independently gated, and the identity prerequisites completed at `f5adcb79`.
 The Path A pilot completed through `0769e837` with exactly two completed
 dedicated runs and holistic specification/quality approval. Current routing
-selects the projection-integrity hardening design/planning plan, followed by
-its resulting implementation, then migration waves, YAML retirement, provider
-live binding, and the language server in that order.
+is owned by the governing execution sequence, which selects the reviewed
+projection-integrity hardening implementation plan, then migration waves, YAML
+retirement, provider live binding, and the language server in that order.
