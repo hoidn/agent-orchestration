@@ -13,6 +13,12 @@ from orchestrator.workflow.loaded_bundle import workflow_bundle
 
 _PREVIEW_LIMIT = 200
 _STALE_RUNNING_TIMEOUT_SEC = 300
+_FORENSIC_CURRENT_STEP_ERROR_TYPES = frozenset(
+    {
+        "resume_projection_integrity_error",
+        "workflow_checksum_mismatch",
+    }
+)
 
 
 def _resolved_current_step_name(workflow: Any, current_step: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -210,6 +216,16 @@ def _coerce_step_status(step_result: Any) -> Optional[str]:
     return None
 
 
+def _retained_current_step_is_forensic(state: Mapping[str, Any]) -> bool:
+    if state.get("status") != "failed":
+        return False
+    error = state.get("error")
+    return (
+        isinstance(error, Mapping)
+        and error.get("type") in _FORENSIC_CURRENT_STEP_ERROR_TYPES
+    )
+
+
 def derive_status_projection(
     state: Mapping[str, Any],
     step_entries: list[Mapping[str, Any]],
@@ -297,6 +313,8 @@ def build_status_snapshot(
     steps_state = state.get("steps") if isinstance(state.get("steps"), dict) else {}
     step_visits = state.get("step_visits") if isinstance(state.get("step_visits"), dict) else {}
     current_step = state.get("current_step") if isinstance(state.get("current_step"), dict) else None
+    if _retained_current_step_is_forensic(state):
+        current_step = None
     current_step_name = _resolved_current_step_name(workflow, current_step)
 
     step_entries = []

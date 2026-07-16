@@ -9,7 +9,7 @@ import shutil
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Literal
+from typing import Dict, Any, Optional, List, Literal, Mapping
 from dataclasses import dataclass, asdict, field
 import random
 import string
@@ -487,6 +487,52 @@ class StateManager:
                 self.state.current_step["failed_at"] = datetime.now(timezone.utc).isoformat()
 
             self._write_state()
+
+    def _record_atomic_root_failure(self, error: Mapping[str, Any]) -> None:
+        """Replace only the root failure envelope while preserving raw state."""
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
+
+            with open(self.state_file, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+            if not isinstance(payload, dict):
+                raise ValueError("State file must decode to an object")
+
+            payload["status"] = "failed"
+            payload["error"] = dict(error)
+            payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._write_json_atomic(self.state_file, payload)
+            self.state = RunState.from_dict(payload)
+
+    def record_resume_projection_integrity_failure(
+        self,
+        error: Mapping[str, Any],
+    ) -> None:
+        """Atomically change only status, error, and updated_at."""
+        self._record_atomic_root_failure(error)
+
+    def record_workflow_checksum_mismatch(
+        self,
+        *,
+        workflow_file: str | None,
+        persisted_checksum: str | None,
+        current_checksum: str | None,
+        reason: str,
+    ) -> None:
+        """Atomically record the structured root checksum-mismatch envelope."""
+        self._record_atomic_root_failure(
+            {
+                "type": "workflow_checksum_mismatch",
+                "message": "Workflow has been modified since the run started",
+                "context": {
+                    "workflow_file": workflow_file,
+                    "persisted_checksum": persisted_checksum,
+                    "current_checksum": current_checksum,
+                    "reason": reason,
+                },
+            }
+        )
 
     def backup_state(self, step_name: str):
         """Create a backup of current state before step execution.

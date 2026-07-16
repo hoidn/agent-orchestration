@@ -1,6 +1,7 @@
 """Tests for State Manager (AT-4)."""
 
 import json
+import os
 import pytest
 import tempfile
 import shutil
@@ -9,6 +10,20 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from orchestrator.state import StateManager, RunState, StepResult, ForEachState
+
+
+def _run_tree_snapshot(run_root: Path) -> dict[str, tuple[str, bytes]]:
+    """Return a deterministic snapshot of every persisted run-tree entry."""
+    snapshot: dict[str, tuple[str, bytes]] = {}
+    for path in sorted(run_root.rglob("*")):
+        relative_path = path.relative_to(run_root).as_posix()
+        if path.is_symlink():
+            snapshot[relative_path] = ("symlink", os.readlink(path).encode())
+        elif path.is_dir():
+            snapshot[relative_path] = ("directory", b"")
+        else:
+            snapshot[relative_path] = ("file", path.read_bytes())
+    return snapshot
 
 
 class TestStateManager:
@@ -568,6 +583,284 @@ steps:
         # Update to failed
         manager.update_status("failed")
         assert manager.state.status == "failed"
+
+    def test_projection_failure_recorder_changes_exactly_three_root_fields(
+        self,
+        temp_workspace,
+        workflow_file,
+        monkeypatch,
+    ):
+        manager = StateManager(
+            temp_workspace,
+            run_id="projection-recorder",
+            backup_enabled=True,
+        )
+        manager.initialize(workflow_file)
+        raw_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        raw_state.update(
+            {
+                "updated_at": "2026-07-15T00:00:00+00:00",
+                "status": "running",
+                "error": {
+                    "type": "prior_failure",
+                    "message": "preserve nothing from this prior root error",
+                },
+                "current_step": {
+                    "name": "Test",
+                    "step_id": "root.test",
+                    "status": "running",
+                    "visit_count": 2,
+                    "started_at": "2026-07-15T00:00:00+00:00",
+                    "last_heartbeat_at": "2026-07-15T00:00:01+00:00",
+                },
+                "steps": {
+                    "Test": {
+                        "status": "running",
+                        "name": "Test",
+                        "step_id": "root.test",
+                        "unknown_compatible_result_field": {"keep": True},
+                    },
+                    "HistoricalWithoutId": {
+                        "status": "completed",
+                        "name": "HistoricalWithoutId",
+                        "exit_code": 0,
+                    },
+                },
+                "step_visits": {"Test": 2},
+                "for_each": {
+                    "Batch": {
+                        "items": ["a", "b"],
+                        "completed_indices": [0],
+                        "current_index": 1,
+                    }
+                },
+                "repeat_until": {
+                    "Retry": {
+                        "completed_iterations": [0],
+                        "current_iteration": 1,
+                        "unknown_compatible_loop_field": "keep",
+                    }
+                },
+                "call_frames": {
+                    "root.call::visit::1": {
+                        "call_step_id": "root.call",
+                        "status": "running",
+                        "state": {"unknown_compatible_child_state": {"keep": True}},
+                    }
+                },
+                "observability": {"enabled": True, "unknown": ["keep"]},
+                "runtime_observability": {
+                    "executor_sessions": [{"session_id": "session-1", "status": "running"}]
+                },
+                "unknown_compatible_root": {"keep": ["exactly", 1]},
+            }
+        )
+        manager.state_file.write_text(
+            json.dumps(raw_state, indent=2),
+            encoding="utf-8",
+        )
+        manager.load()
+
+        sidecar_path = manager.run_root / "sidecars" / "provider.json"
+        sidecar_path.parent.mkdir(parents=True)
+        sidecar_path.write_bytes(b'{"status":"running"}\n')
+        backup_path = manager.run_root / "state.json.step_Test.bak"
+        backup_path.write_bytes(b"preserved backup bytes\n")
+        child_directory = manager.run_root / "call_frames" / "child"
+        child_directory.mkdir(parents=True)
+
+        error = {
+            "type": "resume_projection_integrity_error",
+            "message": "Persisted resume state does not match the current workflow projection",
+            "context": {
+                "diagnostic_schema": "resume_projection_integrity_error.v1",
+                "reason": "unknown_explicit_step_id",
+                "scope_path": ["root"],
+                "field": "steps.Test.step_id",
+                "offending_value": "root.stale",
+                "expected_owner": {
+                    "workflow_file": workflow_file,
+                    "workflow_checksum": raw_state["workflow_checksum"],
+                    "projection_scope": "root",
+                },
+                "candidate_count": 0,
+                "call_boundary_step_id": None,
+            },
+        }
+        before_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        before_tree = _run_tree_snapshot(manager.run_root)
+        atomic_writes = []
+        original_atomic_write = manager._write_json_atomic
+
+        def tracked_atomic_write(path, payload):
+            atomic_writes.append((Path(path), payload))
+            original_atomic_write(path, payload)
+
+        monkeypatch.setattr(manager, "_write_json_atomic", tracked_atomic_write)
+        monkeypatch.setattr(
+            manager,
+            "fail_run",
+            lambda *args, **kwargs: pytest.fail("projection recorder must not call fail_run"),
+        )
+
+        manager.record_resume_projection_integrity_failure(error)
+
+        after_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        after_tree = _run_tree_snapshot(manager.run_root)
+        changed_root_fields = {
+            key
+            for key in before_state.keys() | after_state.keys()
+            if before_state.get(key) != after_state.get(key)
+        }
+        changed_tree_entries = {
+            path
+            for path in before_tree.keys() | after_tree.keys()
+            if before_tree.get(path) != after_tree.get(path)
+        }
+
+        assert changed_root_fields == {"status", "error", "updated_at"}
+        assert after_state["status"] == "failed"
+        assert after_state["error"] == error
+        assert after_state["updated_at"] != before_state["updated_at"]
+        assert changed_tree_entries == {"state.json"}
+        assert after_tree.keys() == before_tree.keys()
+        assert after_state["current_step"] == before_state["current_step"]
+        assert after_state["steps"] == before_state["steps"]
+        assert after_state["step_visits"] == before_state["step_visits"]
+        assert after_state["for_each"] == before_state["for_each"]
+        assert after_state["repeat_until"] == before_state["repeat_until"]
+        assert after_state["call_frames"] == before_state["call_frames"]
+        assert after_state["observability"] == before_state["observability"]
+        assert after_state["runtime_observability"] == before_state["runtime_observability"]
+        assert after_state["unknown_compatible_root"] == before_state["unknown_compatible_root"]
+        assert atomic_writes == [(manager.state_file, after_state)]
+        assert not manager.state_file.with_suffix(".json.tmp").exists()
+        assert manager.state is not None
+        assert manager.state.status == "failed"
+        assert manager.state.error == error
+        assert manager.state.current_step == before_state["current_step"]
+
+    @pytest.mark.parametrize(
+        (
+            "reason",
+            "workflow_file_value",
+            "persisted_checksum",
+            "current_checksum",
+        ),
+        [
+            (
+                "workflow_modified",
+                "workflows/root.yaml",
+                "sha256:persisted",
+                "sha256:current",
+            ),
+            (
+                "missing_recorded_checksum",
+                "workflows/root.yaml",
+                None,
+                "sha256:current",
+            ),
+            (
+                "missing_workflow_path",
+                None,
+                "sha256:persisted",
+                None,
+            ),
+            (
+                "workflow_unavailable",
+                "workflows/missing.yaml",
+                "sha256:persisted",
+                None,
+            ),
+        ],
+    )
+    def test_checksum_mismatch_recorder_persists_exact_structured_error(
+        self,
+        temp_workspace,
+        workflow_file,
+        reason,
+        workflow_file_value,
+        persisted_checksum,
+        current_checksum,
+        monkeypatch,
+    ):
+        manager = StateManager(temp_workspace, run_id=f"checksum-recorder-{reason}")
+        manager.initialize(workflow_file)
+        raw_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        raw_state.update(
+            {
+                "updated_at": "2026-07-15T00:00:00+00:00",
+                "status": "running",
+                "current_step": {
+                    "name": "Test",
+                    "step_id": "root.test",
+                    "status": "running",
+                    "last_heartbeat_at": "2026-07-15T00:00:01+00:00",
+                },
+                "steps": {
+                    "Test": {
+                        "status": "running",
+                        "name": "Test",
+                    }
+                },
+                "unknown_compatible_root": {"keep": reason},
+            }
+        )
+        manager.state_file.write_text(
+            json.dumps(raw_state, indent=2),
+            encoding="utf-8",
+        )
+        manager.load()
+        sidecar_path = manager.run_root / "child" / "sidecar.bin"
+        sidecar_path.parent.mkdir(parents=True)
+        sidecar_path.write_bytes(b"\x00preserve\xff")
+
+        before_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        before_tree = _run_tree_snapshot(manager.run_root)
+        monkeypatch.setattr(
+            manager,
+            "fail_run",
+            lambda *args, **kwargs: pytest.fail("checksum recorder must not call fail_run"),
+        )
+
+        manager.record_workflow_checksum_mismatch(
+            workflow_file=workflow_file_value,
+            persisted_checksum=persisted_checksum,
+            current_checksum=current_checksum,
+            reason=reason,
+        )
+
+        after_state = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        after_tree = _run_tree_snapshot(manager.run_root)
+        expected_error = {
+            "type": "workflow_checksum_mismatch",
+            "message": "Workflow has been modified since the run started",
+            "context": {
+                "workflow_file": workflow_file_value,
+                "persisted_checksum": persisted_checksum,
+                "current_checksum": current_checksum,
+                "reason": reason,
+            },
+        }
+
+        assert {
+            key
+            for key in before_state.keys() | after_state.keys()
+            if before_state.get(key) != after_state.get(key)
+        } == {"status", "error", "updated_at"}
+        assert after_state["status"] == "failed"
+        assert after_state["error"] == expected_error
+        assert after_state["current_step"] == before_state["current_step"]
+        assert after_state["steps"] == before_state["steps"]
+        assert after_state["unknown_compatible_root"] == before_state["unknown_compatible_root"]
+        assert {
+            path
+            for path in before_tree.keys() | after_tree.keys()
+            if before_tree.get(path) != after_tree.get(path)
+        } == {"state.json"}
+        assert after_tree.keys() == before_tree.keys()
+        assert manager.state is not None
+        assert manager.state.error == expected_error
 
     def test_at4_error_context_recording(self, temp_workspace, workflow_file):
         """AT-4: Test error context recording in step results."""

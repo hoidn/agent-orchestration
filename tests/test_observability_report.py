@@ -1024,6 +1024,74 @@ def test_status_projection_is_pure_for_stale_running_state():
     }
 
 
+@pytest.mark.parametrize(
+    "error_type",
+    [
+        "resume_projection_integrity_error",
+        "workflow_checksum_mismatch",
+    ],
+)
+def test_failed_projection_envelope_treats_unchanged_current_step_as_forensic(
+    tmp_path: Path,
+    error_type: str,
+):
+    run_root = tmp_path / ".orchestrate" / "runs" / f"forensic-{error_type}"
+    (run_root / "logs").mkdir(parents=True)
+    state = {
+        "run_id": f"forensic-{error_type}",
+        "status": "failed",
+        "started_at": "2026-07-15T00:00:00+00:00",
+        "updated_at": "2026-07-15T00:00:05+00:00",
+        "workflow_file": "workflows/test.yaml",
+        "error": {
+            "type": error_type,
+            "message": "Resume preflight failed",
+            "context": {"reason": "unknown_explicit_step_id"},
+        },
+        "current_step": {
+            "name": "DraftPlan",
+            "step_id": "root.draft_plan",
+            "status": "running",
+            "visit_count": 2,
+            "started_at": "2026-07-15T00:00:01+00:00",
+            "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+        },
+        "steps": {
+            "Prep": {
+                "status": "completed",
+                "step_id": "root.prep",
+                "visit_count": 1,
+                "exit_code": 0,
+            }
+        },
+        "step_visits": {"Prep": 1, "DraftPlan": 2},
+    }
+
+    snapshot = build_status_snapshot(
+        _load_bundle(tmp_path, _sample_workflow_payload()),
+        state,
+        run_root,
+    )
+    steps = {entry["name"]: entry for entry in snapshot["steps"]}
+    markdown = render_status_markdown(snapshot)
+
+    assert snapshot["run"]["status"] == "failed"
+    assert snapshot["run"]["error"] == state["error"]
+    assert snapshot["progress"] == {
+        "total": 2,
+        "completed": 1,
+        "running": 0,
+        "failed": 0,
+        "skipped": 0,
+        "pending": 1,
+    }
+    assert steps["DraftPlan"]["status"] == "pending"
+    assert steps["DraftPlan"]["summary"] == "pending"
+    assert steps["DraftPlan"]["current_visit_count"] is None
+    assert "in progress" not in markdown
+    assert error_type in markdown
+
+
 def test_snapshot_surfaces_provider_session_quarantine_and_metadata_paths(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "run-session"
     (run_root / "logs").mkdir(parents=True)
