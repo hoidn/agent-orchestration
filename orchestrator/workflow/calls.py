@@ -28,6 +28,12 @@ from .loaded_bundle import (
 )
 from .predicates import PredicateEvaluationError
 from .references import ReferenceResolutionError
+from .resume_projection_integrity import (
+    CallFrameRetryLineage,
+    CallFrameRetryLineageError,
+    index_retry_lineage,
+    next_unused_retry_frame_id,
+)
 from . import step_results
 
 
@@ -39,41 +45,31 @@ class CallExecutor:
 
     @staticmethod
     def _is_workflow_lisp_target(workflow: Any) -> bool:
-        provenance = workflow_provenance(workflow)
-        workflow_path = getattr(provenance, "workflow_path", None)
-        if isinstance(workflow_path, Path) and workflow_path.suffix == ".orc":
-            return True
-        return False
+        bundle = workflow_bundle(workflow)
+        return (
+            bundle is not None
+            and bundle.provenance.frontend_kind == "workflow_lisp"
+        )
 
-    @staticmethod
-    def _retry_frame_id(frame_id: str, call_frames: Mapping[str, Any]) -> str:
-        retry_index = 1
-        while True:
-            candidate = f"{frame_id}::retry::{retry_index}"
-            if candidate not in call_frames:
-                return candidate
-            retry_index += 1
-
-    @staticmethod
-    def _retry_family_base(frame_id: str) -> str:
-        marker = "::retry::"
-        if marker not in frame_id:
-            return frame_id
-        return frame_id.split(marker, 1)[0]
-
-    @classmethod
-    def _is_failed_retry_family_frame(
-        cls,
+    def _retry_lineage_for_step(
+        self,
         *,
-        frame_id: str,
-        prior_frame_id: str,
-        prior_frame: Mapping[str, Any],
-    ) -> bool:
-        if prior_frame.get("status") != "failed":
-            return False
-        if "::retry::" not in frame_id:
-            return False
-        return cls._retry_family_base(frame_id) == cls._retry_family_base(prior_frame_id)
+        step_id: str,
+        call_frames: Mapping[str, Any],
+        imported_workflow: Any | None,
+    ) -> CallFrameRetryLineage:
+        frame_items = (
+            (frame_id, frame)
+            for frame_id, frame in call_frames.items()
+            if isinstance(frame, Mapping) and frame.get("call_step_id") == step_id
+        )
+        provenance = workflow_provenance(imported_workflow)
+        frontend_kind = provenance.frontend_kind if provenance is not None else None
+        return index_retry_lineage(
+            step_id,
+            frame_items,
+            frontend_kind=frontend_kind,
+        )
 
     @staticmethod
     def _source_ref_for_address(bundle: Any, address: Any) -> Optional[str]:
@@ -129,7 +125,7 @@ class CallExecutor:
         """Derive a durable call-frame id from the authored call step and visit count."""
         return self.frame_id_with_overrides(step, state)
 
-    def frame_id_with_overrides(
+    def _fresh_frame_id(
         self,
         step: RuntimeStepInput,
         state: Dict[str, Any],
@@ -137,23 +133,17 @@ class CallExecutor:
         step_name: Optional[str] = None,
         step_id: Optional[str] = None,
     ) -> str:
-        """Derive a durable call-frame id from an optional runtime-local step identity."""
-        if getattr(self.executor, "resume_mode", False):
-            call_frames = state.get("call_frames", {})
-            effective_step_id = step_id or self.executor._step_id(step)
-            if isinstance(call_frames, dict):
-                for frame_id, frame in call_frames.items():
-                    if not isinstance(frame, dict):
-                        continue
-                    if frame.get("call_step_id") != effective_step_id:
-                        continue
-                    if frame.get("status") == "completed":
-                        continue
-                    return frame_id
-
-        effective_step_name = step_name or step.get("name", f"step_{self.executor.current_step}")
+        """Derive the current visit's fresh frame ID without resume selection."""
+        effective_step_name = step_name or step.get(
+            "name",
+            f"step_{self.executor.current_step}",
+        )
         step_visits = state.get("step_visits", {})
-        visit_count = step_visits.get(effective_step_name, 1) if isinstance(step_visits, dict) else 1
+        visit_count = (
+            step_visits.get(effective_step_name, 1)
+            if isinstance(step_visits, dict)
+            else 1
+        )
         effective_step_id = step_id or self.executor._step_id(step)
         frame_id = f"{effective_step_id}::visit::{visit_count}"
         state_manager = self.executor.state_manager
@@ -165,6 +155,37 @@ class CallExecutor:
         if isinstance(parent_frame_id, str) and parent_frame_id:
             return f"{parent_frame_id}.{frame_id}"
         return frame_id
+
+    def frame_id_with_overrides(
+        self,
+        step: RuntimeStepInput,
+        state: Dict[str, Any],
+        *,
+        step_name: Optional[str] = None,
+        step_id: Optional[str] = None,
+        imported_workflow: Any | None = None,
+    ) -> str:
+        """Derive a durable call-frame id from an optional runtime-local step identity."""
+        if getattr(self.executor, "resume_mode", False):
+            call_frames = state.get("call_frames", {})
+            effective_step_id = step_id or self.executor._step_id(step)
+            if isinstance(call_frames, dict):
+                lineage = self._retry_lineage_for_step(
+                    step_id=effective_step_id,
+                    call_frames=call_frames,
+                    imported_workflow=imported_workflow,
+                )
+                if lineage.running_member is not None:
+                    return lineage.running_member.frame_id
+                if lineage.failed_predecessors:
+                    return lineage.base_frame_id
+
+        return self._fresh_frame_id(
+            step,
+            state,
+            step_name=step_name,
+            step_id=step_id,
+        )
 
     def resolve_bound_inputs(
         self,
@@ -378,6 +399,7 @@ class CallExecutor:
         imported_workflow: Any,
         state: Dict[str, Any],
         bound_inputs: Dict[str, Any],
+        retry_predecessor_frame_ids: frozenset[str] = frozenset(),
     ) -> Optional[Dict[str, Any]]:
         """Reject repeated or aliased managed write roots across call frames."""
         managed_inputs = workflow_managed_write_root_inputs(imported_workflow)
@@ -415,11 +437,7 @@ class CallExecutor:
                 continue
             if (
                 prior_frame.get("call_step_id") == step_id
-                and self._is_failed_retry_family_frame(
-                    frame_id=frame_id,
-                    prior_frame_id=prior_frame_id,
-                    prior_frame=prior_frame,
-                )
+                and prior_frame_id in retry_predecessor_frame_ids
             ):
                 continue
 
@@ -820,12 +838,26 @@ class CallExecutor:
             return binding_error
         assert bound_inputs is not None
 
-        frame_id = self.frame_id_with_overrides(
-            step,
-            state,
-            step_name=step_name,
-            step_id=step_id,
-        )
+        try:
+            frame_id = self.frame_id_with_overrides(
+                step,
+                state,
+                step_name=step_name,
+                step_id=step_id,
+                imported_workflow=imported_target,
+            )
+        except CallFrameRetryLineageError as exc:
+            return self.resume_state_invalid_result(
+                step_name=step_name,
+                call_alias=call_alias,
+                frame_id=self._fresh_frame_id(
+                    step,
+                    state,
+                    step_name=step_name,
+                    step_id=step_id,
+                ),
+                detail=exc.reason,
+            )
         call_frames = state.get("call_frames", {})
         if self.executor.resume_mode and not isinstance(call_frames, dict):
             return self.resume_state_invalid_result(
@@ -853,14 +885,24 @@ class CallExecutor:
 
         child_existing_frame = existing_frame if isinstance(existing_frame, dict) else None
         child_resume = self.executor.resume_mode and child_existing_frame is not None
+        retry_lineage = (
+            self._retry_lineage_for_step(
+                step_id=step_id,
+                call_frames=call_frames,
+                imported_workflow=imported_target,
+            )
+            if self.executor.resume_mode
+            else None
+        )
         force_fresh_workflow_lisp_retry = (
-            child_resume
-            and child_existing_frame is not None
-            and child_existing_frame.get("status") == "failed"
+            retry_lineage is not None
             and self._is_workflow_lisp_target(imported_target)
+            and retry_lineage.running_member is None
+            and bool(retry_lineage.failed_predecessors)
         )
         if force_fresh_workflow_lisp_retry:
-            frame_id = self._retry_frame_id(frame_id, call_frames)
+            assert retry_lineage is not None
+            frame_id = next_unused_retry_frame_id(retry_lineage)
             existing_frame = None
             child_existing_frame = None
             child_resume = False
@@ -883,6 +925,14 @@ class CallExecutor:
             imported_workflow=imported_target,
             state=state,
             bound_inputs=bound_inputs,
+            retry_predecessor_frame_ids=frozenset(
+                member.frame_id
+                for member in (
+                    retry_lineage.failed_predecessors
+                    if retry_lineage is not None
+                    else ()
+                )
+            ),
         )
         if write_root_error is not None:
             return write_root_error

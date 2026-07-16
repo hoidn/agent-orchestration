@@ -2,9 +2,10 @@
 
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 import stat
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -1397,6 +1398,24 @@ def test_failed_workflow_lisp_child_retry_still_allocates_fresh_frame(tmp_path: 
         ),
     )
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    imported_bundle = workflow_import_bundle(bundle, "review_loop")
+    assert imported_bundle is not None
+    imported_bundle = replace(
+        imported_bundle,
+        provenance=replace(
+            imported_bundle.provenance,
+            frontend_kind="workflow_lisp",
+        ),
+    )
+    bundle = replace(
+        bundle,
+        imports=MappingProxyType(
+            {
+                **bundle.imports,
+                "review_loop": imported_bundle,
+            }
+        ),
+    )
     state_manager = StateManager(tmp_path, run_id="resume-failed-child-fresh-retry")
     state_manager.initialize("workflow.yaml", context=bundle_context_dict(bundle))
 
@@ -1433,7 +1452,7 @@ def test_failed_workflow_lisp_child_retry_still_allocates_fresh_frame(tmp_path: 
         WorkflowExecutor,
         "_determine_resume_default_resume_decision",
         _default_resume_decision,
-    ), patch.object(CallExecutor, "_is_workflow_lisp_target", return_value=True):
+    ):
         resumed_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)
 
     assert resumed_state["status"] == "completed"
@@ -1956,15 +1975,14 @@ def test_projection_resume_call_frame_unknown_alias_fails_before_frame_or_effect
     assert _projection_run_tree_snapshot(manager.run_root) == before_tree
 
 
-def test_projection_resume_call_frame_ambiguity_is_an_explicit_feasibility_prerequisite(
+def test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection(
     tmp_path: Path,
 ) -> None:
-    """Characterize `CallExecutor.frame_id_with_overrides` duplicate candidates.
+    """Non-Workflow-Lisp duplicate candidates fail instead of selecting by order."""
+    from orchestrator.workflow.resume_projection_integrity import (
+        CallFrameRetryLineageError,
+    )
 
-    Two nonterminal frames with the same persisted `call_step_id` are currently
-    resolved by mapping insertion order.  No public API enumerates candidates
-    or reports ambiguity, so fail-closed scoped selection remains a prerequisite.
-    """
     root_bundle = WorkflowLoader(tmp_path).load_bundle(
         _write_projection_integrity_call_graph(tmp_path)
     )
@@ -1978,23 +1996,284 @@ def test_projection_resume_call_frame_ambiguity_is_an_explicit_feasibility_prere
             "frame-first": {
                 "status": "running",
                 "call_step_id": "root.invoke_middle",
+                "import_alias": "middle",
             },
             "frame-second": {
                 "status": "failed",
                 "call_step_id": "root.invoke_middle",
+                "import_alias": "middle",
             },
         },
         "step_visits": {"InvokeMiddle": 1},
     }
 
-    selected_frame_id = executor.call_executor.frame_id_with_overrides(
-        step,
-        state,
-        step_name="InvokeMiddle",
-        step_id="root.invoke_middle",
+    with pytest.raises(CallFrameRetryLineageError) as exc_info:
+        executor.call_executor.frame_id_with_overrides(
+            step,
+            state,
+            step_name="InvokeMiddle",
+            step_id="root.invoke_middle",
+        )
+
+    assert exc_info.value.reason == "ambiguous_resumable_call_frame"
+
+
+def _retry_lineage_frame(
+    *,
+    status: str,
+    call_step_id: str = "root.invoke_child",
+    import_alias: str = "child",
+) -> dict:
+    return {
+        "status": status,
+        "call_step_id": call_step_id,
+        "import_alias": import_alias,
+    }
+
+
+def test_call_frame_retry_lineage_indexes_failed_history_and_next_id() -> None:
+    from orchestrator.workflow.resume_projection_integrity import (
+        index_retry_lineage,
+        next_unused_retry_frame_id,
     )
 
-    assert selected_frame_id == "frame-first"
+    base_frame_id = "root.invoke_child::visit::7"
+    completed_history = [
+        (
+            f"root.invoke_child::visit::{visit}",
+            _retry_lineage_frame(status="completed"),
+        )
+        for visit in range(101, 201)
+    ]
+    completed_history.append(
+        (
+            f"{base_frame_id}::retry::3",
+            _retry_lineage_frame(status="completed"),
+        )
+    )
+    lineage = index_retry_lineage(
+        "root.invoke_child",
+        [
+            *completed_history,
+            (
+                f"{base_frame_id}::retry::2",
+                _retry_lineage_frame(status="failed"),
+            ),
+            (base_frame_id, _retry_lineage_frame(status="failed")),
+            (
+                f"{base_frame_id}::retry::1",
+                _retry_lineage_frame(status="failed"),
+            ),
+        ],
+        frontend_kind="workflow_lisp",
+    )
+
+    assert lineage.base_frame_id == base_frame_id
+    assert len(lineage.completed_members) == 101
+    assert [
+        (member.frame_id, member.ordinal)
+        for member in lineage.failed_predecessors
+    ] == [
+        (base_frame_id, 0),
+        (f"{base_frame_id}::retry::1", 1),
+        (f"{base_frame_id}::retry::2", 2),
+    ]
+    assert lineage.running_member is None
+    assert next_unused_retry_frame_id(lineage) == f"{base_frame_id}::retry::4"
+    assert next_unused_retry_frame_id(lineage) == f"{base_frame_id}::retry::4"
+
+
+def test_call_frame_retry_lineage_allows_one_running_member_with_failed_history() -> None:
+    from orchestrator.workflow.resume_projection_integrity import (
+        RetryFrameMember,
+        index_retry_lineage,
+    )
+
+    base_frame_id = "root.invoke_child::visit::3"
+    lineage = index_retry_lineage(
+        "root.invoke_child",
+        [
+            (
+                f"{base_frame_id}::retry::1",
+                _retry_lineage_frame(status="failed"),
+            ),
+            (
+                f"{base_frame_id}::retry::2",
+                _retry_lineage_frame(status="running"),
+            ),
+            (base_frame_id, _retry_lineage_frame(status="failed")),
+        ],
+        frontend_kind="workflow_lisp",
+    )
+
+    assert [member.ordinal for member in lineage.failed_predecessors] == [0, 1]
+    assert isinstance(lineage.running_member, RetryFrameMember)
+    assert lineage.running_member.frame_id == f"{base_frame_id}::retry::2"
+    assert lineage.running_member.ordinal == 2
+
+
+@pytest.mark.parametrize(
+    ("frontend_kind", "invalid_lineage", "expected_reason"),
+    [
+        pytest.param(
+            "workflow_lisp",
+            [
+                ("base", _retry_lineage_frame(status="running")),
+                ("base::retry::1", _retry_lineage_frame(status="running")),
+            ],
+            "ambiguous_resumable_call_frame",
+            id="multiple-running",
+        ),
+        pytest.param(
+            "workflow_lisp",
+            [
+                ("base-a", _retry_lineage_frame(status="failed")),
+                ("base-b::retry::1", _retry_lineage_frame(status="failed")),
+            ],
+            "ambiguous_resumable_call_frame",
+            id="mixed-bases",
+        ),
+        pytest.param(
+            "workflow_lisp",
+            [
+                ("base", _retry_lineage_frame(status="failed")),
+                ("base", _retry_lineage_frame(status="failed")),
+            ],
+            "ambiguous_resumable_call_frame",
+            id="duplicate-ordinal",
+        ),
+        pytest.param(
+            "workflow_lisp",
+            [
+                ("base", _retry_lineage_frame(status="failed")),
+                ("base::retry::2", _retry_lineage_frame(status="failed")),
+            ],
+            "unsupported_shape",
+            id="missing-ordinal",
+        ),
+        pytest.param(
+            "workflow_lisp",
+            [
+                ("base", _retry_lineage_frame(status="failed")),
+                ("base::retry::zero", _retry_lineage_frame(status="failed")),
+            ],
+            "unsupported_shape",
+            id="malformed-ordinal",
+        ),
+        pytest.param(
+            "workflow_lisp",
+            [
+                ("base", _retry_lineage_frame(status="failed")),
+                (
+                    "base::retry::1::retry::2",
+                    _retry_lineage_frame(status="failed"),
+                ),
+            ],
+            "unsupported_shape",
+            id="nested-retry-marker",
+        ),
+        pytest.param(
+            "workflow_lisp",
+            [
+                (
+                    "base",
+                    _retry_lineage_frame(
+                        status="failed",
+                        call_step_id="root.other_child",
+                    ),
+                ),
+            ],
+            "missing_call_boundary",
+            id="caller-mismatch",
+        ),
+        pytest.param(
+            "workflow_lisp",
+            [
+                ("base", _retry_lineage_frame(status="failed")),
+                (
+                    "base::retry::1",
+                    _retry_lineage_frame(
+                        status="failed",
+                        import_alias="other_child",
+                    ),
+                ),
+            ],
+            "persisted_import_alias_mismatch",
+            id="alias-mismatch",
+        ),
+        pytest.param(
+            "workflow_lisp",
+            [("base", _retry_lineage_frame(status="paused"))],
+            "unsupported_shape",
+            id="unknown-status",
+        ),
+        pytest.param(
+            None,
+            [
+                ("first", _retry_lineage_frame(status="running")),
+                ("second", _retry_lineage_frame(status="failed")),
+            ],
+            "ambiguous_resumable_call_frame",
+            id="non-workflow-lisp-multiple-noncompleted",
+        ),
+    ],
+)
+def test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals(
+    frontend_kind: str | None,
+    invalid_lineage: list[tuple[str, dict]],
+    expected_reason: str,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import (
+        CallFrameRetryLineageError,
+        index_retry_lineage,
+    )
+
+    with pytest.raises(CallFrameRetryLineageError) as exc_info:
+        index_retry_lineage(
+            "root.invoke_child",
+            invalid_lineage,
+            frontend_kind=frontend_kind,
+        )
+
+    assert exc_info.value.reason == expected_reason
+
+
+def test_workflow_lisp_retry_classification_uses_typed_frontend_kind_not_suffix(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        {
+            "version": "2.5",
+            "name": "typed-frontend-classification",
+            "steps": [
+                {
+                    "name": "Done",
+                    "id": "done",
+                    "command": ["bash", "-lc", "true"],
+                }
+            ],
+        },
+    )
+    yaml_bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    typed_lisp_bundle = replace(
+        yaml_bundle,
+        provenance=replace(
+            yaml_bundle.provenance,
+            frontend_kind="workflow_lisp",
+        ),
+    )
+    suffix_only_bundle = replace(
+        yaml_bundle,
+        provenance=replace(
+            yaml_bundle.provenance,
+            workflow_path=tmp_path / "misleading.orc",
+            frontend_kind=None,
+        ),
+    )
+
+    assert CallExecutor._is_workflow_lisp_target(typed_lisp_bundle) is True
+    assert CallExecutor._is_workflow_lisp_target(suffix_only_bundle) is False
 
 
 def test_projection_resume_call_frame_stale_caller_id_is_not_scoped_to_boundary(
