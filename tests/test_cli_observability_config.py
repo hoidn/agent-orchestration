@@ -14,6 +14,24 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 
 
+def _write_minimal_resume_bundle(workflow_path: Path, *, version: str = "1.3"):
+    workflow_content = "\n".join(
+        [
+            f'version: "{version}"',
+            "name: test",
+            "steps:",
+            "  - name: Noop",
+            '    command: ["true"]',
+            "",
+        ]
+    )
+    workflow_path.write_text(workflow_content, encoding="utf-8")
+    return (
+        workflow_content,
+        WorkflowLoader(workflow_path.parent).load_bundle(workflow_path),
+    )
+
+
 def _base_run_args(workflow_path: Path) -> Namespace:
     return Namespace(
         workflow=str(workflow_path),
@@ -276,8 +294,7 @@ def test_resume_uses_persisted_observability_and_applies_override(mock_loader, m
     monkeypatch.chdir(tmp_path)
 
     workflow_path = tmp_path / 'workflow.yaml'
-    workflow_content = 'version: "1.3"\nname: test\nsteps: []\n'
-    workflow_path.write_text(workflow_content)
+    workflow_content, workflow_bundle = _write_minimal_resume_bundle(workflow_path)
     checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
 
     run_dir = tmp_path / '.orchestrate' / 'runs' / run_id
@@ -307,12 +324,7 @@ def test_resume_uses_persisted_observability_and_applies_override(mock_loader, m
     }
     (run_dir / 'state.json').write_text(json.dumps(state, indent=2))
 
-    mock_loader.return_value.load_bundle.return_value = {
-        'version': '1.3',
-        'name': 'test',
-        'steps': [],
-        'context': {},
-    }
+    mock_loader.return_value.load_bundle.return_value = workflow_bundle
 
     exec_inst = MagicMock()
     exec_inst.execute.return_value = {'status': 'completed'}
@@ -355,8 +367,7 @@ def test_resume_workflow_passes_stream_output_to_executor(mock_loader, mock_exec
     monkeypatch.chdir(tmp_path)
 
     workflow_path = tmp_path / 'workflow.yaml'
-    workflow_content = 'version: "1.3"\nname: test\nsteps: []\n'
-    workflow_path.write_text(workflow_content)
+    workflow_content, workflow_bundle = _write_minimal_resume_bundle(workflow_path)
     checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
 
     run_dir = tmp_path / '.orchestrate' / 'runs' / run_id
@@ -378,12 +389,7 @@ def test_resume_workflow_passes_stream_output_to_executor(mock_loader, mock_exec
         )
     )
 
-    mock_loader.return_value.load_bundle.return_value = {
-        'version': '1.3',
-        'name': 'test',
-        'steps': [],
-        'context': {},
-    }
+    mock_loader.return_value.load_bundle.return_value = workflow_bundle
 
     exec_inst = MagicMock()
     exec_inst.execute.return_value = {'status': 'completed'}
@@ -472,13 +478,12 @@ def test_resume_workflow_reuses_orc_launch_metadata_from_monitor_process(
         encoding='utf-8',
     )
 
+    _, workflow_bundle = _write_minimal_resume_bundle(
+        tmp_path / "orc_resume_audit_fixture.yaml",
+        version="2.14",
+    )
     mock_build_frontend_bundle.return_value = SimpleNamespace(
-        validated_bundle={
-            'version': '2.14',
-            'name': 'orc-test',
-            'steps': [],
-            'context': {},
-        },
+        validated_bundle=workflow_bundle,
         manifest=SimpleNamespace(lowering_schema_version=1),
     )
     exec_inst = MagicMock()
