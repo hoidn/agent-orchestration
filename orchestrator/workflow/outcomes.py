@@ -7,6 +7,10 @@ from typing import Any, Callable, Dict, Optional
 from ..state import StateManager, StepResult
 from . import step_results
 from .executor_runtime import RuntimeStepInput
+from .resume_projection_integrity import (
+    TerminalResultClass,
+    classify_terminal_result,
+)
 from .runtime_types import NormalizedStepOutcome
 
 
@@ -54,6 +58,14 @@ class OutcomeRecorder:
         state["steps"][step_name] = finalized
 
         self.state_manager.update_step(step_name, self.to_step_result(finalized, finalized.get("name", step_name)))
+        if (
+            classify_terminal_result(finalized)
+            is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
+        ):
+            error = finalized.get("error")
+            if isinstance(error, dict):
+                state["error"] = error
+                self.state_manager.update_run_error(error)
         if self.post_persist_hook is not None:
             self.post_persist_hook(state, step_name, step, finalized)
         self.summary_emitter(step_name, step, finalized)

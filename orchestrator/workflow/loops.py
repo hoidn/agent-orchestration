@@ -11,6 +11,10 @@ from .executor_runtime import LoopRuntime, RuntimeStepInput
 from .pointers import PointerResolver
 from .runtime_context import RuntimeContext
 from .identity import iteration_step_id
+from .resume_projection_integrity import (
+    TerminalResultClass,
+    classify_terminal_result,
+)
 from .state_projection import IterationStepKeyProjection
 from . import step_results
 
@@ -26,6 +30,23 @@ class LoopExecutor:
 
     def __init__(self, executor: LoopRuntime) -> None:
         self.executor = executor
+
+    def _promote_sticky_result(
+        self,
+        state: Dict[str, Any],
+        result: Mapping[str, Any],
+    ) -> bool:
+        """Promote one sticky nested result to the current workflow scope."""
+        if (
+            classify_terminal_result(result)
+            is not TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
+        ):
+            return False
+        error = result.get("error")
+        if isinstance(error, dict):
+            state["error"] = error
+            self.executor.state_manager.update_run_error(error)
+        return True
 
     def collect_persisted_iteration_state(
         self,
@@ -320,6 +341,9 @@ class LoopExecutor:
                     loop_name=loop_name,
                     iteration_index=iteration_index,
                 )
+
+            if self._promote_sticky_result(state, result):
+                return nested_name, result
 
             if stop_on_failure and result.get("exit_code", 0) != 0 and not result.get("skipped", False):
                 return nested_name, result
@@ -1142,6 +1166,27 @@ class LoopExecutor:
                         "condition_evaluated_for_iteration": condition_evaluated_for_iteration,
                         "last_condition_result": last_condition_result,
                     }
+                    if self._promote_sticky_result(state, failure_result):
+                        failure = self.executor._attach_outcome(
+                            step,
+                            self.build_repeat_until_frame_result(
+                                step,
+                                status="failed",
+                                exit_code=failure_result.get("exit_code", 2),
+                                artifacts=frame_artifacts,
+                                progress=failure_progress,
+                                error=failure_result.get("error"),
+                            ),
+                        )
+                        self.persist_repeat_until_progress(
+                            state,
+                            step,
+                            frame_key,
+                            failure_progress,
+                            failure,
+                            emit_checkpoint_shadow=emit_checkpoint_shadow,
+                        )
+                        return state
                     nested_outcome = (
                         failure_result.get("outcome")
                         if isinstance(failure_result.get("outcome"), dict)
@@ -1571,7 +1616,7 @@ class LoopExecutor:
                 _loop_node_id, body_node_ids, loop_projection = typed_body_context
                 if start_node_id is None:
                     start_node_id = body_node_ids[0] if body_node_ids else None
-                self._execute_typed_loop_body(
+                sticky_failure = self._execute_typed_loop_body(
                     state=state,
                     loop_step=step,
                     loop_name=step_name,
@@ -1585,6 +1630,21 @@ class LoopExecutor:
                     parent_scope_node_results=parent_scope_node_results,
                     stop_on_failure=False,
                 )
+                if sticky_failure is not None:
+                    self.store_loop_iteration_result(
+                        loop_results,
+                        index,
+                        iteration_state,
+                    )
+                    self.persist_for_each_progress(
+                        state,
+                        step_name,
+                        items,
+                        completed_indices,
+                        index,
+                        loop_results,
+                    )
+                    return state
             else:
                 for nested_index in range(start_nested_index, len(loop_steps)):
                     nested_step = loop_steps[nested_index]
@@ -1741,6 +1801,22 @@ class LoopExecutor:
                                 outcome=result.get("outcome"),
                             ),
                         )
+
+                    if self._promote_sticky_result(state, result):
+                        self.store_loop_iteration_result(
+                            loop_results,
+                            index,
+                            iteration_state,
+                        )
+                        self.persist_for_each_progress(
+                            state,
+                            step_name,
+                            items,
+                            completed_indices,
+                            index,
+                            loop_results,
+                        )
+                        return state
 
             self.store_loop_iteration_result(loop_results, index, iteration_state)
             completed_indices.append(index)

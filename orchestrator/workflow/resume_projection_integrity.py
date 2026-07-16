@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 import re
 from typing import Any, Iterable, Iterator, Mapping
 
@@ -87,6 +88,37 @@ class ResumeProjectionIntegrityError(ValueError):
             if isinstance(message, str)
             else "Resume projection integrity audit failed"
         )
+
+
+class TerminalResultClass(Enum):
+    """Runtime terminal-result classes with distinct propagation semantics."""
+
+    ORDINARY = "ordinary"
+    STICKY_PROJECTION_INTEGRITY_FAILURE = (
+        "sticky_projection_integrity_failure"
+    )
+
+
+def projection_integrity_failed_result(
+    error: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return the ordinary failed step channel for one exact projection error."""
+    return {
+        "status": "failed",
+        "exit_code": 2,
+        "duration_ms": 0,
+        "error": error,
+    }
+
+
+def classify_terminal_result(
+    result: Mapping[str, Any],
+) -> TerminalResultClass:
+    """Classify sticky failures without coupling callers to diagnostic shape."""
+    error = result.get("error") if isinstance(result, Mapping) else None
+    if isinstance(error, Mapping) and error.get("type") == _ERROR_TYPE:
+        return TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
+    return TerminalResultClass.ORDINARY
 
 
 class _ResumeStepResultShapeError(ValueError):

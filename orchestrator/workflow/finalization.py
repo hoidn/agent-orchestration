@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
 
+from .resume_projection_integrity import (
+    TerminalResultClass,
+    classify_terminal_result,
+)
 from .runtime_types import RoutingDecision
 from .state_projection import WorkflowStateProjection
 
@@ -194,7 +198,16 @@ class FinalizationController:
         )
         finalization = self.ensure_state(state)
         if failed:
-            if body_status == "completed" and isinstance(result, dict):
+            sticky_failure = (
+                isinstance(result, dict)
+                and classify_terminal_result(result)
+                is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
+            )
+            if sticky_failure:
+                error = result.get("error")
+                if isinstance(error, dict):
+                    state["error"] = error
+            elif body_status == "completed" and isinstance(result, dict):
                 state["error"] = self.finalization_failure_error(result, step_name)
             if isinstance(finalization, dict):
                 finalization["workflow_outputs_status"] = "suppressed"

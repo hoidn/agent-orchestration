@@ -33,9 +33,12 @@ from .resume_projection_integrity import (
     CallFrameRetryLineageError,
     ResumeProjectionIntegrityError,
     ResumeScopePath,
+    TerminalResultClass,
     audit_scope,
+    classify_terminal_result,
     index_retry_lineage,
     next_unused_retry_frame_id,
+    projection_integrity_failed_result,
 )
 from .state_projection import ResumeProjectionValidationError
 from . import step_results
@@ -74,18 +77,6 @@ class CallExecutor:
             frame_items,
             frontend_kind=frontend_kind,
         )
-
-    @staticmethod
-    def _projection_integrity_failed_result(
-        error: Mapping[str, Any],
-    ) -> Dict[str, Any]:
-        """Promote one pure projection diagnostic through the call result channel."""
-        return {
-            "status": "failed",
-            "exit_code": 2,
-            "duration_ms": 0,
-            "error": error,
-        }
 
     def _resume_scope_path(self) -> ResumeScopePath:
         scope_path = getattr(self.executor, "resume_scope_path", None)
@@ -931,7 +922,7 @@ class CallExecutor:
                 state=state,
             )
         except ResumeProjectionIntegrityError as exc:
-            return self._projection_integrity_failed_result(exc.error)
+            return projection_integrity_failed_result(exc.error)
         call_alias = boundary.import_alias
         imported_bundle = workflow_import_bundle(
             self.executor.loaded_bundle,
@@ -970,7 +961,7 @@ class CallExecutor:
                     self._resume_scope_path(),
                 )
             except ResumeProjectionIntegrityError as exc:
-                return self._projection_integrity_failed_result(exc.error)
+                return projection_integrity_failed_result(exc.error)
             raise AssertionError("missing imported bundle passed projection audit")
 
         bound_inputs, binding_error = self.resolve_bound_inputs(
@@ -1015,7 +1006,7 @@ class CallExecutor:
                     self._resume_scope_path(),
                 )
             except ResumeProjectionIntegrityError as exc:
-                return self._projection_integrity_failed_result(exc.error)
+                return projection_integrity_failed_result(exc.error)
         if not isinstance(call_frames, dict):
             call_frames = {}
             state["call_frames"] = call_frames
@@ -1154,7 +1145,7 @@ class CallExecutor:
                         self._resume_scope_path().child(predecessor.frame_id),
                     )
                 except ResumeProjectionIntegrityError as exc:
-                    return self._projection_integrity_failed_result(exc.error)
+                    return projection_integrity_failed_result(exc.error)
 
         if (
             self.executor.resume_mode
@@ -1189,7 +1180,7 @@ class CallExecutor:
                     self._resume_scope_path().child(running_member.frame_id),
                 )
             except ResumeProjectionIntegrityError as exc:
-                return self._projection_integrity_failed_result(exc.error)
+                return projection_integrity_failed_result(exc.error)
 
         if force_fresh_workflow_lisp_retry:
             assert retry_lineage is not None
@@ -1243,6 +1234,12 @@ class CallExecutor:
         )
         child_state = child_executor.execute(resume=child_resume)
         call_frames[frame_id] = child_state_manager._snapshot()
+
+        if (
+            classify_terminal_result(child_state)
+            is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
+        ):
+            return projection_integrity_failed_result(child_state["error"])
 
         debug_payload = self.build_debug_payload(
             frame_id=frame_id,

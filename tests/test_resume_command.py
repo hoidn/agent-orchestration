@@ -5915,3 +5915,67 @@ artifacts:
     assert result == 1
     captured = capsys.readouterr()
     assert "interrupted provider-session visit was quarantined" in captured.err
+
+
+def test_projection_error_survives_epilogue_and_executor_session_close(
+    temp_workspace: Path,
+) -> None:
+    from tests.test_subworkflow_calls import (
+        _write_projection_integrity_call_graph,
+    )
+    from orchestrator.workflow.resume_projection_integrity import (
+        ResumeProjectionIntegrityError,
+        ResumeScopePath,
+        audit_scope,
+    )
+
+    root_bundle = WorkflowLoader(temp_workspace).load_bundle(
+        _write_projection_integrity_call_graph(temp_workspace)
+    )
+    middle_bundle = root_bundle.imports["middle"]
+    manager = StateManager(
+        temp_workspace,
+        run_id="sticky-projection-session-close",
+    )
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    first = WorkflowExecutor(root_bundle, temp_workspace, manager).execute()
+    assert first["status"] == "completed"
+
+    persisted = manager.load()
+    frame_id, frame = next(iter(persisted.call_frames.items()))
+    child_state = frame["state"]
+    child_state["current_step"] = {
+        "status": "running",
+        "name": "RemovedMiddleStep",
+        "step_id": "root.removed_middle_step",
+        "visit_count": 1,
+    }
+    frame["current_step"] = dict(child_state["current_step"])
+    frame["status"] = "running"
+    persisted.status = "failed"
+    persisted.steps["InvokeMiddle"]["status"] = "failed"
+
+    with pytest.raises(ResumeProjectionIntegrityError) as exc_info:
+        audit_scope(
+            middle_bundle,
+            child_state,
+            ResumeScopePath.root(
+                str(root_bundle.provenance.workflow_path)
+            ).child(frame_id),
+        )
+    expected_error = json.loads(json.dumps(exc_info.value.error))
+    manager._write_state()
+
+    with patch("os.getcwd", return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id="sticky-projection-session-close",
+        )
+
+    after = manager.load().to_dict()
+    assert result == 1
+    assert after["status"] == "failed"
+    assert after["error"] == expected_error
+    sessions = after["runtime_observability"]["executor_sessions"]
+    assert len(sessions) == 1
+    assert sessions[0]["status"] == "failed"
+    assert sessions[0]["ended_at"]

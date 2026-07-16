@@ -86,7 +86,9 @@ from .loaded_bundle import (
 from .resume_projection_integrity import (
     ResumeProjectionIntegrityError,
     ResumeScopePath,
+    TerminalResultClass,
     audit_scope,
+    classify_terminal_result,
 )
 from .state_layout import (
     GeneratedPathSemanticRole,
@@ -3224,6 +3226,11 @@ class WorkflowExecutor:
         state: Dict[str, Any],
         terminal_status: str,
     ) -> Dict[str, Any]:
+        if (
+            classify_terminal_result(state)
+            is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
+        ):
+            terminal_status = "failed"
         finalization = self._ensure_finalization_state(state)
 
         if terminal_status == 'completed':
@@ -4067,6 +4074,11 @@ class WorkflowExecutor:
 
         # Handle for-each loops (which return a list of results)
         if isinstance(step_result, list):
+            if (
+                classify_terminal_result(state)
+                is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
+            ):
+                return '_stop'
             # For for-each loops, control flow doesn't apply to individual iterations
             # The loop as a whole is considered successful if it completes
             return None  # Continue to next step
@@ -4074,6 +4086,16 @@ class WorkflowExecutor:
         # Handle regular steps (which return a dict)
         if not isinstance(step_result, dict):
             return None  # No result yet, continue
+
+        if (
+            classify_terminal_result(step_result)
+            is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
+        ):
+            error = step_result.get("error")
+            if isinstance(error, dict):
+                state["error"] = error
+                self.state_manager.update_run_error(error)
+            return '_stop'
 
         exit_code = step_result.get('exit_code', 0)
         error = step_result.get('error')

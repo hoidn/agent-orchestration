@@ -3662,3 +3662,102 @@ def test_resume_projection_auditor_does_not_load_or_checksum_child_bundles(
     read_text.assert_not_called()
     read_bytes.assert_not_called()
     assert state == before
+
+
+@pytest.mark.parametrize("nesting_depth", [1, 2])
+def test_nested_projection_error_is_not_wrapped_in_call_failed(
+    tmp_path: Path,
+    nesting_depth: int,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import (
+        ResumeProjectionIntegrityError,
+        ResumeScopePath,
+        audit_scope,
+    )
+
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    middle_bundle = workflow_import_bundle(root_bundle, "middle")
+    assert middle_bundle is not None
+    leaf_bundle = workflow_import_bundle(middle_bundle, "leaf")
+    assert leaf_bundle is not None
+
+    manager = StateManager(
+        tmp_path,
+        run_id=f"sticky-projection-nested-{nesting_depth}",
+    )
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    first = WorkflowExecutor(root_bundle, tmp_path, manager).execute()
+    assert first["status"] == "completed"
+
+    persisted = manager.load()
+    outer_frame_id, outer_frame = next(iter(persisted.call_frames.items()))
+    outer_state = outer_frame["state"]
+    scope_path = ResumeScopePath.root(
+        str(root_bundle.provenance.workflow_path)
+    ).child(outer_frame_id)
+    selected_frame_before = None
+
+    if nesting_depth == 1:
+        audited_bundle = middle_bundle
+        audited_state = outer_state
+        audited_state["current_step"] = {
+            "status": "running",
+            "name": "RemovedMiddleStep",
+            "step_id": "root.removed_middle_step",
+            "visit_count": 1,
+        }
+        outer_frame["current_step"] = dict(audited_state["current_step"])
+    else:
+        inner_frame_id, inner_frame = next(
+            iter(outer_state["call_frames"].items())
+        )
+        audited_bundle = leaf_bundle
+        audited_state = inner_frame["state"]
+        scope_path = scope_path.child(inner_frame_id)
+        audited_state["current_step"] = {
+            "status": "running",
+            "name": "RemovedLeafStep",
+            "step_id": "root.removed_leaf_step",
+            "visit_count": 1,
+        }
+        inner_frame["current_step"] = dict(audited_state["current_step"])
+        inner_frame["status"] = "running"
+        selected_frame_before = deepcopy(inner_frame)
+        outer_state["status"] = "failed"
+        outer_state["steps"]["InvokeLeaf"]["status"] = "failed"
+
+    outer_frame["status"] = "running"
+    if nesting_depth == 1:
+        selected_frame_before = deepcopy(outer_frame)
+    persisted.status = "failed"
+    persisted.steps["InvokeMiddle"]["status"] = "failed"
+    visits_before = dict(persisted.step_visits)
+
+    with pytest.raises(ResumeProjectionIntegrityError) as exc_info:
+        audit_scope(audited_bundle, audited_state, scope_path)
+    expected_error = deepcopy(exc_info.value.error)
+    manager._write_state()
+
+    resumed = WorkflowExecutor(root_bundle, tmp_path, manager).execute(resume=True)
+    after = manager.load().to_dict()
+
+    assert resumed["status"] == "failed"
+    assert resumed["error"] == expected_error
+    assert after["error"] == expected_error
+    assert after["steps"]["InvokeMiddle"]["error"] == expected_error
+    assert after["steps"]["InvokeMiddle"]["error"]["type"] != "call_failed"
+    assert after["step_visits"]["InvokeMiddle"] == visits_before["InvokeMiddle"] + 1
+
+    if nesting_depth == 1:
+        assert selected_frame_before is not None
+        assert after["call_frames"][outer_frame_id] == selected_frame_before
+    else:
+        assert after["call_frames"][outer_frame_id]["status"] == "failed"
+        outer_after = after["call_frames"][outer_frame_id]["state"]
+        assert outer_after["error"] == expected_error
+        assert outer_after["steps"]["InvokeLeaf"]["error"] == expected_error
+        assert selected_frame_before is not None
+        inner_frame_id = next(iter(outer_after["call_frames"]))
+        assert outer_after["call_frames"][inner_frame_id] == selected_frame_before

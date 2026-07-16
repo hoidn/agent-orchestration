@@ -6,7 +6,9 @@ import json
 import threading
 import time
 from pathlib import Path
+from unittest.mock import patch
 
+import pytest
 import yaml
 
 from orchestrator.loader import WorkflowLoader
@@ -24,6 +26,39 @@ def _write_workflow(workspace: Path, workflow: dict) -> Path:
     workflow_file = workspace / "workflow.yaml"
     workflow_file.write_text(yaml.dump(workflow), encoding="utf-8")
     return workflow_file
+
+
+def _sticky_projection_error() -> dict:
+    return {
+        "type": "resume_projection_integrity_error",
+        "message": "Resume projection integrity audit failed: out_of_scope_step_id",
+        "context": {
+            "diagnostic_schema": "resume_projection_integrity_error.v1",
+            "reason": "out_of_scope_step_id",
+            "scope_path": [
+                {"kind": "root", "workflow_file": "workflow.yaml"},
+                {"kind": "call_frame", "frame_id": "root.invoke::visit::1"},
+            ],
+            "field": "current_step.step_id",
+            "offending_value": "root.removed",
+            "expected_owner": {
+                "workflow_file": "child.yaml",
+                "workflow_checksum": "sha256:" + ("1" * 64),
+                "projection_scope": "call_frame",
+            },
+            "candidate_count": 0,
+            "call_boundary_step_id": None,
+        },
+    }
+
+
+def _sticky_projection_result() -> dict:
+    return {
+        "status": "failed",
+        "exit_code": 2,
+        "duration_ms": 0,
+        "error": _sticky_projection_error(),
+    }
 
 
 def _compile_pure_projection_bundle(tmp_path: Path):
@@ -689,3 +724,237 @@ def test_looped_resume_exposes_active_visit_count(tmp_path: Path):
 
     worker.join(timeout=5)
     assert not worker.is_alive()
+
+
+@pytest.mark.parametrize("route_kind", ["failure", "success", "always"])
+def test_projection_error_bypasses_failure_success_always_and_on_error_continue(
+    tmp_path: Path,
+    route_kind: str,
+) -> None:
+    workflow = {
+        "version": "2.0",
+        "name": f"sticky-route-{route_kind}",
+        "steps": [
+            {
+                "name": "Invoke",
+                "id": "invoke",
+                "command": ["bash", "-lc", "true"],
+                "on": {route_kind: {"goto": "Routed"}},
+            },
+            {
+                "name": "Routed",
+                "id": "routed",
+                "command": ["bash", "-lc", "true"],
+            },
+        ],
+    }
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    manager = StateManager(
+        workspace=tmp_path,
+        run_id=f"sticky-route-{route_kind}",
+    )
+    manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, tmp_path, manager)
+    state = manager.load().to_dict()
+    state["steps"]["Invoke"] = _sticky_projection_result()
+    step = loaded.surface.steps[0]
+
+    with patch.object(
+        executor,
+        "_typed_on_goto_transfer",
+        side_effect=AssertionError("sticky result reached authored routing"),
+    ) as authored_routes:
+        next_step = executor._handle_control_flow(
+            step,
+            state,
+            "Invoke",
+            0,
+            "continue",
+            current_node_id="root.invoke",
+        )
+
+    assert next_step == "_stop"
+    assert state["error"] == _sticky_projection_error()
+    assert manager.load().error == _sticky_projection_error()
+    authored_routes.assert_not_called()
+
+
+@pytest.mark.parametrize("loop_kind", ["for_each", "repeat_until"])
+def test_projection_error_exits_for_each_and_repeat_until_without_next_iteration(
+    tmp_path: Path,
+    loop_kind: str,
+) -> None:
+    child_path = tmp_path / "child.yaml"
+    child_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": "2.7" if loop_kind == "repeat_until" else "2.5",
+                "name": "sticky-loop-child",
+                "artifacts": {"ready": {"kind": "scalar", "type": "bool"}},
+                "outputs": {
+                    "ready": {
+                        "kind": "scalar",
+                        "type": "bool",
+                        "from": {"ref": "root.steps.Ready.artifacts.ready"},
+                    }
+                },
+                "steps": [
+                    {
+                        "name": "Ready",
+                        "id": "ready",
+                        "set_scalar": {"artifact": "ready", "value": True},
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    loop_body = [
+        {
+            "name": "Invoke",
+            "id": "invoke",
+            "call": "child",
+        }
+    ]
+    loop_step = {
+        "name": "Loop",
+        "id": "loop",
+    }
+    if loop_kind == "for_each":
+        loop_step["for_each"] = {
+            "items": [1, 2],
+            "as": "item",
+            "steps": loop_body,
+        }
+    else:
+        loop_step["repeat_until"] = {
+            "id": "body",
+            "max_iterations": 3,
+            "outputs": {
+                "ready": {
+                    "kind": "scalar",
+                    "type": "bool",
+                    "from": {"ref": "self.steps.Invoke.artifacts.ready"},
+                }
+            },
+            "condition": {"artifact_bool": {"ref": "self.outputs.ready"}},
+            "steps": loop_body,
+        }
+    workflow_file = _write_workflow(
+        tmp_path,
+        {
+            "version": "2.7" if loop_kind == "repeat_until" else "2.5",
+            "name": f"sticky-{loop_kind}",
+            "imports": {"child": "child.yaml"},
+            "steps": [loop_step],
+        },
+    )
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    manager = StateManager(
+        workspace=tmp_path,
+        run_id=f"sticky-{loop_kind}",
+    )
+    manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, tmp_path, manager)
+    call_count = 0
+
+    def fail_call(*_args, **_kwargs):
+        nonlocal call_count
+        call_count += 1
+        return _sticky_projection_result()
+
+    with patch.object(executor, "_execute_call", side_effect=fail_call):
+        result = executor.execute(on_error="continue")
+
+    persisted = manager.load().to_dict()
+    assert call_count == 1
+    assert result["status"] == "failed"
+    assert result["error"] == _sticky_projection_error()
+    assert persisted["error"] == _sticky_projection_error()
+    assert persisted["steps"]["Loop[0].Invoke"]["error"] == _sticky_projection_error()
+    if loop_kind == "for_each":
+        assert "Loop[1].Invoke" not in persisted["steps"]
+        assert persisted["for_each"]["Loop"]["completed_indices"] == []
+        assert persisted["for_each"]["Loop"]["current_index"] == 0
+    else:
+        assert persisted["steps"]["Loop"]["error"] == _sticky_projection_error()
+        assert persisted["repeat_until"]["Loop"]["current_iteration"] == 0
+
+
+def test_projection_error_finalization_failure_is_supplemental(
+    tmp_path: Path,
+) -> None:
+    child_path = tmp_path / "child.yaml"
+    child_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": "2.5",
+                "name": "sticky-finalization-child",
+                "steps": [
+                    {
+                        "name": "Noop",
+                        "id": "noop",
+                        "command": ["bash", "-lc", "true"],
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    workflow_file = _write_workflow(
+        tmp_path,
+        {
+            "version": "2.5",
+            "name": "sticky-finalization",
+            "imports": {"child": "child.yaml"},
+            "steps": [
+                {
+                    "name": "Invoke",
+                    "id": "invoke",
+                    "call": "child",
+                }
+            ],
+            "finally": {
+                "id": "cleanup",
+                "steps": [
+                    {
+                        "name": "FailCleanup",
+                        "id": "fail_cleanup",
+                        "command": [
+                            "bash",
+                            "-lc",
+                            "mkdir -p state && printf cleanup > state/cleanup-ran && exit 1",
+                        ],
+                    }
+                ],
+            },
+        },
+    )
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    manager = StateManager(
+        workspace=tmp_path,
+        run_id="sticky-finalization",
+    )
+    manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, tmp_path, manager)
+
+    with patch.object(
+        executor,
+        "_execute_call",
+        return_value=_sticky_projection_result(),
+    ):
+        result = executor.execute()
+
+    persisted = manager.load().to_dict()
+    assert (tmp_path / "state" / "cleanup-ran").read_text(encoding="utf-8") == "cleanup"
+    assert result["status"] == "failed"
+    assert result["error"] == _sticky_projection_error()
+    assert persisted["error"] == _sticky_projection_error()
+    assert persisted["steps"]["Invoke"]["error"] == _sticky_projection_error()
+    assert persisted["finalization"]["status"] == "failed"
+    assert persisted["finalization"]["failure"]["step"] == "finally.FailCleanup"
+    assert persisted["finalization"]["failure"]["error"] is None
+    assert persisted["steps"]["finally.FailCleanup"]["exit_code"] == 1
