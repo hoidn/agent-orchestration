@@ -1,0 +1,68 @@
+{
+  "schema": "procedure_first_pilot_evidence_index.v1",
+  "phase": "task_4a_live_validator_complete",
+  "status": "independent_review_pending",
+  "external_store_absence": "not_asserted",
+  "hold": {
+    "status": "active",
+    "live_validator": "passed",
+    "independent_retirement_review": "not_run",
+    "hold_release": "not_asserted"
+  },
+  "routing_only": true,
+  "artifacts": {
+    "attestation_index": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json",
+      "sha256": "sha256:5aed6854732dc9aea7860f2587d1ec6c206e246e18a90d8438a7fb8653709e57"
+    },
+    "final_known_store_scans": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/final_known_store_scans.json",
+      "sha256": "sha256:05e5cea75338ea745cbbc165fc0934c174132555fae8b4d07f180c48b5f1ccc0"
+    },
+    "final_owner_attestation": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/dedicated-evidence-root.json",
+      "sha256": "sha256:9e73eba199b06164b13f384654b65b1f87739eeb7c4e94da925e871bc3e38cca"
+    },
+    "live_validator_stdout": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/live_validator_pytest.txt",
+      "sha256": "sha256:e68d16dca98b9f88eab92be8de991ca7877fede725a92cb12f755cdb05abd8b3"
+    },
+    "live_validator_result": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/live_validator_result.json",
+      "sha256": "sha256:8ff86cd084575fcd768f49622cd97e2c2b558c26bebd0e72d9c04cac5abdd0a4"
+    },
+    "old_build_manifest": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/build_manifest.json",
+      "sha256": "sha256:97c78179655c48cb2ac24e599c17bfb0d1d1e0960a7e31836ce0727a5777d783"
+    },
+    "new_build": {
+      "build_manifest": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/build_manifest.json", "sha256": "sha256:dc21dcdc7fb5748b2442c5e9b615672c4915cd9b9fba6f69f894991c8ae0f00f"},
+      "source": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/source.orc", "sha256": "sha256:be0a2660444488793169d8016152f62ab0996213c32632be334c03c2b31c1624"},
+      "typed_frontend_ast": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/typed_frontend_ast.json", "sha256": "sha256:e998cf88261cf8e98eb24bd3da787781c49b43d6c1f2cc4f46822406b2c613c5"},
+      "semantic_ir": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/semantic_ir.json", "sha256": "sha256:777d6e3a11fe48bac17f656c6051106cb374ba2617fa11353b57e8b64943ec30"},
+      "executable_ir": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/executable_ir.json", "sha256": "sha256:5b683c920496a858aa3b1e82fd1d8777941f945eefcddffb4cb144dde0e38766"},
+      "runtime_plan": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/runtime_plan.json", "sha256": "sha256:4119d678d53b31e090f9f588c0663b1a9f697e47fbc891c6cb121bf31dd2b566"},
+      "lexical_checkpoint_points": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/lexical_checkpoint_points.json", "sha256": "sha256:f73b8bc136524d6fbc52b423da712bef32b704cd4328046e2672a8468df7185a"},
+      "source_map": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/source_map.json", "sha256": "sha256:405df494812eddb03dcc3daf072015147f544f3cbedc33d768607e172244ff2d"}
+    },
+    "retirement_record": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/retirement_record.json",
+      "sha256": "sha256:7c35069323e8dcf7ac9b17785492ed030d0088ec29489e5e3529f94c44dd4370"
+    },
+    "projections": {
+      "identity_delta": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/identity_delta.json", "sha256": "sha256:a4d32efeea9e953862c75f3b27b32a7f453fdd885965da6d585db5ccb43331e6"},
+      "artifact_contract_multiset": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/artifact_contract_multiset.json", "sha256": "sha256:eedf891bc9ece4f9c61211af721c50163db81f570668468181c163b24b30d8a8"},
+      "execution_order": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/execution_order.json", "sha256": "sha256:1095cd70fad173a2a354fe6415d73ec6392a396b088450b532dbd047f2b9ebaf"},
+      "retained_wrapper_inventory": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/retained_wrapper_inventory.json", "sha256": "sha256:24d098dd487c34f8039ca87707cff5ae4041d6343463a04f680afd7b870d7c56"},
+      "root_checksum_characterization": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/root_checksum_characterization.json", "sha256": "sha256:3329eb0337811009bea1649b8570f9930385581b0211b08c91bc3dd9ca9c5309"},
+      "callee_checksum_characterization": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/callee_checksum_characterization.json", "sha256": "sha256:cf52a468509f1f95d30530cf652b887de52b12a8494cdc0f2916a0ffc8cdca3b"},
+      "clean_run": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/clean_run.json", "sha256": "sha256:a0587644483dc0c468f4671d5e450d5c43d7f1d768e382e035a5decc890cd40b"},
+      "interruption_resume": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/interruption_resume.json", "sha256": "sha256:8abd58915c1b114ddf97b315de60f4ba9597c0a7661cd850a055de8f44889f64"}
+    }
+  },
+  "claims_not_made": [
+    "This routing index is not owner authority and is not a run or resume input.",
+    "The scanner-only live validator passed; the independent retirement review has not run.",
+    "The hold remains active and no hold release or pilot completion is asserted."
+  ]
+}

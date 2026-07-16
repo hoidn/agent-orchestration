@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import os
+import re
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import fields, is_dataclass
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
@@ -21,6 +25,14 @@ WORKFLOWS = REPO_ROOT / "workflows"
 EXAMPLE = WORKFLOWS / "examples" / "design_plan_impl_review_stack_v2_call.orc"
 MIGRATION_INPUTS = WORKFLOWS / "examples" / "inputs" / "workflow_lisp_migrations"
 BASELINE = REPO_ROOT / "tests" / "baselines" / "procedure_first" / "tracked_plan_phase.json"
+PILOT_EVIDENCE = (
+    REPO_ROOT
+    / "docs"
+    / "plans"
+    / "evidence"
+    / "procedure-first-pilot"
+    / "tracked-plan-phase"
+)
 MODULE_NAME = "examples/design_plan_impl_review_stack_v2_call"
 PUBLIC_ENTRY = f"{MODULE_NAME}::design-plan-impl-review-stack"
 TRACKED_PLAN = f"{MODULE_NAME}::tracked-plan-phase"
@@ -156,6 +168,201 @@ _NEW_INLINE_LEXICAL_ROWS = (
 
 def _load_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _projection_sha256(value: object) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _assert_tracked_plan_retirement_claim_bindings(payload: Mapping[str, object]) -> None:
+    labels = payload.get("supporting_labels")
+    assert isinstance(labels, list)
+    assert (
+        "correction_authorization="
+        "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/"
+        "task-3/artifact-parity-evidence-correction-authorization.json#"
+        "sha256:5dcec17ccd0ebef24f8b0025501df2acf8ac90517227a6161e9e32d26aa1963d"
+    ) in labels, "correction authorization binding is missing"
+    equality_labels = [
+        label
+        for label in labels
+        if isinstance(label, str) and label.startswith("historical_clean_artifact_equality=")
+    ]
+    assert equality_labels == ["historical_clean_artifact_equality=not_asserted"], (
+        "historical clean artifact equality must be exactly not_asserted"
+    )
+    labels = set(labels)
+    assert "checksum_scope=accepted_generic_guard_characterization_bound_to_actual_pilot_checksum_delta" not in labels
+    assert (
+        "checksum_scope.root=generic_characterization;actual_subject_rejection="
+        "not_asserted;cross_source_compatibility=not_asserted;runtime_authority=none"
+    ) in labels
+    assert (
+        "checksum_scope.callee=accepted_generic_guard_characterization_bound_to_"
+        "actual_pilot_checksum_delta;not_live_old_run_resume;"
+        "not_actual_pilot_rejection_negative;not_cross_source_compatibility"
+    ) in labels
+
+
+def _sha256_path(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _run_tree_facts(root: Path) -> dict[str, object]:
+    rows: list[tuple[str, str, str | None]] = []
+    for current, directories, filenames in os.walk(root, followlinks=False):
+        directories.sort()
+        filenames.sort()
+        current_path = Path(current)
+        for name in (*directories, *filenames):
+            path = current_path / name
+            assert not path.is_symlink()
+            relative = path.relative_to(root).as_posix()
+            rows.append(
+                (relative, "directory", None)
+                if path.is_dir()
+                else (relative, "file", _sha256_path(path))
+            )
+    canonical = json.dumps(
+        sorted(rows), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return {
+        "run_tree_sha256": "sha256:" + hashlib.sha256(canonical).hexdigest(),
+        "run_tree_entry_count": len(rows),
+    }
+
+
+def _assert_final_owner_scan_run_chain(
+    payload: Mapping[str, object],
+    *,
+    scan_candidate_path: Path | None = None,
+    owner_record: Mapping[str, object] | None = None,
+) -> None:
+    scan_path = PILOT_EVIDENCE / "final_known_store_scans.json"
+    owner_path = PILOT_EVIDENCE / "attestations" / "final" / "dedicated-evidence-root.json"
+    candidate_path = scan_candidate_path or scan_path
+    scan = _load_json(candidate_path)
+    owner = dict(owner_record or _load_json(owner_path))
+    assert set(scan["scans"]) == {
+        "legacy_repository_root",
+        "dedicated_runtime_evidence_root",
+    }
+    assert set(owner) == {
+        "record_type", "version", "evidence_status", "authorized_disposition",
+        "bindings", "claims_not_made", "owner", "owner_confirmations",
+        "prepared_by", "prepared_at", "owner_adoption", "template_prepared_by",
+    }
+    assert owner["evidence_status"] == "owner_confirmed"
+    assert owner["owner_adoption"]["owner"] == owner["owner"]
+    bindings = owner["bindings"]
+    assert bindings["final_known_store_scans"] == {
+        "path": scan_path.relative_to(REPO_ROOT).as_posix(),
+        "sha256": _sha256_path(candidate_path),
+    }
+    expected_roots = {
+        "legacy_repository_root": scan["root_scope"]["legacy_repository_root"],
+        "dedicated_runtime_evidence_root": scan["root_scope"][
+            "dedicated_runtime_evidence_root"
+        ],
+    }
+    known_roots = {row["root"] for row in payload["known_state_stores"]}
+    assert known_roots == set(expected_roots.values())
+    for key, root in expected_roots.items():
+        assert scan["scans"][key]["scanner_result"]["root"] == root
+    dedicated = scan["scans"]["dedicated_runtime_evidence_root"]
+    scanner = dedicated["scanner_result"]
+    assert scanner["root"] == bindings["canonical_dedicated_root"]
+    snapshot = bindings["final_normalized_snapshot"]
+    assert snapshot["query_version"] == scan["old_identity_query"]["query_version"]
+    assert snapshot["query_identity_count"] == scan["old_identity_query"]["identity_count"]
+    assert snapshot["query_identity_list_sha256"] == scan["old_identity_query"]["query_list_sha256"]
+    assert snapshot["query_started_at"] == dedicated["query_started_at"]
+    assert snapshot["query_finished_at"] == dedicated["query_finished_at"]
+    assert snapshot["normalized_scan_digest"] == scanner["normalized_scan_digest"]
+    assert snapshot["counts"] == {key: scanner[key] for key in snapshot["counts"]}
+    dedicated_store = next(
+        row for row in payload["known_state_stores"] if row["root"] == scanner["root"]
+    )
+    assert dedicated_store["attestation"] == (
+        owner_path.relative_to(REPO_ROOT).as_posix() + "#" + _sha256_path(owner_path)
+    )
+    assert dedicated_store["normalized_scan_digest"] == scanner["normalized_scan_digest"]
+    for key in snapshot["counts"]:
+        assert dedicated_store[key] == scanner[key]
+    projections = {
+        "tracked-plan-phase-clean-new-id": _load_json(PILOT_EVIDENCE / "evidence" / "clean_run.json"),
+        "tracked-plan-phase-interrupted-new-id": _load_json(PILOT_EVIDENCE / "evidence" / "interruption_resume.json"),
+    }
+    run_root = Path(bindings["canonical_dedicated_root"])
+    for bound in bindings["retained_runs"]:
+        projection_path = REPO_ROOT / bound["projection_path"]
+        projection = projections[bound["run_id"]]
+        run_path = run_root / bound["run_id"]
+        assert _sha256_path(projection_path) == bound["projection_sha256"]
+        assert projection["run_id"] == projection["run"]["id"] == bound["run_id"]
+        facts = _run_tree_facts(run_path)
+        assert facts == {
+            "run_tree_sha256": bound["run_tree_sha256"],
+            "run_tree_entry_count": bound["run_tree_entry_count"],
+        }
+        assert projection["run"]["tree_sha256"] == bound["run_tree_sha256"]
+        assert projection["run"]["entry_count"] == bound["run_tree_entry_count"]
+        assert _sha256_path(run_path / "state.json") == bound["state_sha256"]
+        assert json.loads((run_path / "state.json").read_text())["status"] == bound["status"] == "completed"
+        record_run = (
+            payload["new_id_evidence"]["clean_run"]
+            if "clean" in bound["run_id"]
+            else payload["new_id_evidence"]["interruption_resume"]
+        )
+        assert record_run["run_id"] == bound["run_id"]
+        assert record_run["status"] == bound["status"]
+        if "interrupted" in bound["run_id"]:
+            assert bound["resume_completed_under_same_run_id"] is True
+            assert projection["resume"]["status"] == "completed"
+
+
+def _assert_callee_characterization(
+    payload: Mapping[str, object],
+    *,
+    callee_characterization: Mapping[str, object] | None = None,
+    observed_outer_sha256: str | None = None,
+) -> None:
+    path = PILOT_EVIDENCE / "evidence" / "callee_checksum_characterization.json"
+    callee = dict(callee_characterization or _load_json(path))
+    outer_sha256 = observed_outer_sha256 or _sha256_path(path)
+    assert set(callee) == {
+        "schema", "scope", "projection", "projection_sha256",
+        "generic_guard_details", "claims_not_made",
+    }
+    assert set(callee["projection"]) == {"guard_provenance", "pilot_checksum_delta"}
+    assert set(callee["generic_guard_details"]) == {
+        "checksum_mismatch_observed", "child_workflow_executed", "provider_executed",
+        "command_executed", "child_state_identity_remapped", "parent_metadata_delta",
+    }
+    assert callee["scope"] == {
+        "classification": "accepted generic guard characterization bound to actual pilot checksum delta",
+        "not_live_old_run_resume": True,
+        "not_actual_pilot_rejection_negative": True,
+        "not_cross_source_compatibility": True,
+    }
+    assert callee["claims_not_made"] == [
+        "This is not evidence from a live resume of any retained old-ID pilot run.",
+        "This is not an actual-pilot rejection negative and does not assert that either retained new-ID run was resumed against the old source.",
+        "This does not establish cross-source compatibility, remapping authority, retirement release, or completion.",
+    ]
+    assert callee["projection_sha256"] == _projection_sha256(callee["projection"])
+    record_callee = payload["checksum_evidence"]["callee"]
+    command_commit, command_nodeid = record_callee["command"].split(" ", 1)
+    assert callee["projection"]["guard_provenance"]["commit"].startswith(command_commit)
+    assert command_nodeid == callee["projection"]["guard_provenance"]["nodeid"]
+    assert {
+        key: record_callee[key] for key in callee["generic_guard_details"]
+    } == callee["generic_guard_details"]
+    assert (
+        "checksum_provenance.callee=evidence/callee_checksum_characterization.json#"
+        + outer_sha256
+    ) in payload["supporting_labels"]
 
 
 @pytest.fixture(scope="module")
@@ -940,3 +1147,1090 @@ def test_tracked_plan_phase_contract_matches_frozen_pre_migration_baseline(
     assert expected == actual
     _assert_reviewed_structural_delta(expected_route, actual_route)
     _assert_provisional_runtime_delta(expected_runtime, actual_runtime)
+
+
+def test_tracked_plan_phase_checksum_evidence_projection_replays(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.cli.commands import resume as resume_command
+    from orchestrator.cli.commands import run as run_command
+    from orchestrator.state import StateManager
+    from orchestrator.workflow.executor import WorkflowExecutor
+
+    def forbidden_runtime(*_args, **_kwargs):
+        raise AssertionError("checksum evidence replay reached runtime authority")
+
+    monkeypatch.setattr(StateManager, "initialize", forbidden_runtime)
+    monkeypatch.setattr(WorkflowExecutor, "__init__", forbidden_runtime)
+    monkeypatch.setattr(run_command, "run_workflow", forbidden_runtime)
+    monkeypatch.setattr(resume_command, "resume_workflow", forbidden_runtime)
+    run_roots = (
+        REPO_ROOT / ".orchestrate" / "runs",
+        REPO_ROOT
+        / ".orchestrate"
+        / "procedure-first-pilot-evidence"
+        / "tracked-plan-phase"
+        / "workspace"
+        / ".orchestrate"
+        / "runs",
+    )
+    before_run_directories = {
+        root: tuple(sorted(path.name for path in root.iterdir())) for root in run_roots
+    }
+
+    old_manifest = _load_json(PILOT_EVIDENCE / "old" / "build_manifest.json")
+    new_manifest = _load_json(PILOT_EVIDENCE / "new" / "build_manifest.json")
+    record = _load_json(PILOT_EVIDENCE / "retirement_record.json")
+    _assert_callee_characterization(record)
+    root_path = PILOT_EVIDENCE / "evidence" / "root_checksum_characterization.json"
+    root_characterization = _load_json(root_path)
+    root_projection = root_characterization["projection"]
+    expected_root_details = {
+        "command": (
+            "7e4b3428 tests/test_resume_command.py::"
+            "test_default_resume_root_checksum_mismatch_is_pre_executor_and_byte_immutable"
+        ),
+        "default_resume": True,
+        "observability_overrides": False,
+        "cli_overrides": False,
+        "exit_status": 1,
+        "tree_immutability": "before_equals_after",
+        "executor_constructed": False,
+        "provider_executed": False,
+        "command_executed": False,
+    }
+    expected_claim_boundary = {
+        "actual_subject_rejection": "not_asserted",
+        "cross_source_compatibility": "not_asserted",
+        "runtime_authority": "none",
+    }
+    assert set(root_characterization) == {"schema", "projection", "projection_sha256"}
+    assert root_characterization["schema"] == "workflow_lisp_root_checksum_characterization.v1"
+    assert set(root_projection) == {"details", "claim_boundary"}
+    assert root_projection["details"] == expected_root_details
+    assert root_projection["claim_boundary"] == expected_claim_boundary
+    assert root_characterization["projection_sha256"] == _projection_sha256(
+        root_projection
+    )
+    root_record = record["checksum_evidence"]["root"]
+    assert root_record == {
+        "evidence_mode": "generic_characterization",
+        **expected_root_details,
+        "characterization_path": root_path.relative_to(REPO_ROOT).as_posix(),
+        "characterization_sha256": (
+            "sha256:" + hashlib.sha256(root_path.read_bytes()).hexdigest()
+        ),
+        "projection_sha256": root_characterization["projection_sha256"],
+    }
+    assert "before_tree_digest" not in root_record
+    assert "after_tree_digest" not in root_record
+    assert "before_tree_digest" not in root_projection["details"]
+    assert "after_tree_digest" not in root_projection["details"]
+    assert (
+        "checksum_provenance.root=evidence/root_checksum_characterization.json#"
+        + root_record["characterization_sha256"]
+    ) in record["supporting_labels"]
+
+    callee = _load_json(
+        PILOT_EVIDENCE / "evidence" / "callee_checksum_characterization.json"
+    )
+    assert callee["schema"] == "procedure_first_pilot_checksum_characterization.v1"
+    assert callee["scope"] == {
+        "classification": (
+            "accepted generic guard characterization bound to actual pilot checksum delta"
+        ),
+        "not_live_old_run_resume": True,
+        "not_actual_pilot_rejection_negative": True,
+        "not_cross_source_compatibility": True,
+    }
+    assert callee["projection"]["guard_provenance"] == {
+        "commit": "e4f2ecbeb6203554aa1b70b54156ca469bbf3687",
+        "nodeid": (
+            "tests/test_resume_command.py::"
+            "test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch"
+        ),
+        "mismatch_identity": (
+            "examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase"
+        ),
+        "guard_result": "rejected_before_child_execution_without_identity_remap",
+    }
+    assert callee["projection"]["pilot_checksum_delta"] == {
+        "old": {
+            "source_sha256": old_manifest["inputs"]["source"]["sha256"],
+            "build_manifest_sha256": (
+                "sha256:97c78179655c48cb2ac24e599c17bfb0d1d1e0960a7e31836ce0727a5777d783"
+            ),
+        },
+        "new": {
+            "source_sha256": new_manifest["inputs"]["source"]["sha256"],
+            "build_manifest_sha256": (
+                "sha256:dc21dcdc7fb5748b2442c5e9b615672c4915cd9b9fba6f69f894991c8ae0f00f"
+            ),
+        },
+        "source_checksum_changed": True,
+        "build_manifest_checksum_changed": True,
+    }
+    assert callee["projection_sha256"] == _projection_sha256(callee["projection"])
+
+    after_run_directories = {
+        root: tuple(sorted(path.name for path in root.iterdir())) for root in run_roots
+    }
+    assert after_run_directories == before_run_directories
+
+
+def test_tracked_plan_phase_retirement_record_replays_final_scan_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.cli.commands import resume as resume_command
+    from orchestrator.cli.commands import run as run_command
+    from orchestrator.state import StateManager
+    from orchestrator.workflow.executor import WorkflowExecutor
+    from orchestrator.workflow_lisp import procedure_identity_retirement as retirement
+
+    def forbidden_runtime(*_args, **_kwargs):
+        raise AssertionError("retirement record replay reached runtime authority")
+
+    monkeypatch.setattr(StateManager, "initialize", forbidden_runtime)
+    monkeypatch.setattr(WorkflowExecutor, "__init__", forbidden_runtime)
+    monkeypatch.setattr(run_command, "run_workflow", forbidden_runtime)
+    monkeypatch.setattr(resume_command, "resume_workflow", forbidden_runtime)
+    scan_evidence = _load_json(PILOT_EVIDENCE / "final_known_store_scans.json")
+    retained_scans = {
+        Path(scan["scanner_result"]["root"]).resolve(): scan["scanner_result"]
+        for scan in scan_evidence["scans"].values()
+    }
+    expected_identities = frozenset(scan_evidence["old_identity_query"]["identities"])
+    observed_queries: list[Path] = []
+
+    def retained_scan_only(root, *, retired_identities, query_version):
+        canonical = Path(root).resolve()
+        assert canonical in retained_scans
+        assert query_version == "procedure-identity-store-query.v1"
+        assert frozenset(retired_identities) == expected_identities
+        observed_queries.append(canonical)
+        return deepcopy(retained_scans[canonical])
+
+    monkeypatch.setattr(retirement, "scan_known_state_store", retained_scan_only)
+    run_roots = tuple(retained_scans)
+    before_run_directories = {
+        root: tuple(sorted(path.name for path in root.iterdir())) for root in run_roots
+    }
+    record_path = PILOT_EVIDENCE / "retirement_record.json"
+    payload = _load_json(record_path)
+    _assert_tracked_plan_retirement_claim_bindings(payload)
+    _assert_final_owner_scan_run_chain(payload)
+    identity_projection = _load_json(PILOT_EVIDENCE / "evidence" / "identity_delta.json")
+    assert identity_projection["identity_delta"] == payload["identity_delta"]
+    query_binding = payload["retired_identity_query_evidence"]
+    assert identity_projection["derived_from"]["retired_identity_query"] == {
+        "evidence_path": query_binding["evidence_path"],
+        "evidence_sha256": query_binding["evidence_sha256"],
+        "identities_by_domain_sha256": query_binding[
+            "identities_by_domain_sha256"
+        ],
+        "identity_count": query_binding["identity_count"],
+        "membership_count": sum(
+            len(identities)
+            for identities in scan_evidence["old_identity_query"][
+                "identities_by_domain"
+            ].values()
+        ),
+        "query_list_sha256": query_binding["query_list_sha256"],
+        "query_version": query_binding["query_version"],
+    }
+    record = retirement.load_retirement_record(record_path)
+    result = retirement.validate_retirement_record(record, repo_root=REPO_ROOT)
+
+    assert result.valid is True
+    assert result.issues == ()
+    assert set(observed_queries) == set(retained_scans)
+    after_run_directories = {
+        root: tuple(sorted(path.name for path in root.iterdir())) for root in run_roots
+    }
+    assert after_run_directories == before_run_directories
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "missing_correction_authorization",
+        "asserted_historical_equality",
+        "missing_historical_equality",
+    ),
+)
+def test_tracked_plan_phase_retirement_record_claim_bindings_reject_overclaim(
+    mutation: str,
+) -> None:
+    payload = _load_json(PILOT_EVIDENCE / "retirement_record.json")
+    labels = payload["supporting_labels"]
+    if mutation == "missing_correction_authorization":
+        payload["supporting_labels"] = [
+            label for label in labels if not label.startswith("correction_authorization=")
+        ]
+    else:
+        payload["supporting_labels"] = [
+            label
+            for label in labels
+            if not label.startswith("historical_clean_artifact_equality=")
+        ]
+        if mutation == "asserted_historical_equality":
+            payload["supporting_labels"].append(
+                "historical_clean_artifact_equality=asserted"
+            )
+
+    with pytest.raises(AssertionError):
+        _assert_tracked_plan_retirement_claim_bindings(payload)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "missing_scan_root",
+        "extra_scan_root",
+        "legacy_scan_root",
+        "owner_outer_digest",
+        "run_binding",
+    ),
+)
+def test_tracked_plan_phase_final_chain_rejects_tamper(
+    mutation: str, tmp_path: Path
+) -> None:
+    payload = _load_json(PILOT_EVIDENCE / "retirement_record.json")
+    scan = _load_json(PILOT_EVIDENCE / "final_known_store_scans.json")
+    if mutation == "missing_scan_root":
+        scan["scans"].pop("legacy_repository_root")
+    elif mutation == "extra_scan_root":
+        scan["scans"]["unexpected"] = deepcopy(
+            scan["scans"]["legacy_repository_root"]
+        )
+    elif mutation == "legacy_scan_root":
+        scan["scans"]["legacy_repository_root"]["scanner_result"]["root"] = (
+            "/unexpected/legacy/root"
+        )
+    elif mutation == "owner_outer_digest":
+        dedicated = next(
+            row for row in payload["known_state_stores"] if "procedure-first-pilot-evidence" in row["root"]
+        )
+        dedicated["attestation"] = dedicated["attestation"].split("#")[0] + "#sha256:" + "0" * 64
+    else:
+        owner = _load_json(
+            PILOT_EVIDENCE / "attestations" / "final" / "dedicated-evidence-root.json"
+        )
+        owner["bindings"]["retained_runs"][0]["state_sha256"] = "sha256:" + "0" * 64
+        with pytest.raises(AssertionError):
+            _assert_final_owner_scan_run_chain(payload, owner_record=owner)
+        return
+    if mutation in {"missing_scan_root", "extra_scan_root", "legacy_scan_root"}:
+        candidate_path = tmp_path / "final_known_store_scans.json"
+        candidate_path.write_text(json.dumps(scan, sort_keys=True), encoding="utf-8")
+        owner = _load_json(
+            PILOT_EVIDENCE / "attestations" / "final" / "dedicated-evidence-root.json"
+        )
+        owner["bindings"]["final_known_store_scans"]["sha256"] = _sha256_path(
+            candidate_path
+        )
+        with pytest.raises(AssertionError):
+            _assert_final_owner_scan_run_chain(
+                payload, scan_candidate_path=candidate_path, owner_record=owner
+            )
+        return
+    with pytest.raises(AssertionError):
+        _assert_final_owner_scan_run_chain(payload)
+
+
+@pytest.mark.parametrize("mutation", ("outer", "inner", "label"))
+def test_tracked_plan_phase_callee_characterization_rejects_tamper(mutation: str) -> None:
+    payload = _load_json(PILOT_EVIDENCE / "retirement_record.json")
+    callee = _load_json(
+        PILOT_EVIDENCE / "evidence" / "callee_checksum_characterization.json"
+    )
+    if mutation == "label":
+        payload["supporting_labels"] = [
+            label for label in payload["supporting_labels"]
+            if not label.startswith("checksum_provenance.callee=")
+        ]
+    elif mutation == "inner":
+        callee["projection"]["guard_provenance"]["guard_result"] = "changed"
+    with pytest.raises(AssertionError):
+        _assert_callee_characterization(
+            payload,
+            callee_characterization=callee,
+            observed_outer_sha256=("sha256:" + "0" * 64) if mutation == "outer" else None,
+        )
+
+
+def _assert_task_4a_index_key_sets(
+    attestation_index: Mapping[str, object], evidence_index: Mapping[str, object]
+) -> None:
+    assert set(attestation_index) == {
+        "schema", "external_store_absence", "known_store_records",
+        "pre_edit_known_store_scans", "scratch_provenance_record",
+        "final_dedicated_evidence_root", "hold_release",
+    }
+    assert {
+        row["canonical_root"] for row in attestation_index["known_store_records"]
+    } == {
+        "/home/ollie/Documents/agent-orchestration/.orchestrate/runs",
+        "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
+    }
+    assert set(evidence_index["artifacts"]) == {
+        "attestation_index", "final_known_store_scans", "final_owner_attestation",
+        "live_validator_stdout", "live_validator_result", "old_build_manifest",
+        "new_build", "retirement_record", "retirement_record_review", "projections",
+        "hold_release",
+    }
+    assert set(evidence_index["artifacts"]["new_build"]) == {
+        "build_manifest", "source", "typed_frontend_ast", "semantic_ir",
+        "executable_ir", "runtime_plan", "lexical_checkpoint_points", "source_map",
+    }
+    assert set(evidence_index["artifacts"]["projections"]) == {
+        "identity_delta", "artifact_contract_multiset", "execution_order",
+        "retained_wrapper_inventory", "root_checksum_characterization",
+        "callee_checksum_characterization", "clean_run", "interruption_resume",
+    }
+
+
+def test_tracked_plan_phase_task_4a_indexes_replay_content_addresses() -> None:
+    attestation_index_path = PILOT_EVIDENCE / "attestations" / "index.json"
+    attestation_index = _load_json(attestation_index_path)
+    assert attestation_index["schema"] == "procedure_first_pilot_attestation_index.v1"
+    final = attestation_index["final_dedicated_evidence_root"]
+    assert final["evidence_status"] == "owner_confirmed"
+    assert final["hold_status"] == "active"
+    assert final["claim_boundary"] == {
+        "hold_release": "not_asserted",
+        "independent_review": "not_asserted",
+        "live_validator": "not_asserted",
+        "retirement_eligibility": "not_asserted",
+        "scope": "exact_dedicated_root_and_final_snapshot_only",
+    }
+    attestation_rows = [
+        *(record for record in attestation_index["known_store_records"]),
+        attestation_index["scratch_provenance_record"],
+        final,
+    ]
+    for row in attestation_rows:
+        assert _sha256_path(REPO_ROOT / row.get("record_path", row.get("path"))) == row.get(
+            "record_sha256", row.get("sha256")
+        )
+    evidence_index = _load_json(PILOT_EVIDENCE / "evidence_index.json")
+    _assert_task_4a_index_key_sets(attestation_index, evidence_index)
+    assert set(evidence_index) == {
+        "schema", "phase", "status", "external_store_absence", "hold",
+        "routing_only", "artifacts", "reviewed_predecessor", "claims_not_made",
+    }
+    assert evidence_index["phase"] == "task_4a_complete"
+    assert evidence_index["status"] == "task_5_authorized"
+    assert evidence_index["hold"] == {
+        "status": "released", "live_validator": "passed",
+        "independent_retirement_review": "passed", "hold_release": "owner_confirmed",
+        "released_at": "2026-07-15T21:01:49-07:00",
+        "confirmations": {
+            "hold_explicitly_released_for_task_5_family_parity_focused_and_broad_gates": True,
+            "validator_and_independent_review_complete": True,
+        },
+    }
+    assert evidence_index["artifacts"]["attestation_index"]["sha256"] == _sha256_path(
+        attestation_index_path
+    )
+    for row in evidence_index["artifacts"].values():
+        rows = row.values() if isinstance(row, dict) and "path" not in row else (row,)
+        for binding in rows:
+            assert _sha256_path(REPO_ROOT / binding["path"]) == binding["sha256"]
+    record = _load_json(PILOT_EVIDENCE / "retirement_record.json")
+    assert "evidence_index" not in json.dumps(record)
+
+
+_REVIEW_PREDECESSOR_SNAPSHOT_BINDINGS = {
+    "evidence_index": {
+        "path": (
+            "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/"
+            "snapshots/review-predecessor-evidence-index.json"
+        ),
+        "sha256": (
+            "sha256:b66ab3c024bc04a4a940a21f34d4adc0395f15879e1d1a7c2a88d602a7731cb6"
+        ),
+    },
+    "attestation_index": {
+        "path": (
+            "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/"
+            "snapshots/review-predecessor-attestation-index.json"
+        ),
+        "sha256": (
+            "sha256:5aed6854732dc9aea7860f2587d1ec6c206e246e18a90d8438a7fb8653709e57"
+        ),
+    },
+}
+
+
+def _assert_content_addressed_binding(binding: Mapping[str, object]) -> None:
+    assert set(binding) == {"path", "sha256"}
+    path_value = binding["path"]
+    digest = binding["sha256"]
+    assert isinstance(path_value, str)
+    assert isinstance(digest, str)
+    path = Path(path_value)
+    assert not path.is_absolute()
+    assert path.parts and all(part not in {"", ".", ".."} for part in path.parts)
+    assert path.as_posix() == path_value
+    resolved = (REPO_ROOT / path).resolve(strict=True)
+    assert resolved.is_relative_to(REPO_ROOT.resolve())
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
+    assert _sha256_path(REPO_ROOT / path) == digest
+
+
+def _assert_independent_review_chain(
+    review: Mapping[str, object], evidence_index: Mapping[str, object]
+) -> None:
+    assert set(review) == {
+        "schema", "reviewer_identity", "reviewer_role", "result", "reviewed_at",
+        "reviewed_head", "approval_scope", "bindings", "verification",
+        "frozen_root_facts", "retained_run_facts", "reviewed_facts",
+        "reviewed_claim_boundaries", "claims_not_made",
+    }
+    assert review["schema"] == "procedure_first_pilot_retirement_record_review.v1"
+    assert review["reviewer_identity"] == "Codex subagent /root/task4a_live_independent_review"
+    assert review["reviewer_role"] == "independent specification and runtime-state reviewer"
+    assert review["result"] == "approved"
+    assert review["reviewed_at"] == "2026-07-15T20:31:46-07:00"
+    _assert_rfc3339_offset(review["reviewed_at"])
+    assert "owner" not in review["reviewer_role"].lower()
+    required_bindings = {
+        "retirement_record", "final_known_store_scans", "final_owner_attestation",
+        "live_validator_stdout", "live_validator_result", "evidence_index",
+        "attestation_index", "root_checksum_characterization",
+        "callee_checksum_characterization", "identity_delta",
+        "artifact_contract_multiset", "execution_order", "clean_run",
+        "interruption_resume", "old_build_manifest", "new_build_manifest",
+    }
+    assert set(review["bindings"]) == required_bindings
+    assert {
+        name: review["bindings"][name]
+        for name in _REVIEW_PREDECESSOR_SNAPSHOT_BINDINGS
+    } == _REVIEW_PREDECESSOR_SNAPSHOT_BINDINGS
+    for binding in review["bindings"].values():
+        _assert_content_addressed_binding(binding)
+    assert set(review["verification"]) == {
+        "generic_retirement_validator_suite", "strengthened_default_selectors",
+        "captured_live_validator", "content_addressing", "frozen_supported_store_files",
+    }
+    assert review["reviewed_claim_boundaries"]["independent_review_approval"] == (
+        "asserted_only_by_this_review_artifact"
+    )
+    for key in (
+        "owner_hold_release", "task_5_or_pilot_completion",
+        "root_characterization_actual_subject_rejection",
+        "callee_characterization_actual_pilot_rejection",
+    ):
+        assert review["reviewed_claim_boundaries"][key] == "not_asserted"
+    assert review["reviewed_claim_boundaries"]["runtime_authority"] == "none"
+    assert len(review["claims_not_made"]) == 7
+    assert review["claims_not_made"][-1] == (
+        "This reviewer identity is a Codex subagent, not a human identity or store owner."
+    )
+    assert evidence_index["phase"] == "task_4a_complete"
+    assert evidence_index["status"] == "task_5_authorized"
+    assert evidence_index["hold"] == {
+        "status": "released", "live_validator": "passed",
+        "independent_retirement_review": "passed", "hold_release": "owner_confirmed",
+        "released_at": "2026-07-15T21:01:49-07:00",
+        "confirmations": {
+            "hold_explicitly_released_for_task_5_family_parity_focused_and_broad_gates": True,
+            "validator_and_independent_review_complete": True,
+        },
+    }
+    review_binding = evidence_index["artifacts"]["retirement_record_review"]
+    review_path = PILOT_EVIDENCE / "evidence" / "retirement_record_review.json"
+    assert review_binding == {
+        "path": review_path.relative_to(REPO_ROOT).as_posix(),
+        "sha256": _sha256_path(review_path),
+    }
+    assert "retirement_record_review" not in review["bindings"]
+
+
+def test_tracked_plan_phase_independent_review_chain_replays() -> None:
+    review = _load_json(PILOT_EVIDENCE / "evidence" / "retirement_record_review.json")
+    evidence_index = _load_json(PILOT_EVIDENCE / "evidence_index.json")
+    _assert_independent_review_chain(review, evidence_index)
+
+
+def test_tracked_plan_phase_review_predecessor_snapshots_replay_exact_bytes() -> None:
+    for binding in _REVIEW_PREDECESSOR_SNAPSHOT_BINDINGS.values():
+        _assert_content_addressed_binding(binding)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "missing_binding", "extra_binding", "tampered_digest", "path_alias",
+        "missing_evidence_snapshot", "missing_attestation_snapshot",
+    ),
+)
+def test_tracked_plan_phase_review_predecessor_snapshots_reject_tamper(
+    mutation: str,
+) -> None:
+    bindings = deepcopy(_REVIEW_PREDECESSOR_SNAPSHOT_BINDINGS)
+    if mutation == "missing_binding":
+        bindings.pop("attestation_index")
+    elif mutation == "extra_binding":
+        bindings["unexpected"] = deepcopy(bindings["evidence_index"])
+    elif mutation == "tampered_digest":
+        bindings["evidence_index"]["sha256"] = "sha256:" + "0" * 64
+    elif mutation == "path_alias":
+        bindings["evidence_index"]["path"] = bindings["evidence_index"]["path"].replace(
+            "snapshots/review", "snapshots/../snapshots/review"
+        )
+    elif mutation == "missing_evidence_snapshot":
+        bindings["evidence_index"]["path"] = (
+            "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/"
+            "snapshots/missing-evidence-index.json"
+        )
+    else:
+        bindings["attestation_index"]["path"] = (
+            "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/"
+            "snapshots/missing-attestation-index.json"
+        )
+    with pytest.raises((AssertionError, FileNotFoundError)):
+        assert set(bindings) == set(_REVIEW_PREDECESSOR_SNAPSHOT_BINDINGS)
+        for binding in bindings.values():
+            _assert_content_addressed_binding(binding)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "missing_binding", "tampered_binding", "reviewer_owner", "not_approved",
+        "overclaim", "extra_field", "missing_field", "index_status",
+        "mutable_evidence_predecessor", "mutable_attestation_predecessor",
+    ),
+)
+def test_tracked_plan_phase_independent_review_chain_rejects_tamper(
+    mutation: str,
+) -> None:
+    review = _load_json(PILOT_EVIDENCE / "evidence" / "retirement_record_review.json")
+    evidence_index = _load_json(PILOT_EVIDENCE / "evidence_index.json")
+    if mutation == "missing_binding":
+        review["bindings"].pop("retirement_record")
+    elif mutation == "tampered_binding":
+        review["bindings"]["retirement_record"]["sha256"] = "sha256:" + "0" * 64
+    elif mutation == "reviewer_owner":
+        review["reviewer_role"] = "owner"
+    elif mutation == "not_approved":
+        review["result"] = "rejected"
+    elif mutation == "overclaim":
+        review["reviewed_claim_boundaries"]["owner_hold_release"] = "asserted"
+    elif mutation == "extra_field":
+        review["unexpected"] = True
+    elif mutation == "missing_field":
+        review.pop("verification")
+    elif mutation == "index_status":
+        evidence_index["status"] = "pilot_complete"
+    elif mutation == "mutable_evidence_predecessor":
+        review["bindings"]["evidence_index"]["path"] = (
+            "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence_index.json"
+        )
+    else:
+        review["bindings"]["attestation_index"]["path"] = (
+            "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/"
+            "attestations/index.json"
+        )
+    with pytest.raises(AssertionError):
+        _assert_independent_review_chain(review, evidence_index)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "artifact_missing", "artifact_extra", "new_build_missing", "new_build_extra",
+        "projection_missing", "projection_extra", "known_store_missing", "known_store_extra",
+    ),
+)
+def test_tracked_plan_phase_task_4a_index_key_sets_reject_tamper(
+    mutation: str,
+) -> None:
+    attestation_index = _load_json(PILOT_EVIDENCE / "attestations" / "index.json")
+    evidence_index = _load_json(PILOT_EVIDENCE / "evidence_index.json")
+    if mutation == "artifact_missing":
+        evidence_index["artifacts"].pop("retirement_record")
+    elif mutation == "artifact_extra":
+        evidence_index["artifacts"]["unexpected"] = {}
+    elif mutation == "new_build_missing":
+        evidence_index["artifacts"]["new_build"].pop("source_map")
+    elif mutation == "new_build_extra":
+        evidence_index["artifacts"]["new_build"]["unexpected"] = {}
+    elif mutation == "projection_missing":
+        evidence_index["artifacts"]["projections"].pop("identity_delta")
+    elif mutation == "projection_extra":
+        evidence_index["artifacts"]["projections"]["unexpected"] = {}
+    elif mutation == "known_store_missing":
+        attestation_index["known_store_records"].pop()
+    else:
+        attestation_index["known_store_records"].append(
+            deepcopy(attestation_index["known_store_records"][0])
+        )
+        attestation_index["known_store_records"][-1]["canonical_root"] = "/unexpected"
+    with pytest.raises(AssertionError):
+        _assert_task_4a_index_key_sets(attestation_index, evidence_index)
+
+
+_HOLD_RELEASE_PATH = (
+    PILOT_EVIDENCE / "attestations" / "final" / "hold-release.json"
+)
+_HOLD_RELEASE_SHA256 = (
+    "sha256:d257a92d5b9d8d1eaf6a41a341e6990563c392f8cde199325c4fd1c057d77bf8"
+)
+_HOLD_RELEASED_AT = "2026-07-15T21:01:49-07:00"
+_HOLD_RELEASE_PREPARED_BY = (
+    "Claude Code session agent (Opus 4.8) — mechanical write at the owner's "
+    "explicit direction after the owner re-adopted the release with the corrected "
+    "review binding"
+)
+_HOLD_RELEASE_STATEMENT = (
+    "I reviewed this complete record, confirm the bound live validator and "
+    "independent review are complete, and explicitly release the legacy-root "
+    "and dedicated-root hold for the deferred Task 5 family-parity, focused, "
+    "and broad gates."
+)
+_HOLD_RELEASE_CONFIRMATIONS = {
+    "hold_explicitly_released_for_task_5_family_parity_focused_and_broad_gates": True,
+    "validator_and_independent_review_complete": True,
+}
+_HOLD_RELEASE_BINDINGS = {
+    "retirement_record": {
+        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/retirement_record.json",
+        "sha256": "sha256:7c35069323e8dcf7ac9b17785492ed030d0088ec29489e5e3529f94c44dd4370",
+    },
+    "final_known_store_scans": {
+        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/final_known_store_scans.json",
+        "sha256": "sha256:05e5cea75338ea745cbbc165fc0934c174132555fae8b4d07f180c48b5f1ccc0",
+    },
+    "live_validator_result": {
+        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/live_validator_result.json",
+        "sha256": "sha256:8ff86cd084575fcd768f49622cd97e2c2b558c26bebd0e72d9c04cac5abdd0a4",
+    },
+    "retirement_record_review": {
+        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/retirement_record_review.json",
+        "sha256": "sha256:12b1f2f60b75628c536ec9fbe8cac548f7295588b22e01cff2dccc69a2179b30",
+    },
+}
+
+
+def _assert_rfc3339_offset(value: object) -> datetime:
+    assert isinstance(value, str)
+    assert re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?[+-]\d{2}:\d{2}",
+        value,
+    )
+    parsed = datetime.fromisoformat(value)
+    assert parsed.utcoffset() is not None
+    return parsed
+
+
+def _assert_owner_hold_release(release: Mapping[str, object]) -> None:
+    assert set(release) == {
+        "record_type", "version", "evidence_status", "owner", "released_at",
+        "roots", "bindings", "confirmations", "prepared_by", "prepared_at",
+        "owner_adoption",
+    }
+    assert release["record_type"] == "procedure_first_pilot_hold_release"
+    assert release["version"] == 1
+    assert release["evidence_status"] == "owner_confirmed"
+    assert release["owner"] == {
+        "name": "Ollie",
+        "role": "owner of the legacy and dedicated tracked-plan pilot roots",
+    }
+    assert release["roots"] == {
+        "legacy": "/home/ollie/Documents/agent-orchestration/.orchestrate/runs",
+        "dedicated": (
+            "/home/ollie/Documents/agent-orchestration/.orchestrate/"
+            "procedure-first-pilot-evidence/tracked-plan-phase/workspace/"
+            ".orchestrate/runs"
+        ),
+    }
+    assert release["bindings"] == _HOLD_RELEASE_BINDINGS
+    for binding in release["bindings"].values():
+        assert _sha256_path(REPO_ROOT / binding["path"]) == binding["sha256"]
+    assert release["confirmations"] == _HOLD_RELEASE_CONFIRMATIONS
+    assert release["prepared_by"] == _HOLD_RELEASE_PREPARED_BY
+    assert release["prepared_by"] != release["owner"]["name"]
+    assert set(release["owner_adoption"]) == {"adopted_at", "owner", "statement"}
+    assert release["owner_adoption"]["owner"] == "Ollie"
+    assert release["owner_adoption"]["statement"] == _HOLD_RELEASE_STATEMENT
+    for value in (
+        release["released_at"], release["prepared_at"],
+        release["owner_adoption"]["adopted_at"],
+    ):
+        _assert_rfc3339_offset(value)
+
+
+def _assert_task_4a_chronology(
+    live_validator_result: Mapping[str, object],
+    review: Mapping[str, object],
+    release: Mapping[str, object],
+) -> None:
+    live_completed_at = _assert_rfc3339_offset(live_validator_result["completed_at"])
+    reviewed_at = _assert_rfc3339_offset(review["reviewed_at"])
+    prepared_at = _assert_rfc3339_offset(release["prepared_at"])
+    adopted_at = _assert_rfc3339_offset(release["owner_adoption"]["adopted_at"])
+    released_at = _assert_rfc3339_offset(release["released_at"])
+    assert live_completed_at <= reviewed_at < prepared_at
+    assert prepared_at == adopted_at == released_at
+
+
+def _assert_task_4a_release_indexes(
+    release: Mapping[str, object],
+    attestation_index: Mapping[str, object],
+    evidence_index: Mapping[str, object],
+) -> None:
+    _assert_owner_hold_release(release)
+    _assert_task_4a_index_key_sets(attestation_index, evidence_index)
+    release_binding = {
+        "path": _HOLD_RELEASE_PATH.relative_to(REPO_ROOT).as_posix(),
+        "sha256": _HOLD_RELEASE_SHA256,
+    }
+    assert _sha256_path(_HOLD_RELEASE_PATH) == _HOLD_RELEASE_SHA256
+    assert attestation_index["hold_release"] == {
+        **release_binding,
+        "evidence_status": "owner_confirmed",
+        "owner": {
+            "name": "Ollie",
+            "role": "owner of the legacy and dedicated tracked-plan pilot roots",
+        },
+        "released_at": release["released_at"],
+        "hold_status": "released",
+        "authorized_task_5_gates": ["family_parity", "focused", "broad"],
+        "confirmations": _HOLD_RELEASE_CONFIRMATIONS,
+    }
+    assert evidence_index["phase"] == "task_4a_complete"
+    assert evidence_index["status"] == "task_5_authorized"
+    assert evidence_index["hold"] == {
+        "status": "released",
+        "live_validator": "passed",
+        "independent_retirement_review": "passed",
+        "hold_release": "owner_confirmed",
+        "released_at": release["released_at"],
+        "confirmations": _HOLD_RELEASE_CONFIRMATIONS,
+    }
+    assert evidence_index["artifacts"]["hold_release"] == release_binding
+    attestation_index_path = PILOT_EVIDENCE / "attestations" / "index.json"
+    assert evidence_index["artifacts"]["attestation_index"] == {
+        "path": attestation_index_path.relative_to(REPO_ROOT).as_posix(),
+        "sha256": _sha256_path(attestation_index_path),
+    }
+    for row in evidence_index["artifacts"].values():
+        bindings = row.values() if isinstance(row, dict) and "path" not in row else (row,)
+        for binding in bindings:
+            _assert_content_addressed_binding(binding)
+    assert evidence_index["reviewed_predecessor"] == {
+        "path": (
+            "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/"
+            "snapshots/review-predecessor-evidence-index.json"
+        ),
+        "sha256": "sha256:b66ab3c024bc04a4a940a21f34d4adc0395f15879e1d1a7c2a88d602a7731cb6",
+        "meaning": (
+            "exact pre-review index bytes content-verified by the immutable "
+            "independent review before this one-way review route was added"
+        ),
+    }
+    _assert_content_addressed_binding(
+        {
+            key: evidence_index["reviewed_predecessor"][key]
+            for key in ("path", "sha256")
+        }
+    )
+    assert evidence_index["reviewed_predecessor"]["path"] != (
+        "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence_index.json"
+    )
+    assert evidence_index["reviewed_predecessor"]["sha256"] != _sha256_path(
+        PILOT_EVIDENCE / "evidence_index.json"
+    )
+    assert evidence_index["claims_not_made"] == [
+        "This routing index is not owner authority and is not a run or resume input.",
+        (
+            "The owner-confirmed release authorizes only the deferred Task 5 "
+            "family-parity, focused, and broad gates; it does not assert that "
+            "any Task 5 gate ran."
+        ),
+        "Actual-pilot checksum negatives and pilot completion are not asserted.",
+    ]
+
+
+def test_tracked_plan_phase_owner_hold_release_replays_and_authorizes_task_5() -> None:
+    release = _load_json(_HOLD_RELEASE_PATH)
+    attestation_index = _load_json(PILOT_EVIDENCE / "attestations" / "index.json")
+    evidence_index = _load_json(PILOT_EVIDENCE / "evidence_index.json")
+    _assert_task_4a_release_indexes(release, attestation_index, evidence_index)
+
+
+def test_tracked_plan_phase_task_4a_chronology_is_ordered() -> None:
+    _assert_task_4a_chronology(
+        _load_json(PILOT_EVIDENCE / "evidence" / "live_validator_result.json"),
+        _load_json(PILOT_EVIDENCE / "evidence" / "retirement_record_review.json"),
+        _load_json(_HOLD_RELEASE_PATH),
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "live_naive", "review_naive", "prepared_naive", "adopted_naive",
+        "released_naive", "live_after_review", "reviewer_after_release",
+        "prepared_after_adoption", "released_not_adopted",
+    ),
+)
+def test_tracked_plan_phase_task_4a_chronology_rejects_tamper(
+    mutation: str,
+) -> None:
+    live = _load_json(PILOT_EVIDENCE / "evidence" / "live_validator_result.json")
+    review = _load_json(PILOT_EVIDENCE / "evidence" / "retirement_record_review.json")
+    release = _load_json(_HOLD_RELEASE_PATH)
+    if mutation == "live_naive":
+        live["completed_at"] = "2026-07-15T19:14:46"
+    elif mutation == "review_naive":
+        review["reviewed_at"] = "2026-07-15T19:29:40"
+    elif mutation == "prepared_naive":
+        release["prepared_at"] = "2026-07-15T21:01:49"
+    elif mutation == "adopted_naive":
+        release["owner_adoption"]["adopted_at"] = "2026-07-15T21:01:49"
+    elif mutation == "released_naive":
+        release["released_at"] = "2026-07-15T21:01:49"
+    elif mutation == "live_after_review":
+        live["completed_at"] = "2026-07-15T20:32:00-07:00"
+    elif mutation == "reviewer_after_release":
+        review["reviewed_at"] = "2026-07-15T21:02:00-07:00"
+    elif mutation == "prepared_after_adoption":
+        release["prepared_at"] = "2026-07-15T21:02:00-07:00"
+    else:
+        release["released_at"] = "2026-07-15T21:01:48-07:00"
+    with pytest.raises(AssertionError):
+        _assert_task_4a_chronology(live, review, release)
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "intended_owner", "authorized_disposition", "owner_action_required",
+        "owner_confirmation_statements_exact", "claims_not_made",
+        "template_prepared_by", "template_prepared_at", "unexpected",
+    ),
+)
+def test_tracked_plan_phase_owner_hold_release_rejects_pending_or_unknown_field(
+    field: str,
+) -> None:
+    release = _load_json(_HOLD_RELEASE_PATH)
+    release[field] = "unexpected"
+    with pytest.raises(AssertionError):
+        _assert_owner_hold_release(release)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "false_release_confirmation", "false_review_confirmation",
+        "retirement_binding", "scan_binding", "validator_binding", "review_binding",
+        "owner_name", "owner_role", "adoption_owner", "statement",
+        "legacy_root", "dedicated_root", "released_at", "prepared_at", "adopted_at",
+        "status", "prepared_by_owner", "stale_review_binding",
+    ),
+)
+def test_tracked_plan_phase_owner_hold_release_rejects_behavioral_tamper(
+    mutation: str,
+) -> None:
+    release = _load_json(_HOLD_RELEASE_PATH)
+    if mutation == "false_release_confirmation":
+        release["confirmations"][
+            "hold_explicitly_released_for_task_5_family_parity_focused_and_broad_gates"
+        ] = False
+    elif mutation == "false_review_confirmation":
+        release["confirmations"]["validator_and_independent_review_complete"] = False
+    elif mutation == "stale_review_binding":
+        release["bindings"]["retirement_record_review"]["sha256"] = (
+            "sha256:921dc20648c45a9cede63ccca1bc87ddbc0ee58c72345f2b01f5b7d677543e14"
+        )
+    elif mutation.endswith("_binding"):
+        binding_name = {
+            "retirement_binding": "retirement_record",
+            "scan_binding": "final_known_store_scans",
+            "validator_binding": "live_validator_result",
+            "review_binding": "retirement_record_review",
+        }[mutation]
+        release["bindings"][binding_name]["sha256"] = "sha256:" + "0" * 64
+    elif mutation == "owner_name":
+        release["owner"]["name"] = "Not Ollie"
+    elif mutation == "owner_role":
+        release["owner"]["role"] = "unexpected"
+    elif mutation == "adoption_owner":
+        release["owner_adoption"]["owner"] = "Not Ollie"
+    elif mutation == "statement":
+        release["owner_adoption"]["statement"] = "release"
+    elif mutation == "legacy_root":
+        release["roots"]["legacy"] = "/unexpected"
+    elif mutation == "dedicated_root":
+        release["roots"]["dedicated"] = "/unexpected"
+    elif mutation == "released_at":
+        release["released_at"] = "2026-07-15"
+    elif mutation == "prepared_at":
+        release["prepared_at"] = "not-a-timestamp"
+    elif mutation == "adopted_at":
+        release["owner_adoption"]["adopted_at"] = "2026-07-15T20:02:03"
+    elif mutation == "status":
+        release["evidence_status"] = "pending_owner_confirmation"
+    elif mutation == "prepared_by_owner":
+        release["prepared_by"] = "Ollie"
+    else:
+        release["prepared_by"] = "unexpected"
+    with pytest.raises(AssertionError):
+        _assert_owner_hold_release(release)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "attestation_release_omission", "attestation_release_extra",
+        "attestation_stale_status", "attestation_release_digest",
+        "evidence_release_omission", "evidence_release_extra",
+        "evidence_stale_status", "evidence_release_digest",
+        "evidence_attestation_digest", "mutable_reviewed_predecessor",
+        "stale_review_digest", "stale_release_digest", "stale_attestation_index_digest",
+    ),
+)
+def test_tracked_plan_phase_task_4a_release_indexes_reject_tamper(
+    mutation: str,
+) -> None:
+    release = _load_json(_HOLD_RELEASE_PATH)
+    attestation_index = _load_json(PILOT_EVIDENCE / "attestations" / "index.json")
+    evidence_index = _load_json(PILOT_EVIDENCE / "evidence_index.json")
+    if mutation == "attestation_release_omission":
+        attestation_index.pop("hold_release")
+    elif mutation == "attestation_release_extra":
+        attestation_index["hold_release"]["unexpected"] = True
+    elif mutation == "attestation_stale_status":
+        attestation_index["hold_release"]["hold_status"] = "active"
+    elif mutation == "attestation_release_digest":
+        attestation_index["hold_release"]["sha256"] = "sha256:" + "0" * 64
+    elif mutation == "evidence_release_omission":
+        evidence_index["artifacts"].pop("hold_release")
+    elif mutation == "evidence_release_extra":
+        evidence_index["artifacts"]["unexpected"] = {}
+    elif mutation == "evidence_stale_status":
+        evidence_index["status"] = "owner_hold_release_pending"
+    elif mutation == "evidence_release_digest":
+        evidence_index["artifacts"]["hold_release"]["sha256"] = "sha256:" + "0" * 64
+    elif mutation == "evidence_attestation_digest":
+        evidence_index["artifacts"]["attestation_index"]["sha256"] = (
+            "sha256:" + "0" * 64
+        )
+    elif mutation == "mutable_reviewed_predecessor":
+        evidence_index["reviewed_predecessor"]["path"] = (
+            "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence_index.json"
+        )
+    elif mutation == "stale_review_digest":
+        evidence_index["artifacts"]["retirement_record_review"]["sha256"] = (
+            "sha256:921dc20648c45a9cede63ccca1bc87ddbc0ee58c72345f2b01f5b7d677543e14"
+        )
+    elif mutation == "stale_release_digest":
+        evidence_index["artifacts"]["hold_release"]["sha256"] = (
+            "sha256:36ba90f20ca57cca243106ec3e4488caa527f3af75f85ada2425803bb78eb6b2"
+        )
+    else:
+        evidence_index["artifacts"]["attestation_index"]["sha256"] = (
+            "sha256:343f3b99b4248e7b85016a9ce3745a8b3d2c69d9c530ee86501fa440643dd841"
+        )
+    with pytest.raises(AssertionError):
+        _assert_task_4a_release_indexes(release, attestation_index, evidence_index)
+
+
+def _assert_live_validator_result(result: Mapping[str, object]) -> None:
+    assert set(result) == {
+        "schema", "status", "exit_status", "completed_at", "command", "nodeid",
+        "bindings", "execution_boundary", "reconciled_store_facts", "claims_not_made",
+    }
+    assert result["schema"] == "procedure_first_pilot_live_validator_result.v1"
+    assert result["status"] == "passed" and result["exit_status"] == 0
+    assert result["nodeid"] in result["command"]
+    assert set(result["bindings"]) == {
+        "retirement_record", "final_known_store_scans", "final_owner_attestation", "stdout"
+    }
+    for binding in result["bindings"].values():
+        assert _sha256_path(REPO_ROOT / binding["path"]) == binding["sha256"]
+    stdout_binding = result["bindings"]["stdout"]
+    stdout = (REPO_ROOT / stdout_binding["path"]).read_bytes()
+    assert len(stdout) == stdout_binding["byte_count"] == 110
+    stdout_text = stdout.decode("utf-8").lower()
+    assert stdout_text.count("passed") == 1
+    assert "failed" not in stdout_text and "error" not in stdout_text
+    assert result["execution_boundary"] == {
+        "scanner_only_live_store_access": True,
+        "unpatched_public_validator": True,
+        "workflow_run_invoked": False,
+        "workflow_resume_invoked": False,
+        "workflow_executor_constructed": False,
+        "provider_executed": False,
+        "workflow_command_executed": False,
+        "runtime_authority": "none",
+    }
+    assert result["claims_not_made"] == {
+        "independent_retirement_review": "not_asserted",
+        "hold_release": "not_asserted",
+        "task_5_or_pilot_completion": "not_asserted",
+        "actual_pilot_checksum_negative": "not_asserted",
+        "runtime_authority": "none",
+        "separate_hidden_live_telemetry": "not_asserted",
+    }
+    scan = _load_json(PILOT_EVIDENCE / "final_known_store_scans.json")
+    record = _load_json(PILOT_EVIDENCE / "retirement_record.json")
+    facts = {row["store_role"]: row for row in result["reconciled_store_facts"]}
+    assert set(facts) == {"legacy_repository_root", "dedicated_runtime_evidence_root"}
+    for role, row in facts.items():
+        retained = scan["scans"][role]
+        scanner = retained["scanner_result"]
+        assert row["root"] == scanner["root"]
+        assert row["query_version"] == scanner["query_version"]
+        assert row["retained_final_scan_query_started_at"] == retained["query_started_at"]
+        assert row["retained_final_scan_query_finished_at"] == retained["query_finished_at"]
+        assert row["normalized_scan_digest"] == scanner["normalized_scan_digest"]
+        assert row["counts"] == {key: scanner[key] for key in row["counts"]}
+        store = next(item for item in record["known_state_stores"] if item["root"] == row["root"])
+        assert row["normalized_scan_digest"] == store["normalized_scan_digest"]
+        for key, value in row["counts"].items():
+            assert store[key] == value
+
+
+def test_tracked_plan_phase_live_validator_result_replays() -> None:
+    result_path = PILOT_EVIDENCE / "evidence" / "live_validator_result.json"
+    assert result_path.is_file(), "one-time live validator result is missing"
+    _assert_live_validator_result(_load_json(result_path))
+
+
+@pytest.mark.parametrize("mutation", ("missing", "extra", "tamper", "overclaim"))
+def test_tracked_plan_phase_live_validator_result_rejects_tamper(mutation: str) -> None:
+    result = _load_json(PILOT_EVIDENCE / "evidence" / "live_validator_result.json")
+    if mutation == "missing":
+        result["reconciled_store_facts"].pop()
+    elif mutation == "extra":
+        extra = deepcopy(result["reconciled_store_facts"][0])
+        extra["store_role"] = "unexpected"
+        result["reconciled_store_facts"].append(extra)
+    elif mutation == "tamper":
+        result["bindings"]["stdout"]["sha256"] = "sha256:" + "0" * 64
+    else:
+        result["claims_not_made"]["hold_release"] = "asserted"
+    with pytest.raises(AssertionError):
+        _assert_live_validator_result(result)
+
+
+@pytest.mark.skipif(
+    os.environ.get("ORCHESTRATOR_RUN_LIVE_PROCEDURE_RETIREMENT_VALIDATION") != "1",
+    reason="live procedure-retirement scan validation is opt-in",
+)
+def test_tracked_plan_phase_retirement_record_validates_live() -> None:
+    from orchestrator.workflow_lisp.procedure_identity_retirement import (
+        load_retirement_record,
+        validate_retirement_record,
+    )
+
+    record = load_retirement_record(PILOT_EVIDENCE / "retirement_record.json")
+    result = validate_retirement_record(record, repo_root=REPO_ROOT)
+
+    assert result.valid is True
+    assert result.issues == ()

@@ -1,0 +1,43 @@
+{
+  "schema": "procedure_first_pilot_checksum_characterization.v1",
+  "scope": {
+    "classification": "accepted generic guard characterization bound to actual pilot checksum delta",
+    "not_live_old_run_resume": true,
+    "not_actual_pilot_rejection_negative": true,
+    "not_cross_source_compatibility": true
+  },
+  "projection": {
+    "guard_provenance": {
+      "commit": "e4f2ecbeb6203554aa1b70b54156ca469bbf3687",
+      "nodeid": "tests/test_resume_command.py::test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch",
+      "mismatch_identity": "examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase",
+      "guard_result": "rejected_before_child_execution_without_identity_remap"
+    },
+    "pilot_checksum_delta": {
+      "old": {
+        "source_sha256": "sha256:3a03feac563834cf8b9a0c1a329d006b82ad6ee210537b3e82fc0de786171bfb",
+        "build_manifest_sha256": "sha256:97c78179655c48cb2ac24e599c17bfb0d1d1e0960a7e31836ce0727a5777d783"
+      },
+      "new": {
+        "source_sha256": "sha256:be0a2660444488793169d8016152f62ab0996213c32632be334c03c2b31c1624",
+        "build_manifest_sha256": "sha256:dc21dcdc7fb5748b2442c5e9b615672c4915cd9b9fba6f69f894991c8ae0f00f"
+      },
+      "source_checksum_changed": true,
+      "build_manifest_checksum_changed": true
+    }
+  },
+  "projection_sha256": "sha256:7c3311d219df53e322d434d62034a5563776875caac336a6dfd4694b048ae2ea",
+  "generic_guard_details": {
+    "checksum_mismatch_observed": true,
+    "child_workflow_executed": false,
+    "provider_executed": false,
+    "command_executed": false,
+    "child_state_identity_remapped": false,
+    "parent_metadata_delta": "runtime_observability,step_visits,steps,updated_at"
+  },
+  "claims_not_made": [
+    "This is not evidence from a live resume of any retained old-ID pilot run.",
+    "This is not an actual-pilot rejection negative and does not assert that either retained new-ID run was resumed against the old source.",
+    "This does not establish cross-source compatibility, remapping authority, retirement release, or completion."
+  ]
+}

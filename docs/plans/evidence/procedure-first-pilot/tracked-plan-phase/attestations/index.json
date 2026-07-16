@@ -1,5 +1,45 @@
 {
   "external_store_absence": "not_asserted",
+  "final_dedicated_evidence_root": {
+    "claim_boundary": {
+      "hold_release": "not_asserted",
+      "independent_review": "not_asserted",
+      "live_validator": "not_asserted",
+      "retirement_eligibility": "not_asserted",
+      "scope": "exact_dedicated_root_and_final_snapshot_only"
+    },
+    "evidence_status": "owner_confirmed",
+    "hold_status": "active",
+    "owner": {
+      "email": "ohoidn@stanford.edu",
+      "name": "Ollie"
+    },
+    "owner_adopted_at": "2026-07-15T14:50:38-07:00",
+    "owner_confirmed_at": "2026-07-15T14:50:38-07:00",
+    "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/dedicated-evidence-root.json",
+    "phase": "task_4a_pre_live",
+    "sha256": "sha256:9e73eba199b06164b13f384654b65b1f87739eeb7c4e94da925e871bc3e38cca"
+  },
+  "hold_release": {
+    "authorized_task_5_gates": [
+      "family_parity",
+      "focused",
+      "broad"
+    ],
+    "confirmations": {
+      "hold_explicitly_released_for_task_5_family_parity_focused_and_broad_gates": true,
+      "validator_and_independent_review_complete": true
+    },
+    "evidence_status": "owner_confirmed",
+    "hold_status": "released",
+    "owner": {
+      "name": "Ollie",
+      "role": "owner of the legacy and dedicated tracked-plan pilot roots"
+    },
+    "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/hold-release.json",
+    "released_at": "2026-07-15T21:01:49-07:00",
+    "sha256": "sha256:d257a92d5b9d8d1eaf6a41a341e6990563c392f8cde199325c4fd1c057d77bf8"
+  },
   "known_store_records": [
     {
       "adopted_at": "2026-07-14T20:50:24-07:00",

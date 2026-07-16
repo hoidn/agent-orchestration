@@ -1,0 +1,97 @@
+{
+  "authorized_disposition": "attest_exact_dedicated_evidence_root_final_snapshot",
+  "bindings": {
+    "canonical_dedicated_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
+    "canonical_root_path_sha256": "sha256:5d83254c4025be7659c835d00097957696367a4cbca5fa21f26d9473242f8d35",
+    "external_store_absence": "not_asserted",
+    "final_known_store_scans": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/final_known_store_scans.json",
+      "sha256": "sha256:05e5cea75338ea745cbbc165fc0934c174132555fae8b4d07f180c48b5f1ccc0"
+    },
+    "final_normalized_snapshot": {
+      "counts": {
+        "call_frame_count": 0,
+        "checkpoint_index_count": 0,
+        "checkpoint_record_count": 36,
+        "consumer_count": 0,
+        "identity_metadata_count": 0,
+        "nonterminal_run_count": 0,
+        "retained_manifest_count": 0,
+        "scanned_file_count": 38,
+        "store_nonterminal_run_count": 0,
+        "store_terminal_run_count": 2,
+        "terminal_run_count": 0
+      },
+      "normalized_scan_digest": "sha256:e0258686f830d63d26c62cc9444639f434b93e92a7f573ca880b1866ab3addcf",
+      "query_finished_at": "2026-07-15T13:42:22.191836-07:00",
+      "query_identity_count": 64,
+      "query_identity_list_sha256": "sha256:e5236ce42b60679811d7c3c7ec688162de49cbd260cc30900b9458a56953a520",
+      "query_started_at": "2026-07-15T13:42:22.173421-07:00",
+      "query_version": "procedure-identity-store-query.v1"
+    },
+    "quiescence_no_write_hold": {
+      "continues_through_final_validator_and_independent_review": true,
+      "no_write_status": "active",
+      "quiescence_started_at": "2026-07-14T18:09:26.451771-07:00",
+      "run_or_root_mutation_authorized": false,
+      "status": "active"
+    },
+    "retained_runs": [
+      {
+        "projection_path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/clean_run.json",
+        "projection_sha256": "sha256:a0587644483dc0c468f4671d5e450d5c43d7f1d768e382e035a5decc890cd40b",
+        "run_id": "tracked-plan-phase-clean-new-id",
+        "run_tree_entry_count": 36,
+        "run_tree_sha256": "sha256:1f71d1f87d5a00bc3210c9aa6ca868d052e213a64998749cbdc6e3d8bf81fd7d",
+        "state_sha256": "sha256:729ebd7b4670ee73b0f18fbd3566e2ea73e5e8f488ddf729212cbec77e34a73b",
+        "status": "completed"
+      },
+      {
+        "projection_path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/interruption_resume.json",
+        "projection_sha256": "sha256:8abd58915c1b114ddf97b315de60f4ba9597c0a7661cd850a055de8f44889f64",
+        "resume_completed_under_same_run_id": true,
+        "run_id": "tracked-plan-phase-interrupted-new-id",
+        "run_tree_entry_count": 38,
+        "run_tree_sha256": "sha256:1bd9997f907882aafc3a7063acae8a494d2b846c9020d139264d52b3e89fbcd7",
+        "state_sha256": "sha256:b2d2bd8a265515eb50c181e9e7151a8f59efad3668319894a6bf65a4ee568c05",
+        "status": "completed"
+      }
+    ]
+  },
+  "claims_not_made": [
+    "This owner-confirmed attestation is evidence only for the exact canonical dedicated evidence root and exact final normalized snapshot bound by this record; it provides no evidence authority for any other root, snapshot, query, identity, run, or store.",
+    "It does not assert that any external or unenumerated store is absent; external_store_absence remains not_asserted.",
+    "It does not assert historical clean-run artifact equality; that remains not_asserted and is never inferred from deterministic provider-contract conformance.",
+    "It does not attest retirement eligibility, retirement-record validity, independent review, or pilot completion.",
+    "It authorizes no run, resume, recreation, deletion, root mutation, hold release, or other store write."
+  ],
+  "evidence_status": "owner_confirmed",
+  "record_type": "procedure_first_pilot_final_dedicated_evidence_root_attestation",
+  "template_prepared_by": "Codex /root/task4a_final_scan_boundary — non-owner template preparation only",
+  "version": 1,
+  "owner": {
+    "email": "ohoidn@stanford.edu",
+    "name": "Ollie"
+  },
+  "owner_confirmations": {
+    "confirmed_at": "2026-07-15T14:50:38-07:00",
+    "statements": [
+      "I confirm that this attestation applies only to the exact canonical dedicated evidence root and exact final normalized snapshot bound by this record.",
+      "I confirm that this snapshot contains no matching supported live/nonterminal run and no supported consumer of the queried old identities.",
+      "I understand that the disclosed whole-store terminal and nonterminal totals are hygiene facts, not retirement-eligibility facts.",
+      "I confirm that exactly the two terminal new-ID retained runs bound by this record explain the dedicated-root delta from pre-edit.",
+      "I confirm that the quiescence/no-write hold has remained active through this snapshot and continues through the final validator and independent review.",
+      "I confirm that neither this attestation nor the pending form authorizes any run or root mutation."
+    ]
+  },
+  "prepared_by": "Claude Code session agent (Opus 4.8) — mechanical write at the owner's explicit direction",
+  "prepared_at": "2026-07-15T14:50:38-07:00",
+  "owner_adoption": {
+    "owner": {
+      "email": "ohoidn@stanford.edu",
+      "name": "Ollie"
+    },
+    "adopted_at": "2026-07-15T14:50:38-07:00",
+    "provenance_statement": "The owner Ollie personally affirmed the six confirmation statements and adopted this closing attestation as owner, and then personally reviewed and re-adopted this corrected record. The correction, requested by an independent consistency pass, removes only redundant pending-state scaffolding (intended_owner, owner_action_required, the duplicated statement list, pending_lifecycle) and tightens claims_not_made[0] to describe the owner-confirmed state; it changes none of the six affirmed statements, none of the bindings, and none of claims_not_made[1:5], all of which are preserved byte-for-byte. The owner confirmed in his interactive session that these changes are pure cleanup with no substantive change and directed the mechanical write; the session agent independently re-verified that the bindings and the six statements are unchanged before writing. The mechanical write was performed by that session agent at the owner's direction; the substantive affirmation is the owner's own."
+  }
+}

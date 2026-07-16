@@ -1,0 +1,236 @@
+{
+  "artifact_multiset": {
+    "new": [
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "artifact",
+          "json_pointer": "/outputs/return__design_path",
+          "name": "return__design_path",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "published_artifact",
+          "semantic_step_role": "workflow_return_artifact",
+          "type_variant": "relpath"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "result_field",
+          "json_pointer": "/outputs/return__design_review_decision",
+          "name": "return__design_review_decision",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "public_output",
+          "semantic_step_role": "workflow_return_field",
+          "type_variant": "enum"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "artifact",
+          "json_pointer": "/outputs/return__design_review_report_path",
+          "name": "return__design_review_report_path",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "published_artifact",
+          "semantic_step_role": "workflow_return_artifact",
+          "type_variant": "relpath"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "artifact",
+          "json_pointer": "/outputs/return__execution_report_path",
+          "name": "return__execution_report_path",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "published_artifact",
+          "semantic_step_role": "workflow_return_artifact",
+          "type_variant": "relpath"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "result_field",
+          "json_pointer": "/outputs/return__implementation_review_decision",
+          "name": "return__implementation_review_decision",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "public_output",
+          "semantic_step_role": "workflow_return_field",
+          "type_variant": "enum"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "artifact",
+          "json_pointer": "/outputs/return__implementation_review_report_path",
+          "name": "return__implementation_review_report_path",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "published_artifact",
+          "semantic_step_role": "workflow_return_artifact",
+          "type_variant": "relpath"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "artifact",
+          "json_pointer": "/outputs/return__plan_path",
+          "name": "return__plan_path",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "published_artifact",
+          "semantic_step_role": "workflow_return_artifact",
+          "type_variant": "relpath"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "result_field",
+          "json_pointer": "/outputs/return__plan_review_decision",
+          "name": "return__plan_review_decision",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "public_output",
+          "semantic_step_role": "workflow_return_field",
+          "type_variant": "enum"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "artifact",
+          "json_pointer": "/outputs/return__plan_review_report_path",
+          "name": "return__plan_review_report_path",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "published_artifact",
+          "semantic_step_role": "workflow_return_artifact",
+          "type_variant": "relpath"
+        }
+      }
+    ],
+    "old": [
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "artifact",
+          "json_pointer": "/outputs/return__design_path",
+          "name": "return__design_path",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "published_artifact",
+          "semantic_step_role": "workflow_return_artifact",
+          "type_variant": "relpath"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "result_field",
+          "json_pointer": "/outputs/return__design_review_decision",
+          "name": "return__design_review_decision",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "public_output",
+          "semantic_step_role": "workflow_return_field",
+          "type_variant": "enum"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "artifact",
+          "json_pointer": "/outputs/return__design_review_report_path",
+          "name": "return__design_review_report_path",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "published_artifact",
+          "semantic_step_role": "workflow_return_artifact",
+          "type_variant": "relpath"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "artifact",
+          "json_pointer": "/outputs/return__execution_report_path",
+          "name": "return__execution_report_path",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "published_artifact",
+          "semantic_step_role": "workflow_return_artifact",
+          "type_variant": "relpath"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "result_field",
+          "json_pointer": "/outputs/return__implementation_review_decision",
+          "name": "return__implementation_review_decision",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "public_output",
+          "semantic_step_role": "workflow_return_field",
+          "type_variant": "enum"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "artifact",
+          "json_pointer": "/outputs/return__implementation_review_report_path",
+          "name": "return__implementation_review_report_path",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "published_artifact",
+          "semantic_step_role": "workflow_return_artifact",
+          "type_variant": "relpath"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "artifact",
+          "json_pointer": "/outputs/return__plan_path",
+          "name": "return__plan_path",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "published_artifact",
+          "semantic_step_role": "workflow_return_artifact",
+          "type_variant": "relpath"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "result_field",
+          "json_pointer": "/outputs/return__plan_review_decision",
+          "name": "return__plan_review_decision",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "public_output",
+          "semantic_step_role": "workflow_return_field",
+          "type_variant": "enum"
+        }
+      },
+      {
+        "count": 1,
+        "key": {
+          "contract_kind": "artifact",
+          "json_pointer": "/outputs/return__plan_review_report_path",
+          "name": "return__plan_review_report_path",
+          "owning_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+          "publication_role": "published_artifact",
+          "semantic_step_role": "workflow_return_artifact",
+          "type_variant": "relpath"
+        }
+      }
+    ]
+  },
+  "correction_authorization": {
+    "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/task-3/artifact-parity-evidence-correction-authorization.json",
+    "sha256": "sha256:5dcec17ccd0ebef24f8b0025501df2acf8ac90517227a6161e9e32d26aa1963d"
+  },
+  "deterministic_provider_contract_conformance": {
+    "classification": "separate_from_historical_clean_artifact_equality",
+    "clean_run_projection": "evidence/clean_run.json",
+    "interruption_resume_projection": "evidence/interruption_resume.json",
+    "recovered_artifacts_conform": true
+  },
+  "historical_clean_artifact_equality": "not_asserted",
+  "schema": "procedure_first_pilot_artifact_contract_multiset.v1"
+}

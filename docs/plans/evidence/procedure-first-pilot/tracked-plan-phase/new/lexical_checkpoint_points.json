@@ -1,0 +1,257 @@
+{
+  "checkpoint_schema_version": "workflow_lisp_lexical_checkpoint.v1",
+  "points": [
+    {
+      "binding_schema": {
+        "bindings": [],
+        "schema_digest": "sha256:e4c4c35d1e1a9e2d36074b729bb74adede0ecc35c056857829f2307401daadba"
+      },
+      "checkpoint_id": "ckpt:ecba9af744ae06ba202198fa",
+      "effect_boundary": {
+        "boundary_kind": "call",
+        "effect_kind": "call",
+        "policy": {
+          "boundary_kind": "call",
+          "effect_kind": "call",
+          "evidence_requirements": {
+            "workflow_call": {
+              "callee_checksum": "sha256:be0a2660444488793169d8016152f62ab0996213c32632be334c03c2b31c1624",
+              "callee_workflow": "examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase",
+              "target_dsl_version": "2.14"
+            }
+          },
+          "policy_digest": "sha256:70ac1659af0e5534f15975cb0f02b1be38cffdcd39cf3acbc2056627c8a5be75",
+          "policy_kind": "reuse_validated_workflow_call",
+          "schema_version": "workflow_lisp_effect_resume_policy.v1",
+          "source_map_origin_key": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack::step_id::examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase",
+          "step_id": "examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase",
+          "unsafe_pending_behavior": "fail_closed"
+        }
+      },
+      "executable_identity": {
+        "node_id": "root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase",
+        "presentation_key": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__design__call_examples/design_plan_impl_review_stack_v2_call::tracked-design-phase",
+        "step_id": "root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase"
+      },
+      "loop_back_edge": null,
+      "point_kind": "effect_boundary",
+      "program_point_id": "pp:d4902cc0189a43c679b58018",
+      "restore": {
+        "binding_descriptor_digests": [],
+        "eligibility": [],
+        "loop_frame_descriptor_digest": null,
+        "proof_descriptor_digests": []
+      },
+      "source_lineage": {
+        "origin_key": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack::step_id::examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__design__call_examples_design_plan_impl_review_stack_v2_call_tracked_design_phase"
+      },
+      "storage": {
+        "allocation_id": "alloc:examples_design_plan_impl_review_stack_v2_call_design-plan-impl-review-stack:lexical_checkpoint_record:67086a779f7441ea",
+        "privacy": "runtime_sidecar",
+        "resume_scope": "step_visit",
+        "semantic_role": "lexical_checkpoint_record"
+      },
+      "wcc_identity": {
+        "node_id_digest": "sha256:885e7c8f9dcf0cb3ee94c9850e8d05d1c963f6bed9000eb6fce7c1c9a10b95de",
+        "scope_id_digest": "sha256:a3d3436febbf15afbd7ebfb4ed25fc3f29e1d6bac216965bcf040afe7657db93"
+      },
+      "workflow_name": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack"
+    },
+    {
+      "binding_schema": {
+        "bindings": [],
+        "schema_digest": "sha256:7f8c2a4a1ac6ca9533a7c51fb880078e7bd2672775d49d2471983b1776d4b65d"
+      },
+      "checkpoint_id": "ckpt:85bebe726bc9eed0e4ee7c63",
+      "effect_boundary": {
+        "boundary_kind": "provider",
+        "effect_kind": "provider",
+        "policy": {
+          "boundary_kind": "provider",
+          "effect_kind": "provider",
+          "evidence_requirements": {
+            "structured_output": {
+              "bundle_path_ref": "inputs.__write_root__examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__plan__examples_design_plan_impl_review_stack_v2_call_tracked_plan_phase_1__draft__result_bundle",
+              "contract_digest": "alloc:examples_design_plan_impl_review_stack_v2_call_design-plan-impl-review-stack:provider_result_bundle:2f50fd49ab0b108d",
+              "declared_target_only": true,
+              "payload_digest_required": true,
+              "prompt_input_contract_digest": "sha256:a37f7b72e78fe08552570e8456a12d3787d0e7597a3dd2d8c94d860e714e64cf"
+            }
+          },
+          "policy_digest": "sha256:a072a4d1b15358b55c842d63e862100f85dba46358d0023baec46e65839e0401",
+          "policy_kind": "reuse_validated_structured_output",
+          "schema_version": "workflow_lisp_effect_resume_policy.v1",
+          "source_map_origin_key": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack::step_id::examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__plan__examples_design_plan_impl_review_stack_v2_call_tracked_plan_phase_1__draft",
+          "step_id": "examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__plan__examples_design_plan_impl_review_stack_v2_call_tracked_plan_phase_1__draft",
+          "unsafe_pending_behavior": "fail_closed"
+        }
+      },
+      "executable_identity": {
+        "node_id": "root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__plan__examples_design_plan_impl_review_stack_v2_call_tracked_plan_phase_1__draft",
+        "presentation_key": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__draft",
+        "step_id": "root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__plan__examples_design_plan_impl_review_stack_v2_call_tracked_plan_phase_1__draft"
+      },
+      "loop_back_edge": null,
+      "point_kind": "effect_boundary",
+      "program_point_id": "pp:e3313af95c03607cfd0291b1",
+      "restore": {
+        "binding_descriptor_digests": [
+          "sha256:ce76f515a819b113d8392455f3ebda2605a7e0e4fd4458d16dc4566d57098ac6"
+        ],
+        "eligibility": [
+          "pure_binding",
+          "let_continuation"
+        ],
+        "loop_frame_descriptor_digest": null,
+        "proof_descriptor_digests": []
+      },
+      "source_lineage": {
+        "origin_key": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack::step_id::examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__plan__examples_design_plan_impl_review_stack_v2_call_tracked_plan_phase_1__draft"
+      },
+      "storage": {
+        "allocation_id": "alloc:examples_design_plan_impl_review_stack_v2_call_design-plan-impl-review-stack:lexical_checkpoint_record:c265b85721b2e38f",
+        "privacy": "runtime_sidecar",
+        "resume_scope": "step_visit",
+        "semantic_role": "lexical_checkpoint_record"
+      },
+      "wcc_identity": {
+        "node_id_digest": "sha256:171cf94388ce7fd3b1df534097eb72be9bd79710103a34181ee4788d89d601fe",
+        "scope_id_digest": "sha256:3cc95a225eb9459fd6a09cd73ccbb06e08ba7221c8d559241bedfbb74eaa1cd4"
+      },
+      "workflow_name": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack"
+    },
+    {
+      "binding_schema": {
+        "bindings": [],
+        "schema_digest": "sha256:314a2507598be3f2d891ebecc0aded1c4537a8ea406dc1b0d696c7f52f86d9d9"
+      },
+      "checkpoint_id": "ckpt:da29481dd96843184de8136f",
+      "effect_boundary": {
+        "boundary_kind": "provider",
+        "effect_kind": "provider",
+        "policy": {
+          "boundary_kind": "provider",
+          "effect_kind": "provider",
+          "evidence_requirements": {
+            "structured_output": {
+              "bundle_path_ref": "inputs.__write_root__examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__plan__examples_design_plan_impl_review_stack_v2_call_tracked_plan_phase_1__review__result_bundle",
+              "contract_digest": "alloc:examples_design_plan_impl_review_stack_v2_call_design-plan-impl-review-stack:provider_result_bundle:84a70597f49cdfac",
+              "declared_target_only": true,
+              "payload_digest_required": true,
+              "prompt_input_contract_digest": "sha256:2ef5114d43d43cbe8eee9464a59c93b5684199f1f0a1469c22dfd0f95222c01e"
+            }
+          },
+          "policy_digest": "sha256:56eddc7cc5c2e3a25bbe7042d936154f5b6ad843ef92de873f11ceb5363f07e5",
+          "policy_kind": "reuse_validated_structured_output",
+          "schema_version": "workflow_lisp_effect_resume_policy.v1",
+          "source_map_origin_key": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack::step_id::examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__plan__examples_design_plan_impl_review_stack_v2_call_tracked_plan_phase_1__review",
+          "step_id": "examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__plan__examples_design_plan_impl_review_stack_v2_call_tracked_plan_phase_1__review",
+          "unsafe_pending_behavior": "fail_closed"
+        }
+      },
+      "executable_identity": {
+        "node_id": "root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__plan__examples_design_plan_impl_review_stack_v2_call_tracked_plan_phase_1__review",
+        "presentation_key": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__review",
+        "step_id": "root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__plan__examples_design_plan_impl_review_stack_v2_call_tracked_plan_phase_1__review"
+      },
+      "loop_back_edge": null,
+      "point_kind": "effect_boundary",
+      "program_point_id": "pp:1ce01c3ef1f9efb56700de21",
+      "restore": {
+        "binding_descriptor_digests": [
+          "sha256:ce76f515a819b113d8392455f3ebda2605a7e0e4fd4458d16dc4566d57098ac6",
+          "sha256:e4fddccd4390ac539522476068ac836d873243c17706d69298c7e91e8a1cb55b"
+        ],
+        "eligibility": [
+          "pure_binding",
+          "let_continuation"
+        ],
+        "loop_frame_descriptor_digest": null,
+        "proof_descriptor_digests": []
+      },
+      "source_lineage": {
+        "origin_key": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack::step_id::examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__plan__examples_design_plan_impl_review_stack_v2_call_tracked_plan_phase_1__review"
+      },
+      "storage": {
+        "allocation_id": "alloc:examples_design_plan_impl_review_stack_v2_call_design-plan-impl-review-stack:lexical_checkpoint_record:4833505977bb7c44",
+        "privacy": "runtime_sidecar",
+        "resume_scope": "step_visit",
+        "semantic_role": "lexical_checkpoint_record"
+      },
+      "wcc_identity": {
+        "node_id_digest": "sha256:006a8834a0b88dceb330030e25476f85d6a5426a78f3c23bedf0e3acd67445e9",
+        "scope_id_digest": "sha256:186b790b4eb5db253e5acf29fe82e7ba4ec4a63d5a456205ff38857d8a4a6171"
+      },
+      "workflow_name": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack"
+    },
+    {
+      "binding_schema": {
+        "bindings": [],
+        "schema_digest": "sha256:c1e82576814da116271cf3d4acd65620e4ccb81fe001b94bb6879f3c88221502"
+      },
+      "checkpoint_id": "ckpt:65bda4f814bc721664c59a34",
+      "effect_boundary": {
+        "boundary_kind": "call",
+        "effect_kind": "call",
+        "policy": {
+          "boundary_kind": "call",
+          "effect_kind": "call",
+          "evidence_requirements": {
+            "workflow_call": {
+              "callee_checksum": "sha256:be0a2660444488793169d8016152f62ab0996213c32632be334c03c2b31c1624",
+              "callee_workflow": "examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__implementation__call_examples_design_plan_impl_review_stack_v2_call_design_plan_impl_implementation_phase",
+              "target_dsl_version": "2.14"
+            }
+          },
+          "policy_digest": "sha256:9fcad55db407865b5e8934c973480973c5e531e3b5a88cc9d6e8954e8c824b9f",
+          "policy_kind": "reuse_validated_workflow_call",
+          "schema_version": "workflow_lisp_effect_resume_policy.v1",
+          "source_map_origin_key": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack::step_id::examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__implementation__call_examples_design_plan_impl_review_stack_v2_call_design_plan_impl_implementation_phase",
+          "step_id": "examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__implementation__call_examples_design_plan_impl_review_stack_v2_call_design_plan_impl_implementation_phase",
+          "unsafe_pending_behavior": "fail_closed"
+        }
+      },
+      "executable_identity": {
+        "node_id": "root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__implementation__call_examples_design_plan_impl_review_stack_v2_call_design_plan_impl_implementation_phase",
+        "presentation_key": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__implementation__call_examples/design_plan_impl_review_stack_v2_call::design-plan-impl-implementation-phase",
+        "step_id": "root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__implementation__call_examples_design_plan_impl_review_stack_v2_call_design_plan_impl_implementation_phase"
+      },
+      "loop_back_edge": null,
+      "point_kind": "effect_boundary",
+      "program_point_id": "pp:7bc4dcebb7a558f1079277c5",
+      "restore": {
+        "binding_descriptor_digests": [
+          "sha256:ce76f515a819b113d8392455f3ebda2605a7e0e4fd4458d16dc4566d57098ac6",
+          "sha256:8414f8f15ad68416f378c229a0387d58268dd12d921c56c680076438e4a93f71"
+        ],
+        "eligibility": [
+          "pure_binding",
+          "let_continuation"
+        ],
+        "loop_frame_descriptor_digest": null,
+        "proof_descriptor_digests": []
+      },
+      "source_lineage": {
+        "origin_key": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack::step_id::examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__implementation__call_examples_design_plan_impl_review_stack_v2_call_design_plan_impl_implementation_phase"
+      },
+      "storage": {
+        "allocation_id": "alloc:examples_design_plan_impl_review_stack_v2_call_design-plan-impl-review-stack:lexical_checkpoint_record:543e586e2abfec7c",
+        "privacy": "runtime_sidecar",
+        "resume_scope": "step_visit",
+        "semantic_role": "lexical_checkpoint_record"
+      },
+      "wcc_identity": {
+        "node_id_digest": "sha256:fe8d440315bfa1e0ecacc2ed84c64f0a9eef348385299f471b0fc9f141c8b3e2",
+        "scope_id_digest": "sha256:3a86a5500a5c7e30e8ca9f55baf59bce5f303487278f9a413e03f20a2a2714f8"
+      },
+      "workflow_name": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack"
+    }
+  ],
+  "program_identity": {
+    "executable_ir_digest": "sha256:e63dcd38e3094ffec407ecc4a27eb6409e865d0df33736f5a122b8c00eb1474c",
+    "semantic_ir_digest": "sha256:418c833ecbe35421dfe5e578a63fb618e0bef04b8e27ab16801c1bc69652330b",
+    "source_module_digest": "sha256:be0a2660444488793169d8016152f62ab0996213c32632be334c03c2b31c1624"
+  },
+  "schema_version": "workflow_lisp_lexical_checkpoint_points.v1",
+  "workflow_name": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack"
+}

@@ -1,0 +1,91 @@
+{
+  "schema": "procedure_first_pilot_live_validator_result.v1",
+  "status": "passed",
+  "exit_status": 0,
+  "completed_at": "2026-07-15T19:14:46.387252650-07:00",
+  "command": "bash -o pipefail -c 'ORCHESTRATOR_RUN_LIVE_PROCEDURE_RETIREMENT_VALIDATION=1 pytest -q tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_retirement_record_validates_live 2>&1 | tee docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/live_validator_pytest.txt'",
+  "nodeid": "tests/test_workflow_lisp_procedure_first_migrations.py::test_tracked_plan_phase_retirement_record_validates_live",
+  "bindings": {
+    "retirement_record": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/retirement_record.json",
+      "sha256": "sha256:7c35069323e8dcf7ac9b17785492ed030d0088ec29489e5e3529f94c44dd4370"
+    },
+    "final_known_store_scans": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/final_known_store_scans.json",
+      "sha256": "sha256:05e5cea75338ea745cbbc165fc0934c174132555fae8b4d07f180c48b5f1ccc0"
+    },
+    "final_owner_attestation": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/dedicated-evidence-root.json",
+      "sha256": "sha256:9e73eba199b06164b13f384654b65b1f87739eeb7c4e94da925e871bc3e38cca"
+    },
+    "stdout": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/live_validator_pytest.txt",
+      "sha256": "sha256:e68d16dca98b9f88eab92be8de991ca7877fede725a92cb12f755cdb05abd8b3",
+      "byte_count": 110
+    }
+  },
+  "execution_boundary": {
+    "scanner_only_live_store_access": true,
+    "unpatched_public_validator": true,
+    "workflow_run_invoked": false,
+    "workflow_resume_invoked": false,
+    "workflow_executor_constructed": false,
+    "provider_executed": false,
+    "workflow_command_executed": false,
+    "runtime_authority": "none"
+  },
+  "reconciled_store_facts": [
+    {
+      "store_role": "dedicated_runtime_evidence_root",
+      "root": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
+      "query_version": "procedure-identity-store-query.v1",
+      "retained_final_scan_query_started_at": "2026-07-15T13:42:22.173421-07:00",
+      "retained_final_scan_query_finished_at": "2026-07-15T13:42:22.191836-07:00",
+      "normalized_scan_digest": "sha256:e0258686f830d63d26c62cc9444639f434b93e92a7f573ca880b1866ab3addcf",
+      "counts": {
+        "terminal_run_count": 0,
+        "nonterminal_run_count": 0,
+        "call_frame_count": 0,
+        "consumer_count": 0,
+        "checkpoint_index_count": 0,
+        "checkpoint_record_count": 36,
+        "identity_metadata_count": 0,
+        "retained_manifest_count": 0,
+        "scanned_file_count": 38,
+        "store_terminal_run_count": 2,
+        "store_nonterminal_run_count": 0
+      },
+      "live_reconciliation": "unpatched_validator_success_reconciled_live_digest_and_counts_to_bound_record_and_final_scan"
+    },
+    {
+      "store_role": "legacy_repository_root",
+      "root": "/home/ollie/Documents/agent-orchestration/.orchestrate/runs",
+      "query_version": "procedure-identity-store-query.v1",
+      "retained_final_scan_query_started_at": "2026-07-15T13:40:40.713908-07:00",
+      "retained_final_scan_query_finished_at": "2026-07-15T13:42:22.173401-07:00",
+      "normalized_scan_digest": "sha256:7f6e4749a01e820737f6e0af84f4c9ad905fab37d57d84ad5c7d0aa005be1709",
+      "counts": {
+        "terminal_run_count": 0,
+        "nonterminal_run_count": 0,
+        "call_frame_count": 0,
+        "consumer_count": 0,
+        "checkpoint_index_count": 0,
+        "checkpoint_record_count": 39,
+        "identity_metadata_count": 36,
+        "retained_manifest_count": 4844,
+        "scanned_file_count": 19926,
+        "store_terminal_run_count": 4074,
+        "store_nonterminal_run_count": 90
+      },
+      "live_reconciliation": "unpatched_validator_success_reconciled_live_digest_and_counts_to_bound_record_and_final_scan"
+    }
+  ],
+  "claims_not_made": {
+    "independent_retirement_review": "not_asserted",
+    "hold_release": "not_asserted",
+    "task_5_or_pilot_completion": "not_asserted",
+    "actual_pilot_checksum_negative": "not_asserted",
+    "runtime_authority": "none",
+    "separate_hidden_live_telemetry": "not_asserted"
+  }
+}

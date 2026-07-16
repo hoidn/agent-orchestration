@@ -1,0 +1,272 @@
+{
+  "schema": "procedure_first_pilot_retirement_record_review.v1",
+  "reviewer_identity": "Codex subagent /root/task4a_live_independent_review",
+  "reviewer_role": "independent specification and runtime-state reviewer",
+  "result": "approved",
+  "reviewed_at": "2026-07-15T20:31:46-07:00",
+  "reviewed_head": "36b53ff41c4245a76b30c3896af13cf2a8d2a55a",
+  "approval_scope": "Task 4A Step 6 independent specification and runtime-state review of the bounded retirement record only",
+  "bindings": {
+    "retirement_record": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/retirement_record.json",
+      "sha256": "sha256:7c35069323e8dcf7ac9b17785492ed030d0088ec29489e5e3529f94c44dd4370"
+    },
+    "final_known_store_scans": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/final_known_store_scans.json",
+      "sha256": "sha256:05e5cea75338ea745cbbc165fc0934c174132555fae8b4d07f180c48b5f1ccc0"
+    },
+    "final_owner_attestation": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/dedicated-evidence-root.json",
+      "sha256": "sha256:9e73eba199b06164b13f384654b65b1f87739eeb7c4e94da925e871bc3e38cca"
+    },
+    "live_validator_stdout": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/live_validator_pytest.txt",
+      "sha256": "sha256:e68d16dca98b9f88eab92be8de991ca7877fede725a92cb12f755cdb05abd8b3"
+    },
+    "live_validator_result": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/live_validator_result.json",
+      "sha256": "sha256:8ff86cd084575fcd768f49622cd97e2c2b558c26bebd0e72d9c04cac5abdd0a4"
+    },
+    "evidence_index": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/snapshots/review-predecessor-evidence-index.json",
+      "sha256": "sha256:b66ab3c024bc04a4a940a21f34d4adc0395f15879e1d1a7c2a88d602a7731cb6"
+    },
+    "attestation_index": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/snapshots/review-predecessor-attestation-index.json",
+      "sha256": "sha256:5aed6854732dc9aea7860f2587d1ec6c206e246e18a90d8438a7fb8653709e57"
+    },
+    "root_checksum_characterization": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/root_checksum_characterization.json",
+      "sha256": "sha256:3329eb0337811009bea1649b8570f9930385581b0211b08c91bc3dd9ca9c5309"
+    },
+    "callee_checksum_characterization": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/callee_checksum_characterization.json",
+      "sha256": "sha256:cf52a468509f1f95d30530cf652b887de52b12a8494cdc0f2916a0ffc8cdca3b"
+    },
+    "identity_delta": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/identity_delta.json",
+      "sha256": "sha256:a4d32efeea9e953862c75f3b27b32a7f453fdd885965da6d585db5ccb43331e6"
+    },
+    "artifact_contract_multiset": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/artifact_contract_multiset.json",
+      "sha256": "sha256:eedf891bc9ece4f9c61211af721c50163db81f570668468181c163b24b30d8a8"
+    },
+    "execution_order": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/execution_order.json",
+      "sha256": "sha256:1095cd70fad173a2a354fe6415d73ec6392a396b088450b532dbd047f2b9ebaf"
+    },
+    "clean_run": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/clean_run.json",
+      "sha256": "sha256:a0587644483dc0c468f4671d5e450d5c43d7f1d768e382e035a5decc890cd40b"
+    },
+    "interruption_resume": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/interruption_resume.json",
+      "sha256": "sha256:8abd58915c1b114ddf97b315de60f4ba9597c0a7661cd850a055de8f44889f64"
+    },
+    "old_build_manifest": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/build_manifest.json",
+      "sha256": "sha256:97c78179655c48cb2ac24e599c17bfb0d1d1e0960a7e31836ce0727a5777d783"
+    },
+    "new_build_manifest": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/build_manifest.json",
+      "sha256": "sha256:dc21dcdc7fb5748b2442c5e9b615672c4915cd9b9fba6f69f894991c8ae0f00f"
+    }
+  },
+  "verification": {
+    "generic_retirement_validator_suite": {
+      "command": "env -u ORCHESTRATOR_RUN_LIVE_PROCEDURE_RETIREMENT_VALIDATION pytest -q tests/test_workflow_lisp_procedure_identity_retirement.py",
+      "exit_status": 0,
+      "passed": 296,
+      "failed": 0
+    },
+    "strengthened_default_selectors": {
+      "command": "env -u ORCHESTRATOR_RUN_LIVE_PROCEDURE_RETIREMENT_VALIDATION pytest -q tests/test_workflow_lisp_procedure_first_migrations.py",
+      "exit_status": 0,
+      "passed": 34,
+      "failed": 0,
+      "skipped": 1,
+      "skip_boundary": "the one-time live validator remained opt-in and was not rerun"
+    },
+    "captured_live_validator": {
+      "stdout_byte_count": 110,
+      "passed_occurrences": 1,
+      "failure_or_error_occurrences": 0,
+      "result_status": "passed",
+      "result_exit_status": 0,
+      "unpatched_public_validator": true,
+      "scanner_only": true
+    },
+    "content_addressing": {
+      "core_expected_hashes_matching": 7,
+      "record_artifact_bindings_matching": "16/16",
+      "manifest_input_output_bindings_matching": "20/20",
+      "old_and_new_manifest_role_sets_equal": true,
+      "shared_repo_contained_input_snapshots_matching": "3/3",
+      "index_bindings_replayed": true
+    },
+    "frozen_supported_store_files": {
+      "legacy_repository_root": "19926/19926 exact paths and byte digests",
+      "dedicated_runtime_evidence_root": "38/38 exact paths and byte digests",
+      "checked_after_default_tests": true
+    }
+  },
+  "frozen_root_facts": {
+    "query": {
+      "version": "procedure-identity-store-query.v1",
+      "raw_identity_count": 64,
+      "domain_membership_count": 72,
+      "query_list_sha256": "sha256:e5236ce42b60679811d7c3c7ec688162de49cbd260cc30900b9458a56953a520",
+      "identities_by_domain_sha256": "sha256:c7de830d62e3267ec23efac147d53b6dd1a4531020477998022794ad41b1ede4"
+    },
+    "legacy_repository_root": {
+      "root": "/home/ollie/Documents/agent-orchestration/.orchestrate/runs",
+      "normalized_scan_digest": "sha256:7f6e4749a01e820737f6e0af84f4c9ad905fab37d57d84ad5c7d0aa005be1709",
+      "query_scoped_counts": {
+        "terminal_run_count": 0,
+        "nonterminal_run_count": 0,
+        "call_frame_count": 0,
+        "consumer_count": 0
+      },
+      "disclosed_counts": {
+        "checkpoint_index_count": 0,
+        "checkpoint_record_count": 39,
+        "identity_metadata_count": 36,
+        "retained_manifest_count": 4844,
+        "scanned_file_count": 19926,
+        "store_terminal_run_count": 4074,
+        "store_nonterminal_run_count": 90
+      },
+      "retained_supported_file_set_and_bytes_currently_unchanged": true
+    },
+    "dedicated_runtime_evidence_root": {
+      "root": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
+      "normalized_scan_digest": "sha256:e0258686f830d63d26c62cc9444639f434b93e92a7f573ca880b1866ab3addcf",
+      "query_scoped_counts": {
+        "terminal_run_count": 0,
+        "nonterminal_run_count": 0,
+        "call_frame_count": 0,
+        "consumer_count": 0
+      },
+      "disclosed_counts": {
+        "checkpoint_index_count": 0,
+        "checkpoint_record_count": 36,
+        "identity_metadata_count": 0,
+        "retained_manifest_count": 0,
+        "scanned_file_count": 38,
+        "store_terminal_run_count": 2,
+        "store_nonterminal_run_count": 0
+      },
+      "immediate_run_directories": [
+        "tracked-plan-phase-clean-new-id",
+        "tracked-plan-phase-interrupted-new-id"
+      ],
+      "retained_supported_file_set_and_bytes_currently_unchanged": true
+    },
+    "quiescence_hold_status": "active",
+    "external_store_absence": "not_asserted"
+  },
+  "retained_run_facts": {
+    "exact_run_count": 2,
+    "runs": [
+      {
+        "run_id": "tracked-plan-phase-clean-new-id",
+        "status": "completed",
+        "run_tree_sha256": "sha256:1f71d1f87d5a00bc3210c9aa6ca868d052e213a64998749cbdc6e3d8bf81fd7d",
+        "run_tree_entry_count": 36,
+        "state_sha256": "sha256:729ebd7b4670ee73b0f18fbd3566e2ea73e5e8f488ddf729212cbec77e34a73b"
+      },
+      {
+        "run_id": "tracked-plan-phase-interrupted-new-id",
+        "status": "completed",
+        "resume_completed_under_same_run_id": true,
+        "run_tree_sha256": "sha256:1bd9997f907882aafc3a7063acae8a494d2b846c9020d139264d52b3e89fbcd7",
+        "run_tree_entry_count": 38,
+        "state_sha256": "sha256:b2d2bd8a265515eb50c181e9e7151a8f59efad3668319894a6bf65a4ee568c05"
+      }
+    ]
+  },
+  "reviewed_facts": {
+    "record_class": "reviewed_internal_identity_retirement",
+    "retained_public_workflow": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+    "internal_callee": "examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase",
+    "callee_is_internal_not_exported_not_registered_not_public": true,
+    "route_is_not_live_or_promoted": true,
+    "runtime_directives": [],
+    "identity_union": {
+      "exact_row_count": 284,
+      "old_preserved": 161,
+      "old_retired": 72,
+      "new_preserved": 161,
+      "new_only": 51,
+      "exact_production_and_query_union_validated": true,
+      "retired_raw_identity_leak_into_new_production_table": false
+    },
+    "artifact_and_execution_contract": {
+      "old_and_new_artifact_keyed_multiset_counts": "9/9",
+      "artifact_keyed_multisets_equal": true,
+      "old_and_new_execution_order_counts": "9/9",
+      "execution_order_equal": true,
+      "procedure_definition_and_consuming_call_site_lineage_present": true,
+      "historical_clean_artifact_equality": "not_asserted",
+      "deterministic_provider_contract_conformance": "separately_asserted"
+    },
+    "historical_source_binding": {
+      "historical_path": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+      "retained_old_source_path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/source.orc",
+      "historical_old_source_sha256": "sha256:3a03feac563834cf8b9a0c1a329d006b82ad6ee210537b3e82fc0de786171bfb",
+      "retained_old_source_matches_historical_digest": true,
+      "current_historical_path_is_not_used_as_old_bytes": true
+    },
+    "final_owner_attribution": {
+      "attributed_owner_name": "Ollie",
+      "evidence_status": "owner_confirmed",
+      "owner_adoption_present_and_matches_attributed_owner": true,
+      "mechanical_writer_is_distinct_from_owner_attribution": true,
+      "attestation_binds_exact_final_scan_root_query_digest_counts_and_two_run_trees": true,
+      "reviewer_is_not_owner_and_did_not_author_or_adopt_the_attestation": true
+    },
+    "checksum_characterization_split": {
+      "root": "closed generic characterization only; it contains no pilot checksum or pilot mismatch identity and asserts neither actual-subject rejection nor cross-source compatibility",
+      "callee": "accepted generic callee guard characterization content-bound to the actual pilot old/new source and build-manifest checksum delta and applicable callee identity",
+      "actual_pilot_checksum_negative": "not_asserted"
+    },
+    "live_evidence_interpretation": {
+      "one_time_stdout_records_one_pass_and_no_failure": true,
+      "unpatched_live_validation_reconciled_bound_record_and_final_scan_facts": true,
+      "separate_hidden_live_telemetry": "not_asserted",
+      "time_bound": true,
+      "default_replay_meaning": "retained evidence consistency only, not current mutable external-store absence"
+    },
+    "index_graph": {
+      "content_addresses_replayed": true,
+      "retirement_record_contains_no_index_reference": true,
+      "attestation_index_contains_no_evidence_index_or_review_reference": true,
+      "evidence_index_contains_no_review_reference": true,
+      "review_to_index_references_are_one_way": true,
+      "acyclic": true,
+      "no_index_backlink": true
+    }
+  },
+  "reviewed_claim_boundaries": {
+    "retirement_record_is_evidence_only": true,
+    "runtime_authority": "none",
+    "state_alias_or_remap_authority": "none",
+    "cross_source_resume_compatibility": "not_asserted",
+    "external_store_absence": "not_asserted",
+    "historical_clean_artifact_equality": "not_asserted",
+    "root_characterization_actual_subject_rejection": "not_asserted",
+    "callee_characterization_actual_pilot_rejection": "not_asserted",
+    "independent_review_approval": "asserted_only_by_this_review_artifact",
+    "owner_hold_release": "not_asserted",
+    "task_5_or_pilot_completion": "not_asserted"
+  },
+  "claims_not_made": [
+    "This review does not release the owner hold or authorize a store mutation, run, or resume.",
+    "This review does not claim Task 5 completion, pilot completion, promotion, or YAML retirement.",
+    "This review does not claim an actual-pilot root-checksum or callee-checksum negative.",
+    "This review does not claim cross-source resume compatibility, state aliasing, identity remapping, or runtime authority.",
+    "This review does not assert the absence of external or unenumerated stores.",
+    "This review does not infer historical clean artifact equality from deterministic provider-contract conformance.",
+    "This reviewer identity is a Codex subagent, not a human identity or store owner."
+  ]
+}

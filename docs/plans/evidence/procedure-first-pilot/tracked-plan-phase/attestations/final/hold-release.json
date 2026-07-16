@@ -1,0 +1,43 @@
+{
+  "record_type": "procedure_first_pilot_hold_release",
+  "version": 1,
+  "evidence_status": "owner_confirmed",
+  "roots": {
+    "legacy": "/home/ollie/Documents/agent-orchestration/.orchestrate/runs",
+    "dedicated": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs"
+  },
+  "bindings": {
+    "retirement_record": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/retirement_record.json",
+      "sha256": "sha256:7c35069323e8dcf7ac9b17785492ed030d0088ec29489e5e3529f94c44dd4370"
+    },
+    "final_known_store_scans": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/final_known_store_scans.json",
+      "sha256": "sha256:05e5cea75338ea745cbbc165fc0934c174132555fae8b4d07f180c48b5f1ccc0"
+    },
+    "live_validator_result": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/live_validator_result.json",
+      "sha256": "sha256:8ff86cd084575fcd768f49622cd97e2c2b558c26bebd0e72d9c04cac5abdd0a4"
+    },
+    "retirement_record_review": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/retirement_record_review.json",
+      "sha256": "sha256:12b1f2f60b75628c536ec9fbe8cac548f7295588b22e01cff2dccc69a2179b30"
+    }
+  },
+  "owner": {
+    "name": "Ollie",
+    "role": "owner of the legacy and dedicated tracked-plan pilot roots"
+  },
+  "released_at": "2026-07-15T21:01:49-07:00",
+  "confirmations": {
+    "validator_and_independent_review_complete": true,
+    "hold_explicitly_released_for_task_5_family_parity_focused_and_broad_gates": true
+  },
+  "prepared_by": "Claude Code session agent (Opus 4.8) — mechanical write at the owner's explicit direction after the owner re-adopted the release with the corrected review binding",
+  "prepared_at": "2026-07-15T21:01:49-07:00",
+  "owner_adoption": {
+    "owner": "Ollie",
+    "adopted_at": "2026-07-15T21:01:49-07:00",
+    "statement": "I reviewed this complete record, confirm the bound live validator and independent review are complete, and explicitly release the legacy-root and dedicated-root hold for the deferred Task 5 family-parity, focused, and broad gates."
+  }
+}

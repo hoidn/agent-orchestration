@@ -1,0 +1,82 @@
+{
+  "external_store_absence": "not_asserted",
+  "final_dedicated_evidence_root": {
+    "claim_boundary": {
+      "hold_release": "not_asserted",
+      "independent_review": "not_asserted",
+      "live_validator": "not_asserted",
+      "retirement_eligibility": "not_asserted",
+      "scope": "exact_dedicated_root_and_final_snapshot_only"
+    },
+    "evidence_status": "owner_confirmed",
+    "hold_status": "active",
+    "owner": {
+      "email": "ohoidn@stanford.edu",
+      "name": "Ollie"
+    },
+    "owner_adopted_at": "2026-07-15T14:50:38-07:00",
+    "owner_confirmed_at": "2026-07-15T14:50:38-07:00",
+    "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/dedicated-evidence-root.json",
+    "phase": "task_4a_pre_live",
+    "sha256": "sha256:9e73eba199b06164b13f384654b65b1f87739eeb7c4e94da925e871bc3e38cca"
+  },
+  "known_store_records": [
+    {
+      "adopted_at": "2026-07-14T20:50:24-07:00",
+      "canonical_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
+      "canonical_root_path_sha256": "sha256:5d83254c4025be7659c835d00097957696367a4cbca5fa21f26d9473242f8d35",
+      "confirmed_at": "2026-07-14T20:50:24-07:00",
+      "matching_call_frame_count": 0,
+      "matching_consumer_count": 0,
+      "matching_nonterminal_run_count": 0,
+      "normalized_scan_digest": "sha256:c86d1b85fa14db23af62b79bcc60ad5e7f6a73689cfa22b97c3aca412fb99e8d",
+      "owner": {
+        "email": "ohoidn@stanford.edu",
+        "name": "Ollie"
+      },
+      "phase": "pre_edit",
+      "quiescence_started_at": "2026-07-14T18:09:26.451771-07:00",
+      "quiescence_status": "active",
+      "record_path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/5d83254c4025be7659c835d00097957696367a4cbca5fa21f26d9473242f8d35.json",
+      "record_sha256": "sha256:291347b4426d64d7c0b8c82669b3cdfe77605d4c499675a5ccf07d9db5d63f12",
+      "store_nonterminal_run_count": 0,
+      "store_terminal_run_count": 0
+    },
+    {
+      "adopted_at": "2026-07-14T20:50:24-07:00",
+      "canonical_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/runs",
+      "canonical_root_path_sha256": "sha256:976a73eb92cb0ebc3a82da48834d75dff81fd95fe7052ba0a1152e83e86e2711",
+      "confirmed_at": "2026-07-14T20:50:24-07:00",
+      "matching_call_frame_count": 0,
+      "matching_consumer_count": 0,
+      "matching_nonterminal_run_count": 0,
+      "normalized_scan_digest": "sha256:7f6e4749a01e820737f6e0af84f4c9ad905fab37d57d84ad5c7d0aa005be1709",
+      "owner": {
+        "email": "ohoidn@stanford.edu",
+        "name": "Ollie"
+      },
+      "phase": "pre_edit",
+      "quiescence_started_at": "2026-07-14T18:09:26.451771-07:00",
+      "quiescence_status": "active",
+      "record_path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/976a73eb92cb0ebc3a82da48834d75dff81fd95fe7052ba0a1152e83e86e2711.json",
+      "record_sha256": "sha256:9700c0bf886920879edf710ca942f988deaf3b7abb6ef5fd340cc5c900e09997",
+      "store_nonterminal_run_count": 90,
+      "store_terminal_run_count": 4074
+    }
+  ],
+  "pre_edit_known_store_scans": {
+    "capture_commit": "80a8bf35a503f122af534e26609be7a18417cdec",
+    "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/pre_edit_known_store_scans.json",
+    "query_list_sha256": "sha256:e5236ce42b60679811d7c3c7ec688162de49cbd260cc30900b9458a56953a520",
+    "query_version": "procedure-identity-store-query.v1",
+    "sha256": "sha256:422e465bc1391fd2ea186490f39c59ff677f9cd9b1c502ba70f684d38b54f155"
+  },
+  "schema": "procedure_first_pilot_attestation_index.v1",
+  "scratch_provenance_record": {
+    "evidence_status": "owner_confirmed",
+    "owner_adopted_at": "2026-07-14T14:45:22-07:00",
+    "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/scratch-provenance-confirmation.json",
+    "record_type": "tracked_plan_phase_scratch_provenance_confirmation",
+    "sha256": "sha256:65c947f16e8b621a27208b380af0eacd11e0c91afa2685bd1045a9efb1a8ee18"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "schema": "workflow_lisp_root_checksum_characterization.v1",
+  "projection": {
+    "details": {
+      "command": "7e4b3428 tests/test_resume_command.py::test_default_resume_root_checksum_mismatch_is_pre_executor_and_byte_immutable",
+      "default_resume": true,
+      "observability_overrides": false,
+      "cli_overrides": false,
+      "exit_status": 1,
+      "tree_immutability": "before_equals_after",
+      "executor_constructed": false,
+      "provider_executed": false,
+      "command_executed": false
+    },
+    "claim_boundary": {
+      "actual_subject_rejection": "not_asserted",
+      "cross_source_compatibility": "not_asserted",
+      "runtime_authority": "none"
+    }
+  },
+  "projection_sha256": "sha256:b26ffe2b290a5c8b5beabd0c634a75906952792b6466e6d866f3aa1e3ef5cdbe"
+}

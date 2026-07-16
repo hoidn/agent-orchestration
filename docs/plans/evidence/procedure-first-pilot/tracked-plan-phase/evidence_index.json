@@ -1,511 +1,86 @@
 {
+  "schema": "procedure_first_pilot_evidence_index.v1",
+  "phase": "task_4a_complete",
+  "status": "task_5_authorized",
+  "external_store_absence": "not_asserted",
+  "hold": {
+    "status": "released",
+    "live_validator": "passed",
+    "independent_retirement_review": "passed",
+    "hold_release": "owner_confirmed",
+    "released_at": "2026-07-15T21:01:49-07:00",
+    "confirmations": {
+      "hold_explicitly_released_for_task_5_family_parity_focused_and_broad_gates": true,
+      "validator_and_independent_review_complete": true
+    }
+  },
+  "routing_only": true,
   "artifacts": {
     "attestation_index": {
       "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json",
-      "sha256": "sha256:3c6d878099a9c9e2a256d8e5c4b781d773c838a11e43a94058c80833814de046"
+      "sha256": "sha256:70b300db8362de981e297eebbf50da4298bf62e1123bd56609bd8624904cee2d"
     },
-    "frozen_baseline": {
-      "path": "tests/baselines/procedure_first/tracked_plan_phase.json",
-      "sha256": "sha256:167e0cb48c857acc728058fe0bfa7bcc8939ef1457c34768389ff1fb4035af9d"
+    "final_known_store_scans": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/final_known_store_scans.json",
+      "sha256": "sha256:05e5cea75338ea745cbbc165fc0934c174132555fae8b4d07f180c48b5f1ccc0"
+    },
+    "final_owner_attestation": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/dedicated-evidence-root.json",
+      "sha256": "sha256:9e73eba199b06164b13f384654b65b1f87739eeb7c4e94da925e871bc3e38cca"
+    },
+    "hold_release": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/final/hold-release.json",
+      "sha256": "sha256:d257a92d5b9d8d1eaf6a41a341e6990563c392f8cde199325c4fd1c057d77bf8"
+    },
+    "live_validator_stdout": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/live_validator_pytest.txt",
+      "sha256": "sha256:e68d16dca98b9f88eab92be8de991ca7877fede725a92cb12f755cdb05abd8b3"
+    },
+    "live_validator_result": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/live_validator_result.json",
+      "sha256": "sha256:8ff86cd084575fcd768f49622cd97e2c2b558c26bebd0e72d9c04cac5abdd0a4"
     },
     "old_build_manifest": {
       "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/build_manifest.json",
-      "sha256": "sha256:42c9f2ecb7d0e895676ca5e46a4d8b275282490de7c43c745e10eb31a7972b36"
+      "sha256": "sha256:97c78179655c48cb2ac24e599c17bfb0d1d1e0960a7e31836ce0727a5777d783"
     },
-    "old_inputs": {
-      "command_boundaries": {
-        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/inputs/command_boundaries.json",
-        "sha256": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
-      },
-      "prompt_externs": {
-        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/inputs/prompt_externs.json",
-        "sha256": "sha256:8114b8622236a43c83c8c3430334ac61003921b7b03c8977b7334a8d0c643a5d"
-      },
-      "provider_externs": {
-        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/inputs/provider_externs.json",
-        "sha256": "sha256:901e5fa2a1f69c05e44225d3de63ae98a3af0d2ea65710fa9def88273a632919"
-      },
-      "source": {
-        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/source.orc",
-        "sha256": "sha256:3a03feac563834cf8b9a0c1a329d006b82ad6ee210537b3e82fc0de786171bfb"
-      }
+    "new_build": {
+      "build_manifest": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/build_manifest.json", "sha256": "sha256:dc21dcdc7fb5748b2442c5e9b615672c4915cd9b9fba6f69f894991c8ae0f00f"},
+      "source": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/source.orc", "sha256": "sha256:be0a2660444488793169d8016152f62ab0996213c32632be334c03c2b31c1624"},
+      "typed_frontend_ast": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/typed_frontend_ast.json", "sha256": "sha256:e998cf88261cf8e98eb24bd3da787781c49b43d6c1f2cc4f46822406b2c613c5"},
+      "semantic_ir": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/semantic_ir.json", "sha256": "sha256:777d6e3a11fe48bac17f656c6051106cb374ba2617fa11353b57e8b64943ec30"},
+      "executable_ir": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/executable_ir.json", "sha256": "sha256:5b683c920496a858aa3b1e82fd1d8777941f945eefcddffb4cb144dde0e38766"},
+      "runtime_plan": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/runtime_plan.json", "sha256": "sha256:4119d678d53b31e090f9f588c0663b1a9f697e47fbc891c6cb121bf31dd2b566"},
+      "lexical_checkpoint_points": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/lexical_checkpoint_points.json", "sha256": "sha256:f73b8bc136524d6fbc52b423da712bef32b704cd4328046e2672a8468df7185a"},
+      "source_map": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/new/source_map.json", "sha256": "sha256:405df494812eddb03dcc3daf072015147f544f3cbedc33d768607e172244ff2d"}
     },
-    "old_outputs": {
-      "executable_ir": {
-        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/executable_ir.json",
-        "sha256": "sha256:eb9a7139b43a140fc0b1d4ca7bf1ff2703648cc2024795b04776ec7d139da467"
-      },
-      "lexical_checkpoint_points": {
-        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/lexical_checkpoint_points.json",
-        "sha256": "sha256:0bff5087d8202b09d4e93da624816c575afb9aef172a4c96f9d0067dd0cb0822"
-      },
-      "runtime_plan": {
-        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/runtime_plan.json",
-        "sha256": "sha256:f0f399acafc6d91627cf92588d21f93ade7e3295952249ed36fa698360271ab6"
-      },
-      "semantic_ir": {
-        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/semantic_ir.json",
-        "sha256": "sha256:54c94b66ac7e078a51d3edc29eddc2dcf92fb8a5f3088026409d5b145aa1e384"
-      },
-      "source_map": {
-        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/source_map.json",
-        "sha256": "sha256:0fc06048973738242c8006bdf08afcdf9ae5050688c3e4149e9e319e63430c06"
-      },
-      "typed_frontend_ast": {
-        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/old/typed_frontend_ast.json",
-        "sha256": "sha256:6e4e1ad19745a71df9db2a27a8822b13e73ee8b1a32f1936d37b772fb1b98a0a"
-      }
+    "retirement_record": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/retirement_record.json",
+      "sha256": "sha256:7c35069323e8dcf7ac9b17785492ed030d0088ec29489e5e3529f94c44dd4370"
     },
-    "pre_edit_known_store_scans": {
-      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/pre_edit_known_store_scans.json",
-      "sha256": "sha256:422e465bc1391fd2ea186490f39c59ff677f9cd9b1c502ba70f684d38b54f155"
+    "retirement_record_review": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/retirement_record_review.json",
+      "sha256": "sha256:12b1f2f60b75628c536ec9fbe8cac548f7295588b22e01cff2dccc69a2179b30"
     },
-    "quiescence_incident": {
-      "disposition": "quiescence_broken_precommit",
-      "owner_acceptance": "not_asserted",
-      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/incidents/2026-07-14T17-59-23-314337202-07-00-ephemeral-runtime-test.json",
-      "sha256": "sha256:2218247a71a95429d174d031c8bf6e8bc5a7cc5fb370366fc8eae11b7e76a92a"
+    "projections": {
+      "identity_delta": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/identity_delta.json", "sha256": "sha256:a4d32efeea9e953862c75f3b27b32a7f453fdd885965da6d585db5ccb43331e6"},
+      "artifact_contract_multiset": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/artifact_contract_multiset.json", "sha256": "sha256:eedf891bc9ece4f9c61211af721c50163db81f570668468181c163b24b30d8a8"},
+      "execution_order": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/execution_order.json", "sha256": "sha256:1095cd70fad173a2a354fe6415d73ec6392a396b088450b532dbd047f2b9ebaf"},
+      "retained_wrapper_inventory": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/retained_wrapper_inventory.json", "sha256": "sha256:24d098dd487c34f8039ca87707cff5ae4041d6343463a04f680afd7b870d7c56"},
+      "root_checksum_characterization": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/root_checksum_characterization.json", "sha256": "sha256:3329eb0337811009bea1649b8570f9930385581b0211b08c91bc3dd9ca9c5309"},
+      "callee_checksum_characterization": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/callee_checksum_characterization.json", "sha256": "sha256:cf52a468509f1f95d30530cf652b887de52b12a8494cdc0f2916a0ffc8cdca3b"},
+      "clean_run": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/clean_run.json", "sha256": "sha256:a0587644483dc0c468f4671d5e450d5c43d7f1d768e382e035a5decc890cd40b"},
+      "interruption_resume": {"path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/interruption_resume.json", "sha256": "sha256:8abd58915c1b114ddf97b315de60f4ba9597c0a7661cd850a055de8f44889f64"}
     }
   },
-  "capture_commit": "80a8bf35a503f122af534e26609be7a18417cdec",
-  "external_store_absence": "not_asserted",
-  "final_quiescence_recheck": {
-    "attestation_index": {
-      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json",
-      "sha256": "sha256:3c6d878099a9c9e2a256d8e5c4b781d773c838a11e43a94058c80833814de046"
-    },
-    "authoritative_scan": {
-      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/pre_edit_known_store_scans.json",
-      "sha256": "sha256:422e465bc1391fd2ea186490f39c59ff677f9cd9b1c502ba70f684d38b54f155"
-    },
-    "capture_commit": "80a8bf35a503f122af534e26609be7a18417cdec",
-    "completed_at": "2026-07-14T20:56:00.330433-07:00",
-    "dedicated_runtime_evidence_root": {
-      "canonical_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
-      "complete_result_equal_to_authoritative_scan": true,
-      "descendant_count": 0,
-      "empty": true,
-      "matching_counts": {
-        "call_frame_count": 0,
-        "consumer_count": 0,
-        "nonterminal_run_count": 0,
-        "terminal_run_count": 0
-      },
-      "normalized_scan_digest": "sha256:c86d1b85fa14db23af62b79bcc60ad5e7f6a73689cfa22b97c3aca412fb99e8d",
-      "query_finished_at": "2026-07-14T20:53:45.713415-07:00",
-      "query_started_at": "2026-07-14T20:53:45.713060-07:00",
-      "store_counts": {
-        "nonterminal_run_count": 0,
-        "terminal_run_count": 0
-      }
-    },
-    "guards": {
-      "dedicated_descendant_count": 0,
-      "frozen_baseline_sha256": "sha256:167e0cb48c857acc728058fe0bfa7bcc8939ef1457c34768389ff1fb4035af9d",
-      "protected_paths_unchanged": true,
-      "scratch_top_level_workspace_count": 0,
-      "source_edit_performed": false,
-      "source_sha256": "sha256:3a03feac563834cf8b9a0c1a329d006b82ad6ee210537b3e82fc0de786171bfb",
-      "staging_empty": true
-    },
-    "legacy_repository_root": {
-      "canonical_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/runs",
-      "complete_result_equal_to_authoritative_scan": true,
-      "entries_newer_than_quiescence": {
-        "count": 0,
-        "quiescence_started_at": "2026-07-14T18:09:26.451771-07:00"
-      },
-      "matching_counts": {
-        "call_frame_count": 0,
-        "consumer_count": 0,
-        "nonterminal_run_count": 0,
-        "terminal_run_count": 0
-      },
-      "normalized_scan_digest": "sha256:7f6e4749a01e820737f6e0af84f4c9ad905fab37d57d84ad5c7d0aa005be1709",
-      "query_finished_at": "2026-07-14T20:55:32.921437-07:00",
-      "query_started_at": "2026-07-14T20:53:45.713425-07:00",
-      "store_counts": {
-        "nonterminal_run_count": 90,
-        "terminal_run_count": 4074
-      },
-      "tree_snapshot_after": {
-        "digest": "sha256:7f2b7c8b11ef9c8952969cc1c9e708feea78717986f0d88008a6ed4145b2541b",
-        "digest_encoding": "sorted _store_tree_snapshot tuples encoded as UTF-8 JSON; separators=(',', ':'); ensure_ascii=false",
-        "entry_count": 418108
-      },
-      "tree_snapshot_before": {
-        "digest": "sha256:7f2b7c8b11ef9c8952969cc1c9e708feea78717986f0d88008a6ed4145b2541b",
-        "digest_encoding": "sorted _store_tree_snapshot tuples encoded as UTF-8 JSON; separators=(',', ':'); ensure_ascii=false",
-        "entry_count": 418108
-      },
-      "tree_snapshot_equal": true
-    },
-    "quiescence_started_at": "2026-07-14T18:09:26.451771-07:00",
-    "status": "passed_current",
-    "task_2_selection_status": "not_selected"
+  "reviewed_predecessor": {
+    "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/snapshots/review-predecessor-evidence-index.json",
+    "sha256": "sha256:b66ab3c024bc04a4a940a21f34d4adc0395f15879e1d1a7c2a88d602a7731cb6",
+    "meaning": "exact pre-review index bytes content-verified by the immutable independent review before this one-way review route was added"
   },
-  "owner_attestation_state": {
-    "attestation_index": {
-      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json",
-      "sha256": "sha256:3c6d878099a9c9e2a256d8e5c4b781d773c838a11e43a94058c80833814de046"
-    },
-    "incident": {
-      "disposition": "quiescence_broken_precommit",
-      "owner_acceptance": "not_asserted",
-      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/incidents/2026-07-14T17-59-23-314337202-07-00-ephemeral-runtime-test.json",
-      "sha256": "sha256:2218247a71a95429d174d031c8bf6e8bc5a7cc5fb370366fc8eae11b7e76a92a"
-    },
-    "incident_acknowledged_by_owner": true,
-    "known_store_records": [
-      {
-        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/5d83254c4025be7659c835d00097957696367a4cbca5fa21f26d9473242f8d35.json",
-        "sha256": "sha256:291347b4426d64d7c0b8c82669b3cdfe77605d4c499675a5ccf07d9db5d63f12"
-      },
-      {
-        "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/976a73eb92cb0ebc3a82da48834d75dff81fd95fe7052ba0a1152e83e86e2711.json",
-        "sha256": "sha256:9700c0bf886920879edf710ca942f988deaf3b7abb6ef5fd340cc5c900e09997"
-      }
-    ],
-    "owner_adopted_at": "2026-07-14T20:50:24-07:00",
-    "owner_confirmed_at": "2026-07-14T20:50:24-07:00",
-    "quiescence_started_at": "2026-07-14T18:09:26.451771-07:00",
-    "scratch_provenance_record": {
-      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/scratch-provenance-confirmation.json",
-      "sha256": "sha256:65c947f16e8b621a27208b380af0eacd11e0c91afa2685bd1045a9efb1a8ee18",
-      "status": "owner_confirmed_unchanged"
-    },
-    "status": "current"
-  },
-  "phase": "pre_edit",
-  "post_incident_pre_edit_capture": {
-    "capture_commit": "80a8bf35a503f122af534e26609be7a18417cdec",
-    "capture_completed_at": "2026-07-14T18:12:03.580729-07:00",
-    "current_completion_ref": "#/final_quiescence_recheck",
-    "current_owner_attestation_state_ref": "#/owner_attestation_state",
-    "dedicated_runtime_evidence_root": {
-      "canonical_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
-      "complete_result_equal_to_pre_incident_scan": true,
-      "empty_before_and_after": true,
-      "matching_counts": {
-        "call_frame_count": 0,
-        "consumer_count": 0,
-        "nonterminal_run_count": 0,
-        "terminal_run_count": 0
-      },
-      "normalized_scan_digest": "sha256:c86d1b85fa14db23af62b79bcc60ad5e7f6a73689cfa22b97c3aca412fb99e8d",
-      "query_finished_at": "2026-07-14T18:09:26.452089-07:00",
-      "query_started_at": "2026-07-14T18:09:26.451771-07:00",
-      "store_counts": {
-        "nonterminal_run_count": 0,
-        "terminal_run_count": 0
-      },
-      "symlink_components": []
-    },
-    "guards": {
-      "frozen_baseline_sha256": "sha256:167e0cb48c857acc728058fe0bfa7bcc8939ef1457c34768389ff1fb4035af9d",
-      "old_build_and_inputs_unchanged": true,
-      "protected_paths_unchanged": true,
-      "scratch_top_level_workspace_count": 0,
-      "source_edit_performed": false,
-      "source_sha256": "sha256:3a03feac563834cf8b9a0c1a329d006b82ad6ee210537b3e82fc0de786171bfb",
-      "staging_empty": true
-    },
-    "incident": {
-      "disposition": "quiescence_broken_precommit",
-      "owner_acceptance": "not_asserted",
-      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/incidents/2026-07-14T17-59-23-314337202-07-00-ephemeral-runtime-test.json",
-      "sha256": "sha256:2218247a71a95429d174d031c8bf6e8bc5a7cc5fb370366fc8eae11b7e76a92a"
-    },
-    "legacy_repository_root": {
-      "canonical_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/runs",
-      "complete_result_equal_to_pre_incident_scan": true,
-      "matching_counts": {
-        "call_frame_count": 0,
-        "consumer_count": 0,
-        "nonterminal_run_count": 0,
-        "terminal_run_count": 0
-      },
-      "normalized_scan_digest": "sha256:7f6e4749a01e820737f6e0af84f4c9ad905fab37d57d84ad5c7d0aa005be1709",
-      "query_finished_at": "2026-07-14T18:11:39.336114-07:00",
-      "query_started_at": "2026-07-14T18:09:50.539117-07:00",
-      "store_counts": {
-        "nonterminal_run_count": 90,
-        "terminal_run_count": 4074
-      },
-      "symlink_components": [],
-      "tree_snapshot_after": {
-        "digest": "sha256:7f2b7c8b11ef9c8952969cc1c9e708feea78717986f0d88008a6ed4145b2541b",
-        "digest_encoding": "sorted _store_tree_snapshot tuples encoded as UTF-8 JSON; separators=(',', ':'); ensure_ascii=false",
-        "entry_count": 418108
-      },
-      "tree_snapshot_before": {
-        "digest": "sha256:7f2b7c8b11ef9c8952969cc1c9e708feea78717986f0d88008a6ed4145b2541b",
-        "digest_encoding": "sorted _store_tree_snapshot tuples encoded as UTF-8 JSON; separators=(',', ':'); ensure_ascii=false",
-        "entry_count": 418108
-      },
-      "tree_snapshot_equal": true
-    },
-    "pre_edit_known_store_scans_sha256": "sha256:422e465bc1391fd2ea186490f39c59ff677f9cd9b1c502ba70f684d38b54f155",
-    "proposed_quiescence": {
-      "owner_adopted_at": "2026-07-14T20:50:24-07:00",
-      "owner_confirmed_at": "2026-07-14T20:50:24-07:00",
-      "started_at": "2026-07-14T18:09:26.451771-07:00",
-      "status": "superseded_historical",
-      "status_at_capture": "proposed_not_owner_confirmed",
-      "subsequent_status": "owner_confirmed_active"
-    },
-    "query_identity_count": 64,
-    "query_list_sha256": "sha256:e5236ce42b60679811d7c3c7ec688162de49cbd260cc30900b9458a56953a520",
-    "query_version": "procedure-identity-store-query.v1",
-    "status": "superseded_historical",
-    "status_at_capture": "complete_pending_replacement_owner_attestations_and_quiescence",
-    "task_2_selection_status": "not_selected"
-  },
-  "pre_source_selection_recheck": {
-    "capture_commit": "80a8bf35a503f122af534e26609be7a18417cdec",
-    "dedicated_runtime_evidence_root": {
-      "canonical_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
-      "complete_result_equal": true,
-      "descendant_count": 0,
-      "empty": true,
-      "matching_counts": {
-        "call_frame_count": 0,
-        "consumer_count": 0,
-        "nonterminal_run_count": 0,
-        "terminal_run_count": 0
-      },
-      "normalized_scan_digest": "sha256:c86d1b85fa14db23af62b79bcc60ad5e7f6a73689cfa22b97c3aca412fb99e8d",
-      "query_finished_at": "2026-07-14T17:50:09.589016-07:00",
-      "query_started_at": "2026-07-14T17:50:09.588723-07:00",
-      "store_counts": {
-        "nonterminal_run_count": 0,
-        "terminal_run_count": 0
-      }
-    },
-    "frozen_baseline_sha256": "sha256:167e0cb48c857acc728058fe0bfa7bcc8939ef1457c34768389ff1fb4035af9d",
-    "invalidated_by_incident": {
-      "disposition": "quiescence_broken_precommit",
-      "owner_acceptance": "not_asserted",
-      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/incidents/2026-07-14T17-59-23-314337202-07-00-ephemeral-runtime-test.json",
-      "sha256": "sha256:2218247a71a95429d174d031c8bf6e8bc5a7cc5fb370366fc8eae11b7e76a92a"
-    },
-    "invalidation_reason": "quiescence_broken_precommit",
-    "legacy_entries_newer_than_quiescence": {
-      "count": 0,
-      "quiescence_started_at": "2026-07-14T12:52:57-07:00"
-    },
-    "legacy_repository_root": {
-      "canonical_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/runs",
-      "complete_result_equal": true,
-      "matching_counts": {
-        "call_frame_count": 0,
-        "consumer_count": 0,
-        "nonterminal_run_count": 0,
-        "terminal_run_count": 0
-      },
-      "normalized_scan_digest": "sha256:7f6e4749a01e820737f6e0af84f4c9ad905fab37d57d84ad5c7d0aa005be1709",
-      "query_finished_at": "2026-07-14T17:52:21.114874-07:00",
-      "query_started_at": "2026-07-14T17:50:33.336682-07:00",
-      "store_counts": {
-        "nonterminal_run_count": 90,
-        "terminal_run_count": 4074
-      },
-      "tree_snapshot_after": {
-        "digest": "sha256:7f2b7c8b11ef9c8952969cc1c9e708feea78717986f0d88008a6ed4145b2541b",
-        "digest_encoding": "sorted _store_tree_snapshot tuples encoded as UTF-8 JSON; separators=(',', ':'); ensure_ascii=false",
-        "entry_count": 418108
-      },
-      "tree_snapshot_before": {
-        "digest": "sha256:7f2b7c8b11ef9c8952969cc1c9e708feea78717986f0d88008a6ed4145b2541b",
-        "digest_encoding": "sorted _store_tree_snapshot tuples encoded as UTF-8 JSON; separators=(',', ':'); ensure_ascii=false",
-        "entry_count": 418108
-      },
-      "tree_snapshot_equal": true
-    },
-    "pilot_source_sha256": "sha256:3a03feac563834cf8b9a0c1a329d006b82ad6ee210537b3e82fc0de786171bfb",
-    "preservation": "Preserved as historical machine evidence; it is not a current quiescence or source-selection authorization.",
-    "query_list_sha256": "sha256:e5236ce42b60679811d7c3c7ec688162de49cbd260cc30900b9458a56953a520",
-    "query_version": "procedure-identity-store-query.v1",
-    "recheck_commit": "80a8bf35a503f122af534e26609be7a18417cdec",
-    "source_edit_performed": false,
-    "staging_empty": true,
-    "status": "invalidated_historical"
-  },
-  "production_build": {
-    "build_version": "workflow_lisp_build.v1",
-    "canonical_entry_workflow": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
-    "compiler_version": "0.1.0",
-    "diagnostic_count": 0,
-    "fingerprint": "1846aadf44d55bb2",
-    "frontend_manifest_schema_version": "workflow_lisp_build.v1",
-    "lowering_route": "wcc_m4",
-    "lowering_schema_version": 2,
-    "requested_entry": "design-plan-impl-review-stack",
-    "selected_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
-    "shared_validation_status": "validated"
-  },
-  "schema": "procedure_first_pilot_evidence_index.v1",
-  "source_edit_performed": false,
-  "superseded_pre_readoption_owner_attestation_state": {
-    "owner_acceptance_of_incident": "not_asserted",
-    "pre_incident_scan": {
-      "availability": "not_retained_precommit",
-      "limitation": "Historical digest metadata only; the original bytes were not retained before the path was replaced and this is not a resolvable current artifact.",
-      "original_path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/pre_edit_known_store_scans.json",
-      "sha256": "sha256:4327e1eae4726d6cb4fbe5e104ef53e824b58e8f98f618eb2526c5cdd340ee9b"
-    },
-    "reason": "Both known-store owner records and their index bind the pre-incident scan sha256:4327e1eae4726d6cb4fbe5e104ef53e824b58e8f98f618eb2526c5cdd340ee9b; the authoritative scan artifact is now sha256:422e465bc1391fd2ea186490f39c59ff677f9cd9b1c502ba70f684d38b54f155.",
-    "replacement_paths": [
-      "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/5d83254c4025be7659c835d00097957696367a4cbca5fa21f26d9473242f8d35.json",
-      "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/976a73eb92cb0ebc3a82da48834d75dff81fd95fe7052ba0a1152e83e86e2711.json"
-    ],
-    "scratch_provenance_record": {
-      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/scratch-provenance-confirmation.json",
-      "sha256": "sha256:65c947f16e8b621a27208b380af0eacd11e0c91afa2685bd1045a9efb1a8ee18",
-      "status": "owner_confirmed_unchanged"
-    },
-    "stale_attestation_index": {
-      "availability": "not_retained_precommit",
-      "bound_scan_metadata_ref": "#/superseded_pre_readoption_owner_attestation_state/pre_incident_scan",
-      "limitation": "Historical digest metadata only; the original bytes were not retained before the path was replaced and this is not a resolvable current artifact.",
-      "original_path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json",
-      "sha256": "sha256:503089f82e817988e7e810da07c732d4af01a2b2d10e678ac7c5ff19a851fcf3"
-    },
-    "stale_known_store_records": [
-      {
-        "availability": "not_retained_precommit",
-        "bound_scan_metadata_ref": "#/superseded_pre_readoption_owner_attestation_state/pre_incident_scan",
-        "limitation": "Historical digest metadata only; the original bytes were not retained before the path was replaced and this is not a resolvable current artifact.",
-        "original_path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/5d83254c4025be7659c835d00097957696367a4cbca5fa21f26d9473242f8d35.json",
-        "sha256": "sha256:9ff04a3cabe559d32ed1e23228a7aa92a1b0eb9a45807f2565d64e798cc7453d"
-      },
-      {
-        "availability": "not_retained_precommit",
-        "bound_scan_metadata_ref": "#/superseded_pre_readoption_owner_attestation_state/pre_incident_scan",
-        "limitation": "Historical digest metadata only; the original bytes were not retained before the path was replaced and this is not a resolvable current artifact.",
-        "original_path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/976a73eb92cb0ebc3a82da48834d75dff81fd95fe7052ba0a1152e83e86e2711.json",
-        "sha256": "sha256:3a126f66a47cc5a820f54de14472f75dacac559d65ae71230c557bd1c1f850dc"
-      }
-    ],
-    "status": "superseded_historical",
-    "status_at_capture": "stale_pending_replacement"
-  },
-  "superseded_pre_timestamp_correction_final_quiescence_recheck": {
-    "attestation_index": {
-      "availability": "not_retained_precommit",
-      "limitation": "Historical digest metadata only; the original bytes were not retained before the path was replaced and this is not a resolvable current artifact.",
-      "original_path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json",
-      "sha256": "sha256:ea9fe5b90500f8fdea644fba597b133dfb9c7a96f1d9d693f9abb8b432d438ee"
-    },
-    "authoritative_scan": {
-      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/pre_edit_known_store_scans.json",
-      "sha256": "sha256:422e465bc1391fd2ea186490f39c59ff677f9cd9b1c502ba70f684d38b54f155"
-    },
-    "capture_commit": "80a8bf35a503f122af534e26609be7a18417cdec",
-    "completed_at": "2026-07-14T20:38:55.415615-07:00",
-    "dedicated_runtime_evidence_root": {
-      "canonical_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
-      "complete_result_equal_to_authoritative_scan": true,
-      "descendant_count": 0,
-      "empty": true,
-      "matching_counts": {
-        "call_frame_count": 0,
-        "consumer_count": 0,
-        "nonterminal_run_count": 0,
-        "terminal_run_count": 0
-      },
-      "normalized_scan_digest": "sha256:c86d1b85fa14db23af62b79bcc60ad5e7f6a73689cfa22b97c3aca412fb99e8d",
-      "query_finished_at": "2026-07-14T20:36:37.166509-07:00",
-      "query_started_at": "2026-07-14T20:36:37.166139-07:00",
-      "store_counts": {
-        "nonterminal_run_count": 0,
-        "terminal_run_count": 0
-      }
-    },
-    "guards": {
-      "dedicated_descendant_count": 0,
-      "frozen_baseline_sha256": "sha256:167e0cb48c857acc728058fe0bfa7bcc8939ef1457c34768389ff1fb4035af9d",
-      "protected_paths_unchanged": true,
-      "scratch_top_level_workspace_count": 0,
-      "source_edit_performed": false,
-      "source_sha256": "sha256:3a03feac563834cf8b9a0c1a329d006b82ad6ee210537b3e82fc0de786171bfb",
-      "staging_empty": true
-    },
-    "legacy_repository_root": {
-      "canonical_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/runs",
-      "complete_result_equal_to_authoritative_scan": true,
-      "entries_newer_than_quiescence": {
-        "count": 0,
-        "quiescence_started_at": "2026-07-14T18:12:03.580729-07:00"
-      },
-      "matching_counts": {
-        "call_frame_count": 0,
-        "consumer_count": 0,
-        "nonterminal_run_count": 0,
-        "terminal_run_count": 0
-      },
-      "normalized_scan_digest": "sha256:7f6e4749a01e820737f6e0af84f4c9ad905fab37d57d84ad5c7d0aa005be1709",
-      "query_finished_at": "2026-07-14T20:38:27.116526-07:00",
-      "query_started_at": "2026-07-14T20:36:37.166519-07:00",
-      "store_counts": {
-        "nonterminal_run_count": 90,
-        "terminal_run_count": 4074
-      },
-      "tree_snapshot_after": {
-        "digest": "sha256:7f2b7c8b11ef9c8952969cc1c9e708feea78717986f0d88008a6ed4145b2541b",
-        "digest_encoding": "sorted _store_tree_snapshot tuples encoded as UTF-8 JSON; separators=(',', ':'); ensure_ascii=false",
-        "entry_count": 418108
-      },
-      "tree_snapshot_before": {
-        "digest": "sha256:7f2b7c8b11ef9c8952969cc1c9e708feea78717986f0d88008a6ed4145b2541b",
-        "digest_encoding": "sorted _store_tree_snapshot tuples encoded as UTF-8 JSON; separators=(',', ':'); ensure_ascii=false",
-        "entry_count": 418108
-      },
-      "tree_snapshot_equal": true
-    },
-    "quiescence_started_at": "2026-07-14T18:12:03.580729-07:00",
-    "status": "superseded_historical",
-    "status_at_capture": "passed_current",
-    "superseded_reason": "owner-corrected quiescence start timestamp",
-    "task_2_selection_status": "not_selected"
-  },
-  "superseded_pre_timestamp_correction_owner_attestation_state": {
-    "attestation_index": {
-      "availability": "not_retained_precommit",
-      "limitation": "Historical digest metadata only; the original bytes were not retained before the path was replaced and this is not a resolvable current artifact.",
-      "original_path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/index.json",
-      "sha256": "sha256:ea9fe5b90500f8fdea644fba597b133dfb9c7a96f1d9d693f9abb8b432d438ee"
-    },
-    "incident": {
-      "disposition": "quiescence_broken_precommit",
-      "owner_acceptance": "not_asserted",
-      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/incidents/2026-07-14T17-59-23-314337202-07-00-ephemeral-runtime-test.json",
-      "sha256": "sha256:2218247a71a95429d174d031c8bf6e8bc5a7cc5fb370366fc8eae11b7e76a92a"
-    },
-    "incident_acknowledged_by_owner": true,
-    "known_store_records": [
-      {
-        "availability": "not_retained_precommit",
-        "limitation": "Historical digest metadata only; the original bytes were not retained before the path was replaced and this is not a resolvable current artifact.",
-        "original_path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/5d83254c4025be7659c835d00097957696367a4cbca5fa21f26d9473242f8d35.json",
-        "sha256": "sha256:4423ce49c517f6448df4d08a5f825d6e7784f529003311699d2df8b2cb1f8114"
-      },
-      {
-        "availability": "not_retained_precommit",
-        "limitation": "Historical digest metadata only; the original bytes were not retained before the path was replaced and this is not a resolvable current artifact.",
-        "original_path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/976a73eb92cb0ebc3a82da48834d75dff81fd95fe7052ba0a1152e83e86e2711.json",
-        "sha256": "sha256:a373c75713be27f412aeb3f55d3507d3efdd7f59ee20a9d483625e517a6d0405"
-      }
-    ],
-    "owner_adopted_at": "2026-07-14T20:30:50-07:00",
-    "owner_confirmed_at": "2026-07-14T20:30:50-07:00",
-    "quiescence_started_at": "2026-07-14T18:12:03.580729-07:00",
-    "scratch_provenance_record": {
-      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/pre-edit/scratch-provenance-confirmation.json",
-      "sha256": "sha256:65c947f16e8b621a27208b380af0eacd11e0c91afa2685bd1045a9efb1a8ee18",
-      "status": "owner_confirmed_unchanged"
-    },
-    "status": "superseded_historical",
-    "status_at_capture": "current"
-  }
+  "claims_not_made": [
+    "This routing index is not owner authority and is not a run or resume input.",
+    "The owner-confirmed release authorizes only the deferred Task 5 family-parity, focused, and broad gates; it does not assert that any Task 5 gate ran.",
+    "Actual-pilot checksum negatives and pilot completion are not asserted."
+  ]
 }

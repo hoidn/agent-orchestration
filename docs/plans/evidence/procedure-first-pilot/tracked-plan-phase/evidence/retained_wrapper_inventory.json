@@ -1,0 +1,16 @@
+{
+  "schema": "workflow_lisp_procedure_retirement_inventory.v1",
+  "module": "examples/design_plan_impl_review_stack_v2_call",
+  "retained_public_entry": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack",
+  "internal_callee": "tracked-plan-phase",
+  "exported_entries": [
+    "design-plan-impl-review-stack"
+  ],
+  "public_entries": [
+    "design-plan-impl-review-stack"
+  ],
+  "registered_public_entries": [
+    "design-plan-impl-review-stack"
+  ],
+  "reviewed_call_site": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack/examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase"
+}

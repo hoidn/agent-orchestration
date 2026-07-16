@@ -1,0 +1,52 @@
+{
+  "build_version": "workflow_lisp_build.v1",
+  "compiler_version": "0.1.0",
+  "entry_workflow": "design-plan-impl-review-stack",
+  "inputs": {
+    "command_boundaries": {
+      "path": "inputs/command_boundaries.json",
+      "sha256": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+    },
+    "prompt_externs": {
+      "path": "inputs/prompt_externs.json",
+      "sha256": "sha256:8114b8622236a43c83c8c3430334ac61003921b7b03c8977b7334a8d0c643a5d"
+    },
+    "provider_externs": {
+      "path": "inputs/provider_externs.json",
+      "sha256": "sha256:901e5fa2a1f69c05e44225d3de63ae98a3af0d2ea65710fa9def88273a632919"
+    },
+    "source": {
+      "path": "new/source.orc",
+      "sha256": "sha256:be0a2660444488793169d8016152f62ab0996213c32632be334c03c2b31c1624"
+    }
+  },
+  "lowering_route": "wcc_m4",
+  "outputs": {
+    "executable_ir": {
+      "path": "new/executable_ir.json",
+      "sha256": "sha256:5b683c920496a858aa3b1e82fd1d8777941f945eefcddffb4cb144dde0e38766"
+    },
+    "lexical_checkpoint_points": {
+      "path": "new/lexical_checkpoint_points.json",
+      "sha256": "sha256:f73b8bc136524d6fbc52b423da712bef32b704cd4328046e2672a8468df7185a"
+    },
+    "runtime_plan": {
+      "path": "new/runtime_plan.json",
+      "sha256": "sha256:4119d678d53b31e090f9f588c0663b1a9f697e47fbc891c6cb121bf31dd2b566"
+    },
+    "semantic_ir": {
+      "path": "new/semantic_ir.json",
+      "sha256": "sha256:777d6e3a11fe48bac17f656c6051106cb374ba2617fa11353b57e8b64943ec30"
+    },
+    "source_map": {
+      "path": "new/source_map.json",
+      "sha256": "sha256:405df494812eddb03dcc3daf072015147f544f3cbedc33d768607e172244ff2d"
+    },
+    "typed_frontend_ast": {
+      "path": "new/typed_frontend_ast.json",
+      "sha256": "sha256:e998cf88261cf8e98eb24bd3da787781c49b43d6c1f2cc4f46822406b2c613c5"
+    }
+  },
+  "schema_version": "workflow_lisp_procedure_retirement_build_manifest.v1",
+  "side": "new"
+}

@@ -1,0 +1,149 @@
+{
+  "execution_order": {
+    "new": [
+      {
+        "contract_kind": "artifact",
+        "name": "return__design_path",
+        "position": 0,
+        "semantic_step_role": "workflow_return_artifact"
+      },
+      {
+        "contract_kind": "result_field",
+        "name": "return__design_review_decision",
+        "position": 1,
+        "semantic_step_role": "workflow_return_field"
+      },
+      {
+        "contract_kind": "artifact",
+        "name": "return__design_review_report_path",
+        "position": 2,
+        "semantic_step_role": "workflow_return_artifact"
+      },
+      {
+        "contract_kind": "artifact",
+        "name": "return__execution_report_path",
+        "position": 3,
+        "semantic_step_role": "workflow_return_artifact"
+      },
+      {
+        "contract_kind": "result_field",
+        "name": "return__implementation_review_decision",
+        "position": 4,
+        "semantic_step_role": "workflow_return_field"
+      },
+      {
+        "contract_kind": "artifact",
+        "name": "return__implementation_review_report_path",
+        "position": 5,
+        "semantic_step_role": "workflow_return_artifact"
+      },
+      {
+        "contract_kind": "artifact",
+        "name": "return__plan_path",
+        "position": 6,
+        "semantic_step_role": "workflow_return_artifact"
+      },
+      {
+        "contract_kind": "result_field",
+        "name": "return__plan_review_decision",
+        "position": 7,
+        "semantic_step_role": "workflow_return_field"
+      },
+      {
+        "contract_kind": "artifact",
+        "name": "return__plan_review_report_path",
+        "position": 8,
+        "semantic_step_role": "workflow_return_artifact"
+      }
+    ],
+    "old": [
+      {
+        "contract_kind": "artifact",
+        "name": "return__design_path",
+        "position": 0,
+        "semantic_step_role": "workflow_return_artifact"
+      },
+      {
+        "contract_kind": "result_field",
+        "name": "return__design_review_decision",
+        "position": 1,
+        "semantic_step_role": "workflow_return_field"
+      },
+      {
+        "contract_kind": "artifact",
+        "name": "return__design_review_report_path",
+        "position": 2,
+        "semantic_step_role": "workflow_return_artifact"
+      },
+      {
+        "contract_kind": "artifact",
+        "name": "return__execution_report_path",
+        "position": 3,
+        "semantic_step_role": "workflow_return_artifact"
+      },
+      {
+        "contract_kind": "result_field",
+        "name": "return__implementation_review_decision",
+        "position": 4,
+        "semantic_step_role": "workflow_return_field"
+      },
+      {
+        "contract_kind": "artifact",
+        "name": "return__implementation_review_report_path",
+        "position": 5,
+        "semantic_step_role": "workflow_return_artifact"
+      },
+      {
+        "contract_kind": "artifact",
+        "name": "return__plan_path",
+        "position": 6,
+        "semantic_step_role": "workflow_return_artifact"
+      },
+      {
+        "contract_kind": "result_field",
+        "name": "return__plan_review_decision",
+        "position": 7,
+        "semantic_step_role": "workflow_return_field"
+      },
+      {
+        "contract_kind": "artifact",
+        "name": "return__plan_review_report_path",
+        "position": 8,
+        "semantic_step_role": "workflow_return_artifact"
+      }
+    ]
+  },
+  "lineage_notes": [
+    {
+      "call_site_note": "procedure call site at /home/ollie/Documents/agent-orchestration/workflows/examples/design_plan_impl_review_stack_v2_call.orc:240:14",
+      "executable_node": "root.examples_design_plan_impl_review_stack_v2_call_design_plan_impl_review_stack__plan__examples_design_plan_impl_review_stack_v2_call_tracked_plan_phase_1__draft",
+      "procedure_definition_note": "procedure definition at /home/ollie/Documents/agent-orchestration/workflows/examples/design_plan_impl_review_stack_v2_call.orc:163:3",
+      "source_map_origin": "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack::step_id::examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack__plan__examples/design_plan_impl_review_stack_v2_call::tracked-plan-phase_1__draft"
+    }
+  ],
+  "recovery_authorizations": {
+    "fresh_child_resume": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/task-3/fresh-child-resume-recovery-authorization.json",
+      "sha256": "sha256:909b6f69cef824239c9ff83b8968a20a800aa798f192648dd697b2a62c9590b2"
+    },
+    "interrupted_run": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/attestations/task-3/interrupted-run-recovery-authorization.json",
+      "sha256": "sha256:bb0f3bb01ec3ef74b91186a9f227c0b6f41285549cdf176f827a7e8665a5fc0e"
+    }
+  },
+  "retained_run_evidence": {
+    "clean_run": {
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/clean_run.json",
+      "run_id": "tracked-plan-phase-clean-new-id",
+      "status": "completed"
+    },
+    "interruption_resume": {
+      "interruption_checkpoint_id": "ckpt:85bebe726bc9eed0e4ee7c63",
+      "path": "docs/plans/evidence/procedure-first-pilot/tracked-plan-phase/evidence/interruption_resume.json",
+      "reused_only_new_id_work": true,
+      "run_id": "tracked-plan-phase-interrupted-new-id",
+      "status": "completed"
+    }
+  },
+  "schema": "procedure_first_pilot_execution_order.v1"
+}
