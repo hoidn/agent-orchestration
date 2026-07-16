@@ -31,9 +31,13 @@ from .references import ReferenceResolutionError
 from .resume_projection_integrity import (
     CallFrameRetryLineage,
     CallFrameRetryLineageError,
+    ResumeProjectionIntegrityError,
+    ResumeScopePath,
+    audit_scope,
     index_retry_lineage,
     next_unused_retry_frame_id,
 )
+from .state_projection import ResumeProjectionValidationError
 from . import step_results
 
 
@@ -70,6 +74,101 @@ class CallExecutor:
             frame_items,
             frontend_kind=frontend_kind,
         )
+
+    @staticmethod
+    def _projection_integrity_failed_result(
+        error: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        """Promote one pure projection diagnostic through the call result channel."""
+        return {
+            "status": "failed",
+            "exit_code": 2,
+            "duration_ms": 0,
+            "error": error,
+        }
+
+    def _resume_scope_path(self) -> ResumeScopePath:
+        scope_path = getattr(self.executor, "resume_scope_path", None)
+        if isinstance(scope_path, ResumeScopePath):
+            return scope_path
+        provenance = workflow_provenance(self.executor.loaded_bundle)
+        workflow_path = provenance.workflow_path if provenance is not None else None
+        return ResumeScopePath.root(str(workflow_path))
+
+    def _current_call_boundary(
+        self,
+        *,
+        step_id: str,
+        state: Mapping[str, Any],
+    ) -> Any:
+        """Resolve the exact current call boundary without parsing its identity."""
+        try:
+            slot_index = self.executor.projection.enumerate_resume_slots(state)
+        except ResumeProjectionValidationError:
+            audit_scope(
+                self.executor.loaded_bundle,
+                state,
+                self._resume_scope_path(),
+            )
+            raise AssertionError("projection validation passed after slot failure")
+        resolution = self.executor.projection.resolve_call_boundary(
+            slot_index,
+            step_id,
+        )
+        if resolution.candidate_count == 1:
+            assert resolution.boundary is not None
+            return resolution.boundary
+
+        synthetic_state = {
+            key: value
+            for key, value in state.items()
+            if key in {
+                "workflow_checksum",
+                "steps",
+                "for_each",
+                "repeat_until",
+            }
+        }
+        synthetic_state["call_frames"] = {
+            "__reached_call__": {
+                "status": "running",
+                "call_step_id": step_id,
+                "import_alias": "",
+            }
+        }
+        audit_scope(
+            self.executor.loaded_bundle,
+            synthetic_state,
+            self._resume_scope_path(),
+        )
+        raise AssertionError("unreachable call-boundary resolution")
+
+    def _allocate_retry_frame_id(
+        self,
+        lineage: CallFrameRetryLineage,
+        provisional_frame_id: str,
+        *,
+        step_id: str,
+        call_frames: Mapping[str, Any],
+        imported_workflow: Any,
+    ) -> str:
+        """Rederive and authorize one fresh retry only after history validation."""
+        reindexed = self._retry_lineage_for_step(
+            step_id=step_id,
+            call_frames=call_frames,
+            imported_workflow=imported_workflow,
+        )
+        allocated_frame_id = next_unused_retry_frame_id(reindexed)
+        if (
+            reindexed != lineage
+            or allocated_frame_id != provisional_frame_id
+        ):
+            raise CallFrameRetryLineageError(
+                "ambiguous_resumable_call_frame",
+                frame_id=allocated_frame_id,
+                offending_value=allocated_frame_id,
+            )
+        return allocated_frame_id
 
     @staticmethod
     def _source_ref_for_address(bundle: Any, address: Any) -> Optional[str]:
@@ -823,20 +922,56 @@ class CallExecutor:
         from .call_frame_state import _CallFrameStateManager
         from .executor import WorkflowExecutor
 
-        call_alias = step.get("call")
-        imported_bundle = workflow_import_bundle(self.executor.loaded_bundle, call_alias)
-        imported_target = imported_bundle
         step_name = step_name_override or step.get("name", f"step_{self.executor.current_step}")
         step_id = runtime_step_id or self.executor._step_id(step)
-        if imported_target is None:
+        authored_call_alias = step.get("call")
+        try:
+            boundary = self._current_call_boundary(
+                step_id=step_id,
+                state=state,
+            )
+        except ResumeProjectionIntegrityError as exc:
+            return self._projection_integrity_failed_result(exc.error)
+        call_alias = boundary.import_alias
+        imported_bundle = workflow_import_bundle(
+            self.executor.loaded_bundle,
+            call_alias,
+        )
+        imported_target = imported_bundle
+        if (
+            authored_call_alias != call_alias
+            and workflow_import_bundle(
+                self.executor.loaded_bundle,
+                authored_call_alias,
+            ) is None
+        ):
             return step_results.contract_violation_result(
                 "Call execution failed",
                 {
                     "step": step_name,
                     "reason": "unknown_import_alias",
-                    "call": call_alias,
+                    "call": authored_call_alias,
                 },
             )
+        if imported_target is None:
+            try:
+                audit_scope(
+                    self.executor.loaded_bundle,
+                    {
+                        **state,
+                        "call_frames": {
+                            "__reached_call__": {
+                                "status": "running",
+                                "call_step_id": step_id,
+                                "import_alias": call_alias,
+                            }
+                        },
+                    },
+                    self._resume_scope_path(),
+                )
+            except ResumeProjectionIntegrityError as exc:
+                return self._projection_integrity_failed_result(exc.error)
+            raise AssertionError("missing imported bundle passed projection audit")
 
         bound_inputs, binding_error = self.resolve_bound_inputs(
             step,
@@ -849,74 +984,98 @@ class CallExecutor:
             return binding_error
         assert bound_inputs is not None
 
-        try:
-            frame_id = self.frame_id_with_overrides(
-                step,
-                state,
+        call_frames = state.get("call_frames", {})
+        fresh_frame_id = self._fresh_frame_id(
+            step,
+            state,
+            step_name=step_name,
+            step_id=step_id,
+        )
+        occupied_fresh_frame = (
+            call_frames.get(fresh_frame_id)
+            if isinstance(call_frames, Mapping)
+            else None
+        )
+        if (
+            self.executor.resume_mode
+            and isinstance(occupied_fresh_frame, Mapping)
+            and occupied_fresh_frame.get("status") == "completed"
+        ):
+            return self.resume_state_invalid_result(
                 step_name=step_name,
-                step_id=step_id,
-                imported_workflow=imported_target,
+                call_alias=call_alias,
+                frame_id=fresh_frame_id,
+                detail="completed_call_frame_id_collision",
+            )
+        if self.executor.resume_mode:
+            try:
+                audit_scope(
+                    self.executor.loaded_bundle,
+                    state,
+                    self._resume_scope_path(),
+                )
+            except ResumeProjectionIntegrityError as exc:
+                return self._projection_integrity_failed_result(exc.error)
+        if not isinstance(call_frames, dict):
+            call_frames = {}
+            state["call_frames"] = call_frames
+
+        try:
+            retry_lineage = (
+                self._retry_lineage_for_step(
+                    step_id=step_id,
+                    call_frames=call_frames,
+                    imported_workflow=imported_target,
+                )
+                if self.executor.resume_mode
+                else None
             )
         except CallFrameRetryLineageError as exc:
             return self.resume_state_invalid_result(
                 step_name=step_name,
                 call_alias=call_alias,
-                frame_id=self._fresh_frame_id(
-                    step,
-                    state,
-                    step_name=step_name,
-                    step_id=step_id,
-                ),
+                frame_id=fresh_frame_id,
                 detail=exc.reason,
             )
-        call_frames = state.get("call_frames", {})
-        if self.executor.resume_mode and not isinstance(call_frames, dict):
-            return self.resume_state_invalid_result(
-                step_name=step_name,
-                call_alias=call_alias,
-                frame_id=frame_id,
-                detail="call_frames_not_mapping",
-            )
-        if not isinstance(call_frames, dict):
-            call_frames = {}
-            state["call_frames"] = call_frames
-        retry_lineage = (
-            self._retry_lineage_for_step(
-                step_id=step_id,
-                call_frames=call_frames,
-                imported_workflow=imported_target,
-            )
-            if self.executor.resume_mode
+
+        workflow_lisp_target = self._is_workflow_lisp_target(imported_target)
+        running_member = (
+            retry_lineage.running_member
+            if retry_lineage is not None
             else None
         )
-        frame_exists = frame_id in call_frames
-        existing_frame = call_frames.get(frame_id)
-        if (
-            self.executor.resume_mode
-            and frame_exists
-            and not isinstance(existing_frame, dict)
-        ):
-            return self.resume_state_invalid_result(
-                step_name=step_name,
-                call_alias=call_alias,
-                frame_id=frame_id,
-                detail="call_frame_not_mapping",
-            )
-
-        child_existing_frame = existing_frame if isinstance(existing_frame, dict) else None
-        child_resume = self.executor.resume_mode and child_existing_frame is not None
         force_fresh_workflow_lisp_retry = (
             retry_lineage is not None
-            and self._is_workflow_lisp_target(imported_target)
-            and retry_lineage.running_member is None
+            and workflow_lisp_target
+            and running_member is None
             and bool(retry_lineage.failed_predecessors)
         )
-        if force_fresh_workflow_lisp_retry:
-            assert retry_lineage is not None
-            frame_id = next_unused_retry_frame_id(retry_lineage)
-            existing_frame = None
-            child_existing_frame = None
-            child_resume = False
+        provisional_retry_frame_id = (
+            next_unused_retry_frame_id(retry_lineage)
+            if force_fresh_workflow_lisp_retry
+            else None
+        )
+        if isinstance(provisional_retry_frame_id, str):
+            frame_id = provisional_retry_frame_id
+        elif running_member is not None:
+            frame_id = running_member.frame_id
+        else:
+            frame_id = fresh_frame_id
+
+        existing_frame = (
+            call_frames.get(frame_id)
+            if not force_fresh_workflow_lisp_retry
+            else None
+        )
+        child_existing_frame = (
+            existing_frame
+            if isinstance(existing_frame, dict)
+            else None
+        )
+        child_resume = (
+            self.executor.resume_mode
+            and child_existing_frame is not None
+        )
 
         bound_inputs, finalization_error = self.finalize_bound_inputs(
             step=step,
@@ -948,26 +1107,108 @@ class CallExecutor:
         if write_root_error is not None:
             return write_root_error
 
-        checksum_error = self.validate_resume_checksum(
-            step_name=step_name,
-            call_alias=call_alias,
-            frame_id=frame_id,
-            imported_workflow=imported_target,
-            existing_frame=existing_frame if isinstance(existing_frame, dict) else None,
-        )
-        if checksum_error is not None:
-            return checksum_error
+        resume_validation: Mapping[str, Any] = {
+            "status": "fresh",
+            "diagnostics": (),
+        }
+        if (
+            self.executor.resume_mode
+            and workflow_lisp_target
+            and running_member is not None
+        ):
+            checksum_error = self.validate_resume_checksum(
+                step_name=step_name,
+                call_alias=call_alias,
+                frame_id=running_member.frame_id,
+                imported_workflow=imported_target,
+                existing_frame=dict(running_member.frame),
+            )
+            if checksum_error is not None:
+                return checksum_error
+            resume_bound_input_error, resume_validation = self.validate_resume_bound_inputs(
+                step_name=step_name,
+                call_alias=call_alias,
+                frame_id=running_member.frame_id,
+                imported_workflow=imported_target,
+                existing_frame=dict(running_member.frame),
+                expected_bound_inputs=bound_inputs,
+            )
+            if resume_bound_input_error is not None:
+                return resume_bound_input_error
 
-        resume_bound_input_error, resume_validation = self.validate_resume_bound_inputs(
-            step_name=step_name,
-            call_alias=call_alias,
-            frame_id=frame_id,
-            imported_workflow=imported_target,
-            existing_frame=existing_frame if isinstance(existing_frame, dict) else None,
-            expected_bound_inputs=bound_inputs,
-        )
-        if resume_bound_input_error is not None:
-            return resume_bound_input_error
+        if retry_lineage is not None and workflow_lisp_target:
+            for predecessor in retry_lineage.failed_predecessors:
+                checksum_error = self.validate_resume_checksum(
+                    step_name=step_name,
+                    call_alias=call_alias,
+                    frame_id=predecessor.frame_id,
+                    imported_workflow=imported_target,
+                    existing_frame=dict(predecessor.frame),
+                )
+                if checksum_error is not None:
+                    return checksum_error
+                try:
+                    audit_scope(
+                        imported_target,
+                        predecessor.frame.get("state"),
+                        self._resume_scope_path().child(predecessor.frame_id),
+                    )
+                except ResumeProjectionIntegrityError as exc:
+                    return self._projection_integrity_failed_result(exc.error)
+
+        if (
+            self.executor.resume_mode
+            and not workflow_lisp_target
+            and running_member is not None
+        ):
+            checksum_error = self.validate_resume_checksum(
+                step_name=step_name,
+                call_alias=call_alias,
+                frame_id=running_member.frame_id,
+                imported_workflow=imported_target,
+                existing_frame=dict(running_member.frame),
+            )
+            if checksum_error is not None:
+                return checksum_error
+            resume_bound_input_error, resume_validation = self.validate_resume_bound_inputs(
+                step_name=step_name,
+                call_alias=call_alias,
+                frame_id=running_member.frame_id,
+                imported_workflow=imported_target,
+                existing_frame=dict(running_member.frame),
+                expected_bound_inputs=bound_inputs,
+            )
+            if resume_bound_input_error is not None:
+                return resume_bound_input_error
+
+        if self.executor.resume_mode and running_member is not None:
+            try:
+                audit_scope(
+                    imported_target,
+                    running_member.frame.get("state"),
+                    self._resume_scope_path().child(running_member.frame_id),
+                )
+            except ResumeProjectionIntegrityError as exc:
+                return self._projection_integrity_failed_result(exc.error)
+
+        if force_fresh_workflow_lisp_retry:
+            assert retry_lineage is not None
+            assert provisional_retry_frame_id is not None
+            try:
+                frame_id = self._allocate_retry_frame_id(
+                    retry_lineage,
+                    provisional_retry_frame_id,
+                    step_id=step_id,
+                    call_frames=call_frames,
+                    imported_workflow=imported_target,
+                )
+            except CallFrameRetryLineageError as exc:
+                return self.resume_state_invalid_result(
+                    step_name=step_name,
+                    call_alias=call_alias,
+                    frame_id=provisional_retry_frame_id,
+                    detail=exc.reason,
+                )
 
         child_state_manager = _CallFrameStateManager(
             parent_manager=self.executor.state_manager,
@@ -979,6 +1220,7 @@ class CallExecutor:
             bound_inputs=bound_inputs,
             existing_frame=child_existing_frame,
             observability=self.executor.observability,
+            resume_scope_path=self._resume_scope_path().child(frame_id),
         )
         child_state_manager.update_bound_input_resume_validation(
             status=str(resume_validation.get("status", "fresh")),
@@ -989,7 +1231,7 @@ class CallExecutor:
             ],
         )
         child_executor = WorkflowExecutor(
-            workflow=imported_bundle or imported_workflow,
+            workflow=imported_target,
             workspace=self.executor.workspace,
             state_manager=child_state_manager,
             debug=self.executor.debug,

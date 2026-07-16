@@ -393,6 +393,20 @@ class WorkflowExecutor:
             )
         )
 
+    @property
+    def resume_scope_path(self) -> ResumeScopePath:
+        """Return the identity-only projection scope owned by this executor."""
+        manager_scope_path = getattr(
+            self.state_manager,
+            "resume_scope_path",
+            None,
+        )
+        if isinstance(manager_scope_path, ResumeScopePath):
+            return manager_scope_path
+        provenance = workflow_provenance(self.loaded_bundle)
+        workflow_path = provenance.workflow_path if provenance is not None else None
+        return ResumeScopePath.root(str(workflow_path))
+
     def _legacy_frontend_index(self) -> CompiledFrontendIndex:
         index = getattr(self, "_frontend_index", None)
         if not isinstance(index, CompiledFrontendIndex):

@@ -183,38 +183,57 @@ def _run_workflow(
     return final_state, persisted
 
 
-def _write_projection_integrity_call_graph(workspace: Path) -> Path:
+def _write_projection_integrity_call_graph(
+    workspace: Path,
+    *,
+    leaf_input: bool = False,
+) -> Path:
     """Write a generic root -> middle -> leaf imported-call graph."""
+    leaf_workflow = {
+        "version": "2.5",
+        "name": "projection-leaf",
+        "artifacts": {
+            "ready": {
+                "kind": "scalar",
+                "type": "bool",
+            }
+        },
+        "outputs": {
+            "ready": {
+                "kind": "scalar",
+                "type": "bool",
+                "from": {"ref": "root.steps.SetReady.artifacts.ready"},
+            }
+        },
+        "steps": [
+            {
+                "name": "SetReady",
+                "id": "set_ready",
+                "set_scalar": {
+                    "artifact": "ready",
+                    "value": True,
+                },
+            }
+        ],
+    }
+    if leaf_input:
+        leaf_workflow["inputs"] = {
+            "token": {
+                "kind": "scalar",
+                "type": "integer",
+            }
+        }
     _write_yaml(
         workspace / "imports" / "leaf.yaml",
-        {
-            "version": "2.5",
-            "name": "projection-leaf",
-            "artifacts": {
-                "ready": {
-                    "kind": "scalar",
-                    "type": "bool",
-                }
-            },
-            "outputs": {
-                "ready": {
-                    "kind": "scalar",
-                    "type": "bool",
-                    "from": {"ref": "root.steps.SetReady.artifacts.ready"},
-                }
-            },
-            "steps": [
-                {
-                    "name": "SetReady",
-                    "id": "set_ready",
-                    "set_scalar": {
-                        "artifact": "ready",
-                        "value": True,
-                    },
-                }
-            ],
-        },
+        leaf_workflow,
     )
+    leaf_call = {
+        "name": "InvokeLeaf",
+        "id": "invoke_leaf",
+        "call": "leaf",
+    }
+    if leaf_input:
+        leaf_call["with"] = {"token": 7}
     _write_yaml(
         workspace / "imports" / "middle.yaml",
         {
@@ -229,11 +248,7 @@ def _write_projection_integrity_call_graph(workspace: Path) -> Path:
                 }
             },
             "steps": [
-                {
-                    "name": "InvokeLeaf",
-                    "id": "invoke_leaf",
-                    "call": "leaf",
-                }
+                leaf_call
             ],
         },
     )
@@ -255,6 +270,67 @@ def _write_projection_integrity_call_graph(workspace: Path) -> Path:
             ],
         },
     )
+
+
+def _typed_workflow_lisp_import(parent_bundle, alias: str):
+    imported_bundle = workflow_import_bundle(parent_bundle, alias)
+    assert imported_bundle is not None
+    typed_bundle = replace(
+        imported_bundle,
+        provenance=replace(
+            imported_bundle.provenance,
+            frontend_kind="workflow_lisp",
+        ),
+    )
+    return replace(
+        parent_bundle,
+        imports=MappingProxyType(
+            {
+                **parent_bundle.imports,
+                alias: typed_bundle,
+            }
+        ),
+    )
+
+
+def _projection_call_frame(
+    manager: StateManager,
+    imported_bundle,
+    *,
+    frame_id: str,
+    status: str,
+    call_step_id: str,
+    import_alias: str,
+    bound_inputs: dict | None = None,
+    current_step_id: str | None = None,
+    checksum: str | None = None,
+) -> dict:
+    provenance = workflow_provenance(imported_bundle)
+    assert provenance is not None
+    child_state = {
+        "workflow_checksum": (
+            checksum
+            if checksum is not None
+            else manager.calculate_checksum(provenance.workflow_path)
+        ),
+        "steps": {},
+        "call_frames": {},
+    }
+    if current_step_id is not None:
+        child_state["current_step"] = {
+            "status": "running",
+            "name": "SetReady",
+            "step_id": current_step_id,
+        }
+    return {
+        "call_frame_id": frame_id,
+        "call_step_name": "InvokeLeaf",
+        "call_step_id": call_step_id,
+        "import_alias": import_alias,
+        "status": status,
+        "bound_inputs": dict(bound_inputs or {}),
+        "state": child_state,
+    }
 
 
 def test_imported_workflows_must_validate_independently(tmp_path: Path):
@@ -1240,6 +1316,7 @@ def test_resumed_parent_rejects_malformed_child_call_frame_state_without_overwri
     persisted = state_manager.load()
     persisted.call_frames = corrupt_call_frames
     state_manager._write_state()
+    before_resume = state_manager.load().to_dict()
     (tmp_path / "state").mkdir(exist_ok=True)
     (tmp_path / "state" / "resume-ready.txt").write_text("ready\n", encoding="utf-8")
     parent_default_resume_calls: list[dict] = []
@@ -1270,19 +1347,21 @@ def test_resumed_parent_rejects_malformed_child_call_frame_state_without_overwri
         }
         resumed_state = resume_executor.execute(resume=True)
 
-    assert len(parent_default_resume_calls) == 1
+    assert parent_default_resume_calls == []
     assert resumed_state["status"] == "failed"
-    error = resumed_state["steps"]["RunReviewLoop"]["error"]
-    assert error["type"] == "contract_violation"
-    assert error["context"] == {
-        "step": "RunReviewLoop",
-        "call": "review_loop",
-        "call_frame_id": "root.run_review_loop::visit::1",
-        "reason": "call_resume_state_invalid",
-        "detail": expected_detail,
-    }
+    error = resumed_state["error"]
+    assert error["type"] == "resume_projection_integrity_error"
+    assert error["context"]["reason"] == "unsupported_shape"
+    assert error["context"]["field"] == (
+        "call_frames"
+        if expected_detail == "call_frames_not_mapping"
+        else "call_frames.root.run_review_loop::visit::1"
+    )
     child_constructor.assert_not_called()
     assert resumed_state["call_frames"] == corrupt_call_frames
+    assert resumed_state["steps"] == before_resume["steps"]
+    assert resumed_state["step_visits"] == before_resume["step_visits"]
+    assert resumed_state.get("current_step") == before_resume.get("current_step")
     assert state_manager.load().call_frames == corrupt_call_frames
 
 
@@ -2351,6 +2430,530 @@ def test_workflow_lisp_retry_classification_uses_typed_frontend_kind_not_suffix(
     assert CallExecutor._is_workflow_lisp_target(suffix_only_bundle) is False
 
 
+def test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import audit_scope as real_audit_scope
+
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    middle_bundle = workflow_import_bundle(root_bundle, "middle")
+    assert middle_bundle is not None
+    manager = StateManager(tmp_path, run_id="reached-call-boundary-lineage")
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    executor = WorkflowExecutor(root_bundle, tmp_path, manager)
+    executor.resume_mode = True
+    frame_id = "root.invoke_middle::visit::1"
+    state = manager.load().to_dict()
+    state["step_visits"] = {"InvokeMiddle": 1}
+    state["call_frames"] = {
+        frame_id: _projection_call_frame(
+            manager,
+            middle_bundle,
+            frame_id=frame_id,
+            status="running",
+            call_step_id="root.invoke_middle",
+            import_alias="middle_duplicate_alias",
+        )
+    }
+    events: list[str] = []
+    original_import = workflow_import_bundle
+    original_resolve = executor.call_executor.resolve_bound_inputs
+
+    def record_import(parent_bundle, alias):
+        events.append("bundle")
+        return original_import(parent_bundle, alias)
+
+    def record_authored_inputs(*args, **kwargs):
+        events.append("authored_inputs")
+        return original_resolve(*args, **kwargs)
+
+    def record_lineage(bundle, audited_state, scope_path):
+        events.append("lineage")
+        return real_audit_scope(bundle, audited_state, scope_path)
+
+    with patch(
+        "orchestrator.workflow.calls.workflow_import_bundle",
+        side_effect=record_import,
+    ), patch.object(
+        executor.call_executor,
+        "resolve_bound_inputs",
+        side_effect=record_authored_inputs,
+    ), patch(
+        "orchestrator.workflow.calls.audit_scope",
+        side_effect=record_lineage,
+        create=True,
+    ), patch(
+        "orchestrator.workflow.call_frame_state._CallFrameStateManager",
+    ) as child_manager, patch(
+        "orchestrator.workflow.executor.WorkflowExecutor",
+    ) as child_executor:
+        child_manager.return_value._snapshot.return_value = state["call_frames"][frame_id]
+        child_executor.return_value.execute.return_value = {
+            "status": "completed",
+            "workflow_outputs": {},
+        }
+        result = executor.call_executor.execute_call(
+            materialize_projection_body_steps(root_bundle)[0],
+            state,
+        )
+
+    assert events == ["bundle", "authored_inputs", "lineage"]
+    assert result["error"]["type"] == "resume_projection_integrity_error"
+    assert result["error"]["context"]["reason"] == "persisted_import_alias_mismatch"
+    child_manager.assert_not_called()
+    child_executor.assert_not_called()
+
+
+def test_reached_call_checksum_precedes_local_projection_failure(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import audit_scope as real_audit_scope
+
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    middle_bundle = workflow_import_bundle(root_bundle, "middle")
+    assert middle_bundle is not None
+    leaf_bundle = workflow_import_bundle(middle_bundle, "leaf")
+    assert leaf_bundle is not None
+    manager = StateManager(tmp_path, run_id="reached-call-checksum-precedence")
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    executor = WorkflowExecutor(middle_bundle, tmp_path, manager)
+    executor.resume_mode = True
+    frame_id = "root.invoke_leaf::visit::1"
+    state = manager.load().to_dict()
+    state["step_visits"] = {"InvokeLeaf": 1}
+    frame = _projection_call_frame(
+        manager,
+        leaf_bundle,
+        frame_id=frame_id,
+        status="running",
+        call_step_id="root.invoke_leaf",
+        import_alias="leaf",
+        current_step_id="root.removed_leaf_step",
+        checksum="sha256:" + ("0" * 64),
+    )
+    state["call_frames"] = {frame_id: frame}
+    child_audits: list[str] = []
+
+    def record_audit(bundle, audited_state, scope_path):
+        if scope_path.call_frame_ids:
+            child_audits.append(scope_path.call_frame_ids[-1])
+        return real_audit_scope(bundle, audited_state, scope_path)
+
+    with patch(
+        "orchestrator.workflow.calls.audit_scope",
+        side_effect=record_audit,
+        create=True,
+    ), patch(
+        "orchestrator.workflow.call_frame_state._CallFrameStateManager",
+    ) as child_manager:
+        checksum_result = executor.call_executor.execute_call(
+            materialize_projection_body_steps(middle_bundle)[0],
+            state,
+        )
+
+    assert checksum_result["error"]["type"] == "call_resume_checksum_mismatch"
+    assert child_audits == []
+    child_manager.assert_not_called()
+
+    provenance = workflow_provenance(leaf_bundle)
+    assert provenance is not None
+    frame["state"]["workflow_checksum"] = manager.calculate_checksum(
+        provenance.workflow_path
+    )
+    with patch(
+        "orchestrator.workflow.calls.audit_scope",
+        side_effect=record_audit,
+        create=True,
+    ), patch(
+        "orchestrator.workflow.call_frame_state._CallFrameStateManager",
+    ) as repaired_child_manager:
+        projection_result = executor.call_executor.execute_call(
+            materialize_projection_body_steps(middle_bundle)[0],
+            state,
+        )
+
+    assert projection_result["error"]["type"] == "resume_projection_integrity_error"
+    assert projection_result["error"]["context"]["reason"] == "out_of_scope_step_id"
+    assert child_audits == [frame_id]
+    repaired_child_manager.assert_not_called()
+
+
+def test_reached_call_running_workflow_lisp_guards_precede_failed_history_audit(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import audit_scope as real_audit_scope
+
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    middle_bundle = workflow_import_bundle(root_bundle, "middle")
+    assert middle_bundle is not None
+    middle_bundle = _typed_workflow_lisp_import(middle_bundle, "leaf")
+    leaf_bundle = workflow_import_bundle(middle_bundle, "leaf")
+    assert leaf_bundle is not None
+    manager = StateManager(tmp_path, run_id="reached-call-running-wfl-order")
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    executor = WorkflowExecutor(middle_bundle, tmp_path, manager)
+    executor.resume_mode = True
+    base_frame_id = "root.invoke_leaf::visit::1"
+    running_frame_id = f"{base_frame_id}::retry::1"
+    state = manager.load().to_dict()
+    state["step_visits"] = {"InvokeLeaf": 1}
+    state["call_frames"] = {
+        base_frame_id: _projection_call_frame(
+            manager,
+            leaf_bundle,
+            frame_id=base_frame_id,
+            status="failed",
+            call_step_id="root.invoke_leaf",
+            import_alias="leaf",
+            current_step_id="root.stale_failed_history",
+        ),
+        running_frame_id: _projection_call_frame(
+            manager,
+            leaf_bundle,
+            frame_id=running_frame_id,
+            status="running",
+            call_step_id="root.invoke_leaf",
+            import_alias="leaf",
+            checksum="sha256:" + ("0" * 64),
+        ),
+    }
+    child_audits: list[str] = []
+
+    def record_audit(bundle, audited_state, scope_path):
+        if scope_path.call_frame_ids:
+            child_audits.append(scope_path.call_frame_ids[-1])
+        return real_audit_scope(bundle, audited_state, scope_path)
+
+    with patch(
+        "orchestrator.workflow.calls.audit_scope",
+        side_effect=record_audit,
+        create=True,
+    ), patch(
+        "orchestrator.workflow.call_frame_state._CallFrameStateManager",
+    ) as child_manager:
+        result = executor.call_executor.execute_call(
+            materialize_projection_body_steps(middle_bundle)[0],
+            state,
+        )
+
+    assert result["error"]["type"] == "call_resume_checksum_mismatch"
+    assert result["error"]["context"]["call_frame_id"] == running_frame_id
+    assert child_audits == []
+    child_manager.assert_not_called()
+
+
+@pytest.mark.parametrize("status", ["running", "failed"])
+@pytest.mark.parametrize(
+    "winning_guard",
+    ["call_resume_checksum_mismatch", "call_resume_bound_input_mismatch"],
+)
+def test_reached_call_non_workflow_lisp_resumable_guards_precede_local_audit(
+    tmp_path: Path,
+    status: str,
+    winning_guard: str,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import audit_scope as real_audit_scope
+
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path, leaf_input=True)
+    )
+    middle_bundle = workflow_import_bundle(root_bundle, "middle")
+    assert middle_bundle is not None
+    leaf_bundle = workflow_import_bundle(middle_bundle, "leaf")
+    assert leaf_bundle is not None
+    manager = StateManager(
+        tmp_path,
+        run_id=f"reached-call-non-wfl-{status}-{winning_guard}",
+    )
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    executor = WorkflowExecutor(middle_bundle, tmp_path, manager)
+    executor.resume_mode = True
+    frame_id = "root.invoke_leaf::visit::1"
+    state = manager.load().to_dict()
+    state["step_visits"] = {"InvokeLeaf": 1}
+    frame = _projection_call_frame(
+        manager,
+        leaf_bundle,
+        frame_id=frame_id,
+        status=status,
+        call_step_id="root.invoke_leaf",
+        import_alias="leaf",
+        bound_inputs={
+            "token": (
+                8
+                if winning_guard == "call_resume_bound_input_mismatch"
+                else 7
+            )
+        },
+        current_step_id="root.removed_leaf_step",
+        checksum=(
+            "sha256:" + ("0" * 64)
+            if winning_guard == "call_resume_checksum_mismatch"
+            else None
+        ),
+    )
+    state["call_frames"] = {frame_id: frame}
+    child_audits: list[str] = []
+    guard_events: list[str] = []
+    original_checksum = executor.call_executor.validate_resume_checksum
+    original_bound_inputs = executor.call_executor.validate_resume_bound_inputs
+
+    def record_audit(bundle, audited_state, scope_path):
+        if scope_path.call_frame_ids:
+            child_audits.append(scope_path.call_frame_ids[-1])
+        return real_audit_scope(bundle, audited_state, scope_path)
+
+    def record_checksum(*args, **kwargs):
+        guard_events.append("checksum")
+        return original_checksum(*args, **kwargs)
+
+    def record_bound_inputs(*args, **kwargs):
+        guard_events.append("bound_inputs")
+        return original_bound_inputs(*args, **kwargs)
+
+    with patch(
+        "orchestrator.workflow.calls.audit_scope",
+        side_effect=record_audit,
+        create=True,
+    ), patch.object(
+        executor.call_executor,
+        "validate_resume_checksum",
+        side_effect=record_checksum,
+    ), patch.object(
+        executor.call_executor,
+        "validate_resume_bound_inputs",
+        side_effect=record_bound_inputs,
+    ), patch(
+        "orchestrator.workflow.call_frame_state._CallFrameStateManager",
+    ) as child_manager:
+        result = executor.call_executor.execute_call(
+            materialize_projection_body_steps(middle_bundle)[0],
+            state,
+        )
+
+    assert result["error"]["type"] == winning_guard
+    assert guard_events == (
+        ["checksum"]
+        if winning_guard == "call_resume_checksum_mismatch"
+        else ["checksum", "bound_inputs"]
+    )
+    assert child_audits == []
+    child_manager.assert_not_called()
+
+
+def test_reached_call_fresh_retry_audits_all_failed_history_before_allocation(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import audit_scope as real_audit_scope
+
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    middle_bundle = workflow_import_bundle(root_bundle, "middle")
+    assert middle_bundle is not None
+    middle_bundle = _typed_workflow_lisp_import(middle_bundle, "leaf")
+    leaf_bundle = workflow_import_bundle(middle_bundle, "leaf")
+    assert leaf_bundle is not None
+    manager = StateManager(tmp_path, run_id="reached-call-fresh-retry-order")
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    executor = WorkflowExecutor(middle_bundle, tmp_path, manager)
+    executor.resume_mode = True
+    base_frame_id = "root.invoke_leaf::visit::1"
+    predecessor_ids = [base_frame_id, f"{base_frame_id}::retry::1"]
+    state = manager.load().to_dict()
+    state["step_visits"] = {"InvokeLeaf": 1}
+    state["call_frames"] = {
+        frame_id: _projection_call_frame(
+            manager,
+            leaf_bundle,
+            frame_id=frame_id,
+            status="failed",
+            call_step_id="root.invoke_leaf",
+            import_alias="leaf",
+        )
+        for frame_id in reversed(predecessor_ids)
+    }
+    events: list[str] = []
+    original_import = workflow_import_bundle
+    original_resolve = executor.call_executor.resolve_bound_inputs
+    original_finalize = executor.call_executor.finalize_bound_inputs
+    original_write_root = executor.call_executor.validate_write_root_bindings
+    original_checksum = executor.call_executor.validate_resume_checksum
+
+    def record_import(parent_bundle, alias):
+        events.append("bundle")
+        return original_import(parent_bundle, alias)
+
+    def record_authored_inputs(*args, **kwargs):
+        events.append("authored_inputs")
+        return original_resolve(*args, **kwargs)
+
+    def record_finalize(*args, **kwargs):
+        events.append("finalized_inputs")
+        return original_finalize(*args, **kwargs)
+
+    def record_write_root(*args, **kwargs):
+        events.append("write_root")
+        return original_write_root(*args, **kwargs)
+
+    def record_checksum(*args, **kwargs):
+        events.append(f"checksum:{kwargs['frame_id']}")
+        return original_checksum(*args, **kwargs)
+
+    def record_audit(bundle, audited_state, scope_path):
+        if scope_path.call_frame_ids:
+            events.append(f"audit:{scope_path.call_frame_ids[-1]}")
+        else:
+            events.append("lineage")
+        return real_audit_scope(bundle, audited_state, scope_path)
+
+    def allocate(lineage, provisional_frame_id, **_kwargs):
+        events.append("allocation")
+        return provisional_frame_id
+
+    def construct_manager(*args, **kwargs):
+        events.append("child_manager")
+        manager_mock = SimpleNamespace(
+            update_bound_input_resume_validation=lambda **_kwargs: None,
+            _snapshot=lambda: {},
+        )
+        return manager_mock
+
+    def construct_executor(*args, **kwargs):
+        events.append("child_executor")
+        return SimpleNamespace(
+            execute=lambda **_kwargs: {
+                "status": "completed",
+                "workflow_outputs": {},
+            }
+        )
+
+    with patch(
+        "orchestrator.workflow.calls.workflow_import_bundle",
+        side_effect=record_import,
+    ), patch.object(
+        executor.call_executor,
+        "resolve_bound_inputs",
+        side_effect=record_authored_inputs,
+    ), patch.object(
+        executor.call_executor,
+        "finalize_bound_inputs",
+        side_effect=record_finalize,
+    ), patch.object(
+        executor.call_executor,
+        "validate_write_root_bindings",
+        side_effect=record_write_root,
+    ), patch.object(
+        executor.call_executor,
+        "validate_resume_checksum",
+        side_effect=record_checksum,
+    ), patch(
+        "orchestrator.workflow.calls.audit_scope",
+        side_effect=record_audit,
+        create=True,
+    ), patch.object(
+        executor.call_executor,
+        "_allocate_retry_frame_id",
+        side_effect=allocate,
+        create=True,
+    ), patch(
+        "orchestrator.workflow.call_frame_state._CallFrameStateManager",
+        side_effect=construct_manager,
+    ), patch(
+        "orchestrator.workflow.executor.WorkflowExecutor",
+        side_effect=construct_executor,
+    ):
+        result = executor.call_executor.execute_call(
+            materialize_projection_body_steps(middle_bundle)[0],
+            state,
+        )
+
+    expected_retry_id = f"{base_frame_id}::retry::2"
+    assert result["status"] == "completed"
+    assert events == [
+        "bundle",
+        "authored_inputs",
+        "lineage",
+        "finalized_inputs",
+        "write_root",
+        f"checksum:{predecessor_ids[0]}",
+        f"audit:{predecessor_ids[0]}",
+        f"checksum:{predecessor_ids[1]}",
+        f"audit:{predecessor_ids[1]}",
+        "allocation",
+        "child_manager",
+        "child_executor",
+    ]
+    assert expected_retry_id in state["call_frames"]
+
+
+def test_reached_call_projection_failure_does_not_mutate_selected_callee(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import audit_scope as real_audit_scope
+
+    root_bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    middle_bundle = workflow_import_bundle(root_bundle, "middle")
+    assert middle_bundle is not None
+    leaf_bundle = workflow_import_bundle(middle_bundle, "leaf")
+    assert leaf_bundle is not None
+    manager = StateManager(tmp_path, run_id="reached-call-no-selected-mutation")
+    manager.initialize("workflow.yaml", context=bundle_context_dict(root_bundle))
+    executor = WorkflowExecutor(middle_bundle, tmp_path, manager)
+    executor.resume_mode = True
+    frame_id = "root.invoke_leaf::visit::1"
+    state = manager.load().to_dict()
+    state["step_visits"] = {"InvokeLeaf": 1}
+    state["call_frames"] = {
+        frame_id: _projection_call_frame(
+            manager,
+            leaf_bundle,
+            frame_id=frame_id,
+            status="running",
+            call_step_id="root.invoke_leaf",
+            import_alias="leaf",
+            current_step_id="root.removed_leaf_step",
+        )
+    }
+    before_state = deepcopy(state)
+    before_bytes = manager.state_file.read_bytes()
+    before_tree = _projection_run_tree_snapshot(manager.run_root)
+
+    with patch(
+        "orchestrator.workflow.calls.audit_scope",
+        side_effect=real_audit_scope,
+        create=True,
+    ), patch(
+        "orchestrator.workflow.call_frame_state._CallFrameStateManager",
+    ) as child_manager, patch(
+        "orchestrator.workflow.executor.WorkflowExecutor",
+    ) as child_executor:
+        child_manager.return_value._snapshot.return_value = {}
+        child_executor.return_value.execute.return_value = {
+            "status": "completed",
+            "workflow_outputs": {},
+        }
+        result = executor.call_executor.execute_call(
+            materialize_projection_body_steps(middle_bundle)[0],
+            state,
+        )
+
+    assert result["error"]["type"] == "resume_projection_integrity_error"
+    child_manager.assert_not_called()
+    child_executor.assert_not_called()
+    assert state == before_state
+    assert manager.state_file.read_bytes() == before_bytes
+    assert _projection_run_tree_snapshot(manager.run_root) == before_tree
+
+
 def test_projection_resume_call_frame_stale_caller_id_is_not_scoped_to_boundary(
     tmp_path: Path,
 ) -> None:
@@ -2517,16 +3120,10 @@ def test_projection_resume_call_frame_nested_checksum_mismatch_precedes_child_co
     assert _projection_run_tree_snapshot(manager.run_root) == before_tree
 
 
-def test_projection_resume_call_frame_mutation_order_stale_caller_id_starts_fresh_child(
+def test_projection_resume_call_frame_mutation_order_stale_caller_id_fails_at_root_audit(
     tmp_path: Path,
 ) -> None:
-    """Snapshot the current stale-caller gap across `WorkflowExecutor.execute`.
-
-    A checksum-compatible persisted frame whose `call_step_id` is stale is not
-    rejected against the parent projection.  `CallExecutor.frame_id_with_overrides`
-    misses it, creates a fresh frame for the current call boundary, and the run
-    can complete while retaining both frames.
-    """
+    """A stale caller is rejected by the root guard before call execution."""
     root_bundle = WorkflowLoader(tmp_path).load_bundle(
         _write_projection_integrity_call_graph(tmp_path)
     )
@@ -2548,35 +3145,30 @@ def test_projection_resume_call_frame_mutation_order_stale_caller_id_starts_fres
     persisted.status = "failed"
     persisted.steps["InvokeMiddle"]["status"] = "failed"
     manager._write_state()
+    before_state = manager.load().to_dict()
     before = _projection_run_tree_snapshot(manager.run_root)
 
     resumed = WorkflowExecutor(root_bundle, tmp_path, manager).execute(resume=True)
     after = _projection_run_tree_snapshot(manager.run_root)
 
-    assert resumed["status"] == "completed"
+    assert resumed["status"] == "failed"
     assert before != after
-    assert original_frame_id in resumed["call_frames"]
-    assert resumed["call_frames"][original_frame_id]["call_step_id"] == "root.removed_call"
-    current_frames = [
-        frame
-        for frame in resumed["call_frames"].values()
-        if isinstance(frame, dict) and frame.get("call_step_id") == "root.invoke_middle"
-    ]
-    assert len(current_frames) == 1
-    assert current_frames[0]["status"] == "completed"
-    assert resumed["steps"]["InvokeMiddle"]["status"] == "completed"
+    assert resumed["error"]["type"] == "resume_projection_integrity_error"
+    assert resumed["error"]["context"]["reason"] == "out_of_scope_step_id"
+    assert resumed["error"]["context"]["field"] == (
+        f"call_frames.{original_frame_id}.call_step_id"
+    )
+    assert resumed["call_frames"] == before_state["call_frames"]
+    assert resumed["steps"] == before_state["steps"]
+    assert resumed["step_visits"] == before_state["step_visits"]
+    assert resumed.get("current_step") == before_state.get("current_step")
     assert not (manager.run_root / "provider_sessions").exists()
 
 
-def test_projection_resume_call_frame_mutation_order_callee_local_corruption_updates_parent_and_child(
+def test_projection_resume_call_frame_mutation_order_callee_local_corruption_preserves_selected_child(
     tmp_path: Path,
 ) -> None:
-    """Snapshot recursive stale-local-id failure after the parent call boundary.
-
-    The parent step/visit has already been re-entered, the existing child frame
-    is persisted again, and the selected callee's planner records a local
-    `resume_state_integrity_error`; no provider sidecar is created.
-    """
+    """Parent failure records persist while the selected child stays untouched."""
     root_bundle = WorkflowLoader(tmp_path).load_bundle(
         _write_projection_integrity_call_graph(tmp_path)
     )
@@ -2601,6 +3193,7 @@ def test_projection_resume_call_frame_mutation_order_callee_local_corruption_upd
     frame["current_step"] = dict(child_state["current_step"])
     persisted.status = "failed"
     persisted.steps["InvokeMiddle"]["status"] = "failed"
+    before_selected_frame = deepcopy(frame)
     before_parent_steps = json.loads(json.dumps(persisted.steps))
     before_parent_visits = dict(persisted.step_visits)
     manager._write_state()
@@ -2617,12 +3210,10 @@ def test_projection_resume_call_frame_mutation_order_callee_local_corruption_upd
     )
     assert persisted_after["steps"]["InvokeMiddle"] != before_parent_steps["InvokeMiddle"]
     parent_error = persisted_after["steps"]["InvokeMiddle"]["error"]
-    assert parent_error["type"] == "call_failed"
-    child_after = persisted_after["call_frames"][frame_id]["state"]
-    assert child_after["status"] == "failed"
-    assert child_after["error"]["type"] == "resume_state_integrity_error"
-    assert child_after["error"]["context"]["step_id"] == "root.removed_local_call"
-    assert child_after["current_step"]["status"] == "failed"
+    assert parent_error["type"] == "resume_projection_integrity_error"
+    assert parent_error["context"]["reason"] == "out_of_scope_step_id"
+    assert parent_error["context"]["offending_value"] == "root.removed_local_call"
+    assert persisted_after["call_frames"][frame_id] == before_selected_frame
     assert not (manager.run_root / "provider_sessions").exists()
 
 

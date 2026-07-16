@@ -19,6 +19,7 @@ from .loaded_bundle import (
     workflow_output_contracts,
     workflow_provenance,
 )
+from .resume_projection_integrity import ResumeScopePath
 
 
 def _path_safe_frame_scope_token(frame_id: str) -> str:
@@ -96,6 +97,7 @@ class _CallFrameStateManager:
         bound_inputs: Dict[str, Any],
         existing_frame: Optional[Dict[str, Any]] = None,
         observability: Optional[Dict[str, Any]] = None,
+        resume_scope_path: Optional[ResumeScopePath] = None,
     ) -> None:
         self.parent_manager = parent_manager
         self.workspace = parent_manager.workspace
@@ -104,6 +106,7 @@ class _CallFrameStateManager:
         self.call_step_name = call_step_name
         self.call_step_id = call_step_id
         self.import_alias = import_alias
+        self.resume_scope_path = resume_scope_path
         self.run_id = parent_manager.run_id
         frame_root_name = _path_safe_frame_scope_token(frame_id)
         self.run_root = parent_manager.run_root / "call_frames" / frame_root_name
