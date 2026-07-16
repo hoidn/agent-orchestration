@@ -63,7 +63,11 @@ class OutcomeRecorder:
             is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
         ):
             error = finalized.get("error")
-            if isinstance(error, dict):
+            existing_sticky_error = (
+                classify_terminal_result(state)
+                is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
+            )
+            if isinstance(error, dict) and not existing_sticky_error:
                 state["error"] = error
                 self.state_manager.update_run_error(error)
         if self.post_persist_hook is not None:

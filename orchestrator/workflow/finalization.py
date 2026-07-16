@@ -203,10 +203,15 @@ class FinalizationController:
                 and classify_terminal_result(result)
                 is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
             )
+            existing_sticky_error = (
+                classify_terminal_result(state)
+                is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
+            )
             if sticky_failure:
-                error = result.get("error")
-                if isinstance(error, dict):
-                    state["error"] = error
+                if not existing_sticky_error:
+                    error = result.get("error")
+                    if isinstance(error, dict):
+                        state["error"] = error
             elif body_status == "completed" and isinstance(result, dict):
                 state["error"] = self.finalization_failure_error(result, step_name)
             if isinstance(finalization, dict):

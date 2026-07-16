@@ -28,7 +28,9 @@ def _write_workflow(workspace: Path, workflow: dict) -> Path:
     return workflow_file
 
 
-def _sticky_projection_error() -> dict:
+def _sticky_projection_error(
+    offending_value: str = "root.removed",
+) -> dict:
     return {
         "type": "resume_projection_integrity_error",
         "message": "Resume projection integrity audit failed: out_of_scope_step_id",
@@ -40,7 +42,7 @@ def _sticky_projection_error() -> dict:
                 {"kind": "call_frame", "frame_id": "root.invoke::visit::1"},
             ],
             "field": "current_step.step_id",
-            "offending_value": "root.removed",
+            "offending_value": offending_value,
             "expected_owner": {
                 "workflow_file": "child.yaml",
                 "workflow_checksum": "sha256:" + ("1" * 64),
@@ -52,12 +54,14 @@ def _sticky_projection_error() -> dict:
     }
 
 
-def _sticky_projection_result() -> dict:
+def _sticky_projection_result(
+    error: dict | None = None,
+) -> dict:
     return {
         "status": "failed",
         "exit_code": 2,
         "duration_ms": 0,
-        "error": _sticky_projection_error(),
+        "error": error or _sticky_projection_error(),
     }
 
 
@@ -958,3 +962,137 @@ def test_projection_error_finalization_failure_is_supplemental(
     assert persisted["finalization"]["failure"]["step"] == "finally.FailCleanup"
     assert persisted["finalization"]["failure"]["error"] is None
     assert persisted["steps"]["finally.FailCleanup"]["exit_code"] == 1
+
+
+def test_projection_error_finalization_sticky_failure_is_supplemental(
+    tmp_path: Path,
+) -> None:
+    child_path = tmp_path / "child.yaml"
+    child_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": "2.5",
+                "name": "sticky-finalization-precedence-child",
+                "steps": [
+                    {
+                        "name": "Noop",
+                        "id": "noop",
+                        "command": ["bash", "-lc", "true"],
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    workflow_file = _write_workflow(
+        tmp_path,
+        {
+            "version": "2.5",
+            "name": "sticky-finalization-precedence",
+            "imports": {"child": "child.yaml"},
+            "steps": [
+                {
+                    "name": "InvokeBody",
+                    "id": "invoke_body",
+                    "call": "child",
+                }
+            ],
+            "finally": {
+                "id": "cleanup",
+                "steps": [
+                    {
+                        "name": "InvokeCleanup",
+                        "id": "invoke_cleanup",
+                        "command": ["bash", "-lc", "true"],
+                    }
+                ],
+            },
+        },
+    )
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    manager = StateManager(
+        workspace=tmp_path,
+        run_id="sticky-finalization-precedence",
+    )
+    manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, tmp_path, manager)
+    body_error = _sticky_projection_error("root.removed_body")
+    cleanup_error = _sticky_projection_error("root.removed_cleanup")
+
+    with patch.object(
+        executor,
+        "_execute_call",
+        return_value=_sticky_projection_result(body_error),
+    ), patch.object(
+        executor,
+        "_execute_command",
+        return_value=_sticky_projection_result(cleanup_error),
+    ):
+        result = executor.execute()
+
+    persisted = manager.load().to_dict()
+    assert result["status"] == "failed"
+    assert result["error"] == body_error
+    assert persisted["error"] == body_error
+    assert persisted["steps"]["InvokeBody"]["error"] == body_error
+    assert persisted["steps"]["finally.InvokeCleanup"]["error"] == cleanup_error
+    assert persisted["finalization"]["status"] == "failed"
+    assert persisted["finalization"]["failure"] == {
+        "step": "finally.InvokeCleanup",
+        "step_id": "root.finally.cleanup.invoke_cleanup",
+        "error": cleanup_error,
+    }
+
+
+def test_projection_error_in_finalization_promotes_without_prior_sticky_error(
+    tmp_path: Path,
+) -> None:
+    workflow_file = _write_workflow(
+        tmp_path,
+        {
+            "version": "2.5",
+            "name": "sticky-finalization-only",
+            "steps": [
+                {
+                    "name": "CompleteBody",
+                    "id": "complete_body",
+                    "command": ["bash", "-lc", "true"],
+                }
+            ],
+            "finally": {
+                "id": "cleanup",
+                "steps": [
+                    {
+                        "name": "InvokeCleanup",
+                        "id": "invoke_cleanup",
+                        "command": ["bash", "-lc", "true"],
+                    }
+                ],
+            },
+        },
+    )
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    manager = StateManager(
+        workspace=tmp_path,
+        run_id="sticky-finalization-only",
+    )
+    manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, tmp_path, manager)
+    cleanup_error = _sticky_projection_error("root.removed_cleanup")
+
+    with patch.object(
+        executor,
+        "_execute_command",
+        side_effect=[
+            {"status": "completed", "exit_code": 0, "duration_ms": 0},
+            _sticky_projection_result(cleanup_error),
+        ],
+    ):
+        result = executor.execute()
+
+    persisted = manager.load().to_dict()
+    assert result["status"] == "failed"
+    assert result["error"] == cleanup_error
+    assert persisted["error"] == cleanup_error
+    assert persisted["finalization"]["failure"]["error"] == cleanup_error

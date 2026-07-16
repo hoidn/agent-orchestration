@@ -4092,7 +4092,11 @@ class WorkflowExecutor:
             is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
         ):
             error = step_result.get("error")
-            if isinstance(error, dict):
+            existing_sticky_error = (
+                classify_terminal_result(state)
+                is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
+            )
+            if isinstance(error, dict) and not existing_sticky_error:
                 state["error"] = error
                 self.state_manager.update_run_error(error)
             return '_stop'
