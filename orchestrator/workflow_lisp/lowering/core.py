@@ -2453,6 +2453,14 @@ def _validate_one_lowered_workflow(
     )
     if surface is None or loader.errors:
         _raise_remapped_validation_error(lowered_workflow, loader.errors)
+    frontend_provenance = replace(
+        surface.provenance,
+        frontend_kind="workflow_lisp",
+    )
+    surface = replace(
+        surface,
+        provenance=frontend_provenance,
+    )
     try:
         return build_loaded_workflow_bundle(
             surface,

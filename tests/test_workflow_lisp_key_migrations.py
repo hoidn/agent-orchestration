@@ -6615,6 +6615,16 @@ def test_review_loop_parity_fixture_compiles_to_resume_safe_repeat_until_via_imp
         validate_shared=True,
         workspace_root=tmp_path,
     )
+    pending_bundles = list(result.validated_bundles.values())
+    visited_bundle_ids: set[int] = set()
+    while pending_bundles:
+        compiled_bundle = pending_bundles.pop()
+        if id(compiled_bundle) in visited_bundle_ids:
+            continue
+        visited_bundle_ids.add(id(compiled_bundle))
+        assert compiled_bundle.provenance.frontend_kind == "workflow_lisp"
+        pending_bundles.extend(compiled_bundle.imports.values())
+
     bundle = result.validated_bundles["phase_stdlib_review_loop::review-revise-loop-demo"]
     authored = next(
         workflow.authored_mapping
