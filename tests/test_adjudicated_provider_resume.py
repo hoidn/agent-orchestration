@@ -14,4 +14,5 @@ from tests.test_adjudicated_provider_runtime import (
     test_resume_after_scored_candidates_promotes_without_rerunning_candidates,
     test_resume_rejects_mismatched_adjudication_sidecars,
     test_resume_rejects_scorer_unavailable_sidecars_that_no_longer_match,
+    test_resume_source_mutation_reports_root_checksum_mismatch_before_adjudication,
 )

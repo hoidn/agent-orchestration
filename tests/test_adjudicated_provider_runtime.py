@@ -11,6 +11,7 @@ from orchestrator.state import StateManager
 from orchestrator.workflow.adjudication import (
     PromotionConflictError,
     adjudication_visit_paths,
+    candidate_metadata_path,
     candidate_paths,
 )
 from orchestrator.workflow.executor import WorkflowExecutor
@@ -1932,7 +1933,7 @@ def test_resume_after_committed_promotion_finalizes_ledger_mirror_and_publicatio
     ("mutation", "expected_message"),
     [
         ("missing_baseline", "baseline"),
-        ("changed_candidate_config", "candidate config"),
+        ("tampered_candidate_config_hash", "candidate config"),
         ("changed_scorer_identity", "scorer identity"),
         ("missing_scorer_snapshot", "scorer snapshot"),
     ],
@@ -1960,8 +1961,22 @@ def test_resume_rejects_mismatched_adjudication_sidecars(
     visit = adjudication_visit_paths(tmp_path / ".orchestrate/runs/run-1", "root", "root.draft", 1)
     if mutation == "missing_baseline":
         visit.baseline_manifest_path.unlink()
-    elif mutation == "changed_candidate_config":
-        workflow["steps"][0]["adjudicated_provider"]["candidates"][0]["provider_params"] = {"model": "changed"}
+    elif mutation == "tampered_candidate_config_hash":
+        metadata_path = candidate_metadata_path(
+            candidate_paths(
+                tmp_path / ".orchestrate/runs/run-1",
+                "root",
+                "root.draft",
+                1,
+                "a",
+            )
+        )
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["candidate_config_hash"] = "sha256:" + ("0" * 64)
+        metadata_path.write_text(
+            json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
     elif mutation == "changed_scorer_identity":
         (tmp_path / "evaluator.md").write_text("Return strict JSON with a changed rubric.", encoding="utf-8")
     elif mutation == "missing_scorer_snapshot":
@@ -1974,6 +1989,35 @@ def test_resume_rejects_mismatched_adjudication_sidecars(
     assert result["status"] == "failed"
     assert result["error"]["type"] == "adjudication_resume_mismatch"
     assert expected_message in result["error"]["message"]
+
+
+def test_resume_source_mutation_reports_root_checksum_mismatch_before_adjudication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+
+    original_promote = executor_module.promote_candidate_outputs
+
+    def interrupt_before_promotion(**_: object) -> object:
+        raise SystemExit("interrupted after pending ledger")
+
+    monkeypatch.setattr(executor_module, "promote_candidate_outputs", interrupt_before_promotion)
+    with pytest.raises(SystemExit):
+        _run(tmp_path, workflow)
+
+    workflow["steps"][0]["adjudicated_provider"]["candidates"][0]["provider_params"] = {
+        "model": "changed"
+    }
+    monkeypatch.setattr(executor_module, "promote_candidate_outputs", original_promote)
+    state = _resume(tmp_path, workflow)
+
+    assert state["error"]["type"] == "workflow_checksum_mismatch"
+    assert state["error"]["context"]["reason"] == "workflow_modified"
+    assert state["steps"] == {}
 
 
 def test_resume_rejects_scorer_unavailable_sidecars_that_no_longer_match(
