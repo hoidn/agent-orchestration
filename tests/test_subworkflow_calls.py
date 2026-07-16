@@ -1,5 +1,6 @@
 """Loader and runtime coverage for reusable workflow imports and call boundaries."""
 
+from copy import deepcopy
 import json
 import os
 from dataclasses import replace
@@ -2959,3 +2960,114 @@ def test_call_root_result_child_workflow_failure_suppresses_child_finalization(t
     call_debug = call_step["debug"]["call"]
     assert call_debug["workflow_outputs"] == {}
     assert call_debug["finalization"]["workflow_outputs_status"] == "suppressed"
+
+
+def test_resume_projection_auditor_rejects_stale_caller_and_alias_without_mutation(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import (
+        ResumeProjectionIntegrityError,
+        ResumeScopePath,
+        audit_scope,
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    workflow_file = str(bundle.provenance.workflow_path)
+    scope_path = ResumeScopePath.root(workflow_file).child("parent-frame")
+    base_state = {
+        "workflow_checksum": "sha256:no-mutation",
+        "steps": {},
+        "call_frames": {
+            "frame": {
+                "status": "running",
+                "call_step_id": "root.invoke_middle",
+                "import_alias": "middle",
+                "bound_inputs": {"private_token": "secret-input"},
+                "artifacts": {"private_output": "secret-artifact"},
+                "state": {"context": {"private": "secret-context"}},
+            }
+        },
+    }
+
+    for field, value, expected_reason in (
+        ("call_step_id", "root.stale_call", "out_of_scope_step_id"),
+        ("import_alias", "retired_alias", "persisted_import_alias_mismatch"),
+    ):
+        state = deepcopy(base_state)
+        state["call_frames"]["frame"][field] = value
+        before = deepcopy(state)
+
+        with pytest.raises(ResumeProjectionIntegrityError) as exc_info:
+            audit_scope(bundle, state, scope_path)
+
+        assert exc_info.value.error["context"]["reason"] == expected_reason
+        assert exc_info.value.error["context"]["scope_path"] == [
+            {"kind": "root", "workflow_file": workflow_file},
+            {"kind": "call_frame", "frame_id": "parent-frame"},
+        ]
+        diagnostic_text = json.dumps(exc_info.value.error, sort_keys=True)
+        assert "secret-input" not in diagnostic_text
+        assert "secret-artifact" not in diagnostic_text
+        assert "secret-context" not in diagnostic_text
+        assert state == before
+
+
+def test_resume_projection_auditor_does_not_load_or_checksum_child_bundles(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import (
+        ResumeScopePath,
+        audit_scope,
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_integrity_call_graph(tmp_path)
+    )
+    state = {
+        "workflow_checksum": "sha256:no-child-io",
+        "steps": {},
+        "call_frames": {
+            "frame": {
+                "status": "running",
+                "call_step_id": "root.invoke_middle",
+                "import_alias": "middle",
+            }
+        },
+    }
+    before = deepcopy(state)
+
+    with patch.object(
+        WorkflowLoader,
+        "load",
+        side_effect=AssertionError("auditor must not load child workflows"),
+    ) as load_workflow, patch.object(
+        WorkflowLoader,
+        "load_bundle",
+        side_effect=AssertionError("auditor must not load child bundles"),
+    ) as load_bundle, patch.object(
+        StateManager,
+        "calculate_checksum",
+        side_effect=AssertionError("auditor must not checksum child bundles"),
+    ) as checksum, patch.object(
+        Path,
+        "read_text",
+        side_effect=AssertionError("auditor must not read evidence"),
+    ) as read_text, patch.object(
+        Path,
+        "read_bytes",
+        side_effect=AssertionError("auditor must not read evidence"),
+    ) as read_bytes:
+        audit_scope(
+            bundle,
+            state,
+            ResumeScopePath.root(str(bundle.provenance.workflow_path)),
+        )
+
+    load_workflow.assert_not_called()
+    load_bundle.assert_not_called()
+    checksum.assert_not_called()
+    read_text.assert_not_called()
+    read_bytes.assert_not_called()
+    assert state == before

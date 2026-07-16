@@ -1440,3 +1440,279 @@ def test_call_boundary_projection_exposes_current_import_alias(tmp_path: Path) -
         boundary.import_alias
         for boundary in bundle.projection.call_boundaries.values()
     } == {"review_loop"}
+
+
+def test_resume_projection_auditor_accepts_valid_scope_and_omitted_result_ids(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import (
+        ResumeScopePath,
+        audit_scope,
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_projection_workflow(tmp_path))
+    state = {
+        "workflow_checksum": "sha256:auditor-valid",
+        "steps": {
+            "SetReady": {"status": "completed"},
+            "RouteReady": {"status": "skipped"},
+            "ReviewLoop": {"status": "running"},
+            "ProcessItems": {"status": "failed"},
+            "finally.WriteCleanupMarker": {"status": "completed"},
+        },
+        "current_step": {
+            "name": "SetReady",
+            "status": "running",
+            "step_id": "root.set_ready",
+        },
+    }
+    before = deepcopy(state)
+
+    audit_scope(
+        bundle,
+        state,
+        ResumeScopePath.root(str(bundle.provenance.workflow_path)),
+    )
+
+    assert state == before
+    assert all("step_id" not in row for row in state["steps"].values())
+
+
+_RESUME_PROJECTION_AUDIT_REASONS = (
+    "unknown_explicit_step_id",
+    "presentation_slot_mismatch",
+    "out_of_scope_step_id",
+    "unclaimed_explicit_step_row",
+    "missing_required_identity",
+    "missing_call_boundary",
+    "ambiguous_call_boundary",
+    "ambiguous_resumable_call_frame",
+    "persisted_import_alias_mismatch",
+    "missing_imported_bundle",
+    "unsupported_shape",
+    "invalid_loop_progress",
+)
+
+
+def _resume_projection_auditor_case(
+    tmp_path: Path,
+    reason: str,
+) -> tuple[object, dict, dict]:
+    checksum = f"sha256:{reason}"
+    if reason in {
+        "unknown_explicit_step_id",
+        "presentation_slot_mismatch",
+        "out_of_scope_step_id",
+        "unclaimed_explicit_step_row",
+        "missing_required_identity",
+        "unsupported_shape",
+        "invalid_loop_progress",
+    }:
+        bundle = WorkflowLoader(tmp_path).load_bundle(
+            _write_projection_workflow(tmp_path)
+        )
+        state = {"workflow_checksum": checksum, "steps": {}}
+        expected = {
+            "field": None,
+            "offending_value": None,
+            "candidate_count": None,
+            "call_boundary_step_id": None,
+        }
+        # Persisted step-result ownership keeps unknown IDs distinct from rows
+        # whose presentation slot is absent from the current scoped projection.
+        if reason == "unknown_explicit_step_id":
+            state["steps"]["SetReady"] = {
+                "status": "completed",
+                "step_id": "root.stale",
+            }
+            expected.update(
+                field="steps.SetReady.step_id",
+                offending_value="root.stale",
+                candidate_count=0,
+            )
+        elif reason == "presentation_slot_mismatch":
+            state["steps"]["SetReady"] = {
+                "status": "completed",
+                "step_id": "root.route_ready",
+            }
+            expected.update(
+                field="steps.SetReady.step_id",
+                offending_value="root.route_ready",
+                candidate_count=1,
+            )
+        elif reason == "out_of_scope_step_id":
+            state["current_step"] = {
+                "name": "SetReady",
+                "status": "running",
+                "step_id": "root.stale",
+            }
+            expected.update(
+                field="current_step.step_id",
+                offending_value="root.stale",
+                candidate_count=0,
+            )
+        elif reason == "unclaimed_explicit_step_row":
+            state["steps"]["RetiredStep"] = {
+                "status": "completed",
+                "step_id": "root.retired_step",
+            }
+            expected.update(
+                field="steps.RetiredStep.step_id",
+                offending_value="root.retired_step",
+                candidate_count=0,
+            )
+        elif reason == "missing_required_identity":
+            state["current_step"] = {
+                "name": "SetReady",
+                "status": "running",
+            }
+            expected.update(field="current_step.step_id")
+        elif reason == "unsupported_shape":
+            state["steps"] = []
+            expected.update(field="steps")
+        else:
+            state = _valid_resume_loop_state()
+            state["workflow_checksum"] = checksum
+            state["repeat_until"]["ReviewLoop"]["completed_iterations"] = [0, 0]
+            expected.update(
+                field="repeat_until.ReviewLoop.completed_iterations",
+            )
+        return bundle, state, expected
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_projection_call_workflow(tmp_path)
+    )
+    projection = bundle.projection
+    call_step_id = projection.call_boundary_runtime_step_id(
+        "root.review_loop.iteration_body.run_review_loop",
+        iteration_index=0,
+    )
+    state = {
+        "workflow_checksum": checksum,
+        "steps": {"ReviewLoop": {"status": "running"}},
+        "repeat_until": {
+            "ReviewLoop": {
+                "current_iteration": 0,
+                "completed_iterations": [],
+                "condition_evaluated_for_iteration": None,
+                "last_condition_result": None,
+            }
+        },
+        "call_frames": {
+            "frame": {
+                "status": "running",
+                "call_step_id": call_step_id,
+                "import_alias": "review_loop",
+            }
+        },
+    }
+    expected = {
+        "field": None,
+        "offending_value": None,
+        "candidate_count": None,
+        "call_boundary_step_id": call_step_id,
+    }
+    if reason == "missing_call_boundary":
+        # This ID is a valid local step, but not a current call boundary. A
+        # caller absent from the local step projection is out_of_scope instead.
+        state["call_frames"]["frame"]["call_step_id"] = "root.review_loop"
+        expected.update(
+            field="call_frames.frame.call_step_id",
+            offending_value="root.review_loop",
+            candidate_count=0,
+            call_boundary_step_id="root.review_loop",
+        )
+    elif reason == "ambiguous_call_boundary":
+        boundary = projection.call_boundaries[
+            "root.review_loop.iteration_body.run_review_loop"
+        ]
+        bundle = replace(
+            bundle,
+            projection=replace(
+                projection,
+                call_boundaries=MappingProxyType(
+                    {
+                        **projection.call_boundaries,
+                        "duplicate.resume.boundary": boundary,
+                    }
+                ),
+            ),
+        )
+        expected.update(
+            field="call_frames.frame.call_step_id",
+            offending_value=call_step_id,
+            candidate_count=2,
+        )
+    elif reason == "ambiguous_resumable_call_frame":
+        state["call_frames"]["second-frame"] = {
+            "status": "failed",
+            "call_step_id": call_step_id,
+            "import_alias": "review_loop",
+        }
+        expected.update(
+            field="call_frames",
+            offending_value=2,
+            candidate_count=2,
+        )
+    elif reason == "persisted_import_alias_mismatch":
+        state["call_frames"]["frame"]["import_alias"] = "retired_alias"
+        expected.update(
+            field="call_frames.frame.import_alias",
+            offending_value="retired_alias",
+            candidate_count=1,
+        )
+    elif reason == "missing_imported_bundle":
+        bundle = replace(bundle, imports=MappingProxyType({}))
+        expected.update(
+            field="imports.review_loop",
+            offending_value="review_loop",
+            candidate_count=1,
+        )
+    else:
+        raise AssertionError(f"Unhandled auditor reason: {reason}")
+    return bundle, state, expected
+
+
+@pytest.mark.parametrize("reason", _RESUME_PROJECTION_AUDIT_REASONS)
+def test_resume_projection_auditor_emits_exact_diagnostic_schema(
+    tmp_path: Path,
+    reason: str,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import (
+        ResumeProjectionIntegrityError,
+        ResumeScopePath,
+        audit_scope,
+    )
+
+    bundle, state, expected = _resume_projection_auditor_case(tmp_path, reason)
+    workflow_file = str(bundle.provenance.workflow_path)
+    scope_path = ResumeScopePath.root(workflow_file)
+    before = deepcopy(state)
+
+    with pytest.raises(ResumeProjectionIntegrityError) as exc_info:
+        audit_scope(bundle, state, scope_path)
+
+    assert exc_info.value.error == {
+        "type": "resume_projection_integrity_error",
+        "message": f"Resume projection integrity audit failed: {reason}",
+        "context": {
+            "diagnostic_schema": "resume_projection_integrity_error.v1",
+            "reason": reason,
+            "scope_path": [
+                {
+                    "kind": "root",
+                    "workflow_file": workflow_file,
+                }
+            ],
+            "field": expected["field"],
+            "offending_value": expected["offending_value"],
+            "expected_owner": {
+                "workflow_file": workflow_file,
+                "workflow_checksum": state["workflow_checksum"],
+                "projection_scope": "root",
+            },
+            "candidate_count": expected["candidate_count"],
+            "call_boundary_step_id": expected["call_boundary_step_id"],
+        },
+    }
+    assert state == before
