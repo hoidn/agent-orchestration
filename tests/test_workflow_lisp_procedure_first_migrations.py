@@ -201,6 +201,7 @@ def _load_json(path: Path) -> dict[str, object]:
 
 def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts() -> None:
     inventory = _load_json(REUSE_INVENTORY)
+    narrative = REUSE_INVENTORY.with_suffix(".md").read_text(encoding="utf-8")
 
     assert inventory["schema_version"] == "procedure_first_reuse_inventory.v2"
     assert inventory["source_commit"] == "db9889937a895d67810dee1ea0b1b53552d30eca"
@@ -241,6 +242,12 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
             "retained-public": 0,
         },
     }
+    exclusions_section = narrative.split("## Exclusions", 1)[1].split(
+        "## Provenance And Reproduction", 1
+    )[0]
+    assert {
+        int(value) for value in re.findall(r"\bfrom\s+(\d+)\b", exclusions_section)
+    } == {inventory["counts"]["raw_authored_call_sites"]["total"]}
 
     migrated = history[0]
     assert migrated["id"] == (

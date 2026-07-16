@@ -147,7 +147,7 @@ not authorize substrate work.
 The six authored-source exclusions are the only rows subtracted from the 101
 raw authored sites to produce the 95 active actionable calls. The 175 test-fixture
 observations are a separate out-of-scope population, not additional exclusions
-from 102. They reproduce with:
+from 101. They reproduce with:
 
 ```bash
 rg -n --glob '*.orc' '\(call\s+' tests/fixtures | wc -l
