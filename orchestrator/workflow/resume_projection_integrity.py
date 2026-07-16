@@ -112,7 +112,7 @@ def audit_scope(
             scope_path,
             reason="unsupported_shape",
             field="state",
-            offending_value=state,
+            offending_value=None,
         )
     if not isinstance(scope_path, ResumeScopePath):
         raise TypeError("ResumeScopePath required")
@@ -232,7 +232,7 @@ def _audit_current_step(
             scope_path,
             reason="unsupported_shape",
             field="current_step",
-            offending_value=current_step,
+            offending_value=None,
         )
 
     step_id = current_step.get("step_id")
@@ -303,7 +303,7 @@ def _audit_call_frames(
             scope_path,
             reason="unsupported_shape",
             field="call_frames",
-            offending_value=call_frames,
+            offending_value=None,
         )
 
     grouped_frames: dict[
@@ -332,7 +332,7 @@ def _audit_call_frames(
                 scope_path,
                 reason="unsupported_shape",
                 field=field_prefix,
-                offending_value=frame,
+                offending_value=None,
             )
 
         call_step_id = frame.get("call_step_id")

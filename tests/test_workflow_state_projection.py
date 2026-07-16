@@ -1535,6 +1535,77 @@ def test_resume_projection_auditor_redacts_secret_list_identity_contents(
 
 
 @pytest.mark.parametrize(
+    ("state", "expected_field", "secret"),
+    [
+        pytest.param(
+            "secret-root-state",
+            "state",
+            "secret-root-state",
+            id="root-state",
+        ),
+        pytest.param(
+            {
+                "workflow_checksum": "sha256:container-shape",
+                "steps": {},
+                "current_step": "secret-current-step",
+            },
+            "current_step",
+            "secret-current-step",
+            id="current-step",
+        ),
+        pytest.param(
+            {
+                "workflow_checksum": "sha256:container-shape",
+                "steps": {},
+                "call_frames": "secret-call-frames",
+            },
+            "call_frames",
+            "secret-call-frames",
+            id="call-frames",
+        ),
+        pytest.param(
+            {
+                "workflow_checksum": "sha256:container-shape",
+                "steps": {},
+                "call_frames": {"frame": "secret-frame"},
+            },
+            "call_frames.frame",
+            "secret-frame",
+            id="call-frame",
+        ),
+    ],
+)
+def test_resume_projection_auditor_redacts_scalar_malformed_container_values(
+    tmp_path: Path,
+    state: object,
+    expected_field: str,
+    secret: str,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import (
+        ResumeProjectionIntegrityError,
+        ResumeScopePath,
+        audit_scope,
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_projection_workflow(tmp_path))
+    before = deepcopy(state)
+
+    with pytest.raises(ResumeProjectionIntegrityError) as exc_info:
+        audit_scope(
+            bundle,
+            state,
+            ResumeScopePath.root(str(bundle.provenance.workflow_path)),
+        )
+
+    context = exc_info.value.error["context"]
+    assert context["reason"] == "unsupported_shape"
+    assert context["field"] == expected_field
+    assert context["offending_value"] is None
+    assert secret not in yaml.safe_dump(exc_info.value.error, sort_keys=True)
+    assert state == before
+
+
+@pytest.mark.parametrize(
     ("steps", "expected_field"),
     [
         pytest.param(
