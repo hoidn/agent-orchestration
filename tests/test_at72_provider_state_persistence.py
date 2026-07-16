@@ -18,20 +18,15 @@ from orchestrator.loader import WorkflowLoader
 class TestProviderStatePersistence:
     """Test provider state persistence (AT-72)."""
 
-    def setup_method(self):
-        """Set up test workspace."""
-        self.test_workspace = Path("/tmp/test_provider_persistence")
+    @pytest.fixture(autouse=True)
+    def _isolated_test_workspace(self, tmp_path):
+        """Give each test an xdist-safe workspace."""
+        self.test_workspace = tmp_path / "test_provider_persistence"
         self.test_workspace.mkdir(parents=True, exist_ok=True)
 
         # Create state directory
         self.state_dir = self.test_workspace / ".orchestrate" / "runs" / "test-run"
         self.state_dir.mkdir(parents=True, exist_ok=True)
-
-    def teardown_method(self):
-        """Clean up test workspace."""
-        import shutil
-        if self.test_workspace.exists():
-            shutil.rmtree(self.test_workspace)
 
     def test_at72_provider_result_persisted(self):
         """AT-72: Provider step results are persisted to state.json."""
