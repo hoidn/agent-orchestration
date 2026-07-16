@@ -729,31 +729,61 @@ def _force_materialize_view_resume_state(state_manager: StateManager, bundle) ->
     state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__selected_label__match_decision", None)
     state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__selected_report__match_decision", None)
     state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__loop_result__result", None)
-    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__loop_result__loop", None)
     state_manager.state = state
     state_manager._write_state()
+    _assert_projection_valid_resume_state(state_manager, bundle)
 
 
-def _force_loop_frame_resume_state(state_manager: StateManager) -> None:
+def _force_active_loop_frame_resume_state(state_manager: StateManager, bundle) -> None:
     state = state_manager.load()
     loop_name = "lexical_checkpoint_restore_regions::orchestrate__loop_result__loop"
+    progress = {
+        "current_iteration": 0,
+        "completed_iterations": [],
+        "condition_evaluated_for_iteration": 0,
+        "last_condition_result": False,
+    }
     state.current_step = {
         "name": loop_name,
         "index": 12,
         "step_id": "root.lexical_checkpoint_restore_regions_orchestrate__loop_result__loop",
         "status": "running",
     }
+    frame_result = state.steps[loop_name]
+    frame_result["status"] = "running"
+    frame_result.pop("outcome", None)
+    frame_result["debug"]["structured_repeat_until"].update(
+        {
+            **progress,
+            "exhausted": False,
+        }
+    )
     for key in list(state.steps):
         if key == "lexical_checkpoint_restore_regions::orchestrate__loop_result__result":
             state.steps.pop(key, None)
             continue
         if key.startswith(f"{loop_name}["):
             state.steps.pop(key, None)
-            continue
-        if key == loop_name:
-            state.steps.pop(key, None)
+    state.repeat_until[loop_name] = progress
     state_manager.state = state
     state_manager._write_state()
+    _assert_projection_valid_resume_state(state_manager, bundle)
+
+
+def _assert_projection_valid_resume_state(
+    state_manager: StateManager,
+    bundle,
+) -> None:
+    from orchestrator.workflow.resume_projection_integrity import ResumeScopePath, audit_scope
+
+    assert (
+        audit_scope(
+            bundle,
+            state_manager.load().to_dict(),
+            ResumeScopePath.root(str(bundle.provenance.workflow_path)),
+        )
+        is None
+    )
 
 
 def _force_plain_binding_resume_state(state_manager: StateManager, bundle) -> None:
@@ -1859,7 +1889,16 @@ def test_runtime_resume_restores_private_bindings_and_loop_frame_from_checkpoint
 def test_runtime_resume_restores_repeat_until_restart_from_checkpoint_sidecars(tmp_path: Path) -> None:
     bundle, state_manager, first_run = _materialize_restore_sidecars(tmp_path, run_id="restore-loop-restart")
     assert first_run["status"] == "failed"
-    _force_loop_frame_resume_state(state_manager)
+    _force_active_loop_frame_resume_state(state_manager, bundle)
+    interrupted_state = state_manager.load()
+    loop_name = "lexical_checkpoint_restore_regions::orchestrate__loop_result__loop"
+    assert interrupted_state.repeat_until[loop_name] == {
+        "current_iteration": 0,
+        "completed_iterations": [],
+        "condition_evaluated_for_iteration": 0,
+        "last_condition_result": False,
+    }
+    assert interrupted_state.steps[loop_name]["status"] == "running"
 
     resumed = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)
 
@@ -1869,7 +1908,7 @@ def test_runtime_resume_restores_repeat_until_restart_from_checkpoint_sidecars(t
     assert payload["decision_kind"] == "RESTORED"
     assert payload["restored_loop_frames"] >= 1
     loaded_state = state_manager.load()
-    assert loaded_state.steps["lexical_checkpoint_restore_regions::orchestrate__loop_result__loop"]["status"] == "completed"
+    assert loaded_state.steps[loop_name]["status"] == "completed"
 
 
 def test_runtime_resume_fails_closed_when_restart_restore_candidate_is_invalid(tmp_path: Path) -> None:
@@ -1912,11 +1951,15 @@ def test_runtime_resume_rejects_loop_frame_when_persisted_repeat_until_bookkeepi
     resumed = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)
 
     assert resumed["status"] == "failed"
-    assert resumed["error"]["type"] == "lexical_restore_invalid"
+    assert resumed["error"]["type"] == "resume_projection_integrity_error"
+    assert resumed["error"]["context"]["reason"] == "invalid_loop_progress"
+    assert resumed["error"]["context"]["field"] == (
+        "repeat_until."
+        "lexical_checkpoint_restore_regions::orchestrate__loop_result__loop."
+        "condition_evaluated_for_iteration"
+    )
     restore_report = state_manager.workflow_lisp_checkpoint_restore_report_path()
-    payload = json.loads(restore_report.read_text(encoding="utf-8"))
-    assert payload["decision_kind"] == "INVALID"
-    assert "lexical_restore_loop_frame_mismatch" in payload["diagnostics"]
+    assert not restore_report.exists()
 
 
 def test_runtime_resume_requires_restored_match_proof_for_missing_join_results(tmp_path: Path) -> None:
