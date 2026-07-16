@@ -4,6 +4,7 @@ import ast
 from copy import deepcopy
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
+import re
 from types import MappingProxyType
 
 import pytest
@@ -114,6 +115,42 @@ def _typed_identity_architecture_findings(
     }
     findings: set[str] = set()
 
+    def delegation_identifier(value: str) -> bool:
+        snake_case = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value).lower()
+        tokens = set(re.findall(r"[a-z0-9]+", snake_case))
+        delegation_tokens = {
+            "choose",
+            "classify",
+            "classifier",
+            "find",
+            "lookup",
+            "match",
+            "matcher",
+            "parse",
+            "parser",
+            "resolve",
+            "resolver",
+            "select",
+            "selector",
+            "target",
+        }
+        selector_tokens = {
+            "basename",
+            "family",
+            "module",
+            "name",
+            "procedure",
+            "suffix",
+            "workflow",
+        }
+        selects_persisted_alias = {"persisted", "alias"}.issubset(tokens)
+        selects_import_alias = {"import", "alias"}.issubset(tokens)
+        return bool(tokens & delegation_tokens) and (
+            bool(tokens & selector_tokens)
+            or selects_persisted_alias
+            or selects_import_alias
+        )
+
     def relevant_key(value: object) -> str | None:
         if not isinstance(value, str):
             return None
@@ -160,10 +197,20 @@ def _typed_identity_architecture_findings(
         )
 
     for node in ast.walk(function):
-        if isinstance(node, ast.Name) and node.id.lower() in forbidden_identifiers:
-            findings.add(f"identifier:{node.id.lower()}")
-        elif isinstance(node, ast.Attribute) and node.attr.lower() in forbidden_attributes:
-            findings.add(f"attribute:{node.attr.lower()}")
+        if isinstance(node, ast.Name):
+            lowered = node.id.lower()
+            if lowered in forbidden_identifiers:
+                findings.add(f"identifier:{lowered}")
+            if delegation_identifier(node.id):
+                findings.add(f"delegation:{node.id}")
+        elif isinstance(node, ast.Attribute):
+            lowered = node.attr.lower()
+            if lowered in forbidden_attributes:
+                findings.add(f"attribute:{lowered}")
+            if lowered in forbidden_calls:
+                findings.add(f"method-reference:{lowered}")
+            if delegation_identifier(node.attr):
+                findings.add(f"delegation:{node.attr}")
         elif isinstance(node, ast.arg) and node.arg.lower() in forbidden_identifiers:
             findings.add(f"argument:{node.arg.lower()}")
         elif isinstance(node, ast.Call):
@@ -253,6 +300,22 @@ def _mutation_function(source: str) -> ast.FunctionDef:
             "string-concatenation",
             id="prefix-f-string",
         ),
+        pytest.param(
+            "    matcher = step_id.startswith\n"
+            "    return matcher('root.')\n",
+            "method-reference:startswith",
+            id="bound-parser-method",
+        ),
+        pytest.param(
+            "    return select_by_workflow_name(workflow)\n",
+            "delegation:select_by_workflow_name",
+            id="selector-helper-delegation",
+        ),
+        pytest.param(
+            "    return selectors.resolve_by_family(frame)\n",
+            "delegation:resolve_by_family",
+            id="selector-attribute-delegation",
+        ),
     ),
 )
 def test_typed_identity_architecture_guard_rejects_mutation_functions(
@@ -267,7 +330,9 @@ def test_typed_identity_architecture_guard_rejects_mutation_functions(
 def test_typed_identity_architecture_guard_allows_exact_candidate_access() -> None:
     function = _mutation_function(
         "    candidate = state.get('call_step_id')\n"
-        "    return candidate == step_id\n"
+        "    checker = helpers.exact_candidate_lookup\n"
+        "    validator = step_id.isidentifier\n"
+        "    return checker(candidate) == step_id and validator()\n"
     )
 
     assert _typed_identity_architecture_findings(function) == ()

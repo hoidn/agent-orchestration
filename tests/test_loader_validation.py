@@ -31,15 +31,6 @@ def _resume_projection_integrity_module_ast() -> ast.Module:
     )
 
 
-def _ast_qualified_name(node: ast.AST) -> str | None:
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        owner = _ast_qualified_name(node.value)
-        return f"{owner}.{node.attr}" if owner else node.attr
-    return None
-
-
 def _receipt_or_persisted_audit_cache_findings(
     tree: ast.AST,
 ) -> tuple[str, ...]:
@@ -83,6 +74,59 @@ def _receipt_or_persisted_audit_cache_findings(
             record("string", node.value)
 
     return tuple(sorted(findings))
+
+
+def _retirement_reader_findings(tree: ast.AST) -> tuple[str, ...]:
+    forbidden_modules = {
+        "migration_parity",
+        "orchestrator.workflow_lisp.migration_parity",
+        "orchestrator.workflow_lisp.procedure_identity_retirement",
+        "procedure_identity_retirement",
+    }
+    forbidden_readers = {
+        "load_parity_targets",
+        "load_retirement_evidence",
+        "load_retirement_record",
+        "validate_retirement_record",
+    }
+    findings: set[str] = set()
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in forbidden_modules:
+                    findings.add(f"module:{alias.name}")
+                if alias.name.rsplit(".", 1)[-1] in forbidden_readers:
+                    findings.add(f"import:{alias.name}")
+        elif isinstance(node, ast.ImportFrom):
+            if node.module in forbidden_modules:
+                findings.add(f"module:{node.module}")
+            for alias in node.names:
+                imported_name = (
+                    f"{node.module}.{alias.name}"
+                    if node.module
+                    else alias.name
+                )
+                if imported_name in forbidden_modules:
+                    findings.add(f"module:{imported_name}")
+                if alias.name in forbidden_readers:
+                    findings.add(f"import:{alias.name}")
+        elif isinstance(node, ast.Name) and node.id in forbidden_readers:
+            findings.add(f"identifier:{node.id}")
+        elif isinstance(node, ast.Attribute) and node.attr in forbidden_readers:
+            findings.add(f"attribute:{node.attr}")
+
+    return tuple(sorted(findings))
+
+
+def test_resume_projection_retirement_reader_guard_rejects_bound_alias_mutation() -> None:
+    tree = ast.parse(
+        "from orchestrator.workflow_lisp import procedure_identity_retirement as retirement\n"
+        "reader = retirement.load_retirement_record\n"
+        "reader('retirement.json')\n"
+    )
+
+    assert "attribute:load_retirement_record" in _retirement_reader_findings(tree)
 
 
 @pytest.mark.parametrize(
@@ -130,6 +174,15 @@ def test_resume_projection_receipt_cache_guard_allows_generic_cache_symbols() ->
     assert _receipt_or_persisted_audit_cache_findings(tree) == ()
 
 
+def test_resume_projection_retirement_reader_guard_allows_unrelated_helper_alias() -> None:
+    tree = ast.parse(
+        "reader = helpers.load_current_bundle\n"
+        "reader('workflow.yaml')\n"
+    )
+
+    assert _retirement_reader_findings(tree) == ()
+
+
 def test_resume_projection_integrity_module_has_no_receipt_or_persisted_audit_cache() -> None:
     tree = _resume_projection_integrity_module_ast()
 
@@ -138,37 +191,8 @@ def test_resume_projection_integrity_module_has_no_receipt_or_persisted_audit_ca
 
 def test_resume_projection_integrity_module_does_not_import_or_call_retirement_readers() -> None:
     tree = _resume_projection_integrity_module_ast()
-    forbidden_modules = {
-        "migration_parity",
-        "orchestrator.workflow_lisp.procedure_identity_retirement",
-        "orchestrator.workflow_lisp.migration_parity",
-        "procedure_identity_retirement",
-    }
-    forbidden_readers = {
-        "load_retirement_evidence",
-        "load_retirement_record",
-        "validate_retirement_record",
-        "load_parity_targets",
-    }
-    imported_modules: set[str] = set()
-    imported_symbols: set[str] = set()
-    called_symbols: set[str] = set()
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imported_modules.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            if node.module is not None:
-                imported_modules.add(node.module)
-            imported_symbols.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.Call):
-            qualified_name = _ast_qualified_name(node.func)
-            if qualified_name is not None:
-                called_symbols.add(qualified_name.rsplit(".", 1)[-1])
-
-    assert imported_modules.isdisjoint(forbidden_modules)
-    assert imported_symbols.isdisjoint(forbidden_readers)
-    assert called_symbols.isdisjoint(forbidden_readers)
+    assert _retirement_reader_findings(tree) == ()
 
 
 def _enable_v214_loader(monkeypatch: pytest.MonkeyPatch) -> None:

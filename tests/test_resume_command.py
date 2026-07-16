@@ -3704,10 +3704,14 @@ def test_projection_resume_root_direct_executor_rechecks_checksum_and_audit_befo
 
 def test_projection_integrity_public_paths_never_call_retirement_readers(
     temp_workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from tests.test_subworkflow_calls import (
         _write_projection_integrity_call_graph,
     )
+    import orchestrator.cli.commands.route_readiness as route_readiness_command
+    import orchestrator.workflow_lisp.migration_parity as migration_parity
+    import orchestrator.workflow_lisp.procedure_identity_retirement as retirement
 
     workflow_path = _write_projection_integrity_call_graph(temp_workspace)
     root_workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
@@ -3739,23 +3743,32 @@ def test_projection_integrity_public_paths_never_call_retirement_readers(
         encoding="utf-8",
     )
 
-    def unexpected_reader(*_args, **_kwargs):
-        raise AssertionError("resume projection public path read retirement evidence")
+    known_readers = (
+        retirement.load_retirement_record,
+        retirement.validate_retirement_record,
+        migration_parity.load_parity_targets,
+    )
+    reader_tripwire = MagicMock(
+        side_effect=AssertionError(
+            "resume projection public path read retirement evidence"
+        )
+    )
+    patched_aliases: set[tuple[str, str]] = set()
+    for module_name, module in tuple(sys.modules.items()):
+        if not module_name.startswith("orchestrator.") or module is None:
+            continue
+        for attribute_name, value in tuple(vars(module).items()):
+            if any(value is reader for reader in known_readers):
+                monkeypatch.setattr(module, attribute_name, reader_tripwire)
+                patched_aliases.add((module_name, attribute_name))
+    monkeypatch.setattr(
+        retirement,
+        "load_retirement_evidence",
+        reader_tripwire,
+        raising=False,
+    )
 
-    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
-        "orchestrator.workflow_lisp.procedure_identity_retirement.load_retirement_record",
-        side_effect=unexpected_reader,
-    ) as retirement_record_reader, patch(
-        "orchestrator.workflow_lisp.procedure_identity_retirement.validate_retirement_record",
-        side_effect=unexpected_reader,
-    ) as retirement_record_validator, patch(
-        "orchestrator.workflow_lisp.procedure_identity_retirement.load_retirement_evidence",
-        side_effect=unexpected_reader,
-        create=True,
-    ) as legacy_retirement_reader, patch(
-        "orchestrator.workflow_lisp.migration_parity.load_parity_targets",
-        side_effect=unexpected_reader,
-    ) as migration_evidence_reader:
+    with patch("os.getcwd", return_value=str(temp_workspace)):
         result = resume_workflow(
             run_id="projection-public-path-retirement-tripwire",
         )
@@ -3767,10 +3780,16 @@ def test_projection_integrity_public_paths_never_call_retirement_readers(
     outer_frame = next(iter(after["call_frames"].values()))
     assert outer_frame["status"] == "completed"
     assert len(outer_frame["state"]["call_frames"]) == 1
-    retirement_record_reader.assert_not_called()
-    retirement_record_validator.assert_not_called()
-    legacy_retirement_reader.assert_not_called()
-    migration_evidence_reader.assert_not_called()
+    assert (
+        "orchestrator.workflow_lisp.procedure_identity_retirement",
+        "load_retirement_record",
+    ) in patched_aliases
+    assert (
+        "orchestrator.cli.commands.route_readiness",
+        "load_parity_targets",
+    ) in patched_aliases
+    assert route_readiness_command.load_parity_targets is reader_tripwire
+    reader_tripwire.assert_not_called()
 
 
 def test_projection_resume_child_executor_skips_root_guard_structurally(
