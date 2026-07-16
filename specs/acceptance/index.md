@@ -207,10 +207,62 @@
 194. v2.14 variant selection: `select_variant_output` selects exactly one changed snapshot candidate, validates the selected shape before commit, writes the canonical bundle atomically, and preserves the previous bundle when candidate validation fails
 195. v2.14 variant references: downstream refs to variant-only fields require a matching `match` case or `requires_variant`, and runtime fails before execution with `variant_unavailable` if the asserted variant is not selected
 196. Phase 2 v2.14 NeurIPS ergonomics evidence: the translated four-workflow stack keeps native JSON bundles instead of splitting them into per-field text fanout where the compact contract permits it, and the repo-local LOC comparison evidence must show a net reduction versus the legacy four-file stack
-197. Root changed-source resume rejection: default resume rejects a root workflow-checksum mismatch before `WorkflowExecutor` construction and leaves the persisted run tree byte-identical
+197. Initial public CLI root-checksum envelope: default resume rejects a root workflow-checksum mismatch with exit `1` before executor-session/process metadata or `WorkflowExecutor` construction and leaves the persisted run tree byte-identical
 198. Callee checksum rejection boundary: an imported-callee checksum mismatch rejects before child-workflow or child provider/command execution and performs no child-state identity remap, while ordinary parent-level metadata may already exist
 199. Cross-source identity boundary: equality of persisted step, checkpoint, call-frame, or other identities alone is not evidence that changed source can resume a supported old run
 200. Atomic upgrader ownership: any future supported cross-source transition is implemented and tested as one atomic upgrader that owns checksum and program-identity compatibility rather than as an evidence record, alias, or partial remap
+201. Projection-compatible root resume: after schema and root-checksum acceptance, CLI preflight and structurally root executor revalidation both accept a valid current root projection before prologue
+202. Root explicit-ID rejection: a stale root `steps.*.step_id` fails projection integrity before workflow effects
+203. Scoped explicit-ID ownership: a present ID that belongs to another presentation slot or scope, is unclaimed, or has multiple scoped owners fails closed rather than being normalized or remapped
+204. Schema-supported omitted step-result ID: any recognized `steps.*` result row supported by existing fallback may omit `step_id` without rejection or backfill, including completed, skipped, failed, and supported running loop-frame/result rows
+205. Present optional ID validation: when a schema-supported step-result row includes `step_id`, the ID must resolve exactly in its owning current projection
+206. Required resume selectors: missing `current_step.step_id`, `call_frames.*.call_step_id`, or another schema-required non-step-result identity fails with a stable missing-required-identity diagnostic
+207. Projection-integrity schema boundary: pre-v2.0 state and pre-`schema_version: "2.1"` reusable-call state remain rejected without a tested atomic upgrader
+208. Valid active loop projection: valid `for_each` bookkeeping and valid active `repeat_until` bookkeeping generate exact qualified current/completed candidates without caller-side ID parsing
+209. Terminal repeat success: `current_iteration: null`, a completed/evaluated terminal iteration, `last_condition_result: true`, and absent/false `exhausted` is accepted and retains completed-iteration candidates
+210. Terminal successful exhaustion: completed/evaluated declared maximum history with `last_condition_result: false`, `exhausted: true`, and completed repeat-frame status is accepted
+211. Terminal failed exhaustion: completed/evaluated declared maximum history with `last_condition_result: false`, absent/false `exhausted`, and failed repeat-frame error `repeat_until_iterations_exhausted` is accepted
+212. Invalid loop bookkeeping: malformed types, boolean-as-integer values, duplicate/out-of-range indices, or inconsistent active/terminal progress fail before qualified candidates are generated
+213. Stale qualified loop identity: structurally valid loop bookkeeping with a stale/out-of-scope loop-local step ID or loop-contained call-boundary ID fails exact candidate lookup before effects, without parsing or backfill
+214. One-level current-callee ownership: a valid caller ID resolves exactly to its current parent call boundary, whose unique current import selects and validates the callee projection before child frame creation
+215. Two-level recursive ownership: valid nested call frames resolve parent boundary and selected current callee independently at each level
+216. Missing call boundary: a persisted caller ID with no current parent boundary fails before fresh child selection or child effects
+217. Ambiguous boundary/frame state: ambiguous projection candidates, multiple non-Workflow-Lisp resumable frames, or invalid Workflow Lisp lineage/cardinality fail without mapping-order selection
+218. Import uniqueness and absence: duplicate authored import aliases are rejected before bundle construction, while a missing current import fails at the reached call; runtime imported-bundle ambiguity is unreachable after valid load
+219. Persisted alias non-authority: a persisted alias mismatch fails validation and cannot redirect current-callee selection away from the current parent boundary
+220. Callee checksum precedence: imported-callee checksum mismatch retains `call_resume_checksum_mismatch` and wins before callee-local projection defects or child creation
+221. Non-Workflow-Lisp frame selection: completed frames remain unlimited history, and exactly one running or failed non-completed frame may resume only after checksum, resume-bound-input, and local projection validation
+222. Workflow Lisp running-lineage precedence: running-member checksum and resume-bound-input validation run first and win on failure; then every failed predecessor is checksum/audited ordinally; then the running local scope is audited and resumed
+223. Workflow Lisp fresh retry: with no running member, every failed predecessor is checksum/audited ordinally before deterministic next-unused retry-frame allocation
+224. Workflow Lisp lineage rejection: multiple running members, mixed bases, duplicate/malformed ordinals, malformed status, or name/suffix/family-based target selection fails closed
+225. Root executor checksum envelope: direct or post-CLI-race root checksum mismatch records the exact structured `workflow_checksum_mismatch` contract from `state.md`, changes only root `status`/`error`/`updated_at` among workflow state, stops before projection/prologue, and survives failed session closure
+226. Early root projection envelope: root projection failure during CLI preflight or direct root execution changes only root `status`/`error`/`updated_at`, occurs before the applicable prologue/outer metadata mutations, and leaves any unchanged current step forensic rather than live
+227. Post-CLI projection race: a checksum-compatible identity mutation after preflight is caught by root executor revalidation, preserves opened session/process metadata, applies the same three-field projection delta, and closes failed without replacing the diagnostic
+228. Reached-callee projection envelope: a pre-construction callee audit failure becomes the current parent's failed call-step and scope/run error while the selected callee frame/state/effects remain untouched
+229. Recursive diagnostic promotion: at deeper failure, existing ancestor frames persist ordinary failed step/current/visit/frame snapshots and promote the exact `resume_projection_integrity_error` unchanged to root
+230. Sticky projection failure: after ordinary failure persistence, projection-integrity failure bypasses authored success/failure/always routes, `on_error=continue`, and further loop/container execution, forcing failed termination at every caller
+231. Finalization and session preservation: configured finalization may run, but its failure remains supplemental; finalization, epilogue, and session closure cannot wrap, replace, clear, or downgrade the projection diagnostic, and status/report surfaces expose that exact root error
+232. Projection diagnostic contract: `resume_projection_integrity_error` exposes the exact diagnostic schema, reason enum, identity-only scope path, field, explicit JSON-null missing values, exact expected-owner keys, candidate count, and call-boundary ID defined in `state.md` without private inputs, context, artifacts, prompts, provider output, secrets, whole frame state, or whole projections
+233. Schema and selector independence: projection integrity remains additive under schema `2.1`, runtime does not read migration/retirement evidence, and behavior is not selected by workflow/module/procedure name, basename, family, or persisted alias
+234. Exact-resolution architecture: root, loop, and call-frame acceptance is proven through projection-owned exact candidates, with no ad hoc qualified-ID parsing, prefix matching, remapping, or backfill
+
+### Pending Resume Projection-Integrity Executable-Proof Routing
+
+Clauses 201-234 are normative target behavior whose runtime implementation is
+pending. Task 1 characterization records the pre-implementation gap and does
+not satisfy these clauses. The later implementation must add public/default-path
+proof at least as follows:
+
+| Clauses | Pending executable proof ownership |
+| --- | --- |
+| 201-205 | `tests/test_workflow_state_projection.py` for root scoped candidates, presentation/scope mismatch, and schema-supported omission compatibility; `tests/test_resume_command.py` for public root resume |
+| 206-207 | `tests/test_resume_command.py` for required root selectors and pre-v2.0 rejection; `tests/test_subworkflow_calls.py` for required `call_frames.*.call_step_id` and explicit pre-`schema_version: "2.1"` reusable-call rejection |
+| 208-213 | `tests/test_workflow_state_projection.py` for loop progress/candidate resolution; `tests/test_resume_command.py` for public resume and pre-effect mutation assertions; `tests/test_subworkflow_calls.py` for loop-contained call boundaries |
+| 214-224 | `tests/test_subworkflow_calls.py` for one/two-level current-callee selection, checksum precedence, frame classes, retry history, mutation boundaries, and recursive audit; `tests/test_loader_validation.py` for duplicate import-alias rejection and typed import/frontend validation |
+| 197, 225-227 | `tests/test_resume_command.py` for the initial public checksum envelope, direct/post-CLI executor checksum, early projection, and checksum-compatible projection-race envelopes using whole-run-tree comparisons |
+| 228-231 | `tests/test_subworkflow_calls.py` and `tests/test_resume_command.py` for unchanged nested promotion, sticky routing/container behavior, finalization, epilogue, and session closure; focused lifecycle coverage may live in `tests/test_runtime_step_lifecycle.py` |
+| 232-233 | `tests/test_state_manager.py` for exact persisted diagnostic schemas/deltas and schema-`2.1` assertions; `tests/test_observability_report.py` for privacy-preserving status/report rendering; tripwired public-path tests in `tests/test_resume_command.py` and `tests/test_subworkflow_calls.py` must prove no retirement-evidence reader and no workflow/module/procedure name, basename, family, or persisted-alias selector |
+| 234 | Exact-resolution proof spans `tests/test_workflow_state_projection.py` for root candidates, `tests/test_workflow_state_projection.py` plus `tests/test_resume_command.py` for loop-qualified candidates, and `tests/test_subworkflow_calls.py` for call-frame/callee candidates; each path proves no parsing, prefix matching, remap, or backfill |
 
 ## DSL Evolution Rollout Crosswalk
 
