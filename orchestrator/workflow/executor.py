@@ -68,7 +68,7 @@ from .executable_ir import (
     RepeatUntilFrameNode,
     WorkflowInputAddress,
 )
-from .executor_runtime import RuntimeStepInput
+from .executor_runtime import CallFrameStateManager, RuntimeStepInput
 from .finalization import FinalizationController
 from .frontend_origins import CompiledFrontendIndex
 from .identity import runtime_step_id
@@ -82,6 +82,11 @@ from .loaded_bundle import (
     workflow_provenance,
     workflow_runtime_context_inputs,
     workflow_runtime_input_contracts,
+)
+from .resume_projection_integrity import (
+    ResumeProjectionIntegrityError,
+    ResumeScopePath,
+    audit_scope,
 )
 from .state_layout import (
     GeneratedPathSemanticRole,
@@ -126,6 +131,15 @@ from .adjudication_runner import AdjudicationBindings, AdjudicationRunner
 logger = logging.getLogger(__name__)
 RESTORE_REPORT_SCHEMA_VERSION = "workflow_lisp_lexical_restore_report.v1"
 _RESTORE_REF_MISSING = object()
+
+
+def _is_structurally_root_state_manager(state_manager: Any) -> bool:
+    """Return whether resume must apply the root checksum/projection guard."""
+    return (
+        isinstance(state_manager, StateManager)
+        and not isinstance(state_manager, CallFrameStateManager)
+        and not isinstance(getattr(state_manager, "frame_id", None), str)
+    )
 
 
 class _ExecuteStepLoopResult(NamedTuple):
@@ -2590,6 +2604,10 @@ class WorkflowExecutor:
             self.retry_delay_ms = retry_delay_ms
 
         run_state = self.state_manager.load()
+        if resume and _is_structurally_root_state_manager(self.state_manager):
+            root_guard_result = self._revalidate_root_resume(run_state)
+            if root_guard_result is not None:
+                return root_guard_result
         state = run_state.to_dict()
         early_result = self._execute_prologue(state, resume=resume)
         if early_result is not None:
@@ -2604,6 +2622,62 @@ class WorkflowExecutor:
         if loop_result.early_result is not None:
             return loop_result.early_result
         return self._execute_epilogue(state, loop_result.terminal_status)
+
+    def _revalidate_root_resume(self, run_state: Any) -> Optional[Dict[str, Any]]:
+        """Recheck authoritative root source and projection before prologue."""
+        provenance = workflow_provenance(self.loaded_bundle)
+        workflow_path = provenance.workflow_path if provenance is not None else None
+        workflow_file = (
+            str(workflow_path)
+            if isinstance(workflow_path, (str, Path)) and str(workflow_path)
+            else None
+        )
+        persisted_value = getattr(run_state, "workflow_checksum", None)
+        persisted_checksum = (
+            persisted_value
+            if isinstance(persisted_value, str)
+            and persisted_value.startswith("sha256:")
+            else None
+        )
+
+        current_checksum: Optional[str] = None
+        checksum_reason: Optional[str] = None
+        if workflow_file is None:
+            checksum_reason = "missing_workflow_path"
+        else:
+            try:
+                current_checksum = self.state_manager.calculate_checksum(
+                    Path(workflow_file),
+                )
+            except OSError:
+                checksum_reason = "workflow_unavailable"
+        if checksum_reason is None and persisted_checksum is None:
+            checksum_reason = "missing_recorded_checksum"
+        if (
+            checksum_reason is None
+            and current_checksum != persisted_checksum
+        ):
+            checksum_reason = "workflow_modified"
+
+        if checksum_reason is not None:
+            self.state_manager.record_workflow_checksum_mismatch(
+                workflow_file=workflow_file,
+                persisted_checksum=persisted_checksum,
+                current_checksum=current_checksum,
+                reason=checksum_reason,
+            )
+            return self.state_manager.load().to_dict()
+
+        try:
+            audit_scope(
+                self.loaded_bundle,
+                run_state.to_dict(),
+                ResumeScopePath.root(workflow_file),
+            )
+        except ResumeProjectionIntegrityError as exc:
+            self.state_manager.record_resume_projection_integrity_failure(exc.error)
+            return self.state_manager.load().to_dict()
+        return None
 
     def _execute_step_loop(
         self,

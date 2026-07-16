@@ -20,6 +20,11 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_runtime_context_inputs,
 )
 from orchestrator.workflow.signatures import bind_workflow_inputs
+from orchestrator.workflow.resume_projection_integrity import (
+    ResumeProjectionIntegrityError,
+    ResumeScopePath,
+    audit_scope,
+)
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.monitor.process import (
     process_start_time_token,
@@ -365,45 +370,30 @@ def resume_workflow(
         )
         print("Use --force-restart to start a new run on the current schema.", file=sys.stderr)
         return 1
-    if (
-        not force_restart
-        and isinstance(state.error, dict)
-        and state.error.get("type") == PROVIDER_SESSION_QUARANTINE_ERROR
-    ):
-        print(f"Error: {state.error.get('message')}", file=sys.stderr)
-        context = state.error.get("context", {})
-        if isinstance(context, dict):
-            metadata_path = context.get("metadata_path")
-            transport_spool_path = context.get("transport_spool_path")
-            if metadata_path:
-                print(f"Metadata: {metadata_path}", file=sys.stderr)
-            if transport_spool_path:
-                print(f"Transport spool: {transport_spool_path}", file=sys.stderr)
-        print("Use --force-restart to start a new run.", file=sys.stderr)
-        return 1
-
     workflow_file = state.workflow_file
     if not workflow_file:
         print("Error: No workflow file recorded in state", file=sys.stderr)
         return 1
 
-    observability = _merge_observability_overrides(
-        state.observability,
-        summary_mode=summary_mode,
-        summary_provider=summary_provider,
-        summary_timeout_sec=summary_timeout_sec,
-        summary_max_input_chars=summary_max_input_chars,
-        summary_profile=summary_profile,
-        live_agent_notes=live_agent_notes,
-        live_agent_note_provider=live_agent_note_provider,
-        live_agent_note_interval_sec=live_agent_note_interval_sec,
-        live_agent_note_timeout_sec=live_agent_note_timeout_sec,
-        live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
-    )
-    if observability is not None:
-        # Persist runtime override so future resumes are deterministic.
-        state.observability = observability
-        state_manager._write_state()
+    observability: Optional[Dict[str, Any]] = None
+    if force_restart:
+        observability = _merge_observability_overrides(
+            state.observability,
+            summary_mode=summary_mode,
+            summary_provider=summary_provider,
+            summary_timeout_sec=summary_timeout_sec,
+            summary_max_input_chars=summary_max_input_chars,
+            summary_profile=summary_profile,
+            live_agent_notes=live_agent_notes,
+            live_agent_note_provider=live_agent_note_provider,
+            live_agent_note_interval_sec=live_agent_note_interval_sec,
+            live_agent_note_timeout_sec=live_agent_note_timeout_sec,
+            live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
+        )
+        if observability is not None:
+            # Preserve the existing force-restart override lifecycle.
+            state.observability = observability
+            state_manager._write_state()
 
     workflow_path = Path(workflow_file)
     if not workflow_path.exists():
@@ -468,6 +458,50 @@ def resume_workflow(
             print("The workflow checksum does not match the recorded checksum.", file=sys.stderr)
             print("Use --force-restart to ignore this and start a new run.", file=sys.stderr)
             return 1
+        try:
+            audit_scope(
+                workflow_bundle,
+                state.to_dict(),
+                ResumeScopePath.root(str(workflow_path)),
+            )
+        except ResumeProjectionIntegrityError as exc:
+            state_manager.record_resume_projection_integrity_failure(exc.error)
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+
+        if (
+            isinstance(state.error, dict)
+            and state.error.get("type") == PROVIDER_SESSION_QUARANTINE_ERROR
+        ):
+            print(f"Error: {state.error.get('message')}", file=sys.stderr)
+            context = state.error.get("context", {})
+            if isinstance(context, dict):
+                metadata_path = context.get("metadata_path")
+                transport_spool_path = context.get("transport_spool_path")
+                if metadata_path:
+                    print(f"Metadata: {metadata_path}", file=sys.stderr)
+                if transport_spool_path:
+                    print(f"Transport spool: {transport_spool_path}", file=sys.stderr)
+            print("Use --force-restart to start a new run.", file=sys.stderr)
+            return 1
+
+        observability = _merge_observability_overrides(
+            state.observability,
+            summary_mode=summary_mode,
+            summary_provider=summary_provider,
+            summary_timeout_sec=summary_timeout_sec,
+            summary_max_input_chars=summary_max_input_chars,
+            summary_profile=summary_profile,
+            live_agent_notes=live_agent_notes,
+            live_agent_note_provider=live_agent_note_provider,
+            live_agent_note_interval_sec=live_agent_note_interval_sec,
+            live_agent_note_timeout_sec=live_agent_note_timeout_sec,
+            live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
+        )
+        if observability is not None:
+            # Persist runtime override so future resumes are deterministic.
+            state.observability = observability
+            state_manager._write_state()
 
     if force_restart:
         try:

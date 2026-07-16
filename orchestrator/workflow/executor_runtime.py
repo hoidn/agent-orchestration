@@ -97,7 +97,7 @@ class ParentCallStateManager(CallStateManager, Protocol):
 
 @runtime_checkable
 class CallFrameStateManager(ParentCallStateManager, Protocol):
-    """Call state manager carrying an optional parent frame identity."""
+    """Runtime-checkable child manager carrying its structural frame identity."""
 
     @property
     def frame_id(self) -> str: ...
