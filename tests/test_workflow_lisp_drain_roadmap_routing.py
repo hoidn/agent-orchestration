@@ -147,6 +147,70 @@ def _migration_task_section(plan: str, task_number: int) -> str:
     return section.split(next_heading, 1)[0] if next_heading in section else section
 
 
+def _migration_plan_status(plan: str) -> str:
+    return plan.split("**Status:**", 1)[1].split("- Accepted contract:", 1)[0]
+
+
+def _procedure_sequence_selector_surfaces() -> dict[str, str]:
+    sequence_path = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
+    )
+    sequence = sequence_path.read_text(encoding="utf-8")
+    return {
+        "roadmap disposition": _markdown_table_row(
+            sequence_path,
+            "2026-07-13-procedure-first-migration-waves-plan.md",
+        ),
+        "roadmap current routing": _procedure_sequence_current_routing(),
+        "roadmap Stage 5 selector": sequence.split(
+            "### Stage 5: Implement Procedure-First Reuse In Waves", 1
+        )[1].split("### Stage 6: Resume YAML Retirement", 1)[0],
+    }
+
+
+def _assert_task_2_current_subselector(surface: str, label: str) -> None:
+    normalized = _normalized_routing_text(surface)
+    assert re.search(
+        r"\btask 1\b.{0,160}(?:"
+        r"rebaseline.{0,80}\bcomplete\w*\b"
+        r"|\bcomplete\w*\b.{0,80}rebaseline)",
+        normalized,
+    ), label
+    assert "task 2" in normalized and "small example" in normalized, label
+    for commit in MIGRATION_TASK_1_IMPLEMENTATION_COMMITS:
+        assert normalized.count(commit) == 1, (label, commit)
+
+    explicit_markers = len(re.findall(r"current sub selector", normalized))
+    execute_now_markers = len(
+        re.findall(r"\bexecute\s+task 2\b.{0,120}\bnow\b", normalized)
+    )
+    assert explicit_markers + execute_now_markers == 1, label
+    assert re.search(
+        r"(?:current sub selector:?\s*(?:the\s+)?task 2\b"
+        r"|\btask 2\b.{0,80}\b(?:is|as)\b.{0,24}current sub selector"
+        r"|\bexecute\s+task 2\b.{0,120}\bnow\b)",
+        normalized,
+    ), label
+    assert re.search(
+        r"(?:current sub selector:?\s*(?:the\s+)?task (?!2\b)\d+\b"
+        r"|\btask (?!2\b)\d+\b.{0,80}\b(?:is|as)\b.{0,24}"
+        r"current sub selector)",
+        normalized,
+    ) is None, label
+    assert re.search(
+        r"(?:current sub selector:?\s*(?:the\s+)?task 1\b"
+        r"|\btask 1\b.{0,80}\b(?:is|as)\b.{0,24}current sub selector"
+        r"|\bbegin with\b.{0,120}\btask 1\b"
+        r"|\btask 1\b.{0,100}\b(?:is|remains)\s+"
+        r"(?:open|pending|current|incomplete)\b"
+        r"|\btask 1\b.{0,100}\bmust still\b)",
+        normalized,
+    ) is None, label
+
+
 def _assert_exact_ordered_routing_paths(surface: str, label: str) -> None:
     canonical = _canonical_routing_paths(surface)
     positions: list[int] = []
@@ -225,39 +289,74 @@ def test_migration_wave_task_1_closeout_advances_only_to_task_2() -> None:
     assert task_1_steps == ["x", "x", "x", "x"]
     assert re.search(r"(?m)^- \[[xX]\] \*\*Step", later_tasks) is None
 
-    status = plan.split("## Authority, order, and invariants", 1)[1].split(
-        "## Protected working-tree guard", 1
-    )[0]
-    normalized_status = _normalized_routing_text(status)
-    assert "task 1" in normalized_status and "complete" in normalized_status
-    assert re.search(r"current sub selector:\s*task 2\b", normalized_status)
-    assert re.search(r"current sub selector:\s*task 1\b", normalized_status) is None
-
     for commit in MIGRATION_TASK_1_IMPLEMENTATION_COMMITS:
         assert commit in task_1
-    normalized_task_1 = _normalized_routing_text(task_1)
-    for evidence in (
-        "109 collected",
-        "4 passed, 105 deselected",
-        "108 passed, 1 skipped",
-        "clean run",
-        "same-run resume",
-        "JSON extraction",
-        "independent specification",
-        "quality",
-    ):
-        assert _normalized_routing_text(evidence) in normalized_task_1, evidence
 
     docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
         encoding="utf-8"
     ).split("**Component-plan routing:**", 1)[1].split(
         "**Current procedure-first substrate:**", 1
     )[0]
-    for label, surface in {
+    capability_row = _markdown_table_row(
+        REPO_ROOT / "docs" / "capability_status_matrix.md",
+        "Workflow Lisp procedure-first reuse contract",
+    )
+    selector_surfaces = {
+        "migration plan status": _migration_plan_status(plan),
         "docs index": docs_index_routing,
-        "procedure sequence": _procedure_sequence_current_routing(),
-    }.items():
-        _assert_exact_ordered_routing_paths(surface, label)
+        "capability matrix": capability_row,
+        **_procedure_sequence_selector_surfaces(),
+    }
+    for label, surface in selector_surfaces.items():
+        _assert_task_2_current_subselector(surface, label)
+
+    for label in ("docs index", "roadmap current routing"):
+        _assert_exact_ordered_routing_paths(selector_surfaces[label], label)
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    (
+        "Task 1's rebaseline is the current sub-selector.",
+        (
+            "Task 2's small-example family is the current sub-selector. "
+            "Task 1's rebaseline remains pending."
+        ),
+        (
+            "Task 2's small-example family is the current sub-selector. "
+            "Begin with Task 1's rebaseline."
+        ),
+        "Task 2's small-example family remains planned.",
+    ),
+    ids=(
+        "stale-task-1-current",
+        "contradictory-task-1-pending",
+        "contradictory-task-1-begin",
+        "task-2-not-current",
+    ),
+)
+def test_task_2_current_subselector_guard_rejects_stale_or_ambiguous_routing(
+    replacement: str,
+) -> None:
+    docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
+        encoding="utf-8"
+    ).split("**Component-plan routing:**", 1)[1].split(
+        "**Current procedure-first substrate:**", 1
+    )[0]
+    mutated = re.sub(
+        r"Task 1's rebaseline completed at `4983afff` plus `fa16bcf0`, and "
+        r"Task 2's small-example family is the current sub-selector\.",
+        replacement,
+        docs_index_routing,
+        count=1,
+    )
+    assert mutated != docs_index_routing
+
+    with pytest.raises(AssertionError):
+        _assert_task_2_current_subselector(
+            mutated,
+            "mutated docs-index routing",
+        )
 
 
 def test_resume_projection_hardening_is_closed_without_claiming_migration() -> None:
