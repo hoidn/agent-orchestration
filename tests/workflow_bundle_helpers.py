@@ -588,3 +588,20 @@ def thaw_surface_workflow(bundle: LoadedWorkflowBundle) -> dict[str, Any]:
 
 def bundle_context_dict(bundle: LoadedWorkflowBundle) -> dict[str, Any]:
     return _thaw(workflow_context(bundle))
+
+
+def historical_workflow_lisp_bundle_context(
+    bundle: LoadedWorkflowBundle,
+) -> dict[str, Any]:
+    """Build direct-executor context for an explicitly historical Workflow Lisp run."""
+    context = bundle_context_dict(bundle)
+    workflow_lisp = context.setdefault("workflow_lisp", {})
+    if not isinstance(workflow_lisp, dict):
+        raise TypeError("Workflow Lisp bundle context must be a mapping")
+    workflow_lisp.update(
+        {
+            "lowering_schema_version": 2,
+            "historical_compatibility": True,
+        }
+    )
+    return context

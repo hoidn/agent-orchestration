@@ -15,6 +15,7 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from tests.workflow_bundle_helpers import historical_workflow_lisp_bundle_context
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -385,7 +386,11 @@ def test_pure_projection_resume_reuses_committed_bundle(tmp_path: Path):
     step_name = loaded.surface.steps[0].name
 
     state_manager = StateManager(workspace=tmp_path, run_id="pure-projection-resume")
-    state_manager.initialize(str(PURE_EXPR_SELECTOR_PROJECTION), bound_inputs={"approved": False, "status": "WAIT"})
+    state_manager.initialize(
+        str(PURE_EXPR_SELECTOR_PROJECTION),
+        context=historical_workflow_lisp_bundle_context(loaded),
+        bound_inputs={"approved": False, "status": "WAIT"},
+    )
 
     first = WorkflowExecutor(loaded, tmp_path, state_manager).execute()
 
@@ -396,10 +401,19 @@ def test_pure_projection_resume_reuses_committed_bundle(tmp_path: Path):
     state_manager._write_state()
 
     resumed = WorkflowExecutor(loaded, tmp_path, state_manager).execute(resume=True)
+    default_resume_report = json.loads(
+        state_manager.workflow_lisp_checkpoint_default_resume_report_path().read_text(
+            encoding="utf-8"
+        )
+    )
 
     assert resumed["steps"][step_name]["status"] == "completed"
     assert resumed["steps"][step_name]["artifacts"] == {"return__status": "WAIT", "return__ready": False}
     assert resumed["steps"][step_name]["debug"]["pure_projection"]["reused_bundle"] is True
+    assert (
+        default_resume_report["default_modes"][0]["mode"]
+        == "HISTORICAL_STEP_GRANULAR_COMPATIBILITY"
+    )
 
 
 def test_pure_projection_resume_fails_closed_on_schema_mismatch(tmp_path: Path):
@@ -407,7 +421,11 @@ def test_pure_projection_resume_fails_closed_on_schema_mismatch(tmp_path: Path):
     step_name = loaded.surface.steps[0].name
 
     state_manager = StateManager(workspace=tmp_path, run_id="pure-projection-schema-mismatch")
-    state_manager.initialize(str(PURE_EXPR_SELECTOR_PROJECTION), bound_inputs={"approved": True, "status": "WAIT"})
+    state_manager.initialize(
+        str(PURE_EXPR_SELECTOR_PROJECTION),
+        context=historical_workflow_lisp_bundle_context(loaded),
+        bound_inputs={"approved": True, "status": "WAIT"},
+    )
 
     WorkflowExecutor(loaded, tmp_path, state_manager).execute()
     bundle_path = tmp_path / next(
@@ -425,9 +443,18 @@ def test_pure_projection_resume_fails_closed_on_schema_mismatch(tmp_path: Path):
 
     resumed = WorkflowExecutor(loaded, tmp_path, state_manager).execute(resume=True)
     project = resumed["steps"][step_name]
+    default_resume_report = json.loads(
+        state_manager.workflow_lisp_checkpoint_default_resume_report_path().read_text(
+            encoding="utf-8"
+        )
+    )
 
     assert project["status"] == "failed"
     assert project["error"]["type"] == "pure_projection_resume_schema_mismatch"
+    assert (
+        default_resume_report["default_modes"][0]["mode"]
+        == "HISTORICAL_STEP_GRANULAR_COMPATIBILITY"
+    )
 
 
 def test_materialize_view_resume_reuses_committed_view(tmp_path: Path):

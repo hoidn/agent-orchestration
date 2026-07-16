@@ -31,6 +31,7 @@ from orchestrator.workflow.surface_ast import (
 )
 from orchestrator.workflow.view_renderer import VIEW_RENDERER_SCHEMA_VERSION, view_bytes_digest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from tests.workflow_bundle_helpers import historical_workflow_lisp_bundle_context
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "valid"
@@ -518,6 +519,7 @@ def test_entry_publication_runtime_fails_closed_when_publication_view_drifts_on_
     state_manager = StateManager(workspace=tmp_path, run_id="entry-publication-drift")
     state_manager.initialize(
         str(ENTRY_PUBLICATION_RUNTIME.resolve()),
+        context=historical_workflow_lisp_bundle_context(bundle),
         bound_inputs={"selected_variant": "DONE"},
     )
 
@@ -532,11 +534,20 @@ def test_entry_publication_runtime_fails_closed_when_publication_view_drifts_on_
 
     _resume_failed_single_step(state_manager, step_name=publication_step_name)
     resumed = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)
+    default_resume_report = json.loads(
+        state_manager.workflow_lisp_checkpoint_default_resume_report_path().read_text(
+            encoding="utf-8"
+        )
+    )
 
     assert resumed["steps"][publication_step_name]["status"] == "failed"
     assert (
         resumed["steps"][publication_step_name]["error"]["type"]
         == "materialize_view_nondeterministic_render"
+    )
+    assert (
+        default_resume_report["default_modes"][0]["mode"]
+        == "HISTORICAL_STEP_GRANULAR_COMPATIBILITY"
     )
 
 
