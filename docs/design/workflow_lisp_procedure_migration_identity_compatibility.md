@@ -1,13 +1,13 @@
 # Workflow Lisp Procedure-Migration Identity Compatibility
 
-- **Status:** accepted (generic prerequisites and match-scoped store-count
-  correction implemented and reviewed; tracked-plan pilot remains pending)
+- **Status:** accepted and implemented for generic prerequisites plus exactly
+  one reviewed internal pilot; the evidence-only exception remains narrow
 - **Kind:** migration architecture decision and compatibility clarification
 - **Owner:** Workflow Lisp frontend and runtime-state owners
 - **Reviewers:** procedure-first specification review, runtime-state review, and
   the owner of each known state store named by a retirement record
 - **Created:** 2026-07-13
-- **Last material update:** 2026-07-14
+- **Last material update:** 2026-07-15
 - **Related docs / plans:**
   - `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
   - `docs/design/workflow_lisp_state_layout.md`
@@ -18,13 +18,16 @@
   - `docs/plans/2026-07-13-procedure-first-pilot-plan.md`
   - `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`
   - `specs/state.md`
-- **Implementation target:** generic compiler/runtime prerequisites and the
-  tracked-plan procedure-first pilot retry
+- **Implementation target:** current selector is the separate resume
+  projection-integrity hardening design/planning plan; migration waves remain
+  gated behind its resulting implementation
 
 Acceptance establishes the compatibility contract and reviewed implementation
-sequence. Generic prerequisite Tasks 1-8, including the final verification and
-review gate, completed at handoff `f5adcb79`. This status does not claim the
-pilot or the separate resume projection-integrity hardening complete.
+sequence. Generic prerequisite Tasks 1-8 completed at handoff `f5adcb79`. The
+tracked-plan pilot then completed through `0769e837`, with exactly two
+completed dedicated runs and holistic specification/quality approval. This is
+not a general cross-source resume/compatibility, family-wave, promotion, or
+YAML-retirement claim, and projection-integrity hardening is not implemented.
 
 ## Summary
 
@@ -54,9 +57,10 @@ The four generic prerequisites are implemented: lowering mode is resolved once
 and carried by Stage 3; inline checkpoint policy is caller-owned; persisted
 source maps connect generated steps to both procedure definition and consuming
 call site; and stable retirement evidence plus fail-closed checksum negative
-proof exist. The tracked-plan pilot may retry under the reviewed retirement
-class only after the prerequisite plan's final verification and independent
-reviews pass and the pilot's pre-edit store/owner gate succeeds. No
+proof exist. The tracked-plan pilot used the reviewed retirement class only
+after the prerequisite final reviews and pre-edit store/owner gate passed; its
+evidence landed at `63e03330`, `e6a85cb7`, `de522c76`, `f5dbac88`, `76205d4f`,
+and `0769e837`. No
 prerequisite or compatibility decision may be keyed to this pilot's family,
 module, procedure, workflow, provider, or step names.
 
@@ -124,9 +128,9 @@ identifier could not be preserved exactly. That pre-acceptance rule correctly
 protected public, live, and promoted identities, but it did not yet express the
 narrow reviewed-internal retirement class for an evidence-only callee with no
 supported old-state consumer. Acceptance commit `61c79cb4` has since landed the
-strict-default/retirement-exception qualification in the reuse contract; the
-remaining work is final prerequisite verification/review and pilot evidence,
-not another contract amendment.
+strict-default/retirement-exception qualification in the reuse contract. The
+prerequisites and first reviewed pilot are now complete; generalization remains
+separately gated.
 
 The pilot exposed generic compiler/runtime defects that could not be accepted
 as migration differences. The module-level lowering-mode, inline checkpoint,
@@ -441,13 +445,11 @@ compatibility. The eligibility gate uses only the match-scoped
 
 ## Pilot Application
 
-The tracked-plan pilot is the recommended first use of the retirement class,
-not a proof that the class already applies. Its repository-side eligibility is
-strong: only the stack wrapper is exported, the callee is neither exported nor
-registered as public, the containing route is not promoted/live, and the
-frozen baseline records the retained wrapper/contract and old identity side of
-the required delta. The `migration_evidence_only` route label supports this
-review but does not decide eligibility.
+The tracked-plan pilot was the first reviewed use of the retirement class. Its
+completed evidence proves eligibility only for that content-addressed callee,
+wrapper, store set, and run set. The route remains
+`migration_evidence_only`; that label supports review but never decides
+eligibility for another migration.
 
 Before approval, the pilot owner must enumerate and attest every known store,
 including the repository workspace's `.orchestrate/runs` root and any other
@@ -502,9 +504,9 @@ family edit. If the current state/acceptance specs do not already state the
 checksum compatibility and upgrader boundary accurately, clarify them before
 the pilot source edit; do not add the separate projection audit to this plan.
 
-The prerequisite implementation plan has completed Steps 2-4 and retained the
-old pilot baseline without editing the pilot source. Its Task 8 full gate and
-independent reviews remain required before Step 6 or any source edit begins.
+The prerequisite implementation plan completed Steps 2-4 and retained the old
+pilot baseline without editing the pilot source. Task 8 and its independent
+reviews passed before Step 6 and the later source edit.
 
 ## Invariants And Failure Modes
 
@@ -681,14 +683,14 @@ The following acceptance-level changes already landed in commit `61c79cb4`:
   and link, while routing/status surfaces selected the prerequisite plan and
   paused the pilot.
 
-With generic Tasks 1-6 implemented, the remaining contract references now
+With the generic prerequisites and one pilot implemented, the contract references
 describe the observed behavior: `specs/state.md` and `specs/acceptance/index.md`
 own the distinct root/callee checksum and future-upgrader rules;
 `docs/design/workflow_lisp_source_map.md` owns WCC propagation of the existing
 procedure-definition and consuming-call-site notes without a schema change;
 and the pilot plan owns the detailed pre-edit store/owner and retirement-record
-production gates. These references do not constitute the prerequisite plan's
-Task 8 final approval or authorize the pilot source edit.
+production gates. The recorded Task 8 approval and pilot evidence, rather than
+these references alone, authorized the completed source edit.
 
 The capability matrix, authoring guide, route-readiness registry, and other
 implementation-status surfaces remain gated on their own required evidence.

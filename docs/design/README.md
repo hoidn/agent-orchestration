@@ -15,7 +15,7 @@ page, not a replacement for the linked docs.
 | [workflow_command_adapter_contract.md](workflow_command_adapter_contract.md) | Command adapter and inline glue policy | Partial | Yes | Use when deciding whether command behavior is a certified adapter, legacy adapter, or runtime-native candidate. |
 | [workflow_lisp_frontend_specification.md](workflow_lisp_frontend_specification.md) | Accepted Workflow Lisp frontend baseline | Yes | Yes | Parent contract for `.orc` frontend work. |
 | [workflow_lisp_procedure_first_reuse_contract.md](workflow_lisp_procedure_first_reuse_contract.md) | Procedure-first boundary roles, lowering identity, effects, and migration rules | Accepted contract / adoption gated | No | Focused decision and migration companion; the frontend specification remains durable semantic authority, and Stage 5 substrate plus pilot evidence gates migration guidance. |
-| [workflow_lisp_procedure_migration_identity_compatibility.md](workflow_lisp_procedure_migration_identity_compatibility.md) | Strict-default procedure-migration identity compatibility and bounded internal retirement | Accepted contract / generic prerequisites implemented; pilot pending | No | Current compatibility contract for the active pilot; generic prerequisites are implemented and gated, while pilot completion remains pending. |
+| [workflow_lisp_procedure_migration_identity_compatibility.md](workflow_lisp_procedure_migration_identity_compatibility.md) | Strict-default procedure-migration identity compatibility and bounded internal retirement | Accepted / generic prerequisites plus one reviewed internal pilot complete | No | The evidence-only exception remains narrow. The tracked-plan pilot completed at `0769e837`; this does not generalize cross-source compatibility, family waves, promotion, or YAML retirement. |
 | [workflow_lisp_frontend_mvp_specification.md](workflow_lisp_frontend_mvp_specification.md) | MVP Workflow Lisp tranche | Yes | Yes | Useful for minimal implemented surface and MVP boundaries. |
 | [workflow_lisp_semantic_workflow_ir.md](workflow_lisp_semantic_workflow_ir.md) | Semantic IR authority surface | Yes | No | Implementation/verification contract, not an authoring guide. |
 | [workflow_lisp_executable_ir.md](workflow_lisp_executable_ir.md) | Executable IR authority surface | Yes | No | Implementation/verification contract below the frontend. |
@@ -77,9 +77,9 @@ page, not a replacement for the linked docs.
 ## Runtime And Observability Direction
 
 The [resume projection-integrity hardening design-and-planning plan](../plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md)
-is planned after the internal procedure-first pilot and before migration waves.
-It will produce the owning target design and implementation plan; no runtime
-hardening is implemented by this routing entry.
+is the current selector after the completed internal pilot. It produces the
+owning target design and implementation plan; it does not implement runtime
+hardening. Migration waves remain gated behind the resulting implementation.
 
 | Doc | Applies to | Current checkout? | Normal authoring guidance? | Notes |
 | --- | --- | ---: | ---: | --- |

@@ -87,11 +87,11 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-10-workflow-lisp-typed-result-guidance-plan.md` | Completed Stage-5 wave 2. Root/field guidance and the combined v2.15 public promotion gate are landed; do not re-execute it. |
 | `2026-07-13-procedure-first-substrate-gaps-plan.md` | Complete and independently gated. Caller-visible transitive effects are recomputed after specialization; do not re-execute this substrate before the tracked-plan pilot. |
 | `2026-07-13-procedure-migration-identity-compatibility-plan.md` | Complete and gated; the final audited handoff to the pilot is `f5adcb79`. Do not re-execute it or edit the pilot family source under this plan. |
-| `2026-07-13-procedure-first-pilot-plan.md` | Current selector. Task 1A's immutable pre-edit evidence is committed at `63e03330`, and Task 2 landed at `e6a85cb7`. Task 3 has one protected completed clean run plus one failed interrupted run. The first recovery authorization was consumed and the attempt failed at fresh-child resume propagation. The generic fix landed and passed ordered reviews at `1cba48c8`; retained evidence remains unpublished. The exact second-recovery form remains pending and awaits ordered harness reviews, the harness commit, mechanical population of its exact commit/tree and review bindings, and genuine owner confirmation. No second attempt has occurred, and runtime evidence remains incomplete. Family/focused/broad run-bearing gates remain deferred until retirement-record validation/review and explicit owner hold release. |
-| `2026-07-13-resume-projection-integrity-hardening-design-plan.md` | Planned after the internal pilot. Its design/specification and resulting implementation plan must complete before migration waves begin; this row is not an implementation claim. |
+| `2026-07-13-procedure-first-pilot-plan.md` | Complete. Evidence landed at `63e03330`, `e6a85cb7`, `de522c76`, `f5dbac88`, `76205d4f`, and `0769e837`; holistic specification and quality reviews approved HEAD `0769e837`. Exactly two dedicated runs completed, and the route remains `leaf_runtime_candidate` / `migration_candidate` / `migration_evidence_only`. Historical clean artifact equality is `not_asserted`. This is one reviewed internal pilot, not a general compatibility, family-wave, promotion, or YAML-retirement claim. |
+| `2026-07-13-resume-projection-integrity-hardening-design-plan.md` | Current selector. It designs/specifies generic checksum-compatible projection-integrity hardening and writes the resulting implementation plan; it does not itself implement runtime hardening. Both it and the resulting implementation must complete before migration waves begin. |
 | `2026-07-13-procedure-first-migration-waves-plan.md` | Planned after resume projection-integrity hardening implementation completes. Task 1 must rebaseline all prerequisites before any family migration. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
-| `2026-07-07-yaml-retirement-program.md` | Amended 2026-07-14 to deletion-first retirement: survivors are `verified_iteration_drain` and `generic_run_watchdog`, each getting its own `.orc` port through the parity kernel; every other YAML workflow is reclassified delete, and the Task 6 deletion sweep may run as an early independent tranche scheduled around the pilot's quiescence window. That sweep is not selected, has not started, is not full Stage 6, and does not reorder paused top-level stages. See the program's steering amendment and roadmap Stage 6. |
+| `2026-07-07-yaml-retirement-program.md` | Amended 2026-07-14 to deletion-first retirement: survivors are `verified_iteration_drain` and `generic_run_watchdog`, each getting its own `.orc` port through the parity kernel; every other YAML workflow is reclassified delete. The former pilot-quiescence scheduling window is closed. Any early independent Task 6 tranche now requires separate selection and does not reorder Stage 6 authority. See the program's steering amendment and roadmap Stage 6. |
 
 ## Concrete Execution Sequence
 
@@ -158,7 +158,7 @@ executor, build, typecheck, or lowering refactors until Stage 3 completes.
 
 ### Stage 2: Land The Parametric Drain Route
 
-**Current next selection (2026-07-13):** Drain Phase 1 has landed the generic
+**Historical selection record (2026-07-13):** Drain Phase 1 has landed the generic
 route, reviewed identity migration with an empty persisted-record remap,
 consumer parity, and F5 sibling contract. Task 1.7 documentation/integration
 evidence and review are complete, and Gate P2 has passed its reviewed
@@ -180,29 +180,15 @@ semantic-migration freeze is lifted. Gate S4 passed holistic specification and
 quality review on 2026-07-13. Both typed-return waves are complete and DSL
 v2.15 is public. The resolved-effect substrate is complete and independently
 gated. The procedure-migration identity-compatibility prerequisites are
-complete and gated at handoff `f5adcb79`. The current selector is
-`docs/plans/2026-07-13-procedure-first-pilot-plan.md`. The 2026-07-14
-architect decision (Path A, recorded in
-`2026-07-14-tracked-plan-pilot-identity-retirement-decision-request.md`)
-makes Task 1A selected. Generic matching-count repairs `e43461f9` and
-`5f382401` are complete. Corrected scans, owner records, isolation, quiescence,
-incident recovery, final rechecks, and two-stage reviews passed, and the
-immutable Task 1A evidence package is committed at `63e03330`. Task 2's source
-edit, compile-only characterization, and review are complete at `e6a85cb7`;
-the frozen baseline remains unchanged. Task 3 has one protected completed clean
-run plus one failed interrupted run. The exact one-time recovery was consumed
-and failed at fresh-child resume propagation. The generic fix landed and passed
-ordered reviews at `1cba48c8`. Retained evidence remains unpublished. The exact
-second-recovery form remains pending and awaits ordered harness reviews, the
-harness commit, mechanical population of its exact commit/tree and review
-bindings, and genuine owner confirmation. No second attempt has occurred, and
-runtime evidence remains incomplete. All later stages remain paused. The
-deletion-first YAML Task 6 estate sweep is the sole scheduling exception: it
-may run as an independent tranche around pilot quiescence, but it is not
-selected, has not started, is not full Stage 6, and does not reorder the
-paused top-level stages. Only after the pilot completes is it followed by
-`docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`, completion
-of the resulting implementation plan,
+complete and gated at handoff `f5adcb79`. The tracked-plan pilot subsequently
+completed at `0769e837` after the six recorded evidence commits, exactly two
+completed dedicated runs, focused 544/2 and broad 4743/13 gates with the six
+accepted unrelated failures, and holistic specification/quality approval.
+The current selector is
+`docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`,
+which designs/specifies the hardening and writes its implementation plan but
+does not implement runtime hardening. After that design/planning work and the
+resulting implementation both complete, continue with
 `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`,
 `docs/plans/2026-07-07-yaml-retirement-program.md`,
 `docs/design/workflow_lisp_provider_live_binding.md`, and
@@ -269,22 +255,9 @@ full-suite comparison, promoted `.orc` compile/dry-run evidence, and preserved
 historical state/YAML twin. The semantic-migration freeze is lifted and Stage 4
 was the next selector at Gate S3; it, both typed-return waves, and the
 resolved-effect substrate and identity-compatibility prerequisites are now
-complete. The tracked-plan pilot is the current selector; the 2026-07-14
-architect decision (Path A) selected Task 1A, matching-count repairs
-`e43461f9` and `5f382401` are complete, and Task 1A's corrected scans, owner
-records, isolation, quiescence, incident recovery, final rechecks, and
-two-stage reviews passed. Its immutable pre-edit evidence package is committed
-at `63e03330`; Task 2 is complete at `e6a85cb7` with compile-only evidence.
-The frozen baseline is unchanged. Task 3 has one protected completed clean run
-plus one failed interrupted run. The exact one-time recovery was consumed and
-failed at fresh-child resume propagation. The generic fix landed and passed
-ordered reviews at `1cba48c8`. Retained evidence remains unpublished. The exact
-second-recovery form remains pending and awaits ordered harness reviews, the
-harness commit, mechanical population of its exact commit/tree and review
-bindings, and genuine owner confirmation. No second attempt has occurred, and
-runtime evidence remains incomplete.
-Projection-integrity hardening and all
-later stages remain paused.
+complete. The tracked-plan pilot later completed and passed holistic review at
+`0769e837`. Projection-integrity design/planning is now selected; its resulting
+implementation remains a hard gate before migration waves.
 
 ### Stage 4: Design The Broader Procedure-First Contract
 
@@ -390,19 +363,10 @@ plans are the effect-substrate, tracked-plan pilot, and migration-wave plans
 dated 2026-07-13. Typed result guidance is implemented and compatible; the
 resolved-effect substrate is now complete and independently gated. The
 accepted identity-compatibility design's generic prerequisites are complete and
-gated at `f5adcb79`. The pilot is the current selector; Path A selected Task
-1A, generic matching-count repairs `e43461f9` and `5f382401` are complete, and
-Task 1A's corrected scans, owner records, isolation, quiescence, incident
-recovery, final rechecks, and two-stage reviews passed. Its immutable pre-edit
-evidence package is committed at `63e03330`. Task 2 is complete at `e6a85cb7`
-with compile-only evidence; the frozen baseline is unchanged. Task 3 has one
-protected completed clean run plus one failed interrupted run. The exact
-one-time recovery was consumed and failed at fresh-child resume propagation.
-The generic fix landed and passed ordered reviews at `1cba48c8`. Retained
-evidence remains unpublished. The exact second-recovery form remains pending
-and awaits ordered harness reviews, the harness commit, mechanical population
-of its exact commit/tree and review bindings, and genuine owner confirmation.
-No second attempt has occurred, and runtime evidence remains incomplete.
+gated at `f5adcb79`. The pilot subsequently completed through `0769e837` with
+exactly two completed dedicated runs and holistic specification/quality
+approval. This closes one evidence-only internal pilot, not general resume
+compatibility or a family migration wave.
 
 ### Stage 5: Implement Procedure-First Reuse In Waves
 
@@ -426,29 +390,12 @@ Execute only accepted plans, in this order:
    `2026-07-13-procedure-migration-identity-compatibility-plan.md` passed its
    generic implementation, evidence, checksum-negative, and independent-review
    gates; the final audited handoff is `f5adcb79`. Do not re-execute it.
-5. **Pilot wave — current selector, Path A approved 2026-07-14.**
-   `2026-07-13-procedure-first-pilot-plan.md` completed Task 1A under the
-   architect decision recorded in
-   `2026-07-14-tracked-plan-pilot-identity-retirement-decision-request.md`:
-   conditional reviewed internal identity retirement, evidence collection
-   only. Matching-count repairs `e43461f9` and `5f382401` are complete;
-   corrected scans, owner records, isolation, quiescence, incident recovery,
-   final rechecks, and two-stage reviews passed; and immutable pre-edit
-   evidence is committed at `63e03330`. Task 2's one-family source edit,
-   provisional compile-only characterization, and two-stage review landed at
-   `e6a85cb7`; the frozen baseline is unchanged. Task 3 has one protected
-   completed clean run plus one failed interrupted run. The exact one-time
-   recovery was consumed and failed at fresh-child resume propagation. The
-   generic fix landed and passed ordered reviews at `1cba48c8`. Retained
-   evidence remains unpublished. The exact second-recovery form remains pending
-   and awaits ordered harness reviews, the harness commit, mechanical population
-   of its exact commit/tree and review bindings, and genuine owner confirmation.
-   No second attempt has occurred, and runtime evidence remains incomplete. The pilot
-   owns the reviewed internal retirement exception and full public-wrapper parity; family,
-   focused, and broad run-bearing gates execute only after record review and
-   explicit owner hold release. Missing or ineligible retirement evidence
-   stops the pilot under strict compatibility.
-6. **Resume projection-integrity hardening.** After the pilot, execute
+5. **Pilot wave — complete.**
+   `2026-07-13-procedure-first-pilot-plan.md` completed the single reviewed
+   internal retirement pilot through `0769e837`. It proves its own retained
+   public-wrapper parity and evidence-only retirement only; it does not
+   generalize cross-source resume, compatibility, promotion, or family waves.
+6. **Resume projection-integrity hardening — current selector.** Execute
    `2026-07-13-resume-projection-integrity-hardening-design-plan.md`, accept its
    generic design/specification and detailed implementation plan, then complete
    that implementation plan. This is a production-wave prerequisite, not a
@@ -480,18 +427,18 @@ Use the procedure-first model as the target authoring architecture. The
 `docs/plans/2026-07-07-yaml-retirement-program.md` selects deletion-first
 retirement:
 
-The Task 6 estate deletion sweep is the sole scheduling exception to the
-paused top-level order. It may run as an independent tranche around the pilot
-quiescence window, but it is not selected yet, has not started, is not full
-Stage 6, and does not reorder the later stages.
+The former pilot-quiescence scheduling window is closed. Any early independent
+Task 6 estate-deletion tranche now requires separate selection and does not
+reorder Stage 6 authority or the later stages.
 
 1. Run the estate deletion sweep as an early independent tranche — it
    touches no governed compiler/runtime/validation surface: delete every
    YAML workflow except `verified_iteration_drain`, `generic_run_watchdog`,
    the temporarily held `non_progress_step_back_demo`, and the Design Delta
    twins, pruning the YAML-referencing tests and fixtures in the same
-   tranche. Schedule around the pilot's quiescence window and record the
-   broad-suite baseline before and after.
+   tranche. Select this early independent tranche separately and record the
+   broad-suite baseline before and after; the completed pilot supplies no
+   continuing scheduling authorization.
 2. Refresh the YAML-to-`.orc` language-gap list only for the two surviving
    families.
 3. Archive the already-demoted Design Delta YAML twin only after confirming

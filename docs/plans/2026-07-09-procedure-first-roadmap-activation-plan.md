@@ -4,7 +4,14 @@
 
 **Goal:** Make the approved procedure-first roadmap executable by reconciling the existing component plans with landed commits, tracking and routing the governing plan set, re-anchoring stale ownership paths, and establishing a verified component-plan handoff.
 
-**Architecture:** This plan changes planning and routing artifacts only; it does not replay landed refactors or implement the drain migration. Each component plan keeps ownership of its detailed tasks and verification. The activation pass records evidence-backed status and updates symbol/path anchors after module extraction. Its original Task 9 executor handoff, the later lowering-fork closeout, and the wave-1/Task-1.5 pause are historical; the runtime union-field lineage prerequisite and boundary gate are complete, and drain Phases 1–4 are complete. Gates P3/P4/S3/S4, both typed-return waves, the resolved-effect substrate, and the identity-compatibility prerequisites are complete. DSL v2.15 is public. The current selector is `docs/plans/2026-07-13-procedure-first-pilot-plan.md`; Task 1A's immutable evidence is committed at `63e03330`, and Task 2 landed at `e6a85cb7`. Task 3 has one protected completed clean run plus one failed interrupted run. The exact one-time recovery was consumed and failed at fresh-child resume propagation. The generic fix landed and passed ordered reviews at `1cba48c8`; retained evidence remains unpublished. The exact second-recovery form remains pending and awaits ordered harness reviews, the harness commit, mechanical population of its exact commit/tree and review bindings, and genuine owner confirmation. No second attempt has occurred, and no second mutation is authorized. Runtime evidence remains incomplete. Run-bearing family/focused/broad gates wait for final record review and explicit owner hold release. Later stages remain paused.
+**Architecture:** This historical activation plan changes planning and routing
+artifacts only; component plans retain their detailed gates. The tracked-plan
+pilot completed through `0769e837` with holistic specification and quality
+approval. The current selector is
+`docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`.
+It designs/specifies the hardening and writes an implementation plan; runtime
+hardening remains unimplemented until that resulting plan executes. Migration
+waves remain gated behind both steps.
 
 > **Current execution amendment (updated 2026-07-13):** The case 5 design and
 > implementation are complete, and the boundary final gate passed. The
@@ -34,41 +41,23 @@
 > independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.3 is
 > complete. Phase 4 is complete. Gate S3 is satisfied. The semantic-migration
 > freeze is lifted. Both typed-return waves, Gate S4, and the independently
-> reviewed resolved-effect substrate are complete. The tracked-plan pilot is
-> selected next, followed by reviewed migration waves; Stage 6 YAML archive
-> remains later.
+> reviewed resolved-effect substrate are complete. The tracked-plan pilot was
+> selected next at that historical boundary; later routing is superseded below.
 
-> **Routing amendment (2026-07-13):** The preceding amendment remains the
-> historical closeout record, but its final selection is superseded by the
-> current 2026-07-14 state. The current selector is
-> `docs/plans/2026-07-13-procedure-first-pilot-plan.md`: Path A selected Task
-> 1A; matching-count repairs `e43461f9` and `5f382401` are complete; corrected
-> scans, owner records, isolation, quiescence, incident recovery, final
-> rechecks, and two-stage reviews passed; and the immutable Task 1A evidence
-> package is committed at `63e03330`. Task 2's source edit, provisional
-> compile-only characterization, and two-stage review landed at `e6a85cb7`;
-> the frozen baseline remains unchanged. Task 3 has one protected completed
-> clean run plus one failed interrupted run. The exact one-time recovery was
-> consumed and failed at fresh-child resume propagation. The generic fix landed
-> and passed ordered reviews at `1cba48c8`. Retained evidence remains
-> unpublished. The exact second-recovery form remains pending and awaits
-> ordered harness reviews, the harness commit, mechanical population of its
-> exact commit/tree and review bindings, and genuine owner confirmation. No
-> second attempt has occurred, and no second mutation is authorized. Runtime evidence remains incomplete,
-> with family/focused/broad gates
-> deferred until record review and explicit owner hold release. All later stages
-> remain paused. The deletion-first YAML Task 6 estate sweep is the sole
-> scheduling exception: it may run as an independent tranche around pilot
-> quiescence, but it is not selected, has not started, is not full Stage 6,
-> and does not reorder the paused top-level stages. After the pilot, execute
-> `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`
-> and complete the implementation plan it produces before starting
+> **Routing amendment (2026-07-15):** The preceding amendment remains the
+> historical closeout record. The tracked-plan pilot completed through
+> `0769e837`, after its six evidence commits, exactly two completed dedicated
+> runs, focused/broad gates, and holistic specification/quality approval. The
+> current selector is
+> `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`.
+> Complete its design/specification and the implementation plan it produces
+> before starting
 > `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`. Later order
 > remains `docs/plans/2026-07-07-yaml-retirement-program.md`,
 > `docs/design/workflow_lisp_provider_live_binding.md`, then
 > `docs/design/workflow_lisp_language_server.md`. This routing amendment
-> changes no historical gate evidence and does not claim the pilot or
-> projection hardening complete.
+> changes no historical gate evidence and does not claim projection hardening
+> implemented.
 
 **Tech Stack:** Markdown, Git, `rg`, pytest, pyflakes.
 
@@ -595,26 +584,14 @@ promotion report, Task 3.3 retired the ordered certification bundle, and Task
 3.4 closed Phase-3 verification. Gates P3 and P4 are independently reviewed
 and satisfied. Task 4.1 is complete and independently reviewed, with SPEC PASS
 and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with
-SPEC PASS and CODE QUALITY PASS. Current routing, as recorded by `docs/index.md`
-and the governing execution sequence, selects the tracked-plan pilot.
+SPEC PASS and CODE QUALITY PASS. At that historical boundary, routing as
+recorded by `docs/index.md` and the governing execution sequence selected the
+tracked-plan pilot.
 Task 4.3 and Phase 4 are complete; Gates S3/S4 and both typed-return waves are
 satisfied. DSL v2.15 is public. The resolved-effect substrate is complete and
 independently gated, and the identity prerequisites completed at `f5adcb79`.
-Path A selected Task 1A; matching-count repairs `e43461f9` and `5f382401` are
-complete, and corrected scans, owner records, isolation, quiescence, incident
-recovery, final rechecks, and two-stage reviews passed. The immutable Task 1A
-evidence package is committed at `63e03330`. Task 2 is complete at `e6a85cb7`
-with compile-only evidence; the frozen baseline is unchanged. Task 3 has one
-protected completed clean run plus one failed interrupted run. The exact
-one-time recovery was consumed and failed at fresh-child resume propagation.
-The generic fix landed and passed ordered reviews at `1cba48c8`. Retained
-evidence remains unpublished. The exact second-recovery form remains pending
-and awaits ordered harness reviews, the harness commit, mechanical population
-of its exact commit/tree and review bindings, and genuine owner confirmation.
-No second attempt has occurred, and no second mutation is authorized. Runtime
-evidence remains incomplete.
-Later hardening, migration waves, YAML retirement, provider live binding, and
-the language server remain paused in that order. The deletion-first YAML Task
-6 estate sweep is the sole scheduling exception: it may run as an independent
-tranche around pilot quiescence, but it is not selected, has not started, is
-not full Stage 6, and does not reorder those top-level stages.
+The Path A pilot completed through `0769e837` with exactly two completed
+dedicated runs and holistic specification/quality approval. Current routing
+selects the projection-integrity hardening design/planning plan, followed by
+its resulting implementation, then migration waves, YAML retirement, provider
+live binding, and the language server in that order.
