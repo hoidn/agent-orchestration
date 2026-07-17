@@ -1,6 +1,7 @@
 """Authored YAML parsing and recursive import facade."""
 
 from copy import deepcopy
+import logging
 from pathlib import Path
 from typing import Any, Dict, NamedTuple, Optional
 import yaml
@@ -22,6 +23,10 @@ from orchestrator.workflow.validation import (
     WorkflowMappingValidationOptions,
     validate_workflow_mapping,
 )
+
+
+YAML_DEPRECATION_EVENT_CODE = "workflow_yaml_authoring_deprecated"
+_YAML_DEPRECATION_LOGGER = logging.getLogger("orchestrator.loader.yaml_deprecation")
 
 
 class PreservingLoader(yaml.SafeLoader):
@@ -169,6 +174,7 @@ class WorkflowLoader:
         workspace: Path,
         *,
         boundary_validation_policy: WorkflowBoundaryValidationPolicy | None = None,
+        emit_yaml_deprecation_warning: bool = True,
     ) -> None:
         self.workspace = Path(workspace).resolve()
         self._boundary_validation_policy = (
@@ -176,6 +182,7 @@ class WorkflowLoader:
             if boundary_validation_policy is None
             else boundary_validation_policy
         )
+        self._emit_yaml_deprecation_warning = bool(emit_yaml_deprecation_warning)
         self._load_stack: list[Path] = []
 
     def load(self, workflow_path: Path) -> LoadedWorkflowBundle:
@@ -184,7 +191,22 @@ class WorkflowLoader:
 
     def load_bundle(self, workflow_path: Path) -> LoadedWorkflowBundle:
         """Load one authored YAML graph and raise its structured diagnostics."""
-        result = self._load_workflow(Path(workflow_path).resolve())
+        requested_path = Path(workflow_path)
+        if (
+            self._emit_yaml_deprecation_warning
+            and requested_path.suffix.lower() in {".yaml", ".yml"}
+        ):
+            _YAML_DEPRECATION_LOGGER.warning(
+                "Authored YAML workflow loading is deprecated",
+                extra={
+                    "workflow_deprecation_code": YAML_DEPRECATION_EVENT_CODE,
+                    "workflow_deprecation_path": str(
+                        requested_path.resolve(strict=False)
+                    ),
+                    "workflow_deprecation_format": "yaml",
+                },
+            )
+        result = self._load_workflow(requested_path.resolve())
         if result.errors:
             raise WorkflowValidationError(list(result.errors))
         assert result.bundle is not None
