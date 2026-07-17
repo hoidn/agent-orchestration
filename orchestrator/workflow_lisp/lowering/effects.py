@@ -67,6 +67,9 @@ class LowerableProviderResult:
     form_path: tuple[str, ...]
     expansion_stack: tuple[object, ...] = ()
     guidance: ResultGuidance | None = None
+    model: Any | None = None
+    effort: Any | None = None
+    timeout_sec: Any | None = None
 
 
 def _lower_command_result(
@@ -275,6 +278,9 @@ def _lower_provider_result(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
             guidance=expr.return_spec.guidance,
+            model=expr.model,
+            effort=expr.effort,
+            timeout_sec=expr.timeout_sec,
         ),
         result_type=result_type,
         context=context,
@@ -332,6 +338,31 @@ def _lower_provider_result_operation(
         "inject_output_contract": True,
         bundle_contract.contract_kind: authored_contract,
     }
+    provider_call_policy: dict[str, str] = {}
+    for field_name, field_expr in (
+        ("model", provider_result.model),
+        ("effort", provider_result.effort),
+    ):
+        if field_expr is not None:
+            provider_call_policy[field_name] = _render_argv_tail(
+                [field_expr],
+                local_values=local_values,
+            )[0]
+    if provider_call_policy:
+        provider_step["provider_call_policy"] = provider_call_policy
+    if provider_result.timeout_sec is not None:
+        timeout_value = _resolve_inline_expr_value(
+            provider_result.timeout_sec,
+            local_values=local_values,
+        )
+        if not isinstance(timeout_value, LiteralExpr):
+            raise _compile_error(
+                code="provider_result_timeout_literal_required",
+                message="provider-result :timeout-sec must lower from a positive Int literal",
+                span=provider_result.timeout_sec.span,
+                form_path=provider_result.form_path,
+            )
+        provider_step["timeout_sec"] = int(timeout_value.value)
     provider_step.update(_prompt_source_step_fields(prompt_binding))
     if context.phase_scope is not None:
         use_active_phase_bundle = False

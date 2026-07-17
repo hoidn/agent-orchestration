@@ -28,7 +28,7 @@ tmux.
 `docs/plans/2026-07-17-workflow-lisp-provider-call-policy-design.md` at commit
 `069b8e79`.
 
-**Execution status:** Task 2 complete; Task 3 is next. This plan is a living, reviewed execution
+**Execution status:** Task 3 complete; Task 4 is next. This plan is a living, reviewed execution
 artifact: every task updates its own completed checkboxes and the status line above,
 stages this file with that task's code/tests, and commits the plan update in the same
 task commit. A task may mark its implementation/test steps complete before review;
@@ -476,7 +476,7 @@ or claim design closure before that point.
 - Create: `tests/fixtures/workflow_lisp/provider_call_policy/procedure_policy.orc`
 - Modify: `tests/test_workflow_lisp_provider_call_policy.py`
 
-- [ ] **Step 1: Write red WCC payload and reconstruction tests**
+- [x] **Step 1: Write red WCC payload and reconstruction tests**
 
   Assert present model/effort values and timeout survive provider-result perform
   elaboration, nested let/match extraction, loop binding reconstruction, and
@@ -491,14 +491,14 @@ or claim design closure before that point.
 
   Expected: FAIL because operation payload carries only return guidance.
 
-- [ ] **Step 2: Extend the WCC operation payload and all reconstruction sites**
+- [x] **Step 2: Extend the WCC operation payload and all reconstruction sites**
 
   Store present model/effort as WCC atomic values and timeout as its validated
   literal payload. Update all three WCC route validators to visit present operands.
   Reconstruct optional fields in every `LowerableProviderResult` and
   `ProviderResultExpr` site in `defunctionalize.py`.
 
-- [ ] **Step 3: Write red direct-versus-WCC lowering tests**
+- [x] **Step 3: Write red direct-versus-WCC lowering tests**
 
   Require exactly:
 
@@ -526,7 +526,7 @@ or claim design closure before that point.
 
   Expected: FAIL because the lowerable payload has no policy.
 
-- [ ] **Step 4: Extend the shared lowerable provider payload**
+- [x] **Step 4: Extend the shared lowerable provider payload**
 
   Add optional operands only to `LowerableProviderResult`. Render literal Strings
   as literals and dynamic names/projections with the existing scalar template
@@ -534,13 +534,13 @@ or claim design closure before that point.
   in the ordinary top-level `timeout_sec` field. Do not synthesize
   `provider_params`, defaults, a policy adapter step, or family/provider-name logic.
 
-- [ ] **Step 5: Prove specialization uses the existing path**
+- [x] **Step 5: Prove specialization uses the existing path**
 
   Compile `procedure_policy.orc` through public Stage 3 with a procedure parameter
   for each String operand. Assert the lowered templates point to the caller's bound
   inputs and that no new specialization table or hidden runtime value appears.
 
-- [ ] **Step 6: Run WCC/lowering regressions**
+- [x] **Step 6: Run WCC/lowering regressions**
 
   ```bash
   pytest -q \
@@ -555,7 +555,7 @@ or claim design closure before that point.
 
   Expected: PASS.
 
-- [ ] **Step 7: Review and commit**
+- [x] **Step 7: Review and commit**
 
   Check the completed Task 3 boxes and update **Execution status**. Stage this plan,
   exactly the four production files, two new fixtures, and focused test file. Run

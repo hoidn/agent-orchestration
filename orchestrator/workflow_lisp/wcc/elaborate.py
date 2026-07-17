@@ -1983,6 +1983,29 @@ def _elaborate_effect_expr_to_binding_value(
         phase_scope=active_phase_scope,
     )
     if isinstance(expr, ProviderResultExpr):
+        operation_payload = {"return_spec": expr.return_spec}
+        for field_name, field_expr in (
+            ("model", expr.model),
+            ("effort", expr.effort),
+            ("timeout_sec", expr.timeout_sec),
+        ):
+            if field_expr is None:
+                continue
+            operation_payload[field_name] = _elaborate_atomic_value(
+                field_expr,
+                scope=scope.child_scope(
+                    f"provider-policy:{field_name}",
+                    authored_binding_name=field_name,
+                ),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
         return WccPerform(
             metadata=scope.value_metadata(role="perform:provider_result", **metadata_kwargs),
             perform_kind="provider_result",
@@ -2005,7 +2028,7 @@ def _elaborate_effect_expr_to_binding_value(
             ),
             keyword_args=(),
             returns_type_name=expr.returns_type_name,
-            operation_payload={"return_spec": expr.return_spec},
+            operation_payload=operation_payload,
         )
     if isinstance(expr, CommandResultExpr):
         adapter_inputs = tuple(

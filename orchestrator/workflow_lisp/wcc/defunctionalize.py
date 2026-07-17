@@ -3129,6 +3129,21 @@ def _lower_effectful_binding(
                         if operation_payload.get("return_spec") is not None
                         else None
                     ),
+                    model=(
+                        _frontend_expr_from_wcc_value(operation_payload["model"])
+                        if operation_payload.get("model") is not None
+                        else None
+                    ),
+                    effort=(
+                        _frontend_expr_from_wcc_value(operation_payload["effort"])
+                        if operation_payload.get("effort") is not None
+                        else None
+                    ),
+                    timeout_sec=(
+                        _frontend_expr_from_wcc_value(operation_payload["timeout_sec"])
+                        if operation_payload.get("timeout_sec") is not None
+                        else None
+                    ),
                 ),
                 result_type=binding_type,
                 context=context,
@@ -3344,6 +3359,9 @@ def _lower_wcc_effect_expr(
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
                 guidance=expr.return_spec.guidance,
+                model=expr.model,
+                effort=expr.effort,
+                timeout_sec=expr.timeout_sec,
             ),
             result_type=typed_expr.type_ref,
             context=context,
@@ -3837,6 +3855,21 @@ def _frontend_expr_from_wcc_loop_binding_value(value):
                 span=value.metadata.source_span,
                 form_path=value.metadata.form_path,
                 expansion_stack=value.metadata.expansion_stack,
+                model=(
+                    _frontend_expr_from_wcc_value(operation_payload["model"])
+                    if operation_payload.get("model") is not None
+                    else None
+                ),
+                effort=(
+                    _frontend_expr_from_wcc_value(operation_payload["effort"])
+                    if operation_payload.get("effort") is not None
+                    else None
+                ),
+                timeout_sec=(
+                    _frontend_expr_from_wcc_value(operation_payload["timeout_sec"])
+                    if operation_payload.get("timeout_sec") is not None
+                    else None
+                ),
             )
         if value.perform_kind == "command_result":
             operation_payload = value.operation_payload if isinstance(value.operation_payload, dict) else {}

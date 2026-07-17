@@ -374,6 +374,14 @@ def _validate_wcc_m2_expr_supported(
                 local_workflow_signatures=local_workflow_signatures,
                 workflow_ref_value_names=workflow_ref_value_names,
             )
+        for policy_expr in (expr.model, expr.effort, expr.timeout_sec):
+            if policy_expr is not None:
+                _validate_wcc_m2_expr_supported(
+                    policy_expr,
+                    workflow_name=workflow_name,
+                    local_workflow_signatures=local_workflow_signatures,
+                    workflow_ref_value_names=workflow_ref_value_names,
+                )
         return
     if isinstance(expr, CallExpr):
         if expr.callee_name in workflow_ref_value_names:
@@ -562,6 +570,14 @@ def _validate_wcc_m3_expr_supported(
                 local_workflow_signatures=local_workflow_signatures,
                 workflow_ref_value_names=workflow_ref_value_names,
             )
+        for policy_expr in (expr.model, expr.effort, expr.timeout_sec):
+            if policy_expr is not None:
+                _validate_wcc_m3_expr_supported(
+                    policy_expr,
+                    workflow_name=workflow_name,
+                    local_workflow_signatures=local_workflow_signatures,
+                    workflow_ref_value_names=workflow_ref_value_names,
+                )
         return
     if isinstance(expr, CallExpr):
         if expr.callee_name in workflow_ref_value_names:
@@ -861,6 +877,14 @@ def _validate_wcc_m4_expr_supported(
                 local_workflow_signatures=local_workflow_signatures,
                 workflow_ref_value_names=workflow_ref_value_names,
             )
+        for policy_expr in (expr.model, expr.effort, expr.timeout_sec):
+            if policy_expr is not None:
+                _validate_wcc_m4_expr_supported(
+                    policy_expr,
+                    workflow_name=workflow_name,
+                    local_workflow_signatures=local_workflow_signatures,
+                    workflow_ref_value_names=workflow_ref_value_names,
+                )
         return
     if isinstance(expr, RunProviderPhaseExpr):
         for child_expr in (expr.ctx_expr, expr.inputs_expr, expr.provider, expr.prompt):

@@ -59,12 +59,25 @@ from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, Primiti
 from orchestrator.workflow_lisp.typecheck import TypedExpr, typecheck_expression
 from orchestrator.workflow_lisp.typecheck_effects import typecheck_provider_result_expr
 from orchestrator.workflow_lisp.workflows import build_extern_environment
+from orchestrator.workflow_lisp.wcc.defunctionalize import (
+    _frontend_expr_from_wcc_loop_binding_value,
+)
+from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow
+from orchestrator.workflow_lisp.wcc.model import (
+    WccBody,
+    WccLet,
+    WccLiteralAtom,
+    WccNameAtom,
+    WccPerform,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_ROOT = REPO_ROOT / "tests/fixtures/workflow_lisp/provider_call_policy"
 TYPE_FIXTURE = REPO_ROOT / "tests/fixtures/workflow_lisp/valid/type_definitions.orc"
 KEYWORD_FREE_FIXTURE = FIXTURE_ROOT / "keyword_free.orc"
+POLICY_FIXTURE = FIXTURE_ROOT / "policy.orc"
+PROCEDURE_POLICY_FIXTURE = FIXTURE_ROOT / "procedure_policy.orc"
 KEYWORD_FREE_BASELINE = (
     REPO_ROOT / "tests/baselines/workflow_lisp/provider_call_policy_keyword_free.json"
 )
@@ -124,6 +137,90 @@ def _keyword_free_representation_payload() -> dict[str, Any]:
 
 def _canonical_bytes(value: Any) -> bytes:
     return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def _compile_policy_fixture(path: Path, *, route: str = "wcc_m4"):
+    workflow_name = {
+        POLICY_FIXTURE: "policy",
+        PROCEDURE_POLICY_FIXTURE: "procedure-policy",
+    }[path]
+    return compile_stage3_module(
+        path.relative_to(REPO_ROOT),
+        entry_workflow=workflow_name,
+        provider_externs=_load_manifest("providers.json"),
+        prompt_externs=_load_manifest("prompts.json"),
+        validate_shared=False,
+        workspace_root=REPO_ROOT,
+        lowering_route=route,
+    )
+
+
+def _provider_steps(value: Any) -> list[dict[str, Any]]:
+    found: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        if "provider" in value:
+            found.append(value)
+        for item in value.values():
+            found.extend(_provider_steps(item))
+    elif isinstance(value, list):
+        for item in value:
+            found.extend(_provider_steps(item))
+    return found
+
+
+def _mappings_with_key(value: Any, key: str) -> list[dict[str, Any]]:
+    found: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        if key in value:
+            found.append(value)
+        for item in value.values():
+            found.extend(_mappings_with_key(item, key))
+    elif isinstance(value, list):
+        for item in value:
+            found.extend(_mappings_with_key(item, key))
+    return found
+
+
+def _first_wcc_perform(body: WccBody, *, perform_kind: str) -> WccPerform:
+    current = body
+    while isinstance(current, WccLet):
+        if (
+            isinstance(current.bound_value, WccPerform)
+            and current.bound_value.perform_kind == perform_kind
+        ):
+            return current.bound_value
+        current = current.body
+    raise AssertionError(f"no WCC perform of kind {perform_kind!r}")
+
+
+def _elaborated_policy_perform(path: Path = POLICY_FIXTURE) -> WccPerform:
+    result = _compile_policy_fixture(path)
+    workflow_name = {
+        POLICY_FIXTURE: "policy",
+        PROCEDURE_POLICY_FIXTURE: "procedure-policy",
+    }[path]
+    typed_workflow = next(
+        workflow
+        for workflow in result.typed_workflows
+        if workflow.definition.name == workflow_name
+    )
+    type_env = FrontendTypeEnvironment.from_module(result.module)
+    workflow_return_types = {
+        workflow.definition.name: workflow.signature.return_type_ref
+        for workflow in result.typed_workflows
+    }
+    procedure_return_types = {
+        procedure.definition.name: procedure.signature.return_type_ref
+        for procedure in result.typed_procedures
+    }
+    body = elaborate_typed_workflow(
+        typed_workflow,
+        type_env=type_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+        route_schema_version="wcc_m4",
+    )
+    return _first_wcc_perform(body, perform_kind="provider_result")
 
 
 def _contains_key(value: Any, key: str) -> bool:
@@ -669,3 +766,186 @@ def test_provider_call_policy_projection_exclusions_remain_policy_neutral() -> N
 
     for projection in (runtime_plan, semantic_ir, persisted_graph, source_map):
         assert not _contains_key(projection, "provider_call_policy")
+
+
+def test_wcc_provider_call_policy_payload_preserves_present_operands() -> None:
+    perform = _elaborated_policy_perform()
+
+    assert perform.perform_kind == "provider_result"
+    assert isinstance(perform.operation_payload, dict)
+    assert isinstance(perform.operation_payload["model"], WccNameAtom)
+    assert perform.operation_payload["model"].name == "model"
+    assert isinstance(perform.operation_payload["effort"], WccNameAtom)
+    assert perform.operation_payload["effort"].name == "effort"
+    assert isinstance(perform.operation_payload["timeout_sec"], WccLiteralAtom)
+    assert perform.operation_payload["timeout_sec"].value == 7200
+
+
+def test_wcc_provider_call_policy_reconstruct_preserves_present_operands() -> None:
+    reconstructed = _frontend_expr_from_wcc_loop_binding_value(
+        _elaborated_policy_perform()
+    )
+
+    assert isinstance(reconstructed, ProviderResultExpr)
+    assert isinstance(reconstructed.model, NameExpr)
+    assert reconstructed.model.name == "model"
+    assert isinstance(reconstructed.effort, NameExpr)
+    assert reconstructed.effort.name == "effort"
+    assert isinstance(reconstructed.timeout_sec, LiteralExpr)
+    assert reconstructed.timeout_sec.value == 7200
+
+
+def test_wcc_provider_call_policy_payload_preserves_absence() -> None:
+    result = _compile_keyword_free()
+    typed_workflow = result.typed_workflows[0]
+    body = elaborate_typed_workflow(
+        typed_workflow,
+        type_env=FrontendTypeEnvironment.from_module(result.module),
+        workflow_return_types={
+            typed_workflow.definition.name: typed_workflow.signature.return_type_ref
+        },
+        route_schema_version="wcc_m4",
+    )
+    perform = _first_wcc_perform(body, perform_kind="provider_result")
+
+    assert isinstance(perform.operation_payload, dict)
+    assert not {"model", "effort", "timeout_sec"} & perform.operation_payload.keys()
+    reconstructed = _frontend_expr_from_wcc_loop_binding_value(perform)
+    assert isinstance(reconstructed, ProviderResultExpr)
+    assert reconstructed.model is None
+    assert reconstructed.effort is None
+    assert reconstructed.timeout_sec is None
+
+
+@pytest.mark.parametrize("route", ["wcc_m2", "wcc_m3", "wcc_m4"])
+def test_wcc_routes_preserve_provider_call_policy_lowering(route: str) -> None:
+    result = _compile_policy_fixture(POLICY_FIXTURE, route=route)
+    mapping = result.lowered_workflows[0].authored_mapping
+    provider_step = _provider_steps(mapping)[0]
+
+    assert provider_step["provider_call_policy"] == {
+        "model": "${inputs.model}",
+        "effort": "${inputs.effort}",
+    }
+    assert provider_step["timeout_sec"] == 7200
+
+
+def test_direct_wcc_provider_call_policy_lowering_matches() -> None:
+    provider_steps = {
+        route: _provider_steps(
+            _compile_policy_fixture(POLICY_FIXTURE, route=route)
+            .lowered_workflows[0]
+            .authored_mapping
+        )[0]
+        for route in ("legacy", "wcc_m4")
+    }
+
+    for field_name in ("provider_call_policy", "timeout_sec"):
+        assert provider_steps["legacy"][field_name] == provider_steps["wcc_m4"][field_name]
+
+
+def test_lowering_renders_literal_and_projected_provider_call_policy_values(
+    tmp_path: Path,
+) -> None:
+    source = POLICY_FIXTURE.read_text(encoding="utf-8")
+    source = source.replace(
+        "((model String)\n     (effort String))",
+        "((model String)\n     (effort String)\n     (config WorkResult))",
+    )
+    source = source.replace(":model model", ':model "gpt-5"')
+    source = source.replace(":effort effort", ":effort config.summary")
+    path = tmp_path / "literal_projected_policy.orc"
+    path.write_text(source, encoding="utf-8")
+
+    result = compile_stage3_module(
+        path,
+        entry_workflow="policy",
+        provider_externs=_load_manifest("providers.json"),
+        prompt_externs=_load_manifest("prompts.json"),
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+    provider_step = _provider_steps(result.lowered_workflows[0].authored_mapping)[0]
+
+    assert provider_step["provider_call_policy"] == {
+        "model": "gpt-5",
+        "effort": "${inputs.config__summary}",
+    }
+
+
+@pytest.mark.parametrize(
+    ("retained_line", "expected_policy"),
+    [
+        (":model model", {"model": "${inputs.model}"}),
+        (":effort effort", {"effort": "${inputs.effort}"}),
+    ],
+)
+def test_lowering_emits_only_authored_provider_call_policy_key(
+    tmp_path: Path,
+    retained_line: str,
+    expected_policy: dict[str, str],
+) -> None:
+    source = POLICY_FIXTURE.read_text(encoding="utf-8")
+    policy_lines = {
+        ":model model",
+        ":effort effort",
+    }
+    source = "\n".join(
+        line
+        for line in source.splitlines()
+        if line.strip() not in policy_lines or line.strip() == retained_line
+    ) + "\n"
+    path = tmp_path / "one_key_policy.orc"
+    path.write_text(source, encoding="utf-8")
+
+    result = compile_stage3_module(
+        path,
+        entry_workflow="policy",
+        provider_externs=_load_manifest("providers.json"),
+        prompt_externs=_load_manifest("prompts.json"),
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+    provider_step = _provider_steps(result.lowered_workflows[0].authored_mapping)[0]
+
+    assert provider_step["provider_call_policy"] == expected_policy
+
+
+def test_lowering_does_not_emit_empty_provider_call_policy() -> None:
+    mapping = _compile_keyword_free().lowered_workflows[0].authored_mapping
+    provider_step = _provider_steps(mapping)[0]
+
+    assert "provider_call_policy" not in provider_step
+    assert "timeout_sec" not in provider_step
+
+
+def test_procedure_policy_specialization_uses_caller_bound_inputs_through_loop() -> None:
+    result = _compile_policy_fixture(PROCEDURE_POLICY_FIXTURE)
+    mappings = [lowered.authored_mapping for lowered in result.lowered_workflows]
+    provider_steps = [
+        step
+        for mapping in mappings
+        for step in _provider_steps(mapping)
+        if "provider_call_policy" in step
+    ]
+
+    assert len(provider_steps) == 1
+    assert provider_steps[0]["provider_call_policy"] == {
+        "model": "${inputs.model}",
+        "effort": "${inputs.effort}",
+    }
+    assert provider_steps[0]["timeout_sec"] == 7200
+    root_mapping = result.lowered_workflows[0].authored_mapping
+    procedure_call = next(
+        step
+        for step in _mappings_with_key(root_mapping, "call")
+        if step["call"].endswith("invoke-provider.v1")
+    )
+    assert procedure_call["with"]["model"] == {"ref": "inputs.model"}
+    assert procedure_call["with"]["effort"] == {"ref": "inputs.effort"}
+    assert all(
+        not _contains_key(mapping, "provider_call_policy_specialization")
+        for mapping in mappings
+    )
