@@ -101,6 +101,9 @@ Modify:
   canonical-byte, schema/fingerprint tests.
 - `tests/test_runtime_observability.py` and
   `tests/test_runtime_observability_cli.py` — unit and real-run exact anchor tests.
+- `tests/test_workflow_lisp_procedure_identity_retirement.py` — preserve frozen
+  six-artifact historical comparisons by excluding only the four strictly
+  validated, dashboard-only persisted-surface provenance fields.
 - `tests/test_dashboard_compiled_workflow.py`,
   `tests/test_dashboard_projection.py`, `tests/test_dashboard_server.py`, and
   `tests/test_cli_dashboard_command.py` — reader, path, renderer, endpoint,
@@ -237,6 +240,10 @@ pytest -q -n 16 --dist=worksteal
 ```
 
 Do not classify a new dashboard/build/runtime-observability failure as unrelated.
+If the new build schema or provenance changes a frozen historical-evidence
+comparison, validate the complete current persisted-surface binding first and
+apply only an exact, reviewed compatibility projection; never regenerate frozen
+evidence or weaken production identity comparisons.
 
 - [ ] Obtain independent specification and code-quality reviews. Specification
   review must verify honest read-model claims, actual-call closure, exact anchor,
@@ -247,7 +254,7 @@ Do not classify a new dashboard/build/runtime-observability failure as unrelated
 - [ ] After approval only, update the Stage 6 roadmap, index, and capability matrix:
   mark Task 2 complete with exact evidence, keep YAML `Legacy`, select Task 3, and
   do not imply parser removal.
-- [ ] Run `git diff --check` and print every changed path. Use these exact four
+- [ ] Run `git diff --check` and print every changed path. Use these exact five
   independently-green commit allowlists in order; never use broad staging:
 
   1. reviewed plan first:
@@ -262,20 +269,23 @@ Do not classify a new dashboard/build/runtime-observability failure as unrelated
      `tests/test_runtime_observability.py`,
      `tests/test_runtime_observability_cli.py`,
      `tests/test_persisted_workflow_surface.py`;
-  3. reader/dashboard plus dashboard/CLI tests:
+  3. frozen historical-comparison compatibility tests:
+     `tests/test_workflow_lisp_procedure_identity_retirement.py`;
+  4. reader/dashboard plus dashboard/CLI tests:
      `orchestrator/dashboard/compiled_workflow.py`,
      `orchestrator/dashboard/models.py`, `orchestrator/dashboard/projection.py`,
      `orchestrator/dashboard/server.py`,
      `tests/test_dashboard_compiled_workflow.py`,
      `tests/test_dashboard_projection.py`, `tests/test_dashboard_server.py`,
      `tests/test_cli_dashboard_command.py`;
-  4. closeout: `docs/plans/2026-07-07-yaml-retirement-program.md`,
+  5. closeout: `docs/plans/2026-07-07-yaml-retirement-program.md`,
      `docs/index.md`, `docs/capability_status_matrix.md`.
 
   Before the producer commit, run its complete producer/runtime focused suite on
-  that tree. Before the reader/dashboard commit, run all focused dashboard and CLI
-  tests on that tree. Before closeout, rerun the combined focused suite and confirm
-  both reviews still approve.
+  that tree. Before the historical-compatibility commit, run its affected selectors
+  and full retirement module. Before the reader/dashboard commit, run all focused
+  dashboard and CLI tests on that tree. Before closeout, rerun the combined focused
+  suite and confirm both reviews still approve.
 
   After staging each group, write that group's exact expected path list to
   `/tmp/dashboard-surface-expected.txt`, one path per line, then run this
@@ -306,10 +316,11 @@ test -z "$protected"
   `git diff --cached --name-only`. Repeat the exact equality, cached diff-check,
   literal seven-path guard, and printed cached list immediately before every
   commit.
-- [ ] Preserve the review/commit sequence represented by those four allowlists:
+- [ ] Preserve the review/commit sequence represented by those five allowlists:
   obtain final plan review and commit the plan before implementation; obtain a
   focused producer/runtime review and commit that independently green group;
-  obtain combined reader/dashboard and holistic reviews and commit that
+  verify and commit any exact frozen historical-comparison compatibility
+  correction; obtain combined reader/dashboard and holistic reviews and commit that
   independently green group; then verify and commit the closeout documentation.
   The parent executor creates each real commit using only its corresponding
   verified allowlist.
