@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import yaml
 
 from orchestrator.exec.output_capture import CaptureMode, CaptureResult
 from orchestrator.exec.step_executor import ExecutionResult, StepExecutor
@@ -280,8 +281,8 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
         "total": 95,
         "by_classification": {
             "procedure-candidate": 22,
-            "effect-adapter": 16,
-            "legacy-retire": 57,
+            "effect-adapter": 10,
+            "legacy-retire": 63,
             "public-boundary": 0,
         },
     }
@@ -504,6 +505,151 @@ def test_neurips_yaml_effect_adapter_inventory_rows_retire_with_finished_campaig
             audit_path,
             selector,
         } <= set(record["evidence_paths"])
+
+
+def test_design_delta_library_yaml_effect_adapter_rows_retire_with_twins() -> None:
+    inventory = _load_json(REUSE_INVENTORY)
+    records_by_id = {row["id"]: row for row in inventory["records"]}
+    expected_records = {
+        "internal-call:workflows/library/"
+        "lisp_frontend_design_delta_done_review.v214.yaml:design_gap_architect:1": (
+            258,
+            "design_gap_architect",
+            "workflows/library/"
+            "lisp_frontend_design_delta_design_gap_architect.v214.yaml",
+            True,
+        ),
+        "internal-call:workflows/library/"
+        "lisp_frontend_design_delta_done_review.v214.yaml:work_item:1": (
+            284,
+            "work_item",
+            "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml",
+            True,
+        ),
+        "internal-call:workflows/library/"
+        "lisp_frontend_design_delta_work_item.v214.yaml:plan_phase:1": (
+            222,
+            "plan_phase",
+            "workflows/library/lisp_frontend_design_delta_plan_phase.v214.yaml",
+            True,
+        ),
+        "internal-call:workflows/library/"
+        "lisp_frontend_design_delta_work_item.v214.yaml:implementation_phase:1": (
+            255,
+            "implementation_phase",
+            "workflows/library/"
+            "lisp_frontend_design_delta_implementation_phase.v214.yaml",
+            True,
+        ),
+        "internal-call:workflows/library/"
+        "lisp_frontend_work_item.v214.yaml:plan_phase:1": (
+            172,
+            "plan_phase",
+            "workflows/library/lisp_frontend_plan_phase.v214.yaml",
+            False,
+        ),
+        "internal-call:workflows/library/"
+        "lisp_frontend_work_item.v214.yaml:implementation_phase:1": (
+            199,
+            "implementation_phase",
+            "workflows/library/lisp_frontend_implementation_phase.v214.yaml",
+            False,
+        ),
+    }
+    source_paths = {
+        "workflows/library/lisp_frontend_design_delta_done_review.v214.yaml",
+        "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml",
+        "workflows/library/lisp_frontend_work_item.v214.yaml",
+    }
+    audit_path = REUSE_INVENTORY_NARRATIVE.relative_to(REPO_ROOT).as_posix()
+    governing_plan = "docs/plans/2026-07-07-yaml-retirement-program.md"
+    selector = (
+        "tests/test_workflow_lisp_procedure_first_migrations.py::"
+        "test_design_delta_library_yaml_effect_adapter_rows_retire_with_twins"
+    )
+    promoted_evidence = {
+        "workflows/library/lisp_frontend_design_delta/drain.orc",
+        "docs/workflow_lisp_route_readiness_registry.json",
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "docs/plans/2026-07-07-drain-migration-g8-retirement.md",
+    }
+
+    observed_ids = {
+        row["id"]
+        for row in inventory["records"]
+        if row["source_path"] in source_paths
+    }
+    assert observed_ids == set(expected_records)
+
+    for record_id, (
+        source_line,
+        call_alias,
+        callee_evidence,
+        design_delta_twin,
+    ) in expected_records.items():
+        record = records_by_id[record_id]
+        assert record["record_kind"] == "internal-call"
+        assert record["frontend"] == "yaml"
+        assert record["source_line"] == source_line
+        assert record["call_alias"] == call_alias
+        assert record["callee"] == call_alias
+        assert record["resolution"] == "yaml-import-alias"
+        assert record["classification"] == "legacy-retire"
+        assert record["classification"] not in {
+            "procedure-candidate",
+            "public-boundary",
+        }
+        assert record["live_status"] == "retained-compatibility"
+        assert record["effect_summary"] == ["workflow-call"]
+        assert record["public_boundary_evidence"] == []
+        assert record["named_substrate_gap"] is None
+        required_evidence = {
+            record["source_path"],
+            callee_evidence,
+            governing_plan,
+            audit_path,
+            selector,
+        }
+        if design_delta_twin:
+            required_evidence |= promoted_evidence
+        assert required_evidence <= set(record["evidence_paths"])
+
+    expected_imports = {
+        "workflows/library/lisp_frontend_design_delta_done_review.v214.yaml": {
+            "design_gap_architect": (
+                "./lisp_frontend_design_delta_design_gap_architect.v214.yaml"
+            ),
+            "work_item": "./lisp_frontend_design_delta_work_item.v214.yaml",
+        },
+        "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml": {
+            "plan_phase": "./lisp_frontend_design_delta_plan_phase.v214.yaml",
+            "implementation_phase": (
+                "./lisp_frontend_design_delta_implementation_phase.v214.yaml"
+            ),
+        },
+        "workflows/library/lisp_frontend_work_item.v214.yaml": {
+            "plan_phase": "./lisp_frontend_plan_phase.v214.yaml",
+            "implementation_phase": "./lisp_frontend_implementation_phase.v214.yaml",
+        },
+    }
+    for source_path, imports in expected_imports.items():
+        document = yaml.safe_load((REPO_ROOT / source_path).read_text(encoding="utf-8"))
+        assert document["imports"] == imports
+
+        calls: list[str] = []
+
+        def collect_calls(value: object) -> None:
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    if key == "call":
+                        calls.append(child)
+                    collect_calls(child)
+            elif isinstance(value, list):
+                for child in value:
+                    collect_calls(child)
+
+        collect_calls(document["steps"])
+        assert calls == list(imports)
 
 
 def _tracked_design_phase_proposed_inline_source(old_source: bytes) -> bytes:
