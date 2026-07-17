@@ -9,11 +9,11 @@
 becomes the only authored workflow surface. Persisted run data and internal
 debug serialization are outside this program.
 
-**Current selector:** Task 4, add the YAML deprecation surface. Tasks 1-3 are
-complete; Task 3's reviewed implementation record is
-`docs/plans/2026-07-16-yaml-loader-shared-validation-split-plan.md`. YAML remains
-`Legacy`: fresh YAML is still executable, and Task 7 still owns rejection and
-parser removal.
+**Current selector:** Task 5, build and promote exactly two `.orc` ports. Tasks
+1-4 are complete; Task 4's reviewed implementation record is
+`docs/plans/2026-07-17-yaml-deprecation-surface-implementation-plan.md`. YAML
+remains `Legacy`: fresh YAML is still executable, and Task 7 still owns
+rejection and parser removal.
 
 **Architecture:** The content-addressed handoff in
 `docs/plans/2026-07-13-procedure-first-reuse-inventory.json` is the exact work
@@ -182,12 +182,26 @@ code-quality review returned APPROVED for exact HEAD `7cc6f1d2`.
 fresh-root event schema, persisted-read suppression (including `.orc` rebuilds
 with legacy YAML bundle dependencies), and new-author routing boundary.
 
-- [ ] The promoted Design Delta `.orc` primary satisfies this task's real-target
+- [x] The promoted Design Delta `.orc` primary satisfies this task's real-target
   gate; warning work need not wait for either new Task-5 port. Warn once on
   fresh YAML/YML loads. Existing persisted-run resume behavior remains
   separately governed.
-- [ ] Route new authors and templates to `.orc`.
-- [ ] Test warning behavior and routing, not literal warning phrasing.
+- [x] Route new authors and templates to `.orc`.
+- [x] Test warning behavior and routing, not literal warning phrasing.
+
+**Task 4 evidence:** Explicit fresh YAML/YML roots now emit the structured
+advisory event once per root; persisted resume, report, dashboard, and `.orc`
+rebuild compatibility reads suppress it without changing build identity. The
+loader event, normalization guard, persisted suppression, fresh-route
+integration, and author routing landed at `3871099b`, `4e0a700d`, `30b1bd48`,
+`ee0e520a`, and `b329c4b3`. Final verification passed 550 focused and 45
+routing tests; `.orc` and YAML dry-run smokes observed respectively zero and one
+event; the broad suite recorded 5181 passed and 17 skipped with exactly the six
+established unrelated failures. Independent specification review returned PASS
+and quality review returned APPROVED for exact HEAD `b329c4b3` and tree
+`00b1a2d1`. This closes only Task 4: YAML remains executable and `Legacy`, both
+Task-5 port rows retain every per-row gate, Task 6 retains every deletion gate,
+and Task 7 parser removal remains incomplete.
 
 ### Task 5: Build and promote exactly two `.orc` ports — GATED PER ROW
 

@@ -156,7 +156,7 @@ def _section(text: str, heading: str) -> str:
     return remainder if next_heading == -1 else remainder[:next_heading]
 
 
-def test_yaml_retirement_tasks_1_through_3_are_closed_and_task_4_is_current() -> None:
+def test_yaml_retirement_tasks_1_through_4_are_closed_and_task_5_is_current() -> None:
     program = YAML_RETIREMENT_PROGRAM.read_text(encoding="utf-8")
     task_1 = _section(program, "### Task 1: Close the `.orc` language-gap list — ENABLING")
     task_2 = _section(program, "### Task 2: Move dashboard structure reads to the typed surface — ENABLING")
@@ -169,25 +169,28 @@ def test_yaml_retirement_tasks_1_through_3_are_closed_and_task_4_is_current() ->
     assert "- [ ]" not in task_2
     assert task_3.count("- [x]") == 3
     assert "- [ ]" not in task_3
-    assert task_4.count("- [ ]") == 3
-    assert "**Current selector:** Task 4" in program
+    assert task_4.count("- [x]") == 3
+    assert "- [ ]" not in task_4
+    assert "**Current selector:** Task 5" in program
     assert "PASS" in task_1
     assert "APPROVED" in task_1
     assert "PASS" in task_2
     assert "APPROVED" in task_2
     assert "PASS" in task_3
     assert "APPROVED" in task_3
+    assert "PASS" in task_4
+    assert "APPROVED" in task_4
 
 
-def test_canonical_routing_surfaces_select_only_yaml_retirement_task_4() -> None:
+def test_canonical_routing_surfaces_select_only_yaml_retirement_task_5() -> None:
     roadmap = ROADMAP.read_text(encoding="utf-8")
     capability = CAPABILITY_MATRIX.read_text(encoding="utf-8")
     index = DOCS_INDEX.read_text(encoding="utf-8")
 
     for text in (roadmap, capability, index):
-        assert "YAML retirement Task 4" in text
+        assert "YAML retirement Task 5" in text
         normalized = " ".join(text.lower().split())
-        for stale_task in (1, 2, 3, 5, 6, 7):
+        for stale_task in (1, 2, 3, 4, 6, 7):
             assert re.search(
                 rf"\byaml retirement\b[^.;]{{0,120}}\btask {stale_task}\b"
                 rf"[^.;]{{0,40}}\bcurrent\b"
@@ -198,7 +201,7 @@ def test_canonical_routing_surfaces_select_only_yaml_retirement_task_4() -> None
 
     stage_6 = _section(roadmap, "### Stage 6: Resume YAML Retirement")
     normalized_stage_6 = " ".join(stage_6.lower().split())
-    assert "**Current selector:** Task 4" in stage_6
-    assert "tasks 1-3 are complete" in normalized_stage_6
+    assert "**Current selector:** Task 5" in stage_6
+    assert "tasks 1-4 are complete" in normalized_stage_6
     assert "yaml remains `legacy`" in normalized_stage_6
     assert "task 7" in normalized_stage_6 and "parser removal" in normalized_stage_6

@@ -19,6 +19,25 @@ YAML as legacy compatibility material and routes new authoring to `.orc`.
 **Tech Stack:** Python 3 logging, `WorkflowLoader`, argparse CLI commands,
 pytest/caplog, Markdown routing contracts.
 
+**Execution status:** Implemented through Task 5 Step 4. The reviewed design
+and plan landed at `bfe460d8` and `4f86b49a`; the loader event, warning-policy
+normalization, persisted-read suppression, fresh-route integration, and author
+routing landed at `3871099b`, `4e0a700d`, `30b1bd48`, `ee0e520a`, and
+`b329c4b3`. Final implementation review bound exact HEAD
+`b329c4b396e095d195119996838ea8782e6d1401` and tree
+`00b1a2d17c6118695c747b7c3001817e4dd4977d`, returning specification PASS and
+quality APPROVED. Task 5 Steps 5–6 remain unchecked because their reviewed
+staged tree and resulting commit are the mechanical completion evidence.
+
+**Execution evidence:** The pre-change focused baseline passed 456 tests; its
+broad baseline recorded 5139 passed and 17 skipped with exactly the six bound
+unrelated failures. The loader boundary finished with 11 focused warning tests
+and 268 loader/shared-validation regressions passing. Persisted compatibility
+finished with 232 affected-module tests passing. Final verification recorded
+550 focused tests passing, 45 routing tests passing, `.orc` and YAML dry-run
+smokes with respectively zero and one deprecation events, and 5181 passed plus
+17 skipped in the broad suite with exactly the same six failures.
+
 ---
 
 ## Governing design and scope
@@ -78,7 +97,7 @@ unrelated non-protected file from entering a commit.
 
 - Create: `docs/plans/2026-07-17-yaml-deprecation-surface-implementation-plan.md`
 
-- [ ] **Step 1: Verify the prerequisite commits and selector**
+- [x] **Step 1: Verify the prerequisite commits and selector**
 
 ```bash
 git merge-base --is-ancestor b17d3b8b HEAD
@@ -89,12 +108,12 @@ rg -n '^\*\*Current selector:\*\* Task 4,' \
 
 Expected: both ancestry checks exit 0 and the roadmap selects Task 4.
 
-- [ ] **Step 2: Record the dirty-path boundary**
+- [x] **Step 2: Record the dirty-path boundary**
 
 Run `git status --short` and confirm the seven protected user paths are the only
 pre-existing dirty paths. Do not stage, restore, format, or rewrite them.
 
-- [ ] **Step 3: Run the pre-change baseline**
+- [x] **Step 3: Run the pre-change baseline**
 
 ```bash
 pytest -q -n 16 --dist=worksteal \
@@ -107,7 +126,7 @@ pytest -q -n 16 --dist=worksteal \
 
 Expected: PASS. Record exact counts for closeout.
 
-- [ ] **Step 4: Run a fresh protected-tree broad baseline in tmux**
+- [x] **Step 4: Run a fresh protected-tree broad baseline in tmux**
 
 Run `pytest -q -n 16 --dist=worksteal` in tmux before any production/test/doc
 implementation edit. Compare failure node IDs to the checked-in authorities:
@@ -131,7 +150,7 @@ as a current protected-tree baseline blocker; do not defer it to final closeout.
 The correction artifact owns normalized-signature comparison when traces include
 nondeterministic or logger-location data.
 
-- [ ] **Step 5: Commit this reviewed implementation plan**
+- [x] **Step 5: Commit this reviewed implementation plan**
 
 Stage only this plan, then run:
 
@@ -152,7 +171,7 @@ git commit -m "docs: plan YAML deprecation surface"
 - Modify: `orchestrator/loader.py`
 - Create: `tests/test_yaml_deprecation_surface.py`
 
-- [ ] **Step 1: Write genuine RED loader-boundary tests**
+- [x] **Step 1: Write genuine RED loader-boundary tests**
 
 Add behavioral tests that capture the dedicated logger and assert structured
 record fields, never message wording:
@@ -169,7 +188,7 @@ record fields, never message wording:
 The tests must also assert that warning emission leaves the returned bundle and
 structured validation exception behavior unchanged.
 
-- [ ] **Step 2: Run the RED selector**
+- [x] **Step 2: Run the RED selector**
 
 ```bash
 pytest -q tests/test_yaml_deprecation_surface.py -k loader
@@ -177,7 +196,7 @@ pytest -q tests/test_yaml_deprecation_surface.py -k loader
 
 Expected: fail because the constructor policy and structured event do not exist.
 
-- [ ] **Step 3: Implement the minimal loader policy**
+- [x] **Step 3: Implement the minimal loader policy**
 
 In `orchestrator/loader.py`:
 
@@ -193,7 +212,7 @@ In `orchestrator/loader.py`:
 
 Do not add process-global or loader-instance deduplication.
 
-- [ ] **Step 4: Run GREEN and loader regressions**
+- [x] **Step 4: Run GREEN and loader regressions**
 
 ```bash
 pytest --collect-only -q tests/test_yaml_deprecation_surface.py
@@ -203,14 +222,14 @@ pytest -q tests/test_loader_validation.py tests/test_workflow_shared_validation.
 
 Expected: PASS, with every new test collected once.
 
-- [ ] **Step 5: Request specification and quality review**
+- [x] **Step 5: Request specification and quality review**
 
 Specification review must confirm once-per-public-root semantics, malformed-file
 coverage, silent recursion, structured non-phrasing assertions, and no change to
 validation authority. Quality review must confirm logger-field safety,
 request-path classification, and absence of hidden mutable deduplication.
 
-- [ ] **Step 6: Commit the reviewed loader event**
+- [x] **Step 6: Commit the reviewed loader event**
 
 Stage exactly `orchestrator/loader.py` and
 `tests/test_yaml_deprecation_surface.py`, then run:
@@ -242,7 +261,7 @@ git commit -m "feat: warn on fresh YAML workflow loads"
 - Modify: `tests/test_workflow_lisp_build_artifacts.py`
 - Modify: `tests/test_yaml_deprecation_surface.py`
 
-- [ ] **Step 1: Write RED persisted-consumer tests**
+- [x] **Step 1: Write RED persisted-consumer tests**
 
 Use real persisted YAML state fixtures for resume, report, and dashboard
 projection. Capture the dedicated deprecation logger and assert zero matching
@@ -261,7 +280,7 @@ Add an AST/constructor guard proving those three production consumers pass
 `emit_yaml_deprecation_warning=False` explicitly. Do not infer suppression from
 path location or monkeypatch the logger away.
 
-- [ ] **Step 2: Run the RED selector**
+- [x] **Step 2: Run the RED selector**
 
 ```bash
 pytest -q \
@@ -275,7 +294,7 @@ pytest -q \
 
 Expected: the persisted paths emit because they still use the default policy.
 
-- [ ] **Step 3: Add explicit suppression**
+- [x] **Step 3: Add explicit suppression**
 
 Pass `emit_yaml_deprecation_warning=False` at every persisted YAML loader
 construction site in resume, report, and dashboard projection.
@@ -290,7 +309,7 @@ Prove the policy is absent from build fingerprints, manifests, bundle identity,
 semantic/executable IR, and persisted state. Do not change fresh `run.py` or
 direct loader defaults.
 
-- [ ] **Step 4: Run GREEN and complete consumer regressions**
+- [x] **Step 4: Run GREEN and complete consumer regressions**
 
 ```bash
 pytest -q \
@@ -303,13 +322,13 @@ pytest -q \
 
 Expected: PASS.
 
-- [ ] **Step 5: Request specification and quality review**
+- [x] **Step 5: Request specification and quality review**
 
 Reviewers must verify that only persisted compatibility paths suppress the
 event, `.orc` resume behavior is unchanged, and suppression cannot weaken
 validation or conceal load failures.
 
-- [ ] **Step 6: Commit the reviewed persisted suppression**
+- [x] **Step 6: Commit the reviewed persisted suppression**
 
 Stage exactly the ten Task-2 paths, then run:
 
@@ -342,7 +361,7 @@ git commit -m "fix: suppress YAML warnings for persisted reads"
 - Regression only: `orchestrator/cli/commands/run.py`
 - Regression only: `orchestrator/workflow_lisp/build.py`
 
-- [ ] **Step 1: Add fresh-path integration tests**
+- [x] **Step 1: Add fresh-path integration tests**
 
 Prove:
 
@@ -356,7 +375,7 @@ Prove:
 
 Use behavioral logger fields and exit/bundle results, not warning text.
 
-- [ ] **Step 2: Run the integration tests**
+- [x] **Step 2: Run the integration tests**
 
 ```bash
 pytest --collect-only -q \
@@ -386,7 +405,7 @@ test "$ACTUAL" = "$EXPECTED"
 git diff --cached --check
 ```
 
-- [ ] **Step 3: Run end-to-end route smokes**
+- [x] **Step 3: Run end-to-end route smokes**
 
 ```bash
 python -m orchestrator run \
@@ -398,12 +417,12 @@ python -m orchestrator run workflows/examples/assert_gate_demo.yaml --dry-run
 Expected: both exit 0; the `.orc` route has no YAML deprecation event, and the
 YAML route has one.
 
-- [ ] **Step 4: Request specification and quality review**
+- [x] **Step 4: Request specification and quality review**
 
 Reviewers must verify the integration tests cover the non-CLI fresh dependency
 path and do not encode literal warning phrasing.
 
-- [ ] **Step 5: Commit the reviewed integration guards**
+- [x] **Step 5: Commit the reviewed integration guards**
 
 Stage exactly the two test files unless a separately reviewed and committed plan
 amendment authorized a production correction. For the normal two-test path, run:
@@ -434,7 +453,7 @@ git commit -m "test: prove YAML deprecation warning routes"
 - Modify: `docs/capability_status_matrix.md`
 - Modify: `tests/test_yaml_deprecation_surface.py`
 
-- [ ] **Step 1: Write RED routing-contract tests**
+- [x] **Step 1: Write RED routing-contract tests**
 
 Assert stable structure and links rather than prose:
 
@@ -453,7 +472,7 @@ Add a normative-contract assertion that `specs/dsl.md` distinguishes fresh
 advisory warnings from persisted compatibility reads without asserting literal
 warning wording.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 pytest -q tests/test_yaml_deprecation_surface.py -k author_routing
@@ -461,7 +480,7 @@ pytest -q tests/test_yaml_deprecation_surface.py -k author_routing
 
 Expected: fail because current docs still route new authors/templates to YAML.
 
-- [ ] **Step 3: Update the normative and informative routes**
+- [x] **Step 3: Update the normative and informative routes**
 
 - In `specs/dsl.md`, define the advisory fresh-load event and persisted-read
   suppression next to existing non-fatal warning behavior, including the exact
@@ -481,7 +500,7 @@ Expected: fail because current docs still route new authors/templates to YAML.
 - Do not edit `workflows/templates/autonomous_drain_with_work_instructions.v214.yaml`
   or any other YAML/YML source.
 
-- [ ] **Step 4: Run GREEN and routing regressions**
+- [x] **Step 4: Run GREEN and routing regressions**
 
 ```bash
 pytest -q tests/test_yaml_deprecation_surface.py -k author_routing
@@ -492,13 +511,13 @@ pytest -q \
 
 Expected: PASS.
 
-- [ ] **Step 5: Request specification and consistency review**
+- [x] **Step 5: Request specification and consistency review**
 
 Reviewers must confirm the docs do not claim YAML rejection or universal `.orc`
 parity, do not create a third port, and retain compatibility guidance for
 existing YAML.
 
-- [ ] **Step 6: Commit the reviewed author-routing change**
+- [x] **Step 6: Commit the reviewed author-routing change**
 
 Stage exactly the nine Task-4 paths, then run this exact cached-set and estate
 exclusion check before the protected guard:
@@ -544,7 +563,7 @@ git commit -m "docs: route new workflow authors to orc"
 - Modify after implementation reviews pass:
   `tests/test_workflow_lisp_drain_roadmap_routing.py`
 
-- [ ] **Step 1: Run the complete focused lane**
+- [x] **Step 1: Run the complete focused lane**
 
 ```bash
 pytest -q -n 16 --dist=worksteal \
@@ -560,7 +579,7 @@ pytest -q -n 16 --dist=worksteal \
 
 Expected: PASS.
 
-- [ ] **Step 2: Run the broad suite in tmux**
+- [x] **Step 2: Run the broad suite in tmux**
 
 ```bash
 pytest -q -n 16 --dist=worksteal
@@ -570,7 +589,7 @@ Expected: clean or exactly the established six unrelated failures by exact test
 identity. No new warning, loader, CLI, resume, report, dashboard, or Workflow
 Lisp build failure may be classified as unrelated.
 
-- [ ] **Step 3: Obtain final implementation reviews**
+- [x] **Step 3: Obtain final implementation reviews**
 
 Specification review must bind the exact implementation HEAD and answer whether
 fresh/persisted routing, once semantics, normative docs, and Task-7 non-goals
@@ -581,7 +600,7 @@ For every accepted finding, add a failing test first, make the minimal fix,
 rerun affected tests plus the complete focused and broad lanes, and restart both
 reviews.
 
-- [ ] **Step 4: Advance the exclusive selector from Task 4 to Task 5**
+- [x] **Step 4: Advance the exclusive selector from Task 4 to Task 5**
 
 Only after both implementation reviews pass:
 

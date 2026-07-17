@@ -1,8 +1,10 @@
 # YAML Deprecation Surface Design
 
-**Status:** Accepted for Stage 6 Task 4 execution under the YAML retirement
-roadmap and the owner's standing instruction to continue without an additional
-approval stop.
+**Status:** Implemented for Stage 6 Task 4. The behavior landed at `3871099b`,
+`4e0a700d`, `30b1bd48`, and `ee0e520a`; author routing landed at `b329c4b3`.
+Final implementation review returned specification PASS and quality APPROVED
+for exact HEAD `b329c4b396e095d195119996838ea8782e6d1401` and tree
+`00b1a2d17c6118695c747b7c3001817e4dd4977d`.
 
 **Owner:** `docs/plans/2026-07-07-yaml-retirement-program.md`, Task 4.
 
