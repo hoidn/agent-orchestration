@@ -38,7 +38,10 @@ Task 3 completed without source migration after independent specification and
 quality approval. Task 4 then completed its three separately reviewed group
 audits at `c9687539`, `26d9ecd0`, and `848ceb52`, each after independent
 specification and quality approval. Task 5 Step 1 is selected without
-reordering Tasks 5-8 or the later stages.
+reordering Tasks 5-8 or the later stages. The first Task 5 subfamily stopped
+at the enforced production-owner/runtime-mirror file boundary before a source
+migration could complete: Task 5 Step 1 remains selected after this plan
+correction, and no Task 5 source migration is claimed complete.
 
 - Accepted contract: `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
 - Reviewed queue: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
@@ -534,6 +537,11 @@ tasks remain in their existing order.
 - Modify: `workflows/library/lisp_frontend_design_delta/plan_phase.orc`
 - Modify: `workflows/library/lisp_frontend_design_delta/projections.orc`
 - Modify: `workflows/library/lisp_frontend_design_delta/work_item.orc`
+- Modify as a derived runtime mirror: `tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/bootstrap.orc`
+- Modify as a derived runtime mirror: `tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/implementation_phase.orc`
+- Modify as a derived runtime mirror: `tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/plan_phase.orc`
+- Modify as a derived runtime mirror: `tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/projections.orc`
+- Modify as a derived runtime mirror: `tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/work_item.orc`
 - Modify: `tests/test_workflow_lisp_design_delta_smoke.py`
 - Modify: `tests/test_workflow_lisp_procedure_first_migrations.py`
 - Modify: `tests/test_workflow_lisp_source_map.py`
@@ -581,7 +589,12 @@ Verify the test fails on the first still-workflow callee. Make only the group's
 source change. Every source commit must keep public work-item
 inputs/outputs, artifact names, effects, state/write roots, checkpoint IDs,
 and resume behavior equal. Transition/finalization procedures must retain
-their declared command/resource/ledger effects in Semantic IR.
+their declared command/resource/ledger effects in Semantic IR. Whenever a
+Task 5 production owner changes, update its corresponding listed runtime mirror
+in the same commit and require byte-for-byte equality through
+`test_design_delta_work_item_runtime_mirror_matches_production_owner`. These
+mirrors are derived test fixtures, not independent source or baseline
+authority; do not use them to refresh semantic or checkpoint baselines.
 
 ```bash
 pytest -q tests/test_workflow_lisp_design_delta_smoke.py tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_checkpoint_identity_comparison.py -k 'work_item'
@@ -604,7 +617,7 @@ advance on focused unit tests alone.
 - [ ] **Step 4: Commit each subfamily separately**
 
 ```bash
-git add workflows/library/lisp_frontend_design_delta/bootstrap.orc workflows/library/lisp_frontend_design_delta/implementation_phase.orc workflows/library/lisp_frontend_design_delta/plan_phase.orc workflows/library/lisp_frontend_design_delta/projections.orc workflows/library/lisp_frontend_design_delta/work_item.orc tests/test_workflow_lisp_design_delta_smoke.py tests/test_workflow_lisp_procedure_first_migrations.py tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_checkpoint_identity_comparison.py tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_migration_parity.py
+git add workflows/library/lisp_frontend_design_delta/bootstrap.orc workflows/library/lisp_frontend_design_delta/implementation_phase.orc workflows/library/lisp_frontend_design_delta/plan_phase.orc workflows/library/lisp_frontend_design_delta/projections.orc workflows/library/lisp_frontend_design_delta/work_item.orc tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/bootstrap.orc tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/implementation_phase.orc tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/plan_phase.orc tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/projections.orc tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/work_item.orc tests/test_workflow_lisp_design_delta_smoke.py tests/test_workflow_lisp_procedure_first_migrations.py tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_checkpoint_identity_comparison.py tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_migration_parity.py
 git commit -m "Migrate Design Delta work-item <subfamily> procedures"
 ```
 
