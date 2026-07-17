@@ -53,8 +53,10 @@ Required contracts:
    publishes/consumes, and adjudicated-provider candidate/evaluator prompt and
    rubric assets used by current renderer link groups.
 6. Canonical bytes are exactly UTF-8 of
-   `json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)`
-   plus one trailing `\n`. Decoder requires input bytes equal that re-encoding.
+   `json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+   allow_nan=False)` plus one trailing `\n`. Decoder rejects `NaN`, `Infinity`,
+   and `-Infinity` during parse and requires input bytes equal that strict-JSON
+   re-encoding.
 7. Digests are lowercase `sha256:<64 hex>`. The identical closed anchor
    `{schema_version, path, entry_workflow, sha256}` appears in manifest and state;
    path is POSIX `build/<fingerprint>/persisted_workflow_surface.json`.
@@ -77,6 +79,8 @@ Create:
 - `orchestrator/workflow/persisted_surface.py` — graph schema, frozen read model,
   canonical serializer/decoder, call-edge collector, and invariants. No dashboard,
   YAML, compiler, elaboration, or lowering imports.
+- `tests/test_persisted_workflow_surface.py` — isolated topology, closed-wire,
+  malformed-graph, and deep-immutability contract tests.
 - `docs/plans/2026-07-16-dashboard-persisted-typed-surface-plan.md` — this plan.
 
 Modify:
@@ -123,10 +127,12 @@ Modify:
 
 ```bash
 pytest --collect-only -q tests/test_workflow_lisp_build_artifacts.py \
-  tests/test_runtime_observability.py tests/test_runtime_observability_cli.py
+  tests/test_runtime_observability.py tests/test_runtime_observability_cli.py \
+  tests/test_persisted_workflow_surface.py
 pytest -q tests/test_workflow_lisp_build_artifacts.py \
   tests/test_runtime_observability.py tests/test_runtime_observability_cli.py \
   -k 'persisted_surface or compiled_frontend_surface'
+pytest -q tests/test_persisted_workflow_surface.py
 ```
 
 Expected: real missing artifact/schema/anchor failures, not fixture errors.
@@ -148,7 +154,8 @@ Expected: real missing artifact/schema/anchor failures, not fixture errors.
   four values are valid.
 - [ ] Run GREEN producer/runtime selectors and the complete
   `tests/test_workflow_lisp_build_artifacts.py` plus
-  `tests/test_runtime_observability.py` suites.
+  `tests/test_runtime_observability.py`, `tests/test_runtime_observability_cli.py`,
+  and `tests/test_persisted_workflow_surface.py` suites.
 
 ## Task 3: Replace dashboard fresh reconstruction
 
@@ -188,7 +195,8 @@ pytest -q tests/test_dashboard_server.py tests/test_cli_dashboard_command.py \
 pytest --collect-only -q tests/test_dashboard_compiled_workflow.py \
   tests/test_dashboard_projection.py tests/test_dashboard_server.py \
   tests/test_cli_dashboard_command.py tests/test_runtime_observability.py \
-  tests/test_runtime_observability_cli.py tests/test_workflow_lisp_build_artifacts.py
+  tests/test_runtime_observability_cli.py tests/test_workflow_lisp_build_artifacts.py \
+  tests/test_persisted_workflow_surface.py
 ```
 
 - [ ] Run focused tests:
@@ -197,7 +205,8 @@ pytest --collect-only -q tests/test_dashboard_compiled_workflow.py \
 pytest -q -n 16 --dist=worksteal tests/test_dashboard_compiled_workflow.py \
   tests/test_dashboard_projection.py tests/test_dashboard_server.py \
   tests/test_cli_dashboard_command.py tests/test_runtime_observability.py \
-  tests/test_runtime_observability_cli.py tests/test_workflow_lisp_build_artifacts.py
+  tests/test_runtime_observability_cli.py tests/test_workflow_lisp_build_artifacts.py \
+  tests/test_persisted_workflow_surface.py
 ```
 
 - [ ] Run real minimal and `imported_bundle_mix` build/dashboard smokes; delete the
@@ -251,7 +260,8 @@ Do not classify a new dashboard/build/runtime-observability failure as unrelated
      `orchestrator/runtime_observability.py`,
      `tests/test_workflow_lisp_build_artifacts.py`,
      `tests/test_runtime_observability.py`,
-     `tests/test_runtime_observability_cli.py`;
+     `tests/test_runtime_observability_cli.py`,
+     `tests/test_persisted_workflow_surface.py`;
   3. reader/dashboard plus dashboard/CLI tests:
      `orchestrator/dashboard/compiled_workflow.py`,
      `orchestrator/dashboard/models.py`, `orchestrator/dashboard/projection.py`,
