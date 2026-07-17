@@ -90,7 +90,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-13-procedure-first-pilot-plan.md` | Complete. Evidence landed at `63e03330`, `e6a85cb7`, `de522c76`, `f5dbac88`, `76205d4f`, and `0769e837`; holistic specification and quality reviews approved HEAD `0769e837`. Exactly two dedicated runs completed, and the route remains `leaf_runtime_candidate` / `migration_candidate` / `migration_evidence_only`. Historical clean artifact equality is `not_asserted`. This is one reviewed internal pilot, not a general compatibility, family-wave, promotion, or YAML-retirement claim. |
 | `2026-07-13-resume-projection-integrity-hardening-design-plan.md` | Complete. Characterization landed at `1cd60767`, the accepted design at `52e2b05f`, the normative state/acceptance contract at `00135832`, and the reviewed implementation plan at `26a5d3db`; holistic routing reviews and fresh focused/broad validation passed at closeout. This row does not claim runtime implementation. |
 | `2026-07-13-resume-projection-integrity-hardening-implementation-plan.md` | Complete at `fdf1e06b`. The generic runtime hardening, focused acceptance gate, deterministic public CLI smoke, broad baseline-equivalence check, and independent specification/quality reviews are recorded in the plan. Do not re-execute it as the live selector. |
-| `2026-07-13-procedure-first-migration-waves-plan.md` | Current selector. Task 1's post-hardening rebaseline completed at `4983afff` plus correction `fa16bcf0`; Task 2 Steps 1 and 2 retained ineligible boundaries with 26 and 24 supported old-identity consumers, and Step 3 retained the same-file helper because its containing route is live/current and requires strict compatibility. Task 2 Step 4 is the current sub-selector. Preserve the remaining Task 2 work, Tasks 3-8, and the later stage order. |
+| `2026-07-13-procedure-first-migration-waves-plan.md` | Current selector. Task 1's post-hardening rebaseline completed at `4983afff` plus correction `fa16bcf0`; Task 2 completed at `daff694c` after retaining two boundaries with 26 and 24 supported consumers and one live-route strict-compatibility boundary, then passing integration gates, inventory reconciliation, and both reviews. Task 3 Step 1 is the current sub-selector. Preserve Tasks 3-8 and the later stage order. |
 | `2026-07-16-tracked-design-phase-identity-retirement-plan.md` | Complete by fail-closed eligibility stop. The generic scanner found 26 supported old-identity consumers in the completed pilot root, so the source stayed unchanged and the row moved to `effect-adapter`. This was not a competing roadmap selector and authorized no YAML edit, remap, or cross-source resume claim. |
 | `2026-07-16-design-plan-impl-implementation-phase-identity-retirement-plan.md` | Complete by fail-closed eligibility stop. The generic scanner found 24 supported old-identity consumers in the completed pilot root, so the source stayed unchanged and the row moved to `effect-adapter`. This was not a competing roadmap selector and authorized no run, YAML edit, remap, or cross-source resume claim. |
 | `2026-07-16-same-file-build-checks-identity-retirement-plan.md` | Complete by fail-closed route-eligibility stop. The containing route is live/current and therefore requires strict compatibility; the source stayed unchanged and the row moved to `effect-adapter` even though known-store scans found zero matching consumers. This was not a competing roadmap selector and authorized no run or owner gate. |
@@ -195,12 +195,13 @@ deterministic public CLI smoke, broad baseline-equivalence check, and final
 independent specification/quality reviews. The completed hardening plan is now
 historical execution evidence. The current selector is
 `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`; its Task 1
-rebaseline completed at `4983afff` plus `fa16bcf0`, and Task 2's small-example
-family remains current; Task 2 Steps 1 and 2 retained ineligible boundaries
+rebaseline completed at `4983afff` plus `fa16bcf0`. Task 2's small-example
+family is complete; Steps 1 and 2 retained ineligible boundaries
 after deterministic scans found 26 and 24 supported old-identity consumers,
 and Task 2 Step 3 retained the same-file helper because its live/current route
-requires strict compatibility. Task 2 Step 4 is the current sub-selector.
-After Tasks 2–8, continue with
+requires strict compatibility. Task 2 completed at `daff694c`; Task 3 Step 1
+is the current sub-selector.
+After Tasks 3–8, continue with
 `docs/plans/2026-07-07-yaml-retirement-program.md`,
 `docs/design/workflow_lisp_provider_live_binding.md`, and
 `docs/design/workflow_lisp_language_server.md`, in that order.
@@ -417,7 +418,7 @@ Execute only accepted plans, in this order:
 7. **Small/library wave — current selector.** Task 1 of
    `2026-07-13-procedure-first-migration-waves-plan.md` completed its
    post-hardening rebaseline at `4983afff` plus `fa16bcf0`. Task 2's
-   small-example family remains current. Task 2 Step 1's
+   small-example family is complete at `daff694c`. Task 2 Step 1's
    `docs/plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md`
    closed fail-closed because a known retained store contains 26 supported
    old-identity consumers; the callee remains a workflow and its row is now an
@@ -427,8 +428,9 @@ Execute only accepted plans, in this order:
    Step 3's
    `docs/plans/2026-07-16-same-file-build-checks-identity-retirement-plan.md`
    retained the helper because its containing route is live/current and
-   requires strict compatibility. Execute Task 2 Step 4 now, then Task 3 with
-   the recorded classifications and parity gates.
+   requires strict compatibility. Task 2's integration gates, inventory
+   reconciliation, and both reviews passed at `daff694c`. Execute Task 3
+   Step 1 now with the recorded classifications and parity gates.
 8. **Effect-adapter evidence wave.** Execute Task 4 of that migration plan
    before production-family conversion. YAML adapter rows are audited, not
    translated into `.orc` procedure candidates.

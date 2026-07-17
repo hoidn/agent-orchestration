@@ -14,8 +14,9 @@
 
 **Status:** Current selector (activated 2026-07-16). Task 1's post-hardening
 rebaseline is complete at `4983afff` with its narrative correction at
-`fa16bcf0`. **Current sub-selector: Task 2 Step 4, the small-example
-integration gates.** Task 2 Steps 1 and 2 each reached a bounded fail-closed
+`fa16bcf0`. **Current sub-selector: Task 3 Step 1, resolve the seven Design
+Delta candidate rows.** Task 2 is complete at `daff694c`. Steps 1 and 2 each
+reached a bounded fail-closed
 identity-retirement stop:
 `docs/plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md`
 records 26 supported old-identity consumers for `tracked-design-phase`, and
@@ -26,12 +27,13 @@ stricter route-eligibility stop recorded in
 the containing route is active `wcc_default`, `leaf_runtime_candidate`, and
 `preferred_current_guidance`, so strict compatibility is mandatory. All three
 callees remain workflows and all three inventory rows are now `effect-adapter`. This is not a new
-design or a reordering of the remaining Task 2 work or Tasks 3-8. The prerequisite
+design or a reordering of Tasks 3-8. The prerequisite
 `docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
 completed at `fdf1e06b` with fresh focused acceptance evidence, a deterministic
 public CLI smoke, broad baseline equivalence, and independent specification and
-quality reviews. No Task 2 source migration occurred, and no later task is
-activated or reordered by this status transition.
+quality reviews. No Task 2 source migration occurred. Its retained-boundary
+integration gates, inventory reconciliation, and independent reviews passed.
+Task 3 is now activated without reordering Tasks 4-8 or the later stages.
 
 - Accepted contract: `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
 - Reviewed queue: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
@@ -283,14 +285,19 @@ byte-unchanged, `build-checks` remains a workflow, its call remains explicit,
 no run or owner gate was created, and its active inventory row is retained as
 `effect-adapter`. Step 4 is now selected.
 
-- [ ] **Step 4: Rerun design-plan runtime/parity and example route readiness**
+- [x] **Step 4: Rerun design-plan runtime/parity and example route readiness**
 
 ```bash
 pytest -q tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_migration_parity.py -k 'design_plan_impl_stack'
 pytest -q tests/test_workflow_lisp_examples.py tests/test_workflow_lisp_route_readiness.py -k 'same_file_record_call_binding or design_plan_impl_review_stack'
 ```
 
-- [ ] **Step 5: Record the retained Steps 1-3 dispositions**
+Fresh results: design-stack runtime/parity `3 passed, 301 deselected`;
+same-file/design-stack route readiness `1 passed, 50 deselected`; unchanged
+same-file compile exit 0 with zero diagnostics; combined routing/migration
+gate `145 passed, 5 skipped` under 16-worker work stealing.
+
+- [x] **Step 5: Record the retained Steps 1-3 dispositions**
 
 The pilot record is already in v2 history. Keep the Step 1
 `tracked-design-phase` and Step 2 `design-plan-impl-implementation-phase`
@@ -306,15 +313,17 @@ python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >
 git diff --check -- docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json
 ```
 
-- [ ] **Step 6: Commit the reviewed inventory and routing evidence**
+- [x] **Step 6: Commit the reviewed inventory and routing evidence**
 
 ```bash
 git add docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json
 git commit -m "Retain same-file helper on live route"
 ```
 
-Stage only files that changed. Obtain specification and quality PASS on the
-v2 active/history count reconciliation before starting Task 3.
+Landed at `daff694c` after independent specification PASS and quality
+APPROVED. The v2 inventory reconciles 29 procedure candidates, 28 effect
+adapters, and 38 legacy-retire rows; active/history totals remain 95/1. Task 3
+Step 1 is now selected.
 
 ### Task 3: Migrate The Design Delta Library And Stdlib Adapters
 

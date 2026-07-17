@@ -180,7 +180,7 @@ def _procedure_sequence_selector_surfaces() -> dict[str, str]:
     }
 
 
-def _assert_task_2_step_4_current_subselector(surface: str, label: str) -> None:
+def _assert_task_3_step_1_current_subselector(surface: str, label: str) -> None:
     normalized = _normalized_routing_text(surface)
     assert re.search(
         r"\btask 1\b.{0,160}(?:"
@@ -188,15 +188,9 @@ def _assert_task_2_step_4_current_subselector(surface: str, label: str) -> None:
         r"|\bcomplete\w*\b.{0,80}rebaseline)",
         normalized,
     ), label
-    combined_completed = "task 2 steps 1 and 2" in normalized
-    assert "task 2 step 1" in normalized or combined_completed, label
-    assert (
-        "task 2 step 2" in normalized
-        or combined_completed
-        or ("task 2 step 1" in normalized and "and step 2" in normalized)
-    ), label
-    assert "step 3" in normalized, label
-    assert "task 2 step 4" in normalized, label
+    assert "task 2" in normalized and "complete" in normalized, label
+    assert "daff694c" in normalized, label
+    assert "task 3 step 1" in normalized, label
     assert "26" in normalized and "24" in normalized and "consumer" in normalized, label
     assert "strict compatibility" in normalized, label
     assert "live" in normalized or "active" in normalized, label
@@ -205,26 +199,31 @@ def _assert_task_2_step_4_current_subselector(surface: str, label: str) -> None:
 
     explicit_markers = len(re.findall(r"current sub selector", normalized))
     execute_now_markers = len(
-        re.findall(r"\bexecute\s+task 2 step 4\b.{0,120}\bnow\b", normalized)
+        re.findall(r"\bexecute\s+task 3\s+step 1\b.{0,120}\bnow\b", normalized)
     )
     assert explicit_markers + execute_now_markers == 1, label
     assert re.search(
-        r"(?:current sub selector:?\s*(?:the\s+)?task 2 step 4\b"
-        r"|\btask 2 step 4\b.{0,80}\b(?:is|as)\b.{0,24}current sub selector"
-        r"|\bexecute\s+task 2 step 4\b.{0,120}\bnow\b)",
+        r"(?:current sub selector:?\s*(?:the\s+)?task 3 step 1\b"
+        r"|\btask 3 step 1\b.{0,80}\b(?:is|as)\b.{0,24}current sub selector"
+        r"|\bexecute\s+task 3\s+step 1\b.{0,120}\bnow\b)",
         normalized,
     ), label
     assert re.search(
         r"current sub selector:?\s*(?:the\s+)?task "
-        r"(?!2 step 4\b)\d+(?: step \d+)?\b",
+        r"(?!3 step 1\b)\d+(?: step \d+)?\b",
         normalized,
     ) is None, label
     assert "task 2 step 1 is the current sub selector" not in normalized, label
     assert "task 2 step 2 is the current sub selector" not in normalized, label
     assert "task 2 step 3 is the current sub selector" not in normalized, label
+    assert "task 2 step 4 is the current sub selector" not in normalized, label
     assert re.search(
-        r"(?:current sub selector:?\s*(?:the\s+)?task (?:1\b|2 step [123]\b)"
-        r"|\bbegin with\b.{0,120}\btask (?:1\b|2 step [123]\b)"
+        r"\btask 2\b.{0,40}\b(?:pending|open|incomplete|current)\b",
+        normalized,
+    ) is None, label
+    assert re.search(
+        r"(?:current sub selector:?\s*(?:the\s+)?task (?:1\b|2(?: step \d+)?\b)"
+        r"|\bbegin with\b.{0,120}\btask (?:1\b|2(?: step \d+)?\b)"
         r"|\btask 1\b\s+(?:is|remains)\s+"
         r"(?:open|pending|current|incomplete)\b"
         r"|\btask 1\b\s+must still\b)",
@@ -299,7 +298,7 @@ def test_procedure_first_status_surfaces_share_current_migration_wave_boundary()
         assert "runtime hardening remains pending" not in normalized, label
 
 
-def test_migration_wave_task_1_closeout_advances_only_to_task_2() -> None:
+def test_migration_wave_task_2_closeout_advances_only_to_task_3() -> None:
     plan = (REPO_ROOT / CURRENT_SELECTOR_PATH).read_text(encoding="utf-8")
     task_1 = _migration_task_section(plan, 1)
     task_2 = _migration_task_section(plan, 2)
@@ -310,7 +309,7 @@ def test_migration_wave_task_1_closeout_advances_only_to_task_2() -> None:
 
     assert task_1_steps == ["x", "x", "x", "x"]
     assert re.findall(r"(?m)^- \[([ xX])\] \*\*Step", task_2) == [
-        "x", "x", "x", " ", " ", " "
+        "x", "x", "x", "x", "x", "x"
     ]
     assert re.search(r"(?m)^- \[[xX]\] \*\*Step", later_tasks) is None
 
@@ -333,7 +332,7 @@ def test_migration_wave_task_1_closeout_advances_only_to_task_2() -> None:
         **_procedure_sequence_selector_surfaces(),
     }
     for label, surface in selector_surfaces.items():
-        _assert_task_2_step_4_current_subselector(surface, label)
+        _assert_task_3_step_1_current_subselector(surface, label)
 
     for label in ("docs index", "roadmap current routing"):
         _assert_exact_ordered_routing_paths(selector_surfaces[label], label)
@@ -381,7 +380,7 @@ def test_task_2_step_1_closes_on_bounded_identity_retirement_ineligibility() -> 
         canonical = _canonical_routing_paths(surface)
         assert canonical.count(TRACKED_DESIGN_RETIREMENT_PLAN_PATH) == 1, label
         normalized = _normalized_routing_text(surface)
-        assert "task 2 step 1" in normalized, label
+        assert "task 2" in normalized, label
         assert "consumer" in normalized, label
 
     index_routing = docs_index.split("**Component-plan routing:**", 1)[1].split(
@@ -390,7 +389,7 @@ def test_task_2_step_1_closes_on_bounded_identity_retirement_ineligibility() -> 
     canonical_index = _canonical_routing_paths(index_routing)
     assert canonical_index.count(CURRENT_SELECTOR_PATH) == 1
     assert _normalized_routing_text(index_routing).count("current selector") == 1
-    assert "task 2 step 4 is the current sub selector" in (
+    assert "task 3 step 1 is the current sub selector" in (
         _normalized_routing_text(index_routing)
     )
 
@@ -437,11 +436,7 @@ def test_task_2_step_2_closes_on_bounded_identity_retirement_ineligibility() -> 
         canonical = _canonical_routing_paths(surface)
         assert canonical.count(STACK_IMPLEMENTATION_RETIREMENT_PLAN_PATH) == 1, label
         normalized = _normalized_routing_text(surface)
-        assert (
-            "task 2 step 2" in normalized
-            or ("task 2 step 1" in normalized and "and step 2" in normalized)
-            or "task 2 steps 1 and 2" in normalized
-        ), label
+        assert "task 2" in normalized, label
         assert "24" in normalized and "consumer" in normalized, label
 
 
@@ -483,7 +478,7 @@ def test_task_2_step_3_closes_on_live_route_strict_compatibility() -> None:
 
     task_2 = _migration_task_section(migration_plan, 2)
     task_2_step_3 = task_2.split("- [x] **Step 3:", 1)[1].split(
-        "- [ ] **Step 4:", 1
+        "- [x] **Step 4:", 1
     )[0]
     for label, surface in {
         "migration Task 2 Step 3": task_2_step_3,
@@ -511,25 +506,25 @@ def test_task_2_step_3_closes_on_live_route_strict_compatibility() -> None:
 @pytest.mark.parametrize(
     "replacement",
     (
-        "Task 1's rebaseline is the current sub-selector.",
+        "Task 2 Step 4 is the current sub-selector.",
         (
-            "Task 2 Step 3 is the current sub-selector. "
-            "Task 2 Step 4 remains pending."
+            "Task 3 Step 1 is the current sub-selector. "
+            "Task 2 remains pending."
         ),
         (
-            "Task 2 Step 3 is the current sub-selector. "
-            "Begin with Task 2 Step 3."
+            "Task 3 Step 1 is the current sub-selector. "
+            "Begin with Task 2 Step 4."
         ),
-        "Task 2 Step 4 remains planned.",
+        "Task 3 Step 1 remains planned.",
     ),
     ids=(
-        "stale-task-1-current",
-        "contradictory-task-3-pending",
-        "contradictory-task-3-begin",
-        "task-4-not-current",
+        "stale-task-2-current",
+        "contradictory-task-2-pending",
+        "contradictory-task-2-begin",
+        "task-3-not-current",
     ),
 )
-def test_task_2_current_subselector_guard_rejects_stale_or_ambiguous_routing(
+def test_task_3_current_subselector_guard_rejects_stale_or_ambiguous_routing(
     replacement: str,
 ) -> None:
     docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
@@ -538,7 +533,7 @@ def test_task_2_current_subselector_guard_rejects_stale_or_ambiguous_routing(
         "**Current procedure-first substrate:**", 1
     )[0]
     mutated = re.sub(
-        r"Task 2 Step 4 is the current sub-selector\.",
+        r"Task 3 Step 1 is the current sub-selector\.",
         replacement,
         docs_index_routing,
         count=1,
@@ -546,7 +541,7 @@ def test_task_2_current_subselector_guard_rejects_stale_or_ambiguous_routing(
     assert mutated != docs_index_routing
 
     with pytest.raises(AssertionError):
-        _assert_task_2_step_4_current_subselector(
+        _assert_task_3_step_1_current_subselector(
             mutated,
             "mutated docs-index routing",
         )
