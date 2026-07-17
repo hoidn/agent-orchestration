@@ -4,7 +4,7 @@ import ast
 import builtins
 import importlib
 from pathlib import Path
-from types import MappingProxyType
+from types import MappingProxyType, ModuleType
 
 import pytest
 import yaml
@@ -20,6 +20,122 @@ FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp" / "valid"
 
 def _validation_module():
     return importlib.import_module("orchestrator.workflow.validation")
+
+
+def _module_ast(module_name: str) -> ast.Module:
+    module = importlib.import_module(module_name)
+    module_path = Path(module.__file__)
+    return ast.parse(
+        module_path.read_text(encoding="utf-8"),
+        filename=str(module_path),
+    )
+
+
+def _canonical_from_module(node: ast.ImportFrom, module_name: str) -> str:
+    if node.level == 0:
+        return node.module or ""
+    package = module_name.split(".")[:-1]
+    retained = len(package) - (node.level - 1)
+    prefix = package[: max(retained, 0)]
+    if node.module:
+        prefix.extend(node.module.split("."))
+    return ".".join(prefix)
+
+
+def _canonical_import_bindings(tree: ast.AST, module_name: str) -> dict[str, str]:
+    bindings: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname:
+                    bindings[alias.asname] = alias.name
+                else:
+                    root = alias.name.split(".", 1)[0]
+                    bindings[root] = root
+        elif isinstance(node, ast.ImportFrom):
+            imported_from = _canonical_from_module(node, module_name)
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                local_name = alias.asname or alias.name
+                bindings[local_name] = ".".join(
+                    part for part in (imported_from, alias.name) if part
+                )
+    return bindings
+
+
+def _canonical_imported_symbols(tree: ast.AST, module_name: str) -> set[str]:
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imported_from = _canonical_from_module(node, module_name)
+            imported.update(
+                ".".join(part for part in (imported_from, alias.name) if part)
+                for alias in node.names
+            )
+    return imported
+
+
+def _canonical_expression_symbol(
+    node: ast.AST,
+    bindings: dict[str, str],
+) -> str | None:
+    if isinstance(node, ast.Name):
+        return bindings.get(node.id, node.id)
+    if isinstance(node, ast.Attribute):
+        owner = _canonical_expression_symbol(node.value, bindings)
+        return f"{owner}.{node.attr}" if owner else node.attr
+    return None
+
+
+def _canonical_called_symbols(
+    tree: ast.AST,
+    module_name: str,
+    *,
+    import_tree: ast.AST | None = None,
+) -> list[str]:
+    bindings = _canonical_import_bindings(import_tree or tree, module_name)
+    return [
+        symbol
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        if (symbol := _canonical_expression_symbol(node.func, bindings)) is not None
+    ]
+
+
+def _canonical_referenced_symbols(
+    tree: ast.AST,
+    module_name: str,
+    *,
+    import_tree: ast.AST | None = None,
+) -> set[str]:
+    bindings = _canonical_import_bindings(import_tree or tree, module_name)
+    return {
+        symbol
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Name, ast.Attribute))
+        if (symbol := _canonical_expression_symbol(node, bindings)) is not None
+    }
+
+
+def _patch_callable_aliases_by_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    modules: tuple[ModuleType, ...],
+    forbidden_objects: tuple[object, ...],
+    replacement: object,
+) -> set[str]:
+    forbidden_ids = {id(value) for value in forbidden_objects}
+    patched: set[str] = set()
+    for module in modules:
+        for name, value in tuple(vars(module).items()):
+            if id(value) not in forbidden_ids:
+                continue
+            monkeypatch.setattr(module, name, replacement)
+            patched.add(f"{module.__name__}.{name}")
+    return patched
 
 
 def _minimal_mapping(name: str = "shared-in-memory") -> dict:
@@ -412,3 +528,413 @@ def test_shared_validation_preserves_yaml_envelope_error_order(
         WorkflowLoader(tmp_path).load_bundle(workflow_path)
 
     assert expected_message in exc_info.value.errors[0].message
+
+
+def test_final_frontends_have_one_private_shared_mapping_validation_authority() -> None:
+    validation_module = "orchestrator.workflow.validation"
+    loader_module = "orchestrator.loader"
+    lowering_module = "orchestrator.workflow_lisp.lowering.core"
+    validation_tree = _module_ast("orchestrator.workflow.validation")
+    loader_tree = _module_ast("orchestrator.loader")
+    lowering_tree = _module_ast("orchestrator.workflow_lisp.lowering.core")
+
+    validation_imports = _canonical_imported_symbols(
+        validation_tree,
+        validation_module,
+    )
+    lowering_imports = _canonical_imported_symbols(lowering_tree, lowering_module)
+    assert not any(
+        symbol == "yaml" or symbol.startswith("yaml.")
+        for symbol in validation_imports
+    )
+    assert not any(
+        symbol == loader_module or symbol.startswith(f"{loader_module}.")
+        for symbol in validation_imports
+    )
+    assert not any(
+        symbol == "yaml" or symbol.startswith("yaml.")
+        for symbol in lowering_imports
+    )
+    assert not any(
+        symbol == loader_module or symbol.startswith(f"{loader_module}.")
+        for symbol in lowering_imports
+    )
+
+    for frontend_tree, frontend_module in (
+        (loader_tree, loader_module),
+        (lowering_tree, lowering_module),
+    ):
+        frontend_symbols = _canonical_imported_symbols(
+            frontend_tree,
+            frontend_module,
+        ) | _canonical_referenced_symbols(frontend_tree, frontend_module)
+        assert not any(
+            symbol == "_WorkflowMappingValidator"
+            or symbol.endswith("._WorkflowMappingValidator")
+            for symbol in frontend_symbols
+        )
+
+    loader_entry = next(
+        node
+        for node in loader_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "WorkflowLoader"
+    )
+    loader_mapping_entry = next(
+        node
+        for node in loader_entry.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_load_workflow"
+    )
+    lowering_entry = next(
+        node
+        for node in lowering_tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_validate_one_lowered_workflow"
+    )
+    validator_entry = f"{validation_module}.validate_workflow_mapping"
+    builder = "orchestrator.workflow.lowering.build_loaded_workflow_bundle"
+    assert _canonical_called_symbols(
+        loader_mapping_entry,
+        loader_module,
+        import_tree=loader_tree,
+    ).count(validator_entry) == 1
+    assert _canonical_called_symbols(
+        lowering_entry,
+        lowering_module,
+        import_tree=lowering_tree,
+    ).count(validator_entry) == 1
+    assert builder not in _canonical_called_symbols(loader_tree, loader_module)
+    assert builder not in _canonical_called_symbols(lowering_tree, lowering_module)
+
+    shared_entry = next(
+        node
+        for node in validation_tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "validate_workflow_mapping"
+    )
+    assert _canonical_called_symbols(
+        shared_entry,
+        validation_module,
+        import_tree=validation_tree,
+    ).count(builder) == 1
+    assert _canonical_called_symbols(validation_tree, validation_module).count(builder) == 1
+
+
+def test_ast_authority_helpers_resolve_aliases_and_qualified_attributes() -> None:
+    tree = ast.parse(
+        "import yaml as document_parser\n"
+        "import orchestrator.workflow.validation as shared\n"
+        "from orchestrator.workflow.lowering import "
+        "build_loaded_workflow_bundle as assemble\n"
+        "document_parser.load(payload)\n"
+        "shared._WorkflowMappingValidator(request, options)\n"
+        "assemble(surface)\n"
+    )
+
+    assert _canonical_imported_symbols(tree, "example.frontend") == {
+        "yaml",
+        "orchestrator.workflow.validation",
+        "orchestrator.workflow.lowering.build_loaded_workflow_bundle",
+    }
+    assert _canonical_called_symbols(tree, "example.frontend") == [
+        "yaml.load",
+        "orchestrator.workflow.validation._WorkflowMappingValidator",
+        "orchestrator.workflow.lowering.build_loaded_workflow_bundle",
+    ]
+
+
+def test_callable_identity_trap_replaces_consumer_held_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    consumer = ModuleType("test_consumer")
+
+    def prohibited():
+        return "prohibited"
+
+    def replacement():
+        return "replacement"
+
+    consumer.renamed_import = prohibited
+
+    patched = _patch_callable_aliases_by_identity(
+        monkeypatch,
+        modules=(consumer,),
+        forbidden_objects=(prohibited,),
+        replacement=replacement,
+    )
+
+    assert patched == {"test_consumer.renamed_import"}
+    assert consumer.renamed_import() == "replacement"
+
+
+@pytest.mark.parametrize(
+    ("validator_attribute", "option_attribute", "default_name"),
+    (
+        ("SUPPORTED_VERSIONS", "supported_versions", "DEFAULT_SUPPORTED_VERSIONS"),
+        ("VERSION_ORDER", "version_order", "DEFAULT_VERSION_ORDER"),
+        (
+            "SUPPORTED_OUTPUT_TYPES",
+            "supported_output_types",
+            "DEFAULT_SUPPORTED_OUTPUT_TYPES",
+        ),
+        (
+            "PRIVATE_COLLECTION_OUTPUT_TYPES",
+            "private_collection_output_types",
+            "DEFAULT_PRIVATE_COLLECTION_OUTPUT_TYPES",
+        ),
+        (
+            "STRING_CONTRACT_VERSION",
+            "string_contract_version",
+            "DEFAULT_STRING_CONTRACT_VERSION",
+        ),
+        ("ENV_VAR_PATTERN", "env_var_pattern", "DEFAULT_ENV_VAR_PATTERN"),
+        ("INPUT_REF_PATTERN", "input_ref_pattern", "DEFAULT_INPUT_REF_PATTERN"),
+    ),
+)
+def test_shared_validator_policy_has_one_request_bound_authority(
+    validator_attribute: str,
+    option_attribute: str,
+    default_name: str,
+) -> None:
+    validation_tree = _module_ast("orchestrator.workflow.validation")
+    validator = next(
+        node
+        for node in validation_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "_WorkflowMappingValidator"
+    )
+    initializer = next(
+        node
+        for node in validator.body
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+    )
+    bindings = {
+        target.attr: (
+            statement.value.value.id,
+            statement.value.attr,
+        )
+        for statement in initializer.body
+        if isinstance(statement, ast.Assign)
+        and len(statement.targets) == 1
+        and isinstance((target := statement.targets[0]), ast.Attribute)
+        and isinstance(target.value, ast.Name)
+        and target.value.id == "self"
+        and isinstance(statement.value, ast.Attribute)
+        and isinstance(statement.value.value, ast.Name)
+    }
+
+    assert bindings[validator_attribute] == ("options", option_attribute)
+    validator_references = _canonical_referenced_symbols(
+        validator,
+        "orchestrator.workflow.validation",
+        import_tree=validation_tree,
+    )
+    assert not any(
+        symbol == default_name
+        or symbol.endswith(f".{default_name}")
+        or symbol == "WorkflowLoader"
+        or symbol.endswith(".WorkflowLoader")
+        for symbol in validator_references
+    )
+
+
+def test_generated_step_admission_remains_derived_from_frontend_and_boundary_policy() -> None:
+    validation_tree = _module_ast("orchestrator.workflow.validation")
+    shared_entry = next(
+        node
+        for node in validation_tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "validate_workflow_mapping"
+    )
+    admission = next(
+        statement.value
+        for statement in shared_entry.body
+        if isinstance(statement, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "allow_generated_step_kinds"
+            for target in statement.targets
+        )
+    )
+    expected = ast.parse(
+        'request.frontend_kind == "workflow_lisp" or '
+        "options.boundary_validation_policy is "
+        "WorkflowBoundaryValidationPolicy.DEDICATED_RUNTIME_PROOF",
+        mode="eval",
+    ).body
+
+    assert ast.dump(admission, include_attributes=False) == ast.dump(
+        expected,
+        include_attributes=False,
+    )
+
+
+def test_yaml_parsing_precedes_exactly_one_shared_mapping_validation_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestrator.loader as loader_module
+
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(
+        'version: "2.14"\nname: parser-order\nsteps:\n'
+        "  - name: Done\n    command: [echo, done]\n",
+        encoding="utf-8",
+    )
+    parsed = False
+    calls = 0
+    real_yaml_load = loader_module.yaml.load
+    real_validate = loader_module.validate_workflow_mapping
+
+    def capture_parse(*args, **kwargs):
+        nonlocal parsed
+        parsed = True
+        return real_yaml_load(*args, **kwargs)
+
+    def capture_validation(request, *, options):
+        nonlocal calls
+        assert parsed
+        calls += 1
+        return real_validate(request, options=options)
+
+    monkeypatch.setattr(loader_module.yaml, "load", capture_parse)
+    monkeypatch.setattr(loader_module, "validate_workflow_mapping", capture_validation)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+
+    assert bundle.surface.name == "parser-order"
+    assert calls == 1
+
+
+def test_persisted_dashboard_typed_surface_does_not_use_fresh_frontends_or_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator.dashboard.projection import RunProjector
+    from orchestrator.workflow.persisted_surface import PersistedWorkflowSurfaceGraph
+    from tests.test_dashboard_compiled_workflow import (
+        _scan_one,
+        _write_real_imported_bundle_mix_run,
+    )
+
+    result, source_path, _state = _write_real_imported_bundle_mix_run(tmp_path)
+    run = _scan_one(tmp_path)
+    source_path = source_path.resolve(strict=False)
+    manifest_path = result.manifest_path.resolve(strict=False)
+    artifact_path = result.artifact_paths["persisted_workflow_surface"].resolve(
+        strict=False
+    )
+    authoritative_paths = {manifest_path, artifact_path}
+    required_reads: set[Path] = set()
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("fresh workflow frontend or validation path was entered")
+
+    definition_targets = (
+        "orchestrator.workflow_lisp.build.build_frontend_bundle",
+        "orchestrator.workflow_lisp.build.compile_stage3_entrypoint",
+        "orchestrator.workflow_lisp.compiler.compile_stage3_entrypoint",
+        "orchestrator.workflow_lisp.compiler.compile_stage3_module",
+        "orchestrator.workflow_lisp.compiler.read_sexpr_file",
+        "orchestrator.workflow_lisp.compiler.build_syntax_module",
+        "orchestrator.workflow_lisp.compiler.expand_module_forms",
+        "orchestrator.workflow_lisp.compiler.elaborate_definition_module",
+        "orchestrator.workflow_lisp.compiler.elaborate_workflow_definitions",
+        "orchestrator.workflow_lisp.compiler.validate_executable_workflow",
+        "orchestrator.workflow_lisp.reader.read_sexpr_file",
+        "orchestrator.workflow_lisp.syntax.build_syntax_module",
+        "orchestrator.workflow_lisp.macros.expand_module_forms",
+        "orchestrator.workflow_lisp.definitions.elaborate_definition_module",
+        "orchestrator.workflow_lisp.workflows.elaborate_workflow_definitions",
+        "orchestrator.workflow_lisp.lowering.core.read_sexpr_file",
+        "orchestrator.workflow_lisp.lowering.core.build_syntax_module",
+        "orchestrator.workflow_lisp.lowering.core.expand_module_forms",
+        "orchestrator.workflow_lisp.lowering.core.elaborate_definition_module",
+        "orchestrator.workflow_lisp.lowering.core.validate_workflow_mapping",
+        "orchestrator.workflow.elaboration.elaborate_surface_workflow",
+        "orchestrator.workflow.validation.elaborate_surface_workflow",
+        "orchestrator.workflow.validation.validate_workflow_mapping",
+        "orchestrator.loader.validate_workflow_mapping",
+        "orchestrator.workflow.lowering.build_loaded_workflow_bundle",
+        "orchestrator.workflow.validation.build_loaded_workflow_bundle",
+        "orchestrator.workflow.executable_ir.validate_executable_workflow",
+        "orchestrator.workflow.lowering.validate_executable_workflow",
+        "orchestrator.workflow.runtime_plan.derive_workflow_runtime_plan",
+        "orchestrator.workflow.lowering.derive_workflow_runtime_plan",
+        "orchestrator.loader.yaml.load",
+    )
+
+    def resolve_dotted_target(target: str) -> object:
+        parts = target.split(".")
+        for split_at in range(len(parts), 0, -1):
+            try:
+                value: object = importlib.import_module(".".join(parts[:split_at]))
+            except ModuleNotFoundError:
+                continue
+            for attribute in parts[split_at:]:
+                value = getattr(value, attribute)
+            return value
+        raise AssertionError(f"cannot resolve forbidden target {target}")
+
+    forbidden_objects = tuple(resolve_dotted_target(target) for target in definition_targets)
+    dashboard_consumers = tuple(
+        importlib.import_module(module_name)
+        for module_name in (
+            "orchestrator.dashboard.compiled_workflow",
+            "orchestrator.dashboard.models",
+            "orchestrator.dashboard.projection",
+            "orchestrator.dashboard.server",
+            "orchestrator.cli.commands.dashboard",
+        )
+    )
+    _patch_callable_aliases_by_identity(
+        monkeypatch,
+        modules=dashboard_consumers,
+        forbidden_objects=forbidden_objects,
+        replacement=forbidden,
+    )
+    for target in definition_targets:
+        monkeypatch.setattr(target, forbidden)
+
+    real_open = builtins.open
+    real_read_text = Path.read_text
+    real_read_bytes = Path.read_bytes
+
+    def resolved_path(value) -> Path | None:
+        try:
+            return Path(value).resolve(strict=False)
+        except (TypeError, ValueError, OSError, RuntimeError):
+            return None
+
+    def record_authorized_read(value) -> None:
+        resolved = resolved_path(value)
+        if resolved == source_path:
+            raise AssertionError("bound Workflow Lisp source was read")
+        if resolved in authoritative_paths:
+            required_reads.add(resolved)
+
+    def guarded_open(file, *args, **kwargs):
+        record_authorized_read(file)
+        return real_open(file, *args, **kwargs)
+
+    def guarded_read_text(path: Path, *args, **kwargs):
+        record_authorized_read(path)
+        return real_read_text(path, *args, **kwargs)
+
+    def guarded_read_bytes(path: Path, *args, **kwargs):
+        record_authorized_read(path)
+        return real_read_bytes(path, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", guarded_open)
+    monkeypatch.setattr(Path, "read_text", guarded_read_text)
+    monkeypatch.setattr(Path, "read_bytes", guarded_read_bytes)
+
+    detail = RunProjector().project_detail(run)
+
+    structure = detail.workflow_structure
+    assert isinstance(structure, PersistedWorkflowSurfaceGraph)
+    assert structure.entry_workflow == "neurips/entry::orchestrate"
+    assert set(structure.nodes) == {
+        "neurips/entry::orchestrate",
+        "neurips/helper::provider-attempt",
+        "selector-run",
+    }
+    assert isinstance(structure.nodes, MappingProxyType)
+    with pytest.raises(TypeError):
+        structure.nodes["other"] = structure.entry_node  # type: ignore[index]
+    assert required_reads == authoritative_paths
