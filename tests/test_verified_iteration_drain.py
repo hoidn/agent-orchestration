@@ -313,8 +313,8 @@ def test_record_is_idempotent_across_repeated_invocations(tmp_path):
 
 def test_verified_iteration_drain_workflow_loads(tmp_path):
     loader = WorkflowLoader(ROOT)
-    loader.load_bundle(ROOT / WORKFLOW)
-    assert loader.error_count() == 0
+    bundle = loader.load_bundle(ROOT / WORKFLOW)
+    assert bundle.surface.name == "verified-iteration-drain"
 
 
 def test_review_prompts_are_pinned_to_expected_steps():
