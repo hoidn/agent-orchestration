@@ -9,10 +9,11 @@
 becomes the only authored workflow surface. Persisted run data and internal
 debug serialization are outside this program.
 
-**Current selector:** Task 3, split YAML parsing from shared validation. Tasks
-1-2 are complete; Task 1's reviewed gap contract is
-`docs/workflow_yaml_orc_gap_list.md`, and Task 2's persisted-surface plan is
-`docs/plans/2026-07-16-dashboard-persisted-typed-surface-plan.md`.
+**Current selector:** Task 4, add the YAML deprecation surface. Tasks 1-3 are
+complete; Task 3's reviewed implementation record is
+`docs/plans/2026-07-16-yaml-loader-shared-validation-split-plan.md`. YAML remains
+`Legacy`: fresh YAML is still executable, and Task 7 still owns rejection and
+parser removal.
 
 **Architecture:** The content-addressed handoff in
 `docs/plans/2026-07-13-procedure-first-reuse-inventory.json` is the exact work
@@ -154,12 +155,25 @@ reader at `816f61ca`.
 
 ### Task 3: Split YAML parsing from shared validation — ENABLING
 
-- [ ] Move validation and normalization used by both frontends into a shared
+- [x] Move validation and normalization used by both frontends into a shared
   module. Keep YAML parsing and file loading isolated behind the legacy loader.
-- [ ] Redirect `.orc` lowering to the shared validation module without changing
+- [x] Redirect `.orc` lowering to the shared validation module without changing
   executable-IR semantics.
-- [ ] Run focused lowering, loader, characterization, collect-only, and one
+- [x] Run focused lowering, loader, characterization, collect-only, and one
   end-to-end route smoke before review.
+
+**Task 3 evidence:** `orchestrator/workflow/validation.py` is the single
+in-memory mapping-to-bundle authority used by the legacy YAML frontend and
+Workflow Lisp lowering; authored YAML parsing and recursive file loading remain
+isolated in `orchestrator/loader.py`. The final guard module passed 27 tests,
+the complete focused lane passed 624, the dashboard/CLI regression passed 126,
+and fresh `.orc` dry-run validation succeeded. The broad rerun recorded 5137
+passed and 17 skipped with only the same six established unrelated failures.
+The reviewed plan and sequencing amendment landed at `c587995e` and
+`15da1291`; characterization, implementation, permanent guard, and the
+verified-drain typed-load smoke correction landed at `a375b1bd`, `88102b9a`,
+`631434c3`, and `7cc6f1d2`. Independent specification review returned PASS and
+code-quality review returned APPROVED for exact HEAD `7cc6f1d2`.
 
 ### Task 4: Add the deprecation surface — GATE ALREADY SATISFIED
 

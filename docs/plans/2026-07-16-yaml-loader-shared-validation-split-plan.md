@@ -10,6 +10,12 @@
 frontend while making one shared in-memory mapping-to-`LoadedWorkflowBundle`
 validation service authoritative for both YAML and Workflow Lisp lowering.
 
+**Status:** Complete. The final implementation and broad-regression-correction
+tree is `7cc6f1d2`; independent specification review returned PASS and
+code-quality review returned APPROVED for that exact HEAD. Stage 6 YAML
+retirement Task 4 is now the exclusive current selector. YAML remains
+`Legacy`, and Task 7 still owns fresh YAML rejection and parser removal.
+
 **Architecture:** `orchestrator/loader.py` remains the compatibility import and
 the only authored-workflow YAML parsing/file-recursion owner. A new
 `orchestrator/workflow/validation.py` owns normalization, mapping validation,
@@ -421,15 +427,15 @@ git commit -m "docs: plan shared workflow validation split"
 - Modify: `tests/test_loader_validation.py`
 - Modify: `tests/test_workflow_lisp_lowering.py`
 
-- [ ] Characterize a successful YAML mapping/bundle and a successful real
+- [x] Characterize a successful YAML mapping/bundle and a successful real
   `.orc` compile with `validate_shared=True`. Compare contract-level surface,
   Core AST, Semantic IR, executable IR, runtime plan, projection, provenance,
   normalized fields, and stable IDs; do not assert object reprs or prompt prose.
-- [ ] Characterize unsupported/mistyped version, unsafe path, marked duplicate
+- [x] Characterize unsupported/mistyped version, unsafe path, marked duplicate
   import alias, same-version imported-workflow mismatch, and structured
   `subject_refs` used by Workflow Lisp source-map remapping. Preserve error
   order and existing messages where callers rely on them.
-- [ ] Collect and run the characterization before production changes:
+- [x] Collect and run the characterization before production changes:
 
 ```bash
 pytest --collect-only -q tests/test_workflow_shared_validation.py \
@@ -442,7 +448,7 @@ pytest -q tests/test_workflow_shared_validation.py tests/test_loader_validation.
 Expected: collection and characterization are GREEN. This is a freeze, not a
 RED implementation step.
 
-- [ ] Commit the characterization:
+- [x] Commit the characterization:
 
 ```bash
 set -e
@@ -590,14 +596,14 @@ commit recipe is superseded.
 - Modify: `tests/test_workflow_shared_validation.py`
 - Modify: `tests/test_loader_validation.py`
 
-- [ ] Write genuine RED tests for the missing shared records/coordinator,
+- [x] Write genuine RED tests for the missing shared records/coordinator,
   in-memory bundle construction, structured bundle-construction errors,
   request isolation, parser isolation, private validator, generated-step policy,
   all seven compatibility policy bindings, recursive YAML imports, and exact
   once-per-parsed-file delegation. Require `WorkflowLoader` to use composition;
   neither frontend may import, construct, or reach through
   `_WorkflowMappingValidator`.
-- [ ] Run the RED selector and inspect failures:
+- [x] Run the RED selector and inspect failures:
 
 ```bash
 pytest -q tests/test_workflow_shared_validation.py tests/test_loader_validation.py \
@@ -607,19 +613,19 @@ pytest -q tests/test_workflow_shared_validation.py tests/test_loader_validation.
 Expected: failures are caused by the absent shared API and absent composition,
 not malformed fixtures. Extraction and composition land together.
 
-- [ ] Create `orchestrator/workflow/validation.py` with the explicit immutable
+- [x] Create `orchestrator/workflow/validation.py` with the explicit immutable
   request/options/result records, import resolver protocol, normalization,
   private request-scoped `_WorkflowMappingValidator`, surface elaboration, and
   `build_loaded_workflow_bundle` coordination described above. Catch bundle
   construction `WorkflowValidationError` and return its exact structured errors.
-- [ ] In the same implementation step and commit, reduce `WorkflowLoader` to
+- [x] In the same implementation step and commit, reduce `WorkflowLoader` to
   YAML/YML parse/file-recursion/import-resolution ownership plus composition
   through `validate_workflow_mapping`. Preserve `PreservingLoader`, marked
   duplicate aliases, path/import/version/error order, public load APIs, and all
   seven compatibility attributes. Bind those values explicitly into options.
   No checked-in revision may give `WorkflowLoader` ownership of the private
   validator or retain validator mutable state.
-- [ ] Run the extraction-only integration check before the `.orc` reroute and
+- [x] Run the extraction-only integration check before the `.orc` reroute and
   confirm the expected intermediate RED:
 
 ```bash
@@ -633,7 +639,7 @@ the removed `WorkflowLoader` semantic-validator methods. This is required RED
 evidence, not a committable state. After Task 3 reroutes `.orc`, rerun this
 complete command GREEN together with Task 3's complete GREEN command.
 
-- [ ] Stage the extraction and YAML composition in the combined atomic commit.
+- [x] Stage the extraction and YAML composition in the combined atomic commit.
 
 Use only the atomic sequencing correction's combined recipe above, after the
 Task 3 direct `.orc` RED/GREEN work also passes.
@@ -647,7 +653,7 @@ Task 3 direct `.orc` RED/GREEN work also passes.
 - Modify: `tests/test_workflow_lisp_modules.py`
 - Modify: `tests/test_workflow_shared_validation.py`
 
-- [ ] **Step 1: Write the RED independence test**
+- [x] **Step 1: Write the RED independence test**
 
 Monkeypatch the legacy `WorkflowLoader` constructor and YAML parser to raise if
 called, then compile a real `.orc` fixture with `validate_shared=True`.
@@ -675,7 +681,7 @@ not reached at all. After the reroute, assert the site is reached exactly once,
 the Task 2 coordinator returns the exact error, and
 `_raise_remapped_validation_error` attributes it to the original `.orc` span.
 
-- [ ] **Step 2: Run the independence test and verify RED**
+- [x] **Step 2: Run the independence test and verify RED**
 
 ```bash
 pytest -q \
@@ -690,7 +696,7 @@ executable-IR test because Workflow Lisp has not yet reached the shared
 coordinator/patch site. The Task 2 direct coordinator catch test already passes
 and must remain green.
 
-- [ ] **Step 3: Replace private loader mutation with an explicit request**
+- [x] **Step 3: Replace private loader mutation with an explicit request**
 
 In `_validate_one_lowered_workflow`:
 
@@ -721,7 +727,7 @@ Delete the current mutations of `_allow_private_collection_output_schemas`,
 `_dedicated_runtime_proof_parent_ref_allowances`. Those become explicit typed
 options.
 
-- [ ] **Step 4: Run both-direction policy and diagnostic tests**
+- [x] **Step 4: Run both-direction policy and diagnostic tests**
 
 Run:
 
@@ -746,7 +752,7 @@ Expected: PASS, including:
 - the Workflow Lisp bundle contract projection unchanged from Task 1's
   Workflow Lisp characterization.
 
-- [ ] **Step 5: Stage the direct `.orc` route in the combined atomic commit**
+- [x] **Step 5: Stage the direct `.orc` route in the combined atomic commit**
 
 Use only the atomic sequencing correction's combined recipe above, after both
 Task 2 and Task 3 GREEN commands pass.
@@ -758,7 +764,7 @@ Task 2 and Task 3 GREEN commands pass.
 - Modify: `tests/test_workflow_shared_validation.py`
 - Regression only: Task 2 dashboard files/tests listed above
 
-- [ ] **Step 1: Add the protected architecture guard**
+- [x] **Step 1: Add the protected architecture guard**
 
 Use AST-based checks, not raw substring counts, to enforce:
 
@@ -788,7 +794,7 @@ Use AST-based checks, not raw substring counts, to enforce:
 
 Do not prohibit unrelated YAML consumers elsewhere in the repository.
 
-- [ ] **Step 2: Collect all added or renamed tests**
+- [x] **Step 2: Collect all added or renamed tests**
 
 ```bash
 pytest --collect-only -q \
@@ -801,7 +807,7 @@ pytest --collect-only -q \
 
 Expected: exit 0 with every new test collected once.
 
-- [ ] **Step 3: Run the focused Task 3 suite**
+- [x] **Step 3: Run the focused Task 3 suite**
 
 ```bash
 pytest -q -n 16 --dist=worksteal \
@@ -817,7 +823,7 @@ pytest -q -n 16 --dist=worksteal \
 Expected: PASS. Do not weaken a validation assertion or skip a failing fixture
 to make the split land.
 
-- [ ] **Step 4: Run an import smoke**
+- [x] **Step 4: Run an import smoke**
 
 ```bash
 python - <<'PY'
@@ -830,7 +836,7 @@ PY
 
 Expected: `yaml/shared/orc imports ok` and exit 0.
 
-- [ ] **Step 5: Run a fresh `.orc` end-to-end route smoke**
+- [x] **Step 5: Run a fresh `.orc` end-to-end route smoke**
 
 Run from the repository root:
 
@@ -845,7 +851,7 @@ Expected: exit 0 after fresh `.orc` compile, shared validation, bundle
 construction, input validation, and dry-run routing. This must not use emitted
 debug YAML as authority.
 
-- [ ] **Step 6: Run Task 2 regression tests without editing Task 2**
+- [x] **Step 6: Run Task 2 regression tests without editing Task 2**
 
 ```bash
 pytest -q tests/test_dashboard*.py tests/test_cli_dashboard_command.py
@@ -860,7 +866,7 @@ the CLI dashboard command. The persisted test must assert the returned value is
 the immutable DTO graph bound by final state, manifest, and digest. It must
 prove every fresh path is unreachable while artifact JSON reads remain live.
 
-- [ ] **Step 7: Commit the guard and smoke test changes**
+- [x] **Step 7: Commit the guard and smoke test changes**
 
 ```bash
 set -e
@@ -912,7 +918,7 @@ git commit -m "test: guard shared validation frontend boundary"
 - Modify after approval only: `tests/test_workflow_yaml_orc_gap_list.py`
 - Modify after approval only: `tests/test_workflow_lisp_drain_roadmap_routing.py`
 
-- [ ] **Step 1: Run the broad suite in tmux**
+- [x] **Step 1: Run the broad suite in tmux**
 
 Use the `tmux` skill and run from the repository root:
 
@@ -924,7 +930,7 @@ Expected: all tests pass, or any pre-existing unrelated failures are identified
 with fresh reproducible baseline evidence. Do not classify a new loader,
 lowering, CLI, dashboard, or validation failure as unrelated.
 
-- [ ] **Step 2: Request independent specification review**
+- [x] **Step 2: Request independent specification review**
 
 The specification reviewer must inspect the complete diff against Stage 6 Task
 3, `specs/dsl.md`, typed surface/IR authority, and the Workflow Lisp diagnostic
@@ -939,13 +945,13 @@ must specifically answer:
    bound Task 2 DTO, with every fresh frontend and exact `.orc` source read
    trapped while bound artifact JSON reads remain allowed?
 
-- [ ] **Step 3: Request independent code-quality review**
+- [x] **Step 3: Request independent code-quality review**
 
 The code-quality reviewer must inspect module responsibility, public API
 compatibility, absence of private-state reach-through, import cycles, test
 quality, and failure-path clarity. Require `APPROVED` or concrete findings.
 
-- [ ] **Step 4: Fix findings and rerun affected plus focused tests**
+- [x] **Step 4: Fix findings and rerun affected plus focused tests**
 
 For each accepted finding, add or strengthen a failing test first, implement the
 minimal correction, rerun the narrow selector, then rerun the complete focused
@@ -954,7 +960,7 @@ tmux suite. Restart both independent reviews after any accepted diff change;
 the final specification PASS and quality APPROVED must bind the exact post-fix
 implementation tree used for closeout.
 
-- [ ] **Step 5: Update the roadmap and routing docs only after both reviews pass**
+- [x] **Step 5: Update the roadmap and routing docs only after both reviews pass**
 
 Record:
 
@@ -984,7 +990,7 @@ closeout tree. Each verdict must cite both values and explicitly approve the
 eight-path roadmap/evidence/selector transition. Any edit invalidates both
 verdicts: restage, recompute both values, and restart both closeout reviews.
 
-- [ ] **Step 6: Commit the reviewed closeout**
+- [x] **Step 6: Commit the reviewed closeout**
 
 ```bash
 set -e
@@ -1039,6 +1045,24 @@ git diff --cached --check
 git commit -m "docs: close YAML retirement shared validation task"
 ```
 
+**Completion evidence:** The reviewed plan landed at `c587995e`, the
+characterization at `a375b1bd`, the atomic-sequencing amendment at `15da1291`,
+the shared validator plus both frontend routes at `88102b9a`, the permanent
+boundary guard at `631434c3`, and the post-split verified-drain typed-load smoke
+correction at `7cc6f1d2`. Those six pre-closeout commits plus this reviewed
+closeout are seven total; the characterization, implementation, guard,
+smoke correction, and closeout are the five execution commits.
+
+The final guard module collected and passed 27 tests. The complete focused
+Task-3 lane passed 624 tests, the dashboard/CLI regression passed 126, and the
+persisted-surface fresh-frontend/source trap passed directly. The import smoke
+printed `yaml/shared/orc imports ok`, and a fresh
+`pure_expr_loop_counter.orc` route reached successful dry-run validation. The
+final broad rerun recorded 5137 passed and 17 skipped with only the same six
+established unrelated failures. Independent specification review returned PASS
+and code-quality review returned APPROVED for exact HEAD `7cc6f1d2` after the
+broad-regression smoke correction and architecture-guard review fixes.
+
 ## Completion criteria
 
 Task 3 is complete only when all of the following are true:
@@ -1070,10 +1094,11 @@ Task 3 is complete only when all of the following are true:
    baseline.
 11. Independent specification review returns `PASS` and independent
    code-quality review returns `APPROVED`.
-12. The original reviewed plan, its reviewed atomic-sequencing amendment, and
-    four execution commits (six total) each pass `set -e`, cached-path printing,
-    exact staged allowlist equality, the literal seven-user-path guard, the
-    separate Task 2-owned-file guard, and `git diff --cached --check` before
-    commit creation.
+12. The original reviewed plan, its reviewed atomic-sequencing amendment, four
+    pre-closeout execution commits, and this reviewed closeout commit (seven
+    total; five execution/closeout commits) each pass `set -e`, cached-path
+    printing, exact staged allowlist equality, the literal seven-user-path
+    guard, the separate Task 2-owned-file guard, and
+    `git diff --cached --check` before commit creation.
 13. Only then are the Stage 6 roadmap, documentation index, and capability
    matrix advanced.

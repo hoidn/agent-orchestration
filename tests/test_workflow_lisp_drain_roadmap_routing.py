@@ -647,7 +647,7 @@ def _procedure_sequence_selector_surfaces() -> dict[str, str]:
     }
 
 
-def _assert_migration_wave_complete_and_yaml_task_3_current(
+def _assert_migration_wave_complete_and_yaml_task_4_current(
     surface: str,
     label: str,
 ) -> None:
@@ -677,16 +677,24 @@ def _assert_migration_wave_complete_and_yaml_task_3_current(
         normalized,
     ), label
     assert re.search(
-        r"\byaml retirement\b.{0,120}\btask 3\b.{0,80}\bcurrent\b"
-        r"|\byaml retirement\b.{0,120}\bcurrent\b.{0,80}\btask 3\b"
-        r"|\bcurrent\b.{0,100}\byaml retirement\b.{0,100}\btask 3\b",
+        r"\byaml retirement\b.{0,120}\btask 4\b.{0,80}\bcurrent\b"
+        r"|\byaml retirement\b.{0,120}\bcurrent\b.{0,80}\btask 4\b"
+        r"|\bcurrent\b.{0,100}\byaml retirement\b.{0,100}\btask 4\b",
         normalized,
     ), label
     assert re.search(
-        r"\byaml retirement\b.{0,120}\btasks? 1[ -]2\b.{0,80}\bcomplete\w*\b"
-        r"|\btasks? 1[ -]2\b.{0,80}\bcomplete\w*\b.{0,120}\byaml retirement\b",
+        r"\byaml retirement\b.{0,120}\btasks? 1[ -]3\b.{0,80}\bcomplete\w*\b"
+        r"|\btasks? 1[ -]3\b.{0,80}\bcomplete\w*\b.{0,120}\byaml retirement\b",
         normalized,
     ), label
+    for stale_task in (1, 2, 3, 5, 6, 7):
+        assert re.search(
+            rf"\byaml retirement\b[^.;]{{0,120}}\btask {stale_task}\b"
+            rf"[^.;]{{0,40}}\bcurrent\b"
+            rf"|\bcurrent selector\b[^.;]{{0,120}}\byaml retirement\b"
+            rf"[^.;]{{0,80}}\btask {stale_task}\b",
+            normalized,
+        ) is None, (label, stale_task)
     for commit in MIGRATION_TASK_1_IMPLEMENTATION_COMMITS:
         assert normalized.count(commit) == 1, (label, commit)
 
@@ -739,7 +747,7 @@ def _assert_current_task_3_recovery_status(
     assert CONTRADICTORY_RECOVERY_STATUS.search(normalized) is None, label
 
 
-def test_procedure_first_status_surfaces_route_completed_wave_to_yaml_task_3() -> None:
+def test_procedure_first_status_surfaces_route_completed_wave_to_yaml_task_4() -> None:
     capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
     docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
         encoding="utf-8"
@@ -765,7 +773,7 @@ def test_procedure_first_status_surfaces_route_completed_wave_to_yaml_task_3() -
         assert "runtime hardening remains pending" not in normalized, label
 
 
-def test_migration_wave_closeout_routes_through_completed_yaml_tasks_1_2_to_task_3() -> None:
+def test_migration_wave_closeout_routes_through_completed_yaml_tasks_1_3_to_task_4() -> None:
     plan = (REPO_ROOT / CURRENT_SELECTOR_PATH).read_text(encoding="utf-8")
     current_queue = plan.split(
         "## Current queue after Task 6 closeout",
@@ -822,11 +830,11 @@ def test_migration_wave_closeout_routes_through_completed_yaml_tasks_1_2_to_task
     assert "complete" in normalized_status
     assert "historical" in normalized_status
     assert re.search(
-        r"\byaml retirement\b.{0,100}\btasks? 1[ -]2\b.{0,80}\bcomplete\b",
+        r"\byaml retirement\b.{0,100}\btasks? 1[ -]3\b.{0,80}\bcomplete\b",
         normalized_status,
     )
     assert re.search(
-        r"\bcurrent selector\b.{0,80}\btask 3\b",
+        r"\bcurrent selector\b.{0,80}\btask 4\b",
         normalized_status,
     )
 
@@ -848,7 +856,7 @@ def test_migration_wave_closeout_routes_through_completed_yaml_tasks_1_2_to_task
         **_procedure_sequence_selector_surfaces(),
     }
     for label, surface in selector_surfaces.items():
-        _assert_migration_wave_complete_and_yaml_task_3_current(surface, label)
+        _assert_migration_wave_complete_and_yaml_task_4_current(surface, label)
 
     for label in ("docs index", "roadmap current routing"):
         _assert_exact_ordered_routing_paths(selector_surfaces[label], label)
@@ -1171,8 +1179,8 @@ def test_task_2_step_1_closes_on_bounded_identity_retirement_ineligibility() -> 
     canonical_index = _canonical_routing_paths(index_routing)
     assert canonical_index.count(CURRENT_SELECTOR_PATH) == 1
     assert _normalized_routing_text(index_routing).count("current selector") == 1
-    assert "task 3" in _normalized_routing_text(index_routing)
-    _assert_migration_wave_complete_and_yaml_task_3_current(
+    assert "task 4" in _normalized_routing_text(index_routing)
+    _assert_migration_wave_complete_and_yaml_task_4_current(
         index_routing,
         "docs index component routing",
     )
@@ -1290,12 +1298,14 @@ def test_task_2_step_3_closes_on_live_route_strict_compatibility() -> None:
 @pytest.mark.parametrize(
     "replacement",
     (
-        "Task 5 completed finalization remains current.",
-        "Task 5 remains open; Task 6 has not started.",
-        "Task 6 remains open; Task 7 has not started.",
+        "Stage 6 YAML retirement Task 3 remains current.",
+        "Stage 6 YAML retirement Task 5 is current.",
+        "Stage 6 YAML retirement Task 6 is current.",
+        "Stage 6 YAML retirement Task 7 is current.",
+        "Task 4 remains open; Task 5 has not started.",
     ),
 )
-def test_yaml_task_3_current_selector_guard_rejects_stale_or_skipped_routing(
+def test_yaml_task_4_current_selector_guard_rejects_stale_or_skipped_routing(
     replacement: str,
 ) -> None:
     docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
@@ -1304,7 +1314,7 @@ def test_yaml_task_3_current_selector_guard_rejects_stale_or_skipped_routing(
         "**Current procedure-first substrate:**", 1
     )[0]
     mutated = re.sub(
-        r"(?:Stage 6 )?YAML retirement[^.]{0,200}Task 3[^.]{0,100}(?:current|selected)[^.]*\.",
+        r"(?:Stage 6 )?YAML retirement[^.]{0,200}Task 4[^.]{0,100}(?:current|selected)[^.]*\.",
         replacement,
         docs_index_routing,
         count=0,
@@ -1312,7 +1322,7 @@ def test_yaml_task_3_current_selector_guard_rejects_stale_or_skipped_routing(
     assert mutated != docs_index_routing
 
     with pytest.raises(AssertionError):
-        _assert_migration_wave_complete_and_yaml_task_3_current(
+        _assert_migration_wave_complete_and_yaml_task_4_current(
             mutated,
             "mutated docs-index routing",
         )
