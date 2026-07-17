@@ -1,9 +1,9 @@
 # Procedure-First Reuse Inventory
 
 Status: Task 4 complete at `c9687539`, `26d9ecd0`, and `848ceb52` after
-per-group specification and quality approval; Task 5's finalizer-projection
-and blocked recovery/finalization subfamilies are retained, phase orchestration
-(nine calls) is current, and Task 5 remains open
+per-group specification and quality approval; Task 5's first three subfamilies
+are retained, completed finalization (two calls) is current, and Task 5 remains
+open
 Source commit: `db9889937a895d67810dee1ea0b1b53552d30eca`
 Schema: `procedure_first_reuse_inventory.v2`
 
@@ -16,8 +16,8 @@ remaining 95 active internal calls classify as:
 
 | Classification | Sites | Meaning |
 | --- | ---: | --- |
-| `procedure-candidate` | 12 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
-| `effect-adapter` | 20 | Calls retained until effect, identity, type, artifact, publication, source-map, child-call, exported-entry, state-consumer, live-route, and resume obligations are proven. |
+| `procedure-candidate` | 3 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
+| `effect-adapter` | 29 | Calls retained until effect, identity, type, artifact, publication, source-map, child-call, exported-entry, state-consumer, live-route, and resume obligations are proven. |
 | `legacy-retire` | 63 | Compatibility, legacy, or example-only calls that retire with their family instead of being translated. |
 | `public-boundary` | 0 | Public entries are recorded separately; they are not internal call sites. |
 
@@ -46,7 +46,7 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `effect-adapter` | `workflows/examples/same_file_record_call_binding.orc` | 1 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta/design_gap_architect.orc` | 4 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc` | 3 |
-| `effect-adapter` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 10 |
+| `effect-adapter` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 19 |
 | `legacy-retire` | `workflows/examples/backlog_priority_design_plan_impl_stack_v2_call.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/call_subworkflow_demo.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/depends_on_inject_imported_v2_call.yaml` | 1 |
@@ -78,7 +78,7 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `legacy-retire` | `workflows/library/revision_study_priority_design_plan_impl_stack.yaml` | 1 |
 | `legacy-retire` | `workflows/library/seeded_design_plan_impl_stack.yaml` | 1 |
 | `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/drain.orc` | 1 |
-| `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 11 |
+| `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 2 |
 
 ## Separate Public Entries
 
@@ -104,8 +104,15 @@ Task 5 adds the compiled exported work-item classifier:
 
 - `lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery`.
 
-The inventory therefore records nine current public entries. These six
-library entries are public-boundary negatives for procedure migration; they
+The phase-orchestration audit adds four more compiled exported workflows:
+
+- `lisp_frontend_design_delta/bootstrap::project-work-item-inputs`;
+- `lisp_frontend_design_delta/plan_phase::run-plan-phase`;
+- `lisp_frontend_design_delta/implementation_phase::implementation-phase`; and
+- `lisp_frontend_design_delta/projections::classify-work-item-terminal`.
+
+The inventory therefore records 13 current public entries. These ten library
+entries are public-boundary negatives for procedure migration; they
 are not promotion claims.
 
 ## Completed History
@@ -145,6 +152,15 @@ zero retired, and zero retained-public.
   the exported classifier requires strict compatibility, while the separate
   five-call finalizer conversion is rejected with
   `pure_expr_operand_type_mismatch` before an executable exists.
+- **Phase-orchestration retention:** eight calls remain `effect-adapter`
+  because their four unique callees are compiled exported workflows. The
+  private `run-work-item-pending` call is retained separately because its
+  successful exact-path inline hypothetical removes one caller-owned
+  workflow-call boundary checkpoint and adds twelve caller-owned inline
+  checkpoints with different checkpoint/storage identities and a different
+  generated presentation-path namespace. The
+  [phase-orchestration decision](2026-07-16-design-delta-phase-orchestration-retention-plan.md)
+  owns the exact IDs, effects, and identity-delta claim boundary.
 
 ## Effect-Adapter Rule
 
@@ -183,6 +199,15 @@ blocked-finalizer calls use the compiler evidence: the real compiler reduces
 expression where `std/resource::BlockerClass` is required. No diagnostic is
 attributed to the classifier. Because finalizer compilation stops there, this
 decision makes no checkpoint-delta or affected-route runtime parity claim.
+Nine phase-orchestration rows remain `effect-adapter` under the
+[fail-closed retention decision](2026-07-16-design-delta-phase-orchestration-retention-plan.md).
+Four callees are exported workflow entries requiring strict compatibility.
+The private pending callee's exact inline hypothetical compiles with declared
+effects visible, but removes caller-owned workflow-call boundary checkpoint
+`ckpt:086b77522a63d90a481896c2` and adds twelve caller-owned inline
+checkpoints. Their checkpoint/storage identities and generated
+presentation-path namespace differ. This identity delta, not runtime-parity
+evidence, retains the ninth row.
 A Stage 5 family audit may reclassify a row when current tests prove that
 ordinary landed `defproc` composition already covers its actual effects.
 Classification labels alone do not authorize substrate work.
@@ -222,6 +247,24 @@ finalizer calls. No finalizer hypothetical executable exists, so no
 added/removed checkpoint comparison or affected-route runtime parity is
 asserted. The exact IDs, conversion, selectors, write guard, and claim boundary
 are owned by the [blocked-recovery lowering-retention plan](2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md).
+
+## Task 5 Phase-Orchestration Retention Audit
+
+Status: fail-closed retention on public-entry and checkpoint identity;
+completed finalization (two calls) is current, Task 5 remains open, and its
+order is unchanged.
+
+The exact nine phase-orchestration rows remain active `effect-adapter`, so the
+active inventory is 3 `procedure-candidate`, 29 `effect-adapter`, and 63
+`legacy-retire` rows, plus 13 separate public entries and one history row.
+Compiled export surfaces retain four callees as public workflows and record
+them separately from their eight internal calls. The private pending callee is
+not exported, but its successful inline hypothetical changes the exact
+checkpoint/storage identities and generated presentation-path namespace. The
+decision makes no affected-
+route runtime-parity, remap, state-upgrader, source-migration, or Task 5
+completion claim. Full evidence is owned by the
+[phase-orchestration retention plan](2026-07-16-design-delta-phase-orchestration-retention-plan.md).
 
 ## Task 4 Generic YAML Reclassification Audit
 

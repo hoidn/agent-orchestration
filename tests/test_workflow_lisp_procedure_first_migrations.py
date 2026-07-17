@@ -114,6 +114,18 @@ DESIGN_DELTA_ARCHITECT = (
 DESIGN_DELTA_WORK_ITEM = (
     WORKFLOWS / "library" / "lisp_frontend_design_delta" / "work_item.orc"
 )
+DESIGN_DELTA_BOOTSTRAP = (
+    WORKFLOWS / "library" / "lisp_frontend_design_delta" / "bootstrap.orc"
+)
+DESIGN_DELTA_PLAN_PHASE = (
+    WORKFLOWS / "library" / "lisp_frontend_design_delta" / "plan_phase.orc"
+)
+DESIGN_DELTA_IMPLEMENTATION_PHASE = (
+    WORKFLOWS / "library" / "lisp_frontend_design_delta" / "implementation_phase.orc"
+)
+DESIGN_DELTA_PROJECTIONS = (
+    WORKFLOWS / "library" / "lisp_frontend_design_delta" / "projections.orc"
+)
 DESIGN_DELTA_FINALIZER_RETENTION_DECISION = (
     REPO_ROOT
     / "docs"
@@ -125,6 +137,12 @@ DESIGN_DELTA_BLOCKED_RECOVERY_RETENTION_DECISION = (
     / "docs"
     / "plans"
     / "2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md"
+)
+DESIGN_DELTA_PHASE_ORCHESTRATION_RETENTION_DECISION = (
+    REPO_ROOT
+    / "docs"
+    / "plans"
+    / "2026-07-16-design-delta-phase-orchestration-retention-plan.md"
 )
 DESIGN_DELTA_PUBLIC_ENTRY = "lisp_frontend_design_delta/drain::drain"
 _DESIGN_DELTA_RUNTIME_PROJECTION_DIGESTS = {
@@ -279,7 +297,7 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
     assert inventory["source_commit"] == "db9889937a895d67810dee1ea0b1b53552d30eca"
     records = inventory["records"]
     history = inventory["history"]
-    assert len(records) == 104
+    assert len(records) == 108
     assert len(history) == 1
     assert len({record["id"] for record in records}) == len(records)
     assert not ({record["id"] for record in records} & {row["id"] for row in history})
@@ -291,7 +309,7 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
         record for record in records if record["record_kind"] == "public-entry"
     ]
     assert len(internal_records) == 95
-    assert len(public_records) == 9
+    assert len(public_records) == 13
     assert inventory["counts"]["separate_public_entries"] == len(public_records)
     assert inventory["counts"]["raw_authored_call_sites"] == {
         "yaml": 67,
@@ -301,8 +319,8 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
     assert inventory["counts"]["actionable_internal_calls"] == {
         "total": 95,
         "by_classification": {
-            "procedure-candidate": 12,
-            "effect-adapter": 20,
+            "procedure-candidate": 3,
+            "effect-adapter": 29,
             "legacy-retire": 63,
             "public-boundary": 0,
         },
@@ -1487,6 +1505,163 @@ def test_design_delta_blocked_recovery_rows_retain_workflow_boundaries(
     assert "diagnostic is not evidence for classifier retention" in normalized_decision
 
 
+def test_design_delta_phase_orchestration_rows_retain_workflow_boundaries(
+    tmp_path: Path,
+) -> None:
+    inventory = _load_json(REUSE_INVENTORY)
+    records_by_id = {row["id"]: row for row in inventory["records"]}
+    prefix = (
+        "internal-call:workflows/library/lisp_frontend_design_delta/"
+        "work_item.orc:"
+    )
+    retained_ids = {
+        *(f"{prefix}project-work-item-inputs:{index}" for index in range(1, 3)),
+        *(f"{prefix}run-plan-phase:{index}" for index in range(1, 3)),
+        *(f"{prefix}implementation-phase:{index}" for index in range(1, 3)),
+        *(
+            f"{prefix}classify-work-item-terminal:{index}"
+            for index in range(1, 3)
+        ),
+        f"{prefix}run-work-item-pending:1",
+    }
+    expected_public_entries = {
+        "lisp_frontend_design_delta/bootstrap::project-work-item-inputs": {
+            "source_path": (
+                "workflows/library/lisp_frontend_design_delta/bootstrap.orc"
+            ),
+            "source_line": 11,
+        },
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase": {
+            "source_path": (
+                "workflows/library/lisp_frontend_design_delta/plan_phase.orc"
+            ),
+            "source_line": 168,
+        },
+        "lisp_frontend_design_delta/implementation_phase::implementation-phase": {
+            "source_path": (
+                "workflows/library/lisp_frontend_design_delta/implementation_phase.orc"
+            ),
+            "source_line": 186,
+        },
+        "lisp_frontend_design_delta/projections::classify-work-item-terminal": {
+            "source_path": (
+                "workflows/library/lisp_frontend_design_delta/projections.orc"
+            ),
+            "source_line": 50,
+        },
+    }
+    public_callees = set(expected_public_entries)
+    public_ids = {f"public-entry:{callee}" for callee in public_callees}
+    decision_path = (
+        DESIGN_DELTA_PHASE_ORCHESTRATION_RETENTION_DECISION.relative_to(REPO_ROOT)
+        .as_posix()
+    )
+    selector = (
+        "tests/test_workflow_lisp_procedure_first_migrations.py::"
+        "test_design_delta_phase_orchestration_rows_retain_workflow_boundaries"
+    )
+
+    observed_ids = {
+        row["id"]
+        for row in inventory["records"]
+        if row["source_path"] == DESIGN_DELTA_WORK_ITEM.relative_to(REPO_ROOT).as_posix()
+        and row["callee"]
+        in {
+            "project-work-item-inputs",
+            "run-plan-phase",
+            "implementation-phase",
+            "classify-work-item-terminal",
+            "run-work-item-pending",
+        }
+    }
+    assert observed_ids == retained_ids
+    assert retained_ids <= set(records_by_id)
+    assert public_ids <= set(records_by_id)
+    for record_id in retained_ids:
+        record = records_by_id[record_id]
+        assert record["record_kind"] == "internal-call"
+        assert record["classification"] == "effect-adapter"
+        assert record["classification"] != "public-boundary"
+        assert {record["source_path"], decision_path, selector} <= set(
+            record["evidence_paths"]
+        )
+    for callee in public_callees:
+        record = records_by_id[f"public-entry:{callee}"]
+        expected = expected_public_entries[callee]
+        assert record["record_kind"] == "public-entry"
+        assert record["classification"] == "public-boundary"
+        assert record["callee"] == callee
+        assert record["resolution"] == "exported-entry"
+        assert record["source_path"] == expected["source_path"]
+        assert record["callee_path"] == expected["source_path"]
+        assert record["source_line"] == expected["source_line"]
+        assert {
+            "exported workflow",
+            "CLI-selectable entry",
+            "compiled workflows_by_name export",
+        } <= set(record["public_boundary_evidence"])
+        assert set(record["evidence_paths"]) == {
+            expected["source_path"],
+            "orchestrator/workflow_lisp/build.py",
+            decision_path,
+            selector,
+        }
+
+        source_lines = (REPO_ROOT / expected["source_path"]).read_text(
+            encoding="utf-8"
+        ).splitlines()
+        definition_line = source_lines[expected["source_line"] - 1]
+        local_name = callee.rsplit("::", 1)[-1]
+        assert re.match(
+            rf"\s*\(defworkflow\s+{re.escape(local_name)}\b",
+            definition_line,
+        )
+
+    expected_sources = {
+        "project-work-item-inputs": DESIGN_DELTA_BOOTSTRAP,
+        "run-plan-phase": DESIGN_DELTA_PLAN_PHASE,
+        "implementation-phase": DESIGN_DELTA_IMPLEMENTATION_PHASE,
+        "classify-work-item-terminal": DESIGN_DELTA_PROJECTIONS,
+    }
+    for callee, source_path in expected_sources.items():
+        source = source_path.read_text(encoding="utf-8")
+        assert len(re.findall(rf"\(defworkflow\s+{callee}\b", source)) == 1
+        assert not re.search(rf"\(defproc\s+{callee}\b", source)
+
+    work_item_source = DESIGN_DELTA_WORK_ITEM.read_text(encoding="utf-8")
+    assert len(re.findall(r"\(defworkflow\s+run-work-item-pending\b", work_item_source)) == 1
+    assert not re.search(r"\(defproc\s+run-work-item-pending\b", work_item_source)
+    assert {
+        callee: len(re.findall(rf"\(call\s+{callee}\b", work_item_source))
+        for callee in (*expected_sources, "run-work-item-pending")
+    } == {
+        "project-work-item-inputs": 2,
+        "run-plan-phase": 2,
+        "implementation-phase": 2,
+        "classify-work-item-terminal": 2,
+        "run-work-item-pending": 1,
+    }
+
+    linked_result, _ = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    for callee, module_name in {
+        "project-work-item-inputs": "lisp_frontend_design_delta/bootstrap",
+        "run-plan-phase": "lisp_frontend_design_delta/plan_phase",
+        "implementation-phase": "lisp_frontend_design_delta/implementation_phase",
+        "classify-work-item-terminal": "lisp_frontend_design_delta/projections",
+    }.items():
+        export_surface = linked_result.graph.export_surfaces_by_name[module_name]
+        binding = export_surface.workflows_by_name[callee]
+        assert binding.kind == "workflow"
+        assert binding.canonical_name == f"{module_name}::{callee}"
+        assert callee not in export_surface.procedures_by_name
+    work_item_exports = linked_result.graph.export_surfaces_by_name[
+        "lisp_frontend_design_delta/work_item"
+    ]
+    assert work_item_exports.workflows_by_name["run-work-item"].kind == "workflow"
+    assert "run-work-item-pending" not in work_item_exports.workflows_by_name
+    assert "run-work-item-pending" not in work_item_exports.procedures_by_name
+
+
 def _design_delta_default_state_value(type_payload: Mapping[str, object]) -> object:
     kind = type_payload.get("kind")
     if kind == "primitive":
@@ -1822,6 +1997,58 @@ def _design_delta_blocked_finalizer_proposed_inline_source(old_source: bytes) ->
             "finalize-selected-item-from-blocked-implementation)\n",
             "",
             3,
+        ),
+    )
+    for old, new, expected_count in replacements:
+        assert source.count(old) == expected_count
+        source = source.replace(old, new)
+    return source.encode("utf-8")
+
+
+def _design_delta_pending_proposed_inline_source(old_source: bytes) -> bytes:
+    source = old_source.decode("utf-8")
+    replacements = (
+        (
+            "  (defworkflow run-work-item-pending\n",
+            "  (defproc run-work-item-pending\n",
+            1,
+        ),
+        (
+            "    -> PendingWorkItemResult\n"
+            "    (with-phase phase-ctx work-item\n",
+            "    -> PendingWorkItemResult\n"
+            "    :effects ((calls-workflow lisp_frontend_design_delta/bootstrap::project-work-item-inputs)\n"
+            "              (calls-workflow lisp_frontend_design_delta/implementation_phase::implementation-phase)\n"
+            "              (calls-workflow lisp_frontend_design_delta/plan_phase::run-plan-phase)\n"
+            "              (calls-workflow lisp_frontend_design_delta/projections::classify-work-item-terminal)\n"
+            "              (calls-workflow lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery)\n"
+            "              (calls-workflow lisp_frontend_design_delta/work_item::finalize-selected-item-from-blocked-implementation)\n"
+            "              (calls-workflow lisp_frontend_design_delta/work_item::finalize-selected-item-from-completed-implementation)\n"
+            "              (calls-workflow lisp_frontend_design_delta/work_item::project-selected-item-finalizer-approved-plan)\n"
+            "              (calls-workflow lisp_frontend_design_delta/work_item::project-selected-item-finalizer-blocked-implementation)\n"
+            "              (calls-workflow lisp_frontend_design_delta/work_item::project-selected-item-finalizer-completed-implementation)\n"
+            "              (uses-command apply_resource_transition)\n"
+            "              (uses-provider providers.work-item.recovery-classifier))\n"
+            "    :lowering inline\n"
+            "    (with-phase phase-ctx work-item\n",
+            1,
+        ),
+        (
+            "               (call run-work-item-pending\n"
+            "                 :phase-ctx phase-ctx\n"
+            "                 :work_item_bootstrap work_item_bootstrap\n"
+            "                 :steering_path steering_path\n"
+            "                 :target_design_path target_design_path\n"
+            "                 :baseline_design_path baseline_design_path\n"
+            "                 :progress_ledger_path progress_ledger_path)",
+            "               (run-work-item-pending\n"
+            "                 phase-ctx\n"
+            "                 work_item_bootstrap\n"
+            "                 steering_path\n"
+            "                 target_design_path\n"
+            "                 baseline_design_path\n"
+            "                 progress_ledger_path)",
+            1,
         ),
     )
     for old, new, expected_count in replacements:
@@ -2546,6 +2773,197 @@ def test_design_delta_blocked_recovery_hypothetical_fails_closed_at_typecheck(
     assert proposed_reads["disk_before_sha256"] == retained_sha256
     assert proposed_reads["disk_after_sha256"] == retained_sha256
     assert DESIGN_DELTA_WORK_ITEM.read_bytes() == retained_source
+
+
+def test_design_delta_pending_hypothetical_changes_checkpoint_identity(
+    tmp_path: Path,
+) -> None:
+    retained_source = DESIGN_DELTA_WORK_ITEM.read_bytes()
+    proposed_source = _design_delta_pending_proposed_inline_source(retained_source)
+    retained_sha256 = "sha256:" + hashlib.sha256(retained_source).hexdigest()
+    proposed_sha256 = "sha256:" + hashlib.sha256(proposed_source).hexdigest()
+    assert retained_sha256 != proposed_sha256
+
+    (tmp_path / "retained").mkdir()
+    retained_result, retained_reads = _compile_design_delta_same_path_work_item_variant(
+        tmp_path / "retained",
+        retained_source,
+    )
+    (tmp_path / "proposed").mkdir()
+    proposed_result, proposed_reads = _compile_design_delta_same_path_work_item_variant(
+        tmp_path / "proposed",
+        proposed_source,
+    )
+    for reads, expected_sha256 in (
+        (retained_reads, retained_sha256),
+        (proposed_reads, proposed_sha256),
+    ):
+        assert reads["selected_sha256"] == expected_sha256
+        assert set(reads["served_sha256"]) == {expected_sha256}
+        assert reads["disk_before_sha256"] == retained_sha256
+        assert reads["disk_after_sha256"] == retained_sha256
+        assert reads["rejected_writes"] == []
+    assert DESIGN_DELTA_WORK_ITEM.read_bytes() == retained_source
+
+    proposed_compile = proposed_result.compiled_results_by_name[
+        "lisp_frontend_design_delta/work_item"
+    ]
+    pending = next(
+        procedure
+        for procedure in proposed_compile.typed_procedures
+        if procedure.definition.name.rsplit("::", 1)[-1] == "run-work-item-pending"
+    )
+    assert pending.signature.requested_lowering_mode.value == "inline"
+    assert pending.resolved_lowering_mode.value == "inline"
+    expected_effects = {
+        ("CallsWorkflowEffect", "lisp_frontend_design_delta/bootstrap::project-work-item-inputs"),
+        ("CallsWorkflowEffect", "lisp_frontend_design_delta/implementation_phase::implementation-phase"),
+        ("CallsWorkflowEffect", "lisp_frontend_design_delta/plan_phase::run-plan-phase"),
+        ("CallsWorkflowEffect", "lisp_frontend_design_delta/projections::classify-work-item-terminal"),
+        ("CallsWorkflowEffect", "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery"),
+        ("CallsWorkflowEffect", "lisp_frontend_design_delta/work_item::finalize-selected-item-from-blocked-implementation"),
+        ("CallsWorkflowEffect", "lisp_frontend_design_delta/work_item::finalize-selected-item-from-completed-implementation"),
+        ("CallsWorkflowEffect", "lisp_frontend_design_delta/work_item::project-selected-item-finalizer-approved-plan"),
+        ("CallsWorkflowEffect", "lisp_frontend_design_delta/work_item::project-selected-item-finalizer-blocked-implementation"),
+        ("CallsWorkflowEffect", "lisp_frontend_design_delta/work_item::project-selected-item-finalizer-completed-implementation"),
+        ("UsesCommandEffect", "apply_resource_transition"),
+        ("UsesProviderEffect", "providers.work-item.recovery-classifier"),
+    }
+    assert {
+        (row["kind"], row["subject"])
+        for row in _effect_rows(pending.transitive_effect_summary)
+    } == expected_effects
+    caller = next(
+        workflow
+        for workflow in proposed_compile.typed_workflows
+        if workflow.definition.name.rsplit("::", 1)[-1] == "run-work-item"
+    )
+    assert expected_effects <= {
+        (row["kind"], row["subject"])
+        for row in _effect_rows(caller.effect_summary)
+    }
+    caller_nodes = tuple(walk_expr(caller.typed_body.expr))
+    assert "lisp_frontend_design_delta/work_item::run-work-item-pending" in {
+        node.callee_name
+        for node in caller_nodes
+        if isinstance(node, ProcedureCallExpr)
+    }
+    assert "lisp_frontend_design_delta/work_item::run-work-item-pending" not in {
+        node.callee_name for node in caller_nodes if isinstance(node, CallExpr)
+    }
+
+    retained_projection = _design_delta_compile_projection(retained_result)
+    proposed_projection = _design_delta_compile_projection(proposed_result)
+    removed_ids = set(retained_projection["checkpoint_ids"]) - set(
+        proposed_projection["checkpoint_ids"]
+    )
+    added_ids = set(proposed_projection["checkpoint_ids"]) - set(
+        retained_projection["checkpoint_ids"]
+    )
+    caller_owner = "lisp_frontend_design_delta/work_item::run-work-item"
+    removed = {
+        checkpoint_id: retained_projection["checkpoint_names"][checkpoint_id]
+        for checkpoint_id in sorted(removed_ids)
+    }
+    assert removed == {
+        "ckpt:086b77522a63d90a481896c2": (
+            f"{caller_owner}::"
+            "lisp_frontend_design_delta/work_item::run-work-item__pending__"
+            "call_lisp_frontend_design_delta/work_item::run-work-item-pending"
+        )
+    }
+    added = {
+        checkpoint_id: proposed_projection["checkpoint_names"][checkpoint_id]
+        for checkpoint_id in sorted(added_ids)
+    }
+    new_presentation_prefix = (
+        "lisp_frontend_design_delta/work_item::run-work-item__pending__"
+        "lisp_frontend_design_delta/work_item::run-work-item-pending_1__"
+    )
+    caller_namespace = f"{caller_owner}::{new_presentation_prefix}"
+    assert all(
+        checkpoint_name.startswith(f"{caller_owner}::{new_presentation_prefix}")
+        for checkpoint_name in added.values()
+    )
+    assert added == {
+        "ckpt:00dc7237d9abde23fb40b69b": (
+            caller_namespace
+            + "match_plan__approved__terminal__call_"
+            "lisp_frontend_design_delta/projections::classify-work-item-terminal"
+        ),
+        "ckpt:09ce859d00f0962b793dfebf": (
+            caller_namespace
+            + "match_plan__approved__pending__match_terminal__implementation_blocked__"
+            "lisp_frontend_design_delta/work_item::route-blocked-implementation_1__"
+            "classification__call_lisp_frontend_design_delta/work_item::"
+            "classify-blocked-implementation-recovery"
+        ),
+        "ckpt:1b3c82661af3b2feaa35f42b": (
+            caller_namespace
+            + "match_plan__approved__pending__match_terminal__plan_review_exhausted__"
+            "finalized__call_lisp_frontend_design_delta/work_item::"
+            "finalize-selected-item-from-blocked-implementation"
+        ),
+        "ckpt:233ecfb0b10c3da348dc56a2": (
+            caller_namespace
+            + "match_plan__approved__pending__match_terminal__implementation_blocked__"
+            "lisp_frontend_design_delta/work_item::route-blocked-implementation_1__"
+            "match_decision__gap_design_revision_required__durability-recorded__"
+            "lisp_frontend_design_delta/transitions::"
+            "record-work-item-blocked-recovery-summary_1__transition-result"
+        ),
+        "ckpt:294b5ca0e981a654fe3bd2b0": (
+            caller_namespace
+            + "match_plan__approved__pending__match_terminal__implementation_blocked__"
+            "lisp_frontend_design_delta/work_item::route-blocked-implementation_1__"
+            "match_decision__terminal_blocked__finalized__call_"
+            "lisp_frontend_design_delta/work_item::"
+            "finalize-selected-item-from-blocked-implementation"
+        ),
+        "ckpt:30bafb11d2737afb8b1cf688": (
+            caller_namespace
+            + "match_plan__approved__pending__match_terminal__implementation_blocked__"
+            "lisp_frontend_design_delta/work_item::route-blocked-implementation_1__"
+            "match_decision__target_design_revision_required__durability-recorded__"
+            "lisp_frontend_design_delta/transitions::"
+            "record-work-item-blocked-recovery-summary_2__transition-result"
+        ),
+        "ckpt:59af01e48a3e10414e79c371": (
+            caller_namespace
+            + "plan__call_lisp_frontend_design_delta/plan_phase::run-plan-phase"
+        ),
+        "ckpt:905debcfe48342339d32bdf7": (
+            caller_namespace
+            + "match_plan__approved__pending__match_terminal__"
+            "implementation_review_exhausted__finalized__call_"
+            "lisp_frontend_design_delta/work_item::"
+            "finalize-selected-item-from-blocked-implementation"
+        ),
+        "ckpt:b629ae4c8beb869a841e46f0": (
+            caller_namespace
+            + "match_plan__approved__pending__match_terminal__complete__finalized__"
+            "call_lisp_frontend_design_delta/work_item::"
+            "finalize-selected-item-from-completed-implementation"
+        ),
+        "ckpt:bf70f41dfed8714340562b03": (
+            caller_namespace
+            + "resolved__call_lisp_frontend_design_delta/bootstrap::"
+            "project-work-item-inputs"
+        ),
+        "ckpt:cce0b07caefb09af76cf8154": (
+            caller_namespace
+            + "match_plan__approved__pending__match_terminal__implementation_blocked__"
+            "lisp_frontend_design_delta/work_item::route-blocked-implementation_1__"
+            "match_decision__prerequisite_gap_required__durability-recorded__"
+            "lisp_frontend_design_delta/transitions::"
+            "record-work-item-blocked-recovery-summary_3__transition-result"
+        ),
+        "ckpt:e737e9259c7ab5d6d3278eb8": (
+            caller_namespace
+            + "match_plan__approved__implementation__call_"
+            "lisp_frontend_design_delta/implementation_phase::implementation-phase"
+        ),
+    }
 
 
 @pytest.mark.parametrize(

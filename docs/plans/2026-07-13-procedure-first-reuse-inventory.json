@@ -626,21 +626,24 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "strict_compatibility: the resolved callee is an exported workflow entry and no accepted remap or atomic upgrader preserves its public run/resume/invocation identity after inline retirement.",
+      "reason": "Retain this internal call as an effect adapter because compiled export resolution proves that project-work-item-inputs is a separate public workflow boundary. The internal call record remains distinct from the public-entry record.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Compiled export-graph membership, not lexical export prose, supplies the public-boundary evidence."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "workflows/library/lisp_frontend_design_delta/bootstrap.orc",
+        "docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_phase_orchestration_rows_retain_workflow_boundaries"
       ]
     },
     {
@@ -657,21 +660,24 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "strict_compatibility: the resolved callee is an exported workflow entry and no accepted remap or atomic upgrader preserves its public run/resume/invocation identity after inline retirement.",
+      "reason": "Retain this internal call as an effect adapter because compiled export resolution proves that run-plan-phase is a separate public workflow boundary. The internal call record remains distinct from the public-entry record.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Compiled export-graph membership, not lexical export prose, supplies the public-boundary evidence."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "workflows/library/lisp_frontend_design_delta/plan_phase.orc",
+        "docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_phase_orchestration_rows_retain_workflow_boundaries"
       ]
     },
     {
@@ -688,21 +694,24 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "strict_compatibility: the resolved callee is an exported workflow entry and no accepted remap or atomic upgrader preserves its public run/resume/invocation identity after inline retirement.",
+      "reason": "Retain this internal call as an effect adapter because compiled export resolution proves that implementation-phase is a separate public workflow boundary. The internal call record remains distinct from the public-entry record.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Compiled export-graph membership, not lexical export prose, supplies the public-boundary evidence."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "workflows/library/lisp_frontend_design_delta/implementation_phase.orc",
+        "docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_phase_orchestration_rows_retain_workflow_boundaries"
       ]
     },
     {
@@ -719,21 +728,24 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "strict_compatibility: the resolved callee is an exported workflow entry and no accepted remap or atomic upgrader preserves its public run/resume/invocation identity after inline retirement.",
+      "reason": "Retain this internal call as an effect adapter because compiled export resolution proves that classify-work-item-terminal is a separate public workflow boundary. The internal call record remains distinct from the public-entry record.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Compiled export-graph membership, not lexical export prose, supplies the public-boundary evidence."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "workflows/library/lisp_frontend_design_delta/projections.orc",
+        "docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_phase_orchestration_rows_retain_workflow_boundaries"
       ]
     },
     {
@@ -851,21 +863,24 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "strict_compatibility: the exact inline hypothetical removes caller-owned workflow-call boundary checkpoint ckpt:086b77522a63d90a481896c2 and adds twelve caller-owned inline checkpoints; their checkpoint/storage identities and generated presentation-path namespace differ, and no accepted remap or atomic state upgrader preserves those identities.",
+      "reason": "Retain this private pending workflow call as an effect adapter. The exact-path hypothetical compiles with its declared effects visible, but the caller-owned workflow-call boundary is removed and twelve caller-owned inline checkpoints are added with different checkpoint/storage identities and a different generated presentation-path namespace.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "The successful hypothetical is identity evidence only; no affected-route runtime parity is asserted."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_phase_orchestration_rows_retain_workflow_boundaries",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_pending_hypothetical_changes_checkpoint_identity"
       ]
     },
     {
@@ -882,21 +897,24 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "strict_compatibility: the resolved callee is an exported workflow entry and no accepted remap or atomic upgrader preserves its public run/resume/invocation identity after inline retirement.",
+      "reason": "Retain this internal call as an effect adapter because compiled export resolution proves that project-work-item-inputs is a separate public workflow boundary. The internal call record remains distinct from the public-entry record.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Compiled export-graph membership, not lexical export prose, supplies the public-boundary evidence."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "workflows/library/lisp_frontend_design_delta/bootstrap.orc",
+        "docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_phase_orchestration_rows_retain_workflow_boundaries"
       ]
     },
     {
@@ -913,21 +931,24 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "strict_compatibility: the resolved callee is an exported workflow entry and no accepted remap or atomic upgrader preserves its public run/resume/invocation identity after inline retirement.",
+      "reason": "Retain this internal call as an effect adapter because compiled export resolution proves that run-plan-phase is a separate public workflow boundary. The internal call record remains distinct from the public-entry record.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Compiled export-graph membership, not lexical export prose, supplies the public-boundary evidence."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "workflows/library/lisp_frontend_design_delta/plan_phase.orc",
+        "docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_phase_orchestration_rows_retain_workflow_boundaries"
       ]
     },
     {
@@ -944,21 +965,24 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "strict_compatibility: the resolved callee is an exported workflow entry and no accepted remap or atomic upgrader preserves its public run/resume/invocation identity after inline retirement.",
+      "reason": "Retain this internal call as an effect adapter because compiled export resolution proves that implementation-phase is a separate public workflow boundary. The internal call record remains distinct from the public-entry record.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Compiled export-graph membership, not lexical export prose, supplies the public-boundary evidence."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "workflows/library/lisp_frontend_design_delta/implementation_phase.orc",
+        "docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_phase_orchestration_rows_retain_workflow_boundaries"
       ]
     },
     {
@@ -975,21 +999,24 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "strict_compatibility: the resolved callee is an exported workflow entry and no accepted remap or atomic upgrader preserves its public run/resume/invocation identity after inline retirement.",
+      "reason": "Retain this internal call as an effect adapter because compiled export resolution proves that classify-work-item-terminal is a separate public workflow boundary. The internal call record remains distinct from the public-entry record.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Compiled export-graph membership, not lexical export prose, supplies the public-boundary evidence."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "workflows/library/lisp_frontend_design_delta/projections.orc",
+        "docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_phase_orchestration_rows_retain_workflow_boundaries"
       ]
     },
     {
@@ -3339,6 +3366,147 @@
       ]
     },
     {
+      "id": "public-entry:lisp_frontend_design_delta/bootstrap::project-work-item-inputs",
+      "record_kind": "public-entry",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/bootstrap.orc",
+      "source_line": 11,
+      "caller": "external",
+      "caller_kind": "external",
+      "call_alias": null,
+      "callee_path": "workflows/library/lisp_frontend_design_delta/bootstrap.orc",
+      "callee": "lisp_frontend_design_delta/bootstrap::project-work-item-inputs",
+      "resolution": "exported-entry",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "public-boundary",
+      "effect_summary": [],
+      "public_boundary_evidence": [
+        "exported workflow",
+        "CLI-selectable entry",
+        "compiled workflows_by_name export"
+      ],
+      "named_substrate_gap": null,
+      "reason": "The compiled module export graph classifies project-work-item-inputs as an exported workflow rather than a procedure, so its public selection identity requires strict compatibility.",
+      "uncertainty": {
+        "level": "low",
+        "notes": []
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/bootstrap.orc",
+        "orchestrator/workflow_lisp/build.py",
+        "docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_phase_orchestration_rows_retain_workflow_boundaries"
+      ]
+    },
+    {
+      "id": "public-entry:lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "record_kind": "public-entry",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/plan_phase.orc",
+      "source_line": 168,
+      "caller": "external",
+      "caller_kind": "external",
+      "call_alias": null,
+      "callee_path": "workflows/library/lisp_frontend_design_delta/plan_phase.orc",
+      "callee": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "resolution": "exported-entry",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "public-boundary",
+      "effect_summary": [
+        "provider"
+      ],
+      "public_boundary_evidence": [
+        "exported workflow",
+        "CLI-selectable entry",
+        "compiled workflows_by_name export"
+      ],
+      "named_substrate_gap": null,
+      "reason": "The compiled module export graph classifies run-plan-phase as an exported workflow rather than a procedure, so its public selection identity requires strict compatibility.",
+      "uncertainty": {
+        "level": "low",
+        "notes": []
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/plan_phase.orc",
+        "orchestrator/workflow_lisp/build.py",
+        "docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_phase_orchestration_rows_retain_workflow_boundaries"
+      ]
+    },
+    {
+      "id": "public-entry:lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "record_kind": "public-entry",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/implementation_phase.orc",
+      "source_line": 186,
+      "caller": "external",
+      "caller_kind": "external",
+      "call_alias": null,
+      "callee_path": "workflows/library/lisp_frontend_design_delta/implementation_phase.orc",
+      "callee": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "resolution": "exported-entry",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "public-boundary",
+      "effect_summary": [
+        "provider",
+        "command"
+      ],
+      "public_boundary_evidence": [
+        "exported workflow",
+        "CLI-selectable entry",
+        "compiled workflows_by_name export"
+      ],
+      "named_substrate_gap": null,
+      "reason": "The compiled module export graph classifies implementation-phase as an exported workflow rather than a procedure, so its public selection identity requires strict compatibility.",
+      "uncertainty": {
+        "level": "low",
+        "notes": []
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/implementation_phase.orc",
+        "orchestrator/workflow_lisp/build.py",
+        "docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_phase_orchestration_rows_retain_workflow_boundaries"
+      ]
+    },
+    {
+      "id": "public-entry:lisp_frontend_design_delta/projections::classify-work-item-terminal",
+      "record_kind": "public-entry",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/projections.orc",
+      "source_line": 50,
+      "caller": "external",
+      "caller_kind": "external",
+      "call_alias": null,
+      "callee_path": "workflows/library/lisp_frontend_design_delta/projections.orc",
+      "callee": "lisp_frontend_design_delta/projections::classify-work-item-terminal",
+      "resolution": "exported-entry",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "public-boundary",
+      "effect_summary": [],
+      "public_boundary_evidence": [
+        "exported workflow",
+        "CLI-selectable entry",
+        "compiled workflows_by_name export"
+      ],
+      "named_substrate_gap": null,
+      "reason": "The compiled module export graph classifies classify-work-item-terminal as an exported workflow rather than a procedure, so its public selection identity requires strict compatibility.",
+      "uncertainty": {
+        "level": "low",
+        "notes": []
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/projections.orc",
+        "orchestrator/workflow_lisp/build.py",
+        "docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_phase_orchestration_rows_retain_workflow_boundaries"
+      ]
+    },
+    {
       "id": "public-entry:lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery",
       "record_kind": "public-entry",
       "frontend": "workflow-lisp",
@@ -3493,13 +3661,13 @@
     "actionable_internal_calls": {
       "total": 95,
       "by_classification": {
-        "procedure-candidate": 12,
-        "effect-adapter": 20,
+        "procedure-candidate": 3,
+        "effect-adapter": 29,
         "legacy-retire": 63,
         "public-boundary": 0
       }
     },
-    "separate_public_entries": 9,
+    "separate_public_entries": 13,
     "excluded_from_actionable_population": {
       "total": 6,
       "by_reason": {

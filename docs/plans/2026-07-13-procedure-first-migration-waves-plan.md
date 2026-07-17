@@ -14,7 +14,7 @@
 
 **Status:** Current selector (activated 2026-07-16). Task 1's post-hardening
 rebaseline is complete at `4983afff` with its narrative correction at
-`fa16bcf0`. **Current sub-selector: Task 5 phase orchestration (nine calls).**
+`fa16bcf0`. **Current sub-selector: Task 5 completed finalization (two calls).**
 The four-call finalizer-projection subfamily is retained by the reviewed
 strict-compatibility decision in
 `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md`;
@@ -27,6 +27,13 @@ only the five finalizer calls use the exact-path compiler rejection
 `pure_expr_operand_type_mismatch`. Because no finalizer hypothetical executable
 exists, the decision makes no checkpoint-delta or affected-route runtime parity
 claim.
+The nine-call phase-orchestration subfamily is retained by
+`docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md`.
+Four exported callees require public strict compatibility; the private pending
+callee's successful exact-path inline hypothetical removes one caller-owned
+workflow-call boundary checkpoint and adds twelve caller-owned inline
+checkpoints; their checkpoint/storage identities and generated
+presentation-path namespace differ. No runtime-parity claim is made.
 Task 2 is complete
 at `daff694c`. Steps 1 and 2 each
 reached a bounded fail-closed
@@ -56,8 +63,8 @@ production-owner/runtime-mirror correction but did not authorize a source
 migration. The first Task 5 subfamily then reached a strict checkpoint-
 compatibility stop: four rows become `effect-adapter`, source and mirror remain
 byte-unchanged, and no Task 5 source migration or Task 5 completion is claimed.
-The current queue is 12 procedure candidates, 20 effect adapters, and 63
-legacy-retire rows, plus nine separate public entries and one history row.
+The current queue is 3 procedure candidates, 29 effect adapters, and 63
+legacy-retire rows, plus 13 separate public entries and one history row.
 
 - Accepted contract: `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
 - Reviewed queue: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
@@ -83,8 +90,10 @@ legacy-retire rows, plus nine separate public entries and one history row.
   `26d9ecd0`, and `848ceb52`. Task 5's finalizer-projection subfamily then
   closed as retained after final re-review. Blocked recovery/finalization then
   closed with the classifier retained as an exported public boundary and only
-  the five finalizer calls retained by compiler rejection; phase orchestration
-  (nine calls) is now selected.
+  the five finalizer calls retained by compiler rejection. Phase orchestration
+  then closed as retained on four exported public boundaries and the private
+  pending callee's checkpoint-identity delta; completed finalization (two
+  calls) is now selected.
   Production-family Tasks 5–6 retain every later prerequisite in this plan.
 - Preserve the inventory's separate `public-entry` records. In particular, never migrate:
   - `workflows/library/lisp_frontend_design_delta/drain.orc::drain` away from `defworkflow`; or
@@ -123,14 +132,14 @@ must be a subset of the active task's `Files` list. Never stage, restore, or
 rewrite a protected path. Record its initial `git status --short` output only
 as a guard baseline; user changes to those paths are not plan failures.
 
-## Current queue after blocked-recovery/finalization retention
+## Current queue after phase-orchestration retention
 
 | Class | Count | Disposition |
 | --- | ---: | --- |
-| `procedure-candidate` | 12 | Migrate by `.orc` family after parity. |
-| `effect-adapter` | 20 | Reclassify only after effect, identity, type, artifact/publication, source-map, child-call, checkpoint, exported-entry, state-consumer, live-route, and resume evidence. |
+| `procedure-candidate` | 3 | Migrate by `.orc` family after parity. |
+| `effect-adapter` | 29 | Reclassify only after effect, identity, type, artifact/publication, source-map, child-call, checkpoint, exported-entry, state-consumer, live-route, and resume evidence. |
 | `legacy-retire` | 63 | Do not translate; coordinate with Stage 6 after replacement evidence. |
-| `public-boundary` | 9 separate entries | Preserve as workflows and negative regression coverage. |
+| `public-boundary` | 13 separate entries | Preserve as workflows and negative regression coverage. |
 
 The v2 inventory also contains one append-only `migrated` history row for the
 completed pilot call; history is separate from the 95 active records above.
@@ -572,6 +581,7 @@ selected; later tasks remain in their existing order.
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.md`
 - Modify completed bounded retention decisions: `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md`
 - Modify completed bounded retention decisions: `docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md`
+- Modify completed bounded retention decisions: `docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md`
 - Create conditionally on any later bounded per-subfamily stop: `docs/plans/2026-07-16-design-delta-<subfamily>-retention-plan.md`
 - Modify on a bounded retention stop: `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`
 - Modify on a reviewed bounded retention stop: `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
@@ -579,7 +589,7 @@ selected; later tasks remain in their existing order.
 - Modify on a reviewed bounded retention stop: `docs/index.md`
 - Test on a reviewed bounded retention stop: `tests/test_workflow_lisp_drain_roadmap_routing.py`
 
-- [ ] **Step 1: Split the 21 calls into independently testable subfamilies**
+- [x] **Step 1: Split the 21 calls into independently testable subfamilies**
 
 Use enclosing definition/import resolution to produce and review this order before editing:
 
@@ -602,7 +612,8 @@ The first group is retained by the reviewed decision in
 `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md`:
 its exact hypothetical inline conversion removes four public-wrapper call
 checkpoints and adds none, so strict compatibility is impossible. The four
-rows remain active as `effect-adapter`; the other 17 IDs remain candidates.
+rows remain active as `effect-adapter`; the other 17 IDs then proceeded in the
+locked subfamily order.
 Both independent reviews approved this decision and its inventory
 reconciliation before group 2, blocked recovery/finalization, became current.
 Group 2 is also retained by
@@ -614,8 +625,14 @@ five-call finalizer conversion is rejected with
 `BlockerClass.roadmap_conflict` is reduced to `String` where
 `std/resource::BlockerClass` is required. No finalizer hypothetical executable
 exists, so no checkpoint-delta or affected-route runtime parity claim is made. The
-six rows remain active `effect-adapter`; group 3, phase orchestration (nine
-calls), is current.
+six rows remain active `effect-adapter`. Group 3 is also retained by
+`docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md`:
+four exported callees preserve eight calls under public strict compatibility,
+while the private `run-work-item-pending` hypothetical compiles with its
+effects visible but removes its caller-owned workflow-call boundary checkpoint
+and adds twelve caller-owned inline checkpoints. Their checkpoint/storage
+identities and generated presentation-path namespace differ. The nine rows
+remain `effect-adapter`; group 4, completed finalization (two calls), is current.
 
 Any call whose callee owns an independent public, publication, or checkpoint
 namespace is not migrated: retain the internal-call row as `effect-adapter`
@@ -636,10 +653,12 @@ requires two `defworkflow` definitions, exactly six workflow calls, and compiled
 export-graph membership for `run-work-item` and the classifier. The deterministic
 compiler rejection covers only the five-call finalizer conversion. It has no
 finalizer hypothetical executable and therefore no checkpoint/runtime parity gate.
-`run-work-item-pending` is a phase-orchestration procedure candidate. If fresh
-evidence proves it owns an independent public identity, retain it as a workflow,
-reclassify its internal-call row to `effect-adapter`, and add or preserve its
-separate `public-entry` record classified `public-boundary`.
+The phase-orchestration group is a retained negative. Its structural test
+requires four exported `defworkflow` callees, private
+`run-work-item-pending`, exact 2 + 2 + 2 + 2 + 1 workflow calls, and exported
+`run-work-item`. The private-callee compile comparison requires declared
+effects to remain caller-visible and locks the exact checkpoint identity
+delta; it does not assert affected-route runtime parity.
 Verify the test fails on the first still-workflow callee. Make only the group's
 source change. Every source commit must keep public work-item
 inputs/outputs, artifact names, effects, state/write roots, checkpoint IDs,
@@ -676,19 +695,20 @@ git add workflows/library/lisp_frontend_design_delta/bootstrap.orc workflows/lib
 git commit -m "Migrate Design Delta work-item <subfamily> procedures"
 ```
 
-The `finalizer-projections` and `blocked-recovery` subfamilies have no source
-commit; retain them in inventory evidence. Replace `<subfamily>` successively
-with `phase-orchestration` and `completed-finalization` for future eligible
-source groups; never use one bulk commit. After each commit,
+The `finalizer-projections`, `blocked-recovery`, and `phase-orchestration`
+subfamilies have no source commit; retain them in inventory evidence. Replace
+`<subfamily>` with `completed-finalization` for the remaining eligible source
+group; never use one bulk commit. After each commit,
 obtain independent specification and quality PASS for the exact ID group
 before starting the next.
 
 - [ ] **Step 5: Update inventory in a separate evidence commit**
 
-Keep the ten retained finalizer-projection and blocked-recovery/finalization
-records active. Move only source records that actually disappear—at most the
-remaining 11—into v2 history with their source commit hashes, reconcile the
-retained 4+6 plus candidate 9/2 group counts, and attach evidence selectors.
+Keep the 19 retained finalizer-projection, blocked-recovery/finalization, and
+phase-orchestration records active. Move only source records that actually
+disappear—at most the remaining two completed-finalization calls—into v2
+history with their source commit hashes, reconcile the retained 4+6+9 plus
+candidate two-call group counts, and attach evidence selectors.
 
 ```bash
 python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >/dev/null
