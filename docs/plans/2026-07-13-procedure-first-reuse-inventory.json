@@ -414,21 +414,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "strict_compatibility requires the retained public-wrapper checkpoint set; the exact hypothetical inline conversion removes four compiler-owned call checkpoints and has no added checkpoint identity.",
+      "reason": "Retain the four-call finalizer-projection subfamily as effect adapters because the complete exact-path hypothetical removes four public-wrapper checkpoints, adds none, and therefore fails strict compatibility. The deterministic runtime scenario does not execute the affected nodes and supplies no finalizer parity.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Counted parser/compiler/WCC reads prove that only selected bytes feed each compile. Common retained workflow-owner paths remain equal and exactly three converted workflow-owner keys disappear; no affected inline provenance or runtime parity is claimed."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_finalizer_projection_rows_retain_workflow_checkpoints",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_finalizer_hypothetical_removes_four_public_wrapper_checkpoints"
       ]
     },
     {
@@ -445,21 +449,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "strict_compatibility requires the retained public-wrapper checkpoint set; the exact hypothetical inline conversion removes four compiler-owned call checkpoints and has no added checkpoint identity.",
+      "reason": "Retain the four-call finalizer-projection subfamily as effect adapters because the complete exact-path hypothetical removes four public-wrapper checkpoints, adds none, and therefore fails strict compatibility. The deterministic runtime scenario does not execute the affected nodes and supplies no finalizer parity.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Counted parser/compiler/WCC reads prove that only selected bytes feed each compile. Common retained workflow-owner paths remain equal and exactly three converted workflow-owner keys disappear; no affected inline provenance or runtime parity is claimed."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_finalizer_projection_rows_retain_workflow_checkpoints",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_finalizer_hypothetical_removes_four_public_wrapper_checkpoints"
       ]
     },
     {
@@ -476,21 +484,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "strict_compatibility requires the retained public-wrapper checkpoint set; the exact hypothetical inline conversion removes four compiler-owned call checkpoints and has no added checkpoint identity.",
+      "reason": "Retain the four-call finalizer-projection subfamily as effect adapters because the complete exact-path hypothetical removes four public-wrapper checkpoints, adds none, and therefore fails strict compatibility. The deterministic runtime scenario does not execute the affected nodes and supplies no finalizer parity.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Counted parser/compiler/WCC reads prove that only selected bytes feed each compile. Common retained workflow-owner paths remain equal and exactly three converted workflow-owner keys disappear; no affected inline provenance or runtime parity is claimed."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_finalizer_projection_rows_retain_workflow_checkpoints",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_finalizer_hypothetical_removes_four_public_wrapper_checkpoints"
       ]
     },
     {
@@ -507,21 +519,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "strict_compatibility requires the retained public-wrapper checkpoint set; the exact hypothetical inline conversion removes four compiler-owned call checkpoints and has no added checkpoint identity.",
+      "reason": "Retain the four-call finalizer-projection subfamily as effect adapters because the complete exact-path hypothetical removes four public-wrapper checkpoints, adds none, and therefore fails strict compatibility. The deterministic runtime scenario does not execute the affected nodes and supplies no finalizer parity.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Counted parser/compiler/WCC reads prove that only selected bytes feed each compile. Common retained workflow-owner paths remain equal and exactly three converted workflow-owner keys disappear; no affected inline provenance or runtime parity is claimed."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_finalizer_projection_rows_retain_workflow_checkpoints",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_finalizer_hypothetical_removes_four_public_wrapper_checkpoints"
       ]
     },
     {
@@ -3412,8 +3428,8 @@
     "actionable_internal_calls": {
       "total": 95,
       "by_classification": {
-        "procedure-candidate": 22,
-        "effect-adapter": 10,
+        "procedure-candidate": 18,
+        "effect-adapter": 14,
         "legacy-retire": 63,
         "public-boundary": 0
       }

@@ -1,8 +1,9 @@
 # Procedure-First Reuse Inventory
 
 Status: Task 4 complete at `c9687539`, `26d9ecd0`, and `848ceb52` after
-per-group specification and quality approval; Task 5 Step 1 is the current
-selector
+per-group specification and quality approval; Task 5's finalizer-projection
+subfamily is retained after final specification and quality re-review, blocked
+recovery/finalization is current, and Task 5 remains open
 Source commit: `db9889937a895d67810dee1ea0b1b53552d30eca`
 Schema: `procedure_first_reuse_inventory.v2`
 
@@ -15,8 +16,8 @@ remaining 95 active internal calls classify as:
 
 | Classification | Sites | Meaning |
 | --- | ---: | --- |
-| `procedure-candidate` | 22 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
-| `effect-adapter` | 10 | Calls retained until effect, identity, artifact, publication, source-map, child-call, exported-entry, state-consumer, live-route, and resume obligations are proven. |
+| `procedure-candidate` | 18 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
+| `effect-adapter` | 14 | Calls retained until effect, identity, artifact, publication, source-map, child-call, exported-entry, state-consumer, live-route, and resume obligations are proven. |
 | `legacy-retire` | 63 | Compatibility, legacy, or example-only calls that retire with their family instead of being translated. |
 | `public-boundary` | 0 | Public entries are recorded separately; they are not internal call sites. |
 
@@ -45,6 +46,7 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `effect-adapter` | `workflows/examples/same_file_record_call_binding.orc` | 1 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta/design_gap_architect.orc` | 4 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc` | 3 |
+| `effect-adapter` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 4 |
 | `legacy-retire` | `workflows/examples/backlog_priority_design_plan_impl_stack_v2_call.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/call_subworkflow_demo.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/depends_on_inject_imported_v2_call.yaml` | 1 |
@@ -76,7 +78,7 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `legacy-retire` | `workflows/library/revision_study_priority_design_plan_impl_stack.yaml` | 1 |
 | `legacy-retire` | `workflows/library/seeded_design_plan_impl_stack.yaml` | 1 |
 | `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/drain.orc` | 1 |
-| `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 21 |
+| `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 17 |
 
 ## Separate Public Entries
 
@@ -132,6 +134,8 @@ zero retired, and zero retained-public.
   exercised through deterministic provider and command effects, public output
   and publication checks, source-map/checkpoint projections, and a genuine
   post-persist interruption followed by same-run resume without effect replay.
+- **Finalizer-projection retention:** four rows remain `effect-adapter` under
+  the [reviewed checkpoint-retention decision](2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md).
 
 ## Effect-Adapter Rule
 
@@ -159,9 +163,23 @@ are exported workflows and therefore CLI-selectable public boundaries. Strict
 compatibility is mandatory, and the recorded workflow/call checkpoints cannot
 survive inline lowering exactly. See
 `docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md`.
+Four Design Delta finalizer-projection rows remain `effect-adapter` under the
+[reviewed checkpoint-retention decision](2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md).
 A Stage 5 family audit may reclassify a row when current tests prove that
 ordinary landed `defproc` composition already covers its actual effects.
 Classification labels alone do not authorize substrate work.
+
+## Task 5 Finalizer-Projection Checkpoint-Retention Audit
+
+Status: reviewed strict-compatibility retention; Task 5 remains open and its
+blocked recovery/finalization subfamily is current.
+
+The exact four finalizer-projection rows remain active as `effect-adapter`, so
+the active inventory is 18 `procedure-candidate`, 14 `effect-adapter`, and 63
+`legacy-retire` rows, plus eight separate public entries and one history row.
+The operational interception, digest, checkpoint, ownership, and unchanged-
+source evidence is owned by the
+[Design Delta finalizer-projection checkpoint-retention decision](2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md).
 
 ## Task 4 Generic YAML Reclassification Audit
 
@@ -182,7 +200,8 @@ containing YAML families; it does not prove parity, does not authorize deletion,
 and does not authorize cross-source resume. Stage 6 still owns the separate
 external-reference, archive/deletion, and run-state reconciliation gates. At
 this historical group boundary, Task 4 Step 1 remained selected for the two
-remaining audit groups; Task 4 is now complete and Task 5 Step 1 is current.
+remaining audit groups. Task 4 later completed; Task 5's reviewed finalizer
+retention and current routing are summarized above.
 
 ### Exact Records
 
