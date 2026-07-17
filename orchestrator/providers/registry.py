@@ -8,6 +8,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from .types import (
+    CallPolicyBinding,
     InputMode,
     ProviderSessionMetadataMode,
     ProviderSessionSupport,
@@ -29,7 +30,10 @@ class ProviderRegistry:
     def __init__(self):
         """Initialize empty provider registry."""
         self._providers: Dict[str, ProviderTemplate] = {}
-        self._builtin_providers = self._load_builtin_providers()
+        builtin_providers = self._load_builtin_providers()
+        for provider in builtin_providers.values():
+            self._raise_if_invalid(provider)
+        self._builtin_providers = builtin_providers
 
     def _load_builtin_providers(self) -> Dict[str, ProviderTemplate]:
         """
@@ -39,13 +43,18 @@ class ProviderRegistry:
             Dictionary of built-in provider templates
         """
         def codex_provider(name: str, model: str) -> ProviderTemplate:
+            unrestricted_flags = ["--dangerously-bypass-approvals-and-sandbox"]
             return ProviderTemplate(
                 name=name,
                 command=[
-                        "codex", "exec",
-                        "--model", "${model}",
-                        "--config", "reasoning_effort=${reasoning_effort}",
-                        "--dangerously-bypass-approvals-and-sandbox"],
+                    "codex",
+                    "exec",
+                    "--model",
+                    "${model}",
+                    "--config",
+                    "reasoning_effort=${reasoning_effort}",
+                    *unrestricted_flags,
+                ],
                 defaults={"model": model, "reasoning_effort": "high"},
                 input_mode=InputMode.STDIN,
                 session_support=ProviderSessionSupport(
@@ -58,7 +67,7 @@ class ProviderRegistry:
                         "${model}",
                         "--config",
                         "reasoning_effort=${reasoning_effort}",
-                        "--dangerously-bypass-approvals-and-sandbox",
+                        *unrestricted_flags,
                     ],
                     resume_command=[
                         "codex",
@@ -70,29 +79,37 @@ class ProviderRegistry:
                         "${model}",
                         "--config",
                         "reasoning_effort=${reasoning_effort}",
-                        "--dangerously-bypass-approvals-and-sandbox",
+                        *unrestricted_flags,
                     ],
                 ),
+                call_policy_bindings={
+                    "model": CallPolicyBinding(target_param="model"),
+                    "effort": CallPolicyBinding(target_param="reasoning_effort"),
+                },
+            )
+
+        def claude_provider(name: str, model: str) -> ProviderTemplate:
+            return ProviderTemplate(
+                name=name,
+                command=["claude", "-p", "${PROMPT}", "--model", "${model}"],
+                defaults={"model": model},
+                input_mode=InputMode.ARGV,
+                call_policy_bindings={
+                    "model": CallPolicyBinding(target_param="model"),
+                    "effort": CallPolicyBinding(
+                        target_param="effort",
+                        argv_fragment=["--effort", "${effort}"],
+                    ),
+                },
             )
 
         return {
-            "claude": ProviderTemplate(
-                name="claude",
-                command=["claude", "-p", "${PROMPT}", "--model", "${model}"],
-                defaults={"model": "claude-opus-4-6"},
-                input_mode=InputMode.ARGV
+            "claude": claude_provider("claude", "claude-opus-4-6"),
+            "claude_sonnet_summary": claude_provider(
+                "claude_sonnet_summary", "claude-sonnet-4-6"
             ),
-            "claude_sonnet_summary": ProviderTemplate(
-                name="claude_sonnet_summary",
-                command=["claude", "-p", "${PROMPT}", "--model", "${model}"],
-                defaults={"model": "claude-sonnet-4-6"},
-                input_mode=InputMode.ARGV
-            ),
-            "claude_haiku_summary": ProviderTemplate(
-                name="claude_haiku_summary",
-                command=["claude", "-p", "${PROMPT}", "--model", "${model}"],
-                defaults={"model": "haiku"},
-                input_mode=InputMode.ARGV
+            "claude_haiku_summary": claude_provider(
+                "claude_haiku_summary", "haiku"
             ),
             "gemini": ProviderTemplate(
                 name="gemini",
@@ -102,7 +119,52 @@ class ProviderRegistry:
             ),
             "codex": codex_provider("codex", "gpt-5.4"),
             "codex_gpt55": codex_provider("codex_gpt55", "gpt-5.5"),
+            "codex_unrestricted_workspace": ProviderTemplate(
+                name="codex_unrestricted_workspace",
+                command=[
+                    "codex",
+                    "exec",
+                    "--dangerously-bypass-approvals-and-sandbox",
+                    "--skip-git-repo-check",
+                    "--model",
+                    "${model}",
+                    "--config",
+                    "reasoning_effort=${reasoning_effort}",
+                ],
+                defaults={},
+                input_mode=InputMode.STDIN,
+                call_policy_bindings={
+                    "model": CallPolicyBinding(target_param="model"),
+                    "effort": CallPolicyBinding(target_param="reasoning_effort"),
+                },
+            ),
+            "claude_unrestricted_workspace": ProviderTemplate(
+                name="claude_unrestricted_workspace",
+                command=[
+                    "claude",
+                    "-p",
+                    "--model",
+                    "${model}",
+                    "--effort",
+                    "${effort}",
+                    "--permission-mode",
+                    "bypassPermissions",
+                ],
+                defaults={},
+                input_mode=InputMode.STDIN,
+                call_policy_bindings={
+                    "model": CallPolicyBinding(target_param="model"),
+                    "effort": CallPolicyBinding(target_param="effort"),
+                },
+            ),
         }
+
+    @staticmethod
+    def _raise_if_invalid(provider: ProviderTemplate) -> None:
+        """Reject an invalid template at either registry entry boundary."""
+        errors = provider.validate()
+        if errors:
+            raise ValueError(f"Invalid provider template: {'; '.join(errors)}")
 
     def register(self, provider: ProviderTemplate) -> None:
         """
@@ -114,9 +176,7 @@ class ProviderRegistry:
         Raises:
             ValueError: If provider is invalid
         """
-        errors = provider.validate()
-        if errors:
-            raise ValueError(f"Invalid provider template: {'; '.join(errors)}")
+        self._raise_if_invalid(provider)
 
         self._providers[provider.name] = provider
         logger.debug(f"Registered provider: {provider.name}")

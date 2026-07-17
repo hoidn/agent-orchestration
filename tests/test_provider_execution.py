@@ -125,6 +125,29 @@ class TestProviderRegistry:
         assert retrieved.name == "custom"
         assert retrieved.defaults["timeout"] == "30"
 
+    def test_invalid_monkeypatched_builtin_fails_registry_initialization(
+        self,
+        monkeypatch,
+    ):
+        """Built-ins pass the same validation boundary as custom templates."""
+        def invalid_builtins(_registry):
+            return {
+                "invalid_builtin": ProviderTemplate(
+                    name="invalid_builtin",
+                    command=[],
+                    input_mode=InputMode.STDIN,
+                )
+            }
+
+        monkeypatch.setattr(
+            ProviderRegistry,
+            "_load_builtin_providers",
+            invalid_builtins,
+        )
+
+        with pytest.raises(ValueError, match="invalid_builtin"):
+            ProviderRegistry()
+
     def test_at49_stdin_mode_prompt_validation(self):
         """AT-49: Provider with stdin mode cannot have ${PROMPT} in command."""
         registry = ProviderRegistry()

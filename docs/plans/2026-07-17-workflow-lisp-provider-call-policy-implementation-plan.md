@@ -28,8 +28,8 @@ tmux.
 `docs/plans/2026-07-17-workflow-lisp-provider-call-policy-design.md` at commit
 `069b8e79`.
 
-**Execution status:** Tasks 1-4 are complete; Task 5 is next. This plan is a living, reviewed execution
-artifact: every task updates its own completed checkboxes and the status line above,
+**Execution status:** Tasks 1-5 are complete; Task 6 is next. This plan is a living,
+reviewed execution artifact: every task updates its own completed checkboxes and the status line above,
 stages this file with that task's code/tests, and commits the plan update in the same
 task commit. A task may mark its implementation/test steps complete before review;
 it must not record a review as passed before that verdict exists.
@@ -722,7 +722,7 @@ or claim design closure before that point.
 - Create: `tests/test_provider_call_policy.py`
 - Modify: `tests/test_provider_execution.py`
 
-- [ ] **Step 1: Write red binding-schema tests**
+- [x] **Step 1: Write red binding-schema tests**
 
   Cover the closed canonical keys, unique targets, bare identifier grammar,
   reserved runtime-context names, malformed/non-string fragments, and escaped
@@ -746,7 +746,7 @@ or claim design closure before that point.
 
   Expected: FAIL because `ProviderTemplate` has no binding declaration.
 
-- [ ] **Step 2: Add the shared general extractor, separate target validator, and binding dataclass**
+- [x] **Step 2: Add the shared general extractor, separate target validator, and binding dataclass**
 
   In `types.py`, add one general command-placeholder extractor that applies
   `escape_provider_command_token` and returns every unescaped `${...}` name without
@@ -758,7 +758,7 @@ or claim design closure before that point.
   closed constant. Do not import the bare target validator into command execution or
   reinterpret all command placeholders as provider parameters.
 
-- [ ] **Step 3: Write the red public construction test**
+- [x] **Step 3: Write the red public construction test**
 
   Import both `CallPolicyBinding` and `ProviderTemplate` from
   `orchestrator.providers`, construct a custom public `ProviderTemplate` with a
@@ -774,7 +774,7 @@ or claim design closure before that point.
 
   Expected: FAIL because the public package does not export the new dataclass.
 
-- [ ] **Step 4: Export the explicit public dataclass API**
+- [x] **Step 4: Export the explicit public dataclass API**
 
   Import `CallPolicyBinding` from `.types` in
   `orchestrator/providers/__init__.py` and add its name to `__all__`. Keep
@@ -783,18 +783,18 @@ or claim design closure before that point.
   coercion. This is the supported programmatic custom-template construction
   contract.
 
-- [ ] **Step 5: Write red registry validation tests**
+- [x] **Step 5: Write red registry validation tests**
 
   Require programmatic `register()` and built-in initialization to apply identical
   validation. Monkeypatch an invalid built-in declaration and assert registry
   construction fails closed. Confirm a provider with no declarations remains valid.
 
-- [ ] **Step 6: Validate built-ins during registry initialization**
+- [x] **Step 6: Validate built-ins during registry initialization**
 
   Validate the dictionary returned by `_load_builtin_providers` before storing it.
   Do not route built-ins around `ProviderTemplate.validate()`.
 
-- [ ] **Step 7: Write red built-in mapping/profile data tests**
+- [x] **Step 7: Write red built-in mapping/profile data tests**
 
   Require these declarations:
 
@@ -822,14 +822,14 @@ or claim design closure before that point.
 
   Expected: FAIL because declarations/profiles are absent.
 
-- [ ] **Step 8: Add declarative built-in/profile data**
+- [x] **Step 8: Add declarative built-in/profile data**
 
   Preserve all existing built-in defaults and keyword-free commands. Add Claude
   effort only as an optional fragment. Add the two unrestricted profiles with
   `defaults={}` so caller-authored policy is required rather than hidden in profile
   data.
 
-- [ ] **Step 9: Run provider type/registry regressions**
+- [x] **Step 9: Run provider type/registry regressions**
 
   ```bash
   pytest -q \
@@ -839,7 +839,7 @@ or claim design closure before that point.
 
   Expected: PASS.
 
-- [ ] **Step 10: Review and commit**
+- [x] **Step 10: Review and commit**
 
   Check the completed Task 5 boxes and update **Execution status**. Stage this plan,
   provider types, registry, the required public export, and the two test files.

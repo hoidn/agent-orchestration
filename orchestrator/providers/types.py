@@ -2,11 +2,31 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 
 _ESCAPED_DOLLAR_SENTINEL = "\x00"
 _ESCAPED_BRACED_DOLLAR_SENTINEL = "\x01{"
+_PROVIDER_COMMAND_PLACEHOLDER_PATTERN = re.compile(r"\$\{([^}]+)\}")
+_BARE_PROVIDER_PARAM_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+CALL_POLICY_OPTION_ORDER: Tuple[str, ...] = ("model", "effort")
+_RESERVED_CALL_POLICY_TARGETS = frozenset(
+    {
+        "PROMPT",
+        "SESSION_ID",
+        "run",
+        "context",
+        "inputs",
+        "steps",
+        "loop",
+        "item",
+        "self",
+        "parent",
+        "root",
+    }
+)
 
 
 def escape_provider_command_token(token: str) -> str:
@@ -19,6 +39,24 @@ def restore_provider_command_token(token: str) -> str:
     """Restore command-template escaped literals after placeholder substitution."""
     processed = token.replace(_ESCAPED_BRACED_DOLLAR_SENTINEL, "${")
     return processed.replace(_ESCAPED_DOLLAR_SENTINEL, "$")
+
+
+def extract_provider_command_placeholders(token: str) -> Tuple[str, ...]:
+    """Return unescaped command placeholders without narrowing their names."""
+    processed = escape_provider_command_token(token)
+    return tuple(
+        match.group(1)
+        for match in _PROVIDER_COMMAND_PLACEHOLDER_PATTERN.finditer(processed)
+    )
+
+
+def is_valid_call_policy_target_param(value: object) -> bool:
+    """Return whether a call-policy target is one non-reserved bare parameter."""
+    return (
+        isinstance(value, str)
+        and _BARE_PROVIDER_PARAM_PATTERN.fullmatch(value) is not None
+        and value not in _RESERVED_CALL_POLICY_TARGETS
+    )
 
 
 class InputMode(str, Enum):
@@ -57,6 +95,19 @@ class ProviderSessionRequest:
     session_id_from: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class CallPolicyBinding:
+    """Declarative translation from one canonical option to provider argv."""
+
+    target_param: str
+    argv_fragment: Optional[Sequence[str]] = None
+
+    def __post_init__(self) -> None:
+        """Detach valid public list input from caller-owned mutable storage."""
+        if isinstance(self.argv_fragment, list):
+            object.__setattr__(self, "argv_fragment", tuple(self.argv_fragment))
+
+
 @dataclass
 class ProviderTemplate:
     """
@@ -74,6 +125,7 @@ class ProviderTemplate:
     defaults: Dict[str, Any] = field(default_factory=dict)
     input_mode: InputMode = InputMode.ARGV
     session_support: Optional[ProviderSessionSupport] = None
+    call_policy_bindings: Mapping[str, CallPolicyBinding] = field(default_factory=dict)
 
     def validate(self) -> List[str]:
         """
@@ -122,7 +174,118 @@ class ProviderTemplate:
                     )
                 )
 
+        errors.extend(self._validate_call_policy_bindings())
+
         return errors
+
+    def _validate_call_policy_bindings(self) -> List[str]:
+        """Validate canonical bindings and exact placeholder consumption."""
+        errors: List[str] = []
+        if not isinstance(self.call_policy_bindings, Mapping):
+            return [
+                f"Provider '{self.name}': call_policy_bindings must be a mapping"
+            ]
+
+        targets: set[str] = set()
+        variants = [("command", self.command)]
+        if self.session_support is not None:
+            variants.append(
+                ("session_support.fresh_command", self.session_support.fresh_command)
+            )
+            if self.session_support.resume_command is not None:
+                variants.append(
+                    (
+                        "session_support.resume_command",
+                        self.session_support.resume_command,
+                    )
+                )
+
+        for canonical_option, binding in self.call_policy_bindings.items():
+            context = f"Provider '{self.name}': call_policy_bindings[{canonical_option!r}]"
+            if canonical_option not in CALL_POLICY_OPTION_ORDER:
+                errors.append(
+                    f"{context}: canonical option must be one of "
+                    f"{', '.join(CALL_POLICY_OPTION_ORDER)}"
+                )
+                continue
+            if not isinstance(binding, CallPolicyBinding):
+                errors.append(f"{context} must be a CallPolicyBinding")
+                continue
+            if not is_valid_call_policy_target_param(binding.target_param):
+                errors.append(
+                    f"{context}.target_param must be a non-reserved bare identifier"
+                )
+                continue
+            if binding.target_param in targets:
+                errors.append(
+                    f"{context}.target_param must be unique across call-policy bindings"
+                )
+                continue
+            targets.add(binding.target_param)
+
+            target = binding.target_param
+            fragment = binding.argv_fragment
+            if fragment is None:
+                for variant_name, command in variants:
+                    if not self._is_valid_command_container(command):
+                        continue
+                    target_count = self._placeholder_count(command, target)
+                    if target_count != 1:
+                        errors.append(
+                            f"{context}: {variant_name} must contain exactly one "
+                            f"unescaped ${{{target}}} placeholder"
+                        )
+                continue
+
+            if not isinstance(fragment, tuple) or any(
+                not isinstance(token, str) for token in fragment
+            ):
+                errors.append(
+                    f"{context}.argv_fragment must be an ordered sequence of strings"
+                )
+                continue
+
+            fragment_placeholders = tuple(
+                placeholder
+                for token in fragment
+                for placeholder in extract_provider_command_placeholders(token)
+            )
+            if fragment_placeholders != (target,):
+                errors.append(
+                    f"{context}.argv_fragment must contain exactly one dynamic "
+                    f"placeholder, ${{{target}}}"
+            )
+            for variant_name, command in variants:
+                if not self._is_valid_command_container(command):
+                    continue
+                if self._placeholder_count(command, target):
+                    errors.append(
+                        f"{context}: {variant_name} must not contain an unescaped "
+                        f"${{{target}}} placeholder when argv_fragment is declared"
+                    )
+
+        return errors
+
+    @staticmethod
+    def _is_valid_command_container(command: object) -> bool:
+        """Return whether structural command validation permits consumption checks."""
+        return (
+            isinstance(command, list)
+            and bool(command)
+            and all(isinstance(token, str) for token in command)
+        )
+
+    @staticmethod
+    def _placeholder_count(command: object, target: str) -> int:
+        """Count one target across a command after template escape processing."""
+        if not isinstance(command, list):
+            return 0
+        return sum(
+            placeholder == target
+            for token in command
+            if isinstance(token, str)
+            for placeholder in extract_provider_command_placeholders(token)
+        )
 
     def _validate_command_tokens(
         self,
@@ -140,12 +303,17 @@ class ProviderTemplate:
 
         session_id_count = 0
         for token in command:
-            if self.input_mode == InputMode.STDIN and "${PROMPT}" in token:
+            if not isinstance(token, str):
+                errors.append(
+                    f"Provider '{self.name}': {command_label} tokens must be strings"
+                )
+                continue
+            placeholders = extract_provider_command_placeholders(token)
+            if self.input_mode == InputMode.STDIN and "PROMPT" in placeholders:
                 errors.append(
                     f"Provider '{self.name}': ${{PROMPT}} not allowed in stdin mode"
                 )
-            processed = escape_provider_command_token(token)
-            token_session_ids = processed.count("${SESSION_ID}")
+            token_session_ids = placeholders.count("SESSION_ID")
             session_id_count += token_session_ids
             if token_session_ids and not allow_session_id:
                 errors.append(

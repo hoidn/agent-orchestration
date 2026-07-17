@@ -5,6 +5,7 @@ Provides registry, executor, and types for managing and executing provider templ
 """
 
 from .types import (
+    CallPolicyBinding,
     ProviderTemplate,
     ProviderParams,
     ProviderInvocation,
@@ -19,6 +20,7 @@ from .executor import ProviderExecutor, ProviderExecutionResult
 
 
 __all__ = [
+    "CallPolicyBinding",
     "ProviderTemplate",
     "ProviderParams",
     "ProviderInvocation",
