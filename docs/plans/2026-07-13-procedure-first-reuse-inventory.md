@@ -1,6 +1,6 @@
 # Procedure-First Reuse Inventory
 
-Status: Task 4 Step 1 active; generic YAML group audited
+Status: Task 4 Step 1 active; generic and NeurIPS YAML groups audited
 Source commit: `db9889937a895d67810dee1ea0b1b53552d30eca`
 Schema: `procedure_first_reuse_inventory.v2`
 
@@ -14,8 +14,8 @@ remaining 95 active internal calls classify as:
 | Classification | Sites | Meaning |
 | --- | ---: | --- |
 | `procedure-candidate` | 22 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
-| `effect-adapter` | 28 | Calls retained until effect, identity, artifact, publication, source-map, child-call, exported-entry, state-consumer, live-route, and resume obligations are proven. |
-| `legacy-retire` | 45 | Compatibility, legacy, or example-only calls that retire with their family instead of being translated. |
+| `effect-adapter` | 16 | Calls retained until effect, identity, artifact, publication, source-map, child-call, exported-entry, state-consumer, live-route, and resume obligations are proven. |
+| `legacy-retire` | 57 | Compatibility, legacy, or example-only calls that retire with their family instead of being translated. |
 | `public-boundary` | 0 | Public entries are recorded separately; they are not internal call sites. |
 
 The machine-readable authority for individual rows is
@@ -43,13 +43,9 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `effect-adapter` | `workflows/examples/same_file_record_call_binding.orc` | 1 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta/design_gap_architect.orc` | 4 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc` | 3 |
-| `effect-adapter` | `workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml` | 3 |
-| `effect-adapter` | `workflows/examples/neurips_steered_backlog_drain.yaml` | 3 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta_done_review.v214.yaml` | 2 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta_work_item.v214.yaml` | 2 |
 | `effect-adapter` | `workflows/library/lisp_frontend_work_item.v214.yaml` | 2 |
-| `effect-adapter` | `workflows/library/neurips_selected_backlog_item.v214.yaml` | 3 |
-| `effect-adapter` | `workflows/library/neurips_selected_backlog_item.yaml` | 3 |
 | `legacy-retire` | `workflows/examples/backlog_priority_design_plan_impl_stack_v2_call.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/call_subworkflow_demo.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/depends_on_inject_imported_v2_call.yaml` | 1 |
@@ -62,7 +58,9 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `legacy-retire` | `workflows/examples/major_project_tranche_design_plan_impl_stack_v2_call.yaml` | 2 |
 | `legacy-retire` | `workflows/examples/major_project_tranche_drain_from_manifest_v2_call.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/major_project_tranche_drain_stack_v2_call.yaml` | 2 |
+| `legacy-retire` | `workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml` | 3 |
 | `legacy-retire` | `workflows/examples/neurips_steered_backlog_drain.legacy.yaml` | 3 |
+| `legacy-retire` | `workflows/examples/neurips_steered_backlog_drain.yaml` | 3 |
 | `legacy-retire` | `workflows/examples/repeat_until_demo.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/revision_study_priority_design_plan_impl_stack_v2_call.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/typed_workflow_ast_ir_pipeline_finish_item0.yaml` | 1 |
@@ -70,6 +68,8 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `legacy-retire` | `workflows/library/major_project_tranche_design_plan_impl_stack.yaml` | 3 |
 | `legacy-retire` | `workflows/library/major_project_tranche_drain_iteration.yaml` | 2 |
 | `legacy-retire` | `workflows/library/major_project_tranche_plan_impl_from_approved_design_stack.yaml` | 1 |
+| `legacy-retire` | `workflows/library/neurips_selected_backlog_item.v214.yaml` | 3 |
+| `legacy-retire` | `workflows/library/neurips_selected_backlog_item.yaml` | 3 |
 | `legacy-retire` | `workflows/library/revision_study_design_plan_impl_stack.yaml` | 3 |
 | `legacy-retire` | `workflows/library/revision_study_priority_design_plan_impl_stack.yaml` | 1 |
 | `legacy-retire` | `workflows/library/seeded_design_plan_impl_stack.yaml` | 1 |
@@ -223,6 +223,77 @@ This audit changes inventory classification and counts only. It makes no YAML
 source change, advances neither Task 4 nor Stage 6, creates no public-entry
 record, and supplies no family parity, deletion authorization, state upgrader,
 identity remap, or cross-source resume contract.
+
+## Task 4 NeurIPS YAML Reclassification Audit
+
+Status: Task 4 Step 1 evidence; classification only
+
+### Decision
+
+Reclassify exactly the 12 NeurIPS internal-call records below from
+`effect-adapter` to `legacy-retire`. The deletion-first amendment in
+`2026-07-07-yaml-retirement-program.md` confirms that the NeurIPS campaign is
+finished and places every YAML family other than `verified_iteration_drain`
+and `generic_run_watchdog` outside the survivor set. These calls therefore
+retire with their containing YAML families; none becomes a
+`procedure-candidate`.
+
+The calls remain real child-workflow boundaries. They own or expose provider,
+command, artifact, publication, nested-frame, checkpoint/state, and resume
+effects. `legacy-retire` records the containing-family disposition; it proves
+no parity and supplies no deletion authorization, identity remap, or
+cross-source resume contract. Stage 6 remains responsible for source-removal,
+external-reference, archive, and retained-state gates.
+
+### Exact Records And Stable Locators
+
+| Source | Alias | Stable ID | Source line | Resolved import evidence |
+| --- | --- | --- | ---: | --- |
+| `workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml` | `tranche_selector` | `internal-call:workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml:tranche_selector:1` | 179 | `workflows/library/roadmap_tranche_selector.yaml` |
+| `workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml` | `plan_phase` | `internal-call:workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml:plan_phase:1` | 285 | `workflows/library/roadmap_seeded_plan_phase.yaml` |
+| `workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml` | `implementation_phase` | `internal-call:workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml:implementation_phase:1` | 302 | `workflows/library/design_plan_impl_implementation_phase.yaml` |
+| `workflows/examples/neurips_steered_backlog_drain.yaml` | `selector` | `internal-call:workflows/examples/neurips_steered_backlog_drain.yaml:selector:1` | 393 | `workflows/library/neurips_backlog_selector.v214.yaml` |
+| `workflows/examples/neurips_steered_backlog_drain.yaml` | `gap_drafter` | `internal-call:workflows/examples/neurips_steered_backlog_drain.yaml:gap_drafter:1` | 447 | `workflows/library/neurips_backlog_gap_drafter.v214.yaml` |
+| `workflows/examples/neurips_steered_backlog_drain.yaml` | `selected_item` | `internal-call:workflows/examples/neurips_steered_backlog_drain.yaml:selected_item:1` | 564 | `workflows/library/neurips_selected_backlog_item.v214.yaml` |
+| `workflows/library/neurips_selected_backlog_item.v214.yaml` | `roadmap_sync_phase` | `internal-call:workflows/library/neurips_selected_backlog_item.v214.yaml:roadmap_sync_phase:1` | 182 | `workflows/library/neurips_backlog_roadmap_sync.v214.yaml` |
+| `workflows/library/neurips_selected_backlog_item.v214.yaml` | `plan_phase` | `internal-call:workflows/library/neurips_selected_backlog_item.v214.yaml:plan_phase:1` | 322 | `workflows/library/neurips_backlog_seeded_plan_phase.v214.yaml` |
+| `workflows/library/neurips_selected_backlog_item.v214.yaml` | `implementation_phase` | `internal-call:workflows/library/neurips_selected_backlog_item.v214.yaml:implementation_phase:1` | 501 | `workflows/library/neurips_backlog_implementation_phase.v214.yaml` |
+| `workflows/library/neurips_selected_backlog_item.yaml` | `roadmap_sync_phase` | `internal-call:workflows/library/neurips_selected_backlog_item.yaml:roadmap_sync_phase:1` | 176 | `workflows/library/neurips_backlog_roadmap_sync_phase.yaml` |
+| `workflows/library/neurips_selected_backlog_item.yaml` | `plan_phase` | `internal-call:workflows/library/neurips_selected_backlog_item.yaml:plan_phase:1` | 316 | `workflows/library/neurips_backlog_seeded_plan_phase.yaml` |
+| `workflows/library/neurips_selected_backlog_item.yaml` | `implementation_phase` | `internal-call:workflows/library/neurips_selected_backlog_item.yaml:implementation_phase:1` | 495 | `workflows/library/neurips_backlog_implementation_phase.yaml` |
+
+The stable IDs, source paths, source-line locators, aliases, callee tokens, and
+`yaml-import-alias` resolution are unchanged.
+
+### Effect, Publication, And Resume Audit
+
+| Containing family | Child resolution and effects | Identity and retirement conclusion |
+| --- | --- | --- |
+| `neurips_hybrid_resnet_plan_impl_review.yaml` | The selector child uses command, provider, structured-output, artifact, and publication steps. The plan and implementation children use command/provider execution, review loops, validated outputs, and report publication. The caller assigns per-iteration state roots, updates the progress ledger, and publishes the drain summary. | All three calls create genuine child frames with their own state/checkpoint and resume surfaces. The finished campaign is outside the survivor set, so the calls retire with the containing family without inline translation or identity remapping. |
+| `neurips_steered_backlog_drain.yaml` | The selector resolves to its `v214` library and performs provider/command work with a structured bundle and direct publications. The `v214` gap drafter performs provider/command work with structured output bundles but has no direct `publishes`; its results feed the containing drain, which owns route and summary publication. `selected_item` resolves to the `v214` selected-item library, which in turn owns roadmap-sync, plan, and implementation child calls, review/validation routes, run-state updates, item artifacts, and outcome publication. | The parent call sites and nested selected-item calls retain distinct per-iteration state roots, child frames, checkpoints, and recovery/resume behavior. The containing campaign family retires as a unit; this audit does not flatten or translate its nested call graph. |
+| `neurips_selected_backlog_item.v214.yaml` | Roadmap sync, planning, and implementation resolve to the three exact `v214` libraries listed above. Together they perform provider and command execution, variant/structured result validation, review loops, report/artifact publication, failure routing, and selected-item finalization. | The three child workflows own distinct phase state roots and observable resume/checkpoint identity. They retire with this non-survivor YAML library family and are not transferred to a new procedure identity. |
+| `neurips_selected_backlog_item.yaml` | The v2.7 roadmap-sync, seeded-plan, and implementation children likewise perform command/provider work, review loops, expected-output validation, artifact publication, and terminal selected-item updates. | The three calls have real child-frame and checkpoint/resume obligations. Their `legacy-retire` classification follows the containing-family decision only and does not claim equivalence with the `v214` family or any `.orc` source. |
+
+None of these 12 internal calls is a `public-entry`. A runnable containing YAML
+workflow does not transfer public-boundary status to its internal call sites,
+so each row retains empty `public_boundary_evidence` and classification outside
+both `procedure-candidate` and `public-boundary`.
+
+### Evidence And Claim Boundary
+
+- Estate authority: the 2026-07-14 deletion-first steering amendment in
+  `docs/plans/2026-07-07-yaml-retirement-program.md`.
+- Caller and callee evidence: the four source files and the exact imported
+  library files in the table above.
+- Inventory audit: this section in
+  `docs/plans/2026-07-13-procedure-first-reuse-inventory.md`.
+- Structural lock:
+  `tests/test_workflow_lisp_procedure_first_migrations.py::test_neurips_yaml_effect_adapter_inventory_rows_retire_with_finished_campaign`.
+
+This audit changes classification counts from 22/28/45 to 22/16/57 for
+procedure candidates, effect adapters, and legacy-retire rows. The eight
+separate public entries and one history row are unchanged. No YAML source is
+modified; this group does not complete Task 4 or begin Stage 6.
 
 ## Exclusions
 

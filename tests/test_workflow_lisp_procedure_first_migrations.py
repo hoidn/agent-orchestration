@@ -280,8 +280,8 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
         "total": 95,
         "by_classification": {
             "procedure-candidate": 22,
-            "effect-adapter": 28,
-            "legacy-retire": 45,
+            "effect-adapter": 16,
+            "legacy-retire": 57,
             "public-boundary": 0,
         },
     }
@@ -378,6 +378,132 @@ def test_generic_yaml_effect_adapter_inventory_rows_retire_with_families() -> No
         "artifacts/work/review-parity-check/design_delta_parent_drain.json"
         in records_by_id[proc_ref_id]["evidence_paths"]
     )
+
+
+def test_neurips_yaml_effect_adapter_inventory_rows_retire_with_finished_campaign() -> None:
+    inventory = _load_json(REUSE_INVENTORY)
+    records_by_id = {row["id"]: row for row in inventory["records"]}
+    expected_records = {
+        "internal-call:workflows/examples/"
+        "neurips_hybrid_resnet_plan_impl_review.yaml:tranche_selector:1": (
+            179,
+            "tranche_selector",
+            "workflows/library/roadmap_tranche_selector.yaml",
+        ),
+        "internal-call:workflows/examples/"
+        "neurips_hybrid_resnet_plan_impl_review.yaml:plan_phase:1": (
+            285,
+            "plan_phase",
+            "workflows/library/roadmap_seeded_plan_phase.yaml",
+        ),
+        "internal-call:workflows/examples/"
+        "neurips_hybrid_resnet_plan_impl_review.yaml:implementation_phase:1": (
+            302,
+            "implementation_phase",
+            "workflows/library/design_plan_impl_implementation_phase.yaml",
+        ),
+        "internal-call:workflows/examples/"
+        "neurips_steered_backlog_drain.yaml:selector:1": (
+            393,
+            "selector",
+            "workflows/library/neurips_backlog_selector.v214.yaml",
+        ),
+        "internal-call:workflows/examples/"
+        "neurips_steered_backlog_drain.yaml:gap_drafter:1": (
+            447,
+            "gap_drafter",
+            "workflows/library/neurips_backlog_gap_drafter.v214.yaml",
+        ),
+        "internal-call:workflows/examples/"
+        "neurips_steered_backlog_drain.yaml:selected_item:1": (
+            564,
+            "selected_item",
+            "workflows/library/neurips_selected_backlog_item.v214.yaml",
+        ),
+        "internal-call:workflows/library/"
+        "neurips_selected_backlog_item.v214.yaml:roadmap_sync_phase:1": (
+            182,
+            "roadmap_sync_phase",
+            "workflows/library/neurips_backlog_roadmap_sync.v214.yaml",
+        ),
+        "internal-call:workflows/library/"
+        "neurips_selected_backlog_item.v214.yaml:plan_phase:1": (
+            322,
+            "plan_phase",
+            "workflows/library/neurips_backlog_seeded_plan_phase.v214.yaml",
+        ),
+        "internal-call:workflows/library/"
+        "neurips_selected_backlog_item.v214.yaml:implementation_phase:1": (
+            501,
+            "implementation_phase",
+            "workflows/library/neurips_backlog_implementation_phase.v214.yaml",
+        ),
+        "internal-call:workflows/library/"
+        "neurips_selected_backlog_item.yaml:roadmap_sync_phase:1": (
+            176,
+            "roadmap_sync_phase",
+            "workflows/library/neurips_backlog_roadmap_sync_phase.yaml",
+        ),
+        "internal-call:workflows/library/"
+        "neurips_selected_backlog_item.yaml:plan_phase:1": (
+            316,
+            "plan_phase",
+            "workflows/library/neurips_backlog_seeded_plan_phase.yaml",
+        ),
+        "internal-call:workflows/library/"
+        "neurips_selected_backlog_item.yaml:implementation_phase:1": (
+            495,
+            "implementation_phase",
+            "workflows/library/neurips_backlog_implementation_phase.yaml",
+        ),
+    }
+    audit_path = REUSE_INVENTORY_NARRATIVE.relative_to(REPO_ROOT).as_posix()
+    governing_plan = "docs/plans/2026-07-07-yaml-retirement-program.md"
+    selector = (
+        "tests/test_workflow_lisp_procedure_first_migrations.py::"
+        "test_neurips_yaml_effect_adapter_inventory_rows_retire_with_finished_campaign"
+    )
+    neurips_sources = {
+        "workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml",
+        "workflows/examples/neurips_steered_backlog_drain.yaml",
+        "workflows/library/neurips_selected_backlog_item.v214.yaml",
+        "workflows/library/neurips_selected_backlog_item.yaml",
+    }
+    observed_ids = {
+        row["id"]
+        for row in inventory["records"]
+        if row["source_path"] in neurips_sources
+    }
+
+    assert observed_ids == set(expected_records)
+    for record_id, (
+        source_line,
+        call_alias,
+        callee_evidence,
+    ) in expected_records.items():
+        record = records_by_id[record_id]
+        assert record["record_kind"] == "internal-call"
+        assert record["frontend"] == "yaml"
+        assert record["source_line"] == source_line
+        assert record["call_alias"] == call_alias
+        assert record["callee"] == call_alias
+        assert record["resolution"] == "yaml-import-alias"
+        assert record["classification"] == "legacy-retire"
+        assert record["classification"] not in {
+            "procedure-candidate",
+            "public-boundary",
+        }
+        assert record["live_status"] == "retained-compatibility"
+        assert record["effect_summary"] == ["workflow-call"]
+        assert record["public_boundary_evidence"] == []
+        assert record["named_substrate_gap"] is None
+        assert {
+            record["source_path"],
+            callee_evidence,
+            governing_plan,
+            audit_path,
+            selector,
+        } <= set(record["evidence_paths"])
 
 
 def _tracked_design_phase_proposed_inline_source(old_source: bytes) -> bytes:
