@@ -24,8 +24,8 @@ from orchestrator.workflow_lisp.lexical_checkpoints import resolve_checkpoint_in
 FIXTURE_ROOT = (
     Path(__file__).parent / "fixtures" / "workflow_lisp" / "provider_call_policy"
 )
-POLICY_FIXTURE_FILES = (
-    "policy.orc",
+E2E_FIXTURE_FILES = (
+    "policy_e2e.orc",
     "prompt.md",
     "prompts.json",
     "providers.json",
@@ -70,19 +70,19 @@ class _PostPersistInterruption(BaseException):
 
 def _copy_fixture(workspace: Path, provider_profile: str) -> dict[str, Path]:
     copied: dict[str, Path] = {}
-    for name in POLICY_FIXTURE_FILES:
+    for name in E2E_FIXTURE_FILES:
         destination = workspace / name
         destination.write_bytes((FIXTURE_ROOT / name).read_bytes())
         copied[name] = destination
     nested_prompt = workspace / "tests/fixtures/workflow_lisp/provider_call_policy/prompt.md"
     nested_prompt.parent.mkdir(parents=True, exist_ok=True)
     nested_prompt.write_bytes((FIXTURE_ROOT / "prompt.md").read_bytes())
-    copied["policy.orc"].write_text(
-        copied["policy.orc"]
+    copied["policy_e2e.orc"].write_text(
+        copied["policy_e2e.orc"]
         .read_text(encoding="utf-8")
         .replace(
             '  (:target-dsl "2.15")\n',
-            '  (:target-dsl "2.15")\n  (defmodule policy)\n  (export policy)\n',
+            '  (:target-dsl "2.15")\n  (defmodule policy_e2e)\n  (export policy)\n',
             1,
         )
         .replace("providers.execute", PROVIDER_EXTERNS[provider_profile])
@@ -94,7 +94,7 @@ def _copy_fixture(workspace: Path, provider_profile: str) -> dict[str, Path]:
 
 def _build_request(workspace: Path, files: dict[str, Path]) -> FrontendBuildRequest:
     return FrontendBuildRequest(
-        source_path=files["policy.orc"],
+        source_path=files["policy_e2e.orc"],
         source_roots=(workspace,),
         entry_workflow="policy",
         provider_externs_path=files["providers.json"],
@@ -108,7 +108,7 @@ def _build_request(workspace: Path, files: dict[str, Path]) -> FrontendBuildRequ
 
 def _run_args(files: dict[str, Path]) -> Namespace:
     return Namespace(
-        workflow=str(files["policy.orc"]),
+        workflow=str(files["policy_e2e.orc"]),
         context=None,
         context_file=None,
         input=[f"model={MODEL}", f"effort={EFFORT}"],
@@ -138,7 +138,7 @@ def _run_args(files: dict[str, Path]) -> Namespace:
         live_agent_note_timeout_sec=30,
         live_agent_note_max_tail_chars=6000,
         entry_workflow="policy",
-        source_root=[str(files["policy.orc"].parent)],
+        source_root=[str(files["policy_e2e.orc"].parent)],
         provider_externs_file=str(files["providers.json"]),
         prompt_externs_file=str(files["prompts.json"]),
         imported_workflow_bundles_file=None,
@@ -151,9 +151,9 @@ def _run_argv(files: dict[str, Path]) -> list[str]:
     return [
         "orchestrator",
         "run",
-        str(files["policy.orc"]),
+        str(files["policy_e2e.orc"]),
         "--source-root",
-        str(files["policy.orc"].parent),
+        str(files["policy_e2e.orc"].parent),
         "--entry-workflow",
         "policy",
         "--provider-externs-file",
@@ -372,7 +372,7 @@ def test_public_compile_run_resume_uses_call_policy(
     assert resume_exit == 0
     assert resume_build.call_count == 1
     resume_request = resume_build.call_args.args[0]
-    assert (tmp_path / resume_request.source_path).resolve() == files["policy.orc"].resolve()
+    assert (tmp_path / resume_request.source_path).resolve() == files["policy_e2e.orc"].resolve()
     assert resume_request.source_roots == (tmp_path.resolve(),)
     assert len(invocations) == 1
     assert len(command_executions) == 1
@@ -413,8 +413,8 @@ def test_public_resume_rejects_provider_call_policy_drift(
 ) -> None:
     files = _copy_fixture(tmp_path, "codex_unrestricted_workspace")
     if drift_kind == "added_keyword":
-        files["policy.orc"].write_text(
-            files["policy.orc"].read_text(encoding="utf-8").replace(
+        files["policy_e2e.orc"].write_text(
+            files["policy_e2e.orc"].read_text(encoding="utf-8").replace(
                 "               :timeout-sec 7200\n",
                 "",
             ),
@@ -425,7 +425,7 @@ def test_public_resume_rejects_provider_call_policy_drift(
         files,
         monkeypatch,
     )
-    source = files["policy.orc"].read_text(encoding="utf-8")
+    source = files["policy_e2e.orc"].read_text(encoding="utf-8")
     if drift_kind == "literal":
         source = source.replace(":timeout-sec 7200", ":timeout-sec 7201")
     elif drift_kind == "binding":
@@ -437,7 +437,7 @@ def test_public_resume_rejects_provider_call_policy_drift(
         )
     else:
         source = source.replace("               :effort effort\n", "")
-    files["policy.orc"].write_text(source, encoding="utf-8")
+    files["policy_e2e.orc"].write_text(source, encoding="utf-8")
 
     command_launches: list[str] = []
 
@@ -495,8 +495,8 @@ def test_resume_rebuilds_non_authoritative_views_and_rejects_authoritative_sourc
         source_files,
         monkeypatch,
     )
-    source = source_files["policy.orc"].read_text(encoding="utf-8")
-    source_files["policy.orc"].write_text(
+    source = source_files["policy_e2e.orc"].read_text(encoding="utf-8")
+    source_files["policy_e2e.orc"].write_text(
         source.replace(":model model", ":model effort"),
         encoding="utf-8",
     )

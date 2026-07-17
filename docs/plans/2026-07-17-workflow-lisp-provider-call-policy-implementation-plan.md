@@ -28,8 +28,8 @@ tmux.
 `docs/plans/2026-07-17-workflow-lisp-provider-call-policy-design.md` at commit
 `069b8e79`.
 
-**Execution status:** Tasks 1-6 are complete; Task 7 implementation and regression
-gates are green, with independent review/commit remaining. This plan is a living,
+**Execution status:** Tasks 1-7 are committed. Task 8's fixture-ownership repair is
+staged; its focused, public-smoke, and broad acceptance gates remain. This plan is a living,
 reviewed execution artifact: every task updates its own completed checkboxes and the status line above,
 stages this file with that task's code/tests, and commits the plan update in the same
 task commit. A task may mark its implementation/test steps complete before review;
@@ -134,6 +134,9 @@ never use `git add -A`, `git add .`, or a broad directory add.
   stable provider-result with none of the new keywords.
 - Create `tests/fixtures/workflow_lisp/provider_call_policy/policy.orc`: root input
   model/effort plus literal timeout fixture.
+- Create `tests/fixtures/workflow_lisp/provider_call_policy/policy_e2e.orc`:
+  command-bearing public run/resume fixture; the shared `policy.orc` remains
+  provider-only for compiler and lowering tests.
 - Create `tests/fixtures/workflow_lisp/provider_call_policy/procedure_policy.orc`:
   nested inline procedure and loop/control preservation fixture.
 - Create `tests/fixtures/workflow_lisp/provider_call_policy/providers.json`:
@@ -1004,7 +1007,10 @@ or claim design closure before that point.
 - Create: `tests/test_workflow_lisp_provider_call_policy_e2e.py`
 - Create: `tests/fixtures/workflow_lisp/provider_call_policy/finish.py`
 - Create: `tests/fixtures/workflow_lisp/provider_call_policy/commands.json`
-- Modify: `tests/fixtures/workflow_lisp/provider_call_policy/policy.orc`
+- Modify/restore: `tests/fixtures/workflow_lisp/provider_call_policy/policy.orc`
+  (Task 8 repair restores the shared provider-only compiler/lowering fixture
+  byte-for-byte to its pre-Task-7 content)
+- Create: `tests/fixtures/workflow_lisp/provider_call_policy/policy_e2e.orc`
 - Modify: `tests/fixtures/workflow_lisp/provider_call_policy/providers.json`
 - Modify: `tests/fixtures/workflow_lisp/provider_call_policy/prompts.json`
 - Verify only: `orchestrator/workflow/executor.py` (existing post-persist hook)
@@ -1018,6 +1024,10 @@ or claim design closure before that point.
   provider extern, author a positive literal timeout, return a validated structured
   provider result, then reach a deterministic command-result boundary that fails
   until a marker exists. The command writes only to the runtime-bound bundle path.
+  Task 8 repair note: this command-bearing workflow lives only in `policy_e2e.orc`;
+  the shared `policy.orc` remains provider-only so focused compiler/lowering tests
+  intentionally compile it without command boundary metadata. The E2E build/run
+  path alone supplies `commands.json`.
 
 - [x] **Step 2: Collect the new tests before running them**
 
@@ -1112,7 +1122,7 @@ or claim design closure before that point.
 
   Expected: PASS.
 
-- [ ] **Step 9: Review and commit**
+- [x] **Step 9: Review and commit**
 
   Check the completed Task 7 boxes and update **Execution status**. Stage this plan,
   the E2E test and five fixture/profile files, plus the generic completed-effect
@@ -1128,7 +1138,25 @@ or claim design closure before that point.
 **Files:**
 
 - Modify: `docs/plans/2026-07-17-workflow-lisp-provider-call-policy-implementation-plan.md`
+- Modify/restore: `tests/fixtures/workflow_lisp/provider_call_policy/policy.orc`
+- Create: `tests/fixtures/workflow_lisp/provider_call_policy/policy_e2e.orc`
+- Modify: `tests/test_workflow_lisp_provider_call_policy_e2e.py`
 - Verify only: implementation and test files from Tasks 1-7
+
+- [x] **Step 0: Implement and prove the fixture-ownership repair**
+
+  The first Task 8 focused run rejected 16 compiler/lowering tests because Task 7
+  had put the E2E-only `command-result` into the shared provider-policy fixture.
+  Restore `policy.orc` byte-for-byte to its pre-Task-7 provider-only content, move
+  the command-bearing workflow to `policy_e2e.orc`, and route only the public E2E
+  helper through that source plus `commands.json`. Preserve the command-contract
+  lint unchanged. Before continuing the gate, require the provider-policy plus E2E
+  tranche and the complete Task 8 focused list to pass.
+
+  This checkbox records only the repair implementation and its pre-review regression
+  proof. It does not claim review or commit completion. Both independent approvals
+  and the byte-identical repair commit are a separate gate before Step 1 continues;
+  the execution-status line records that lifecycle state.
 
 - [ ] **Step 1: Collect the exact public smoke node and focused feature set**
 
