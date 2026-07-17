@@ -38,11 +38,14 @@ constructor gains a keyword-only `emit_yaml_deprecation_warning: bool = True`
 policy. On every public root-load call whose requested path has a case-insensitive
 `.yaml` or `.yml` suffix, the loader emits one WARNING record before parsing.
 
-The record uses a dedicated logger and structured fields:
+The record contract is exact:
 
-- a stable event code;
-- the requested workflow path; and
-- the normalized authored format (`yaml`).
+- logger: `orchestrator.loader.yaml_deprecation`;
+- level: `WARNING`;
+- `workflow_deprecation_code`: `workflow_yaml_authoring_deprecated`;
+- `workflow_deprecation_path`: the string form of
+  `Path(requested_path).resolve(strict=False)`; and
+- `workflow_deprecation_format`: `yaml`.
 
 Tests assert the logger, count, level, and structured fields. They do not assert
 literal warning phrasing.
@@ -67,6 +70,16 @@ Persisted compatibility consumers opt out explicitly:
 - `orchestrator report`; and
 - dashboard legacy projection.
 
+Persisted `.orc` resume is also covered. `FrontendBuildRequest` gains the same
+keyword policy with a default of `True`. `build_frontend_bundle()` forwards it
+only to the `WorkflowLoader` used for explicit legacy YAML bundle dependencies.
+Resume passes `False` when it rebuilds a persisted `.orc` source. This policy is
+observability-only: it is excluded from source/build fingerprints, manifests,
+bundle identity, semantic/executable IR, and persisted state. A fresh build with
+N explicit YAML manifest roots emits N events (one per public dependency-root
+load); recursive imports below each root remain silent. A persisted `.orc`
+resume over the same manifest emits none.
+
 The opt-out changes only event emission. It does not change parsing, validation,
 diagnostics, execution, resume state, exit codes, or bundle identity.
 
@@ -80,6 +93,10 @@ The default authoring route changes to `.orc` in:
 - `docs/workflow_drafting_guide.md`;
 - `workflows/README.md`; and
 - `workflows/templates/README.md`.
+
+The normative warning contract is added to `specs/dsl.md`. The accepted design
+is linked from the Task-4 roadmap owner and `docs/index.md`, and the YAML row in
+`docs/capability_status_matrix.md` records the design and implemented evidence.
 
 The YAML guide remains available for existing compatibility files. The frozen
 `workflows/templates/autonomous_drain_with_work_instructions.v214.yaml` file is
@@ -99,8 +116,10 @@ classification across commands.
 
 Rejected as unnecessary machinery for a frontend scheduled for deletion. An
 enum would better support several long-lived load purposes, but Task 4 needs
-only fresh-default versus persisted-compatibility suppression. The boolean is
-keyword-only and remains local to the legacy facade.
+only fresh-default versus persisted-compatibility suppression. The loader
+constructor keeps the boolean keyword-only; the build-request field propagates
+that warning-only policy only to explicit legacy YAML dependency loads and is
+excluded from semantic identity and fingerprints.
 
 ### `warnings.warn`
 
@@ -131,9 +150,11 @@ Behavioral tests must cover both directions:
 5. explicit suppression and non-YAML suffixes emit none;
 6. two explicit fresh root loads emit two;
 7. persisted resume, report, and dashboard reads emit none;
-8. fresh CLI YAML run and fresh `.orc` YAML-bundle dependency paths emit one;
-9. `.orc` without a YAML bundle dependency emits none; and
-10. author/template routing selects `.orc` while retaining the YAML guide only
+8. persisted `.orc` resume with YAML bundle dependencies also emits none;
+9. fresh CLI YAML run and fresh `.orc` YAML-bundle dependency paths emit one
+   event per explicit YAML dependency root;
+10. `.orc` without a YAML bundle dependency emits none; and
+11. author/template routing selects `.orc` while retaining the YAML guide only
     as compatibility documentation.
 
 After narrow tests, run the affected CLI, resume, report, dashboard, loader,
@@ -143,7 +164,7 @@ and code-quality review before advancing the Stage 6 selector to Task 5.
 ## Future cost
 
 The boolean policy is intentionally less expressive than a general load-purpose
-enum. If another authored frontend starts sharing `WorkflowLoader`, or if more
-than fresh-versus-persisted warning policy is needed before Task 7, the facade
-will require an explicit policy type. Keeping the switch keyword-only and on the
-legacy facade confines that future change.
+enum. If another authored frontend needs more than fresh-versus-persisted
+warning policy before Task 7, the facade/build request will require an explicit
+policy type. Keeping the switch keyword-only, observability-only, and out of
+fingerprints confines that future change.

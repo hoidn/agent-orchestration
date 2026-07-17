@@ -206,6 +206,11 @@ document owns the answer.
 **Keywords:** yaml, orc, retirement, gap-list, completed, provider-policy, parity
 **Use this when:** Designing either retained `.orc` port, checking its still-binding provider/prompt/parity gates, or reviewing why the protected holdout remains owner-gated.
 
+### [YAML Deprecation Surface Design](plans/2026-07-17-yaml-deprecation-surface-design.md)
+**Description:** Accepted Stage-6 Task-4 design for one structured warning per fresh YAML/YML root load, explicit persisted-read suppression including `.orc` rebuild dependencies, and `.orc`-first author/template routing without YAML rejection.
+**Keywords:** yaml, deprecation, warning, fresh-load, persisted-resume, task-4
+**Use this when:** Implementing or reviewing the advisory YAML deprecation boundary before Task 7 parser removal.
+
 ### [Tracked-Design Phase Identity-Retirement Plan](plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md)
 **Description:** Completed bounded eligibility decision for Migration Waves Task 2 Step 1. The generic scanner found 26 supported old-identity consumers in the retained pilot store, so the callee remains a workflow and its row is retained as `effect-adapter`; no source, YAML, remap, or cross-source-resume change occurred.
 **Keywords:** procedure-first, migration-wave, tracked-design, identity-retirement, completed, eligibility-stop

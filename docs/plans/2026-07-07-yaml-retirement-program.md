@@ -177,6 +177,11 @@ code-quality review returned APPROVED for exact HEAD `7cc6f1d2`.
 
 ### Task 4: Add the deprecation surface — GATE ALREADY SATISFIED
 
+**Task 4 design:**
+`docs/plans/2026-07-17-yaml-deprecation-surface-design.md` defines the exact
+fresh-root event schema, persisted-read suppression (including `.orc` rebuilds
+with legacy YAML bundle dependencies), and new-author routing boundary.
+
 - [ ] The promoted Design Delta `.orc` primary satisfies this task's real-target
   gate; warning work need not wait for either new Task-5 port. Warn once on
   fresh YAML/YML loads. Existing persisted-run resume behavior remains
