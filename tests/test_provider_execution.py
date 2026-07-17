@@ -318,6 +318,52 @@ class TestProviderExecutor:
         assert "${PROMPT}" not in command_str
         assert "test-model" in command_str
 
+    def test_policy_absence_preserves_native_codex_and_keyword_free_claude_argv(self):
+        default_codex, default_error = self.executor.prepare_invocation(
+            "codex", ProviderParams(), {}, "prompt"
+        )
+        overridden_codex, overridden_error = self.executor.prepare_invocation(
+            "codex",
+            ProviderParams(params={"reasoning_effort": "medium"}),
+            {},
+            "prompt",
+        )
+        claude, claude_error = self.executor.prepare_invocation(
+            "claude", ProviderParams(), {}, "prompt"
+        )
+
+        assert default_error is overridden_error is claude_error is None
+        assert default_codex is not None
+        assert overridden_codex is not None
+        assert claude is not None
+        assert "reasoning_effort=high" in default_codex.command
+        assert "reasoning_effort=medium" in overridden_codex.command
+        assert "--effort" not in claude.command
+
+    def test_yaml_local_provider_params_keep_native_and_unused_compatibility(self):
+        errors = self.registry.register_from_workflow(
+            {
+                "yaml-local": {
+                    "command": ["tool", "${model}", "$${literal}"],
+                    "defaults": {"model": "default"},
+                    "input_mode": "stdin",
+                }
+            }
+        )
+
+        invocation, error = self.executor.prepare_invocation(
+            "yaml-local",
+            ProviderParams(
+                params={"model": "native", "unused_compatibility": "retained"}
+            ),
+            {},
+        )
+
+        assert errors == []
+        assert error is None
+        assert invocation is not None
+        assert invocation.command == ["tool", "native", "${literal}"]
+
     def test_managed_invocation_timeout_terminates_process_tree(self):
         """Managed provider timeout kills the guard process group, including children."""
         pid_file = self.workspace / "child.pid"
@@ -477,6 +523,24 @@ class TestProviderExecutor:
         command_str = " ".join(invocation.command)
         assert "20250115T120000Z" in command_str
         assert "/workspace/output.txt" in command_str
+
+    def test_provider_param_substitution_retains_missing_values_across_mapping_entries(self):
+        """One merged parameter pass must not lose an earlier missing variable."""
+        substituted, errors = self.executor._substitute_params(
+            {
+                "missing": "${inputs.missing}",
+                "resolved": "${inputs.present}",
+            },
+            {"inputs": {"present": "ok"}},
+        )
+
+        assert substituted == {
+            "missing": "${inputs.missing}",
+            "resolved": "ok",
+        }
+        assert errors == [
+            "Undefined variable in provider_params: ${inputs.missing}"
+        ]
 
     def test_prepare_invocation_uses_fresh_command_for_provider_session(self):
         """Session-enabled fresh invocations compile the provider fresh_command variant."""

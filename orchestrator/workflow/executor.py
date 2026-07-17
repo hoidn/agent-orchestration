@@ -5295,7 +5295,8 @@ class WorkflowExecutor:
                 session_request=session_request,
                 env=self._provider_env_with_runtime_output_bundle_path(step, resolved_output_bundle),
                 secrets=step.get('secrets'),
-                timeout_sec=step.get('timeout_sec')
+                timeout_sec=step.get('timeout_sec'),
+                provider_call_policy=step.get('provider_call_policy'),
             )
 
             if error or invocation is None:

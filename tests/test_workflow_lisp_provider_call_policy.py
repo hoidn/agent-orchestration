@@ -10,6 +10,11 @@ from typing import Any
 import pytest
 
 from orchestrator.state import StateManager
+from orchestrator.providers import (
+    CallPolicyBinding,
+    InputMode,
+    ProviderTemplate,
+)
 from orchestrator.workflow.core_ast import _statement_to_json
 from orchestrator.workflow.executable_ir import (
     ProviderStepConfig,
@@ -20,6 +25,7 @@ from orchestrator.workflow.persisted_surface import (
     serialize_persisted_workflow_surface_graph,
 )
 from orchestrator.workflow.runtime_step import RuntimeStep
+from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
 from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
 from orchestrator.workflow_lisp.build import _json_data
@@ -805,9 +811,79 @@ def test_provider_call_policy_projection_exclusions_remain_policy_neutral() -> N
     source_workflow = source_map["workflows"]["policy"]
     assert [node["step_kind"] for node in source_workflow["core_nodes"]] == ["provider"]
     assert [node["kind"] for node in source_workflow["executable_nodes"]] == ["provider"]
+    assert source_workflow["step_ids"]["policy__result"]["entity_kind"] == "step_id"
+    assert source_workflow["step_ids"]["policy__result"]["line"] == 11
+    assert not any(
+        subject["subject_ref"]["subject_kind"].startswith("provider_call_policy")
+        for subject in source_workflow["validation_subjects"]
+    )
 
     for projection in (runtime_plan, semantic_ir, persisted_graph, source_map):
         assert not _contains_key(projection, "provider_call_policy")
+
+
+def test_workflow_executor_passes_policy_separately_and_fails_before_launch(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    result = _build_policy_source(
+        tmp_path,
+        POLICY_FIXTURE.read_text(encoding="utf-8"),
+        name="runtime",
+    )
+    bundle = result.validated_bundle
+    source_path = tmp_path / "runtime/policy.orc"
+    state_manager = StateManager(tmp_path, run_id="unsupported-policy")
+    state_manager.initialize(
+        str(source_path),
+        bound_inputs={"model": "runtime-model", "effort": "runtime-effort"},
+    )
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor.provider_registry.register(
+        ProviderTemplate(
+            name="test-provider",
+            command=["tool", "${model}"],
+            input_mode=InputMode.STDIN,
+            call_policy_bindings={
+                "model": CallPolicyBinding(target_param="model")
+            },
+        )
+    )
+    captured: list[dict[str, Any]] = []
+    original_prepare = executor.provider_executor.prepare_invocation
+
+    def recording_prepare(*args, **kwargs):
+        captured.append(kwargs)
+        return original_prepare(*args, **kwargs)
+
+    monkeypatch.setattr(
+        executor.provider_executor,
+        "prepare_invocation",
+        recording_prepare,
+    )
+
+    def forbidden_launch(*args, **kwargs):
+        raise AssertionError("unsupported call policy reached provider execution")
+
+    monkeypatch.setattr(executor.provider_executor, "execute", forbidden_launch)
+
+    state = executor.execute(on_error="continue")
+
+    assert len(captured) == 1
+    assert captured[0]["params"].params == {}
+    assert captured[0]["provider_call_policy"] == {
+        "model": "${inputs.model}",
+        "effort": "${inputs.effort}",
+    }
+    assert captured[0]["timeout_sec"] == 7200
+    step_state = next(iter(state["steps"].values()))
+    assert state["status"] == "failed"
+    assert step_state["exit_code"] == 2
+    assert step_state["error"] == {
+        "type": "provider_call_policy_unsupported",
+        "message": "Provider call policy option is not supported",
+        "context": {"provider": "test-provider", "option": "effort"},
+    }
 
 
 def test_content_addressed_core_and_executable_artifacts_carry_provider_call_policy(

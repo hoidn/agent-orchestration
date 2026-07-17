@@ -10,8 +10,12 @@ import orchestrator.providers as providers
 from orchestrator.providers import (
     CallPolicyBinding,
     InputMode,
+    ProviderExecutor,
+    ProviderParams,
     ProviderRegistry,
+    ProviderSessionMode,
     ProviderSessionMetadataMode,
+    ProviderSessionRequest,
     ProviderSessionSupport,
     ProviderTemplate,
 )
@@ -445,3 +449,378 @@ def test_builtin_claude_unrestricted_workspace_is_no_default_direct_profile() ->
         "effort": CallPolicyBinding(target_param="effort"),
     }
     assert provider.validate() == []
+
+
+def _executor(tmp_path) -> tuple[ProviderExecutor, ProviderRegistry]:
+    registry = ProviderRegistry()
+    return ProviderExecutor(tmp_path, registry), registry
+
+
+def test_call_policy_merge_precedence_and_one_pass_substitution(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    executor, registry = _executor(tmp_path)
+    registry.register(
+        ProviderTemplate(
+            name="merge-policy",
+            command=["tool", "${model}", "${reasoning_effort}", "${keep}"],
+            defaults={"model": "default", "reasoning_effort": "low", "keep": "default-keep"},
+            input_mode=InputMode.STDIN,
+            call_policy_bindings={
+                "model": CallPolicyBinding(target_param="model"),
+                "effort": CallPolicyBinding(target_param="reasoning_effort"),
+            },
+        )
+    )
+    calls: list[dict[str, object]] = []
+    original = executor._substitute_params
+
+    def recording_substitute(params, context):
+        calls.append(dict(params))
+        return original(params, context)
+
+    monkeypatch.setattr(executor, "_substitute_params", recording_substitute)
+
+    invocation, error = executor.prepare_invocation(
+        "merge-policy",
+        ProviderParams(
+            params={
+                "model": "native-model",
+                "reasoning_effort": "native-effort",
+                "keep": "${inputs.keep}",
+            }
+        ),
+        {
+            "inputs": {
+                "keep": "preserved",
+                "model": "policy-model",
+                "effort": "high",
+            },
+            "inputs.keep": "preserved",
+            "inputs.model": "policy-model",
+            "inputs.effort": "high",
+        },
+        provider_call_policy={
+            "effort": "${inputs.effort}",
+            "model": "${inputs.model}",
+        },
+    )
+
+    assert error is None
+    assert invocation is not None
+    assert calls == [
+        {
+            "model": "${inputs.model}",
+            "reasoning_effort": "${inputs.effort}",
+            "keep": "${inputs.keep}",
+        }
+    ]
+    assert invocation.command == ["tool", "policy-model", "high", "preserved"]
+
+
+def test_call_policy_unresolved_dynamic_value_uses_single_substitution_error(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    executor, _ = _executor(tmp_path)
+    calls = 0
+    original = executor._substitute_params
+
+    def recording_substitute(params, context):
+        nonlocal calls
+        calls += 1
+        return original(params, context)
+
+    monkeypatch.setattr(executor, "_substitute_params", recording_substitute)
+
+    invocation, error = executor.prepare_invocation(
+        "codex",
+        ProviderParams(),
+        {},
+        provider_call_policy={"model": "${inputs.missing}"},
+    )
+
+    assert invocation is None
+    assert calls == 1
+    assert error == {
+        "type": "substitution_error",
+        "message": "Failed to substitute provider parameters",
+        "context": {
+            "errors": ["Undefined variable in provider_params: ${inputs.missing}"]
+        },
+    }
+
+
+def test_build_command_uses_shared_general_placeholder_extractor(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import orchestrator.providers.executor as executor_module
+
+    executor, registry = _executor(tmp_path)
+    registry.register(
+        ProviderTemplate(
+            name="dotted-placeholder-provider",
+            command=[
+                "tool",
+                "${run.id}",
+                "${context.workspace}",
+                "${loop.item}",
+                "${steps.prepare.output}",
+                "$${literal}",
+            ],
+            input_mode=InputMode.STDIN,
+        )
+    )
+    seen: list[str] = []
+    original = extract_provider_command_placeholders
+
+    def recording_extract(token: str):
+        seen.append(token)
+        return original(token)
+
+    monkeypatch.setattr(
+        executor_module,
+        "extract_provider_command_placeholders",
+        recording_extract,
+    )
+    context = {
+        "run.id": "run-7",
+        "context.workspace": "/workspace",
+        "loop.item": "row-3",
+        "steps.prepare.output": "ready",
+    }
+
+    invocation, error = executor.prepare_invocation(
+        "dotted-placeholder-provider", ProviderParams(), context
+    )
+
+    assert error is None
+    assert invocation is not None
+    assert invocation.command == [
+        "tool",
+        "run-7",
+        "/workspace",
+        "row-3",
+        "ready",
+        "${literal}",
+    ]
+    assert seen == registry.get("dotted-placeholder-provider").command
+
+
+@pytest.mark.parametrize(
+    ("session_request", "expected_variant", "expected_prefix"),
+    [
+        (None, "command", ["codex", "exec"]),
+        (
+            ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+            "fresh_command",
+            ["codex", "exec", "--json"],
+        ),
+        (
+            ProviderSessionRequest(mode=ProviderSessionMode.RESUME, session_id="session-9"),
+            "resume_command",
+            ["codex", "exec", "resume", "session-9", "--json"],
+        ),
+    ],
+)
+def test_codex_policy_maps_model_and_effort_on_actual_command_variant(
+    tmp_path,
+    session_request,
+    expected_variant,
+    expected_prefix,
+) -> None:
+    executor, _ = _executor(tmp_path)
+
+    invocation, error = executor.prepare_invocation(
+        "codex",
+        ProviderParams(),
+        {},
+        session_request=session_request,
+        provider_call_policy={"effort": "medium", "model": "gpt-policy"},
+    )
+
+    assert error is None
+    assert invocation is not None
+    assert invocation.command_variant == expected_variant
+    assert invocation.command[: len(expected_prefix)] == expected_prefix
+    assert invocation.command[invocation.command.index("--model") + 1] == "gpt-policy"
+    assert "reasoning_effort=medium" in invocation.command
+
+
+@pytest.mark.parametrize(
+    "provider_name",
+    ["claude", "claude_sonnet_summary", "claude_haiku_summary"],
+)
+def test_claude_policy_appends_effort_only_when_authored(
+    tmp_path,
+    provider_name,
+) -> None:
+    executor, _ = _executor(tmp_path)
+
+    with_effort, with_error = executor.prepare_invocation(
+        provider_name,
+        ProviderParams(),
+        {},
+        prompt_content="prompt",
+        provider_call_policy={"model": "claude-policy", "effort": "high"},
+    )
+    without_effort, without_error = executor.prepare_invocation(
+        provider_name,
+        ProviderParams(),
+        {},
+        prompt_content="prompt",
+        provider_call_policy={"model": "claude-policy"},
+    )
+
+    assert with_error is without_error is None
+    assert with_effort is not None
+    assert without_effort is not None
+    assert with_effort.command[-2:] == ["--effort", "high"]
+    assert "--effort" not in without_effort.command
+
+
+@pytest.mark.parametrize(
+    ("provider_name", "policy", "expected"),
+    [
+        (
+            "codex_unrestricted_workspace",
+            {"model": "gpt-policy", "effort": "medium"},
+            ["--model", "gpt-policy", "--config", "reasoning_effort=medium"],
+        ),
+        (
+            "claude_unrestricted_workspace",
+            {"model": "claude-policy", "effort": "high"},
+            ["--model", "claude-policy", "--effort", "high"],
+        ),
+    ],
+)
+def test_no_default_profiles_consume_call_policy(
+    tmp_path,
+    provider_name,
+    policy,
+    expected,
+) -> None:
+    executor, _ = _executor(tmp_path)
+
+    invocation, error = executor.prepare_invocation(
+        provider_name,
+        ProviderParams(),
+        {},
+        provider_call_policy=policy,
+    )
+
+    assert error is None
+    assert invocation is not None
+    joined = "\0".join(invocation.command)
+    assert "\0".join(expected) in joined
+
+
+@pytest.mark.parametrize(
+    ("session_request", "expected_variant"),
+    [
+        (None, "command"),
+        (ProviderSessionRequest(mode=ProviderSessionMode.FRESH), "fresh_command"),
+        (
+            ProviderSessionRequest(mode=ProviderSessionMode.RESUME, session_id="custom-session"),
+            "resume_command",
+        ),
+    ],
+)
+def test_custom_fragment_provider_applies_policy_to_selected_variant(
+    tmp_path,
+    session_request,
+    expected_variant,
+) -> None:
+    executor, registry = _executor(tmp_path)
+    registry.register(
+        ProviderTemplate(
+            name="custom-fragment",
+            command=["tool", "base"],
+            input_mode=InputMode.STDIN,
+            session_support=ProviderSessionSupport(
+                metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+                fresh_command=["tool", "fresh"],
+                resume_command=["tool", "resume", "${SESSION_ID}"],
+            ),
+            call_policy_bindings={
+                "effort": CallPolicyBinding(
+                    target_param="native_effort",
+                    argv_fragment=["--native-effort", "${native_effort}"],
+                )
+            },
+        )
+    )
+
+    invocation, error = executor.prepare_invocation(
+        "custom-fragment",
+        ProviderParams(),
+        {},
+        session_request=session_request,
+        provider_call_policy={"effort": "focused"},
+    )
+
+    assert error is None
+    assert invocation is not None
+    assert invocation.command_variant == expected_variant
+    assert invocation.command[-2:] == ["--native-effort", "focused"]
+
+
+def test_policy_fragments_append_in_canonical_order_not_declaration_order(
+    tmp_path,
+) -> None:
+    executor, registry = _executor(tmp_path)
+    registry.register(
+        ProviderTemplate(
+            name="reverse-fragments",
+            command=["tool"],
+            input_mode=InputMode.STDIN,
+            call_policy_bindings={
+                "effort": CallPolicyBinding(
+                    target_param="native_effort",
+                    argv_fragment=["--effort", "${native_effort}"],
+                ),
+                "model": CallPolicyBinding(
+                    target_param="native_model",
+                    argv_fragment=["--model", "${native_model}"],
+                ),
+            },
+        )
+    )
+
+    invocation, error = executor.prepare_invocation(
+        "reverse-fragments",
+        ProviderParams(),
+        {},
+        provider_call_policy={"effort": "high", "model": "m"},
+    )
+
+    assert error is None
+    assert invocation is not None
+    assert invocation.command == ["tool", "--model", "m", "--effort", "high"]
+
+
+def test_unsupported_call_policy_has_bounded_context_and_no_invocation(
+    tmp_path,
+) -> None:
+    executor, _ = _executor(tmp_path)
+
+    invocation, error = executor.prepare_invocation(
+        "gemini",
+        ProviderParams(),
+        {},
+        prompt_content="secret prompt",
+        session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        provider_call_policy={"effort": "secret value"},
+    )
+
+    assert invocation is None
+    assert error == {
+        "type": "provider_call_policy_unsupported",
+        "message": "Provider call policy option is not supported",
+        "context": {"provider": "gemini", "option": "effort"},
+    }
+    serialized = repr(error)
+    for forbidden in ("secret value", "secret prompt", "step", "span", "form"):
+        assert forbidden not in serialized

@@ -28,7 +28,7 @@ tmux.
 `docs/plans/2026-07-17-workflow-lisp-provider-call-policy-design.md` at commit
 `069b8e79`.
 
-**Execution status:** Tasks 1-5 are complete; Task 6 is next. This plan is a living,
+**Execution status:** Tasks 1-6 are complete; Task 7 is next. This plan is a living,
 reviewed execution artifact: every task updates its own completed checkboxes and the status line above,
 stages this file with that task's code/tests, and commits the plan update in the same
 task commit. A task may mark its implementation/test steps complete before review;
@@ -861,7 +861,7 @@ or claim design closure before that point.
 - Modify: `tests/test_workflow_lisp_provider_call_policy.py`
 - Modify: `tests/test_provider_execution.py`
 
-- [ ] **Step 1: Write red generic merge/substitution tests**
+- [x] **Step 1: Write red generic merge/substitution tests**
 
   Pass policy separately to `prepare_invocation`. Assert precedence is defaults <
   ordinary native step params < translated canonical overrides. Assert unrelated
@@ -877,7 +877,7 @@ or claim design closure before that point.
 
   Expected: FAIL because the executor does not accept policy separately.
 
-- [ ] **Step 2: Write red general-placeholder compatibility tests**
+- [x] **Step 2: Write red general-placeholder compatibility tests**
 
   Exercise `_build_command` through public preparation with provider parameters and
   runtime context containing representative dotted `${run.id}`,
@@ -894,7 +894,7 @@ or claim design closure before that point.
   Expected: the legacy characterization cases PASS before executor edits; the new
   shared-extractor ownership assertion fails until `_build_command` imports it.
 
-- [ ] **Step 3: Import the general extractor and implement canonical translation**
+- [x] **Step 3: Import the general extractor and implement canonical translation**
 
   Import the general placeholder extractor from `types.py` into `executor.py` and
   remove its private `r'\$\{([^}]+)\}'` parsing copy; do not import or apply the bare
@@ -905,7 +905,7 @@ or claim design closure before that point.
   When policy is absent, retain the exact old merge/selection/build route and all
   dotted context-placeholder behavior.
 
-- [ ] **Step 4: Write red actual argv/session/custom capture tests**
+- [x] **Step 4: Write red actual argv/session/custom capture tests**
 
   Assert actual prepared invocation argv for:
 
@@ -921,7 +921,7 @@ or claim design closure before that point.
 
   Test commands/parameters, not prompt prose.
 
-- [ ] **Step 5: Write red unsupported-provider and bounded-context tests**
+- [x] **Step 5: Write red unsupported-provider and bounded-context tests**
 
   Use a provider lacking effort capability. Require
   `provider_call_policy_unsupported`, workflow exit `2`, and zero process/session
@@ -933,7 +933,7 @@ or claim design closure before that point.
   path while no field-level policy provenance is claimed. Do not require the
   provider error mapping itself to manufacture or carry that provenance.
 
-- [ ] **Step 6: Implement bounded failure before invocation creation**
+- [x] **Step 6: Implement bounded failure before invocation creation**
 
   Return the existing executor error mapping with type
   `provider_call_policy_unsupported` and context containing exactly provider ID plus
@@ -942,14 +942,14 @@ or claim design closure before that point.
   provenance, or second process path; existing enclosing provenance is proved
   independently.
 
-- [ ] **Step 7: Pass RuntimeStep policy separately from WorkflowExecutor**
+- [x] **Step 7: Pass RuntimeStep policy separately from WorkflowExecutor**
 
   Keep ordinary `ProviderParams` construction unchanged and add
   `provider_call_policy=step.get("provider_call_policy")` to the one ordinary
   provider `prepare_invocation` call. Do not modify adjudicated-provider/session
   bindings that are outside v1.
 
-- [ ] **Step 8: Prove YAML and legacy native-parameter compatibility**
+- [x] **Step 8: Prove YAML and legacy native-parameter compatibility**
 
   Run a YAML-local provider with ordinary `provider_params` and no internal policy;
   assert identical argv and unused-param behavior. Assert existing Codex native
@@ -957,7 +957,7 @@ or claim design closure before that point.
   keyword-free built-in Claude argv has no effort fragment. Reassert dotted
   run/context/loop/steps placeholders and escaped literals through actual argv.
 
-- [ ] **Step 9: Prove timeout remains the existing owner**
+- [x] **Step 9: Prove timeout remains the existing owner**
 
   Assert the literal compiled timeout reaches `ProviderInvocation.timeout_sec`.
   Re-run the existing elapsed-timeout exit-124 tests; do not implement timeout logic
@@ -970,7 +970,7 @@ or claim design closure before that point.
     tests/test_provider_execution.py::TestProviderExecutor::test_managed_invocation_timeout_terminates_process_tree
   ```
 
-- [ ] **Step 10: Run the Task 6 focused regression set**
+- [x] **Step 10: Run the Task 6 focused regression set**
 
   ```bash
   pytest -q \
@@ -985,7 +985,7 @@ or claim design closure before that point.
 
   Expected: PASS.
 
-- [ ] **Step 11: Review and commit**
+- [x] **Step 11: Review and commit**
 
   Check the completed Task 6 boxes and update **Execution status**. Stage this plan,
   the two production files, and three test files. Run both reviews and the

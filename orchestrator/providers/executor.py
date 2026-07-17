@@ -13,6 +13,7 @@ from typing import Callable, Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 
 from .types import (
+    CALL_POLICY_OPTION_ORDER,
     InputMode,
     ProviderInvocation,
     ProviderParams,
@@ -20,6 +21,7 @@ from .types import (
     ProviderSessionMode,
     ProviderSessionRequest,
     escape_provider_command_token,
+    extract_provider_command_placeholders,
     restore_provider_command_token,
 )
 from .registry import ProviderRegistry
@@ -76,6 +78,7 @@ class ProviderExecutor:
         env: Optional[Dict[str, str]] = None,
         secrets: Optional[List[str]] = None,
         timeout_sec: Optional[int] = None,
+        provider_call_policy: Optional[Dict[str, str]] = None,
     ) -> Tuple[Optional[ProviderInvocation], Optional[Dict[str, Any]]]:
         """
         Prepare a provider invocation.
@@ -88,6 +91,7 @@ class ProviderExecutor:
             env: Additional environment variables
             secrets: List of secret env var names to validate
             timeout_sec: Execution timeout
+            provider_call_policy: Compiler-owned canonical model/effort overrides
 
         Returns:
             Tuple of (invocation, error_dict) - error_dict is None if successful
@@ -101,8 +105,33 @@ class ProviderExecutor:
                 "context": {"provider": provider_name}
             }
 
-        # Merge parameters (step params override defaults)
+        translated_policy: Dict[str, str] = {}
+        policy_fragments: Dict[str, Tuple[str, ...]] = {}
+        if provider_call_policy is not None:
+            for canonical_option in provider_call_policy:
+                if canonical_option not in CALL_POLICY_OPTION_ORDER:
+                    return None, self._unsupported_call_policy_error(
+                        provider_name,
+                        canonical_option,
+                    )
+            for canonical_option in CALL_POLICY_OPTION_ORDER:
+                if canonical_option not in provider_call_policy:
+                    continue
+                binding = provider.call_policy_bindings.get(canonical_option)
+                if binding is None:
+                    return None, self._unsupported_call_policy_error(
+                        provider_name,
+                        canonical_option,
+                    )
+                translated_policy[binding.target_param] = provider_call_policy[
+                    canonical_option
+                ]
+                if binding.argv_fragment is not None:
+                    policy_fragments[canonical_option] = tuple(binding.argv_fragment)
+
+        # Merge parameters (step params override defaults; policy overrides both)
         merged_params = self.registry.merge_params(provider_name, params.params or {})
+        merged_params.update(translated_policy)
 
         # Substitute variables in provider_params values (AT-51)
         substituted_params, param_errors = self._substitute_params(merged_params, context)
@@ -142,6 +171,13 @@ class ProviderExecutor:
                     }
                 command_template = provider.session_support.resume_command
                 command_variant = "resume_command"
+
+        if policy_fragments:
+            command_template = list(command_template)
+            for canonical_option in CALL_POLICY_OPTION_ORDER:
+                fragment = policy_fragments.get(canonical_option)
+                if fragment is not None:
+                    command_template.extend(fragment)
 
         # Build command with substitution
         command, missing_placeholders, invalid_prompt = self._build_command(
@@ -194,6 +230,21 @@ class ProviderExecutor:
         )
 
         return invocation, None
+
+    @staticmethod
+    def _unsupported_call_policy_error(
+        provider_name: str,
+        canonical_option: str,
+    ) -> Dict[str, Any]:
+        """Build the bounded pre-invocation unsupported-policy failure."""
+        return {
+            "type": "provider_call_policy_unsupported",
+            "message": "Provider call policy option is not supported",
+            "context": {
+                "provider": provider_name,
+                "option": canonical_option,
+            },
+        }
 
     def execute(
         self,
@@ -491,8 +542,26 @@ class ProviderExecutor:
         errors = []
 
         try:
-            # Use VariableSubstitutor for full nested structure support
-            substituted_result = substitutor.substitute(params, context)
+            missing_variables: set[str] = set()
+
+            def substitute_value(value: Any) -> Any:
+                if isinstance(value, dict):
+                    return {
+                        key: substitute_value(nested_value)
+                        for key, nested_value in value.items()
+                    }
+                if isinstance(value, list):
+                    return [substitute_value(item) for item in value]
+                substituted_value = substitutor.substitute(
+                    value,
+                    context,
+                    track_undefined=False,
+                )
+                missing_variables.update(substitutor.undefined_vars)
+                return substituted_value
+
+            # Traverse once while retaining missing variables across nested entries.
+            substituted_result = substitute_value(params)
             # Ensure the result is a dict (since we passed in a dict)
             if not isinstance(substituted_result, dict):
                 errors.append(f"Parameter substitution returned unexpected type: {type(substituted_result)}")
@@ -500,8 +569,8 @@ class ProviderExecutor:
             substituted = substituted_result
 
             # Check for undefined variables
-            if substitutor.undefined_vars:
-                for var in substitutor.undefined_vars:
+            if missing_variables:
+                for var in sorted(missing_variables):
                     errors.append(f"Undefined variable in provider_params: ${{{var}}}")
 
         except ValueError as e:
@@ -532,12 +601,9 @@ class ProviderExecutor:
         Returns:
             Tuple of (command, missing_placeholders, invalid_prompt_placeholder)
         """
-        import re
-
         command = []
         missing = set()
         invalid_prompt = False
-        var_pattern = re.compile(r'\$\{([^}]+)\}')
 
         for token in command_template:
             # Apply escapes first
@@ -554,8 +620,7 @@ class ProviderExecutor:
                     logger.error("${PROMPT} not allowed in stdin mode")
 
             # Substitute non-PROMPT placeholders first (before injecting literal prompt)
-            for match in var_pattern.finditer(processed):
-                var = match.group(1)
+            for var in extract_provider_command_placeholders(token):
                 if var == "PROMPT":
                     continue  # Handle separately to avoid scanning prompt content
                 if var == "SESSION_ID":
