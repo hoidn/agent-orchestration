@@ -54,6 +54,7 @@ PILOT_EVIDENCE = (
 REUSE_INVENTORY = (
     REPO_ROOT / "docs" / "plans" / "2026-07-13-procedure-first-reuse-inventory.json"
 )
+REUSE_INVENTORY_NARRATIVE = REUSE_INVENTORY.with_suffix(".md")
 TRACKED_DESIGN_ELIGIBILITY_STOP = (
     REPO_ROOT
     / "docs"
@@ -279,8 +280,8 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
         "total": 95,
         "by_classification": {
             "procedure-candidate": 22,
-            "effect-adapter": 35,
-            "legacy-retire": 38,
+            "effect-adapter": 28,
+            "legacy-retire": 45,
             "public-boundary": 0,
         },
     }
@@ -311,6 +312,72 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
     assert migrated["last_active_record"]["id"] == migrated["id"]
     assert migrated["last_active_record"]["source_line"] == 237
     assert migrated["evidence_paths"]
+
+
+def test_generic_yaml_effect_adapter_inventory_rows_retire_with_families() -> None:
+    inventory = _load_json(REUSE_INVENTORY)
+    records_by_id = {row["id"]: row for row in inventory["records"]}
+    expected_ids = {
+        "internal-call:workflows/examples/"
+        "dsl_follow_on_plan_impl_review_loop_v2_call.yaml:plan_phase:1",
+        "internal-call:workflows/examples/"
+        "dsl_follow_on_plan_impl_review_loop_v2_call.yaml:implementation_phase:1",
+        "internal-call:workflows/examples/"
+        "lisp_frontend_autonomous_drain.yaml:selector:1",
+        "internal-call:workflows/examples/"
+        "lisp_frontend_autonomous_drain.yaml:work_item:1",
+        "internal-call:workflows/examples/"
+        "lisp_frontend_autonomous_drain.yaml:design_gap_architect:1",
+        "internal-call:workflows/examples/"
+        "lisp_frontend_autonomous_drain.yaml:work_item:2",
+        "internal-call:workflows/examples/"
+        "lisp_frontend_proc_refs_partial_application_drain.yaml:"
+        "proc_ref_delta_drain:1",
+    }
+    audit_path = REUSE_INVENTORY_NARRATIVE.relative_to(REPO_ROOT).as_posix()
+    governing_plan = "docs/plans/2026-07-07-yaml-retirement-program.md"
+    selector = (
+        "tests/test_workflow_lisp_procedure_first_migrations.py::"
+        "test_generic_yaml_effect_adapter_inventory_rows_retire_with_families"
+    )
+    generic_sources = {
+        "workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml",
+        "workflows/examples/lisp_frontend_autonomous_drain.yaml",
+        "workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml",
+    }
+    observed_ids = {
+        row["id"]
+        for row in inventory["records"]
+        if row["source_path"] in generic_sources
+    }
+
+    assert observed_ids == expected_ids
+    for record_id in expected_ids:
+        record = records_by_id[record_id]
+        assert record["record_kind"] == "internal-call"
+        assert record["frontend"] == "yaml"
+        assert record["classification"] == "legacy-retire"
+        assert record["classification"] not in {
+            "procedure-candidate",
+            "public-boundary",
+        }
+        assert record["live_status"] == "retained-compatibility"
+        assert "workflow-call" in record["effect_summary"]
+        assert record["public_boundary_evidence"] == []
+        assert record["named_substrate_gap"] is None
+        assert governing_plan in record["evidence_paths"]
+        assert audit_path in record["evidence_paths"]
+        assert selector in record["evidence_paths"]
+
+    proc_ref_id = (
+        "internal-call:workflows/examples/"
+        "lisp_frontend_proc_refs_partial_application_drain.yaml:"
+        "proc_ref_delta_drain:1"
+    )
+    assert (
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json"
+        in records_by_id[proc_ref_id]["evidence_paths"]
+    )
 
 
 def _tracked_design_phase_proposed_inline_source(old_source: bytes) -> bytes:

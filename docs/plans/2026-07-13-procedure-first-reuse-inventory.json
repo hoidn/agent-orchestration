@@ -1250,22 +1250,25 @@
       "callee": "plan_phase",
       "resolution": "yaml-import-alias",
       "source_class": "example",
-      "live_status": "live",
-      "classification": "effect-adapter",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
-      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "named_substrate_gap": null,
+      "reason": "The deletion-first YAML-retirement amendment deletes this containing YAML family. Its real child-workflow call retires with the containing YAML family instead of becoming a procedure candidate; this classification does not prove parity, authorize deletion, or authorize cross-source resume.",
       "uncertainty": {
-        "level": "medium",
+        "level": "low",
         "notes": [
-          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+          "The call owns a real workflow-call frame and its provider, artifact, publication, state, and resume effects remain relevant until Stage 6 removes the containing family; legacy-retire is routing, not deletion evidence."
         ]
       },
       "evidence_paths": [
-        "workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml"
+        "workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml",
+        "docs/plans/2026-07-07-yaml-retirement-program.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_generic_yaml_effect_adapter_inventory_rows_retire_with_families"
       ]
     },
     {
@@ -1281,22 +1284,25 @@
       "callee": "implementation_phase",
       "resolution": "yaml-import-alias",
       "source_class": "example",
-      "live_status": "live",
-      "classification": "effect-adapter",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
-      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "named_substrate_gap": null,
+      "reason": "The deletion-first YAML-retirement amendment deletes this containing YAML family. Its real child-workflow call retires with the containing YAML family instead of becoming a procedure candidate; this classification does not prove parity, authorize deletion, or authorize cross-source resume.",
       "uncertainty": {
-        "level": "medium",
+        "level": "low",
         "notes": [
-          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+          "The call owns a real workflow-call frame and its provider, artifact, publication, state, and resume effects remain relevant until Stage 6 removes the containing family; legacy-retire is routing, not deletion evidence."
         ]
       },
       "evidence_paths": [
-        "workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml"
+        "workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml",
+        "docs/plans/2026-07-07-yaml-retirement-program.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_generic_yaml_effect_adapter_inventory_rows_retire_with_families"
       ]
     },
     {
@@ -1312,22 +1318,25 @@
       "callee": "selector",
       "resolution": "yaml-import-alias",
       "source_class": "example",
-      "live_status": "live",
-      "classification": "effect-adapter",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
-      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "named_substrate_gap": null,
+      "reason": "The deletion-first YAML-retirement amendment deletes this containing YAML family. Its real child-workflow call retires with the containing YAML family instead of becoming a procedure candidate; this classification does not prove parity, authorize deletion, or authorize cross-source resume.",
       "uncertainty": {
-        "level": "medium",
+        "level": "low",
         "notes": [
-          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+          "The call owns a real workflow-call frame and its provider, artifact, publication, state, and resume effects remain relevant until Stage 6 removes the containing family; legacy-retire is routing, not deletion evidence."
         ]
       },
       "evidence_paths": [
-        "workflows/examples/lisp_frontend_autonomous_drain.yaml"
+        "workflows/examples/lisp_frontend_autonomous_drain.yaml",
+        "docs/plans/2026-07-07-yaml-retirement-program.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_generic_yaml_effect_adapter_inventory_rows_retire_with_families"
       ]
     },
     {
@@ -1343,22 +1352,25 @@
       "callee": "work_item",
       "resolution": "yaml-import-alias",
       "source_class": "example",
-      "live_status": "live",
-      "classification": "effect-adapter",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
-      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "named_substrate_gap": null,
+      "reason": "The deletion-first YAML-retirement amendment deletes this containing YAML family. Its real child-workflow call retires with the containing YAML family instead of becoming a procedure candidate; this classification does not prove parity, authorize deletion, or authorize cross-source resume.",
       "uncertainty": {
-        "level": "medium",
+        "level": "low",
         "notes": [
-          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+          "The call owns a real workflow-call frame and its provider, artifact, publication, state, and resume effects remain relevant until Stage 6 removes the containing family; legacy-retire is routing, not deletion evidence."
         ]
       },
       "evidence_paths": [
-        "workflows/examples/lisp_frontend_autonomous_drain.yaml"
+        "workflows/examples/lisp_frontend_autonomous_drain.yaml",
+        "docs/plans/2026-07-07-yaml-retirement-program.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_generic_yaml_effect_adapter_inventory_rows_retire_with_families"
       ]
     },
     {
@@ -1374,22 +1386,25 @@
       "callee": "design_gap_architect",
       "resolution": "yaml-import-alias",
       "source_class": "example",
-      "live_status": "live",
-      "classification": "effect-adapter",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
-      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "named_substrate_gap": null,
+      "reason": "The deletion-first YAML-retirement amendment deletes this containing YAML family. Its real child-workflow call retires with the containing YAML family instead of becoming a procedure candidate; this classification does not prove parity, authorize deletion, or authorize cross-source resume.",
       "uncertainty": {
-        "level": "medium",
+        "level": "low",
         "notes": [
-          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+          "The call owns a real workflow-call frame and its provider, artifact, publication, state, and resume effects remain relevant until Stage 6 removes the containing family; legacy-retire is routing, not deletion evidence."
         ]
       },
       "evidence_paths": [
-        "workflows/examples/lisp_frontend_autonomous_drain.yaml"
+        "workflows/examples/lisp_frontend_autonomous_drain.yaml",
+        "docs/plans/2026-07-07-yaml-retirement-program.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_generic_yaml_effect_adapter_inventory_rows_retire_with_families"
       ]
     },
     {
@@ -1405,22 +1420,25 @@
       "callee": "work_item",
       "resolution": "yaml-import-alias",
       "source_class": "example",
-      "live_status": "live",
-      "classification": "effect-adapter",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
-      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "named_substrate_gap": null,
+      "reason": "The deletion-first YAML-retirement amendment deletes this containing YAML family. Its real child-workflow call retires with the containing YAML family instead of becoming a procedure candidate; this classification does not prove parity, authorize deletion, or authorize cross-source resume.",
       "uncertainty": {
-        "level": "medium",
+        "level": "low",
         "notes": [
-          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+          "The call owns a real workflow-call frame and its provider, artifact, publication, state, and resume effects remain relevant until Stage 6 removes the containing family; legacy-retire is routing, not deletion evidence."
         ]
       },
       "evidence_paths": [
-        "workflows/examples/lisp_frontend_autonomous_drain.yaml"
+        "workflows/examples/lisp_frontend_autonomous_drain.yaml",
+        "docs/plans/2026-07-07-yaml-retirement-program.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_generic_yaml_effect_adapter_inventory_rows_retire_with_families"
       ]
     },
     {
@@ -1622,22 +1640,29 @@
       "callee": "proc_ref_delta_drain",
       "resolution": "yaml-import-alias",
       "source_class": "example",
-      "live_status": "live",
-      "classification": "effect-adapter",
+      "live_status": "retained-compatibility",
+      "classification": "legacy-retire",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": "Prove effect-preserving workflow-to-procedure lowering for this family, including checkpoint/state-namespace identity, artifact/publication ownership, source-map attribution, child-workflow effects, and resume parity.",
-      "reason": "This live YAML family has effect, checkpoint, artifact, publication, or nested-call obligations that require family evidence before reclassification.",
+      "named_substrate_gap": null,
+      "reason": "The deletion-first YAML-retirement amendment deletes this containing YAML family. Its real child-workflow call points through the Design Delta YAML twin, whose .orc primary and historical parity are recorded, and retires with the containing YAML family instead of becoming a procedure candidate; this classification does not prove parity, authorize deletion, or authorize cross-source resume.",
       "uncertainty": {
-        "level": "medium",
+        "level": "low",
         "notes": [
-          "The bucket is intentionally conservative; a family audit may show that landed defproc composition already covers its effects."
+          "The call owns a real workflow-call frame and its artifact, publication, state, and resume effects remain relevant until Stage 6 removes the containing family; the promoted Design Delta primary is supporting history, not parity for this wrapper."
         ]
       },
       "evidence_paths": [
-        "workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml"
+        "workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml",
+        "workflows/examples/lisp_frontend_design_delta_drain.yaml",
+        "workflows/library/lisp_frontend_design_delta/drain.orc",
+        "artifacts/work/review-parity-check/design_delta_parent_drain.json",
+        "docs/plans/2026-07-07-drain-migration-g8-retirement.md",
+        "docs/plans/2026-07-07-yaml-retirement-program.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_generic_yaml_effect_adapter_inventory_rows_retire_with_families"
       ]
     },
     {
@@ -3300,8 +3325,8 @@
       "total": 95,
       "by_classification": {
         "procedure-candidate": 22,
-        "effect-adapter": 35,
-        "legacy-retire": 38,
+        "effect-adapter": 28,
+        "legacy-retire": 45,
         "public-boundary": 0
       }
     },

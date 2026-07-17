@@ -1,6 +1,6 @@
 # Procedure-First Reuse Inventory
 
-Status: post-hardening active queue rebaseline
+Status: Task 4 Step 1 active; generic YAML group audited
 Source commit: `db9889937a895d67810dee1ea0b1b53552d30eca`
 Schema: `procedure_first_reuse_inventory.v2`
 
@@ -14,8 +14,8 @@ remaining 95 active internal calls classify as:
 | Classification | Sites | Meaning |
 | --- | ---: | --- |
 | `procedure-candidate` | 22 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
-| `effect-adapter` | 35 | Calls retained until effect, identity, artifact, publication, source-map, child-call, exported-entry, state-consumer, live-route, and resume obligations are proven. |
-| `legacy-retire` | 38 | Compatibility, legacy, or example-only calls that retire with their family instead of being translated. |
+| `effect-adapter` | 28 | Calls retained until effect, identity, artifact, publication, source-map, child-call, exported-entry, state-consumer, live-route, and resume obligations are proven. |
+| `legacy-retire` | 45 | Compatibility, legacy, or example-only calls that retire with their family instead of being translated. |
 | `public-boundary` | 0 | Public entries are recorded separately; they are not internal call sites. |
 
 The machine-readable authority for individual rows is
@@ -39,13 +39,10 @@ invocation registrations. Schema v2 keeps only current-source rows in
 
 | Classification | Source | Sites |
 | --- | --- | ---: |
-| `effect-adapter` | `workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml` | 2 |
 | `effect-adapter` | `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | 2 |
 | `effect-adapter` | `workflows/examples/same_file_record_call_binding.orc` | 1 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta/design_gap_architect.orc` | 4 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc` | 3 |
-| `effect-adapter` | `workflows/examples/lisp_frontend_autonomous_drain.yaml` | 4 |
-| `effect-adapter` | `workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml` | 1 |
 | `effect-adapter` | `workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml` | 3 |
 | `effect-adapter` | `workflows/examples/neurips_steered_backlog_drain.yaml` | 3 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta_done_review.v214.yaml` | 2 |
@@ -57,7 +54,10 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `legacy-retire` | `workflows/examples/call_subworkflow_demo.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/depends_on_inject_imported_v2_call.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/design_plan_impl_review_stack_v2_call.yaml` | 3 |
+| `legacy-retire` | `workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml` | 2 |
+| `legacy-retire` | `workflows/examples/lisp_frontend_autonomous_drain.yaml` | 4 |
 | `legacy-retire` | `workflows/examples/lisp_frontend_design_delta_drain.yaml` | 6 |
+| `legacy-retire` | `workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/major_project_tranche_continue_from_approved_design_v2_call.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/major_project_tranche_design_plan_impl_stack_v2_call.yaml` | 2 |
 | `legacy-retire` | `workflows/examples/major_project_tranche_drain_from_manifest_v2_call.yaml` | 1 |
@@ -157,10 +157,72 @@ are exported workflows and therefore CLI-selectable public boundaries. Strict
 compatibility is mandatory, and the recorded workflow/call checkpoints cannot
 survive inline lowering exactly. See
 `docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md`.
-A Stage 5 family audit may
-reclassify a row when current tests prove that ordinary landed `defproc`
-composition already covers its actual effects. Classification labels alone do
-not authorize substrate work.
+A Stage 5 family audit may reclassify a row when current tests prove that
+ordinary landed `defproc` composition already covers its actual effects.
+Classification labels alone do not authorize substrate work.
+
+## Task 4 Generic YAML Reclassification Audit
+
+Status: Task 4 Step 1 evidence; classification only
+
+### Decision
+
+Reclassify the seven internal-call records below from `effect-adapter` to
+`legacy-retire`. The deletion-first amendment in
+`2026-07-07-yaml-retirement-program.md` is the governing estate decision: only
+`verified_iteration_drain` and `generic_run_watchdog` survive for `.orc` ports,
+while every other YAML family is deleted. These three containing families are
+therefore retirement work, not YAML-to-procedure migration candidates.
+
+The calls are real child-workflow boundaries with call frames and observable
+effects. `legacy-retire` means that those boundaries retire with their
+containing YAML families; it does not prove parity, does not authorize deletion,
+and does not authorize cross-source resume. Stage 6 still owns the separate
+external-reference, archive/deletion, and run-state reconciliation gates. Task
+4 Step 1 remains the current selector for the remaining YAML groups.
+
+### Exact Records
+
+- `internal-call:workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml:plan_phase:1`
+- `internal-call:workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml:implementation_phase:1`
+- `internal-call:workflows/examples/lisp_frontend_autonomous_drain.yaml:selector:1`
+- `internal-call:workflows/examples/lisp_frontend_autonomous_drain.yaml:work_item:1`
+- `internal-call:workflows/examples/lisp_frontend_autonomous_drain.yaml:design_gap_architect:1`
+- `internal-call:workflows/examples/lisp_frontend_autonomous_drain.yaml:work_item:2`
+- `internal-call:workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml:proc_ref_delta_drain:1`
+
+The stable IDs, source paths, source-line locators, aliases, callee tokens, and
+`yaml-import-alias` resolution remain unchanged.
+
+### Effect And Identity Audit
+
+| Containing family | Resolution and child role | Effects and owned outputs | Identity/resume conclusion |
+| --- | --- | --- | --- |
+| `dsl_follow_on_plan_impl_review_loop_v2_call.yaml` | `plan_phase` and `implementation_phase` resolve through imports to `follow_on_plan_phase.yaml` and `follow_on_implementation_phase.yaml`. Both execute as child workflows. | The phase workflows use command and provider steps, state-root pointers, validated outputs, publications, review loops, and final artifacts. The caller projects the plan, execution report, review report, and review decision. | The two calls have real child-workflow/call-frame and state-root identity. No inline migration or identity remap is proposed. The containing example is outside the two-family survivor list, so both calls retire with it. |
+| `lisp_frontend_autonomous_drain.yaml` | `selector`, `design_gap_architect`, and both `work_item` occurrences resolve through the three declared `v214` imports and execute in distinct per-iteration state roots. | The selector has provider and structured-output effects; the architect has command/provider/review and validation effects; each work-item call owns nested plan/implementation, terminal-state command, artifact, and run-state effects. Branch outputs feed the drain terminal route and summary publication. | The four calls have real nested call frames, source locations, state roots, and resume obligations. The deletion-first amendment supersedes the older port-first family row, so the calls retire with the containing YAML drain without being translated. |
+| `lisp_frontend_proc_refs_partial_application_drain.yaml` | `proc_ref_delta_drain` resolves to `lisp_frontend_design_delta_drain.yaml`, so the wrapper creates a genuine child frame around the Design Delta YAML twin. | The wrapper forwards Design Delta inputs and projects drain status, run-state path, and drain-summary path; the child owns the underlying provider, command, artifact, publication, and resource effects. | The Design Delta `.orc` primary is separately recorded as `workflows/library/lisp_frontend_design_delta/drain.orc`, with immutable historical parity evidence in `artifacts/work/review-parity-check/design_delta_parent_drain.json`. That evidence supports the twin's history but does not establish parity or cross-source resume for this ProcRef wrapper. The wrapper is outside the survivor list and retires with its containing YAML family. |
+
+None of the seven internal-call rows is a `public-entry`. A containing YAML file
+being directly runnable does not transfer its external boundary classification
+to its internal call sites. Accordingly, every row keeps empty
+`public_boundary_evidence` and may be neither `procedure-candidate` nor
+`public-boundary`.
+
+### Evidence And Claim Boundary
+
+- Estate authority: the 2026-07-14 deletion-first steering amendment in
+  `docs/plans/2026-07-07-yaml-retirement-program.md`.
+- Design Delta promotion and historical-parity provenance:
+  `docs/plans/2026-07-07-drain-migration-g8-retirement.md`,
+  `docs/workflow_lisp_route_readiness_registry.json`, and
+  `artifacts/work/review-parity-check/design_delta_parent_drain.json`.
+- Behavioral lock:
+  `tests/test_workflow_lisp_procedure_first_migrations.py::test_generic_yaml_effect_adapter_inventory_rows_retire_with_families`.
+
+This audit changes inventory classification and counts only. It makes no YAML
+source change, advances neither Task 4 nor Stage 6, creates no public-entry
+record, and supplies no family parity, deletion authorization, state upgrader,
+identity remap, or cross-source resume contract.
 
 ## Exclusions
 
