@@ -1605,15 +1605,66 @@ PRODUCTION_ARTIFACT_NAMES = (
     "lexical_checkpoint_points",
     "source_map",
 )
+PERSISTED_SURFACE_PROVENANCE_FIELDS = frozenset(
+    {
+        "frontend_persisted_surface_path",
+        "frontend_persisted_surface_schema_version",
+        "frontend_persisted_surface_entry_workflow",
+        "frontend_persisted_surface_sha256",
+    }
+)
+
+
+def test_historical_artifact_projection_excludes_only_persisted_surface_provenance() -> None:
+    historical = {
+        "name": "source::orchestrate",
+        "provenance": {
+            "frontend_build_root": "/tmp/build/0123456789abcdef",
+            "frontend_source_trace_path": "/tmp/build/0123456789abcdef/source_map.json",
+            "frontend_entry_workflow": "source::orchestrate",
+            "semantic_marker": "retirement-evidence",
+        },
+    }
+    current = copy.deepcopy(historical)
+    current["provenance"].update(
+        {
+            "frontend_persisted_surface_path": (
+                "build/0123456789abcdef/persisted_workflow_surface.json"
+            ),
+            "frontend_persisted_surface_schema_version": (
+                "persisted_workflow_surface_graph.v1"
+            ),
+            "frontend_persisted_surface_entry_workflow": "source::orchestrate",
+            "frontend_persisted_surface_sha256": "sha256:" + "a" * 64,
+        }
+    )
+
+    assert _canonical_production_artifact(historical) == (
+        _canonical_production_artifact(current)
+    )
+
+    changed_identity = copy.deepcopy(current)
+    changed_identity["name"] = "source::different"
+    assert _canonical_production_artifact(historical) != (
+        _canonical_production_artifact(changed_identity)
+    )
+    changed_provenance = copy.deepcopy(current)
+    changed_provenance["provenance"]["semantic_marker"] = "weakened"
+    assert _canonical_production_artifact(historical) != (
+        _canonical_production_artifact(changed_provenance)
+    )
 
 
 def _canonical_production_artifact(payload: Any) -> Any:
     if isinstance(payload, dict):
         normalized = {key: _canonical_production_artifact(value) for key, value in payload.items()}
         provenance = normalized.get("provenance")
-        if isinstance(provenance, dict) and "frontend_build_root" in provenance:
-            provenance["frontend_build_root"] = "<BUILD_ROOT>"
-            provenance["frontend_source_trace_path"] = "<BUILD_ROOT>/source_map.json"
+        if isinstance(provenance, dict):
+            if "frontend_build_root" in provenance:
+                provenance["frontend_build_root"] = "<BUILD_ROOT>"
+                provenance["frontend_source_trace_path"] = "<BUILD_ROOT>/source_map.json"
+            for field in PERSISTED_SURFACE_PROVENANCE_FIELDS:
+                provenance.pop(field, None)
         if "bindings" in normalized and "schema_digest" in normalized:
             normalized["schema_digest"] = "<PATH_NORMALIZED_SCHEMA_DIGEST>"
         if "policy_kind" in normalized and "policy_digest" in normalized:
@@ -1655,11 +1706,132 @@ def _build_procedure_retirement_side(side: str, workspace: Path, fixture_root: P
     return build.build_frontend_bundle(request)
 
 
+def _assert_current_persisted_surface_binding(result: Any) -> None:
+    from orchestrator.workflow.persisted_surface import (
+        PERSISTED_WORKFLOW_SURFACE_FILENAME,
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
+        persisted_surface_sha256,
+    )
+
+    fingerprint = result.manifest.fingerprint
+    assert re.fullmatch(r"[0-9a-f]{16}", fingerprint), "build fingerprint is not canonical"
+    assert result.build_root.name == fingerprint, "build root and manifest fingerprint differ"
+
+    provenance = result.validated_bundle.provenance
+    provenance_path = provenance.frontend_persisted_surface_path
+    assert isinstance(provenance_path, Path), "persisted surface provenance path is absent"
+    provenance_anchor = {
+        "schema_version": provenance.frontend_persisted_surface_schema_version,
+        "path": provenance_path.as_posix(),
+        "entry_workflow": provenance.frontend_persisted_surface_entry_workflow,
+        "sha256": provenance.frontend_persisted_surface_sha256,
+    }
+    expected_path = f"build/{fingerprint}/{PERSISTED_WORKFLOW_SURFACE_FILENAME}"
+    assert provenance_anchor["schema_version"] == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
+    assert provenance_anchor["entry_workflow"] == result.entry_selection.canonical_name
+    assert provenance_anchor["path"] == expected_path
+
+    artifact_path = result.artifact_paths["persisted_workflow_surface"]
+    assert artifact_path == result.build_root / PERSISTED_WORKFLOW_SURFACE_FILENAME
+    assert provenance_anchor["sha256"] == persisted_surface_sha256(
+        artifact_path.read_bytes()
+    )
+    manifest_anchor = dict(result.manifest.persisted_workflow_surface)
+    assert set(manifest_anchor) == {
+        "schema_version",
+        "path",
+        "entry_workflow",
+        "sha256",
+    }
+    assert manifest_anchor == provenance_anchor
+
+
+def test_current_persisted_surface_binding_is_closed_and_content_addressed(
+    tmp_path: Path,
+) -> None:
+    result = _build_procedure_retirement_side("old", tmp_path / "old")
+    _assert_current_persisted_surface_binding(result)
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "missing_path",
+        "schema",
+        "entry",
+        "path",
+        "fingerprint",
+        "digest",
+        "manifest",
+        "artifact",
+    ],
+)
+def test_current_persisted_surface_binding_rejects_each_tampered_dimension(
+    tmp_path: Path,
+    damage: str,
+) -> None:
+    result = _build_procedure_retirement_side("old", tmp_path / damage)
+    provenance = result.validated_bundle.provenance
+    if damage == "missing_path":
+        provenance = replace(provenance, frontend_persisted_surface_path=None)
+    elif damage == "schema":
+        provenance = replace(
+            provenance,
+            frontend_persisted_surface_schema_version="unsupported.v2",
+        )
+    elif damage == "entry":
+        provenance = replace(
+            provenance,
+            frontend_persisted_surface_entry_workflow="source::other",
+        )
+    elif damage == "path":
+        provenance = replace(
+            provenance,
+            frontend_persisted_surface_path=Path("build/other/surface.json"),
+        )
+    elif damage == "fingerprint":
+        result = replace(
+            result,
+            manifest=replace(result.manifest, fingerprint="A" * 16),
+        )
+    elif damage == "digest":
+        provenance = replace(
+            provenance,
+            frontend_persisted_surface_sha256="sha256:" + "0" * 64,
+        )
+    elif damage == "manifest":
+        result = replace(
+            result,
+            manifest=replace(
+                result.manifest,
+                persisted_workflow_surface={
+                    **result.manifest.persisted_workflow_surface,
+                    "entry_workflow": "source::other",
+                },
+            ),
+        )
+    else:
+        result.artifact_paths["persisted_workflow_surface"].write_bytes(b"tampered\n")
+
+    if provenance is not result.validated_bundle.provenance:
+        result = replace(
+            result,
+            validated_bundle=replace(
+                result.validated_bundle,
+                provenance=provenance,
+            ),
+        )
+
+    with pytest.raises(AssertionError):
+        _assert_current_persisted_surface_binding(result)
+
+
 @pytest.mark.parametrize("side", ["old", "new"])
 def test_checked_retirement_artifacts_reproduce_from_production_build(side: str, tmp_path: Path) -> None:
     result = _build_procedure_retirement_side(side, tmp_path / side)
 
     assert result.selected_workflow_name == "source::orchestrate"
+    _assert_current_persisted_surface_binding(result)
     for artifact_name in PRODUCTION_ARTIFACT_NAMES:
         checked_path = FIXTURE.parent / side / f"{artifact_name}.json"
         checked = json.loads(checked_path.read_text(encoding="utf-8"))
@@ -1709,6 +1881,8 @@ def test_production_artifacts_rebuild_identically_under_two_fixture_roots(tmp_pa
     for side in ("old", "new"):
         first = _build_procedure_retirement_side(side, tmp_path / "build-first" / side, roots[0])
         second = _build_procedure_retirement_side(side, tmp_path / "build-second" / side, roots[1])
+        _assert_current_persisted_surface_binding(first)
+        _assert_current_persisted_surface_binding(second)
         for artifact_name in PRODUCTION_ARTIFACT_NAMES:
             first_payload = json.loads(first.artifact_paths[artifact_name].read_text(encoding="utf-8"))
             second_payload = json.loads(second.artifact_paths[artifact_name].read_text(encoding="utf-8"))
