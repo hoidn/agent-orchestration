@@ -7,11 +7,16 @@ do not enforce deadlines, alter routing, or affect provider execution.
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, MutableMapping
 
 from orchestrator.monitor.process import is_pid_alive, process_start_time_token
+from orchestrator.workflow.persisted_surface import (
+    PERSISTED_WORKFLOW_SURFACE_FILENAME,
+    PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
+)
 from orchestrator.workflow.surface_ast import WorkflowProvenance
 
 
@@ -114,6 +119,31 @@ def record_compiled_frontend_provenance(
         "source_map_schema_version": source_map_schema_version,
         "source_map_coverage": dict(source_map_coverage) if isinstance(source_map_coverage, Mapping) else None,
     }
+    persisted_surface_path = provenance.frontend_persisted_surface_path
+    persisted_surface_schema = provenance.frontend_persisted_surface_schema_version
+    persisted_surface_entry = provenance.frontend_persisted_surface_entry_workflow
+    persisted_surface_sha256 = provenance.frontend_persisted_surface_sha256
+    expected_surface_path = (
+        Path("build") / build_root.name / PERSISTED_WORKFLOW_SURFACE_FILENAME
+    )
+    if (
+        isinstance(persisted_surface_path, Path)
+        and re.fullmatch(r"[0-9a-f]{16}", build_root.name) is not None
+        and not persisted_surface_path.is_absolute()
+        and persisted_surface_path.as_posix() == expected_surface_path.as_posix()
+        and persisted_surface_schema == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
+        and isinstance(persisted_surface_entry, str)
+        and persisted_surface_entry
+        and persisted_surface_entry == frontend_entry_workflow
+        and isinstance(persisted_surface_sha256, str)
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", persisted_surface_sha256) is not None
+    ):
+        payload["compiled_frontend"]["persisted_workflow_surface"] = {
+            "schema_version": persisted_surface_schema,
+            "path": str(persisted_surface_path),
+            "entry_workflow": persisted_surface_entry,
+            "sha256": persisted_surface_sha256,
+        }
 
 
 def _next_session_id(sessions: list[MutableMapping[str, Any]]) -> str:

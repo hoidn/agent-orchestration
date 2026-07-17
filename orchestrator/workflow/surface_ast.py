@@ -152,6 +152,10 @@ class WorkflowProvenance:
     frontend_entry_workflow: str | None = None
     frontend_source_map_schema_version: str | None = None
     frontend_source_map_coverage: Mapping[str, str] | None = None
+    frontend_persisted_surface_path: Path | None = None
+    frontend_persisted_surface_schema_version: str | None = None
+    frontend_persisted_surface_entry_workflow: str | None = None
+    frontend_persisted_surface_sha256: str | None = None
     lexical_checkpoint_points: tuple[Mapping[str, Any], ...] = ()
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from argparse import Namespace
 from pathlib import Path
@@ -171,7 +172,10 @@ def test_resume_workflow_records_second_session_and_excludes_gap(tmp_path: Path,
     assert runtime["active_runtime_ms"] < runtime["excluded_suspended_ms"]
 
 
-def test_run_workflow_persists_compiled_frontend_provenance_for_orc_runs(tmp_path: Path, monkeypatch):
+def test_run_workflow_persists_compiled_frontend_surface_anchor_for_orc_runs(
+    tmp_path: Path,
+    monkeypatch,
+):
     args = _run_args(LISP_ENTRYPOINT)
     args.entry_workflow = "orchestrate"
     args.source_root = [str(LISP_SOURCE_ROOT)]
@@ -215,6 +219,15 @@ def test_run_workflow_persists_compiled_frontend_provenance_for_orc_runs(tmp_pat
     }
     assert "command_boundaries" not in frontend
     assert "core_nodes" not in frontend
+    build_root = Path(frontend["frontend_build_root"])
+    manifest = json.loads((build_root / "manifest.json").read_text(encoding="utf-8"))
+    anchor = frontend["persisted_workflow_surface"]
+    assert anchor == manifest["persisted_workflow_surface"]
+    artifact = tmp_path / ".orchestrate" / anchor["path"]
+    assert anchor["entry_workflow"] == frontend["frontend_entry_workflow"]
+    assert anchor["sha256"] == (
+        "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()
+    )
 
 
 def test_run_workflow_logs_compiled_frontend_source_context(

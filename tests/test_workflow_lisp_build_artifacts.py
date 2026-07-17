@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import importlib
 import json
 from dataclasses import asdict, is_dataclass, replace
@@ -11,6 +13,16 @@ import pytest
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
+from orchestrator.workflow.persisted_surface import (
+    canonical_persisted_surface_bytes,
+    decode_persisted_workflow_surface_graph,
+    serialize_persisted_workflow_surface_graph,
+)
+from orchestrator.workflow.surface_ast import (
+    SurfaceFinallyBlock,
+    SurfaceStep,
+    SurfaceStepKind,
+)
 from orchestrator.workflow_lisp.compiler import compile_stage1_entrypoint, compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from orchestrator.workflow_lisp.definitions import RecordField
@@ -54,6 +66,534 @@ RUNTIME_CLOSURE_MARKERS = (
     "Closure[",
     "runtime_closure",
 )
+
+
+def _synthetic_surface_bundle(
+    template,
+    name: str,
+    *,
+    steps: tuple[SurfaceStep, ...] = (),
+    imports=None,
+    finalization: SurfaceFinallyBlock | None = None,
+):
+    provenance = replace(
+        template.provenance,
+        workflow_path=Path(f"synthetic/{name}.orc"),
+    )
+    surface = replace(
+        template.surface,
+        name=name,
+        steps=steps,
+        finalization=finalization,
+        provenance=provenance,
+    )
+    return replace(
+        template,
+        surface=surface,
+        imports={} if imports is None else imports,
+        provenance=provenance,
+    )
+
+
+def _call_step(name: str, alias: str) -> SurfaceStep:
+    return SurfaceStep(
+        name=name,
+        step_id=name,
+        kind=SurfaceStepKind.CALL,
+        call_alias=alias,
+    )
+
+
+def _persisted_wire_step(
+    *,
+    kind: str = "command",
+    call_alias: str | None = None,
+    for_each_steps: list[dict[str, object]] | None = None,
+    then_steps: list[dict[str, object]] | None = None,
+    else_steps: list[dict[str, object]] | None = None,
+    match_cases: dict[str, list[dict[str, object]]] | None = None,
+    repeat_until: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "name": f"{kind}-step",
+        "step_id": f"{kind}-step",
+        "kind": kind,
+        "authored_id": None,
+        "call_alias": call_alias,
+        "input_file": None,
+        "asset_file": None,
+        "depends_on": {},
+        "asset_depends_on": [],
+        "adjudicated_provider": {},
+        "common": {
+            "publishes": [],
+            "consumes": [],
+            "expected_outputs": [],
+            "output_bundle": None,
+            "variant_output": None,
+        },
+        "for_each_steps": for_each_steps or [],
+        "then_steps": then_steps or [],
+        "else_steps": else_steps or [],
+        "match_cases": match_cases or {},
+        "repeat_until": repeat_until,
+    }
+
+
+def _persisted_wire_graph(
+    step: dict[str, object],
+    *,
+    calls: dict[str, str] | None = None,
+) -> dict[str, object]:
+    node = {
+        "workflow_name": "wire::root",
+        "version": "2.14",
+        "workflow_path": "wire/root.orc",
+        "calls": calls or {},
+        "steps": [step],
+        "finalization_steps": [],
+    }
+    nodes = {"wire::root": node}
+    for target in (calls or {}).values():
+        nodes[target] = {
+            "workflow_name": target,
+            "version": "2.14",
+            "workflow_path": f"{target}.orc",
+            "calls": {},
+            "steps": [],
+            "finalization_steps": [],
+        }
+    return {
+        "schema_version": "persisted_workflow_surface_graph.v1",
+        "entry_workflow": "wire::root",
+        "nodes": nodes,
+    }
+
+
+def test_build_emits_digest_bound_persisted_surface_graph_for_real_import_closure(
+    tmp_path: Path,
+) -> None:
+    result = _build_module().build_frontend_bundle(_build_request(tmp_path))
+
+    graph_path = result.artifact_paths["persisted_workflow_surface"]
+    graph_bytes = graph_path.read_bytes()
+    graph = json.loads(graph_bytes)
+    anchor = dict(result.manifest.persisted_workflow_surface)
+
+    assert graph["schema_version"] == "persisted_workflow_surface_graph.v1"
+    assert graph["entry_workflow"] == "neurips/entry::orchestrate"
+    assert graph["entry_workflow"] in graph["nodes"]
+    assert set(graph["nodes"]) == {
+        "neurips/entry::orchestrate",
+        "neurips/helper::provider-attempt",
+        "selector-run",
+    }
+    assert graph["nodes"]["neurips/helper::provider-attempt"]["calls"] == {}
+    assert anchor == {
+        "schema_version": "persisted_workflow_surface_graph.v1",
+        "path": result.manifest.artifact_paths["persisted_workflow_surface"],
+        "entry_workflow": "neurips/entry::orchestrate",
+        "sha256": "sha256:" + hashlib.sha256(graph_bytes).hexdigest(),
+    }
+    assert result.validated_bundle.provenance.frontend_persisted_surface_sha256 == anchor[
+        "sha256"
+    ]
+
+
+def test_build_fails_closed_when_emitted_persisted_surface_bytes_are_corrupted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    original = build._write_build_artifacts
+
+    def corrupt_after_write(*args, **kwargs):
+        paths = original(*args, **kwargs)
+        path = paths["persisted_workflow_surface"]
+        path.write_bytes(path.read_bytes() + b" ")
+        return paths
+
+    monkeypatch.setattr(build, "_write_build_artifacts", corrupt_after_write)
+
+    with pytest.raises(ValueError, match="persisted workflow surface"):
+        build.build_frontend_bundle(_build_request(tmp_path))
+
+
+def test_build_fails_closed_when_manifest_persisted_surface_anchor_is_tampered(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    original = build._build_manifest
+
+    def tampered_manifest(*args, **kwargs):
+        manifest = original(*args, **kwargs)
+        return replace(
+            manifest,
+            persisted_workflow_surface={
+                **manifest.persisted_workflow_surface,
+                "sha256": "sha256:" + "0" * 64,
+            },
+        )
+
+    monkeypatch.setattr(build, "_build_manifest", tampered_manifest)
+
+    with pytest.raises(ValueError, match="manifest anchor"):
+        build.build_frontend_bundle(_build_request(tmp_path))
+
+
+def test_persisted_surface_build_schema_version_participates_in_fingerprint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    current = build.build_frontend_bundle(_build_request(tmp_path))
+
+    assert current.manifest.schema_version == "workflow_lisp_build.v2"
+    monkeypatch.setattr(build, "BUILD_SCHEMA_VERSION", "workflow_lisp_build.test")
+    changed = build.build_frontend_bundle(_build_request(tmp_path))
+
+    assert changed.manifest.schema_version == "workflow_lisp_build.test"
+    assert changed.manifest.fingerprint != current.manifest.fingerprint
+
+
+def test_persisted_surface_serializer_follows_nested_and_finalization_calls_only(
+    tmp_path: Path,
+) -> None:
+    template = _build_module().build_frontend_bundle(
+        _build_request(tmp_path)
+    ).validated_bundle
+    nested_leaf = _synthetic_surface_bundle(template, "synthetic::nested")
+    final_leaf = _synthetic_surface_bundle(template, "synthetic::final")
+    unused_leaf = _synthetic_surface_bundle(template, "synthetic::unused")
+    nested_call = _call_step("NestedCall", "nested")
+    root = _synthetic_surface_bundle(
+        template,
+        "synthetic::root",
+        steps=(
+            SurfaceStep(
+                name="Loop",
+                step_id="loop",
+                kind=SurfaceStepKind.FOR_EACH,
+                for_each_steps=(nested_call,),
+            ),
+        ),
+        finalization=SurfaceFinallyBlock(
+            token="finally",
+            step_id="finally",
+            steps=(_call_step("FinalCall", "final"),),
+        ),
+        imports={
+            "nested": nested_leaf,
+            "final": final_leaf,
+            "unused": unused_leaf,
+        },
+    )
+
+    payload = serialize_persisted_workflow_surface_graph(root)
+
+    assert set(payload["nodes"]) == {
+        "synthetic::root",
+        "synthetic::nested",
+        "synthetic::final",
+    }
+    assert payload["nodes"]["synthetic::root"]["calls"] == {
+        "final": "synthetic::final",
+        "nested": "synthetic::nested",
+    }
+    decoded = decode_persisted_workflow_surface_graph(
+        canonical_persisted_surface_bytes(payload)
+    )
+    assert decoded.entry_node.finalization_steps[0].call_alias == "final"
+
+
+def test_persisted_surface_serializer_deduplicates_diamond_by_workflow_name(
+    tmp_path: Path,
+) -> None:
+    template = _build_module().build_frontend_bundle(
+        _build_request(tmp_path)
+    ).validated_bundle
+    shared_left = _synthetic_surface_bundle(template, "synthetic::shared")
+    shared_right = _synthetic_surface_bundle(template, "synthetic::shared")
+    left = _synthetic_surface_bundle(
+        template,
+        "synthetic::left",
+        steps=(_call_step("LeftShared", "shared"),),
+        imports={"shared": shared_left},
+    )
+    right = _synthetic_surface_bundle(
+        template,
+        "synthetic::right",
+        steps=(_call_step("RightShared", "shared"),),
+        imports={"shared": shared_right},
+    )
+    root = _synthetic_surface_bundle(
+        template,
+        "synthetic::root",
+        steps=(_call_step("Left", "left"), _call_step("Right", "right")),
+        imports={"left": left, "right": right},
+    )
+
+    payload = serialize_persisted_workflow_surface_graph(root)
+
+    assert set(payload["nodes"]) == {
+        "synthetic::root",
+        "synthetic::left",
+        "synthetic::right",
+        "synthetic::shared",
+    }
+
+
+def test_persisted_surface_serializer_rejects_missing_used_alias(tmp_path: Path) -> None:
+    template = _build_module().build_frontend_bundle(
+        _build_request(tmp_path)
+    ).validated_bundle
+    root = _synthetic_surface_bundle(
+        template,
+        "synthetic::root",
+        steps=(_call_step("Missing", "missing"),),
+    )
+
+    with pytest.raises(ValueError, match="has no imported bundle"):
+        serialize_persisted_workflow_surface_graph(root)
+
+
+def test_persisted_surface_serializer_rejects_import_cycle(tmp_path: Path) -> None:
+    template = _build_module().build_frontend_bundle(
+        _build_request(tmp_path)
+    ).validated_bundle
+    imports = {}
+    root = _synthetic_surface_bundle(
+        template,
+        "synthetic::root",
+        steps=(_call_step("Back", "back"),),
+        imports=imports,
+    )
+    imports["back"] = root
+
+    with pytest.raises(ValueError, match="import cycle"):
+        serialize_persisted_workflow_surface_graph(root)
+
+
+def test_persisted_surface_serializer_rejects_same_name_different_payload(
+    tmp_path: Path,
+) -> None:
+    template = _build_module().build_frontend_bundle(
+        _build_request(tmp_path)
+    ).validated_bundle
+    first = _synthetic_surface_bundle(template, "synthetic::shared")
+    second = _synthetic_surface_bundle(
+        template,
+        "synthetic::shared",
+        steps=(
+            SurfaceStep(
+                name="Different",
+                step_id="different",
+                kind=SurfaceStepKind.COMMAND,
+            ),
+        ),
+    )
+    root = _synthetic_surface_bundle(
+        template,
+        "synthetic::root",
+        steps=(_call_step("First", "first"), _call_step("Second", "second")),
+        imports={"first": first, "second": second},
+    )
+
+    with pytest.raises(ValueError, match="workflow-name conflict"):
+        serialize_persisted_workflow_surface_graph(root)
+
+
+def test_persisted_surface_decoder_accepts_only_canonical_closed_wire_payload(
+    tmp_path: Path,
+) -> None:
+    result = _build_module().build_frontend_bundle(_build_request(tmp_path))
+    canonical = result.artifact_paths["persisted_workflow_surface"].read_bytes()
+    raw = json.loads(canonical)
+
+    assert decode_persisted_workflow_surface_graph(canonical).entry_workflow == (
+        "neurips/entry::orchestrate"
+    )
+    with pytest.raises(ValueError, match="not canonical"):
+        decode_persisted_workflow_surface_graph(
+            (json.dumps(raw, indent=2, sort_keys=True) + "\n").encode()
+        )
+    duplicate_root_key = canonical[:-2] + (
+        b',"schema_version":"persisted_workflow_surface_graph.v1"}\n'
+    )
+    with pytest.raises(ValueError, match="duplicate JSON key"):
+        decode_persisted_workflow_surface_graph(duplicate_root_key)
+
+    for mutate in (
+        lambda value: value.update(schema_version="unsupported.v1"),
+        lambda value: value.update(extra="unsupported"),
+        lambda value: value.pop("entry_workflow"),
+        lambda value: value["nodes"][value["entry_workflow"]]["steps"][0].update(
+            extra="unsupported"
+        ),
+    ):
+        damaged = copy.deepcopy(raw)
+        mutate(damaged)
+        with pytest.raises(ValueError):
+            decode_persisted_workflow_surface_graph(
+                canonical_persisted_surface_bytes(damaged)
+            )
+
+    metadata = copy.deepcopy(raw)
+    metadata_step = metadata["nodes"]["selector-run"]["steps"][0]
+    metadata_step["asset_depends_on"] = [{"nested": ["asset"]}]
+    metadata_step["common"]["publishes"] = [{"nested": ["publish"]}]
+    metadata_step["common"]["consumes"] = [{"nested": ["consume"]}]
+    metadata_step["common"]["expected_outputs"] = [{"nested": ["output"]}]
+    frozen_step = decode_persisted_workflow_surface_graph(
+        canonical_persisted_surface_bytes(metadata)
+    ).nodes["selector-run"].steps[0]
+    for value in (
+        frozen_step.asset_depends_on[0],
+        frozen_step.common.publishes[0],
+        frozen_step.common.consumes[0],
+        frozen_step.common.expected_outputs[0],
+    ):
+        assert value["nested"] == (value["nested"][0],)
+        with pytest.raises(TypeError):
+            value["nested"] = ()
+
+
+def test_persisted_surface_decoder_rejects_missing_extra_cycle_and_unreachable_edges(
+    tmp_path: Path,
+) -> None:
+    result = _build_module().build_frontend_bundle(_build_request(tmp_path))
+    raw = json.loads(
+        result.artifact_paths["persisted_workflow_surface"].read_text(encoding="utf-8")
+    )
+    entry_name = raw["entry_workflow"]
+
+    extra_alias = copy.deepcopy(raw)
+    extra_alias["nodes"][entry_name]["calls"]["unused"] = "selector-run"
+    with pytest.raises(ValueError, match="call-edge table"):
+        decode_persisted_workflow_surface_graph(
+            canonical_persisted_surface_bytes(extra_alias)
+        )
+
+    missing_target = copy.deepcopy(raw)
+    first_alias = next(iter(missing_target["nodes"][entry_name]["calls"]))
+    missing_target["nodes"][entry_name]["calls"][first_alias] = "missing"
+    with pytest.raises(ValueError, match="target is missing"):
+        decode_persisted_workflow_surface_graph(
+            canonical_persisted_surface_bytes(missing_target)
+        )
+
+    cyclic = copy.deepcopy(raw)
+    selector_step = cyclic["nodes"]["selector-run"]["steps"][0]
+    selector_step["kind"] = "call"
+    selector_step["call_alias"] = "back"
+    cyclic["nodes"]["selector-run"]["calls"] = {"back": entry_name}
+    with pytest.raises(ValueError, match="import cycle"):
+        decode_persisted_workflow_surface_graph(canonical_persisted_surface_bytes(cyclic))
+
+    unreachable = copy.deepcopy(raw)
+    orphan = copy.deepcopy(unreachable["nodes"]["selector-run"])
+    orphan["workflow_name"] = "orphan"
+    unreachable["nodes"]["orphan"] = orphan
+    with pytest.raises(ValueError, match="unreachable"):
+        decode_persisted_workflow_surface_graph(
+            canonical_persisted_surface_bytes(unreachable)
+        )
+
+
+def test_persisted_surface_codec_rejects_nonfinite_json_numbers() -> None:
+    canonical = canonical_persisted_surface_bytes(
+        _persisted_wire_graph(_persisted_wire_step())
+    )
+    assert decode_persisted_workflow_surface_graph(canonical).entry_workflow == (
+        "wire::root"
+    )
+
+    for value in (float("nan"), float("inf"), float("-inf")):
+        payload = _persisted_wire_graph(_persisted_wire_step())
+        payload["nodes"]["wire::root"]["steps"][0]["input_file"] = value
+        with pytest.raises(ValueError, match="JSON"):
+            canonical_persisted_surface_bytes(payload)
+
+    marker = b'"input_file":null'
+    for constant in (b"NaN", b"Infinity", b"-Infinity"):
+        damaged = canonical.replace(marker, b'"input_file":' + constant, 1)
+        with pytest.raises(ValueError, match="non-finite"):
+            decode_persisted_workflow_surface_graph(damaged)
+
+
+@pytest.mark.parametrize(
+    ("step", "calls"),
+    [
+        (_persisted_wire_step(), {}),
+        (_persisted_wire_step(kind="call", call_alias="child"), {"child": "wire::child"}),
+        (
+            _persisted_wire_step(
+                kind="for_each",
+                for_each_steps=[_persisted_wire_step()],
+            ),
+            {},
+        ),
+        (
+            _persisted_wire_step(
+                kind="if",
+                then_steps=[_persisted_wire_step()],
+                else_steps=[_persisted_wire_step()],
+            ),
+            {},
+        ),
+        (
+            _persisted_wire_step(
+                kind="match",
+                match_cases={"APPROVE": [_persisted_wire_step()]},
+            ),
+            {},
+        ),
+        (
+            _persisted_wire_step(
+                kind="repeat_until",
+                repeat_until={
+                    "max_iterations": 2,
+                    "steps": [_persisted_wire_step()],
+                },
+            ),
+            {},
+        ),
+    ],
+)
+def test_persisted_surface_decoder_accepts_coherent_step_kind_shapes(
+    step: dict[str, object],
+    calls: dict[str, str],
+) -> None:
+    graph = decode_persisted_workflow_surface_graph(
+        canonical_persisted_surface_bytes(_persisted_wire_graph(step, calls=calls))
+    )
+
+    assert graph.entry_node.steps[0].kind.value == step["kind"]
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        _persisted_wire_step(kind="call"),
+        _persisted_wire_step(call_alias="child"),
+        _persisted_wire_step(for_each_steps=[_persisted_wire_step()]),
+        _persisted_wire_step(then_steps=[_persisted_wire_step()]),
+        _persisted_wire_step(else_steps=[_persisted_wire_step()]),
+        _persisted_wire_step(match_cases={"case": [_persisted_wire_step()]}),
+        _persisted_wire_step(
+            repeat_until={"max_iterations": 2, "steps": [_persisted_wire_step()]}
+        ),
+        _persisted_wire_step(kind="repeat_until"),
+    ],
+)
+def test_persisted_surface_decoder_rejects_incoherent_step_kind_shapes(
+    step: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError, match="kind"):
+        decode_persisted_workflow_surface_graph(
+            canonical_persisted_surface_bytes(_persisted_wire_graph(step))
+        )
 
 
 def test_json_data_keeps_plain_return_and_field_dataclasses_legacy_compatible() -> None:
@@ -1058,6 +1598,17 @@ def test_build_fingerprint_normalizes_alias_and_canonical_entry_workflow(tmp_pat
     assert alias_result.entry_selection.canonical_name == "neurips/entry::orchestrate"
     assert canonical_result.entry_selection.canonical_name == "neurips/entry::orchestrate"
     assert alias_result.manifest.fingerprint == canonical_result.manifest.fingerprint
+    for result in (alias_result, canonical_result):
+        provenance = result.validated_bundle.provenance
+        assert provenance.frontend_entry_workflow == "neurips/entry::orchestrate"
+        assert (
+            provenance.frontend_persisted_surface_entry_workflow
+            == provenance.frontend_entry_workflow
+        )
+        assert (
+            result.manifest.persisted_workflow_surface["entry_workflow"]
+            == provenance.frontend_entry_workflow
+        )
 
 
 def test_build_fingerprint_changes_when_command_boundary_manifest_changes(tmp_path: Path) -> None:
@@ -1539,6 +2090,11 @@ def test_build_artifacts_persist_diagnostic_validation_metadata(tmp_path: Path) 
         source_map_payload=json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8")),
         workflow_boundary_projection_payload=json.loads(
             result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
+        ),
+        persisted_surface_payload=json.loads(
+            result.artifact_paths["persisted_workflow_surface"].read_text(
+                encoding="utf-8"
+            )
         ),
     )
     payload = json.loads(artifact_paths["diagnostics"].read_text(encoding="utf-8"))

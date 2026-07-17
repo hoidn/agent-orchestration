@@ -22,6 +22,11 @@ from typing import TYPE_CHECKING, Any
 from orchestrator.workflow.core_ast import workflow_core_ast_to_json
 from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_boundary_projection
+from orchestrator.workflow.persisted_surface import (
+    PERSISTED_WORKFLOW_SURFACE_FILENAME,
+    PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
+    canonical_persisted_surface_bytes,
+)
 from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 
@@ -99,6 +104,7 @@ def _write_build_artifacts(
     semantic_ir_payload: Mapping[str, object] | None = None,
     source_map_payload: Mapping[str, object],
     workflow_boundary_projection_payload: Mapping[str, object],
+    persisted_surface_payload: Mapping[str, object],
 ) -> Mapping[str, Path]:
     debug_yaml_path = build_root / "expanded.debug.yaml"
     artifact_paths = {
@@ -115,6 +121,7 @@ def _write_build_artifacts(
         "lexical_checkpoint_shadow_report": build_root / "lexical_checkpoint_shadow_report.json",
         "workflow_boundary_projection": build_root / "workflow_boundary_projection.json",
         "diagnostics": build_root / "diagnostics.json",
+        "persisted_workflow_surface": build_root / PERSISTED_WORKFLOW_SURFACE_FILENAME,
     }
     runtime_plan_payload = _public_runtime_plan_payload(validated_bundle.runtime_plan)
     if executable_ir_payload is None:
@@ -147,9 +154,13 @@ def _write_build_artifacts(
         ),
         "workflow_boundary_projection": _json_data(workflow_boundary_projection_payload),
         "diagnostics": serialize_diagnostics(diagnostics),
+        "persisted_workflow_surface": persisted_surface_payload,
     }
     for name, path in artifact_paths.items():
-        path.write_text(json.dumps(payloads[name], indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        if name == "persisted_workflow_surface":
+            path.write_bytes(canonical_persisted_surface_bytes(persisted_surface_payload))
+        else:
+            path.write_text(json.dumps(payloads[name], indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if emit_debug_yaml:
         debug_yaml_path.write_text(
             render_debug_yaml(
@@ -250,6 +261,16 @@ def _build_manifest(
             "core_workflow_ast": "emitted",
             "runtime_plan": "emitted",
             "semantic_ir": "emitted",
+        },
+        persisted_workflow_surface={
+            "schema_version": PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
+            "path": str(
+                artifact_paths["persisted_workflow_surface"].relative_to(
+                    build_root.parent.parent
+                )
+            ).replace("\\", "/"),
+            "entry_workflow": entry_selection.canonical_name,
+            "sha256": f"sha256:{_sha256_path(artifact_paths['persisted_workflow_surface'])}",
         },
         diagnostic_count=len(diagnostics),
         shared_validation_status="validated",

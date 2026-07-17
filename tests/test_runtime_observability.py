@@ -222,6 +222,180 @@ def test_record_compiled_frontend_provenance_persists_bridge_fields():
     assert "core_nodes" not in state["runtime_observability"]["compiled_frontend"]
 
 
+def test_record_compiled_frontend_surface_persists_complete_graph_anchor():
+    state = {}
+    fingerprint = "0123456789abcdef"
+
+    record_compiled_frontend_provenance(
+        state,
+        WorkflowProvenance(
+            workflow_path=Path("/tmp/workflow.orc"),
+            source_root=Path("/tmp"),
+            frontend_kind="workflow_lisp",
+            frontend_build_root=Path(f"/tmp/.orchestrate/build/{fingerprint}"),
+            frontend_source_trace_path=Path(
+                f"/tmp/.orchestrate/build/{fingerprint}/source_map.json"
+            ),
+            frontend_entry_workflow="example::run",
+            frontend_persisted_surface_path=Path(
+                f"build/{fingerprint}/persisted_workflow_surface.json"
+            ),
+            frontend_persisted_surface_schema_version=(
+                "persisted_workflow_surface_graph.v1"
+            ),
+            frontend_persisted_surface_entry_workflow="example::run",
+            frontend_persisted_surface_sha256="sha256:" + "a" * 64,
+        ),
+    )
+
+    compiled = state["runtime_observability"]["compiled_frontend"]
+    assert compiled["persisted_workflow_surface"] == {
+        "schema_version": "persisted_workflow_surface_graph.v1",
+        "path": f"build/{fingerprint}/persisted_workflow_surface.json",
+        "entry_workflow": "example::run",
+        "sha256": "sha256:" + "a" * 64,
+    }
+
+
+def test_record_compiled_frontend_surface_omits_partial_graph_anchor():
+    state = {}
+
+    record_compiled_frontend_provenance(
+        state,
+        WorkflowProvenance(
+            workflow_path=Path("/tmp/workflow.orc"),
+            source_root=Path("/tmp"),
+            frontend_kind="workflow_lisp",
+            frontend_build_root=Path("/tmp/.orchestrate/build/abc123"),
+            frontend_source_trace_path=Path(
+                "/tmp/.orchestrate/build/abc123/source_map.json"
+            ),
+            frontend_entry_workflow="example::run",
+            frontend_persisted_surface_path=Path(
+                "/tmp/.orchestrate/build/abc123/persisted_workflow_surface.json"
+            ),
+        ),
+    )
+
+    compiled = state["runtime_observability"]["compiled_frontend"]
+    assert "persisted_workflow_surface" not in compiled
+
+
+@pytest.mark.parametrize(
+    "digest",
+    ["not-a-digest", "sha256:" + "a" * 63, "sha256:" + "A" * 64],
+)
+def test_record_compiled_frontend_surface_omits_malformed_digest(
+    digest: str,
+):
+    state = {}
+
+    record_compiled_frontend_provenance(
+        state,
+        WorkflowProvenance(
+            workflow_path=Path("/tmp/workflow.orc"),
+            source_root=Path("/tmp"),
+            frontend_kind="workflow_lisp",
+            frontend_build_root=Path("/tmp/.orchestrate/build/abc123"),
+            frontend_source_trace_path=Path(
+                "/tmp/.orchestrate/build/abc123/source_map.json"
+            ),
+            frontend_entry_workflow="example::run",
+            frontend_persisted_surface_path=Path(
+                "build/abc123/persisted_workflow_surface.json"
+            ),
+            frontend_persisted_surface_schema_version=(
+                "persisted_workflow_surface_graph.v1"
+            ),
+            frontend_persisted_surface_entry_workflow="example::run",
+            frontend_persisted_surface_sha256=digest,
+        ),
+    )
+
+    compiled = state["runtime_observability"]["compiled_frontend"]
+    assert "persisted_workflow_surface" not in compiled
+
+
+@pytest.mark.parametrize(
+    ("build_root", "schema", "path", "anchor_entry"),
+    [
+        (
+            "0123456789abcdef",
+            "persisted_workflow_surface_graph.v2",
+            "build/0123456789abcdef/persisted_workflow_surface.json",
+            "example::run",
+        ),
+        (
+            "0123456789abcdef",
+            "persisted_workflow_surface_graph.v1",
+            "build/ffffffffffffffff/persisted_workflow_surface.json",
+            "example::run",
+        ),
+        (
+            "0123456789abcdef",
+            "persisted_workflow_surface_graph.v1",
+            "build/0123456789abcdef/other.json",
+            "example::run",
+        ),
+        (
+            "0123456789abcdef",
+            "persisted_workflow_surface_graph.v1",
+            "build/0123456789abcdef/persisted_workflow_surface.json",
+            "example::other",
+        ),
+        (
+            "abc123",
+            "persisted_workflow_surface_graph.v1",
+            "build/abc123/persisted_workflow_surface.json",
+            "example::run",
+        ),
+        (
+            "0123456789ABCDEF",
+            "persisted_workflow_surface_graph.v1",
+            "build/0123456789ABCDEF/persisted_workflow_surface.json",
+            "example::run",
+        ),
+        (
+            "0123456789abcdeg",
+            "persisted_workflow_surface_graph.v1",
+            "build/0123456789abcdeg/persisted_workflow_surface.json",
+            "example::run",
+        ),
+    ],
+)
+def test_record_compiled_frontend_surface_omits_inconsistent_complete_anchor(
+    build_root: str,
+    schema: str,
+    path: str,
+    anchor_entry: str,
+):
+    state = {}
+
+    record_compiled_frontend_provenance(
+        state,
+        WorkflowProvenance(
+            workflow_path=Path("/tmp/workflow.orc"),
+            source_root=Path("/tmp"),
+            frontend_kind="workflow_lisp",
+            frontend_build_root=Path(
+                f"/tmp/.orchestrate/build/{build_root}"
+            ),
+            frontend_source_trace_path=Path(
+                f"/tmp/.orchestrate/build/{build_root}/source_map.json"
+            ),
+            frontend_entry_workflow="example::run",
+            frontend_persisted_surface_path=Path(path),
+            frontend_persisted_surface_schema_version=schema,
+            frontend_persisted_surface_entry_workflow=anchor_entry,
+            frontend_persisted_surface_sha256="sha256:" + "a" * 64,
+        ),
+    )
+
+    assert "persisted_workflow_surface" not in state["runtime_observability"][
+        "compiled_frontend"
+    ]
+
+
 def test_compiled_frontend_contract_field_origins_resolve_subject_refs_with_ordered_deduplication(
     tmp_path: Path,
 ):

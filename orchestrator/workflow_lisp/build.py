@@ -11,6 +11,14 @@ from pathlib import Path
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+from orchestrator.workflow.persisted_surface import (
+    PERSISTED_WORKFLOW_SURFACE_FILENAME,
+    PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
+    canonical_persisted_surface_bytes,
+    decode_persisted_workflow_surface_graph,
+    persisted_surface_sha256,
+    serialize_persisted_workflow_surface_graph,
+)
 from orchestrator.workflow.runtime_plan import enrich_workflow_runtime_plan
 from orchestrator.workflow.semantic_ir import derive_workflow_semantic_ir, workflow_semantic_ir_to_json
 from orchestrator.workflow.surface_ast import WorkflowProvenance
@@ -74,7 +82,7 @@ __all__ = [
     "_validate_lexical_checkpoint_artifacts",
 ]
 
-BUILD_SCHEMA_VERSION = "workflow_lisp_build.v1"
+BUILD_SCHEMA_VERSION = "workflow_lisp_build.v2"
 FRONTEND_ARTIFACT_EXPORT_FILENAMES = {
     "executable_ir": "executable_ir.json",
     "core_workflow_ast": "core_workflow_ast.json",
@@ -162,6 +170,7 @@ class FrontendBuildManifest:
     validated_bundle_names: tuple[str, ...]
     artifact_paths: Mapping[str, str]
     artifact_status: Mapping[str, str]
+    persisted_workflow_surface: Mapping[str, str]
     diagnostic_count: int
     shared_validation_status: str
     debug_yaml_status: str
@@ -285,6 +294,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         executable_ir_payload=executable_ir_payload,
         source_map_payload=reattached.source_map_payload,
         workflow_boundary_projection_payload=reattached.workflow_boundary_projection_payload,
+        persisted_surface_payload=reattached.persisted_surface_payload,
     )
 
 
@@ -337,6 +347,7 @@ class _SelectAndReattachResult:
     workflow_boundary_projection_payload: Mapping[str, object]
     build_root: Path
     fingerprint: str
+    persisted_surface_payload: Mapping[str, object]
 
 
 def _select_and_reattach(
@@ -382,13 +393,24 @@ def _select_and_reattach(
     build_root.mkdir(parents=True, exist_ok=True)
 
     source_map_path = build_root / "source_map.json"
+    persisted_surface_payload = serialize_persisted_workflow_surface_graph(selected_bundle)
+    persisted_surface_bytes = canonical_persisted_surface_bytes(persisted_surface_payload)
+    persisted_surface_relative_path = (
+        Path("build") / fingerprint / PERSISTED_WORKFLOW_SURFACE_FILENAME
+    )
     provenance = replace(
         selected_bundle.provenance,
         frontend_build_root=build_root,
         frontend_source_trace_path=source_map_path,
-        frontend_entry_workflow=entry_selection.selected_name,
+        frontend_entry_workflow=entry_selection.canonical_name,
         frontend_source_map_schema_version=SOURCE_MAP_SCHEMA_VERSION,
         frontend_source_map_coverage=dict(SOURCE_MAP_COVERAGE),
+        frontend_persisted_surface_path=persisted_surface_relative_path,
+        frontend_persisted_surface_schema_version=PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
+        frontend_persisted_surface_entry_workflow=entry_selection.canonical_name,
+        frontend_persisted_surface_sha256=persisted_surface_sha256(
+            persisted_surface_bytes
+        ),
     )
     validated_bundle = _reattach_bundle_provenance(
         bundle=selected_bundle,
@@ -414,6 +436,7 @@ def _select_and_reattach(
         workflow_boundary_projection_payload=workflow_boundary_projection_payload,
         build_root=build_root,
         fingerprint=fingerprint,
+        persisted_surface_payload=persisted_surface_payload,
     )
 
 
@@ -430,6 +453,7 @@ def _emit(
     executable_ir_payload: Mapping[str, object],
     source_map_payload: Mapping[str, object],
     workflow_boundary_projection_payload: Mapping[str, object],
+    persisted_surface_payload: Mapping[str, object],
 ) -> FrontendBuildResult:
     """Write build artifacts and the manifest, and assemble the build result.
 
@@ -450,7 +474,17 @@ def _emit(
         semantic_ir_payload=semantic_ir_payload,
         source_map_payload=source_map_payload,
         workflow_boundary_projection_payload=workflow_boundary_projection_payload,
+        persisted_surface_payload=persisted_surface_payload,
     )
+    persisted_surface_path = artifact_paths["persisted_workflow_surface"]
+    persisted_surface_bytes = persisted_surface_path.read_bytes()
+    decoded_surface = decode_persisted_workflow_surface_graph(persisted_surface_bytes)
+    expected_surface_digest = validated_bundle.provenance.frontend_persisted_surface_sha256
+    if (
+        decoded_surface.entry_workflow != entry_selection.canonical_name
+        or persisted_surface_sha256(persisted_surface_bytes) != expected_surface_digest
+    ):
+        raise ValueError("persisted workflow surface production validation failed")
     manifest = _build_manifest(
         request=resolved_request,
         compile_result=compile_result,
@@ -462,6 +496,21 @@ def _emit(
         build_root=build_root,
         emit_debug_yaml=resolved_request.emit_debug_yaml,
     )
+    provenance = validated_bundle.provenance
+    expected_manifest_anchor = {
+        "schema_version": provenance.frontend_persisted_surface_schema_version,
+        "path": (
+            provenance.frontend_persisted_surface_path.as_posix()
+            if isinstance(provenance.frontend_persisted_surface_path, Path)
+            else None
+        ),
+        "entry_workflow": provenance.frontend_persisted_surface_entry_workflow,
+        "sha256": provenance.frontend_persisted_surface_sha256,
+    }
+    if dict(manifest.persisted_workflow_surface) != expected_manifest_anchor:
+        raise ValueError(
+            "persisted workflow surface manifest anchor mismatches selected bundle provenance"
+        )
     manifest_path = build_root / "manifest.json"
     manifest_path.write_text(
         json.dumps(_json_data(manifest), indent=2, sort_keys=True) + "\n",
