@@ -376,6 +376,36 @@ class TestLoaderValidation:
             yaml.dump(content, f)
         return path
 
+    def test_shared_validation_preserves_imported_version_mismatch_order(self):
+        child_path = self.workspace / "child.yaml"
+        child_path.write_text(
+            'version: "2.13"\n'
+            "name: child\n"
+            "steps:\n"
+            "  - name: Done\n"
+            "    command: [echo, done]\n",
+            encoding="utf-8",
+        )
+        workflow_path = self.workspace / "workflow.yaml"
+        workflow_path.write_text(
+            'version: "2.14"\n'
+            "name: parent\n"
+            "imports:\n"
+            "  child: child.yaml\n"
+            "steps:\n"
+            "  - name: Done\n"
+            "    command: [echo, done]\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load_bundle(workflow_path)
+
+        assert exc_info.value.errors[0].message == (
+            "Import 'child': Imported workflows must declare the same DSL version as "
+            "their caller (expected '2.14', found '2.13')"
+        )
+
     def test_duplicate_import_alias_keys_are_rejected_before_bundle_construction(
         self,
         monkeypatch: pytest.MonkeyPatch,

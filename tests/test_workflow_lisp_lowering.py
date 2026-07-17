@@ -7412,6 +7412,7 @@ def test_source_map_remap_prefers_structured_validation_subject_refs(tmp_path: P
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.span == report_path_origin.span
     assert diagnostic.form_path == report_path_origin.form_path
+    assert diagnostic.diagnostic_kind == "validation"
     assert diagnostic.validation_pass == "shared_validation"
     assert diagnostic.authority_layer == "shared_validation"
 
