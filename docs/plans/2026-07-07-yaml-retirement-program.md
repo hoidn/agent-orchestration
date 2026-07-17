@@ -9,6 +9,10 @@
 becomes the only authored workflow surface. Persisted run data and internal
 debug serialization are outside this program.
 
+**Current selector:** Task 2, move dashboard structure reads to the typed
+surface. Task 1 is complete; its reviewed gap contract is
+`docs/workflow_yaml_orc_gap_list.md`.
+
 **Architecture:** The content-addressed handoff in
 `docs/plans/2026-07-13-procedure-first-reuse-inventory.json` is the exact work
 list. It partitions every authored YAML/YML path into five queues: two ports,
@@ -107,13 +111,22 @@ unclassified authored YAML/YML path are permitted.
 
 ### Task 1: Close the `.orc` language-gap list — ENABLING
 
-- [ ] Reconcile `docs/workflow_yaml_orc_gap_list.md` against only the two port
+- [x] Reconcile `docs/workflow_yaml_orc_gap_list.md` against only the two port
   queues and the protected holdout. A feature used exclusively by deleted
   workflows receives a recorded `drop` decision, not speculative `.orc`
   implementation.
-- [ ] Every surviving gap has one of: implemented design, named blocking gate,
+- [x] Every surviving gap has one of: implemented design, named blocking gate,
   or explicit owner waiver. No entry may use an unbound “TBD”.
-- [ ] Review the final list before either port begins.
+- [x] Review the final list before either port begins.
+
+**Task 1 evidence:** `docs/workflow_yaml_orc_gap_list.md` reconciles exactly the
+two port queues and protected holdout, records one YAML-only `drop`, and closes
+every other observed mechanic as implemented or a named fail-closed gate with
+no owner waiver. The structural contract passed 5 tests; the handoff projection
+passed 27, workflow-specific checks passed 30, and relevant Workflow Lisp
+capability lanes passed 173. Independent specification review returned PASS and
+quality review returned APPROVED. These results close only Task 1; they do not
+close any queue, scan, port, promotion, or deletion gate.
 
 ### Task 2: Move dashboard structure reads to the typed surface — ENABLING
 

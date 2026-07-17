@@ -15,7 +15,7 @@
 **Status:** Historical complete. Task 1's post-hardening rebaseline completed
 at `4983afff` with its narrative correction at `fa16bcf0`; the Task 7 Stage-6
 handoff landed at `7e6adc36`; and Task 8 passed both independent reviews.
-**The current selector is Stage 6 YAML retirement Task 1 in
+**Stage 6 YAML retirement Task 1 is complete; the current selector is Task 2 in
 `docs/plans/2026-07-07-yaml-retirement-program.md`.**
 The four-call finalizer-projection subfamily is retained by the reviewed
 strict-compatibility decision in
@@ -763,7 +763,7 @@ Task 5 was complete; Task 6 Step 1 then became current.
 ### Task 6: Migrate The Internal Drain Builder Without Removing The Public Drain
 
 **Status:** Complete by fail-closed checkpoint retention. Tasks 7–8 are also
-complete; Stage 6 YAML retirement Task 1 is current.
+complete. Stage 6 YAML retirement Task 1 is complete and Task 2 is current.
 
 **Files:**
 - Modify: `workflows/library/lisp_frontend_design_delta/drain.orc`
@@ -827,7 +827,7 @@ evidence is
 ### Task 7: Hand Legacy Rows To Stage 6 Without Translating Them
 
 **Status:** Complete as a handoff-only task at `7e6adc36`. Task 8 is complete
-and Stage 6 YAML retirement Task 1 is current. The
+and Stage 6 YAML retirement Task 1 is complete; Task 2 is current. The
 handoff partitions 110 authored YAML/YML paths into the exact five Stage-6
 queues, maps all 63 legacy-retire rows as 53 delete plus 10 Design Delta
 archive rows, and preserves all 32 effect-adapter plus 13 public-entry IDs.
