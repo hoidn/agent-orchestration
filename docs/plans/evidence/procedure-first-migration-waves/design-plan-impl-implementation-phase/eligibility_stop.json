@@ -1,0 +1,61 @@
+{
+  "schema": "procedure_first_migration_identity_retirement_eligibility_stop.v1",
+  "captured_at": "2026-07-16T17:01:00-07:00",
+  "repository_commit": "e367aeafc97f87b85c6eb8bfd3ce8a935e17f1f1",
+  "migration_id": "design-plan-impl-implementation-phase-procedure-first-wave",
+  "compatibility_class_considered": "reviewed_internal_identity_retirement",
+  "result": "ineligible_supported_old_identity_consumers_present",
+  "source_edit_authorized": false,
+  "query": {
+    "purpose": "monotonic witness subset; the complete production query can only retain or increase the observed supported-consumer count",
+    "query_version": "procedure-identity-store-query.v1",
+    "canonical_sorted_query_sha256": "sha256:2dc5c9760e6e1e3d56464493e7984caa9017de3e945a661d98b72d6a0d3ca1b4",
+    "identity_delta_witness_path": "identity_delta_witness.json",
+    "identity_delta_witness_sha256": "sha256:870f4f422d98031edb4d6c67f7b42a3fcd67cfb8aaf27b8d26c96576a7d515ee"
+  },
+  "known_state_store": {
+    "canonical_root": "/home/ollie/Documents/agent-orchestration/.orchestrate/procedure-first-pilot-evidence/tracked-plan-phase/workspace/.orchestrate/runs",
+    "provenance": "completed tracked-plan pilot dedicated root retained by the reviewed pilot contract",
+    "retained_scan_path": "known_store_scan.json",
+    "retained_scan_sha256": "sha256:e3f07d5e794f33edf5a591915231cf761e24290ae113cbd86b2ab3363bd0e805",
+    "normalized_scan_digest": "sha256:badca36d1166baa4c781466f8f68e7db9b10383841e56948a3fb73866a3e84f7",
+    "counts": {
+      "terminal_run_count": 2,
+      "nonterminal_run_count": 0,
+      "store_terminal_run_count": 2,
+      "store_nonterminal_run_count": 0,
+      "call_frame_count": 0,
+      "consumer_count": 24,
+      "checkpoint_index_count": 0,
+      "checkpoint_record_count": 36,
+      "retained_manifest_count": 0,
+      "identity_metadata_count": 0,
+      "scanned_file_count": 38
+    },
+    "retained_run_state_bindings": [
+      {
+        "run_id": "tracked-plan-phase-clean-new-id",
+        "status": "completed",
+        "state_sha256": "sha256:729ebd7b4670ee73b0f18fbd3566e2ea73e5e8f488ddf729212cbec77e34a73b"
+      },
+      {
+        "run_id": "tracked-plan-phase-interrupted-new-id",
+        "status": "completed",
+        "state_sha256": "sha256:b2d2bd8a265515eb50c181e9e7151a8f59efad3668319894a6bf65a4ee568c05"
+      }
+    ]
+  },
+  "decision": {
+    "authority": "docs/design/workflow_lisp_procedure_migration_identity_compatibility.md",
+    "validator_gate": "known_state_store.consumer_count must equal zero",
+    "reason": "The generic scanner finds 24 supported old-identity consumer matches in a known retained state store. A complete retired-identity query cannot remove matches already found by this witness subset.",
+    "disposition": "retain design-plan-impl-implementation-phase as a workflow and reclassify its active internal-call record from procedure-candidate to effect-adapter",
+    "next_parent_step": "Procedure-First Migration Waves Task 2 Step 3"
+  },
+  "claims_not_made": [
+    "This read-only witness scan is not a full retirement record or an owner attestation.",
+    "It does not authorize deletion, mutation, or reinterpretation of the completed pilot runs.",
+    "It does not claim that terminal matching runs are nonterminal; eligibility fails on supported consumer_count, not terminal_run_count.",
+    "It does not weaken the strict identity default, authorize a remap, or claim cross-source resume compatibility."
+  ]
+}

@@ -14,13 +14,15 @@
 
 **Status:** Current selector (activated 2026-07-16). Task 1's post-hardening
 rebaseline is complete at `4983afff` with its narrative correction at
-`fa16bcf0`. **Current sub-selector: Task 2 Step 2,
-`design-plan-impl-implementation-phase`.** Task 2 Step 1's bounded
+`fa16bcf0`. **Current sub-selector: Task 2 Step 3,
+`same_file_record_call_binding.orc`.** Task 2 Steps 1 and 2 each reached a
+bounded fail-closed identity-retirement stop:
 `docs/plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md`
-closed by a fail-closed eligibility stop: the completed pilot store retains 26
-supported old-identity consumers, so `tracked-design-phase` remains a workflow
-and its inventory row is now `effect-adapter`. This is not a new design or a
-reordering of the remaining Task 2 work or Tasks 3-8. The prerequisite
+records 26 supported old-identity consumers for `tracked-design-phase`, and
+`docs/plans/2026-07-16-design-plan-impl-implementation-phase-identity-retirement-plan.md`
+records 24 for `design-plan-impl-implementation-phase`. Both callees remain
+workflows and both inventory rows are now `effect-adapter`. This is not a new
+design or a reordering of the remaining Task 2 work or Tasks 3-8. The prerequisite
 `docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
 completed at `fdf1e06b` with fresh focused acceptance evidence, a deterministic
 public CLI smoke, broad baseline equivalence, and independent specification and
@@ -84,12 +86,12 @@ must be a subset of the active task's `Files` list. Never stage, restore, or
 rewrite a protected path. Record its initial `git status --short` output only
 as a guard baseline; user changes to those paths are not plan failures.
 
-## Current queue after Task 2 Step 1
+## Current queue after Task 2 Step 2
 
 | Class | Count | Disposition |
 | --- | ---: | --- |
-| `procedure-candidate` | 31 | Migrate by `.orc` family after parity. |
-| `effect-adapter` | 26 | Reclassify only after effect, identity, artifact/publication, source-map, child-call, checkpoint, state-consumer, and resume evidence. |
+| `procedure-candidate` | 30 | Migrate by `.orc` family after parity. |
+| `effect-adapter` | 27 | Reclassify only after effect, identity, artifact/publication, source-map, child-call, checkpoint, state-consumer, and resume evidence. |
 | `legacy-retire` | 38 | Do not translate; coordinate with Stage 6 after replacement evidence. |
 | `public-boundary` | 3 separate entries | Preserve as workflows and negative regression coverage. |
 
@@ -247,14 +249,18 @@ retirement record; it is never baseline-refreshed or described as unchanged.
 No phase/source migration commit exists or is permitted under the observed
 store evidence.
 
-- [ ] **Step 2: Migrate and review `design-plan-impl-implementation-phase`**
+- [x] **Step 2: Resolve `design-plan-impl-implementation-phase` without an ineligible migration**
 
-Add a separate RED assertion named
-`test_stack_implementation_phase_is_inline_procedure_with_public_wrapper`,
-verify the current definition/call fails it, then convert only that phase and
-its one use. Rerun the same design-stack test and compile commands from Step 1.
-Commit as `Migrate stack implementation phase to a procedure`, then obtain
-independent specification and quality PASS before continuing.
+Task 2 Step 2's exact hypothetical `defproc :lowering inline` plus positional-call
+conversion compiles, but its old workflow/call/provider/match presentation
+identities do not remain exact. The bounded
+`docs/plans/2026-07-16-design-plan-impl-implementation-phase-identity-retirement-plan.md`
+query binds five compiler-owned retired witnesses to the content-addressed
+historical source/manifests and finds 24 supported consumers in the completed
+pilot store. The accepted retirement class requires zero consumers, so the
+source remains byte-unchanged and the active row is retained as
+`effect-adapter`. No source migration commit or run is permitted by that
+decision. Step 3 is now selected.
 
 - [ ] **Step 3: Migrate and review `same_file_record_call_binding.orc`**
 
@@ -288,13 +294,14 @@ pytest -q tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_mi
 pytest -q tests/test_workflow_lisp_examples.py tests/test_workflow_lisp_route_readiness.py -k 'same_file_record_call_binding or design_plan_impl_review_stack'
 ```
 
-- [ ] **Step 5: Record the two migrations and retained Step 1 disposition**
+- [ ] **Step 5: Record the migration and retained Steps 1-2 dispositions**
 
 The pilot record is already in v2 history. Keep the Step 1
-`tracked-design-phase` call active as `effect-adapter` with its eligibility-stop
-evidence. Move exactly the two newly completed example call records from active `records` to
-append-only `history` with `disposition: migrated`, completion commits, and
-evidence selectors. Recompute active counts and history counts, retain the
+`tracked-design-phase` and Step 2 `design-plan-impl-implementation-phase`
+calls active as `effect-adapter` with their eligibility-stop evidence. Move
+only the newly completed same-file example call record from active `records`
+to append-only `history` with `disposition: migrated`, its completion commit,
+and evidence selectors. Recompute active counts and history counts, retain the
 design-stack `public-entry` negative as an active record, and keep the
 same-file exported wrapper protected by its behavioral negative test.
 

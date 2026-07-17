@@ -70,6 +70,21 @@ TRACKED_DESIGN_IDENTITY_WITNESS = (
     TRACKED_DESIGN_ELIGIBILITY_STOP.parent / "identity_delta_witness.json"
 )
 TRACKED_DESIGN_INPUTS = TRACKED_DESIGN_ELIGIBILITY_STOP.parent / "inputs"
+STACK_IMPLEMENTATION_ELIGIBILITY_STOP = (
+    REPO_ROOT
+    / "docs"
+    / "plans"
+    / "evidence"
+    / "procedure-first-migration-waves"
+    / "design-plan-impl-implementation-phase"
+    / "eligibility_stop.json"
+)
+STACK_IMPLEMENTATION_KNOWN_STORE_SCAN = (
+    STACK_IMPLEMENTATION_ELIGIBILITY_STOP.parent / "known_store_scan.json"
+)
+STACK_IMPLEMENTATION_IDENTITY_WITNESS = (
+    STACK_IMPLEMENTATION_ELIGIBILITY_STOP.parent / "identity_delta_witness.json"
+)
 ROUTE_READINESS_REGISTRY = REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json"
 PARITY_TARGETS = MIGRATION_INPUTS / "parity_targets.json"
 DESIGN_DELTA_DRAIN = (
@@ -249,8 +264,8 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
     assert inventory["counts"]["actionable_internal_calls"] == {
         "total": 95,
         "by_classification": {
-            "procedure-candidate": 31,
-            "effect-adapter": 26,
+            "procedure-candidate": 30,
+            "effect-adapter": 27,
             "legacy-retire": 38,
             "public-boundary": 0,
         },
@@ -309,6 +324,43 @@ def _tracked_design_phase_proposed_inline_source(old_source: bytes) -> bytes:
             "               brief_path\n"
             "               design_target_path\n"
             "               design_review_report_target_path))",
+        ),
+    )
+    for old, new in replacements:
+        assert source.count(old) == 1
+        source = source.replace(old, new)
+    return source.encode("utf-8")
+
+
+def _stack_implementation_phase_proposed_inline_source(old_source: bytes) -> bytes:
+    source = old_source.decode("utf-8")
+    replacements = (
+        (
+            "  (defworkflow design-plan-impl-implementation-phase\n"
+            "    ((design_path DesignDocPath)",
+            "  (defproc design-plan-impl-implementation-phase\n"
+            "    ((design_path DesignDocPath)",
+        ),
+        (
+            "    -> ImplementationPhaseOutput\n    (let* ((attempt",
+            "    -> ImplementationPhaseOutput\n"
+            "    :effects ((uses-provider providers.implementation.execute)\n"
+            "              (uses-provider providers.implementation.review))\n"
+            "    :lowering inline\n"
+            "    (let* ((attempt",
+        ),
+        (
+            "             (call design-plan-impl-implementation-phase\n"
+            "               :design_path design.design_path\n"
+            "               :plan_path plan.plan_path\n"
+            "               :execution_report_target_path execution_report_target_path\n"
+            "               :implementation_review_report_target_path "
+            "implementation_review_report_target_path))",
+            "             (design-plan-impl-implementation-phase\n"
+            "               design.design_path\n"
+            "               plan.plan_path\n"
+            "               execution_report_target_path\n"
+            "               implementation_review_report_target_path))",
         ),
     )
     for old, new in replacements:
@@ -530,6 +582,161 @@ def test_tracked_design_phase_eligibility_stop_live_store_rescan_is_opt_in() -> 
         key: observed[key]
         for key in store["counts"]
     } == store["counts"]
+
+
+def test_stack_implementation_phase_identity_retirement_eligibility_stop_replays() -> None:
+    evidence = _load_json(STACK_IMPLEMENTATION_ELIGIBILITY_STOP)
+    scan = _load_json(STACK_IMPLEMENTATION_KNOWN_STORE_SCAN)
+    witness = _load_json(STACK_IMPLEMENTATION_IDENTITY_WITNESS)
+    query = evidence["query"]
+    store = evidence["known_state_store"]
+    retired_identities = [
+        row["identity"] for row in witness["retired_identity_witnesses"]
+    ]
+    canonical_query = json.dumps(
+        sorted(retired_identities),
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    assert "sha256:" + hashlib.sha256(canonical_query).hexdigest() == (
+        query["canonical_sorted_query_sha256"]
+    )
+    assert _sha256_path(STACK_IMPLEMENTATION_IDENTITY_WITNESS) == (
+        query["identity_delta_witness_sha256"]
+    )
+    assert _sha256_path(STACK_IMPLEMENTATION_KNOWN_STORE_SCAN) == (
+        store["retained_scan_sha256"]
+    )
+    assert _retained_scan_digest(scan) == scan["normalized_scan_digest"]
+    assert scan["normalized_scan_digest"] == store["normalized_scan_digest"]
+    assert {key: scan[key] for key in store["counts"]} == store["counts"]
+    assert scan["terminal_run_count"] == 2
+    assert scan["nonterminal_run_count"] == 0
+    assert scan["consumer_count"] == 24
+    assert len(scan["matches"]) == scan["consumer_count"]
+    assert len(scan["scanned_files"]) == scan["scanned_file_count"]
+    assert scan["retired_identities"] == sorted(retired_identities)
+
+    retained_source = TRACKED_DESIGN_INPUTS / "source.orc"
+    current_source = retained_source.read_bytes()
+    proposed_source = _stack_implementation_phase_proposed_inline_source(
+        current_source
+    )
+    assert witness["retained_inputs"]["source"] == {
+        "path": retained_source.relative_to(REPO_ROOT).as_posix(),
+        "sha256": _sha256_path(retained_source),
+    }
+    assert witness["source"] == {
+        "current_sha256": _sha256_path(retained_source),
+        "proposed_inline_sha256": "sha256:"
+        + hashlib.sha256(proposed_source).hexdigest(),
+    }
+    for name in (
+        "design_plan_impl_stack.providers.json",
+        "design_plan_impl_stack.prompts.json",
+        "design_plan_impl_stack.commands.json",
+    ):
+        retained = TRACKED_DESIGN_INPUTS / name
+        assert witness["retained_inputs"][name] == {
+            "path": retained.relative_to(REPO_ROOT).as_posix(),
+            "sha256": _sha256_path(retained),
+        }
+    assert witness["witness_projection_sha256"] == _projection_sha256(
+        witness["retired_identity_witnesses"]
+    )
+
+    match_counts: dict[str, int] = {}
+    for match in scan["matches"]:
+        match_counts[match["identity"]] = match_counts.get(match["identity"], 0) + 1
+    for row in witness["retired_identity_witnesses"]:
+        identity = row["identity"]
+        assert row["old_domains"] == [row["identity_kind"]]
+        assert row["proposed_production_domains"] == []
+        assert row["proposed_leak_domains"] == []
+        assert row["old_present"] is True
+        assert row["proposed_leak_present"] is False
+        assert row["store_match_count"] == match_counts[identity]
+    assert sorted(match_counts) == sorted(retired_identities)
+    assert sum(match_counts.values()) == 24
+    assert evidence["source_edit_authorized"] is False
+    assert evidence["decision"]["disposition"].startswith(
+        "retain design-plan-impl-implementation-phase as a workflow"
+    )
+
+    scanned_file_digests = {
+        row["path"]: row["sha256"] for row in scan["scanned_files"]
+    }
+    for binding in store["retained_run_state_bindings"]:
+        assert binding["status"] == "completed"
+        assert scanned_file_digests[f'{binding["run_id"]}/state.json'] == (
+            binding["state_sha256"]
+        )
+
+
+def test_stack_implementation_phase_live_source_retains_the_stopped_boundary() -> None:
+    source = EXAMPLE.read_text(encoding="utf-8")
+    assert source.count("(defworkflow design-plan-impl-implementation-phase") == 1
+    assert source.count("(call design-plan-impl-implementation-phase") == 1
+
+
+def test_stack_implementation_phase_historical_projection_rebuild_is_opt_in(
+    tmp_path: Path,
+) -> None:
+    if os.environ.get("ORCHESTRATOR_REBUILD_STACK_IMPLEMENTATION_PROJECTIONS") != "1":
+        pytest.skip(
+            "set ORCHESTRATOR_REBUILD_STACK_IMPLEMENTATION_PROJECTIONS=1"
+        )
+
+    current_source = (TRACKED_DESIGN_INPUTS / "source.orc").read_bytes()
+    proposed_source = _stack_implementation_phase_proposed_inline_source(
+        current_source
+    )
+    witness = _load_json(STACK_IMPLEMENTATION_IDENTITY_WITNESS)
+    for clone in ("clone-a", "clone-b"):
+        old_projection, _ = _tracked_design_production_identity_projections(
+            tmp_path / f"{clone}-old",
+            current_source,
+            side="old",
+        )
+        new_projection, new_leaks = _tracked_design_production_identity_projections(
+            tmp_path / f"{clone}-new",
+            proposed_source,
+            side="new",
+        )
+        for row in witness["retired_identity_witnesses"]:
+            identity = row["identity"]
+            assert sorted(
+                kind for kind, values in old_projection.items() if identity in values
+            ) == row["old_domains"]
+            assert sorted(
+                kind for kind, values in new_projection.items() if identity in values
+            ) == row["proposed_production_domains"]
+            assert sorted(
+                kind for kind, values in new_leaks.items() if identity in values
+            ) == row["proposed_leak_domains"]
+
+
+def test_stack_implementation_phase_eligibility_stop_live_store_rescan_is_opt_in() -> None:
+    if os.environ.get("ORCHESTRATOR_RESCAN_STACK_IMPLEMENTATION_ELIGIBILITY") != "1":
+        pytest.skip("set ORCHESTRATOR_RESCAN_STACK_IMPLEMENTATION_ELIGIBILITY=1")
+
+    from orchestrator.workflow_lisp.procedure_identity_retirement import (
+        scan_known_state_store,
+    )
+
+    evidence = _load_json(STACK_IMPLEMENTATION_ELIGIBILITY_STOP)
+    witness = _load_json(STACK_IMPLEMENTATION_IDENTITY_WITNESS)
+    query = evidence["query"]
+    store = evidence["known_state_store"]
+    observed = scan_known_state_store(
+        Path(store["canonical_root"]),
+        retired_identities=[
+            row["identity"] for row in witness["retired_identity_witnesses"]
+        ],
+        query_version=query["query_version"],
+    )
+    assert observed["normalized_scan_digest"] == store["normalized_scan_digest"]
+    assert {key: observed[key] for key in store["counts"]} == store["counts"]
 
 
 def test_procedure_first_public_boundary_inventory_keeps_exported_wrappers() -> None:
