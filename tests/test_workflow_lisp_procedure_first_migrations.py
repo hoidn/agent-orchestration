@@ -18,6 +18,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from orchestrator.workflow_lisp import LispFrontendCompileError
 from orchestrator.exec.output_capture import CaptureMode, CaptureResult
 from orchestrator.exec.step_executor import ExecutionResult, StepExecutor
 from orchestrator.providers.executor import ProviderExecutionResult, ProviderExecutor
@@ -118,6 +119,12 @@ DESIGN_DELTA_FINALIZER_RETENTION_DECISION = (
     / "docs"
     / "plans"
     / "2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md"
+)
+DESIGN_DELTA_BLOCKED_RECOVERY_RETENTION_DECISION = (
+    REPO_ROOT
+    / "docs"
+    / "plans"
+    / "2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md"
 )
 DESIGN_DELTA_PUBLIC_ENTRY = "lisp_frontend_design_delta/drain::drain"
 _DESIGN_DELTA_RUNTIME_PROJECTION_DIGESTS = {
@@ -272,7 +279,7 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
     assert inventory["source_commit"] == "db9889937a895d67810dee1ea0b1b53552d30eca"
     records = inventory["records"]
     history = inventory["history"]
-    assert len(records) == 103
+    assert len(records) == 104
     assert len(history) == 1
     assert len({record["id"] for record in records}) == len(records)
     assert not ({record["id"] for record in records} & {row["id"] for row in history})
@@ -284,7 +291,7 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
         record for record in records if record["record_kind"] == "public-entry"
     ]
     assert len(internal_records) == 95
-    assert len(public_records) == 8
+    assert len(public_records) == 9
     assert inventory["counts"]["separate_public_entries"] == len(public_records)
     assert inventory["counts"]["raw_authored_call_sites"] == {
         "yaml": 67,
@@ -294,8 +301,8 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
     assert inventory["counts"]["actionable_internal_calls"] == {
         "total": 95,
         "by_classification": {
-            "procedure-candidate": 18,
-            "effect-adapter": 14,
+            "procedure-candidate": 12,
+            "effect-adapter": 20,
             "legacy-retire": 63,
             "public-boundary": 0,
         },
@@ -1106,7 +1113,9 @@ def test_stack_implementation_phase_eligibility_stop_live_store_rescan_is_opt_in
     assert {key: observed[key] for key in store["counts"]} == store["counts"]
 
 
-def test_procedure_first_public_boundary_inventory_keeps_exported_wrappers() -> None:
+def test_procedure_first_public_boundary_inventory_keeps_exported_wrappers(
+    tmp_path: Path,
+) -> None:
     inventory = _load_json(REUSE_INVENTORY)
     registry = _load_json(ROUTE_READINESS_REGISTRY)
     parity = _load_json(PARITY_TARGETS)
@@ -1117,8 +1126,12 @@ def test_procedure_first_public_boundary_inventory_keeps_exported_wrappers() -> 
         "public-entry:examples/design_plan_impl_review_stack_v2_call::"
         "design-plan-impl-review-stack"
     )
-    assert {drain_id, stack_id} <= set(active_by_id)
-    for record_id in (drain_id, stack_id):
+    classifier_id = (
+        "public-entry:lisp_frontend_design_delta/work_item::"
+        "classify-blocked-implementation-recovery"
+    )
+    assert {drain_id, stack_id, classifier_id} <= set(active_by_id)
+    for record_id in (drain_id, stack_id, classifier_id):
         record = active_by_id[record_id]
         assert record["record_kind"] == "public-entry"
         assert record["classification"] == "public-boundary"
@@ -1135,6 +1148,15 @@ def test_procedure_first_public_boundary_inventory_keeps_exported_wrappers() -> 
     assert re.search(r"\(defworkflow\s+drain\b", drain_source)
     assert "(export design-plan-impl-review-stack)" in stack_source
     assert re.search(r"\(defworkflow\s+design-plan-impl-review-stack\b", stack_source)
+
+    linked_result, _ = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    work_item_exports = linked_result.graph.export_surfaces_by_name[
+        "lisp_frontend_design_delta/work_item"
+    ].workflows_by_name
+    assert {
+        "run-work-item",
+        "classify-blocked-implementation-recovery",
+    } <= set(work_item_exports)
 
     readiness_paths = {row["path"] for row in registry["surfaces"]}
     assert active_by_id[drain_id]["source_path"] in readiness_paths
@@ -1339,6 +1361,130 @@ def test_design_delta_finalizer_projection_rows_retain_workflow_checkpoints() ->
     ) == 1
     assert re.search(r"\(export[\s\S]*?\brun-work-item\b[\s\S]*?\)", source)
     assert len(re.findall(r"\(defworkflow\s+run-work-item(?=\s)", source)) == 1
+
+
+def test_design_delta_blocked_recovery_rows_retain_workflow_boundaries(
+    tmp_path: Path,
+) -> None:
+    inventory = _load_json(REUSE_INVENTORY)
+    decision = DESIGN_DELTA_BLOCKED_RECOVERY_RETENTION_DECISION.read_text(
+        encoding="utf-8"
+    )
+    records_by_id = {row["id"]: row for row in inventory["records"]}
+    prefix = (
+        "internal-call:workflows/library/lisp_frontend_design_delta/"
+        "work_item.orc:"
+    )
+    retained_ids = {
+        f"{prefix}classify-blocked-implementation-recovery:1",
+        *(
+            f"{prefix}finalize-selected-item-from-blocked-implementation:{index}"
+            for index in range(1, 6)
+        ),
+    }
+    decision_path = DESIGN_DELTA_BLOCKED_RECOVERY_RETENTION_DECISION.relative_to(
+        REPO_ROOT
+    ).as_posix()
+    inventory_path = REUSE_INVENTORY_NARRATIVE.relative_to(REPO_ROOT).as_posix()
+    selector = (
+        "tests/test_workflow_lisp_procedure_first_migrations.py::"
+        "test_design_delta_blocked_recovery_rows_retain_workflow_boundaries"
+    )
+    compile_selector = (
+        "tests/test_workflow_lisp_procedure_first_migrations.py::"
+        "test_design_delta_blocked_recovery_hypothetical_fails_closed_at_typecheck"
+    )
+
+    observed_ids = {
+        row["id"]
+        for row in inventory["records"]
+        if row["source_path"] == DESIGN_DELTA_WORK_ITEM.relative_to(REPO_ROOT).as_posix()
+        and row["callee"]
+        in {
+            "classify-blocked-implementation-recovery",
+            "finalize-selected-item-from-blocked-implementation",
+        }
+    }
+    assert observed_ids == retained_ids
+    classifier_id = f"{prefix}classify-blocked-implementation-recovery:1"
+    finalizer_ids = retained_ids - {classifier_id}
+    for record_id in retained_ids:
+        record = records_by_id[record_id]
+        assert record["record_kind"] == "internal-call"
+        assert record["classification"] == "effect-adapter"
+        assert {
+            record["source_path"],
+            decision_path,
+            inventory_path,
+            selector,
+        } <= set(record["evidence_paths"])
+    classifier = records_by_id[classifier_id]
+    assert "export" in classifier["named_substrate_gap"].lower()
+    assert "strict_compatibility" in classifier["named_substrate_gap"]
+    assert "pure_expr_operand_type_mismatch" not in classifier["named_substrate_gap"]
+    assert {
+        "orchestrator/workflow_lisp/build.py",
+        (
+            "tests/test_workflow_lisp_procedure_first_migrations.py::"
+            "test_procedure_first_public_boundary_inventory_keeps_exported_wrappers"
+        ),
+    } <= set(classifier["evidence_paths"])
+    public_classifier = records_by_id[
+        "public-entry:lisp_frontend_design_delta/work_item::"
+        "classify-blocked-implementation-recovery"
+    ]
+    assert public_classifier["classification"] == "public-boundary"
+    assert public_classifier["resolution"] == "exported-entry"
+    assert {
+        "exported workflow",
+        "CLI-selectable entry",
+        "compiled workflows_by_name export",
+    } <= set(public_classifier["public_boundary_evidence"])
+    for record_id in finalizer_ids:
+        record = records_by_id[record_id]
+        assert "pure_expr_operand_type_mismatch" in record["named_substrate_gap"]
+        assert compile_selector in record["evidence_paths"]
+        assert "six-call" not in record["reason"]
+        assert "classify-blocked-implementation-recovery" not in record["reason"]
+        assert classifier_id not in record["reason"]
+    assert classifier["named_substrate_gap"].startswith("strict_compatibility")
+    assert {
+        record["named_substrate_gap"].split(":", 1)[0]
+        for record_id in finalizer_ids
+        for record in (records_by_id[record_id],)
+    } == {"pure_expr_operand_type_mismatch"}
+
+    source = DESIGN_DELTA_WORK_ITEM.read_text(encoding="utf-8")
+    expected_calls = {
+        "classify-blocked-implementation-recovery": 1,
+        "finalize-selected-item-from-blocked-implementation": 5,
+    }
+    for callee, expected_count in expected_calls.items():
+        assert len(re.findall(rf"\(defworkflow\s+{callee}\b", source)) == 1
+        assert not re.search(rf"\(defproc\s+{callee}\b", source)
+        assert len(re.findall(rf"\(call\s+{callee}\b", source)) == expected_count
+    assert sum(expected_calls.values()) == 6
+    assert len(re.findall(r"\(defworkflow\s+run-work-item(?=\s)", source)) == 1
+    linked_result, _ = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    work_item_exports = linked_result.graph.export_surfaces_by_name[
+        "lisp_frontend_design_delta/work_item"
+    ].workflows_by_name
+    assert {
+        "run-work-item",
+        "classify-blocked-implementation-recovery",
+    } <= set(work_item_exports)
+    normalized_decision = " ".join(decision.split())
+    assert "no finalizer hypothetical executable exists" in (
+        normalized_decision.lower()
+    )
+    assert "neither an added/removed checkpoint delta" in normalized_decision
+    assert "nor affected-route runtime parity" in normalized_decision
+    assert "process-local exploratory probe" in normalized_decision
+    assert "This type rejection, not the process-local exploratory probe" in (
+        normalized_decision
+    )
+    assert "five finalizer calls only" in normalized_decision
+    assert "diagnostic is not evidence for classifier retention" in normalized_decision
 
 
 def _design_delta_default_state_value(type_payload: Mapping[str, object]) -> object:
@@ -1610,6 +1756,75 @@ def _design_delta_finalizer_proposed_inline_source(old_source: bytes) -> bytes:
     )
     expected_counts = (1, 1, 1, 1, 1, 1, 2, 1, 1, 3, 1, 3)
     for (old, new), expected_count in zip(replacements, expected_counts, strict=True):
+        assert source.count(old) == expected_count
+        source = source.replace(old, new)
+    return source.encode("utf-8")
+
+
+def _design_delta_blocked_finalizer_proposed_inline_source(old_source: bytes) -> bytes:
+    source = old_source.decode("utf-8")
+    replacements = (
+        (
+            "  (defworkflow finalize-selected-item-from-blocked-implementation\n",
+            "  (defproc finalize-selected-item-from-blocked-implementation\n",
+            1,
+        ),
+        (
+            "  (defproc finalize-selected-item-from-blocked-implementation\n"
+            "    ((implementation_phase_result ImplementationPhaseResult)\n"
+            "     (blocker-class std/resource/BlockerClass))\n"
+            "    -> SelectedItemResult\n"
+            "    (let* ((plan\n",
+            "  (defproc finalize-selected-item-from-blocked-implementation\n"
+            "    ((implementation_phase_result ImplementationPhaseResult)\n"
+            "     (blocker-class std/resource/BlockerClass))\n"
+            "    -> SelectedItemResult\n"
+            "    :effects ((calls-workflow lisp_frontend_design_delta/work_item::"
+            "project-selected-item-finalizer-approved-plan)\n"
+            "              (calls-workflow lisp_frontend_design_delta/work_item::"
+            "project-selected-item-finalizer-blocked-implementation)\n"
+            "              (uses-command apply_resource_transition))\n"
+            "    :lowering inline\n"
+            "    (let* ((plan\n",
+            1,
+        ),
+        (
+            "                  (call finalize-selected-item-from-blocked-implementation\n"
+            "                    :implementation_phase_result implementation_phase_result\n"
+            "                    :blocker-class BlockerClass.roadmap_conflict)",
+            "                  (finalize-selected-item-from-blocked-implementation\n"
+            "                    implementation_phase_result\n"
+            "                    BlockerClass.roadmap_conflict)",
+            1,
+        ),
+        (
+            "              (call finalize-selected-item-from-blocked-implementation\n"
+            "                :implementation_phase_result implementation\n"
+            "                :blocker-class BlockerClass.unrecoverable_after_fix_attempt)",
+            "              (finalize-selected-item-from-blocked-implementation\n"
+            "                implementation\n"
+            "                BlockerClass.unrecoverable_after_fix_attempt)",
+            2,
+        ),
+        (
+            "                              (call "
+            "finalize-selected-item-from-blocked-implementation\n"
+            "                                :implementation_phase_result implementation\n"
+            "                                :blocker-class "
+            "BlockerClass.unrecoverable_after_fix_attempt)",
+            "                              (finalize-selected-item-from-blocked-implementation\n"
+            "                                implementation\n"
+            "                                BlockerClass.unrecoverable_after_fix_attempt)",
+            2,
+        ),
+        (
+            "              (calls-workflow lisp_frontend_design_delta/work_item::"
+            "finalize-selected-item-from-blocked-implementation)\n",
+            "",
+            3,
+        ),
+    )
+    for old, new, expected_count in replacements:
         assert source.count(old) == expected_count
         source = source.replace(old, new)
     return source.encode("utf-8")
@@ -2263,6 +2478,74 @@ def test_design_delta_finalizer_hypothetical_removes_four_public_wrapper_checkpo
             else proposed[projection]
         )
         assert proposed_value == current_value
+
+
+def test_design_delta_blocked_recovery_hypothetical_fails_closed_at_typecheck(
+    tmp_path: Path,
+) -> None:
+    retained_source = DESIGN_DELTA_WORK_ITEM.read_bytes()
+    proposed_source = _design_delta_blocked_finalizer_proposed_inline_source(
+        retained_source
+    )
+    retained_sha256 = "sha256:" + hashlib.sha256(retained_source).hexdigest()
+    proposed_sha256 = "sha256:" + hashlib.sha256(proposed_source).hexdigest()
+    assert retained_sha256 != proposed_sha256
+    proposed_text = proposed_source.decode("utf-8")
+    assert len(
+        re.findall(
+            r"\(defworkflow\s+classify-blocked-implementation-recovery\b",
+            proposed_text,
+        )
+    ) == 1
+    assert len(
+        re.findall(
+            r"\(call\s+classify-blocked-implementation-recovery\b",
+            proposed_text,
+        )
+    ) == 1
+    assert len(
+        re.findall(
+            r"\(defproc\s+finalize-selected-item-from-blocked-implementation\b",
+            proposed_text,
+        )
+    ) == 1
+    assert not re.search(
+        r"\(call\s+finalize-selected-item-from-blocked-implementation\b",
+        proposed_text,
+    )
+
+    (tmp_path / "retained").mkdir()
+    retained_result, retained_reads = _compile_design_delta_same_path_work_item_variant(
+        tmp_path / "retained",
+        retained_source,
+    )
+    assert retained_result.entry_result.validated_bundles[DESIGN_DELTA_PUBLIC_ENTRY]
+    assert retained_reads["selected_sha256"] == retained_sha256
+    assert set(retained_reads["served_sha256"]) == {retained_sha256}
+    assert retained_reads["disk_before_sha256"] == retained_sha256
+    assert retained_reads["disk_after_sha256"] == retained_sha256
+
+    (tmp_path / "proposed").mkdir()
+    with _design_delta_same_path_work_item_io(proposed_source) as proposed_reads:
+        with pytest.raises(LispFrontendCompileError) as excinfo:
+            _compile_design_delta_parent_drain_entrypoint(tmp_path / "proposed")
+
+    assert [diagnostic.code for diagnostic in excinfo.value.diagnostics] == [
+        "pure_expr_operand_type_mismatch"
+    ]
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.message == (
+        "pure projection result type did not match the lowered contract"
+    )
+    diagnostic_line = proposed_text.splitlines()[diagnostic.span.start.line - 1]
+    assert "BlockerClass.roadmap_conflict" in diagnostic_line
+    assert "(blocker-class std/resource/BlockerClass)" in proposed_text
+
+    assert proposed_reads["selected_sha256"] == proposed_sha256
+    assert set(proposed_reads["served_sha256"]) == {proposed_sha256}
+    assert proposed_reads["disk_before_sha256"] == retained_sha256
+    assert proposed_reads["disk_after_sha256"] == retained_sha256
+    assert DESIGN_DELTA_WORK_ITEM.read_bytes() == retained_source
 
 
 @pytest.mark.parametrize(

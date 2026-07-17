@@ -554,21 +554,27 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "strict_compatibility is mandatory because classify-blocked-implementation-recovery is an exported, CLI-selectable workflow; ordinary inline retirement cannot preserve that public invocation and checkpoint boundary.",
+      "reason": "Retain this internal call as an effect adapter because its callee is a compiled exported-entry/public-boundary workflow, independently of the five-call blocked-finalizer compiler rejection.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "The compiled module export graph contains classify-blocked-implementation-recovery in workflows_by_name; the adjacent public-entry record makes the external negative explicit."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_blocked_recovery_rows_retain_workflow_boundaries",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_procedure_first_public_boundary_inventory_keeps_exported_wrappers",
+        "orchestrator/workflow_lisp/build.py",
+        "tests/baselines/drain_checkpoint_identity/design_delta_drain.json"
       ]
     },
     {
@@ -585,21 +591,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "pure_expr_operand_type_mismatch: the current compiler reduces BlockerClass.roadmap_conflict to String in the minimal inline pure expression while finalize-selected-item-from-blocked-implementation requires std/resource::BlockerClass; no accepted lowering preserves the typed contract.",
+      "reason": "Retain this blocked-finalizer call as an effect adapter because the deterministic exact five-call finalizer conversion fails at the real compiler typecheck boundary before producing an executable.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "The fail-closed source override serves only the selected bytes, guards writes, and leaves production bytes unchanged. This retention makes no checkpoint-delta or affected-route runtime parity claim."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_blocked_recovery_rows_retain_workflow_boundaries",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_blocked_recovery_hypothetical_fails_closed_at_typecheck"
       ]
     },
     {
@@ -740,21 +750,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "pure_expr_operand_type_mismatch: the current compiler reduces BlockerClass.roadmap_conflict to String in the minimal inline pure expression while finalize-selected-item-from-blocked-implementation requires std/resource::BlockerClass; no accepted lowering preserves the typed contract.",
+      "reason": "Retain this blocked-finalizer call as an effect adapter because the deterministic exact five-call finalizer conversion fails at the real compiler typecheck boundary before producing an executable.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "The fail-closed source override serves only the selected bytes, guards writes, and leaves production bytes unchanged. This retention makes no checkpoint-delta or affected-route runtime parity claim."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_blocked_recovery_rows_retain_workflow_boundaries",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_blocked_recovery_hypothetical_fails_closed_at_typecheck"
       ]
     },
     {
@@ -771,21 +785,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "pure_expr_operand_type_mismatch: the current compiler reduces BlockerClass.roadmap_conflict to String in the minimal inline pure expression while finalize-selected-item-from-blocked-implementation requires std/resource::BlockerClass; no accepted lowering preserves the typed contract.",
+      "reason": "Retain this blocked-finalizer call as an effect adapter because the deterministic exact five-call finalizer conversion fails at the real compiler typecheck boundary before producing an executable.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "The fail-closed source override serves only the selected bytes, guards writes, and leaves production bytes unchanged. This retention makes no checkpoint-delta or affected-route runtime parity claim."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_blocked_recovery_rows_retain_workflow_boundaries",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_blocked_recovery_hypothetical_fails_closed_at_typecheck"
       ]
     },
     {
@@ -988,21 +1006,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "pure_expr_operand_type_mismatch: the current compiler reduces BlockerClass.roadmap_conflict to String in the minimal inline pure expression while finalize-selected-item-from-blocked-implementation requires std/resource::BlockerClass; no accepted lowering preserves the typed contract.",
+      "reason": "Retain this blocked-finalizer call as an effect adapter because the deterministic exact five-call finalizer conversion fails at the real compiler typecheck boundary before producing an executable.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "The fail-closed source override serves only the selected bytes, guards writes, and leaves production bytes unchanged. This retention makes no checkpoint-delta or affected-route runtime parity claim."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_blocked_recovery_rows_retain_workflow_boundaries",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_blocked_recovery_hypothetical_fails_closed_at_typecheck"
       ]
     },
     {
@@ -1019,21 +1041,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "pure_expr_operand_type_mismatch: the current compiler reduces BlockerClass.roadmap_conflict to String in the minimal inline pure expression while finalize-selected-item-from-blocked-implementation requires std/resource::BlockerClass; no accepted lowering preserves the typed contract.",
+      "reason": "Retain this blocked-finalizer call as an effect adapter because the deterministic exact five-call finalizer conversion fails at the real compiler typecheck boundary before producing an executable.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "The fail-closed source override serves only the selected bytes, guards writes, and leaves production bytes unchanged. This retention makes no checkpoint-delta or affected-route runtime parity claim."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_blocked_recovery_rows_retain_workflow_boundaries",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_blocked_recovery_hypothetical_fails_closed_at_typecheck"
       ]
     },
     {
@@ -3313,6 +3339,45 @@
       ]
     },
     {
+      "id": "public-entry:lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery",
+      "record_kind": "public-entry",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "source_line": 85,
+      "caller": "external",
+      "caller_kind": "external",
+      "call_alias": null,
+      "callee_path": "workflows/library/lisp_frontend_design_delta/work_item.orc",
+      "callee": "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery",
+      "resolution": "exported-entry",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "public-boundary",
+      "effect_summary": [
+        "provider"
+      ],
+      "public_boundary_evidence": [
+        "exported workflow",
+        "CLI-selectable entry",
+        "persisted checkpoint boundary",
+        "compiled workflows_by_name export"
+      ],
+      "named_substrate_gap": null,
+      "reason": "The exported blocked-recovery classifier remains externally selectable and owns provider/checkpoint identity, so strict compatibility forbids inline retirement.",
+      "uncertainty": {
+        "level": "low",
+        "notes": []
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "orchestrator/workflow_lisp/build.py",
+        "tests/baselines/drain_checkpoint_identity/design_delta_drain.json",
+        "docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_procedure_first_public_boundary_inventory_keeps_exported_wrappers",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_blocked_recovery_rows_retain_workflow_boundaries"
+      ]
+    },
+    {
       "id": "public-entry:lisp_frontend_design_delta/drain::drain",
       "record_kind": "public-entry",
       "frontend": "workflow-lisp",
@@ -3428,13 +3493,13 @@
     "actionable_internal_calls": {
       "total": 95,
       "by_classification": {
-        "procedure-candidate": 18,
-        "effect-adapter": 14,
+        "procedure-candidate": 12,
+        "effect-adapter": 20,
         "legacy-retire": 63,
         "public-boundary": 0
       }
     },
-    "separate_public_entries": 8,
+    "separate_public_entries": 9,
     "excluded_from_actionable_population": {
       "total": 6,
       "by_reason": {

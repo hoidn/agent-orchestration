@@ -7,7 +7,8 @@
 **Status:** Complete by reviewed strict-compatibility stop. Independent
 specification and quality re-review approved the retained finalizer-projection
 decision and its inventory reconciliation. Task 5 as a whole remains open;
-blocked recovery/finalization is the current subfamily.
+the later blocked recovery/finalization subfamily is also retained, and phase
+orchestration (nine calls) is the current subfamily.
 
 **Goal:** Decide whether the four finalizer-projection calls in
 `workflows/library/lisp_frontend_design_delta/work_item.orc` can become inline
@@ -66,9 +67,10 @@ Therefore:
   history;
 - no compiler/runtime substrate or checkpoint baseline refresh is authorized;
   and
-- the finalizer-projection subfamily closes as retained; after its independent
-  specification and quality re-review, Task 5 selects blocked
-  recovery/finalization as the current subfamily.
+- the finalizer-projection subfamily closes as retained; its immediate handoff
+  was blocked recovery/finalization, which is subsequently retained by
+  `docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md`;
+  phase orchestration (nine calls) is the current Task 5 subfamily.
 
 ## Exact inventory boundary
 

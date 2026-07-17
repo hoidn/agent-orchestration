@@ -2,8 +2,8 @@
 
 Status: Task 4 complete at `c9687539`, `26d9ecd0`, and `848ceb52` after
 per-group specification and quality approval; Task 5's finalizer-projection
-subfamily is retained after final specification and quality re-review, blocked
-recovery/finalization is current, and Task 5 remains open
+and blocked recovery/finalization subfamilies are retained, phase orchestration
+(nine calls) is current, and Task 5 remains open
 Source commit: `db9889937a895d67810dee1ea0b1b53552d30eca`
 Schema: `procedure_first_reuse_inventory.v2`
 
@@ -16,8 +16,8 @@ remaining 95 active internal calls classify as:
 
 | Classification | Sites | Meaning |
 | --- | ---: | --- |
-| `procedure-candidate` | 18 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
-| `effect-adapter` | 14 | Calls retained until effect, identity, artifact, publication, source-map, child-call, exported-entry, state-consumer, live-route, and resume obligations are proven. |
+| `procedure-candidate` | 12 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
+| `effect-adapter` | 20 | Calls retained until effect, identity, type, artifact, publication, source-map, child-call, exported-entry, state-consumer, live-route, and resume obligations are proven. |
 | `legacy-retire` | 63 | Compatibility, legacy, or example-only calls that retire with their family instead of being translated. |
 | `public-boundary` | 0 | Public entries are recorded separately; they are not internal call sites. |
 
@@ -46,7 +46,7 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `effect-adapter` | `workflows/examples/same_file_record_call_binding.orc` | 1 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta/design_gap_architect.orc` | 4 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc` | 3 |
-| `effect-adapter` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 4 |
+| `effect-adapter` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 10 |
 | `legacy-retire` | `workflows/examples/backlog_priority_design_plan_impl_stack_v2_call.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/call_subworkflow_demo.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/depends_on_inject_imported_v2_call.yaml` | 1 |
@@ -78,7 +78,7 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `legacy-retire` | `workflows/library/revision_study_priority_design_plan_impl_stack.yaml` | 1 |
 | `legacy-retire` | `workflows/library/seeded_design_plan_impl_stack.yaml` | 1 |
 | `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/drain.orc` | 1 |
-| `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 17 |
+| `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 11 |
 
 ## Separate Public Entries
 
@@ -100,7 +100,11 @@ audit adds five current library entries that are directly CLI-selectable:
 - `lisp_frontend_design_delta/design_gap_architect::project-design-gap-architecture-targets`; and
 - `lisp_frontend_design_delta/design_gap_architect::project-design-gap-architecture-targets-stdlib`.
 
-The inventory therefore records eight current public entries. These five
+Task 5 adds the compiled exported work-item classifier:
+
+- `lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery`.
+
+The inventory therefore records nine current public entries. These six
 library entries are public-boundary negatives for procedure migration; they
 are not promotion claims.
 
@@ -136,6 +140,11 @@ zero retired, and zero retained-public.
   post-persist interruption followed by same-run resume without effect replay.
 - **Finalizer-projection retention:** four rows remain `effect-adapter` under
   the [reviewed checkpoint-retention decision](2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md).
+- **Blocked recovery/finalization retention:** six rows remain `effect-adapter`
+  under the [fail-closed lowering decision](2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md):
+  the exported classifier requires strict compatibility, while the separate
+  five-call finalizer conversion is rejected with
+  `pure_expr_operand_type_mismatch` before an executable exists.
 
 ## Effect-Adapter Rule
 
@@ -165,6 +174,15 @@ survive inline lowering exactly. See
 `docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md`.
 Four Design Delta finalizer-projection rows remain `effect-adapter` under the
 [reviewed checkpoint-retention decision](2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md).
+Six adjacent blocked recovery/finalization rows remain `effect-adapter` under
+the [fail-closed lowering decision](2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md),
+but for two separate reasons. The classifier call targets an exported,
+CLI-selectable public workflow requiring strict compatibility. Only the five
+blocked-finalizer calls use the compiler evidence: the real compiler reduces
+`BlockerClass.roadmap_conflict` to `String` in the minimal inline pure
+expression where `std/resource::BlockerClass` is required. No diagnostic is
+attributed to the classifier. Because finalizer compilation stops there, this
+decision makes no checkpoint-delta or affected-route runtime parity claim.
 A Stage 5 family audit may reclassify a row when current tests prove that
 ordinary landed `defproc` composition already covers its actual effects.
 Classification labels alone do not authorize substrate work.
@@ -172,14 +190,38 @@ Classification labels alone do not authorize substrate work.
 ## Task 5 Finalizer-Projection Checkpoint-Retention Audit
 
 Status: reviewed strict-compatibility retention; Task 5 remains open and its
-blocked recovery/finalization subfamily is current.
+later blocked recovery/finalization subfamily is also retained.
 
 The exact four finalizer-projection rows remain active as `effect-adapter`, so
-the active inventory is 18 `procedure-candidate`, 14 `effect-adapter`, and 63
-`legacy-retire` rows, plus eight separate public entries and one history row.
+the active inventory at that audit boundary was 18 `procedure-candidate`, 14
+`effect-adapter`, and 63 `legacy-retire` rows, plus eight separate public
+entries and one history row. The current ninth public entry was discovered by
+the later blocked recovery/finalization audit; it does not rewrite this earlier
+boundary.
 The operational interception, digest, checkpoint, ownership, and unchanged-
 source evidence is owned by the
 [Design Delta finalizer-projection checkpoint-retention decision](2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md).
+
+## Task 5 Blocked Recovery/Finalization Lowering-Retention Audit
+
+Status: two-ground retention—exported-entry strict compatibility for the
+classifier and a compiler stop for five finalizer calls. Phase orchestration
+(nine calls) is current, Task 5 remains open, and subfamily order is unchanged.
+
+The exact six blocked recovery/finalization rows remain active as
+`effect-adapter`, so the active inventory is 12 `procedure-candidate`, 20
+`effect-adapter`, and 63 `legacy-retire` rows, plus nine separate public
+entries and one history row. The classifier is separately recorded as an
+exported public boundary and retains its one internal call under strict
+compatibility. The production module compiles through its real path. The
+same-path minimal inline conversion of only the blocked finalizer does not: the compiler emits
+`pure_expr_operand_type_mismatch` at `BlockerClass.roadmap_conflict`, whose
+pure-expression value is `String` where the callee parameter requires
+`std/resource::BlockerClass`. This diagnostic applies only to the five
+finalizer calls. No finalizer hypothetical executable exists, so no
+added/removed checkpoint comparison or affected-route runtime parity is
+asserted. The exact IDs, conversion, selectors, write guard, and claim boundary
+are owned by the [blocked-recovery lowering-retention plan](2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md).
 
 ## Task 4 Generic YAML Reclassification Audit
 

@@ -90,7 +90,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-13-procedure-first-pilot-plan.md` | Complete. Evidence landed at `63e03330`, `e6a85cb7`, `de522c76`, `f5dbac88`, `76205d4f`, and `0769e837`; holistic specification and quality reviews approved HEAD `0769e837`. Exactly two dedicated runs completed, and the route remains `leaf_runtime_candidate` / `migration_candidate` / `migration_evidence_only`. Historical clean artifact equality is `not_asserted`. This is one reviewed internal pilot, not a general compatibility, family-wave, promotion, or YAML-retirement claim. |
 | `2026-07-13-resume-projection-integrity-hardening-design-plan.md` | Complete. Characterization landed at `1cd60767`, the accepted design at `52e2b05f`, the normative state/acceptance contract at `00135832`, and the reviewed implementation plan at `26a5d3db`; holistic routing reviews and fresh focused/broad validation passed at closeout. This row does not claim runtime implementation. |
 | `2026-07-13-resume-projection-integrity-hardening-implementation-plan.md` | Complete at `fdf1e06b`. The generic runtime hardening, focused acceptance gate, deterministic public CLI smoke, broad baseline-equivalence check, and independent specification/quality reviews are recorded in the plan. Do not re-execute it as the live selector. |
-| `2026-07-13-procedure-first-migration-waves-plan.md` | Current selector. Task 1's post-hardening rebaseline completed at `4983afff` plus correction `fa16bcf0`; Task 2 completed at `daff694c`. Task 3 retained seven internal calls because their five unique callees are exported CLI entries requiring strict compatibility; its integration, inventory, and both review gates passed. Task 4 completed its three independently approved YAML audit groups at `c9687539`, `26d9ecd0`, and `848ceb52`. Task 5's `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md` then passed final re-review and retained four calls under strict compatibility. The queue is now 18 procedure candidates, 14 effect adapters, and 63 legacy-retire rows, plus eight separate public entries and one history row. Task 5's blocked recovery/finalization subfamily is the current sub-selector; Task 5 remains open. Preserve the existing Task 5 subfamily order, Tasks 6-8, and the later stage order. |
+| `2026-07-13-procedure-first-migration-waves-plan.md` | Current selector. Task 1's post-hardening rebaseline completed at `4983afff` plus correction `fa16bcf0`; Task 2 completed at `daff694c`. Task 3 retained seven internal calls because their five unique callees are exported CLI entries requiring strict compatibility; its integration, inventory, and both review gates passed. Task 4 completed its three independently approved YAML audit groups at `c9687539`, `26d9ecd0`, and `848ceb52`. Task 5's `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md` retained four calls under strict compatibility. Its blocked recovery/finalization decision, `docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md`, then retained the exported classifier under strict compatibility and five finalizer calls because their inline conversion fails with `pure_expr_operand_type_mismatch`; no finalizer hypothetical executable, checkpoint delta, or affected-route runtime parity is claimed. The queue is now 12 procedure candidates, 20 effect adapters, and 63 legacy-retire rows, plus nine separate public entries and one history row. Task 5 phase orchestration (nine calls) is the current sub-selector; Task 5 remains open. Preserve the existing Task 5 subfamily order, Tasks 6-8, and the later stage order. |
 | `2026-07-16-tracked-design-phase-identity-retirement-plan.md` | Complete by fail-closed eligibility stop. The generic scanner found 26 supported old-identity consumers in the completed pilot root, so the source stayed unchanged and the row moved to `effect-adapter`. This was not a competing roadmap selector and authorized no YAML edit, remap, or cross-source resume claim. |
 | `2026-07-16-design-plan-impl-implementation-phase-identity-retirement-plan.md` | Complete by fail-closed eligibility stop. The generic scanner found 24 supported old-identity consumers in the completed pilot root, so the source stayed unchanged and the row moved to `effect-adapter`. This was not a competing roadmap selector and authorized no run, YAML edit, remap, or cross-source resume claim. |
 | `2026-07-16-same-file-build-checks-identity-retirement-plan.md` | Complete by fail-closed route-eligibility stop. The containing route is live/current and therefore requires strict compatibility; the source stayed unchanged and the row moved to `effect-adapter` even though known-store scans found zero matching consumers. This was not a competing roadmap selector and authorized no run or owner gate. |
@@ -206,11 +206,17 @@ integration, inventory, and both review gates. Task 4 completed its three
 independently approved YAML audit groups at `c9687539`, `26d9ecd0`, and
 `848ceb52`. Task 5's reviewed
 `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md`
-decision then retained four calls under strict compatibility, leaving 18
-procedure candidates, 14 effect adapters, and 63 legacy-retire rows, plus
-eight separate public entries and one history row. Task 5's blocked
-recovery/finalization subfamily is the current sub-selector; Task 5 remains
-open. After the remaining Task 5 subfamilies and Tasks 6–8, continue with
+decision retained four calls under strict compatibility. The later blocked
+recovery/finalization decision,
+`docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md`
+retained the exported classifier under strict compatibility and five finalizer
+calls because their inline conversion fails with
+`pure_expr_operand_type_mismatch`; no finalizer hypothetical executable,
+checkpoint delta, or affected-route runtime parity is claimed.
+This leaves 12 procedure candidates, 20 effect adapters, and 63 legacy-retire
+rows, plus nine separate public entries and one history row. Task 5 phase
+orchestration (nine calls) is the current sub-selector; Task 5 remains open.
+After the remaining Task 5 subfamilies and Tasks 6–8, continue with
 `docs/plans/2026-07-07-yaml-retirement-program.md`,
 `docs/design/workflow_lisp_provider_live_binding.md`, and
 `docs/design/workflow_lisp_language_server.md`, in that order.
@@ -448,10 +454,16 @@ Execute only accepted plans, in this order:
    `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md`
    passed final specification and quality re-review and closed the finalizer-
    projection subfamily as a strict-compatibility retention: four calls remain
-   effect adapters, leaving
-   18 procedure candidates, 14 effect adapters, and 63 legacy-retire rows,
-   plus eight separate public entries and one history row. Execute Task 5's
-   blocked recovery/finalization subfamily now, then the remaining Task 5
+   effect adapters. The subsequent blocked recovery/finalization decision,
+   `docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md`
+   retained the exported classifier under strict compatibility and five
+   finalizer calls after their exact-path inline conversion failed with
+   `pure_expr_operand_type_mismatch`. No finalizer hypothetical executable,
+   checkpoint delta, or affected-route runtime
+   parity is claimed. The queue is 12 procedure candidates, 20 effect
+   adapters, and 63 legacy-retire rows, plus nine separate public entries and
+   one history row. Execute Task 5's phase-orchestration subfamily (nine calls)
+   now, then the remaining Task 5
    subfamilies and Task 6 in their existing order with computed output,
    artifact, effect, resume, and checkpoint parity.
 10. **Compatibility retirement handoff.** Execute Tasks 7–8; delete no YAML

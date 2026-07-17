@@ -31,6 +31,9 @@ DESIGN_DELTA_EXPORTED_RETENTION_PLAN_PATH = (
 DESIGN_DELTA_FINALIZER_RETENTION_PLAN_PATH = (
     "docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md"
 )
+DESIGN_DELTA_BLOCKED_RECOVERY_RETENTION_PLAN_PATH = (
+    "docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md"
+)
 MIGRATION_TASK_1_IMPLEMENTATION_COMMITS = ("4983afff", "fa16bcf0")
 CORRECTION_SUBPLAN_PATH = (
     "docs/plans/2026-07-14-procedure-identity-store-match-scoped-counts-plan.md"
@@ -186,13 +189,14 @@ def _procedure_sequence_selector_surfaces() -> dict[str, str]:
     }
 
 
-def _assert_task_5_blocked_recovery_current_subselector(
+def _assert_task_5_phase_orchestration_current_subselector(
     surface: str,
     label: str,
 ) -> None:
     normalized = _normalized_routing_text(surface)
     canonical = _canonical_routing_paths(surface)
     assert canonical.count(DESIGN_DELTA_FINALIZER_RETENTION_PLAN_PATH) == 1, label
+    assert canonical.count(DESIGN_DELTA_BLOCKED_RECOVERY_RETENTION_PLAN_PATH) == 1, label
     assert re.search(
         r"\btask 1\b.{0,160}(?:"
         r"rebaseline.{0,80}\bcomplete\w*\b"
@@ -206,28 +210,34 @@ def _assert_task_5_blocked_recovery_current_subselector(
     assert "task 4" in normalized and "complete" in normalized, label
     for commit in ("c9687539", "26d9ecd0", "848ceb52"):
         assert commit in normalized, (label, commit)
-    assert "18 procedure candidates" in normalized, label
-    assert "14 effect adapters" in normalized, label
+    assert "12 procedure candidates" in normalized, label
+    assert "20 effect adapters" in normalized, label
     assert "63 legacy retire" in normalized, label
-    assert re.search(r"\b(?:eight|8)\b.{0,40}\bpublic\b", normalized), label
+    assert re.search(r"\b(?:nine|9)\b.{0,40}\bpublic\b", normalized), label
     assert re.search(r"\b(?:one|1)\b.{0,40}\bhistory\b", normalized), label
     assert "finalizer" in normalized and "retained" in normalized, label
     assert "strict compatibility" in normalized, label
-    assert "blocked recovery/finalization" in normalized, label
+    assert "blocked recovery/finalization" in normalized and "retained" in normalized, label
+    assert "classifier" in normalized and "exported" in normalized, label
+    assert re.search(r"\b(?:five|5)\b.{0,50}\bfinalizer\b", normalized), label
+    assert "pure_expr_operand_type_mismatch" in surface, label
+    assert "phase orchestration" in normalized, label
+    assert re.search(r"\b(?:nine|9)\b.{0,40}\bcalls?\b", normalized), label
     assert "current" in normalized, label
     for commit in MIGRATION_TASK_1_IMPLEMENTATION_COMMITS:
         assert normalized.count(commit) == 1, (label, commit)
 
     assert re.search(
-        r"\bblocked recovery/finalization\b.{0,100}\bcurrent sub selector\b"
-        r"|\bcurrent sub selector:?\s*.{0,80}\bblocked recovery/finalization\b"
-        r"|\bexecute\b.{0,80}\bblocked recovery/finalization\b.{0,40}\bnow\b",
+        r"\bphase orchestration\b.{0,100}\bcurrent sub selector\b"
+        r"|\bcurrent sub selector:?\s*.{0,80}\bphase orchestration\b"
+        r"|\bexecute\b.{0,80}\bphase orchestration\b.{0,40}\bnow\b",
         normalized,
     ), label
     assert re.search(
         r"\bfinalizer\b.{0,80}\b(?:pending|awaiting)\b.{0,80}\breviews?\b"
         r"|\bfinalizer\b.{0,80}\bcurrent sub selector\b"
-        r"|\bbegin with\b.{0,80}\bfinalizer\b",
+        r"|\bbegin with\b.{0,80}\bfinalizer\b"
+        r"|\bblocked recovery/finalization\b.{0,80}\bcurrent sub selector\b",
         normalized,
     ) is None, label
 
@@ -301,6 +311,17 @@ def test_procedure_first_status_surfaces_share_current_migration_wave_boundary()
 
 def test_migration_wave_reviewed_closeouts_advance_only_within_task_5() -> None:
     plan = (REPO_ROOT / CURRENT_SELECTOR_PATH).read_text(encoding="utf-8")
+    current_queue = plan.split(
+        "## Current queue after blocked-recovery/finalization retention",
+        1,
+    )[1].split("## Per-family migration protocol", 1)[0]
+    public_boundary_row = next(
+        line
+        for line in current_queue.splitlines()
+        if line.startswith("| `public-boundary` |")
+    )
+    assert re.search(r"\|\s*9 separate entries\s*\|", public_boundary_row)
+    assert "8 separate entries" not in public_boundary_row
     task_1 = _migration_task_section(plan, 1)
     task_2 = _migration_task_section(plan, 2)
     task_3 = _migration_task_section(plan, 3)
@@ -341,7 +362,7 @@ def test_migration_wave_reviewed_closeouts_advance_only_within_task_5() -> None:
         **_procedure_sequence_selector_surfaces(),
     }
     for label, surface in selector_surfaces.items():
-        _assert_task_5_blocked_recovery_current_subselector(surface, label)
+        _assert_task_5_phase_orchestration_current_subselector(surface, label)
 
     for label in ("docs index", "roadmap current routing"):
         _assert_exact_ordered_routing_paths(selector_surfaces[label], label)
@@ -399,7 +420,7 @@ def test_task_2_step_1_closes_on_bounded_identity_retirement_ineligibility() -> 
     assert canonical_index.count(CURRENT_SELECTOR_PATH) == 1
     assert _normalized_routing_text(index_routing).count("current selector") == 1
     assert "task 3" in _normalized_routing_text(index_routing)
-    _assert_task_5_blocked_recovery_current_subselector(
+    _assert_task_5_phase_orchestration_current_subselector(
         index_routing,
         "docs index component routing",
     )
@@ -517,22 +538,22 @@ def test_task_2_step_3_closes_on_live_route_strict_compatibility() -> None:
 @pytest.mark.parametrize(
     "replacement",
     (
-        "The finalizer retention decision is pending both reviews.",
+        "The blocked recovery retention decision is pending compiler evidence.",
         (
-            "Task 5's finalizer subfamily is the current sub-selector. "
-            "Blocked recovery/finalization remains planned."
+            "Task 5's blocked recovery/finalization subfamily is the current "
+            "sub-selector. Phase orchestration remains planned."
         ),
         (
-            "Blocked recovery/finalization remains planned. "
-            "Begin with the finalizer subfamily."
+            "Phase orchestration remains planned. "
+            "Begin with blocked recovery/finalization."
         ),
-        "Blocked recovery/finalization remains planned.",
+        "Phase orchestration remains planned.",
     ),
     ids=(
-        "stale-finalizer-review",
-        "finalizer-still-current",
-        "contradictory-finalizer-begin",
-        "blocked-recovery-not-current",
+        "stale-blocked-recovery-evidence",
+        "blocked-recovery-still-current",
+        "contradictory-blocked-recovery-begin",
+        "phase-orchestration-not-current",
     ),
 )
 def test_task_5_current_subselector_guard_rejects_stale_or_ambiguous_routing(
@@ -544,7 +565,7 @@ def test_task_5_current_subselector_guard_rejects_stale_or_ambiguous_routing(
         "**Current procedure-first substrate:**", 1
     )[0]
     mutated = re.sub(
-        r"Task 5[^.]{0,160}blocked recovery/finalization[^.]{0,100}"
+        r"Task 5[^.]{0,260}phase orchestration[^.]{0,100}"
         r"current sub-selector\.",
         replacement,
         docs_index_routing,
@@ -553,7 +574,7 @@ def test_task_5_current_subselector_guard_rejects_stale_or_ambiguous_routing(
     assert mutated != docs_index_routing
 
     with pytest.raises(AssertionError):
-        _assert_task_5_blocked_recovery_current_subselector(
+        _assert_task_5_phase_orchestration_current_subselector(
             mutated,
             "mutated docs-index routing",
         )
