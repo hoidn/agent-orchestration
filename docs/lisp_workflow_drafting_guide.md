@@ -1031,6 +1031,39 @@ plain JSON value, and authored code never names `__result__`.
   ...)
 ```
 
+When one call needs authored model, effort, or deadline policy, use the bounded
+generic surface rather than a provider-specific parameter map:
+
+```lisp
+(let* ((attempt
+         (provider-result providers.execute
+           :prompt prompts.implementation.execute
+           :inputs (inputs.design inputs.plan)
+           :model inputs.worker-model
+           :effort inputs.worker-effort
+           :timeout-sec 7200
+           :returns ImplementationAttempt)))
+
+  ...)
+```
+
+`:model` and `:effort` must be exact `String` expressions in the effect-free
+inline-lowerable scalar/template subset. String literals, typed inputs or
+procedure parameters, names, references, and supported projections are the
+intended shape; computed calls, records, operators, and other general
+expressions are not silently materialized. `:timeout-sec` is only a positive
+exact-`Int` literal. Omit a keyword to preserve provider defaults; omission does
+not synthesize policy, argv fragments, or `null` fields.
+
+Provider externs remain compiler-known. Their declarative bindings decide how
+canonical model/effort reach native argv; workflow authors do not construct
+`provider_call_policy`, `call_policy_bindings`, or arbitrary provider params in
+`.orc`. Unsupported canonical options fail before launch. Public resume treats
+policy changes as ordinary source/program drift and uses the existing checksum,
+bound-input, checkpoint, and completed-boundary guards. Runtime plans, reports,
+dashboard/debug projections, debug YAML, and source maps are inspection views,
+not call-policy or resume authority.
+
 The provider must produce structured output matching the return type. The
 result travels through one channel: a validated bundle written at the
 runtime-bound output location the provider receives with its injected

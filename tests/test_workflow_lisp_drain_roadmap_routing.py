@@ -1654,3 +1654,47 @@ def test_drain_authorities_share_one_current_selector_and_preserve_later_order()
                 removed_selector_declaration,
                 f"{label} removed selector declaration",
             )
+
+
+def test_provider_call_policy_is_a_separate_generic_implemented_capability() -> None:
+    gap_list_path = REPO_ROOT / "docs" / "workflow_yaml_orc_gap_list.md"
+    row = _markdown_table_row(gap_list_path, "`common.provider-call-policy`")
+    normalized_row = _normalized_routing_text(row)
+    normalized_gap_list = _normalized_routing_text(
+        gap_list_path.read_text(encoding="utf-8")
+    )
+
+    assert "implemented" in normalized_row
+    assert "typed model" in normalized_row
+    assert "effort" in normalized_row
+    assert "positive literal timeout" in normalized_row
+    assert "public compile run resume" in normalized_row
+    assert "generic implementation closure" in normalized_gap_list
+    assert "family parity and promotion remain pending" in normalized_gap_list
+    assert "yaml deletion remains pending" in normalized_gap_list
+
+
+def test_provider_invocation_profile_is_separate_generic_implemented_data() -> None:
+    gap_list_path = REPO_ROOT / "docs" / "workflow_yaml_orc_gap_list.md"
+    row = _markdown_table_row(
+        gap_list_path,
+        "`common.provider-invocation-profile`",
+    )
+    normalized_row = _normalized_routing_text(row)
+
+    assert "implemented" in normalized_row
+    assert "shared no default unrestricted codex claude profiles" in normalized_row
+    assert "codex_unrestricted_workspace" in row
+    assert "claude_unrestricted_workspace" in row
+    assert (
+        '["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", '
+        '"--skip-git-repo-check", "--model", "${model}", "--config", '
+        '"reasoning_effort=${reasoning_effort}"]'
+    ) in row
+    assert (
+        '["claude", "-p", "--model", "${model}", "--effort", "${effort}", '
+        '"--permission-mode", "bypassPermissions"]'
+    ) in row
+    assert "`defaults={}`" in row
+    assert "`input_mode=stdin`" in row
+    assert "exact argv profile evidence" in normalized_row

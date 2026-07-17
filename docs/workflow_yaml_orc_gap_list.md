@@ -38,8 +38,8 @@ No owner waiver is recorded by this audit.
 
 | Queue ID | Disposition | YAML path | Decision gate |
 |---|---|---|---|
-| `port_verified_iteration` | `port` | `workflows/examples/verified_iteration_drain.yaml` | Close `provider-call-policy-parity`, `prompt-dependency-parity`, and `verified-iteration-artifact-lineage`; then execute the Stage 6 per-family promotion gate. |
-| `port_generic_run_watchdog` | `port` | `workflows/examples/generic_run_watchdog.yaml` | Close `provider-call-policy-parity`, `prompt-dependency-parity`, and `generic-run-watchdog-port-plan-and-parity`; then execute the Stage 6 per-family promotion gate. |
+| `port_verified_iteration` | `port` | `workflows/examples/verified_iteration_drain.yaml` | Apply the implemented generic provider-policy/profile capabilities; close `prompt-dependency-parity` and `verified-iteration-artifact-lineage`; then execute the Stage 6 per-family promotion gate. |
+| `port_generic_run_watchdog` | `port` | `workflows/examples/generic_run_watchdog.yaml` | Apply the implemented generic provider-policy/profile capabilities; close `prompt-dependency-parity` and `generic-run-watchdog-port-plan-and-parity`; then execute the Stage 6 per-family promotion gate. |
 | `hold_non_progress_step_back` | `hold` | `workflows/examples/non_progress_step_back_demo.yaml` | `step-back-owner-disposition`; no port or deletion is inferred while the protected queue remains held. |
 
 ## Gap decisions
@@ -48,7 +48,8 @@ No owner waiver is recorded by this audit.
 |---|---|---|---|---|
 | `common.public-boundary-defaults` | `port_verified_iteration`, `port_generic_run_watchdog` | `default` on scalar, enum, integer, and relpath inputs | `implemented` | Bounded `defworkflow` scalar, enum, integer, and path defaults are implemented in the Workflow Lisp frontend specification and boundary-default tests. |
 | `common.runtime-provider-selection` | `port_verified_iteration`, `port_generic_run_watchdog` | runtime `provider` input choosing one of a closed provider set | `implemented` | Keep each provider as a compiler-known extern and route the typed provider enum through effectful `if`; provider refs do not become runtime values. |
-| `common.provider-call-policy` | `port_verified_iteration`, `port_generic_run_watchdog` | `provider_params` for model and effort plus per-step `timeout_sec` | `blocking_gate` | `provider-call-policy-parity`: current `provider-result` has no authored model, effort, or per-call timeout surface. Implement equivalent options, or obtain an explicit owner waiver naming every frozen or removed input and timeout. |
+| `common.provider-call-policy` | `port_verified_iteration`, `port_generic_run_watchdog` | `provider_params` model/effort counterpart and `timeout_sec`: typed model and effort plus positive literal timeout with public compile-run-resume | `implemented` | Generic implementation closure: typed model and effort plus positive literal timeout are implemented through lowering, executable identity, runtime, and public compile-run-resume evidence. Family parity and promotion remain pending; YAML deletion remains pending. |
+| `common.provider-invocation-profile` | `port_verified_iteration`, `port_generic_run_watchdog` | shared no-default unrestricted Codex Claude profiles | `implemented` | Exact argv profile evidence: `codex_unrestricted_workspace` uses `defaults={}`, `input_mode=stdin`, and `["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${reasoning_effort}"]`; `claude_unrestricted_workspace` uses `defaults={}`, `input_mode=stdin`, and `["claude", "-p", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]`. Both are shared provider data, not family-specific compiler routes. |
 | `common.structured-results` | `port_verified_iteration`, `port_generic_run_watchdog` | provider `expected_outputs` sidecars and command `output_bundle` records | `implemented` | `provider-result`, `command-result`, native transportable returns, records, unions, enums, optionals, and runtime-owned bundle paths replace scalar sidecar parsing. Port scripts must honor the runtime bundle target and keep semantic files separate. |
 | `common.prompt-dependency-parity` | `port_verified_iteration`, `port_generic_run_watchdog` | `depends_on` required files with `inject` content, ordering, and an optional instruction | `blocking_gate` | `prompt-dependency-parity`: typed prompt-input rendering is implemented, but each port must prove that the typed request and prompt assets preserve the required dependency content and ordering. Otherwise add the missing generic surface or obtain an explicit owner waiver. |
 | `common.command-boundary` | `port_verified_iteration`, `port_generic_run_watchdog` | stable Python command steps that read workspace or run state and write structured artifacts | `implemented` | `command-result` plus external-tool or fully certified adapter bindings is the current route. Hidden stdout parsing and inline shell remain forbidden. |
@@ -62,30 +63,30 @@ No owner waiver is recorded by this audit.
 | `step-back.typed-routing` | `hold_non_progress_step_back` | command `output_bundle`, enum `match`, branch-local commands, and `set_scalar` | `implemented` | If the owner later selects port, `command-result`, typed enum routing, pure values, and typed workflow returns cover the observed language mechanics. This is capability evidence, not a port decision. |
 | `step-back.owner-disposition` | `hold_non_progress_step_back` | protected recovery workflow has no authorized replacement disposition | `blocking_gate` | `step-back-owner-disposition`: the recovery owner must record an explicit delete-or-port decision and a reviewed handoff update before Stage 6 mutates or requeues the protected path. |
 
-## Blocking gate contracts
+## Gate contracts and closure boundaries
 
-### `provider-call-policy-parity`
+### `provider-call-policy-parity` generic implementation closure
 
-This is the only presently identified generic language-surface blocker shared
-by both ports. The YAML inputs and provider steps carry policy that is not an
-authored `provider-result` option today:
+The generic language-surface portion of this gate is implemented. Ordinary
+`provider-result` carries typed model and effort plus a positive literal timeout
+through lowering, executable identity, runtime preparation, and public
+compile/run/resume. Declarative provider data maps the canonical options, and
+the two no-default unrestricted profiles preserve the retained operational argv.
+The characterized YAML inputs remain the family proof targets:
 
 - verified iteration: runtime worker and reviewer model and effort inputs, plus
   7200, 1800, and 3600 second call timeouts;
 - generic watchdog: the workflow-level model and effort defaults plus the 7200
   second repair timeout.
 
-The gate closes in exactly one of two ways:
-
-1. a generic `.orc` provider-call policy surface is implemented and tested
-   through lowering, executable IR, runtime, and resume; or
-2. the owner signs a family-specific waiver listing the removed or frozen
-   controls, their replacement values, and why the delta is acceptable for
-   promotion.
-
-A provider extern manifest alone does not close this gate. Dynamic provider
-selection remains separate and is already expressible by branching over a
-closed typed enum while each branch names a compiler-known extern.
+This generic implementation closure does not prove either survivor family.
+Each port must still bind its exact inputs and deadlines, prove actual provider
+selection/argv plus prompt and artifact behavior, and pass its own run/resume and
+promotion gates. Family parity and promotion remain pending. YAML deletion
+remains pending the reference, supported-root-consumer, and Task-7 parser gates.
+Dynamic provider selection remains separate and is already expressible by
+branching over a closed typed enum while each branch names a compiler-known
+extern.
 
 ### `prompt-dependency-parity`
 
@@ -134,11 +135,16 @@ plan, and related working-tree files remain byte-for-byte outside Stage 6.
   `tests/test_workflow_lisp_native_returns_e2e.py`, and
   `tests/test_workflow_lisp_typed_prompt_inputs.py`: focused executable
   capability evidence.
+- `tests/test_workflow_lisp_provider_call_policy.py`,
+  `tests/test_provider_call_policy.py`, and
+  `tests/test_workflow_lisp_provider_call_policy_e2e.py`: typed policy,
+  declarative mapping/profile argv, and public compile/run/resume evidence.
 
 ## Port-entry decision
 
-Neither port may begin promotion work while
-`provider-call-policy-parity` is open. Port design and fixtures may proceed far
-enough to close that gate and their family proof gates. The protected holdout
-remains excluded until `step-back-owner-disposition` closes. No other
-unclassified gap remains in this three-queue scope.
+The generic provider-policy and invocation-profile prerequisites are available,
+but neither port may claim parity or enter promotion until its remaining family
+proof gates close. Family parity and promotion remain pending; YAML deletion
+remains pending. The protected holdout remains excluded until
+`step-back-owner-disposition` closes. No other unclassified gap remains in this
+three-queue scope.

@@ -1,6 +1,6 @@
 # Workflow Lisp Provider-Call Policy Design
 
-- **Status:** Proposed pending re-review
+- **Status:** Reviewed implementation candidate; completion conditional on two final approvals and byte-identical commit
 - **Kind:** feature / architecture decision
 - **Owner:** Workflow Lisp frontend and shared workflow runtime maintainers
 - **Reviewers:** specification reviewer; implementation-quality reviewer
@@ -47,8 +47,9 @@ typing, lowering, validation, or runtime behavior.
 
 ## Context And Authority
 
-The Stage-6 gap contract identifies `provider-call-policy-parity` as the one
-generic language-surface blocker shared by the two retained `.orc` port queues.
+At design acceptance, the Stage-6 gap contract identified
+`provider-call-policy-parity` as the one generic language-surface blocker shared
+by the two retained `.orc` port queues.
 Their YAML sources carry runtime model and effort inputs plus per-call
 timeouts. The gap contract permits either a generic implementation or an
 explicit owner waiver; no waiver exists, so this design selects the generic
@@ -65,8 +66,9 @@ Current contracts already provide the lower layers this design must reuse:
 - root and callee checksums plus checkpoint/program-identity guards already
   reject incompatible resume state.
 
-The missing capability is the `.orc` authoring and preservation route from a
-typed policy operand to those existing step fields. This design does not make
+The missing capability at design acceptance was the `.orc` authoring and
+preservation route from a typed policy operand to those existing step fields.
+The implemented closure candidate follows this design without making
 provider-result a second provider executor.
 
 Interactive design questions were intentionally skipped. The user directed
@@ -76,11 +78,11 @@ implementation shape needed by that accepted decision.
 
 ## Problem
 
-`provider-result` currently fixes the provider extern, prompt, inputs, and
-return contract but exposes no call-local model, effort, or timeout. A `.orc`
-port can therefore compile while silently replacing runtime-configurable YAML
-inputs with extern defaults or losing the YAML call deadline. Compile success
-would not be behavioral parity.
+Before implementation, `provider-result` fixed the provider extern, prompt,
+inputs, and return contract but exposed no call-local model, effort, or timeout.
+A `.orc` port could therefore compile while silently replacing
+runtime-configurable YAML inputs with extern defaults or losing the YAML call
+deadline. Compile success alone still does not establish behavioral parity.
 
 Putting the values only in provider extern manifests is insufficient. Extern
 defaults are compile-time configuration and cannot preserve workflow/procedure

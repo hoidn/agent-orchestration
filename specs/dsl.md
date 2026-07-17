@@ -429,6 +429,33 @@
     - `orchestrate run --dry-run` and `orchestrate report` may surface non-fatal warnings for migration patterns such as shell gates that should become `assert`, stringly `when.equals` routing that should become typed predicates, raw `goto` diamonds that should become structured control, and imported/exported output-name collisions.
     - Lint warnings are advisory only in the first pass and never change workflow load validity or runtime exit codes.
 
+  - Workflow Lisp `provider-result` call policy:
+    - The source grammar adds exactly `:model <String expr>`, `:effort <String
+      expr>`, and `:timeout-sec <positive Int literal>` as optional keyword/value
+      pairs. Each occurs at most once; missing values, duplicates, and unknown
+      keywords fail with the established provider-result diagnostics.
+    - Model and effort must typecheck as exact `String`, have no direct or
+      transitive runtime effects, and belong to the existing inline-lowerable
+      scalar/template subset. Procedure-reference edges alone are allowed;
+      computed expressions outside that subset are rejected rather than lowered
+      through a generated projection.
+    - Timeout must be a literal exact `Int` greater than zero. It lowers to the
+      existing `timeout_sec` field and retains the ordinary elapsed-time exit
+      `124` contract; dynamic, boolean, float, string, zero, and negative timeout
+      forms are invalid.
+    - Present model/effort values lower to the closed compiler-owned
+      `provider_call_policy` mapping in canonical `model`, then `effort` order.
+      Absent keywords remain absent; no empty mapping, default, parameter, argv
+      fragment, or serialized `null` is synthesized.
+    - Authored YAML/YML cannot supply `provider_call_policy`, and YAML provider
+      declarations cannot supply `call_policy_bindings`; both keys are reserved
+      internal surfaces. Ordinary YAML `provider_params` and `timeout_sec` retain
+      their compatibility behavior.
+    - Runtime plans, semantic/runtime reports, dashboard/debug projections, debug
+      YAML, and source maps are non-authoritative views for call-policy execution.
+      The validated executable provider-step configuration is execution
+      authority.
+
   - reusable-call contract boundary:
     - Task 10 reserves `imports`, `call`, `with`, `asset_file`, and `asset_depends_on` semantics before execution support lands.
     - When Task 11 lands, those fields require `version: "2.5"` or higher.

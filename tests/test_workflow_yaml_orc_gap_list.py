@@ -33,7 +33,8 @@ ALLOWED_CLASSIFICATIONS = {"implemented", "blocking_gate", "owner_waiver", "drop
 EXPECTED_GAPS = {
     "common.public-boundary-defaults": "implemented",
     "common.runtime-provider-selection": "implemented",
-    "common.provider-call-policy": "blocking_gate",
+    "common.provider-call-policy": "implemented",
+    "common.provider-invocation-profile": "implemented",
     "common.structured-results": "implemented",
     "common.prompt-dependency-parity": "blocking_gate",
     "common.command-boundary": "implemented",
@@ -115,6 +116,26 @@ def test_every_scoped_gap_has_a_closed_classification_and_binding() -> None:
     assert all(row["Classification"] in ALLOWED_CLASSIFICATIONS for row in rows)
     assert all(row["Gate or authority"] for row in rows)
     assert "TBD" not in text.upper()
+
+
+def test_generic_provider_closures_do_not_claim_family_or_yaml_completion() -> None:
+    text = GAP_LIST.read_text(encoding="utf-8")
+    rows = _table_after_heading(text, "## Gap decisions")
+    decisions = {row["Gap ID"]: row for row in rows}
+    policy = decisions["common.provider-call-policy"]
+    profile = decisions["common.provider-invocation-profile"]
+    normalized = " ".join(text.lower().replace("-", " ").split())
+
+    assert policy["Classification"] == "implemented"
+    assert "typed model and effort" in policy["Gate or authority"].lower()
+    assert "positive literal timeout" in policy["Gate or authority"].lower()
+    assert "public compile-run-resume" in policy["Gate or authority"].lower()
+    assert profile["Classification"] == "implemented"
+    assert "no-default unrestricted" in profile["Observed YAML mechanics"].lower()
+    assert "exact argv profile evidence" in profile["Gate or authority"].lower()
+    assert "not family-specific compiler routes" in profile["Gate or authority"].lower()
+    assert "family parity and promotion remain pending" in normalized
+    assert "yaml deletion remains pending" in normalized
 
 
 def test_gap_list_covers_the_observed_yaml_mechanics_without_expanding_scope() -> None:

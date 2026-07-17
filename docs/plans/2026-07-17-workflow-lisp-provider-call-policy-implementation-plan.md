@@ -28,7 +28,7 @@ tmux.
 `docs/plans/2026-07-17-workflow-lisp-provider-call-policy-design.md` at commit
 `069b8e79`.
 
-**Execution status:** Task 8 acceptance candidate staged; Tasks 1-8 become verified only after the content-bound broad run, both approvals, and byte-identical commit.
+**Execution status:** Closure candidate staged; completion conditional on two final approvals and byte-identical commit.
 Broad attempt
 `378258f16c7b-3ababf7ecbbe-b83e560ce41b-073cfb7161fb-attempt-1` is invalid and is
 not evidence because the allowed-untracked YAML-plan bytes changed after its
@@ -1267,8 +1267,13 @@ or claim design closure before that point.
   is forbidden. The accepted record exposes and SHA-binds the exact pass/fail/skip/
   xfail/xpass/error partition for review, so a missing test or new skip cannot be
   mistaken for a clean improvement. Task 8's two approvals establish that exact
-  population as the reviewed baseline; every Task 9 rerun must equal it byte-for-byte
-  as well as satisfying the exact-six failure authority.
+  population as the reviewed baseline. Task 9 may differ only by its three reviewed
+  closure-routing tests: the Task 8 collection is an exact subset with no removals;
+  the sorted added set is exactly the two provider closure nodes and one generic
+  YAML/ORC gap-closure node named below; every common outcome category is unchanged;
+  all three additions pass; worker count is identical; and collection/execution
+  counts are exactly `+3`/`+9`. The accepted v2 record binds that closed delta as
+  well as satisfying the unchanged exact-six failure authority.
 
   Run this self-contained launch block from repo root:
 
@@ -1613,11 +1618,16 @@ or claim design closure before that point.
   accounting without reconstructing node IDs from JUnit class names; requires the
   exact six failures with no errors; and freshly replays and normalizes all six
   nodes. It recomputes HEAD/index plus both overlay manifests immediately before and
-  after those replays. No count-only or node-ID-only waiver is permitted. For Task 8,
-  leave `POPULATION_BASELINE_ACCEPTED` empty and require both reviewers to approve
-  the exact population partition recorded here. For every Task 9 rerun, set it to
-  the reviewed Task 8 `accepted.json`; population collection and outcomes must match
-  that baseline exactly.
+  after those replays. No count-only or node-ID-only waiver is permitted. Task 8 has
+  no population-baseline pointer. In `task8` reopen mode, its frozen reviewed record's
+  absent `population_delta` is semantic null; an explicit JSON null is also accepted,
+  but a non-null value is forbidden. Both reviewers approve its exact population
+  partition. Every
+  Task 9 rerun uses the content-bound `<RUN_KEY>.population-baseline.path` to the
+  reviewed Task 8 `accepted.json`, fully reopens that baseline, and accepts only the
+  closed reviewed delta: zero removals or common-node outcome changes, exactly the
+  sorted three closure-test additions, every addition passed, identical xdist worker
+  count, and exact `+3` collected/`+9` execution-report counts.
 
   ```bash
   set -euo pipefail
@@ -1890,6 +1900,7 @@ or claim design closure before that point.
       else ""
   )
   baseline_binding = None
+  population_delta = None
   if baseline_path:
       baseline_file = Path(baseline_path)
       baseline = json.loads(baseline_file.read_text(encoding="utf-8"))
@@ -1902,11 +1913,108 @@ or claim design closure before that point.
       baseline_population = baseline.get("population", {})
       if set(baseline_population) != population_keys:
           raise SystemExit("Task 8 population baseline is not a closed five-key object")
-      if population != baseline_population:
-          raise SystemExit("population differs from complete reviewed Task 8 baseline")
       baseline_run_key = baseline.get("run_key")
       if not isinstance(baseline_run_key, str) or not baseline_run_key:
           raise SystemExit("Task 8 population baseline run key is invalid")
+      baseline_collection_relative = (
+          f"{baseline_run_key}.population-plugin/"
+          "preflight.controller.collection.json"
+      )
+      baseline_collection_path = baseline_file.parent / baseline_collection_relative
+      baseline_collection_bytes = baseline_collection_path.read_bytes()
+      if baseline.get("artifacts", {}).get(baseline_collection_relative) != {
+          "sha256": sha256_bytes(baseline_collection_bytes),
+          "size": len(baseline_collection_bytes),
+      }:
+          raise SystemExit("Task 8 baseline collection artifact binding mismatch")
+      baseline_collected = json.loads(baseline_collection_bytes)
+      if (
+          not baseline_collected
+          or len(baseline_collected) != len(set(baseline_collected))
+          or baseline_population["collected_count"] != len(baseline_collected)
+          or baseline_population["collected_nodeids_sha256"]
+          != sha256_bytes(("\n".join(baseline_collected) + "\n").encode("utf-8"))
+      ):
+          raise SystemExit("Task 8 baseline collection population mismatch")
+
+      expected_added = sorted([
+          "tests/test_workflow_lisp_drain_roadmap_routing.py::"
+          "test_provider_call_policy_is_a_separate_generic_implemented_capability",
+          "tests/test_workflow_lisp_drain_roadmap_routing.py::"
+          "test_provider_invocation_profile_is_separate_generic_implemented_data",
+          "tests/test_workflow_yaml_orc_gap_list.py::"
+          "test_generic_provider_closures_do_not_claim_family_or_yaml_completion",
+      ])
+      baseline_set = set(baseline_collected)
+      current_set = set(preflight)
+      added = sorted(current_set - baseline_set)
+      removed = sorted(baseline_set - current_set)
+      if added != expected_added or removed:
+          raise SystemExit(
+              f"Task 9 collection delta mismatch: added={added} removed={removed}"
+          )
+
+      def outcome_index(population_record, collected_nodeids):
+          index = {}
+          for category, nodeids in population_record["outcomes_by_category"].items():
+              if nodeids != sorted(nodeids):
+                  raise SystemExit(f"unsorted outcome category: {category}")
+              for nodeid in nodeids:
+                  if nodeid in index:
+                      raise SystemExit(f"duplicated outcome node: {nodeid}")
+                  index[nodeid] = category
+          if set(index) != set(collected_nodeids):
+              raise SystemExit("outcome partition does not cover its collection")
+          return index
+
+      baseline_outcomes = outcome_index(baseline_population, baseline_collected)
+      current_outcomes = outcome_index(population, preflight)
+      common_changes = sorted(
+          nodeid for nodeid in baseline_set
+          if baseline_outcomes[nodeid] != current_outcomes.get(nodeid)
+      )
+      if common_changes:
+          raise SystemExit(f"Task 9 common outcome changes: {common_changes}")
+      if any(current_outcomes[nodeid] != "passed" for nodeid in expected_added):
+          raise SystemExit("every reviewed Task 9 population addition must pass")
+      if population["collected_count"] != baseline_population["collected_count"] + 3:
+          raise SystemExit("Task 9 collection count must equal Task 8 plus three")
+      if population["xdist_worker_count"] != baseline_population["xdist_worker_count"]:
+          raise SystemExit("Task 9 xdist worker count differs from Task 8")
+      if (
+          population["execution_report_count"]
+          != baseline_population["execution_report_count"] + 9
+      ):
+          raise SystemExit("Task 9 execution reports must equal Task 8 plus nine")
+      population_delta = {
+          "schema": "provider_policy_population_delta.v1",
+          "baseline_run_key": baseline_run_key,
+          "added_nodeids": expected_added,
+          "removed_nodeids": [],
+          "common_outcome_changes": [],
+          "added_outcomes": {nodeid: "passed" for nodeid in expected_added},
+          "baseline_collected_count": baseline_population["collected_count"],
+          "current_collected_count": population["collected_count"],
+          "baseline_xdist_worker_count": baseline_population["xdist_worker_count"],
+          "current_xdist_worker_count": population["xdist_worker_count"],
+          "baseline_execution_report_count": baseline_population["execution_report_count"],
+          "current_execution_report_count": population["execution_report_count"],
+      }
+      if set(population_delta) != {
+          "schema",
+          "baseline_run_key",
+          "added_nodeids",
+          "removed_nodeids",
+          "common_outcome_changes",
+          "added_outcomes",
+          "baseline_collected_count",
+          "current_collected_count",
+          "baseline_xdist_worker_count",
+          "current_xdist_worker_count",
+          "baseline_execution_report_count",
+          "current_execution_report_count",
+      }:
+          raise SystemExit("Task 9 population delta is not closed")
       reviewed_digest_file = (
           baseline_file.parent / f"{baseline_run_key}.reviewed-accepted.sha256"
       )
@@ -2009,6 +2117,7 @@ or claim design closure before that point.
       },
       "population": population,
       "population_baseline": baseline_binding,
+      "population_delta": population_delta,
       "failed_nodeids": outcomes.get("failed", []),
       "isolated_replays": replay_results,
       "artifacts": dict(sorted(artifacts.items())),
@@ -2098,8 +2207,9 @@ or claim design closure before that point.
 - Modify: `docs/workflow_yaml_orc_gap_list.md`
 - Modify: `docs/plans/2026-07-17-workflow-lisp-provider-call-policy-design.md`
 - Modify: `tests/test_workflow_lisp_drain_roadmap_routing.py`
+- Modify: `tests/test_workflow_yaml_orc_gap_list.py`
 
-- [ ] **Step 1: Write red closure-routing assertions**
+- [x] **Step 1: Write red closure-routing assertions**
 
   Require the gap list to distinguish the proposed final closures:
 
@@ -2118,7 +2228,7 @@ or claim design closure before that point.
 
   Expected: FAIL because the second row and closure wording are not present.
 
-- [ ] **Step 2: Prepare normative and author-facing closure content**
+- [x] **Step 2: Prepare normative and author-facing closure content**
 
   Update provider/DSL/state contracts with the closed canonical keys, declarative
   binding/fragment validation, general-versus-bare placeholder distinction, merge
@@ -2129,7 +2239,7 @@ or claim design closure before that point.
   non-authoritative. Update the frontend spec and drafting guide with exact grammar
   and one generic example; do not add survivor-family source or claim family parity.
 
-- [ ] **Step 3: Prepare the final status/routing candidate after Task 8 is green**
+- [x] **Step 3: Prepare the final status/routing candidate after Task 8 is green**
 
   In the staged candidate, update the capability row and
   `common.provider-call-policy` to `implemented`, add the separate implemented
@@ -2139,13 +2249,14 @@ or claim design closure before that point.
   user-facing implementation claim before review. Do not commit it, announce it as
   implemented, promote either survivor, or mark YAML deletable at this point.
 
-- [ ] **Step 4: Run the closure consistency gates**
+- [x] **Step 4: Run the closure consistency gates**
 
   ```bash
   rg -n "provider-call-policy-parity|provider-invocation-profile|common.provider-call-policy|common.provider-invocation-profile|codex_unrestricted_workspace|claude_unrestricted_workspace" \
     docs specs tests orchestrator/providers
   pytest -q \
     tests/test_workflow_lisp_drain_roadmap_routing.py \
+    tests/test_workflow_yaml_orc_gap_list.py \
     tests/test_workflow_lisp_provider_call_policy.py \
     tests/test_provider_call_policy.py \
     tests/test_workflow_lisp_provider_call_policy_e2e.py
@@ -2156,12 +2267,13 @@ or claim design closure before that point.
   explicitly labeled historical. Keep the generic implementation closure distinct
   from family promotion/deletion status.
 
-- [ ] **Step 5: Update plan progress and stage the complete closure candidate**
+- [x] **Step 5: Update plan progress and stage the complete closure candidate**
 
   Check Task 9 Steps 1-4 and the applicable final checklist items. Set
   **Execution status** to “Closure candidate staged; completion conditional on two
   final approvals and byte-identical commit.” Stage exactly this plan, the eight
-  docs/specs, and the routing test. Run the protected-path guard and record:
+  docs/specs, and both routing test modules. Run the protected-path guard and
+  record:
 
   ```bash
   git diff --cached --check
@@ -2183,9 +2295,16 @@ or claim design closure before that point.
   from their bound raw logs. Any Task 8 baseline artifact or replay mismatch rejects
   Task 9 before its own acceptance can be written.
 
-  Only after that reopen passes, set `POPULATION_BASELINE_ACCEPTED` to the same
-  reviewed Task 8 accepted record before invoking the acceptance block; exact collection digest/count and
-  the complete pass/fail/skip/xfail/xpass/error partition must equal that baseline.
+  Only after that reopen passes, bind the same reviewed Task 8 accepted record before
+  invoking the acceptance block. Task 8 remains unchanged: its baseline is null and
+  its frozen absent delta is interpreted as semantic null only in `task8` mode (an
+  explicit null would be equivalent). Task 9 must contain a present, non-null closed
+  `provider_policy_population_delta.v1`:
+  Task 8 nodes are an exact subset, removals and common-node outcome changes are
+  empty, the sorted additions are exactly the three named closure tests, all three
+  additions are `passed`, xdist worker count is identical, and current collection/
+  execution counts are baseline `+3`/`+9`. No other population difference is
+  accepted.
   Resolve and bind the baseline without relying on a surviving shell from Task 8:
 
   ```bash
@@ -2222,8 +2341,8 @@ or claim design closure before that point.
   Supply the staged tree ID, Task 8 focused/smoke output, and this confirming broad
   `RUN_KEY`, exact HEAD/tree, protected-overlay manifest/digest,
   allowed-untracked-plan manifest/digest, pane capture, `pane_dead=1`, exact
-  `pytest.rc` bytes `1\n`, accepted JSON, exact collection/execution population,
-  SHA-bound population artifacts, exact six failed node IDs, and six fresh isolated
+  `pytest.rc` bytes `1\n`, accepted JSON, exact collection/execution population and
+  closed reviewed three-test delta, SHA-bound population artifacts, exact six failed node IDs, and six fresh isolated
   replay artifacts/digests to each
   reviewer. The accepted JSON must bind the adjudication, pinned normalizer, and
   reviewed YAML-deprecation authority, including the exact bounded warning-line
@@ -2292,8 +2411,9 @@ or claim design closure before that point.
   manifest, `pane_dead=1`, exact `pytest.rc` bytes `1\n`, and accepted JSON approved
   by both reviewers. Reopen every accepted artifact and recompute every recorded
   size and SHA-256. Recheck that the accepted JSON names exactly the reviewed run
-  key, identity, population baseline, full collection/execution partition, exit
-  `1`, exact-six acceptance result, and six isolated replay triplets. Exact
+  key, identity, population baseline, full collection/execution partition, exact
+  rederived three-test population delta, exit `1`, exact-six acceptance result, and
+  six isolated replay triplets. Exact
   `pytest.rc` bytes `0\n` are not accepted
   without a separately reviewed baseline refresh. Do not edit checkboxes, status
   prose, docs, code, or tests after
@@ -2542,10 +2662,19 @@ or claim design closure before that point.
       raise SystemExit("accepted population is not the exact reconstructed five-key object")
 
   baseline_binding = accepted.get("population_baseline")
+  population_delta_present = "population_delta" in accepted
+  accepted_population_delta = accepted.get("population_delta")
   if reopen_mode == "task8":
-      if baseline_binding is not None:
-          raise SystemExit("Task 8 accepted record must not claim a population baseline")
+      if (
+          baseline_binding is not None
+          or (population_delta_present and accepted_population_delta is not None)
+      ):
+          raise SystemExit(
+              "Task 8 requires null baseline and absent-or-explicit-null delta"
+          )
   else:
+      if not population_delta_present:
+          raise SystemExit("Task 9 accepted record must contain population_delta")
       if not isinstance(baseline_binding, dict) or set(baseline_binding) != {
           "path",
           "run_key",
@@ -2573,8 +2702,8 @@ or claim design closure before that point.
       ):
           raise SystemExit("reviewed Task 8 population baseline schema/result mismatch")
       baseline_population = baseline.get("population", {})
-      if set(baseline_population) != population_keys or population != baseline_population:
-          raise SystemExit("Task 9 complete population differs from Task 8 baseline")
+      if set(baseline_population) != population_keys:
+          raise SystemExit("Task 8 baseline population is not a closed five-key object")
       if baseline.get("run_key") != baseline_binding.get("run_key"):
           raise SystemExit("reviewed Task 8 population baseline run key mismatch")
       reviewed_digest_path = Path(baseline_binding["reviewed_digest_path"])
@@ -2587,6 +2716,114 @@ or claim design closure before that point.
           != baseline_binding["sha256"]
       ):
           raise SystemExit("reviewed Task 8 accepted-digest file binding mismatch")
+
+      baseline_run_key = baseline_binding["run_key"]
+      baseline_collection_relative = (
+          f"{baseline_run_key}.population-plugin/"
+          "preflight.controller.collection.json"
+      )
+      baseline_collection_path = baseline_path.parent / baseline_collection_relative
+      baseline_collection_bytes = baseline_collection_path.read_bytes()
+      if baseline.get("artifacts", {}).get(baseline_collection_relative) != {
+          "sha256": hashlib.sha256(baseline_collection_bytes).hexdigest(),
+          "size": len(baseline_collection_bytes),
+      }:
+          raise SystemExit("Task 8 baseline collection artifact binding mismatch")
+      baseline_collected = json.loads(baseline_collection_bytes)
+      if (
+          not baseline_collected
+          or len(baseline_collected) != len(set(baseline_collected))
+          or baseline_population["collected_count"] != len(baseline_collected)
+          or baseline_population["collected_nodeids_sha256"]
+          != hashlib.sha256(
+              ("\n".join(baseline_collected) + "\n").encode("utf-8")
+          ).hexdigest()
+      ):
+          raise SystemExit("Task 8 baseline collection population mismatch")
+
+      expected_added = sorted([
+          "tests/test_workflow_lisp_drain_roadmap_routing.py::"
+          "test_provider_call_policy_is_a_separate_generic_implemented_capability",
+          "tests/test_workflow_lisp_drain_roadmap_routing.py::"
+          "test_provider_invocation_profile_is_separate_generic_implemented_data",
+          "tests/test_workflow_yaml_orc_gap_list.py::"
+          "test_generic_provider_closures_do_not_claim_family_or_yaml_completion",
+      ])
+      baseline_set = set(baseline_collected)
+      current_set = set(collected)
+      added = sorted(current_set - baseline_set)
+      removed = sorted(baseline_set - current_set)
+
+      def outcome_index(population_record, collected_nodeids):
+          index = {}
+          for category, nodeids in population_record["outcomes_by_category"].items():
+              if nodeids != sorted(nodeids):
+                  raise SystemExit(f"unsorted outcome category: {category}")
+              for nodeid in nodeids:
+                  if nodeid in index:
+                      raise SystemExit(f"duplicated outcome node: {nodeid}")
+                  index[nodeid] = category
+          if set(index) != set(collected_nodeids):
+              raise SystemExit("outcome partition does not cover its collection")
+          return index
+
+      baseline_outcomes = outcome_index(baseline_population, baseline_collected)
+      current_outcomes = outcome_index(population, collected)
+      common_changes = sorted(
+          nodeid for nodeid in baseline_set
+          if baseline_outcomes[nodeid] != current_outcomes.get(nodeid)
+      )
+      reconstructed_delta = {
+          "schema": "provider_policy_population_delta.v1",
+          "baseline_run_key": baseline_run_key,
+          "added_nodeids": added,
+          "removed_nodeids": removed,
+          "common_outcome_changes": common_changes,
+          "added_outcomes": {
+              nodeid: current_outcomes.get(nodeid) for nodeid in added
+          },
+          "baseline_collected_count": baseline_population["collected_count"],
+          "current_collected_count": population["collected_count"],
+          "baseline_xdist_worker_count": baseline_population["xdist_worker_count"],
+          "current_xdist_worker_count": population["xdist_worker_count"],
+          "baseline_execution_report_count": baseline_population["execution_report_count"],
+          "current_execution_report_count": population["execution_report_count"],
+      }
+      delta_keys = {
+          "schema",
+          "baseline_run_key",
+          "added_nodeids",
+          "removed_nodeids",
+          "common_outcome_changes",
+          "added_outcomes",
+          "baseline_collected_count",
+          "current_collected_count",
+          "baseline_xdist_worker_count",
+          "current_xdist_worker_count",
+          "baseline_execution_report_count",
+          "current_execution_report_count",
+      }
+      if set(reconstructed_delta) != delta_keys:
+          raise SystemExit("reconstructed Task 9 population delta is not closed")
+      if (
+          added != expected_added
+          or removed
+          or common_changes
+          or any(current_outcomes[nodeid] != "passed" for nodeid in expected_added)
+          or population["collected_count"]
+          != baseline_population["collected_count"] + 3
+          or population["xdist_worker_count"]
+          != baseline_population["xdist_worker_count"]
+          or population["execution_report_count"]
+          != baseline_population["execution_report_count"] + 9
+      ):
+          raise SystemExit("Task 9 population delta violates the exact reviewed contract")
+      if (
+          not isinstance(accepted_population_delta, dict)
+          or set(accepted_population_delta) != delta_keys
+          or accepted_population_delta != reconstructed_delta
+      ):
+          raise SystemExit("accepted Task 9 population delta binding mismatch")
 
   replay_rows = accepted.get("isolated_replays", [])
   authority_rows = authority.get("failures", [])
@@ -2656,34 +2893,34 @@ or claim design closure before that point.
 
 ## Final Acceptance Checklist
 
-- [ ] Parser accepts exactly the three optional keywords and rejects malformed,
+- [x] Parser accepts exactly the three optional keywords and rejects malformed,
   duplicate, and unknown keywords with stable diagnostics.
-- [ ] Model/effort type diagnostics precede inline-subset diagnostics; accepted
+- [x] Model/effort type diagnostics precede inline-subset diagnostics; accepted
   operands are exact String with empty direct/transitive effects, while procedure
   edges alone remain allowed. Timeout is a positive Int literal only.
-- [ ] Traversal, macro hygiene, procedure specialization, WCC, and all lowering
+- [x] Traversal, macro hygiene, procedure specialization, WCC, and all lowering
   routes preserve presence and absence.
-- [ ] Canonical policy reaches Surface/Core/Executable/RuntimeStep and timeout stays
+- [x] Canonical policy reaches Surface/Core/Executable/RuntimeStep and timeout stays
   on the existing common field.
-- [ ] Core and executable bytes omit absent policy and emit present policy as model
+- [x] Core and executable bytes omit absent policy and emit present policy as model
   then effort through a field-local serializer; unrelated executable mappings retain
   their existing lexical ordering.
-- [ ] Keyword-free bytes match the pre-feature golden exactly; no new `null` appears.
-- [ ] YAML reserves both internal step policy and provider binding declarations.
-- [ ] Provider binding declarations validate exact placeholder consumption after
+- [x] Keyword-free bytes match the pre-feature golden exactly; no new `null` appears.
+- [x] YAML reserves both internal step policy and provider binding declarations.
+- [x] Provider binding declarations validate exact placeholder consumption after
   escape processing; a shared general extractor preserves dotted runtime/context
   placeholders while only `target_param` uses the separate bare-name validator.
-- [ ] `CallPolicyBinding` is exported from `orchestrator.providers.__all__`, and a
+- [x] `CallPolicyBinding` is exported from `orchestrator.providers.__all__`, and a
   public-import custom `ProviderTemplate` construction/registration test passes.
-- [ ] Both shared no-default unrestricted provider profiles exist and their actual
+- [x] Both shared no-default unrestricted provider profiles exist and their actual
   argv matches the retained YAML operational flags.
-- [ ] Runtime performs one merge, one substitution pass, one existing command build,
+- [x] Runtime performs one merge, one substitution pass, one existing command build,
   and no provider/family compiler branch.
-- [ ] Unsupported canonical options fail before process/session creation with bounded
+- [x] Unsupported canonical options fail before process/session creation with bounded
   context; unresolved values retain `substitution_error`; timeout retains exit 124.
-- [ ] Public compile/run/resume proves unchanged reuse and changed-policy rejection
+- [x] Public compile/run/resume proves unchanged reuse and changed-policy rejection
   through normal guards.
-- [ ] Runtime plan, Semantic IR field schema, source-map subject schema, dashboard
+- [x] Runtime plan, Semantic IR field schema, source-map subject schema, dashboard
   graph, reports, and debug YAML remain non-authoritative.
 - [ ] Focused and named public smoke gates pass before closure docs; broad acceptance
   records `pane_dead=1`, exact `pytest.rc` bytes `1\n`, exactly the six
@@ -2709,9 +2946,12 @@ or claim design closure before that point.
   candidate is committed byte-identically. Both reviews bind the immutable observed
   accepted-record digest. Task 9 validates the Task 8 baseline schema/result and
   recomputes all accepted artifact
-  bindings and matches the full reviewed Task 8 population, while its precommit
+  bindings, fully reopens the Task 8 population, and rederives the closed delta:
+  zero removals, exactly the sorted three reviewed additions, unchanged outcomes for
+  every common node, all additions passed, identical worker count, and exact `+3`/
+  `+9` collection/report counts. Its precommit
   index tree and postcommit `HEAD^{tree}` both equal the persisted reviewed tree.
   Exit `0` requires a separately reviewed baseline refresh rather than implicit
   acceptance.
-- [ ] Gap/capability docs close only generic policy and invocation-profile support;
+- [x] Gap/capability docs close only generic policy and invocation-profile support;
   survivor family promotion and YAML deletion remain pending their own gates.

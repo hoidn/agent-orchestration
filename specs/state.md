@@ -116,6 +116,32 @@
 - Logs directory (see `observability.md`)
   - `logs/` contains `orchestrator.log`, `StepName.stdout` (when large or parse error), `StepName.stderr` (when non-empty), and optional debug artifacts.
 
+## Provider-Call Policy Identity And Resume
+
+- Present Workflow Lisp provider-call policy is execution input. Authored
+  `:model`, `:effort`, and `:timeout-sec` syntax and the resulting executable
+  provider-step fields participate in the existing authored-source, build,
+  program, and workflow-checksum identity surfaces. Adding, removing, or changing
+  a keyword or binding expression is program drift, not report, debug, or
+  source-map-only drift.
+- Runtime model/effort values remain ordinary bound workflow/procedure inputs and
+  are governed by existing bound-input, checkpoint, and completed-boundary reuse
+  validation. Timeout remains ordinary `timeout_sec`; no second timeout or state
+  path is introduced.
+- Public `.orc` resume rebuilds the candidate through the ordinary frontend build
+  path before applying source/build/program identity, root and callee workflow
+  checksum, bound-input, checkpoint, call-frame, and provider-step guards.
+  Unchanged policy may reuse a completed provider boundary only through those
+  normal guards. Changed policy is rejected; resume may not patch old state,
+  ignore the difference, or manufacture a compatibility alias.
+- Provider registry/template drift remains operational configuration and is not
+  newly checksum-bound. No checksum exception, identity remap, migration upgrader,
+  or family/provider-name special case is authorized by this policy surface.
+- State, compiled Core/executable provider configuration, and existing identity
+  guards remain authoritative. Runtime plans, semantic/runtime reports,
+  dashboards, debug YAML, and source maps may describe the call but are not
+  policy or resume authority.
+
 ## Reusable-Call State Contract (v2.5)
 
 - Caller-visible exports

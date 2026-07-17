@@ -33,6 +33,73 @@
     - `input_file` stays workspace-relative and is for workspace-owned or runtime-generated prompt material.
     - `asset_file` is the workflow-source-relative prompt/template surface for bundled reusable-workflow assets.
 
+- Workflow Lisp call-local provider policy
+  - Ordinary Workflow Lisp `provider-result` may author the closed canonical
+    options `model` and `effort`, plus a positive literal timeout. The compiler
+    carries only present model/effort values in the internal
+    `provider_call_policy` mapping; timeout remains the existing common
+    `timeout_sec` field. Complete absence emits neither field and preserves the
+    provider template's existing defaults and argv behavior.
+  - `ProviderTemplate.call_policy_bindings` is declarative provider data. Its
+    keys are exactly `model` and `effort`, and each value must be a public
+    `CallPolicyBinding(target_param: str, argv_fragment: Sequence[str] | None)`
+    imported from `orchestrator.providers`. Programmatic custom templates must
+    construct that dataclass; arbitrary dictionaries are invalid. Both built-in
+    registry initialization and public registration run the same validation.
+    The public construction contract is:
+    ```python
+    from orchestrator.providers import CallPolicyBinding, ProviderTemplate
+
+    custom = ProviderTemplate(
+        name="custom",
+        command=["custom", "--model", "${model}"],
+        call_policy_bindings={
+            "model": CallPolicyBinding(target_param="model"),
+        },
+    )
+    ```
+  - `target_param` is one non-reserved bare provider-parameter identifier, not a
+    `${...}` token. General command placeholder extraction continues to accept
+    dotted runtime/context placeholders such as `${inputs.model}` and
+    `${steps.Prepare.output}`; only `target_param` uses the separate bare-name
+    validator. Targets are unique across one declaration and need not have a
+    provider default.
+  - Declaration validation counts unescaped placeholders after the ordinary
+    command-token escape processing. A direct binding requires exactly one
+    `${<target_param>}` in every applicable base, fresh-session, and
+    resume-session command. A fragment binding requires zero such placeholders
+    in those commands and exactly one dynamic placeholder—the matching target—in
+    its ordered `argv_fragment`. Missing, duplicate, mismatched, extra, reserved,
+    or non-string fragment placeholders reject registration.
+  - Preparation translates canonical values without substitution, then performs
+    exactly one merge with precedence `provider defaults < provider_params <
+    translated canonical overrides`. It applies the existing parameter
+    substitution exactly once to that merged mapping, appends present fragments
+    in canonical `model`, then `effort` order, and invokes the existing command
+    builder. The existing substitution owner retains `substitution_error`.
+  - A present canonical option without a declared binding fails before process or
+    session creation with exit `2` and
+    `error.type: provider_call_policy_unsupported`. Its bounded context contains
+    only the resolved provider identifier and canonical option; enclosing
+    provider-result provenance may be retained, but policy values, prompts,
+    secrets, and invented field spans may not be exposed.
+  - Authored YAML/YML reserves and rejects both the internal step key
+    `provider_call_policy` and provider-template key `call_policy_bindings`.
+    Existing YAML `provider_params` behavior is unchanged.
+
+- Shared unrestricted invocation profiles
+  - `codex_unrestricted_workspace` has no defaults, uses stdin, binds
+    `model -> model` and `effort -> reasoning_effort`, and has exact command
+    `["codex", "exec", "--dangerously-bypass-approvals-and-sandbox",
+    "--skip-git-repo-check", "--model", "${model}", "--config",
+    "reasoning_effort=${reasoning_effort}"]`.
+  - `claude_unrestricted_workspace` has no defaults, uses stdin, binds
+    `model -> model` and `effort -> effort`, and has exact command
+    `["claude", "-p", "--model", "${model}", "--effort", "${effort}",
+    "--permission-mode", "bypassPermissions"]`.
+  - These profiles are generic provider data. Their presence does not prove
+    workflow-family parity, promotion eligibility, or YAML deletion.
+
 - Managed provider job policy YAML (v2.13)
   - `managed_jobs.policy` points to workspace-relative YAML that classifies payloads launched by the guarded provider process. It is separate from provider-template YAML.
   - Minimal explicit-metadata shape:
@@ -117,11 +184,13 @@
 - Placeholder and parameter substitution
   - Substitution pipeline:
     1) Compose prompt from the selected base prompt source plus any source/workspace dependency injection.
-    2) Merge `providers.<name>.defaults` overlaid by `step.provider_params` (step wins).
-    3) Substitute inside `provider_params` values (strings only; recursively visit arrays/objects; non-strings unchanged).
-    4) Substitute template tokens: `${PROMPT}` (argv mode only), `${SESSION_ID}` (resume-command only), `${<provider_param>}`, and `${run|context|loop|steps.*}`.
-    5) Apply escapes before substitution: `$$` → `$`, `$${` → `${`.
-    6) Any unresolved `${...}` after substitution fails validation (exit 2) and records `error.context.missing_placeholders` (bare keys) or `invalid_prompt_placeholder` when `${PROMPT}` appears in stdin mode.
+    2) Translate any compiler-owned canonical call policy declaratively, without substitution.
+    3) Merge `providers.<name>.defaults`, then `step.provider_params`, then translated canonical overrides (rightmost wins).
+    4) Substitute inside the one merged parameter mapping exactly once (strings only; recursively visit arrays/objects; non-strings unchanged).
+    5) Select the command variant and append any present canonical fragments in `model`, then `effort` order.
+    6) Protect each selected command-template token with the provider command escape processing before any placeholder scan: escaped `$$` and `$${...}` become protected literal tokens rather than substitution candidates.
+    7) Extract only unescaped placeholders from that protected representation. Provider declaration validation uses this same extraction to enforce exact binding consumption. Invocation substitutes the command template once: `${SESSION_ID}` only for a resume command, merged `${<provider_param>}` and `${run|context|loop|steps.*}` values, then literal `${PROMPT}` delivery in argv mode after other substitutions so prompt content is not rescanned.
+    8) Restore the protected escaped dollar and braced-dollar literals only after command-template substitution. Any unresolved unescaped `${...}` fails validation (exit 2) and records bounded `error.context.missing_placeholders` (bare keys); `${PROMPT}` in stdin mode records `invalid_prompt_placeholder`.
 
 - Exit codes
   - 0 = success

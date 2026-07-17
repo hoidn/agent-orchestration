@@ -2087,6 +2087,63 @@ workspace prompt inputs:
 The frontend lowers these source kinds onto the existing provider prompt source
 fields. It does not invent a new runtime prompt transport.
 
+### 22.4 Call-Local Provider Policy
+
+`provider-result` accepts exactly three optional call-policy keywords in its
+ordinary keyword section:
+
+```text
+(provider-result <compiler-known Provider extern>
+  :prompt <compiler-known Prompt extern>
+  :inputs (<expr> ...)
+  [:model <String expr>]
+  [:effort <String expr>]
+  [:timeout-sec <positive Int literal>]
+  :returns <return-spec>)
+```
+
+The complete allowed-key set remains explicit: `:prompt`, `:inputs`, `:returns`,
+`:model`, `:effort`, and `:timeout-sec`. Each key occurs at most once. Model and
+effort accept exact `String` values from the effect-free inline-lowerable scalar
+and template subset; procedure edges alone do not count as runtime effects.
+Timeout accepts only a positive exact-`Int` literal. Diagnostics for type errors
+precede the inline-subset diagnostic.
+
+Example:
+
+```lisp
+(provider-result providers.worker
+  :prompt prompts.work
+  :inputs (request)
+  :model inputs.worker-model
+  :effort inputs.worker-effort
+  :timeout-sec 7200
+  :returns WorkResult)
+```
+
+The compiler preserves presence and absence through traversal, macro hygiene,
+procedure specialization, WCC, and direct/nested lowering. Present model and
+effort lower to the closed internal mapping
+`provider_call_policy = {model?, effort?}`; timeout lowers only to the existing
+common `timeout_sec` field. Serializers omit absent policy entirely and emit
+present entries as model then effort without changing unrelated mapping order.
+No empty policy, default, fragment, provider parameter, or `null` is synthesized.
+
+Provider capability is declarative. A resolved `ProviderTemplate` maps canonical
+values through validated `CallPolicyBinding` data, performs the single merge
+`defaults < provider_params < canonical overrides`, uses one existing
+substitution pass, and then uses the existing command/session builder. General
+placeholder extraction preserves dotted runtime/context names; only a binding's
+`target_param` is restricted to one non-reserved bare identifier. Missing
+capability fails before process/session creation with bounded
+`provider_call_policy_unsupported` context. YAML/YML reserves both
+`provider_call_policy` and `call_policy_bindings`.
+
+Policy participates in compiled executable identity and normal public resume
+guards. The runtime plan, semantic/runtime reports, dashboard/debug projections,
+debug YAML, and source maps remain non-authoritative views; none supplies policy
+or authorizes resume reuse.
+
 ## 23. Command Result
 
 ```lisp
@@ -3122,6 +3179,9 @@ Source:
   :ctx ctx
   :prompt prompts.implementation.execute
   :inputs (inputs.design inputs.plan)
+  :model inputs.model
+  :effort inputs.effort
+  :timeout-sec 7200
   :returns ImplementationAttempt)
 ```
 
@@ -3132,6 +3192,8 @@ perform provider call :effect provider_call
   -> CoreProviderStep
   provider: providers.execute
   prompt: prompts.implementation.execute
+  provider_call_policy: {model: inputs.model, effort: inputs.effort}
+  timeout_sec: 7200
   prompt_contract: generated from ImplementationAttempt
   output_bundle: generated canonical bundle
   variant_output: generated if return type is union
