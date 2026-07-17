@@ -28,8 +28,11 @@ tmux.
 `docs/plans/2026-07-17-workflow-lisp-provider-call-policy-design.md` at commit
 `069b8e79`.
 
-**Execution status:** Tasks 1-7 are committed. Task 8's fixture-ownership repair is
-staged; its focused, public-smoke, and broad acceptance gates remain. This plan is a living,
+**Execution status:** Task 8 acceptance candidate staged; Tasks 1-8 become verified only after the content-bound broad run, both approvals, and byte-identical commit.
+Broad attempt
+`378258f16c7b-3ababf7ecbbe-b83e560ce41b-073cfb7161fb-attempt-1` is invalid and is
+not evidence because the allowed-untracked YAML-plan bytes changed after its
+snapshot; that attempt cannot satisfy Task 8 acceptance. This plan is a living,
 reviewed execution artifact: every task updates its own completed checkboxes and the status line above,
 stages this file with that task's code/tests, and commits the plan update in the same
 task commit. A task may mark its implementation/test steps complete before review;
@@ -265,12 +268,12 @@ Do not let a reviewer waive a failing test, weaken a diagnostic, broaden YAML, o
 replace a public-path proof with helper-only inspection.
 
 The final closure has a stricter sequence: finish Tasks 1-7; run and capture the
-focused, broad, and public smoke gates in Task 8; prepare and stage the normative
-docs, routing assertions, gap/capability closure, design-status closure, and this
-plan in Task 9; run one confirming broad pass bound to that exact staged tree plus
-the disclosed protected/untracked overlays; then obtain both final reviewers'
-approval of that exact tested state; then commit the candidate tree byte-for-byte
-unchanged. The staged closure wording is only a
+focused, broad-acceptance, and public smoke gates in Task 8; prepare and stage the
+normative docs, routing assertions, gap/capability closure, design-status closure, and this
+plan in Task 9; run one confirming content-bound broad acceptance against that exact
+staged tree plus the disclosed protected/untracked overlays; then obtain both final
+reviewers' approval of that exact tested state; then commit the candidate tree
+byte-for-byte unchanged. The staged closure wording is only a
 candidate until both verdicts approve it and the unchanged tree is committed. Do
 not report the capability implemented, change durable status in an earlier commit,
 or claim design closure before that point.
@@ -1158,7 +1161,7 @@ or claim design closure before that point.
   and the byte-identical repair commit are a separate gate before Step 1 continues;
   the execution-status line records that lifecycle state.
 
-- [ ] **Step 1: Collect the exact public smoke node and focused feature set**
+- [x] **Step 1: Collect the exact public smoke node and focused feature set**
 
   ```bash
   pytest --collect-only -q \
@@ -1173,7 +1176,7 @@ or claim design closure before that point.
   cases, and all intended feature tests collect with no import/fixture error. Zero
   collected tests is a hard failure.
 
-- [ ] **Step 2: Run the complete focused feature set**
+- [x] **Step 2: Run the complete focused feature set**
 
   ```bash
   pytest -q \
@@ -1203,7 +1206,7 @@ or claim design closure before that point.
   Expected: PASS with the keyword-free byte golden unchanged and existing routing
   still unclosed.
 
-- [ ] **Step 3: Run the exact public compile/run/resume smoke**
+- [x] **Step 3: Run the exact public compile/run/resume smoke**
 
   Keep real `ProviderExecutor.prepare_invocation`, capture the actual
   `ProviderInvocation`, and let only the deterministic fake process writer replace
@@ -1216,7 +1219,7 @@ or claim design closure before that point.
 
   Expected: both no-default profile cases PASS; pytest reports a nonzero case count.
 
-- [ ] **Step 4: Launch the broad suite in persistent tmux**
+- [x] **Step 4: Launch the broad suite in persistent tmux**
 
   Use the `tmux` skill. The tested state is not merely `git write-tree`: it is the
   tuple `(HEAD, candidate index tree, protected-overlay manifest,
@@ -1226,12 +1229,46 @@ or claim design closure before that point.
   identity from tmux session environment plus immutable attempt files. No shell
   variable is assumed to survive into a later tool call.
 
-  Before launch, stage the complete intended candidate. In the initial Task 8 pass
-  the Tasks 1-7 commits may leave the index equal to HEAD; in Task 9 reruns the
-  corrected closure candidate must be fully staged. The only permitted unstaged
+  Before the **final** Task 8 launch, prepare the final Task 8 plan bytes: check
+  Steps 4 and 5 and set **Execution status** to “Task 8 acceptance candidate staged;
+  Tasks 1-8 become verified only after the content-bound broad run, both approvals,
+  and byte-identical commit.” Stage that plan-only candidate before launching. Those
+  conditional bytes are the bytes that the run tests, both reviewers approve, and
+  the Task 8 commit records; do not edit a checkbox, status line, or any other byte
+  after launch. If the run or a review fails, amend and restage first, then launch a
+  fresh attempt and restart both reviews.
+
+  In Task 9 reruns the corrected closure candidate must be fully staged. The only permitted unstaged
   tracked paths are the seven protected paths. The only permitted untracked paths
   are the two separately owned plan drafts named below; by Task 8 this implementation
   plan must already be tracked/staged, not treated as an exception.
+
+  Broad acceptance is content-bound to both
+  `docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/adjudication.json`
+  at SHA-256 `d7bcad2eabf075bcb1f5a5e62bee600add68f075f0b51f15dc53644a4105f9f2`
+  and `tests/workflow_lisp_procedure_identity.py` at SHA-256
+  `f1157d11c8b8f8c1a2aacb72d4424ef3ddfc5c2cbe8ace076f6411ac6fc28dec`.
+  The bounded normalization overlay is additionally content- and provenance-bound
+  to `docs/plans/2026-07-17-yaml-deprecation-surface-implementation-plan.md` at
+  commit `c7d17659cfc8e75a21120f095908c0992e3fcf48` and SHA-256
+  `8499350b3f4898b79d13fcc16631f3730444163e99c45883b806cb63048ff06e`.
+  The authority names exactly six `established_unrelated` failures. It does not
+  waive a failure by count or node ID alone: every row must be freshly reproduced
+  in isolation and normalized to its exact adjudicated digest. The reviewed YAML
+  deprecation surface adds one exact full warning line to exactly two named rows.
+  Only that exact line, with the exact per-node occurrence counts below, may be
+  removed after the pinned prerequisite normalizer; generic warning, path, line
+  number, or message stripping is forbidden. Acceptance also binds the complete
+  collection and execution population. A generated, content-addressed pytest plugin
+  records the serial preflight collection, every xdist worker collection, every
+  setup/call/teardown report, collection errors, and deselections without writing to
+  the repository. All worker collections must equal the preflight collection, every
+  collected node must have one unambiguous terminal classification, and deselection
+  is forbidden. The accepted record exposes and SHA-binds the exact pass/fail/skip/
+  xfail/xpass/error partition for review, so a missing test or new skip cannot be
+  mistaken for a clean improvement. Task 8's two approvals establish that exact
+  population as the reviewed baseline; every Task 9 rerun must equal it byte-for-byte
+  as well as satisfying the exact-six failure authority.
 
   Run this self-contained launch block from repo root:
 
@@ -1268,16 +1305,59 @@ or claim design closure before that point.
     test "${PRIOR_ENV%%=*}" = "RUN_KEY"
     PRIOR_KEY="${PRIOR_ENV#*=}"
     test -n "$PRIOR_KEY"
-    tmux -S "$SOCKET" capture-pane -p -J -t "$SESSION":broad.0 -S -100000 \
-      > "$EVIDENCE_ROOT/$PRIOR_KEY.pane.txt"
     PRIOR_STATE="$(tmux -S "$SOCKET" display-message -p \
       -t "$SESSION":broad.0 '#{pane_dead} #{pane_dead_status}')"
-    printf 'run_key=%s\npane_state=%s\n' "$PRIOR_KEY" "$PRIOR_STATE" \
-      > "$EVIDENCE_ROOT/$PRIOR_KEY.status.txt"
     test "${PRIOR_STATE%% *}" = "1" || {
       echo "refusing to replace live broad run: $PRIOR_STATE" >&2
       exit 1
     }
+    if test -f "$EVIDENCE_ROOT/$PRIOR_KEY.accepted.json"; then
+      test -f "$EVIDENCE_ROOT/$PRIOR_KEY.reviewed-accepted.sha256"
+      sha256sum -c "$EVIDENCE_ROOT/$PRIOR_KEY.reviewed-accepted.sha256"
+      python - "$EVIDENCE_ROOT" "$PRIOR_KEY" <<'PY'
+  import hashlib
+  import json
+  import sys
+  from pathlib import Path
+
+  root = Path(sys.argv[1])
+  run_key = sys.argv[2]
+  accepted = json.loads(
+      (root / f"{run_key}.accepted.json").read_text(encoding="utf-8")
+  )
+  if (
+      accepted.get("schema") != "provider_policy_broad_acceptance.v2"
+      or accepted.get("run_key") != run_key
+      or accepted.get("result") != "accepted_exact_established_unrelated_baseline"
+  ):
+      raise SystemExit("prior accepted run identity/schema/result mismatch")
+  artifacts = accepted.get("artifacts", {})
+  for suffix in ("pane.txt", "status.txt"):
+      relative = f"{run_key}.{suffix}"
+      path = root / relative
+      payload = path.read_bytes()
+      if artifacts.get(relative) != {
+          "sha256": hashlib.sha256(payload).hexdigest(),
+          "size": len(payload),
+      }:
+          raise SystemExit(f"prior accepted {suffix} binding mismatch")
+  PY
+    fi
+    HANDOFF_DIR="$EVIDENCE_ROOT/handoffs"
+    mkdir -p "$HANDOFF_DIR"
+    HANDOFF_ATTEMPT=1
+    while test -e "$HANDOFF_DIR/$PRIOR_KEY-handoff-$HANDOFF_ATTEMPT.pane.txt" \
+      || test -e "$HANDOFF_DIR/$PRIOR_KEY-handoff-$HANDOFF_ATTEMPT.status.txt"; do
+      HANDOFF_ATTEMPT=$((HANDOFF_ATTEMPT + 1))
+    done
+    tmux -S "$SOCKET" capture-pane -p -J -t "$SESSION":broad.0 -S -100000 \
+      > "$HANDOFF_DIR/$PRIOR_KEY-handoff-$HANDOFF_ATTEMPT.pane.txt.tmp"
+    printf 'run_key=%s\npane_state=%s\n' "$PRIOR_KEY" "$PRIOR_STATE" \
+      > "$HANDOFF_DIR/$PRIOR_KEY-handoff-$HANDOFF_ATTEMPT.status.txt.tmp"
+    mv "$HANDOFF_DIR/$PRIOR_KEY-handoff-$HANDOFF_ATTEMPT.pane.txt.tmp" \
+      "$HANDOFF_DIR/$PRIOR_KEY-handoff-$HANDOFF_ATTEMPT.pane.txt"
+    mv "$HANDOFF_DIR/$PRIOR_KEY-handoff-$HANDOFF_ATTEMPT.status.txt.tmp" \
+      "$HANDOFF_DIR/$PRIOR_KEY-handoff-$HANDOFF_ATTEMPT.status.txt"
     tmux -S "$SOCKET" kill-server
   fi
 
@@ -1336,6 +1416,82 @@ or claim design closure before that point.
     "$VERIFY_HEAD" "$VERIFY_TREE" "$PROTECTED_SHA" "$UNTRACKED_SHA" "$RUN_KEY" \
     > "$EVIDENCE_ROOT/$RUN_KEY.identity.txt"
 
+  PLUGIN_DIR="$EVIDENCE_ROOT/$RUN_KEY.population-plugin"
+  mkdir "$PLUGIN_DIR"
+  cat > "$PLUGIN_DIR/provider_policy_population_plugin.py" <<'PY'
+  import json
+  import os
+  from pathlib import Path
+
+  _root = Path(os.environ["PROVIDER_POLICY_POPULATION_ROOT"])
+  _phase = os.environ["PROVIDER_POLICY_POPULATION_PHASE"]
+  _config = None
+
+
+  def _role(config):
+      worker = getattr(config, "workerinput", None)
+      return worker["workerid"] if worker is not None else "controller"
+
+
+  def _write_json(path, value):
+      temporary = path.with_suffix(path.suffix + ".tmp")
+      temporary.write_text(
+          json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+      )
+      temporary.replace(path)
+
+
+  def _append(config, kind, value):
+      path = _root / f"{_phase}.{_role(config)}.{kind}.jsonl"
+      with path.open("a", encoding="utf-8") as stream:
+          stream.write(json.dumps(value, sort_keys=True) + "\n")
+
+
+  def pytest_configure(config):
+      global _config
+      _config = config
+
+
+  def pytest_collection_finish(session):
+      _write_json(
+          _root / f"{_phase}.{_role(session.config)}.collection.json",
+          [item.nodeid for item in session.items],
+      )
+
+
+  def pytest_deselected(items):
+      if items:
+          _append(items[0].config, "deselected", [item.nodeid for item in items])
+
+
+  def pytest_collectreport(report):
+      if report.failed:
+          _append(_config, "collection-errors", {
+              "nodeid": report.nodeid,
+              "longrepr": str(report.longrepr),
+          })
+
+
+  def pytest_runtest_logreport(report):
+      # xdist forwards every worker report to the controller. Record only there so
+      # one artifact contains one report stream without cross-process append races.
+      if os.environ.get("PYTEST_XDIST_WORKER"):
+          return
+      path = _root / f"{_phase}.controller.execution.jsonl"
+      value = {
+          "nodeid": report.nodeid,
+          "when": report.when,
+          "outcome": report.outcome,
+          "wasxfail": getattr(report, "wasxfail", None),
+      }
+      with path.open("a", encoding="utf-8") as stream:
+          stream.write(json.dumps(value, sort_keys=True) + "\n")
+  PY
+  POPULATION_PLUGIN_SHA="$(sha256sum \
+    "$PLUGIN_DIR/provider_policy_population_plugin.py" | awk '{print $1}')"
+  printf 'POPULATION_PLUGIN_SHA=%s\n' "$POPULATION_PLUGIN_SHA" \
+    >> "$EVIDENCE_ROOT/$RUN_KEY.identity.txt"
+
   tmux -S "$SOCKET" new-session -d -s "$SESSION" -n broad -c "$PWD"
   tmux -S "$SOCKET" set-option -w -t "$SESSION":broad remain-on-exit on
   tmux -S "$SOCKET" set-environment -t "$SESSION" VERIFY_HEAD "$VERIFY_HEAD"
@@ -1343,7 +1499,8 @@ or claim design closure before that point.
   tmux -S "$SOCKET" set-environment -t "$SESSION" PROTECTED_SHA "$PROTECTED_SHA"
   tmux -S "$SOCKET" set-environment -t "$SESSION" UNTRACKED_SHA "$UNTRACKED_SHA"
   tmux -S "$SOCKET" set-environment -t "$SESSION" RUN_KEY "$RUN_KEY"
-  BROAD_COMMAND="printf 'VERIFY_HEAD=%s\\nVERIFY_TREE=%s\\nPROTECTED_SHA=%s\\nUNTRACKED_SHA=%s\\nRUN_KEY=%s\\n' '$VERIFY_HEAD' '$VERIFY_TREE' '$PROTECTED_SHA' '$UNTRACKED_SHA' '$RUN_KEY'; exec pytest -q -n 16 --dist=worksteal"
+  tmux -S "$SOCKET" set-environment -t "$SESSION" POPULATION_PLUGIN_SHA "$POPULATION_PLUGIN_SHA"
+  BROAD_COMMAND="printf 'VERIFY_HEAD=%s\\nVERIFY_TREE=%s\\nPROTECTED_SHA=%s\\nUNTRACKED_SHA=%s\\nRUN_KEY=%s\\nPOPULATION_PLUGIN_SHA=%s\\n' '$VERIFY_HEAD' '$VERIFY_TREE' '$PROTECTED_SHA' '$UNTRACKED_SHA' '$RUN_KEY' '$POPULATION_PLUGIN_SHA'; set -o pipefail; export PYTHONDONTWRITEBYTECODE=1 PROVIDER_POLICY_POPULATION_ROOT='$PLUGIN_DIR' PYTHONPATH='$PLUGIN_DIR'; export PROVIDER_POLICY_POPULATION_PHASE=preflight; pytest --collect-only -q -p provider_policy_population_plugin 2>&1 | tee '$EVIDENCE_ROOT/$RUN_KEY.collection.log'; collect_rc=\${PIPESTATUS[0]}; printf '%s\\n' \"\$collect_rc\" > '$EVIDENCE_ROOT/$RUN_KEY.collection.rc.tmp'; mv '$EVIDENCE_ROOT/$RUN_KEY.collection.rc.tmp' '$EVIDENCE_ROOT/$RUN_KEY.collection.rc'; test \"\$collect_rc\" = 0 || exit \"\$collect_rc\"; export PROVIDER_POLICY_POPULATION_PHASE=broad; pytest -q -n 16 --dist=worksteal -p provider_policy_population_plugin --junitxml='$EVIDENCE_ROOT/$RUN_KEY.junit.xml' 2>&1 | tee '$EVIDENCE_ROOT/$RUN_KEY.pytest.log'; rc=\${PIPESTATUS[0]}; printf '%s\\n' \"\$rc\" > '$EVIDENCE_ROOT/$RUN_KEY.pytest.rc.tmp'; mv '$EVIDENCE_ROOT/$RUN_KEY.pytest.rc.tmp' '$EVIDENCE_ROOT/$RUN_KEY.pytest.rc'; exit \"\$rc\""
   tmux -S "$SOCKET" send-keys -t "$SESSION":broad.0 -l -- "$BROAD_COMMAND"
   tmux -S "$SOCKET" send-keys -t "$SESSION":broad.0 Enter
   ```
@@ -1351,7 +1508,7 @@ or claim design closure before that point.
   Poll at intervals under 60 seconds with this separate, self-contained block. It
   reloads expected identity from tmux, rejects any new overlay, regenerates both
   manifests, and compares them byte-for-byte with the attempt files before accepting
-  pane status:
+  pane liveness and observational tmux status:
 
   ```bash
   set -euo pipefail
@@ -1381,6 +1538,7 @@ or claim design closure before that point.
   PROTECTED_SHA="$(read_tmux_env PROTECTED_SHA)"
   UNTRACKED_SHA="$(read_tmux_env UNTRACKED_SHA)"
   RUN_KEY="$(read_tmux_env RUN_KEY)"
+  POPULATION_PLUGIN_SHA="$(read_tmux_env POPULATION_PLUGIN_SHA)"
   test "$(git rev-parse HEAD)" = "$VERIFY_HEAD"
   test "$(git write-tree)" = "$VERIFY_TREE"
 
@@ -1429,34 +1587,502 @@ or claim design closure before that point.
     | tee "$EVIDENCE_ROOT/$RUN_KEY.pane.txt"
   PANE_STATE="$(tmux -S "$SOCKET" display-message -p \
     -t "$SESSION":broad.0 '#{pane_dead} #{pane_dead_status}')"
-  printf 'VERIFY_HEAD=%s\nVERIFY_TREE=%s\nPROTECTED_SHA=%s\nUNTRACKED_SHA=%s\nRUN_KEY=%s\nPANE_STATE=%s\n' \
-    "$VERIFY_HEAD" "$VERIFY_TREE" "$PROTECTED_SHA" "$UNTRACKED_SHA" "$RUN_KEY" "$PANE_STATE" \
+  test "$(sha256sum "$EVIDENCE_ROOT/$RUN_KEY.population-plugin/provider_policy_population_plugin.py" | awk '{print $1}')" = "$POPULATION_PLUGIN_SHA"
+  printf 'VERIFY_HEAD=%s\nVERIFY_TREE=%s\nPROTECTED_SHA=%s\nUNTRACKED_SHA=%s\nRUN_KEY=%s\nPOPULATION_PLUGIN_SHA=%s\nPANE_STATE=%s\n' \
+    "$VERIFY_HEAD" "$VERIFY_TREE" "$PROTECTED_SHA" "$UNTRACKED_SHA" "$RUN_KEY" \
+    "$POPULATION_PLUGIN_SHA" "$PANE_STATE" \
     | tee "$EVIDENCE_ROOT/$RUN_KEY.status.txt"
   ```
 
-  Continue until `pane_dead` is `1`. Require `pane_dead_status` to be `0`, rerun the
-  self-contained poll once after death, and save that final capture/status under the
-  `RUN_KEY`. A live pane, missing session identity, changed HEAD/index, changed
-  protected bytes/status, changed allowed-untracked manifest, unexpected overlay, or
-  capture from another run key is not a pass.
+  Continue until `pane_dead` is `1`, then rerun the poll once after death and save
+  that final capture/status under the `RUN_KEY`. On tmux 3.4,
+  `#{pane_dead_status}` may be blank even after a normal process exit, so that field
+  is recorded only for observability and is never an acceptance input. A live pane,
+  missing session identity, changed HEAD/index, changed protected bytes/status, changed
+  allowed-untracked manifest, unexpected overlay, or capture from another run key
+  is not a pass. The launched command atomically writes its pytest return code to
+  `$EVIDENCE_ROOT/$RUN_KEY.pytest.rc`; under the currently pinned authority, exact
+  file bytes `1\n` are only a candidate for adjudication. Exact bytes `0\n` are also
+  rejected because collection loss could mimic improvement. A future clean broad
+  run requires a separately reviewed baseline refresh before this acceptance block
+  changes.
 
-  Task 9 corrections use the same launch block. It first captures the prior dead run
-  under its persisted run key and kills only the dedicated socket, then snapshots
-  the newly staged candidate plus current protected/allowed overlays. Every required
-  broad rerun therefore carries its own exact tested-state identity.
-
-- [ ] **Step 5: Record verification progress and commit only the plan update**
-
-  Check the completed Task 8 gate boxes and set **Execution status** to “Tasks 1-8
-  verified; closure docs not yet prepared.” Stage only this plan, run both task-level
-  reviews and the protected-path guard, and commit the unchanged reviewed plan:
+  After the final dead-pane poll succeeds, run this self-contained acceptance block.
+  It content-validates the authority, normalizer, and generated plugin; reruns the
+  focused routing tests; proves serial/xdist collection identity and total execution
+  accounting without reconstructing node IDs from JUnit class names; requires the
+  exact six failures with no errors; and freshly replays and normalizes all six
+  nodes. It recomputes HEAD/index plus both overlay manifests immediately before and
+  after those replays. No count-only or node-ID-only waiver is permitted. For Task 8,
+  leave `POPULATION_BASELINE_ACCEPTED` empty and require both reviewers to approve
+  the exact population partition recorded here. For every Task 9 rerun, set it to
+  the reviewed Task 8 `accepted.json`; population collection and outcomes must match
+  that baseline exactly.
 
   ```bash
+  set -euo pipefail
+  SOCKET="${TMPDIR:-/tmp}/claude-tmux-sockets/provider-policy.sock"
+  SESSION="provider-policy-broad"
+  EVIDENCE_ROOT="${TMPDIR:-/tmp}/provider-policy-broad-evidence"
+  ADJUDICATION="docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/adjudication.json"
+  NORMALIZER="tests/workflow_lisp_procedure_identity.py"
+  YAML_DEPRECATION_PLAN="docs/plans/2026-07-17-yaml-deprecation-surface-implementation-plan.md"
+  ADJUDICATION_SHA="d7bcad2eabf075bcb1f5a5e62bee600add68f075f0b51f15dc53644a4105f9f2"
+  NORMALIZER_SHA="f1157d11c8b8f8c1a2aacb72d4424ef3ddfc5c2cbe8ace076f6411ac6fc28dec"
+  YAML_DEPRECATION_PLAN_SHA="8499350b3f4898b79d13fcc16631f3730444163e99c45883b806cb63048ff06e"
+  YAML_DEPRECATION_PLAN_COMMIT="c7d17659cfc8e75a21120f095908c0992e3fcf48"
+  read_tmux_env() {
+    line="$(tmux -S "$SOCKET" show-environment -t "$SESSION" "$1")"
+    test "${line%%=*}" = "$1"
+    printf '%s\n' "${line#*=}"
+  }
+  VERIFY_HEAD="$(read_tmux_env VERIFY_HEAD)"
+  VERIFY_TREE="$(read_tmux_env VERIFY_TREE)"
+  RUN_KEY="$(read_tmux_env RUN_KEY)"
+  POPULATION_PLUGIN_SHA="$(read_tmux_env POPULATION_PLUGIN_SHA)"
+  test "$(git rev-parse HEAD)" = "$VERIFY_HEAD"
+  test "$(git write-tree)" = "$VERIFY_TREE"
+  test "$(sha256sum "$ADJUDICATION" | awk '{print $1}')" = "$ADJUDICATION_SHA"
+  test "$(sha256sum "$NORMALIZER" | awk '{print $1}')" = "$NORMALIZER_SHA"
+  test "$(sha256sum "$YAML_DEPRECATION_PLAN" | awk '{print $1}')" = "$YAML_DEPRECATION_PLAN_SHA"
+  test "$(git log -1 --format='%H' -- "$YAML_DEPRECATION_PLAN")" = "$YAML_DEPRECATION_PLAN_COMMIT"
+  test "$(git show "$YAML_DEPRECATION_PLAN_COMMIT:$YAML_DEPRECATION_PLAN" | sha256sum | awk '{print $1}')" = "$YAML_DEPRECATION_PLAN_SHA"
+  PANE_DEAD="$(tmux -S "$SOCKET" display-message -p \
+    -t "$SESSION":broad.0 '#{pane_dead}')"
+  test "$PANE_DEAD" = "1"
+  test -f "$EVIDENCE_ROOT/$RUN_KEY.pytest.rc"
+  cmp -s "$EVIDENCE_ROOT/$RUN_KEY.pytest.rc" <(printf '1\n') || {
+    echo "pytest rc file must contain exact bytes 1\\n; exit 0 requires reviewed baseline refresh" >&2
+    exit 1
+  }
+  cmp -s "$EVIDENCE_ROOT/$RUN_KEY.collection.rc" <(printf '0\n')
+  test -s "$EVIDENCE_ROOT/$RUN_KEY.collection.log"
+  test -s "$EVIDENCE_ROOT/$RUN_KEY.junit.xml"
+  test -s "$EVIDENCE_ROOT/$RUN_KEY.pytest.log"
+  pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py \
+    -k 'task8_baseline_replay or task8_capture_point'
+
+  export ADJUDICATION ADJUDICATION_SHA NORMALIZER_SHA YAML_DEPRECATION_PLAN
+  export YAML_DEPRECATION_PLAN_SHA YAML_DEPRECATION_PLAN_COMMIT EVIDENCE_ROOT RUN_KEY
+  export VERIFY_HEAD VERIFY_TREE POPULATION_PLUGIN_SHA
+  python - <<'PY'
+  import hashlib
+  import json
+  import os
+  import subprocess
+  import xml.etree.ElementTree as ET
+  from collections import defaultdict
+  from pathlib import Path
+
+  from tests.workflow_lisp_procedure_identity import (
+      normalize_procedure_prerequisite_failure_log,
+  )
+
+  root = Path.cwd().resolve()
+  evidence_root = Path(os.environ["EVIDENCE_ROOT"])
+  run_key = os.environ["RUN_KEY"]
+  plugin_root = evidence_root / f"{run_key}.population-plugin"
+  protected_paths = [
+      "docs/plans/2026-06-20-workflow-step-back-non-progress-recovery-plan.md",
+      "docs/plans/2026-07-01-workflow-audit-tier-fixes.md",
+      "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/"
+      "remaining-neurips-migration-experiment/migration_experiment_recommendation_report.md",
+      "state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt",
+      "tests/test_workflow_non_progress_step_back_demo.py",
+      "workflows/examples/non_progress_step_back_demo.yaml",
+      "workflows/library/prompts/workflow_step_back/diagnose_non_progress.md",
+  ]
+  allowed_untracked = [
+      "docs/plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-implementation-plan.md",
+      "docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md",
+  ]
+
+
+  def sha256_bytes(value):
+      return hashlib.sha256(value).hexdigest()
+
+
+  def sha256_path(path):
+      return sha256_bytes(path.read_bytes())
+
+
+  def git(*args):
+      return subprocess.run(
+          ["git", *args], cwd=root, check=True, stdout=subprocess.PIPE,
+          text=True, encoding="utf-8", errors="strict",
+      ).stdout.rstrip("\n")
+
+
+  def manifest_bytes(paths, *, untracked):
+      rows = []
+      for relative in paths:
+          path = root / relative
+          status_output = git("status", "--porcelain=v1", "--", relative)
+          if untracked and not path.is_file():
+              status, digest = "ABSENT", "MISSING"
+          else:
+              status = status_output[:2] if status_output else (
+                  "TRACKED" if untracked else "CLEAN"
+              )
+              digest = sha256_path(path) if path.is_file() else "MISSING"
+          rows.append(f"{relative}\t{status}\t{digest}\n")
+      return "".join(sorted(rows)).encode("utf-8")
+
+
+  def guard_tested_state():
+      if git("rev-parse", "HEAD") != os.environ["VERIFY_HEAD"]:
+          raise SystemExit("HEAD changed during broad acceptance")
+      if git("write-tree") != os.environ["VERIFY_TREE"]:
+          raise SystemExit("index tree changed during broad acceptance")
+      unstaged = set(filter(None, git("diff", "--name-only").splitlines()))
+      untracked = set(filter(None, git(
+          "ls-files", "--others", "--exclude-standard"
+      ).splitlines()))
+      if not unstaged.issubset(protected_paths):
+          raise SystemExit(f"unexpected unstaged overlay: {sorted(unstaged)}")
+      if not untracked.issubset(allowed_untracked):
+          raise SystemExit(f"unexpected untracked overlay: {sorted(untracked)}")
+      protected = manifest_bytes(protected_paths, untracked=False)
+      plans = manifest_bytes(allowed_untracked, untracked=True)
+      if protected != (evidence_root / f"{run_key}.protected.tsv").read_bytes():
+          raise SystemExit("protected overlay manifest changed")
+      if plans != (evidence_root / f"{run_key}.allowed-untracked.tsv").read_bytes():
+          raise SystemExit("allowed-untracked overlay manifest changed")
+
+
+  authority = json.loads(Path(os.environ["ADJUDICATION"]).read_text(encoding="utf-8"))
+  yaml_warning_line = (
+      "WARNING  orchestrator.loader.yaml_deprecation:loader.py:199 "
+      "Authored YAML workflow loading is deprecated"
+  )
+  yaml_warning_counts = {
+      "tests/test_workflow_output_contract_integration.py::"
+      "test_provider_valid_output_bundle_overrides_raw_nonzero_exit": 1,
+      "tests/test_neurips_steered_backlog_runtime.py::"
+      "test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch": 1,
+  }
+  rows = authority.get("failures")
+  if not isinstance(rows, list) or len(rows) != 6:
+      raise SystemExit("authority must contain exactly six failure rows")
+  expected = {}
+  for row in rows:
+      nodeid = row.get("nodeid")
+      digest = row.get("normalized_sha256")
+      if (
+          row.get("category") != "established_unrelated"
+          or not isinstance(nodeid, str) or not nodeid
+          or not isinstance(digest, str) or not digest or nodeid in expected
+      ):
+          raise SystemExit("authority failure rows are malformed or duplicated")
+      expected[nodeid] = digest
+
+  plugin_path = plugin_root / "provider_policy_population_plugin.py"
+  if sha256_path(plugin_path) != os.environ["POPULATION_PLUGIN_SHA"]:
+      raise SystemExit("population plugin digest mismatch")
+  preflight = json.loads(
+      (plugin_root / "preflight.controller.collection.json").read_text(encoding="utf-8")
+  )
+  if not preflight or len(preflight) != len(set(preflight)):
+      raise SystemExit("preflight collection must be nonempty and unique")
+  for forbidden in plugin_root.glob("*.deselected.jsonl"):
+      if forbidden.read_bytes():
+          raise SystemExit(f"pytest deselected nodes: {forbidden}")
+  for forbidden in plugin_root.glob("*.collection-errors.jsonl"):
+      if forbidden.read_bytes():
+          raise SystemExit(f"pytest collection errors: {forbidden}")
+  worker_collections = sorted(plugin_root.glob("broad.gw*.collection.json"))
+  if not worker_collections:
+      raise SystemExit("no xdist worker collections were recorded")
+  for path in worker_collections:
+      if json.loads(path.read_text(encoding="utf-8")) != preflight:
+          raise SystemExit(f"xdist worker collection differs from preflight: {path}")
+
+  execution_path = plugin_root / "broad.controller.execution.jsonl"
+  reports = [
+      json.loads(line) for line in execution_path.read_text(encoding="utf-8").splitlines()
+      if line
+  ]
+  preflight_set = set(preflight)
+  by_node = defaultdict(lambda: defaultdict(list))
+  for report in reports:
+      if report.get("nodeid") not in preflight_set:
+          raise SystemExit(f"execution report outside collection: {report}")
+      if report.get("when") not in {"setup", "call", "teardown"}:
+          raise SystemExit(f"unknown execution phase: {report}")
+      by_node[report["nodeid"]][report["when"]].append(report)
+  if set(by_node) != preflight_set:
+      raise SystemExit("collected and executed node populations differ")
+
+  outcomes = defaultdict(list)
+  for nodeid in preflight:
+      phases = by_node[nodeid]
+      if len(phases["setup"]) != 1 or len(phases["teardown"]) != 1:
+          raise SystemExit(f"ambiguous setup/teardown reports: {nodeid}")
+      setup, teardown = phases["setup"][0], phases["teardown"][0]
+      calls = phases["call"]
+      if setup["outcome"] == "passed" and len(calls) != 1:
+          raise SystemExit(f"missing or ambiguous call report: {nodeid}")
+      if setup["outcome"] != "passed" and calls:
+          raise SystemExit(f"call report after nonpassing setup: {nodeid}")
+      if setup["outcome"] == "failed" or teardown["outcome"] == "failed":
+          category = "error"
+      elif setup["outcome"] == "skipped":
+          category = "xfailed" if setup.get("wasxfail") else "skipped"
+      elif teardown["outcome"] != "passed":
+          category = "error"
+      else:
+          call = calls[0]
+          wasxfail = bool(call.get("wasxfail"))
+          if call["outcome"] == "failed":
+              category = "xpassed" if wasxfail else "failed"
+          elif call["outcome"] == "skipped":
+              category = "xfailed" if wasxfail else "skipped"
+          elif call["outcome"] == "passed":
+              category = "xpassed" if wasxfail else "passed"
+          else:
+              category = "error"
+      outcomes[category].append(nodeid)
+  outcomes = {key: sorted(value) for key, value in sorted(outcomes.items())}
+  if outcomes.get("error"):
+      raise SystemExit(f"broad run contains errors: {outcomes['error']}")
+  if set(outcomes.get("failed", [])) != set(expected):
+      raise SystemExit(
+          f"broad failure set mismatch: expected={sorted(expected)} "
+          f"observed={outcomes.get('failed', [])}"
+      )
+
+  junit_path = evidence_root / f"{run_key}.junit.xml"
+  rc_path = evidence_root / f"{run_key}.pytest.rc"
+  rc_bytes = rc_path.read_bytes()
+  if rc_bytes != b"1\n":
+      raise SystemExit("pytest rc file must contain exact bytes 1\\n")
+  junit = ET.parse(junit_path).getroot()
+  junit_suites = [junit] if junit.tag == "testsuite" else list(junit.iter("testsuite"))
+  if not junit_suites:
+      raise SystemExit("JUnit contains no test suite")
+  if sum(int(suite.attrib.get("errors", "-1")) for suite in junit_suites) != 0:
+      raise SystemExit("JUnit reports broad errors")
+  if sum(int(suite.attrib.get("failures", "-1")) for suite in junit_suites) != 6:
+      raise SystemExit("JUnit failure count differs from exact-six execution record")
+
+  population = {
+      "collected_count": len(preflight),
+      "collected_nodeids_sha256": sha256_bytes(
+          ("\n".join(preflight) + "\n").encode("utf-8")
+      ),
+      "xdist_worker_count": len(worker_collections),
+      "execution_report_count": len(reports),
+      "outcomes_by_category": outcomes,
+  }
+  population_keys = {
+      "collected_count",
+      "collected_nodeids_sha256",
+      "xdist_worker_count",
+      "execution_report_count",
+      "outcomes_by_category",
+  }
+  if set(population) != population_keys:
+      raise SystemExit("broad population object is not closed to the five required keys")
+  baseline_pointer = evidence_root / f"{run_key}.population-baseline.path"
+  baseline_path = (
+      baseline_pointer.read_text(encoding="utf-8").strip()
+      if baseline_pointer.is_file()
+      else ""
+  )
+  baseline_binding = None
+  if baseline_path:
+      baseline_file = Path(baseline_path)
+      baseline = json.loads(baseline_file.read_text(encoding="utf-8"))
+      if (
+          baseline.get("schema") != "provider_policy_broad_acceptance.v2"
+          or baseline.get("result")
+          != "accepted_exact_established_unrelated_baseline"
+      ):
+          raise SystemExit("Task 8 population baseline schema/result is not accepted")
+      baseline_population = baseline.get("population", {})
+      if set(baseline_population) != population_keys:
+          raise SystemExit("Task 8 population baseline is not a closed five-key object")
+      if population != baseline_population:
+          raise SystemExit("population differs from complete reviewed Task 8 baseline")
+      baseline_run_key = baseline.get("run_key")
+      if not isinstance(baseline_run_key, str) or not baseline_run_key:
+          raise SystemExit("Task 8 population baseline run key is invalid")
+      reviewed_digest_file = (
+          baseline_file.parent / f"{baseline_run_key}.reviewed-accepted.sha256"
+      )
+      reviewed_digest_tokens = reviewed_digest_file.read_text(
+          encoding="utf-8"
+      ).split()
+      baseline_sha = sha256_path(baseline_file)
+      if not reviewed_digest_tokens or reviewed_digest_tokens[0] != baseline_sha:
+          raise SystemExit("Task 8 baseline differs from its reviewed accepted digest")
+      baseline_binding = {
+          "path": str(baseline_file),
+          "run_key": baseline_run_key,
+          "sha256": baseline_sha,
+          "reviewed_digest_path": str(reviewed_digest_file),
+          "reviewed_digest_sha256": sha256_path(reviewed_digest_file),
+      }
+
+  guard_tested_state()
+  replay_dir = evidence_root / f"{run_key}.isolated-replays"
+  replay_dir.mkdir(exist_ok=False)
+  replay_results = []
+  for index, row in enumerate(rows, start=1):
+      nodeid = row["nodeid"]
+      completed = subprocess.run(
+          ["pytest", "-q", nodeid], cwd=root, stdout=subprocess.PIPE,
+          stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="strict",
+          check=False,
+      )
+      raw_path = replay_dir / f"{index:02d}.raw.log"
+      raw_path.write_text(completed.stdout, encoding="utf-8")
+      if completed.returncode != 1:
+          raise SystemExit(f"isolated replay did not fail exactly once: {nodeid}")
+      normalized = normalize_procedure_prerequisite_failure_log(
+          completed.stdout, repo_root=root
+      )
+      normalized_path = replay_dir / f"{index:02d}.normalized.log"
+      normalized_path.write_text(normalized, encoding="utf-8")
+      normalized_lines = normalized.splitlines(keepends=True)
+      warning_count = sum(
+          line.rstrip("\r\n") == yaml_warning_line for line in normalized_lines
+      )
+      if warning_count != yaml_warning_counts.get(nodeid, 0):
+          raise SystemExit(f"YAML warning occurrence mismatch for {nodeid}")
+      authority_normalized = "".join(
+          line for line in normalized_lines
+          if line.rstrip("\r\n") != yaml_warning_line
+      )
+      authority_path = replay_dir / f"{index:02d}.authority-normalized.log"
+      authority_path.write_text(authority_normalized, encoding="utf-8")
+      observed = sha256_path(authority_path)
+      if observed != row["normalized_sha256"]:
+          raise SystemExit(f"isolated replay digest mismatch for {nodeid}")
+      replay_results.append({
+          "nodeid": nodeid,
+          "yaml_warning_occurrences_removed": warning_count,
+          "authority_normalized_sha256": observed,
+      })
+  guard_tested_state()
+
+  artifact_paths = [
+      evidence_root / f"{run_key}.identity.txt",
+      evidence_root / f"{run_key}.protected.tsv",
+      evidence_root / f"{run_key}.allowed-untracked.tsv",
+      evidence_root / f"{run_key}.junit.xml",
+      evidence_root / f"{run_key}.pytest.log",
+      evidence_root / f"{run_key}.pytest.rc",
+      evidence_root / f"{run_key}.collection.log",
+      evidence_root / f"{run_key}.collection.rc",
+      evidence_root / f"{run_key}.pane.txt",
+      evidence_root / f"{run_key}.status.txt",
+      *sorted(path for path in plugin_root.rglob("*") if path.is_file()),
+      *sorted(path for path in replay_dir.rglob("*") if path.is_file()),
+  ]
+  if baseline_pointer.is_file():
+      artifact_paths.append(baseline_pointer)
+  artifacts = {}
+  for path in artifact_paths:
+      relative = str(path.relative_to(evidence_root))
+      if relative in artifacts or not path.is_file():
+          raise SystemExit(f"missing or duplicate acceptance artifact: {relative}")
+      artifacts[relative] = {"sha256": sha256_path(path), "size": path.stat().st_size}
+
+  acceptance = {
+      "schema": "provider_policy_broad_acceptance.v2",
+      "run_key": run_key,
+      "tested_identity": {
+          "head": os.environ["VERIFY_HEAD"],
+          "tree": os.environ["VERIFY_TREE"],
+          "population_plugin_sha256": os.environ["POPULATION_PLUGIN_SHA"],
+      },
+      "broad_exit_code": 1,
+      "adjudication_sha256": os.environ["ADJUDICATION_SHA"],
+      "normalizer_sha256": os.environ["NORMALIZER_SHA"],
+      "yaml_deprecation_authority": {
+          "path": os.environ["YAML_DEPRECATION_PLAN"],
+          "commit": os.environ["YAML_DEPRECATION_PLAN_COMMIT"],
+          "sha256": os.environ["YAML_DEPRECATION_PLAN_SHA"],
+          "removed_full_line": yaml_warning_line,
+          "expected_occurrences_by_nodeid": yaml_warning_counts,
+      },
+      "population": population,
+      "population_baseline": baseline_binding,
+      "failed_nodeids": outcomes.get("failed", []),
+      "isolated_replays": replay_results,
+      "artifacts": dict(sorted(artifacts.items())),
+      "result": "accepted_exact_established_unrelated_baseline",
+  }
+  (evidence_root / f"{run_key}.accepted.json").write_text(
+      json.dumps(acceptance, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+  )
+  PY
+  ```
+
+  Task 9 corrections use the same launch block. It first verifies any existing
+  SHA-bound prior pane/status bytes, writes the new dead-session observation under a
+  unique append-only `handoffs/` name (never the prior run's accepted pane/status
+  paths), and kills only the dedicated socket, then snapshots
+  the newly staged candidate plus current protected/allowed overlays. Every required
+  broad rerun therefore carries its own exact tested-state identity and must produce
+  its own accepted JSON plus six fresh isolated replays; a prior run's acceptance
+  cannot be reused for a new tree or overlay identity.
+
+- [x] **Step 5: Review and commit the already-tested Task 8 plan bytes**
+
+  Do not edit the plan after the final launch. Before either review, run the exact
+  evidence-authority/content guards and evidence-reopen Python invocation from Task
+  9 Step 8 against this Task 8 run, stopping before its commit/kill commands and
+  changing only the Python invocation's final positional mode from `task9` to
+  `task8`. The Task 8 mode requires a
+  null population baseline, reconstructs the entire closed five-key population from
+  collection/execution artifacts, and deterministically rederives every replay from
+  its bound raw bytes through the pinned normalizer, exact normalized bytes, bounded
+  warning removal, authority-normalized bytes, authority digest, and row/index/node
+  association. Then persist the exact accepted-record digest for both reviews:
+
+  ```bash
+  set -euo pipefail
+  SOCKET="${TMPDIR:-/tmp}/claude-tmux-sockets/provider-policy.sock"
+  SESSION="provider-policy-broad"
+  EVIDENCE_ROOT="${TMPDIR:-/tmp}/provider-policy-broad-evidence"
+  RUN_KEY_ENV="$(tmux -S "$SOCKET" show-environment -t "$SESSION" RUN_KEY)"
+  test "${RUN_KEY_ENV%%=*}" = "RUN_KEY"
+  RUN_KEY="${RUN_KEY_ENV#*=}"
+  sha256sum "$EVIDENCE_ROOT/$RUN_KEY.accepted.json" \
+    > "$EVIDENCE_ROOT/$RUN_KEY.reviewed-accepted.sha256.tmp"
+  mv "$EVIDENCE_ROOT/$RUN_KEY.reviewed-accepted.sha256.tmp" \
+    "$EVIDENCE_ROOT/$RUN_KEY.reviewed-accepted.sha256"
+  ```
+
+  Give both task-level reviewers the
+  exact staged tree and the accepted v2 record, including the complete collected
+  node digest, outcome partition (including every skip/xfail/xpass), every artifact
+  binding, and six replay bindings. Both reviewers must explicitly approve that
+  population as the Task 8 baseline and approve the conditional final checkbox/
+  status bytes already staged before launch. Each verdict must bind the literal
+  reviewed accepted-record digest. After both approvals, rerun the same deterministic
+  Task 8 reopen, verify the accepted record still matches that digest, run the
+  protected-path guard, require `git write-tree` still equals the tested tree, and
+  commit those unchanged bytes:
+
+  ```bash
+  set -euo pipefail
+  SOCKET="${TMPDIR:-/tmp}/claude-tmux-sockets/provider-policy.sock"
+  SESSION="provider-policy-broad"
+  EVIDENCE_ROOT="${TMPDIR:-/tmp}/provider-policy-broad-evidence"
+  RUN_KEY_ENV="$(tmux -S "$SOCKET" show-environment -t "$SESSION" RUN_KEY)"
+  test "${RUN_KEY_ENV%%=*}" = "RUN_KEY"
+  RUN_KEY="${RUN_KEY_ENV#*=}"
+  (cd "$EVIDENCE_ROOT" && sha256sum -c "$RUN_KEY.reviewed-accepted.sha256")
   git commit -m "test: verify provider call policy acceptance gates"
   ```
 
-  Do not edit capability/gap/design status in this task and do not report the
-  feature implemented yet.
+  The conditional status becomes “Tasks 1-8 verified; closure docs not yet
+  prepared” by the accepted run, both approvals, and unchanged commit; no post-test
+  edit is needed or permitted. Do not edit capability/gap/design status in this task
+  and do not report the feature implemented yet.
 
 ### Task 9: Stage Closure Docs, Obtain Both Final Reviews, Then Commit Unchanged
 
@@ -1543,21 +2169,96 @@ or claim design closure before that point.
   git write-tree
   ```
 
-  Re-run Task 8 Step 4's launch/poll protocol once against this exact fully staged
-  closure tree, even though the pre-doc broad gate already passed. This confirming
-  run exists to bind final review to the exact candidate plus disclosed overlays;
-  it does not move closure docs before the required pre-doc gates.
+  Re-run Task 8 Step 4's launch, poll, and acceptance protocol once against this
+  exact fully staged closure tree, even though the pre-doc broad gate already
+  passed. This confirming run exists to bind final review to the exact candidate
+  plus disclosed overlays; it does not move closure docs before the required
+  pre-doc gates. Before invoking the Task 9 acceptance block, verify the Task 8
+  reviewed-accepted digest file and run the exact deterministic evidence-reopen
+  authority/content guards plus Python invocation from Step 8 against the Task 8
+  baseline root and run key in `task8` mode, stopping before commit/kill commands.
+  This is not a summary check: it rehashes the baseline's complete accepted artifact
+  map, reconstructs its closed population from worker collection and execution
+  reports, and rederives all six normalized and authority-normalized replay files
+  from their bound raw logs. Any Task 8 baseline artifact or replay mismatch rejects
+  Task 9 before its own acceptance can be written.
+
+  Only after that reopen passes, set `POPULATION_BASELINE_ACCEPTED` to the same
+  reviewed Task 8 accepted record before invoking the acceptance block; exact collection digest/count and
+  the complete pass/fail/skip/xfail/xpass/error partition must equal that baseline.
+  Resolve and bind the baseline without relying on a surviving shell from Task 8:
+
+  ```bash
+  set -euo pipefail
+  : "${TASK8_BASELINE_ACCEPTED:?set the reviewed Task 8 accepted.json path}"
+  test -f "$TASK8_BASELINE_ACCEPTED"
+  TASK8_BASELINE_ROOT="$(dirname "$TASK8_BASELINE_ACCEPTED")"
+  TASK8_BASELINE_KEY="$(python - "$TASK8_BASELINE_ACCEPTED" <<'PY'
+  import json
+  import sys
+  from pathlib import Path
+
+  accepted = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+  run_key = accepted.get("run_key")
+  if not isinstance(run_key, str) or not run_key:
+      raise SystemExit("Task 8 baseline run key is missing")
+  print(run_key)
+  PY
+  )"
+  sha256sum -c \
+    "$TASK8_BASELINE_ROOT/$TASK8_BASELINE_KEY.reviewed-accepted.sha256"
+  SOCKET="${TMPDIR:-/tmp}/claude-tmux-sockets/provider-policy.sock"
+  SESSION="provider-policy-broad"
+  EVIDENCE_ROOT="${TMPDIR:-/tmp}/provider-policy-broad-evidence"
+  RUN_KEY_ENV="$(tmux -S "$SOCKET" show-environment -t "$SESSION" RUN_KEY)"
+  test "${RUN_KEY_ENV%%=*}" = "RUN_KEY"
+  RUN_KEY="${RUN_KEY_ENV#*=}"
+  printf '%s\n' "$TASK8_BASELINE_ACCEPTED" \
+    > "$EVIDENCE_ROOT/$RUN_KEY.population-baseline.path.tmp"
+  mv "$EVIDENCE_ROOT/$RUN_KEY.population-baseline.path.tmp" \
+    "$EVIDENCE_ROOT/$RUN_KEY.population-baseline.path"
+  ```
 
   Supply the staged tree ID, Task 8 focused/smoke output, and this confirming broad
   `RUN_KEY`, exact HEAD/tree, protected-overlay manifest/digest,
-  allowed-untracked-plan manifest/digest, pane capture, and dead status to each
-  reviewer. Describe the broad-tested state as “candidate index tree plus the two
-  disclosed overlay manifests,” never as a clean tree. From this point, any staged
-  tree or manifest change invalidates every prior final verdict.
+  allowed-untracked-plan manifest/digest, pane capture, `pane_dead=1`, exact
+  `pytest.rc` bytes `1\n`, accepted JSON, exact collection/execution population,
+  SHA-bound population artifacts, exact six failed node IDs, and six fresh isolated
+  replay artifacts/digests to each
+  reviewer. The accepted JSON must bind the adjudication, pinned normalizer, and
+  reviewed YAML-deprecation authority, including the exact bounded warning-line
+  occurrence map. Describe the broad-tested state as “candidate index tree plus the
+  two disclosed overlay manifests,” never as a clean tree. From this point, any
+  staged tree, manifest, authority, or accepted-run identity change invalidates
+  every prior final verdict.
 
 - [ ] **Step 6: Obtain final independent specification approval of the staged tree**
 
+  Before either review, persist the tested tree ID outside the repository without
+  changing the candidate:
+
+  ```bash
+  set -euo pipefail
+  SOCKET="${TMPDIR:-/tmp}/claude-tmux-sockets/provider-policy.sock"
+  SESSION="provider-policy-broad"
+  EVIDENCE_ROOT="${TMPDIR:-/tmp}/provider-policy-broad-evidence"
+  RUN_KEY_ENV="$(tmux -S "$SOCKET" show-environment -t "$SESSION" RUN_KEY)"
+  test "${RUN_KEY_ENV%%=*}" = "RUN_KEY"
+  RUN_KEY="${RUN_KEY_ENV#*=}"
+  printf '%s\n' "$(git write-tree)" > \
+    "$EVIDENCE_ROOT/$RUN_KEY.reviewed-tree.txt.tmp"
+  mv "$EVIDENCE_ROOT/$RUN_KEY.reviewed-tree.txt.tmp" \
+    "$EVIDENCE_ROOT/$RUN_KEY.reviewed-tree.txt"
+  cmp -s "$EVIDENCE_ROOT/$RUN_KEY.reviewed-tree.txt" \
+    <(printf '%s\n' "$(git write-tree)")
+  sha256sum "$EVIDENCE_ROOT/$RUN_KEY.accepted.json" \
+    > "$EVIDENCE_ROOT/$RUN_KEY.reviewed-accepted.sha256.tmp"
+  mv "$EVIDENCE_ROOT/$RUN_KEY.reviewed-accepted.sha256.tmp" \
+    "$EVIDENCE_ROOT/$RUN_KEY.reviewed-accepted.sha256"
+  ```
+
   Give a fresh reviewer the approved design, this plan, exact staged tree ID,
+  literal reviewed accepted-record digest,
   tree-bound overlay manifests, and gate outputs without conversation history.
   Require explicit verdicts for
   syntax/type diagnostic ordering, direct/transitive effect handling with procedure
@@ -1568,8 +2269,8 @@ or claim design closure before that point.
 
 - [ ] **Step 7: Obtain final independent implementation-quality approval of the same staged tree**
 
-  Use a different reviewer and the identical staged tree ID and overlay manifest
-  digests. Require explicit checks for narrowed dotted placeholders,
+  Use a different reviewer and the identical staged tree ID, reviewed accepted-record
+  digest, and overlay manifest digests. Require explicit checks for narrowed dotted placeholders,
   provider/family-name branches, duplicate
   substitution/executor paths, secret-bearing errors, invented origin remapping,
   global serializer drift, unused abstractions, brittle prompt assertions, tmux
@@ -1579,34 +2280,372 @@ or claim design closure before that point.
   fix it in the owning task, rerun affected narrow tests plus Task 8 focused/public
   gates when production or shared tests changed, update and restage this plan, and
   record a new `git write-tree`. Because every staged change creates a new candidate
-  tree, rerun the Task 8 broad launch/poll protocol even for docs/plan-only fixes,
-  then restart **both** final reviews on that same new tree and overlay identity.
+  tree, rerun the Task 8 broad launch, poll, and acceptance protocol even for
+  docs/plan-only fixes, then restart **both** final reviews on that same new tree,
+  overlay identity, and accepted broad-run artifact.
 
 - [ ] **Step 8: Commit the byte-identical reviewed closure tree**
 
-  Re-run `git write-tree` and require exact equality with the tree ID approved by
+  Re-run `git write-tree` and require exact equality with the persisted tree ID approved by
   both reviewers. Immediately rerun Task 8's self-contained dead-pane poll block and
   require the same HEAD, `RUN_KEY`, protected-overlay manifest, allowed-untracked
-  manifest, and successful pane status approved by both reviewers. Do not edit
-  checkboxes, status prose, docs, code, or tests after
+  manifest, `pane_dead=1`, exact `pytest.rc` bytes `1\n`, and accepted JSON approved
+  by both reviewers. Reopen every accepted artifact and recompute every recorded
+  size and SHA-256. Recheck that the accepted JSON names exactly the reviewed run
+  key, identity, population baseline, full collection/execution partition, exit
+  `1`, exact-six acceptance result, and six isolated replay triplets. Exact
+  `pytest.rc` bytes `0\n` are not accepted
+  without a separately reviewed baseline refresh. Do not edit checkboxes, status
+  prose, docs, code, or tests after
   the final verdicts; the conditional staged status becomes true by the approvals
   plus this unchanged commit, avoiding a self-invalidating post-review plan edit.
-  Run the protected-path guard, then:
+  Immediately before the current-run block, reopen the Task 8 baseline again with
+  the same bound root/key/reviewed digest and the Step 8 deterministic verifier in
+  `task8` mode. The final gate therefore rehashes and semantically rederives the
+  complete baseline artifact/replay set, rather than trusting the mutable baseline
+  accepted JSON or the population summary embedded in the Task 9 record.
 
-  ```bash
-  git commit -m "docs: close provider call policy parity"
-  ```
-
-  Record commit/tree IDs and both verdicts in the execution handoff. Kill the tmux
-  server only after its final capture:
+  Run the protected-path guard, then execute this self-contained current-run final block. It
+  reopens all evidence before mutation, compares precommit `git write-tree` with the
+  persisted reviewed-tree file, commits, immediately proves postcommit `HEAD^{tree}`
+  equals the same persisted ID, and only then kills the dedicated tmux server.
 
   ```bash
   set -euo pipefail
   SOCKET="${TMPDIR:-/tmp}/claude-tmux-sockets/provider-policy.sock"
   SESSION="provider-policy-broad"
-  FINAL_STATE="$(tmux -S "$SOCKET" display-message -p \
-    -t "$SESSION":broad.0 '#{pane_dead} #{pane_dead_status}')"
-  test "$FINAL_STATE" = "1 0"
+  EVIDENCE_ROOT="${TMPDIR:-/tmp}/provider-policy-broad-evidence"
+  ADJUDICATION="docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/adjudication.json"
+  YAML_DEPRECATION_PLAN="docs/plans/2026-07-17-yaml-deprecation-surface-implementation-plan.md"
+  ADJUDICATION_SHA="d7bcad2eabf075bcb1f5a5e62bee600add68f075f0b51f15dc53644a4105f9f2"
+  NORMALIZER_SHA="f1157d11c8b8f8c1a2aacb72d4424ef3ddfc5c2cbe8ace076f6411ac6fc28dec"
+  YAML_DEPRECATION_PLAN_SHA="8499350b3f4898b79d13fcc16631f3730444163e99c45883b806cb63048ff06e"
+  YAML_DEPRECATION_PLAN_COMMIT="c7d17659cfc8e75a21120f095908c0992e3fcf48"
+  RUN_KEY_ENV="$(tmux -S "$SOCKET" show-environment -t "$SESSION" RUN_KEY)"
+  test "${RUN_KEY_ENV%%=*}" = "RUN_KEY"
+  RUN_KEY="${RUN_KEY_ENV#*=}"
+  test -n "$RUN_KEY"
+  REVIEWED_TREE="$(cat "$EVIDENCE_ROOT/$RUN_KEY.reviewed-tree.txt")"
+  test -n "$REVIEWED_TREE"
+  test "$(git write-tree)" = "$REVIEWED_TREE"
+  grep -Fx "VERIFY_TREE=$REVIEWED_TREE" "$EVIDENCE_ROOT/$RUN_KEY.identity.txt"
+  sha256sum -c "$EVIDENCE_ROOT/$RUN_KEY.reviewed-accepted.sha256"
+  PANE_DEAD="$(tmux -S "$SOCKET" display-message -p \
+    -t "$SESSION":broad.0 '#{pane_dead}')"
+  test "$PANE_DEAD" = "1"
+  cmp -s "$EVIDENCE_ROOT/$RUN_KEY.pytest.rc" <(printf '1\n')
+  test "$(sha256sum "$ADJUDICATION" | awk '{print $1}')" = "$ADJUDICATION_SHA"
+  test "$(sha256sum tests/workflow_lisp_procedure_identity.py | awk '{print $1}')" = "$NORMALIZER_SHA"
+  test "$(sha256sum "$YAML_DEPRECATION_PLAN" | awk '{print $1}')" = "$YAML_DEPRECATION_PLAN_SHA"
+  test "$(git log -1 --format='%H' -- "$YAML_DEPRECATION_PLAN")" = "$YAML_DEPRECATION_PLAN_COMMIT"
+  python - "$EVIDENCE_ROOT/$RUN_KEY.accepted.json" "$RUN_KEY" "$ADJUDICATION" \
+    "$ADJUDICATION_SHA" "$NORMALIZER_SHA" "$YAML_DEPRECATION_PLAN" \
+    "$YAML_DEPRECATION_PLAN_COMMIT" "$YAML_DEPRECATION_PLAN_SHA" task9 <<'PY'
+  import json
+  import hashlib
+  import sys
+  from collections import defaultdict
+  from pathlib import Path
+
+  from tests.workflow_lisp_procedure_identity import (
+      normalize_procedure_prerequisite_failure_log,
+  )
+
+  accepted_path = Path(sys.argv[1])
+  reopen_mode = sys.argv[9]
+  if reopen_mode not in {"task8", "task9"}:
+      raise SystemExit("accepted reopen mode must be task8 or task9")
+  evidence_root = accepted_path.parent
+  accepted = json.loads(accepted_path.read_text(encoding="utf-8"))
+  authority = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))
+  authority_digests = {
+      row["nodeid"]: row["normalized_sha256"] for row in authority["failures"]
+  }
+  warning_line = (
+      "WARNING  orchestrator.loader.yaml_deprecation:loader.py:199 "
+      "Authored YAML workflow loading is deprecated"
+  )
+  warning_counts = {
+      "tests/test_workflow_output_contract_integration.py::"
+      "test_provider_valid_output_bundle_overrides_raw_nonzero_exit": 1,
+      "tests/test_neurips_steered_backlog_runtime.py::"
+      "test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch": 1,
+  }
+  if accepted.get("run_key") != sys.argv[2]:
+      raise SystemExit("accepted broad run key mismatch")
+  if accepted.get("schema") != "provider_policy_broad_acceptance.v2":
+      raise SystemExit("accepted broad schema mismatch")
+  if accepted.get("broad_exit_code") != 1:
+      raise SystemExit("accepted broad exit mismatch")
+  if accepted.get("result") != "accepted_exact_established_unrelated_baseline":
+      raise SystemExit("accepted broad result mismatch")
+  if accepted.get("adjudication_sha256") != sys.argv[4]:
+      raise SystemExit("accepted broad adjudication binding mismatch")
+  if accepted.get("normalizer_sha256") != sys.argv[5]:
+      raise SystemExit("accepted broad normalizer binding mismatch")
+  yaml_authority = accepted.get("yaml_deprecation_authority", {})
+  if yaml_authority != {
+      "path": sys.argv[6],
+      "commit": sys.argv[7],
+      "sha256": sys.argv[8],
+      "removed_full_line": warning_line,
+      "expected_occurrences_by_nodeid": warning_counts,
+  }:
+      raise SystemExit("accepted broad YAML-deprecation binding mismatch")
+  if accepted.get("failed_nodeids") != sorted(authority_digests):
+      raise SystemExit("accepted broad exact failure set mismatch")
+
+  artifacts = accepted.get("artifacts")
+  if not isinstance(artifacts, dict) or not artifacts:
+      raise SystemExit("accepted artifact bindings missing")
+  for relative, binding in artifacts.items():
+      path = evidence_root / relative
+      if not path.is_file():
+          raise SystemExit(f"accepted artifact missing: {relative}")
+      payload = path.read_bytes()
+      if binding != {
+          "sha256": hashlib.sha256(payload).hexdigest(), "size": len(payload)
+      }:
+          raise SystemExit(f"accepted artifact binding mismatch: {relative}")
+
+  run_key = sys.argv[2]
+  required = {
+      f"{run_key}.identity.txt",
+      f"{run_key}.protected.tsv",
+      f"{run_key}.allowed-untracked.tsv",
+      f"{run_key}.junit.xml",
+      f"{run_key}.pytest.log",
+      f"{run_key}.pytest.rc",
+      f"{run_key}.collection.log",
+      f"{run_key}.collection.rc",
+      f"{run_key}.pane.txt",
+      f"{run_key}.status.txt",
+      f"{run_key}.population-plugin/provider_policy_population_plugin.py",
+      f"{run_key}.population-plugin/preflight.controller.collection.json",
+      f"{run_key}.population-plugin/broad.controller.execution.jsonl",
+  }
+  if not required.issubset(artifacts):
+      raise SystemExit("accepted core artifact binding set incomplete")
+  if (evidence_root / f"{run_key}.pytest.rc").read_bytes() != b"1\n":
+      raise SystemExit("accepted broad return-code bytes mismatch")
+  if (evidence_root / f"{run_key}.collection.rc").read_bytes() != b"0\n":
+      raise SystemExit("accepted collection return-code bytes mismatch")
+
+  identity = dict(
+      line.split("=", 1)
+      for line in (evidence_root / f"{run_key}.identity.txt")
+      .read_text(encoding="utf-8").splitlines()
+  )
+  tested = accepted.get("tested_identity", {})
+  if tested != {
+      "head": identity.get("VERIFY_HEAD"),
+      "tree": identity.get("VERIFY_TREE"),
+      "population_plugin_sha256": identity.get("POPULATION_PLUGIN_SHA"),
+  }:
+      raise SystemExit("accepted tested identity mismatch")
+  if identity.get("RUN_KEY") != run_key:
+      raise SystemExit("accepted identity run key mismatch")
+  if artifacts[f"{run_key}.protected.tsv"]["sha256"] != identity.get("PROTECTED_SHA"):
+      raise SystemExit("accepted protected manifest identity mismatch")
+  if artifacts[f"{run_key}.allowed-untracked.tsv"]["sha256"] != identity.get("UNTRACKED_SHA"):
+      raise SystemExit("accepted allowed-untracked identity mismatch")
+
+  plugin_root = evidence_root / f"{run_key}.population-plugin"
+  for path in plugin_root.rglob("*"):
+      if path.is_file() and str(path.relative_to(evidence_root)) not in artifacts:
+          raise SystemExit(f"unbound population artifact: {path}")
+  collected = json.loads(
+      (plugin_root / "preflight.controller.collection.json").read_text(encoding="utf-8")
+  )
+  if not collected or len(collected) != len(set(collected)):
+      raise SystemExit("accepted collection is empty or duplicated")
+  workers = sorted(plugin_root.glob("broad.gw*.collection.json"))
+  if not workers or any(
+      json.loads(path.read_text(encoding="utf-8")) != collected for path in workers
+  ):
+      raise SystemExit("accepted xdist collection mismatch")
+  if any(path.read_bytes() for path in plugin_root.glob("*.deselected.jsonl")):
+      raise SystemExit("accepted population contains deselection")
+  if any(path.read_bytes() for path in plugin_root.glob("*.collection-errors.jsonl")):
+      raise SystemExit("accepted population contains collection errors")
+
+  reports = [
+      json.loads(line)
+      for line in (plugin_root / "broad.controller.execution.jsonl")
+      .read_text(encoding="utf-8").splitlines()
+      if line
+  ]
+  by_node = defaultdict(lambda: defaultdict(list))
+  for report in reports:
+      by_node[report["nodeid"]][report["when"]].append(report)
+  if set(by_node) != set(collected):
+      raise SystemExit("accepted execution population mismatch")
+  outcomes = defaultdict(list)
+  for nodeid in collected:
+      phases = by_node[nodeid]
+      if len(phases["setup"]) != 1 or len(phases["teardown"]) != 1:
+          raise SystemExit(f"accepted ambiguous setup/teardown: {nodeid}")
+      setup, teardown = phases["setup"][0], phases["teardown"][0]
+      calls = phases["call"]
+      if (setup["outcome"] == "passed") != (len(calls) == 1):
+          raise SystemExit(f"accepted ambiguous call report: {nodeid}")
+      if setup["outcome"] == "failed" or teardown["outcome"] == "failed":
+          category = "error"
+      elif setup["outcome"] == "skipped":
+          category = "xfailed" if setup.get("wasxfail") else "skipped"
+      elif teardown["outcome"] != "passed":
+          category = "error"
+      else:
+          call = calls[0]
+          wasxfail = bool(call.get("wasxfail"))
+          if call["outcome"] == "failed":
+              category = "xpassed" if wasxfail else "failed"
+          elif call["outcome"] == "skipped":
+              category = "xfailed" if wasxfail else "skipped"
+          elif call["outcome"] == "passed":
+              category = "xpassed" if wasxfail else "passed"
+          else:
+              category = "error"
+      outcomes[category].append(nodeid)
+  outcomes = {key: sorted(value) for key, value in sorted(outcomes.items())}
+  population = accepted.get("population", {})
+  if population.get("collected_count") != len(collected):
+      raise SystemExit("accepted collection count mismatch")
+  collection_digest = hashlib.sha256(
+      ("\n".join(collected) + "\n").encode("utf-8")
+  ).hexdigest()
+  if population.get("collected_nodeids_sha256") != collection_digest:
+      raise SystemExit("accepted collection digest mismatch")
+  if population.get("xdist_worker_count") != len(workers):
+      raise SystemExit("accepted xdist worker count mismatch")
+  if population.get("execution_report_count") != len(reports):
+      raise SystemExit("accepted execution report count mismatch")
+  if population.get("outcomes_by_category") != outcomes:
+      raise SystemExit("accepted execution outcome partition mismatch")
+  if outcomes.get("failed") != sorted(authority_digests) or outcomes.get("error"):
+      raise SystemExit("accepted failure/error population mismatch")
+  population_keys = {
+      "collected_count",
+      "collected_nodeids_sha256",
+      "xdist_worker_count",
+      "execution_report_count",
+      "outcomes_by_category",
+  }
+  reconstructed_population = {
+      "collected_count": len(collected),
+      "collected_nodeids_sha256": collection_digest,
+      "xdist_worker_count": len(workers),
+      "execution_report_count": len(reports),
+      "outcomes_by_category": outcomes,
+  }
+  if set(population) != population_keys or population != reconstructed_population:
+      raise SystemExit("accepted population is not the exact reconstructed five-key object")
+
+  baseline_binding = accepted.get("population_baseline")
+  if reopen_mode == "task8":
+      if baseline_binding is not None:
+          raise SystemExit("Task 8 accepted record must not claim a population baseline")
+  else:
+      if not isinstance(baseline_binding, dict) or set(baseline_binding) != {
+          "path",
+          "run_key",
+          "sha256",
+          "reviewed_digest_path",
+          "reviewed_digest_sha256",
+      }:
+          raise SystemExit("Task 9 accepted record lacks reviewed Task 8 population baseline")
+      baseline_path = Path(baseline_binding.get("path", ""))
+      baseline_pointer_relative = f"{run_key}.population-baseline.path"
+      if (
+          baseline_pointer_relative not in artifacts
+          or (evidence_root / baseline_pointer_relative)
+          .read_text(encoding="utf-8").strip()
+          != str(baseline_path)
+      ):
+          raise SystemExit("Task 9 population baseline pointer binding mismatch")
+      baseline_payload = baseline_path.read_bytes()
+      if hashlib.sha256(baseline_payload).hexdigest() != baseline_binding.get("sha256"):
+          raise SystemExit("reviewed Task 8 population baseline binding mismatch")
+      baseline = json.loads(baseline_payload)
+      if (
+          baseline.get("schema") != "provider_policy_broad_acceptance.v2"
+          or baseline.get("result") != "accepted_exact_established_unrelated_baseline"
+      ):
+          raise SystemExit("reviewed Task 8 population baseline schema/result mismatch")
+      baseline_population = baseline.get("population", {})
+      if set(baseline_population) != population_keys or population != baseline_population:
+          raise SystemExit("Task 9 complete population differs from Task 8 baseline")
+      if baseline.get("run_key") != baseline_binding.get("run_key"):
+          raise SystemExit("reviewed Task 8 population baseline run key mismatch")
+      reviewed_digest_path = Path(baseline_binding["reviewed_digest_path"])
+      reviewed_digest_payload = reviewed_digest_path.read_bytes()
+      if (
+          hashlib.sha256(reviewed_digest_payload).hexdigest()
+          != baseline_binding["reviewed_digest_sha256"]
+          or not reviewed_digest_payload.decode("utf-8", errors="strict").split()
+          or reviewed_digest_payload.decode("utf-8", errors="strict").split()[0]
+          != baseline_binding["sha256"]
+      ):
+          raise SystemExit("reviewed Task 8 accepted-digest file binding mismatch")
+
+  replay_rows = accepted.get("isolated_replays", [])
+  authority_rows = authority.get("failures", [])
+  if len(replay_rows) != 6 or len(authority_rows) != 6:
+      raise SystemExit("accepted replay/authority row count mismatch")
+  repo_root = Path.cwd().resolve()
+  for index, authority_row in enumerate(authority_rows, start=1):
+      nodeid = authority_row.get("nodeid")
+      expected_digest = authority_row.get("normalized_sha256")
+      expected_warning_count = warning_counts.get(nodeid, 0)
+      if (
+          authority_row.get("category") != "established_unrelated"
+          or authority_digests.get(nodeid) != expected_digest
+      ):
+          raise SystemExit(f"malformed replay authority association at index {index}")
+      expected_summary = {
+          "nodeid": nodeid,
+          "yaml_warning_occurrences_removed": expected_warning_count,
+          "authority_normalized_sha256": expected_digest,
+      }
+      if replay_rows[index - 1] != expected_summary:
+          raise SystemExit(f"accepted replay summary association mismatch at index {index}")
+
+      relative_prefix = f"{run_key}.isolated-replays/{index:02d}"
+      raw_relative = f"{relative_prefix}.raw.log"
+      normalized_relative = f"{relative_prefix}.normalized.log"
+      authority_relative = f"{relative_prefix}.authority-normalized.log"
+      for relative in (raw_relative, normalized_relative, authority_relative):
+          if relative not in artifacts:
+              raise SystemExit(f"accepted replay artifact binding missing: {relative}")
+      raw_bytes = (evidence_root / raw_relative).read_bytes()
+      raw_text = raw_bytes.decode("utf-8", errors="strict")
+      rederived_normalized = normalize_procedure_prerequisite_failure_log(
+          raw_text, repo_root=repo_root
+      )
+      rederived_normalized_bytes = rederived_normalized.encode("utf-8")
+      if rederived_normalized_bytes != (evidence_root / normalized_relative).read_bytes():
+          raise SystemExit(f"replay normalized bytes mismatch at index {index}")
+      normalized_lines = rederived_normalized.splitlines(keepends=True)
+      warning_count = sum(
+          line.rstrip("\r\n") == warning_line for line in normalized_lines
+      )
+      if warning_count != expected_warning_count:
+          raise SystemExit(f"replay YAML-warning count mismatch at index {index}")
+      rederived_authority = "".join(
+          line for line in normalized_lines if line.rstrip("\r\n") != warning_line
+      ).encode("utf-8")
+      if rederived_authority != (evidence_root / authority_relative).read_bytes():
+          raise SystemExit(f"replay authority-normalized bytes mismatch at index {index}")
+      if hashlib.sha256(rederived_authority).hexdigest() != expected_digest:
+          raise SystemExit(f"replay authority digest mismatch at index {index}")
+  replay_root = evidence_root / f"{run_key}.isolated-replays"
+  for path in replay_root.rglob("*"):
+      if path.is_file() and str(path.relative_to(evidence_root)) not in artifacts:
+          raise SystemExit(f"unbound replay artifact: {path}")
+  PY
+  test "$(git write-tree)" = "$REVIEWED_TREE"
+  git commit -m "docs: close provider call policy parity"
+  test "$(git rev-parse 'HEAD^{tree}')" = "$REVIEWED_TREE"
   tmux -S "$SOCKET" kill-server
   git status --short
   ```
@@ -1646,11 +2685,33 @@ or claim design closure before that point.
   through normal guards.
 - [ ] Runtime plan, Semantic IR field schema, source-map subject schema, dashboard
   graph, reports, and debug YAML remain non-authoritative.
-- [ ] Focused, broad, and named public smoke gates pass before closure docs; the
-  persistent tmux pane records dead status `0` plus exact HEAD/index tree and
-  normalized byte-exact protected/allowed-untracked manifests, no undisclosed
-  overlay exists, deterministic cleanup permits state-bound reruns, and both final
-  reviewers approve the exact staged closure candidate and overlay identity before
-  the candidate is committed byte-identically.
+- [ ] Focused and named public smoke gates pass before closure docs; broad acceptance
+  records `pane_dead=1`, exact `pytest.rc` bytes `1\n`, exactly the six
+  content-addressed established-unrelated failure node IDs, no errors or extras,
+  serial and every xdist worker collection are identical with no collection error
+  or deselection, every collected node has exactly one bound execution outcome
+  including skips/xfails/xpasses, and the closed population's collection count,
+  node-ID digest, xdist-worker count, execution-report count, and outcome partition
+  all match exactly. Six fresh isolated replays have their raw logs rerun through
+  the pinned normalizer at both precommit reopen gates; normalized bytes, exact
+  per-node warning removal, authority-normalized bytes/digest, and index/node/
+  authority association are rederived and must match their bounded authority-
+  normalized digests exactly. The accepted JSON binds the
+  identity and both overlay manifests, JUnit, pytest log and atomic return codes,
+  every collection/execution artifact, every replay raw/normalized/authority-
+  normalized artifact, adjudication, normalizer, and reviewed YAML-deprecation
+  authority; the two named
+  warning-bearing rows contain exactly one removable full line and the other four
+  contain zero. The pane also records exact HEAD/index tree and normalized
+  byte-exact protected/allowed-untracked manifests, no undisclosed overlay exists,
+  deterministic cleanup permits state-bound reruns, and both final reviewers
+  approve the exact staged closure candidate and overlay identity before the
+  candidate is committed byte-identically. Both reviews bind the immutable observed
+  accepted-record digest. Task 9 validates the Task 8 baseline schema/result and
+  recomputes all accepted artifact
+  bindings and matches the full reviewed Task 8 population, while its precommit
+  index tree and postcommit `HEAD^{tree}` both equal the persisted reviewed tree.
+  Exit `0` requires a separately reviewed baseline refresh rather than implicit
+  acceptance.
 - [ ] Gap/capability docs close only generic policy and invocation-profile support;
   survivor family promotion and YAML deletion remain pending their own gates.
