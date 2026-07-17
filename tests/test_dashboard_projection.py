@@ -10,6 +10,7 @@ import yaml
 
 from orchestrator.dashboard.projection import RunProjector
 from orchestrator.dashboard.scanner import RunScanner
+from orchestrator.workflow.surface_ast import SurfaceStepKind
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -63,6 +64,46 @@ def test_projector_uses_workflow_metadata_and_keeps_display_status_separate(tmp_
     assert [step.name for step in detail.steps] == ["Prep", "Draft"]
     assert detail.steps[0].kind == "command"
     assert state_path.read_text(encoding="utf-8") == before
+
+
+def test_projector_carries_loaded_typed_workflow_surface_for_dashboard_consumers(
+    tmp_path: Path,
+):
+    workflow_path = _write_yaml(
+        tmp_path / "workflows" / "typed.yaml",
+        {
+            "version": "1.1",
+            "name": "typed-dashboard-flow",
+            "steps": [
+                {
+                    "name": "VisitItems",
+                    "for_each": {
+                        "items": ["one"],
+                        "as": "item",
+                        "steps": [
+                            {"name": "Visit", "command": ["echo", "${item}"]},
+                        ],
+                    },
+                }
+            ],
+        },
+    )
+    _write_state(
+        tmp_path,
+        "run1",
+        {
+            "run_id": "run1",
+            "status": "completed",
+            "workflow_file": str(workflow_path.relative_to(tmp_path)),
+        },
+    )
+
+    detail = RunProjector().project_detail(_scan_one(tmp_path))
+
+    assert detail.workflow_structure is not None
+    assert detail.workflow_structure.surface.name == "typed-dashboard-flow"
+    assert detail.workflow_structure.surface.steps[0].kind is SurfaceStepKind.FOR_EACH
+    assert detail.workflow_structure.surface.steps[0].for_each_steps[0].kind is SurfaceStepKind.COMMAND
 
 
 def test_projector_uses_injected_time_for_workflow_aware_stale_heartbeat(

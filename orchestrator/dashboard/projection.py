@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
+from orchestrator.dashboard.compiled_workflow import (
+    load_persisted_compiled_workflow_surface,
+)
 from orchestrator.dashboard.cursor import ExecutionCursorProjector
 from orchestrator.dashboard.files import FileReferenceResolver, UnsafePathError
 from orchestrator.dashboard.models import (
@@ -17,6 +20,8 @@ from orchestrator.dashboard.models import (
     RunRecord,
 )
 from orchestrator.loader import WorkflowLoader
+from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+from orchestrator.workflow.persisted_surface import PersistedWorkflowSurfaceGraph
 from orchestrator.observability.report import build_status_snapshot, derive_status_projection
 
 
@@ -48,13 +53,24 @@ class RunProjector:
         workflow, workflow_name, workflow_warning = self._load_workflow(run, state, resolver)
         warnings = base_warnings + ([workflow_warning] if workflow_warning else [])
 
-        if workflow is not None:
+        if isinstance(workflow, LoadedWorkflowBundle):
             snapshot = build_status_snapshot(workflow, state, run.run_root, now=self.now)
             steps = self._steps_from_snapshot(snapshot.get("steps", []), resolver, warnings)
             run_payload = snapshot.get("run", {}) if isinstance(snapshot.get("run"), Mapping) else {}
             persisted_status = str(run_payload.get("persisted_status") or state.get("status"))
             display_status = str(run_payload.get("display_status") or run_payload.get("status"))
             display_status_reason = self._str_or_none(run_payload.get("display_status_reason"))
+            degraded = False
+        elif isinstance(workflow, PersistedWorkflowSurfaceGraph):
+            steps = self._steps_from_state(state, resolver, warnings)
+            status_projection = derive_status_projection(
+                state,
+                [{"status": step.status} for step in steps],
+                now=self.now,
+            )
+            persisted_status = str(status_projection["persisted_status"])
+            display_status = str(status_projection["display_status"])
+            display_status_reason = status_projection["display_status_reason"]
             degraded = False
         else:
             steps = self._steps_from_state(state, resolver, warnings)
@@ -116,6 +132,7 @@ class RunProjector:
             warnings=warnings,
             degraded=degraded,
             state=state,
+            workflow_structure=workflow,
         )
 
     def project_index(self, runs: list[RunRecord]) -> list[DashboardIndexRow]:
@@ -131,8 +148,20 @@ class RunProjector:
         if not isinstance(workflow_file, str) or not workflow_file:
             return None, None, "state missing workflow_file"
         workflow_path = Path(workflow_file)
+        is_compiled = workflow_path.suffix == ".orc"
         try:
-            if workflow_path.is_absolute():
+            if is_compiled:
+                candidate = (
+                    workflow_path
+                    if workflow_path.is_absolute()
+                    else run.workspace.root / workflow_path
+                )
+                resolved = candidate.resolve(strict=False)
+                try:
+                    resolved.relative_to(run.workspace.root.resolve(strict=False))
+                except ValueError:
+                    return None, None, f"workflow file is outside workspace: {workflow_file}"
+            elif workflow_path.is_absolute():
                 resolved = workflow_path.resolve(strict=False)
                 try:
                     resolved.relative_to(run.workspace.root)
@@ -143,14 +172,23 @@ class RunProjector:
                 if ref.status != "ok":
                     return None, None, f"workflow file is not readable: {workflow_file}"
                 resolved = ref.absolute_path
-        except UnsafePathError as exc:
+        except (OSError, RuntimeError, UnsafePathError) as exc:
             return None, None, f"workflow file is unsafe: {exc}"
 
         try:
-            workflow = WorkflowLoader(run.workspace.root).load_bundle(resolved)
+            if is_compiled:
+                workflow = load_persisted_compiled_workflow_surface(
+                    workspace_root=run.workspace.root,
+                    workflow_path=resolved,
+                    state=state,
+                )
+            else:
+                workflow = WorkflowLoader(run.workspace.root).load_bundle(resolved)
         except Exception as exc:
             return None, None, f"failed to load workflow metadata: {exc}"
-        workflow_name = getattr(getattr(workflow, "surface", None), "name", None)
+        workflow_name = getattr(workflow, "entry_workflow", None)
+        if not isinstance(workflow_name, str):
+            workflow_name = getattr(getattr(workflow, "surface", None), "name", None)
         return workflow, workflow_name if isinstance(workflow_name, str) else None, None
 
     def _steps_from_snapshot(

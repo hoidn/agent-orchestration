@@ -710,59 +710,134 @@ def test_summary_hub_renders_authored_workflow_structure(tmp_path: Path):
     prompt = tmp_path / "workflows" / "prompts" / "select.md"
     context = tmp_path / "workflows" / "prompts" / "context.md"
     input_file = tmp_path / "docs" / "operator-input.md"
-    published = tmp_path / "artifacts" / "result.md"
-    consumed = tmp_path / "docs" / "steering.md"
     for path, body in (
         (prompt, "select prompt"),
         (context, "context"),
         (input_file, "input"),
-        (published, "published"),
-        (consumed, "consumed"),
     ):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf-8")
     workflow = _write_yaml(
         tmp_path / "workflows" / "structured.yaml",
         {
-            "version": "2.14",
+            "version": "2.7",
             "name": "StructuredWorkflow",
+            "artifacts": {
+                "review_state": {
+                    "kind": "scalar",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                }
+            },
             "steps": [
                 {
                     "name": "SelectNextWork",
                     "provider": "selector",
                     "asset_file": "prompts/select.md",
                     "asset_depends_on": ["prompts/context.md"],
+                },
+                {
+                    "name": "ReadOperatorInput",
+                    "provider": "selector",
                     "input_file": "docs/operator-input.md",
-                    "publishes": [{"artifact": "result_doc", "from": "result_path"}],
-                    "consumes": [{"artifact": "steering_doc"}],
                 },
                 {
                     "name": "RunReviewLoop",
+                    "id": "run_review_loop",
                     "repeat_until": {
+                        "id": "review_iteration",
                         "max_iterations": 3,
-                        "condition": {"ref": "self.outputs.review_state"},
+                        "outputs": {
+                            "review_state": {
+                                "kind": "scalar",
+                                "type": "enum",
+                                "allowed": ["APPROVE", "REVISE"],
+                                "from": {
+                                    "ref": "self.steps.RouteDecision.artifacts.review_state"
+                                },
+                            }
+                        },
+                        "condition": {
+                            "compare": {
+                                "left": {"ref": "self.outputs.review_state"},
+                                "op": "eq",
+                                "right": "APPROVE",
+                            }
+                        },
                         "steps": [
-                            {"name": "Review", "provider": "reviewer"},
+                            {
+                                "name": "Review",
+                                "id": "review",
+                                "provider": "reviewer",
+                                "expected_outputs": [
+                                    {
+                                        "name": "decision",
+                                        "path": "state/review-decision.txt",
+                                        "type": "enum",
+                                        "allowed": ["APPROVE", "REVISE"],
+                                    }
+                                ],
+                            },
                             {
                                 "name": "RouteDecision",
+                                "id": "route_decision",
                                 "match": {
                                     "ref": "self.steps.Review.artifacts.decision",
                                     "cases": {
                                         "APPROVE": {
+                                            "id": "approve_path",
+                                            "outputs": {
+                                                "review_state": {
+                                                    "kind": "scalar",
+                                                    "type": "enum",
+                                                    "allowed": ["APPROVE", "REVISE"],
+                                                    "from": {
+                                                        "ref": "self.steps.PublishApproval.artifacts.review_state"
+                                                    },
+                                                }
+                                            },
                                             "steps": [
-                                                {"name": "PublishApproval", "command": ["python", "ok.py"]}
+                                                {
+                                                    "name": "PublishApproval",
+                                                    "id": "publish_approval",
+                                                    "set_scalar": {
+                                                        "artifact": "review_state",
+                                                        "value": "APPROVE",
+                                                    },
+                                                }
                                             ]
                                         },
-                                        "REVISE": [
-                                            {"name": "Fix", "provider": "fixer"},
-                                        ],
+                                        "REVISE": {
+                                            "id": "revise_path",
+                                            "outputs": {
+                                                "review_state": {
+                                                    "kind": "scalar",
+                                                    "type": "enum",
+                                                    "allowed": ["APPROVE", "REVISE"],
+                                                    "from": {
+                                                        "ref": "self.steps.WriteRevision.artifacts.review_state"
+                                                    },
+                                                }
+                                            },
+                                            "steps": [
+                                                {"name": "Fix", "provider": "fixer"},
+                                                {
+                                                    "name": "WriteRevision",
+                                                    "id": "write_revision",
+                                                    "set_scalar": {
+                                                        "artifact": "review_state",
+                                                        "value": "REVISE",
+                                                    },
+                                                },
+                                            ],
+                                        },
                                     },
                                 },
                             },
                         ],
                     },
                 },
-                {"name": "Finalize", "call": "selected_item"},
+                {"name": "Finalize", "command": ["python", "finalize.py"]},
             ],
         },
     )
@@ -779,15 +854,6 @@ def test_summary_hub_renders_authored_workflow_structure(tmp_path: Path):
                 "run_id": "run1",
                 "status": "completed",
                 "workflow_file": str(workflow.relative_to(tmp_path)),
-                "artifact_versions": {
-                    "result_doc": [
-                        {"version": 1, "value": "artifacts/result.md", "producer": "SelectNextWork"}
-                    ],
-                    "steering_doc": [
-                        {"version": 1, "value": "docs/steering.md", "producer": "Seed"}
-                    ],
-                },
-                "artifact_consumes": {"SelectNextWork": {"steering_doc": 1}},
             }
         ),
         encoding="utf-8",
@@ -835,15 +901,68 @@ def test_summary_hub_renders_authored_workflow_structure(tmp_path: Path):
     assert 'href="/runs/w0/run1/files/workspace/workflows/prompts/select.md"' in body
     assert 'href="/runs/w0/run1/files/workspace/workflows/prompts/context.md"' in body
     assert 'href="/runs/w0/run1/files/workspace/docs/operator-input.md"' in body
-    assert 'href="/runs/w0/run1/files/workspace/artifacts/result.md"' in body
-    assert 'href="/runs/w0/run1/files/workspace/docs/steering.md"' in body
     assert "Prompts" in body
-    assert "Published" in body
-    assert "Consumed" in body
     assert str(tmp_path) not in body
 
 
-def test_summary_hub_falls_back_to_observed_summary_sequence(tmp_path: Path):
+def test_summary_hub_classifies_structure_from_loaded_typed_step_kinds(tmp_path: Path):
+    workflow = _write_yaml(
+        tmp_path / "workflows" / "typed-structure.yaml",
+        {
+            "version": "1.1",
+            "name": "TypedStructure",
+            "steps": [
+                {
+                    "name": "VisitItems",
+                    "for_each": {
+                        "items": ["one"],
+                        "as": "item",
+                        "steps": [
+                            {"name": "Visit", "command": ["echo", "${item}"]},
+                        ],
+                    },
+                }
+            ],
+        },
+    )
+    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
+    summaries = run_root / "summaries"
+    summaries.mkdir(parents=True)
+    (summaries / "index.json").write_text(
+        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
+        encoding="utf-8",
+    )
+    (run_root / "state.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run1",
+                "status": "completed",
+                "workflow_file": str(workflow.relative_to(tmp_path)),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
+
+    body = response.body.decode("utf-8")
+    assert response.status == 200
+    assert '<span class="workflow-kind">for_each</span>' in body
+    assert '<span class="workflow-name">Visit</span>' in body
+    assert '<span class="workflow-kind">command</span>' in body
+
+
+def test_summary_hub_falls_back_to_observed_sequence_when_typed_surface_is_unavailable(
+    tmp_path: Path,
+):
+    workflow = _write_yaml(
+        tmp_path / "workflows" / "invalid-call.yaml",
+        {
+            "version": "2.14",
+            "name": "invalid-call",
+            "steps": [{"name": "InvalidCall", "call": "missing_import"}],
+        },
+    )
     run_root = tmp_path / ".orchestrate" / "runs" / "run1"
     summaries = run_root / "summaries"
     summaries.mkdir(parents=True)
@@ -861,7 +980,13 @@ def test_summary_hub_falls_back_to_observed_summary_sequence(tmp_path: Path):
         encoding="utf-8",
     )
     (run_root / "state.json").write_text(
-        json.dumps({"run_id": "run1", "status": "completed"}),
+        json.dumps(
+            {
+                "run_id": "run1",
+                "status": "completed",
+                "workflow_file": str(workflow.relative_to(tmp_path)),
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -872,6 +997,7 @@ def test_summary_hub_falls_back_to_observed_summary_sequence(tmp_path: Path):
     assert "Observed summary sequence" in body
     assert "SelectNextWork" in body
     assert "ExecuteImplementation" in body
+    assert "InvalidCall" not in body
     assert body.count('<span class="workflow-name">SelectNextWork</span>') == 1
     assert 'class="workflow-node provider observed"' in body
 
@@ -892,10 +1018,11 @@ def test_summary_hub_expands_called_workflow_links_from_call_frame(tmp_path: Pat
         {
             "version": "2.14",
             "name": "selector",
+            "inputs": {"state_root": {"type": "relpath", "under": "state"}},
             "steps": [
                 {
                     "name": "MaterializeInputs",
-                    "materialize_artifacts": {},
+                    "command": ["python", "materialize.py"],
                     "publishes": [{"artifact": "steering", "from": "steering_path"}],
                 },
                 {
@@ -904,7 +1031,7 @@ def test_summary_hub_expands_called_workflow_links_from_call_frame(tmp_path: Pat
                     "asset_file": "prompts/selector/select.md",
                     "consumes": [{"artifact": "steering"}],
                     "output_bundle": {
-                        "path": "state/selection.json",
+                        "path": "${inputs.state_root}/selection.json",
                         "fields": [
                             {
                                 "name": "selection_bundle_path",
@@ -923,7 +1050,14 @@ def test_summary_hub_expands_called_workflow_links_from_call_frame(tmp_path: Pat
             "version": "2.14",
             "name": "top",
             "imports": {"selector": "../library/selector.yaml"},
-            "steps": [{"name": "CallSelector", "call": "selector"}],
+            "steps": [
+                {
+                    "name": "CallSelector",
+                    "id": "call_selector",
+                    "call": "selector",
+                    "with": {"state_root": "state"},
+                }
+            ],
         },
     )
     run_root = tmp_path / ".orchestrate" / "runs" / "run1"
@@ -1362,7 +1496,14 @@ def test_summary_hub_invocation_links_use_matching_call_frame_state(tmp_path: Pa
             "version": "2.14",
             "name": "top",
             "imports": {"child": "library/child.yaml"},
-            "steps": [{"name": "CallChild", "call": "child"}],
+            "steps": [
+                {
+                    "name": "CallChild",
+                    "id": "call_child",
+                    "call": "child",
+                    "with": {"state_root": "state/default"},
+                }
+            ],
         },
     )
     first_state_root = tmp_path / "state" / "first"
@@ -1484,7 +1625,13 @@ def test_summary_hub_does_not_attach_provider_summaries_to_same_named_call_step(
             "version": "2.14",
             "name": "top",
             "imports": {"child": "library/child.yaml"},
-            "steps": [{"name": "DraftDesignGapArchitecture", "call": "child"}],
+            "steps": [
+                {
+                    "name": "DraftDesignGapArchitecture",
+                    "id": "draft_design_gap_architecture",
+                    "call": "child",
+                }
+            ],
         },
     )
     run_root = tmp_path / ".orchestrate" / "runs" / "run1"

@@ -19,14 +19,19 @@ from typing import Any, Mapping, Optional
 from types import SimpleNamespace
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
-import yaml
-
 from orchestrator.dashboard.commands import CommandBuilder
 from orchestrator.dashboard.files import FileReferenceResolver, UnsafePathError
 from orchestrator.dashboard.preview import DASHBOARD_CSP
 from orchestrator.dashboard.preview import PreviewRenderer
 from orchestrator.dashboard.projection import RunProjector
 from orchestrator.dashboard.scanner import RunScanner
+from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+from orchestrator.workflow.persisted_surface import (
+    PersistedSurfaceStep,
+    PersistedWorkflowSurfaceGraph,
+    PersistedWorkflowSurfaceNode,
+)
+from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
 
 
 @dataclass(frozen=True)
@@ -1758,17 +1763,59 @@ class DashboardApp:
         workflow_file = self._str_or_none(
             detail.state.get("workflow_file") if isinstance(detail.state, Mapping) else None
         ) or row.workflow_file
-        payload, unavailable_reason = self._read_workflow_yaml_for_structure(row, workflow_file)
-        if payload is not None:
-            workflow_name = self._str_or_none(payload.get("name")) or workflow_file or "workflow"
-            steps = payload.get("steps")
-            if isinstance(steps, list) and steps:
+        structure = getattr(detail, "workflow_structure", None)
+        unavailable_reason = ""
+        workflow_node: LoadedWorkflowBundle | PersistedWorkflowSurfaceNode | None = None
+        if isinstance(structure, LoadedWorkflowBundle):
+            workflow_node = structure
+            workflow_name = structure.surface.name or workflow_file or "workflow"
+            steps = structure.surface.steps
+            finalization_steps = (
+                structure.surface.finalization.steps
+                if structure.surface.finalization is not None
+                else ()
+            )
+        elif isinstance(structure, PersistedWorkflowSurfaceGraph):
+            workflow_node = structure.entry_node
+            workflow_name = structure.entry_workflow
+            steps = workflow_node.steps
+            finalization_steps = workflow_node.finalization_steps
+        else:
+            workflow_name = workflow_file or "workflow"
+            steps = ()
+            finalization_steps = ()
+        if workflow_node is not None:
+            if steps:
                 nodes = [
-                    self._workflow_step_node(detail, workflow_file, payload, step, entries)
+                    self._workflow_step_node(
+                        detail,
+                        workflow_file,
+                        structure,
+                        workflow_node,
+                        step,
+                        entries,
+                    )
                     for step in steps
                 ]
             else:
                 nodes = [{"label": "(no authored steps found)", "kind": "empty", "children": [], "links": []}]
+            if finalization_steps:
+                nodes.append(
+                    {
+                        "label": "finally",
+                        "kind": "finalization",
+                        "children": self._workflow_nodes_from_steps(
+                            detail,
+                            workflow_file,
+                            structure,
+                            workflow_node,
+                            finalization_steps,
+                            entries,
+                        ),
+                        "links": [],
+                        "summaries": [],
+                    }
+                )
             provider_flow = self._provider_flow_mermaid_html(nodes)
             return (
                 "<section class=\"workflow-map\"><h2>Workflow Structure</h2>"
@@ -1777,6 +1824,11 @@ class DashboardApp:
                 f"{self._render_workflow_nodes_html(row, nodes)}"
                 "</section>"
             )
+
+        if workflow_file:
+            unavailable_reason = "authored workflow typed surface is unavailable."
+        else:
+            unavailable_reason = "authored workflow file is not recorded in state."
 
         note = "Observed summary sequence"
         if unavailable_reason:
@@ -1895,35 +1947,6 @@ class DashboardApp:
             return ""
         return builder.render()
 
-    def _read_workflow_yaml_for_structure(
-        self,
-        row,
-        workflow_file: Optional[str],
-    ) -> tuple[Mapping[str, Any] | None, str]:
-        if not workflow_file:
-            return None, "authored workflow file is not recorded in state."
-        resolver = FileReferenceResolver(row.workspace_root, row.run_root)
-        try:
-            workflow_path = Path(workflow_file)
-            if workflow_path.is_absolute():
-                resolved = workflow_path.resolve(strict=False)
-                workspace_root = row.workspace_root.resolve(strict=False)
-                resolved.relative_to(workspace_root)
-            else:
-                ref = resolver.workspace_ref(workflow_file)
-                if ref.status != "ok":
-                    return None, "authored workflow file is not readable."
-                resolved = ref.absolute_path
-        except (OSError, UnsafePathError, ValueError):
-            return None, "authored workflow file is not safe to read."
-        try:
-            payload = yaml.safe_load(resolved.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError):
-            return None, "authored workflow file could not be parsed."
-        if not isinstance(payload, Mapping):
-            return None, "authored workflow file is not a mapping."
-        return payload, ""
-
     def _observed_summary_step_nodes(
         self,
         entries: list[Mapping[str, object]],
@@ -1956,51 +1979,56 @@ class DashboardApp:
         self,
         detail,
         workflow_file: Optional[str],
-        workflow_payload: Mapping[str, Any],
-        step: object,
+        workflow_structure: LoadedWorkflowBundle | PersistedWorkflowSurfaceGraph,
+        workflow_node: LoadedWorkflowBundle | PersistedWorkflowSurfaceNode,
+        step: SurfaceStep | PersistedSurfaceStep,
         summary_entries: list[Mapping[str, object]],
     ) -> dict[str, object]:
-        if not isinstance(step, Mapping):
-            return {"label": "(invalid step)", "kind": "invalid", "children": [], "links": [], "summaries": []}
-        name = (
-            self._str_or_none(step.get("name"))
-            or self._str_or_none(step.get("id"))
-            or "(unnamed step)"
-        )
+        name = step.name or step.authored_id or "(unnamed step)"
         children: list[dict[str, object]] = []
-        repeat_until = step.get("repeat_until") if isinstance(step.get("repeat_until"), Mapping) else None
-        match = step.get("match") if isinstance(step.get("match"), Mapping) else None
-        if_block = step.get("if")
         kind = self._workflow_step_kind(step)
 
-        if repeat_until is not None:
+        if step.repeat_until is not None:
             children.extend(
                 self._workflow_nodes_from_steps(
-                    detail, workflow_file, workflow_payload, repeat_until.get("steps"), summary_entries
+                    detail,
+                    workflow_file,
+                    workflow_structure,
+                    workflow_node,
+                    step.repeat_until.steps,
+                    summary_entries,
                 )
             )
-        if match is not None:
-            cases = match.get("cases")
-            if isinstance(cases, Mapping):
-                for case_name, case_block in cases.items():
-                    children.append(
-                        {
-                            "label": f"case {case_name}",
-                            "kind": "case",
-                            "children": self._workflow_nodes_from_block(
-                                detail, workflow_file, workflow_payload, case_block, summary_entries
-                            ),
-                            "links": [],
-                            "summaries": [],
-                        }
-                    )
-        if if_block is not None:
+        for case_name, case_steps in self._workflow_match_case_steps(step).items():
+            children.append(
+                {
+                    "label": f"case {case_name}",
+                    "kind": "case",
+                    "children": self._workflow_nodes_from_steps(
+                        detail,
+                        workflow_file,
+                        workflow_structure,
+                        workflow_node,
+                        case_steps,
+                        summary_entries,
+                    ),
+                    "links": [],
+                    "summaries": [],
+                }
+            )
+        then_steps, else_steps = self._workflow_branch_steps(step)
+        if then_steps or else_steps:
             children.append(
                 {
                     "label": "then",
                     "kind": "branch",
-                    "children": self._workflow_nodes_from_block(
-                        detail, workflow_file, workflow_payload, step.get("then"), summary_entries
+                    "children": self._workflow_nodes_from_steps(
+                        detail,
+                        workflow_file,
+                        workflow_structure,
+                        workflow_node,
+                        then_steps,
+                        summary_entries,
                     ),
                     "links": [],
                     "summaries": [],
@@ -2010,19 +2038,50 @@ class DashboardApp:
                 {
                     "label": "else",
                     "kind": "branch",
-                    "children": self._workflow_nodes_from_block(
-                        detail, workflow_file, workflow_payload, step.get("else"), summary_entries
+                    "children": self._workflow_nodes_from_steps(
+                        detail,
+                        workflow_file,
+                        workflow_structure,
+                        workflow_node,
+                        else_steps,
+                        summary_entries,
                     ),
                     "links": [],
                     "summaries": [],
                 }
             )
-        called_children = self._called_workflow_nodes(detail, workflow_file, workflow_payload, step, summary_entries)
+        if step.kind is SurfaceStepKind.FOR_EACH:
+            children.extend(
+                self._workflow_nodes_from_steps(
+                    detail,
+                    workflow_file,
+                    workflow_structure,
+                    workflow_node,
+                    step.for_each_steps,
+                    summary_entries,
+                )
+            )
+        step_payload = self._surface_step_dashboard_payload(step)
+        called_children = self._called_workflow_nodes(
+            detail,
+            workflow_structure,
+            workflow_node,
+            step,
+            summary_entries,
+        )
         if called_children:
             children.extend(called_children)
         summaries = self._workflow_summary_links(detail.row, summary_entries, name, kind)
-        invocations = self._workflow_summary_invocations(detail, workflow_file, step, name, summaries)
-        links = [] if invocations else self._workflow_step_link_groups(detail, workflow_file, step, name)
+        invocations = self._workflow_summary_invocations(
+            detail, workflow_file, step_payload, name, summaries
+        )
+        links = (
+            []
+            if invocations
+            else self._workflow_step_link_groups(
+                detail, workflow_file, step_payload, name
+            )
+        )
         return {
             "label": name,
             "kind": kind,
@@ -2033,117 +2092,181 @@ class DashboardApp:
             "provider": kind in {"provider", "adjudicated_provider"},
         }
 
-    def _workflow_step_kind(self, step: Mapping[str, object]) -> str:
-        repeat_until = step.get("repeat_until")
-        if isinstance(repeat_until, Mapping):
-            max_iterations = repeat_until.get("max_iterations")
+    def _workflow_step_kind(self, step: SurfaceStep | PersistedSurfaceStep) -> str:
+        if step.kind is SurfaceStepKind.REPEAT_UNTIL:
+            max_iterations = (
+                step.repeat_until.max_iterations if step.repeat_until is not None else None
+            )
             suffix = f" max={max_iterations}" if max_iterations is not None else ""
             return f"repeat_until{suffix}"
-        if "match" in step:
-            return "match"
-        if "if" in step:
-            return "if"
-        call = self._str_or_none(step.get("call"))
-        if call:
-            return f"call {call}"
-        if "adjudicated_provider" in step:
-            return "adjudicated_provider"
-        if "provider" in step:
-            return "provider"
-        if "command" in step:
-            return "command"
-        if "materialize_artifacts" in step:
-            return "materialize_artifacts"
-        if "select_variant_output" in step:
-            return "select_variant_output"
-        if "variant_output" in step:
-            return "variant_output"
-        if "assert" in step:
-            return "assert"
-        if "wait_for" in step:
-            return "wait_for"
-        return "step"
+        if step.kind is SurfaceStepKind.CALL and step.call_alias:
+            return f"call {step.call_alias}"
+        return step.kind.value
 
-    def _workflow_nodes_from_block(
+    def _workflow_branch_steps(
         self,
-        detail,
-        workflow_file: Optional[str],
-        workflow_payload: Mapping[str, Any],
-        block: object,
-        summary_entries: list[Mapping[str, object]],
-    ) -> list[dict[str, object]]:
-        if isinstance(block, Mapping):
-            return self._workflow_nodes_from_steps(detail, workflow_file, workflow_payload, block.get("steps"), summary_entries)
-        return self._workflow_nodes_from_steps(detail, workflow_file, workflow_payload, block, summary_entries)
+        step: SurfaceStep | PersistedSurfaceStep,
+    ) -> tuple[
+        Sequence[SurfaceStep | PersistedSurfaceStep],
+        Sequence[SurfaceStep | PersistedSurfaceStep],
+    ]:
+        if isinstance(step, PersistedSurfaceStep):
+            return step.then_steps, step.else_steps
+        return (
+            step.then_branch.steps if step.then_branch is not None else (),
+            step.else_branch.steps if step.else_branch is not None else (),
+        )
+
+    def _workflow_match_case_steps(
+        self,
+        step: SurfaceStep | PersistedSurfaceStep,
+    ) -> Mapping[str, Sequence[SurfaceStep | PersistedSurfaceStep]]:
+        if isinstance(step, PersistedSurfaceStep):
+            return step.match_cases
+        return {
+            str(case_name): case.steps
+            for case_name, case in step.match_cases.items()
+        }
 
     def _workflow_nodes_from_steps(
         self,
         detail,
         workflow_file: Optional[str],
-        workflow_payload: Mapping[str, Any],
-        steps: object,
+        workflow_structure: LoadedWorkflowBundle | PersistedWorkflowSurfaceGraph,
+        workflow_node: LoadedWorkflowBundle | PersistedWorkflowSurfaceNode,
+        steps: Sequence[SurfaceStep | PersistedSurfaceStep],
         summary_entries: list[Mapping[str, object]],
     ) -> list[dict[str, object]]:
-        if not isinstance(steps, list):
-            return []
         return [
-            self._workflow_step_node(detail, workflow_file, workflow_payload, step, summary_entries)
+            self._workflow_step_node(
+                detail,
+                workflow_file,
+                workflow_structure,
+                workflow_node,
+                step,
+                summary_entries,
+            )
             for step in steps
         ]
 
     def _called_workflow_nodes(
         self,
         detail,
-        workflow_file: Optional[str],
-        workflow_payload: Mapping[str, Any],
-        step: Mapping[str, object],
+        workflow_structure: LoadedWorkflowBundle | PersistedWorkflowSurfaceGraph,
+        workflow_node: LoadedWorkflowBundle | PersistedWorkflowSurfaceNode,
+        step: SurfaceStep | PersistedSurfaceStep,
         summary_entries: list[Mapping[str, object]],
     ) -> list[dict[str, object]]:
-        call_alias = self._str_or_none(step.get("call"))
+        call_alias = step.call_alias
         if not call_alias:
             return []
-        imports = workflow_payload.get("imports")
-        if not isinstance(imports, Mapping):
+        if isinstance(workflow_structure, LoadedWorkflowBundle):
+            if not isinstance(workflow_node, LoadedWorkflowBundle):
+                return []
+            called_node = workflow_node.imports.get(call_alias)
+            if not isinstance(called_node, LoadedWorkflowBundle):
+                return []
+            called_steps = called_node.surface.steps
+            called_finalization_steps = (
+                called_node.surface.finalization.steps
+                if called_node.surface.finalization is not None
+                else ()
+            )
+        else:
+            if not isinstance(workflow_node, PersistedWorkflowSurfaceNode):
+                return []
+            called_node = workflow_structure.imported_node(workflow_node, call_alias)
+            if called_node is None:
+                return []
+            called_steps = called_node.steps
+            called_finalization_steps = called_node.finalization_steps
+        if not called_steps and not called_finalization_steps:
             return []
-        import_path = self._str_or_none(imports.get(call_alias))
-        if not import_path:
-            return []
-        called_workflow_file = self._resolve_import_workflow_file(detail.row, workflow_file, import_path)
-        if not called_workflow_file:
-            return []
-        called_payload, _reason = self._read_workflow_yaml_for_structure(detail.row, called_workflow_file)
-        if called_payload is None:
-            return []
-        called_steps = called_payload.get("steps")
-        if not isinstance(called_steps, list) or not called_steps:
-            return []
+        called_workflow_file = self._workflow_file_for_node(detail.row, called_node)
         called_detail = self._called_workflow_detail(detail, called_workflow_file)
-        return [
-            self._workflow_step_node(called_detail, called_workflow_file, called_payload, called_step, summary_entries)
+        nodes = [
+            self._workflow_step_node(
+                called_detail,
+                called_workflow_file,
+                workflow_structure,
+                called_node,
+                called_step,
+                summary_entries,
+            )
             for called_step in called_steps
         ]
+        if called_finalization_steps:
+            nodes.append(
+                {
+                    "label": "finally",
+                    "kind": "finalization",
+                    "children": self._workflow_nodes_from_steps(
+                        called_detail,
+                        called_workflow_file,
+                        workflow_structure,
+                        called_node,
+                        called_finalization_steps,
+                        summary_entries,
+                    ),
+                    "links": [],
+                    "summaries": [],
+                }
+            )
+        return nodes
 
-    def _resolve_import_workflow_file(
+    def _workflow_file_for_node(
         self,
         row,
-        workflow_file: Optional[str],
-        import_path: str,
-    ) -> Optional[str]:
-        if not workflow_file:
-            return None
+        workflow_node: LoadedWorkflowBundle | PersistedWorkflowSurfaceNode,
+    ) -> str:
+        workflow_path = (
+            workflow_node.provenance.workflow_path
+            if isinstance(workflow_node, LoadedWorkflowBundle)
+            else workflow_node.workflow_path
+        )
         try:
-            workflow_path = Path(workflow_file)
-            workspace_root = row.workspace_root.resolve(strict=False)
-            if workflow_path.is_absolute():
-                workflow_relative = workflow_path.resolve(strict=False).relative_to(workspace_root)
-            else:
-                workflow_relative = workflow_path
-            candidate = (workspace_root / workflow_relative.parent / import_path).resolve(strict=False)
-            candidate_relative = candidate.relative_to(workspace_root).as_posix()
-            FileReferenceResolver(row.workspace_root, row.run_root).workspace_ref(candidate_relative)
-            return candidate_relative
-        except (OSError, UnsafePathError, ValueError):
-            return None
+            return workflow_path.resolve(strict=False).relative_to(
+                row.workspace_root.resolve(strict=False)
+            ).as_posix()
+        except (OSError, ValueError):
+            return str(workflow_path)
+
+    def _surface_step_dashboard_payload(
+        self,
+        step: SurfaceStep | PersistedSurfaceStep,
+    ) -> Mapping[str, object]:
+        """Project typed step metadata for the existing link-only renderers."""
+        common = step.common
+        payload: dict[str, object] = {
+            "name": step.name,
+            "depends_on": self._dashboard_compatibility_value(step.depends_on),
+            "asset_depends_on": self._dashboard_compatibility_value(step.asset_depends_on),
+            "publishes": self._dashboard_compatibility_value(common.publishes),
+            "consumes": self._dashboard_compatibility_value(common.consumes),
+            "expected_outputs": self._dashboard_compatibility_value(common.expected_outputs),
+        }
+        optional_values = {
+            "call": step.call_alias,
+            "asset_file": step.asset_file,
+            "input_file": step.input_file,
+            "output_bundle": common.output_bundle,
+            "variant_output": common.variant_output,
+            "adjudicated_provider": step.adjudicated_provider,
+        }
+        for key, value in optional_values.items():
+            if value is not None and value != {}:
+                payload[key] = self._dashboard_compatibility_value(value)
+        return payload
+
+    def _dashboard_compatibility_value(self, value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {
+                str(key): self._dashboard_compatibility_value(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, tuple):
+            return [self._dashboard_compatibility_value(item) for item in value]
+        return value
 
     def _called_workflow_detail(self, detail, workflow_file: str):
         state = self._called_workflow_state(detail, workflow_file)

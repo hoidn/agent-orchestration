@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Mapping, Optional
+
+if TYPE_CHECKING:
+    from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+    from orchestrator.workflow.persisted_surface import PersistedWorkflowSurfaceGraph
 
 
 @dataclass(frozen=True)
@@ -149,3 +153,6 @@ class DashboardRunDetail:
     warnings: list[str] = field(default_factory=list)
     degraded: bool = False
     state: Optional[Mapping[str, Any]] = None
+    workflow_structure: Optional[
+        LoadedWorkflowBundle | PersistedWorkflowSurfaceGraph
+    ] = None
