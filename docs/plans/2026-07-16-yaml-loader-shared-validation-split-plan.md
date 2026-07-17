@@ -482,6 +482,107 @@ git commit -m "test: characterize shared workflow validation boundary"
 
 ## Task 2: Atomically extract shared validation and compose the YAML frontend
 
+### Atomic sequencing correction
+
+Task 1's required real `.orc` characterization proved that the originally
+separate Task 2 and Task 3 production commits cannot both satisfy this plan.
+Removing semantic-validator methods from `WorkflowLoader` immediately breaks
+the existing `.orc` validation route, while retaining those methods through
+inheritance, private delegation, or facade-owned mutable validator state would
+violate the accepted architecture. Therefore the extraction, YAML composition,
+and direct `.orc` reroute are one atomic TDD implementation commit. No checked-in
+revision may contain the extracted YAML facade without the direct `.orc` route.
+
+Commit this reviewed sequencing correction by itself before continuing any
+production implementation:
+
+```bash
+set -e
+git add docs/plans/2026-07-16-yaml-loader-shared-validation-split-plan.md
+echo 'cached paths:'
+git diff --cached --name-only
+EXPECTED='docs/plans/2026-07-16-yaml-loader-shared-validation-split-plan.md'
+ACTUAL="$(git diff --cached --name-only | LC_ALL=C sort)"
+test "$ACTUAL" = "$EXPECTED"
+USER_PROTECTED="$(git diff --cached --name-only -- \
+  'docs/plans/2026-06-20-workflow-step-back-non-progress-recovery-plan.md' \
+  'docs/plans/2026-07-01-workflow-audit-tier-fixes.md' \
+  'docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/remaining-neurips-migration-experiment/migration_experiment_recommendation_report.md' \
+  'state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt' \
+  'tests/test_workflow_non_progress_step_back_demo.py' \
+  'workflows/examples/non_progress_step_back_demo.yaml' \
+  'workflows/library/prompts/workflow_step_back/diagnose_non_progress.md')"
+test -z "$USER_PROTECTED"
+TASK2_OWNED="$(git diff --cached --name-only -- \
+  docs/plans/2026-07-16-dashboard-persisted-typed-surface-plan.md \
+  orchestrator/dashboard/compiled_workflow.py orchestrator/dashboard/models.py \
+  orchestrator/dashboard/projection.py orchestrator/dashboard/server.py \
+  orchestrator/runtime_observability.py orchestrator/workflow/persisted_surface.py \
+  orchestrator/workflow/surface_ast.py orchestrator/workflow_lisp/build.py \
+  orchestrator/workflow_lisp/build_artifacts.py tests/test_cli_dashboard_command.py \
+  tests/test_dashboard_compiled_workflow.py tests/test_dashboard_projection.py \
+  tests/test_dashboard_server.py tests/test_runtime_observability.py \
+  tests/test_runtime_observability_cli.py tests/test_persisted_workflow_surface.py \
+  tests/test_workflow_lisp_procedure_identity_retirement.py \
+  tests/test_workflow_lisp_build_artifacts.py)"
+test -z "$TASK2_OWNED"
+git diff --cached --check
+git commit -m "docs: make shared validation reroute atomic"
+```
+
+The Task 2 and Task 3 RED tests still run in their documented order, but their
+production changes and GREEN verification land together. The former separate
+commit recipes are superseded by this exact combined recipe:
+
+```bash
+set -e
+git add orchestrator/workflow/validation.py orchestrator/loader.py \
+  orchestrator/workflow_lisp/lowering/core.py \
+  tests/test_workflow_shared_validation.py tests/test_loader_validation.py \
+  tests/test_workflow_lisp_lowering.py tests/test_workflow_lisp_modules.py
+echo 'cached paths:'
+git diff --cached --name-only
+EXPECTED="$(printf '%s\n' \
+  orchestrator/loader.py \
+  orchestrator/workflow/validation.py \
+  orchestrator/workflow_lisp/lowering/core.py \
+  tests/test_loader_validation.py \
+  tests/test_workflow_lisp_lowering.py \
+  tests/test_workflow_lisp_modules.py \
+  tests/test_workflow_shared_validation.py | LC_ALL=C sort)"
+ACTUAL="$(git diff --cached --name-only | LC_ALL=C sort)"
+test "$ACTUAL" = "$EXPECTED"
+USER_PROTECTED="$(git diff --cached --name-only -- \
+  'docs/plans/2026-06-20-workflow-step-back-non-progress-recovery-plan.md' \
+  'docs/plans/2026-07-01-workflow-audit-tier-fixes.md' \
+  'docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/remaining-neurips-migration-experiment/migration_experiment_recommendation_report.md' \
+  'state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt' \
+  'tests/test_workflow_non_progress_step_back_demo.py' \
+  'workflows/examples/non_progress_step_back_demo.yaml' \
+  'workflows/library/prompts/workflow_step_back/diagnose_non_progress.md')"
+test -z "$USER_PROTECTED"
+TASK2_OWNED="$(git diff --cached --name-only -- \
+  docs/plans/2026-07-16-dashboard-persisted-typed-surface-plan.md \
+  orchestrator/dashboard/compiled_workflow.py orchestrator/dashboard/models.py \
+  orchestrator/dashboard/projection.py orchestrator/dashboard/server.py \
+  orchestrator/runtime_observability.py orchestrator/workflow/persisted_surface.py \
+  orchestrator/workflow/surface_ast.py orchestrator/workflow_lisp/build.py \
+  orchestrator/workflow_lisp/build_artifacts.py tests/test_cli_dashboard_command.py \
+  tests/test_dashboard_compiled_workflow.py tests/test_dashboard_projection.py \
+  tests/test_dashboard_server.py tests/test_runtime_observability.py \
+  tests/test_runtime_observability_cli.py tests/test_persisted_workflow_surface.py \
+  tests/test_workflow_lisp_procedure_identity_retirement.py \
+  tests/test_workflow_lisp_build_artifacts.py)"
+test -z "$TASK2_OWNED"
+git diff --cached --check
+git commit -m "refactor: share validation across authored frontends"
+```
+
+The combined group must pass the complete Task 2 GREEN command and the complete
+Task 3 both-direction command before review. The Task 3 section remains the
+required `.orc` RED/GREEN checklist and evidence boundary; only its separate
+commit recipe is superseded.
+
 **Files:**
 
 - Create: `orchestrator/workflow/validation.py`
@@ -518,50 +619,24 @@ not malformed fixtures. Extraction and composition land together.
   seven compatibility attributes. Bind those values explicitly into options.
   No checked-in revision may give `WorkflowLoader` ownership of the private
   validator or retain validator mutable state.
-- [ ] Run GREEN tests and compare the Task 1 projections:
+- [ ] Run the extraction-only integration check before the `.orc` reroute and
+  confirm the expected intermediate RED:
 
 ```bash
 pytest -q tests/test_workflow_shared_validation.py tests/test_loader_validation.py \
   tests/test_workflow_ir_lowering.py
 ```
 
-- [ ] Commit the atomic extraction and composition:
+Expected at this intermediate worktree state: the Task 1 real `.orc`
+characterization fails because `_validate_one_lowered_workflow` still reaches
+the removed `WorkflowLoader` semantic-validator methods. This is required RED
+evidence, not a committable state. After Task 3 reroutes `.orc`, rerun this
+complete command GREEN together with Task 3's complete GREEN command.
 
-```bash
-set -e
-git add orchestrator/workflow/validation.py orchestrator/loader.py \
-  tests/test_workflow_shared_validation.py tests/test_loader_validation.py
-echo 'cached paths:'
-git diff --cached --name-only
-EXPECTED="$(printf '%s\n' orchestrator/loader.py orchestrator/workflow/validation.py \
-  tests/test_loader_validation.py tests/test_workflow_shared_validation.py | LC_ALL=C sort)"
-ACTUAL="$(git diff --cached --name-only | LC_ALL=C sort)"
-test "$ACTUAL" = "$EXPECTED"
-USER_PROTECTED="$(git diff --cached --name-only -- \
-  'docs/plans/2026-06-20-workflow-step-back-non-progress-recovery-plan.md' \
-  'docs/plans/2026-07-01-workflow-audit-tier-fixes.md' \
-  'docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/remaining-neurips-migration-experiment/migration_experiment_recommendation_report.md' \
-  'state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt' \
-  'tests/test_workflow_non_progress_step_back_demo.py' \
-  'workflows/examples/non_progress_step_back_demo.yaml' \
-  'workflows/library/prompts/workflow_step_back/diagnose_non_progress.md')"
-test -z "$USER_PROTECTED"
-TASK2_OWNED="$(git diff --cached --name-only -- \
-  docs/plans/2026-07-16-dashboard-persisted-typed-surface-plan.md \
-  orchestrator/dashboard/compiled_workflow.py orchestrator/dashboard/models.py \
-  orchestrator/dashboard/projection.py orchestrator/dashboard/server.py \
-  orchestrator/runtime_observability.py orchestrator/workflow/persisted_surface.py \
-  orchestrator/workflow/surface_ast.py orchestrator/workflow_lisp/build.py \
-  orchestrator/workflow_lisp/build_artifacts.py tests/test_cli_dashboard_command.py \
-  tests/test_dashboard_compiled_workflow.py tests/test_dashboard_projection.py \
-  tests/test_dashboard_server.py tests/test_runtime_observability.py \
-  tests/test_runtime_observability_cli.py tests/test_persisted_workflow_surface.py \
-  tests/test_workflow_lisp_procedure_identity_retirement.py \
-  tests/test_workflow_lisp_build_artifacts.py)"
-test -z "$TASK2_OWNED"
-git diff --cached --check
-git commit -m "refactor: compose YAML loading with shared validation"
-```
+- [ ] Stage the extraction and YAML composition in the combined atomic commit.
+
+Use only the atomic sequencing correction's combined recipe above, after the
+Task 3 direct `.orc` RED/GREEN work also passes.
 
 ## Task 3: Redirect Workflow Lisp to shared validation directly
 
@@ -671,46 +746,10 @@ Expected: PASS, including:
 - the Workflow Lisp bundle contract projection unchanged from Task 1's
   Workflow Lisp characterization.
 
-- [ ] **Step 5: Commit the direct `.orc` route**
+- [ ] **Step 5: Stage the direct `.orc` route in the combined atomic commit**
 
-```bash
-set -e
-git add orchestrator/workflow_lisp/lowering/core.py \
-  tests/test_workflow_lisp_lowering.py tests/test_workflow_lisp_modules.py \
-  tests/test_workflow_shared_validation.py
-echo 'cached paths:'
-git diff --cached --name-only
-EXPECTED="$(printf '%s\n' \
-  orchestrator/workflow_lisp/lowering/core.py \
-  tests/test_workflow_lisp_lowering.py \
-  tests/test_workflow_lisp_modules.py tests/test_workflow_shared_validation.py | LC_ALL=C sort)"
-ACTUAL="$(git diff --cached --name-only | LC_ALL=C sort)"
-test "$ACTUAL" = "$EXPECTED"
-USER_PROTECTED="$(git diff --cached --name-only -- \
-  'docs/plans/2026-06-20-workflow-step-back-non-progress-recovery-plan.md' \
-  'docs/plans/2026-07-01-workflow-audit-tier-fixes.md' \
-  'docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/remaining-neurips-migration-experiment/migration_experiment_recommendation_report.md' \
-  'state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt' \
-  'tests/test_workflow_non_progress_step_back_demo.py' \
-  'workflows/examples/non_progress_step_back_demo.yaml' \
-  'workflows/library/prompts/workflow_step_back/diagnose_non_progress.md')"
-test -z "$USER_PROTECTED"
-TASK2_OWNED="$(git diff --cached --name-only -- \
-  docs/plans/2026-07-16-dashboard-persisted-typed-surface-plan.md \
-  orchestrator/dashboard/compiled_workflow.py orchestrator/dashboard/models.py \
-  orchestrator/dashboard/projection.py orchestrator/dashboard/server.py \
-  orchestrator/runtime_observability.py orchestrator/workflow/persisted_surface.py \
-  orchestrator/workflow/surface_ast.py orchestrator/workflow_lisp/build.py \
-  orchestrator/workflow_lisp/build_artifacts.py tests/test_cli_dashboard_command.py \
-  tests/test_dashboard_compiled_workflow.py tests/test_dashboard_projection.py \
-  tests/test_dashboard_server.py tests/test_runtime_observability.py \
-  tests/test_runtime_observability_cli.py tests/test_persisted_workflow_surface.py \
-  tests/test_workflow_lisp_procedure_identity_retirement.py \
-  tests/test_workflow_lisp_build_artifacts.py)"
-test -z "$TASK2_OWNED"
-git diff --cached --check
-git commit -m "refactor: route orc lowering through shared validation"
-```
+Use only the atomic sequencing correction's combined recipe above, after both
+Task 2 and Task 3 GREEN commands pass.
 
 ## Task 4: Install the permanent boundary guard and run route smokes
 
@@ -1031,9 +1070,10 @@ Task 3 is complete only when all of the following are true:
    baseline.
 11. Independent specification review returns `PASS` and independent
    code-quality review returns `APPROVED`.
-12. The reviewed plan prerequisite plus five execution commits (six total) each
-    pass `set -e`, cached-path printing, exact staged allowlist equality, the
-    literal seven-user-path guard, the separate Task 2-owned-file guard, and
-    `git diff --cached --check` before commit creation.
+12. The original reviewed plan, its reviewed atomic-sequencing amendment, and
+    four execution commits (six total) each pass `set -e`, cached-path printing,
+    exact staged allowlist equality, the literal seven-user-path guard, the
+    separate Task 2-owned-file guard, and `git diff --cached --check` before
+    commit creation.
 13. Only then are the Stage 6 roadmap, documentation index, and capability
    matrix advanced.
