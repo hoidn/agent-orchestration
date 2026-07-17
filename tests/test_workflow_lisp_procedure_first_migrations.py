@@ -24,7 +24,11 @@ from orchestrator.exec.step_executor import ExecutionResult, StepExecutor
 from orchestrator.providers.executor import ProviderExecutionResult, ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
+from orchestrator.workflow.loaded_bundle import (
+    workflow_output_contracts,
+    workflow_public_input_contracts,
+    workflow_runtime_input_contracts,
+)
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.build import (
@@ -149,6 +153,12 @@ DESIGN_DELTA_COMPLETED_FINALIZATION_RETENTION_DECISION = (
     / "docs"
     / "plans"
     / "2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md"
+)
+DESIGN_DELTA_DRAIN_BUILDER_RETENTION_DECISION = (
+    REPO_ROOT
+    / "docs"
+    / "plans"
+    / "2026-07-16-design-delta-drain-builder-checkpoint-retention-plan.md"
 )
 DESIGN_DELTA_PUBLIC_ENTRY = "lisp_frontend_design_delta/drain::drain"
 _DESIGN_DELTA_RUNTIME_PROJECTION_DIGESTS = {
@@ -325,8 +335,8 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
     assert inventory["counts"]["actionable_internal_calls"] == {
         "total": 95,
         "by_classification": {
-            "procedure-candidate": 1,
-            "effect-adapter": 31,
+            "procedure-candidate": 0,
+            "effect-adapter": 32,
             "legacy-retire": 63,
             "public-boundary": 0,
         },
@@ -1748,6 +1758,330 @@ def test_design_delta_completed_finalization_rows_retain_private_workflow_bounda
     }
 
 
+def test_design_delta_drain_builder_row_retains_private_workflow_boundary(
+    tmp_path: Path,
+) -> None:
+    inventory = _load_json(REUSE_INVENTORY)
+    registry = _load_json(ROUTE_READINESS_REGISTRY)
+    record_id = (
+        "internal-call:workflows/library/lisp_frontend_design_delta/drain.orc:"
+        "build-drain-runtime-owned:1"
+    )
+    matching = [row for row in inventory["records"] if row["id"] == record_id]
+    assert len(matching) == 1
+    record = matching[0]
+    decision_path = DESIGN_DELTA_DRAIN_BUILDER_RETENTION_DECISION.relative_to(
+        REPO_ROOT
+    ).as_posix()
+    structural_selector = (
+        "tests/test_workflow_lisp_procedure_first_migrations.py::"
+        "test_design_delta_drain_builder_row_retains_private_workflow_boundary"
+    )
+    audit_selector = (
+        "tests/test_workflow_lisp_procedure_first_migrations.py::"
+        "test_design_delta_drain_builder_hypothetical_changes_checkpoint_identity"
+    )
+    public_entry_id = f"public-entry:{DESIGN_DELTA_PUBLIC_ENTRY}"
+    public_entry = next(
+        row for row in inventory["records"] if row["id"] == public_entry_id
+    )
+    route = next(
+        row
+        for row in registry["surfaces"]
+        if row["path"] == record["source_path"]
+    )
+
+    assert record["record_kind"] == "internal-call"
+    assert record["classification"] == "effect-adapter"
+    assert record["classification"] != "public-boundary"
+    assert "strict_compatibility" in record["named_substrate_gap"]
+    assert "checkpoint" in record["named_substrate_gap"].lower()
+    assert "promoted/live" in record["named_substrate_gap"]
+    assert "reviewed_internal_identity_retirement" not in json.dumps(record)
+    assert any(
+        "identity-preserving lowering or a general atomic upgrader" in note
+        for note in record["uncertainty"]["notes"]
+    )
+    assert {
+        record["source_path"],
+        decision_path,
+        "docs/workflow_lisp_route_readiness_registry.json",
+        structural_selector,
+        audit_selector,
+        (
+            "tests/test_workflow_lisp_procedure_first_migrations.py::"
+            "test_procedure_first_public_boundary_inventory_keeps_exported_wrappers"
+        ),
+    } <= set(record["evidence_paths"])
+    assert public_entry["live_status"] == "live"
+    assert public_entry["classification"] == "public-boundary"
+    assert "promoted route-readiness identity" in public_entry[
+        "public_boundary_evidence"
+    ]
+    assert route["readiness_label"] == "promotion_eligible"
+    assert route["route_label"] == "wcc_default"
+    assert route["copy_safety"] == "preferred_current_guidance"
+    assert route["parity_constrained"] is True
+
+    source = DESIGN_DELTA_DRAIN.read_text(encoding="utf-8")
+    builder = "build-drain-runtime-owned"
+    assert len(re.findall(rf"\(defworkflow\s+{builder}\b", source)) == 1
+    assert not re.search(rf"\(defproc\s+{builder}\b", source)
+    drain_definition = source.split("  (defworkflow drain\n", 1)[1]
+    assert len(re.findall(rf"\(call\s+{builder}\b", drain_definition)) == 1
+    assert re.search(r"\(export\s+drain\)", source)
+    assert len(re.findall(r"\(defworkflow\s+drain(?=\s)", source)) == 1
+
+    linked_result, _ = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    exports = linked_result.graph.export_surfaces_by_name[
+        "lisp_frontend_design_delta/drain"
+    ]
+    assert exports.workflows_by_name["drain"].kind == "workflow"
+    assert "drain" not in exports.procedures_by_name
+    assert builder not in exports.workflows_by_name
+    assert builder not in exports.procedures_by_name
+
+
+def test_design_delta_drain_builder_hypothetical_changes_checkpoint_identity(
+    tmp_path: Path,
+) -> None:
+    retained_source = DESIGN_DELTA_DRAIN.read_bytes()
+    proposed_source = _design_delta_drain_builder_proposed_inline_source(
+        retained_source
+    )
+    retained_sha256 = "sha256:" + hashlib.sha256(retained_source).hexdigest()
+    proposed_sha256 = "sha256:" + hashlib.sha256(proposed_source).hexdigest()
+    assert retained_sha256 == (
+        "sha256:e321e84e80342ff8757ab8f166530af5fdefd23807eab55f16c1a22c095da5fd"
+    )
+    assert proposed_sha256 == (
+        "sha256:189666db8d4638a116a700079d6f1129b008ef8bdff91060201bc7e10b8ca9be"
+    )
+    proposed_text = proposed_source.decode("utf-8")
+    builder = "build-drain-runtime-owned"
+    assert len(re.findall(rf"\(defproc\s+{builder}\b", proposed_text)) == 1
+    assert not re.search(rf"\(defworkflow\s+{builder}\b", proposed_text)
+    assert ":effects ()" in proposed_text
+    assert ":lowering inline" in proposed_text
+    assert len(re.findall(rf"\({builder}\s+run\)", proposed_text)) == 1
+    assert not re.search(rf"\(call\s+{builder}\b", proposed_text)
+    proposed_drain = proposed_text.split("  (defworkflow drain\n", 1)[1]
+    assert proposed_drain.startswith("    ((run RunCtx)\n")
+
+    retained_dir = tmp_path / "retained"
+    proposed_dir = tmp_path / "proposed"
+    retained_dir.mkdir()
+    proposed_dir.mkdir()
+    with _design_delta_same_path_drain_io(retained_source) as retained_reads:
+        retained_result, _ = _compile_design_delta_parent_drain_entrypoint(
+            retained_dir
+        )
+    with _design_delta_same_path_drain_io(proposed_source) as proposed_reads:
+        proposed_result, _ = _compile_design_delta_parent_drain_entrypoint(
+            proposed_dir
+        )
+    for reads, selected_sha256 in (
+        (retained_reads, retained_sha256),
+        (proposed_reads, proposed_sha256),
+    ):
+        assert reads["selected_sha256"] == selected_sha256
+        assert set(reads["served_sha256"]) == {selected_sha256}
+        assert reads["disk_before_sha256"] == retained_sha256
+        assert reads["disk_after_sha256"] == retained_sha256
+        assert reads["rejected_writes"] == []
+    assert DESIGN_DELTA_DRAIN.read_bytes() == retained_source
+    for result in (retained_result, proposed_result):
+        assert result.diagnostics == ()
+        assert result.retained_non_promotable_diagnostics == ()
+        assert result.entry_result.validated_bundles[DESIGN_DELTA_PUBLIC_ENTRY]
+
+    retained_module = retained_result.compiled_results_by_name[
+        "lisp_frontend_design_delta/drain"
+    ]
+    proposed_module = proposed_result.compiled_results_by_name[
+        "lisp_frontend_design_delta/drain"
+    ]
+    assert builder in {
+        item.definition.name.rsplit("::", 1)[-1]
+        for item in retained_module.typed_workflows
+    }
+    proposed_builder = next(
+        item
+        for item in proposed_module.typed_procedures
+        if item.definition.name.rsplit("::", 1)[-1] == builder
+    )
+    assert proposed_builder.signature.requested_lowering_mode.value == "inline"
+    assert proposed_builder.resolved_lowering_mode.value == "inline"
+    assert _effect_rows(proposed_builder.transitive_effect_summary) == []
+
+    retained_bundles = set(retained_result.validated_bundles_by_name)
+    proposed_bundles = set(proposed_result.validated_bundles_by_name)
+    builder_bundle = "lisp_frontend_design_delta/drain::build-drain-runtime-owned"
+    assert (len(retained_bundles), len(proposed_bundles)) == (30, 29)
+    assert retained_bundles - proposed_bundles == {builder_bundle}
+    assert proposed_bundles - retained_bundles == set()
+
+    retained_bundle = retained_result.entry_result.validated_bundles[
+        DESIGN_DELTA_PUBLIC_ENTRY
+    ]
+    proposed_bundle = proposed_result.entry_result.validated_bundles[
+        DESIGN_DELTA_PUBLIC_ENTRY
+    ]
+    retained_points = {
+        point.checkpoint_id: _json_value(point)
+        for point in retained_bundle.runtime_plan.lexical_checkpoint_points
+    }
+    proposed_points = {
+        point.checkpoint_id: _json_value(point)
+        for point in proposed_bundle.runtime_plan.lexical_checkpoint_points
+    }
+    removed_checkpoint_id = "ckpt:4dc584b1d0c80e14d36a3d5e"
+    assert (len(retained_points), len(proposed_points)) == (11, 10)
+    assert set(retained_points) - set(proposed_points) == {removed_checkpoint_id}
+    assert set(proposed_points) - set(retained_points) == set()
+    removed_checkpoint = retained_points[removed_checkpoint_id]
+    call_node = (
+        "root.lisp_frontend_design_delta_drain_drain__runtime_owned__call_"
+        "lisp_frontend_design_delta_drain_build_drain_runtime_owned"
+    )
+    assert {
+        "checkpoint_id": removed_checkpoint["checkpoint_id"],
+        "program_point_id": removed_checkpoint["program_point_id"],
+        "workflow_name": removed_checkpoint["workflow_name"],
+        "presentation_key": removed_checkpoint["presentation_key"],
+        "node_id": removed_checkpoint["node_id"],
+        "storage": removed_checkpoint["details"]["storage"],
+    } == {
+        "checkpoint_id": removed_checkpoint_id,
+        "program_point_id": "pp:970dd723219942ff6192649d",
+        "workflow_name": DESIGN_DELTA_PUBLIC_ENTRY,
+        "presentation_key": (
+            "lisp_frontend_design_delta/drain::drain__runtime-owned__call_"
+            "lisp_frontend_design_delta/drain::build-drain-runtime-owned"
+        ),
+        "node_id": call_node,
+        "storage": {
+            "allocation_id": (
+                "alloc:lisp_frontend_design_delta_drain_drain:"
+                "lexical_checkpoint_record:e7b8bf747452186a"
+            ),
+            "privacy": "runtime_sidecar",
+            "resume_scope": "step_visit",
+            "semantic_role": "lexical_checkpoint_record",
+        },
+    }
+    common_checkpoint_ids = set(retained_points) & set(proposed_points)
+    assert len(common_checkpoint_ids) == 10
+    for checkpoint_id in common_checkpoint_ids:
+        retained_point = deepcopy(retained_points[checkpoint_id])
+        proposed_point = deepcopy(proposed_points[checkpoint_id])
+        retained_restore = retained_point["details"].pop("restore")
+        proposed_restore = proposed_point["details"].pop("restore")
+        assert retained_point == proposed_point
+        assert retained_restore != proposed_restore
+
+    retained_nodes = retained_bundle.runtime_plan.nodes
+    proposed_nodes = proposed_bundle.runtime_plan.nodes
+    assert (len(retained_nodes), len(proposed_nodes)) == (111, 110)
+    assert set(retained_nodes) - set(proposed_nodes) == {call_node}
+    assert set(proposed_nodes) - set(retained_nodes) == set()
+    retained_projection = _json_value(retained_bundle.projection)
+    proposed_projection = _json_value(proposed_bundle.projection)
+    assert set(retained_projection["call_boundaries"]) - set(
+        proposed_projection["call_boundaries"]
+    ) == {call_node}
+    for key, expected_removed in (
+        ("entries_by_node_id", call_node),
+        ("compatibility_index_by_node_id", call_node),
+    ):
+        retained_rows = retained_projection[key]
+        proposed_rows = proposed_projection[key]
+        assert set(retained_rows) - set(proposed_rows) == {expected_removed}
+        assert set(proposed_rows) - set(retained_rows) == set()
+        assert sum(
+            retained_rows[row_id] != proposed_rows[row_id]
+            for row_id in set(retained_rows) & set(proposed_rows)
+        ) == 71
+    retained_by_index = retained_projection["node_id_by_compatibility_index"]
+    proposed_by_index = proposed_projection["node_id_by_compatibility_index"]
+    assert set(retained_by_index) - set(proposed_by_index) == {"71"}
+    assert sum(
+        retained_by_index[index] != proposed_by_index[index]
+        for index in set(retained_by_index) & set(proposed_by_index)
+    ) == 71
+
+    retained_state = _json_value(retained_bundle.semantic_ir.state_layout)
+    proposed_state = _json_value(proposed_bundle.semantic_ir.state_layout)
+    assert set(retained_state) - set(proposed_state) == {
+        f"state:{DESIGN_DELTA_PUBLIC_ENTRY}:presentation:{call_node}",
+        f"state:{DESIGN_DELTA_PUBLIC_ENTRY}:checkpoint:top_level_node::{call_node}::static",
+        f"state:{DESIGN_DELTA_PUBLIC_ENTRY}:checkpoint:call_boundary::{call_node}::static",
+        f"state:{DESIGN_DELTA_PUBLIC_ENTRY}:lexical_checkpoint_point:{removed_checkpoint_id}",
+        (
+            f"state:{DESIGN_DELTA_PUBLIC_ENTRY}:lexical_checkpoint_index:"
+            "alloc:lisp_frontend_design_delta_drain_drain:"
+            "lexical_checkpoint_index:dcc1dd7f13771347"
+        ),
+        (
+            f"state:{DESIGN_DELTA_PUBLIC_ENTRY}:lexical_checkpoint_record:"
+            "alloc:lisp_frontend_design_delta_drain_drain:"
+            "lexical_checkpoint_record:e7b8bf747452186a"
+        ),
+    }
+    assert set(proposed_state) - set(retained_state) == set()
+
+    retained_effects = _json_value(retained_bundle.semantic_ir.effects)
+    proposed_effects = _json_value(proposed_bundle.semantic_ir.effects)
+    builder_effect = f"effect:{DESIGN_DELTA_PUBLIC_ENTRY}:{call_node}:workflow_call"
+    assert set(retained_effects) - set(proposed_effects) == {builder_effect}
+    assert set(proposed_effects) - set(retained_effects) == set()
+    assert all(
+        retained_effects[key] == proposed_effects[key]
+        for key in set(retained_effects) & set(proposed_effects)
+    )
+
+    assert workflow_public_input_contracts(retained_bundle) == (
+        workflow_public_input_contracts(proposed_bundle)
+    )
+    assert workflow_output_contracts(retained_bundle) == workflow_output_contracts(
+        proposed_bundle
+    )
+    assert _json_value(retained_bundle.surface.artifacts) == _json_value(
+        proposed_bundle.surface.artifacts
+    )
+    assert _json_value(retained_bundle.surface.finalization) == _json_value(
+        proposed_bundle.surface.finalization
+    )
+    retained_workflow = _json_value(retained_bundle.semantic_ir.workflows)[
+        DESIGN_DELTA_PUBLIC_ENTRY
+    ]
+    proposed_workflow = _json_value(proposed_bundle.semantic_ir.workflows)[
+        DESIGN_DELTA_PUBLIC_ENTRY
+    ]
+    assert retained_workflow["publication_ref_ids"] == proposed_workflow[
+        "publication_ref_ids"
+    ]
+
+    retained_runtime_inputs = _json_value(
+        workflow_runtime_input_contracts(retained_bundle)
+    )
+    proposed_runtime_inputs = _json_value(
+        workflow_runtime_input_contracts(proposed_bundle)
+    )
+    changed_runtime_inputs = {
+        name
+        for name in retained_runtime_inputs
+        if retained_runtime_inputs[name] != proposed_runtime_inputs[name]
+    }
+    assert changed_runtime_inputs == {"run__state-root", "run__artifact-root"}
+    assert retained_runtime_inputs["run__state-root"]["default"] == "state/run"
+    assert retained_runtime_inputs["run__artifact-root"]["default"] == (
+        "artifacts/run"
+    )
+    assert "default" not in proposed_runtime_inputs["run__state-root"]
+    assert "default" not in proposed_runtime_inputs["run__artifact-root"]
+
+
 def _design_delta_default_state_value(type_payload: Mapping[str, object]) -> object:
     kind = type_payload.get("kind")
     if kind == "primitive":
@@ -2200,10 +2534,49 @@ def _design_delta_completed_finalization_proposed_inline_source(
     return source.encode("utf-8")
 
 
+def _design_delta_drain_builder_proposed_inline_source(old_source: bytes) -> bytes:
+    source = old_source.decode("utf-8")
+    replacements = (
+        (
+            "  (defworkflow build-drain-runtime-owned\n",
+            "  (defproc build-drain-runtime-owned\n",
+            1,
+        ),
+        (
+            "    -> DrainRuntimeOwned\n"
+            "    (record DrainRuntimeOwned\n",
+            "    -> DrainRuntimeOwned\n"
+            "    :effects ()\n"
+            "    :lowering inline\n"
+            "    (record DrainRuntimeOwned\n",
+            1,
+        ),
+        (
+            "  (defworkflow drain\n"
+            "    ((steering_path SteeringDoc)\n",
+            "  (defworkflow drain\n"
+            "    ((run RunCtx)\n"
+            "     (steering_path SteeringDoc)\n",
+            1,
+        ),
+        (
+            "           (runtime-owned\n"
+            "             (call build-drain-runtime-owned))\n",
+            "           (runtime-owned\n"
+            "             (build-drain-runtime-owned run))\n",
+            1,
+        ),
+    )
+    for old, new, expected_count in replacements:
+        assert source.count(old) == expected_count
+        source = source.replace(old, new)
+    return source.encode("utf-8")
+
+
 @contextmanager
-def _design_delta_same_path_work_item_io(work_item_source: bytes):
-    work_item_path = DESIGN_DELTA_WORK_ITEM.resolve()
-    selected_sha256 = "sha256:" + hashlib.sha256(work_item_source).hexdigest()
+def _design_delta_same_path_source_io(source_path: Path, source_bytes: bytes):
+    selected_path = source_path.resolve()
+    selected_sha256 = "sha256:" + hashlib.sha256(source_bytes).hexdigest()
     counts = {"read_bytes": 0, "read_text": 0, "open": 0}
     served_sha256: list[str] = []
     rejected_writes: list[str] = []
@@ -2212,10 +2585,10 @@ def _design_delta_same_path_work_item_io(work_item_source: bytes):
     original_open = Path.open
     original_write_bytes = Path.write_bytes
     original_write_text = Path.write_text
-    disk_before = original_read_bytes(work_item_path)
+    disk_before = original_read_bytes(selected_path)
     disk_before_sha256 = "sha256:" + hashlib.sha256(disk_before).hexdigest()
     evidence = {
-        "path": str(work_item_path),
+        "path": str(selected_path),
         "selected_sha256": selected_sha256,
         "counts": counts,
         "served_sha256": served_sha256,
@@ -2223,17 +2596,17 @@ def _design_delta_same_path_work_item_io(work_item_source: bytes):
         "disk_before_sha256": disk_before_sha256,
     }
 
-    def is_work_item(path: Path) -> bool:
-        return path.resolve() == work_item_path
+    def is_selected_path(path: Path) -> bool:
+        return path.resolve() == selected_path
 
     def record_read(method: str) -> None:
         counts[method] += 1
         served_sha256.append(selected_sha256)
 
     def read_bytes(path: Path) -> bytes:
-        if is_work_item(path):
+        if is_selected_path(path):
             record_read("read_bytes")
-            return work_item_source
+            return source_bytes
         return original_read_bytes(path)
 
     def read_text(
@@ -2242,9 +2615,9 @@ def _design_delta_same_path_work_item_io(work_item_source: bytes):
         errors: str | None = None,
         newline: str | None = None,
     ) -> str:
-        if is_work_item(path):
+        if is_selected_path(path):
             record_read("read_text")
-            return work_item_source.decode(encoding or "utf-8", errors or "strict")
+            return source_bytes.decode(encoding or "utf-8", errors or "strict")
         return original_read_text(
             path,
             encoding=encoding,
@@ -2260,7 +2633,7 @@ def _design_delta_same_path_work_item_io(work_item_source: bytes):
         errors: str | None = None,
         newline: str | None = None,
     ):
-        if is_work_item(path):
+        if is_selected_path(path):
             if {"w", "a", "x", "+"} & set(mode):
                 rejected_writes.append(mode)
                 raise AssertionError(
@@ -2269,9 +2642,9 @@ def _design_delta_same_path_work_item_io(work_item_source: bytes):
             if "r" in mode:
                 record_read("open")
                 if "b" in mode:
-                    return io.BytesIO(work_item_source)
+                    return io.BytesIO(source_bytes)
                 return io.StringIO(
-                    work_item_source.decode(encoding or "utf-8", errors or "strict"),
+                    source_bytes.decode(encoding or "utf-8", errors or "strict"),
                     newline=newline,
                 )
         return original_open(
@@ -2284,7 +2657,7 @@ def _design_delta_same_path_work_item_io(work_item_source: bytes):
         )
 
     def reject_write_bytes(path: Path, data: bytes) -> int:
-        if is_work_item(path):
+        if is_selected_path(path):
             rejected_writes.append("write_bytes")
             raise AssertionError("read-only source override rejected Path.write_bytes")
         return original_write_bytes(path, data)
@@ -2296,7 +2669,7 @@ def _design_delta_same_path_work_item_io(work_item_source: bytes):
         errors: str | None = None,
         newline: str | None = None,
     ) -> int:
-        if is_work_item(path):
+        if is_selected_path(path):
             rejected_writes.append("write_text")
             raise AssertionError("read-only source override rejected Path.write_text")
         return original_write_text(
@@ -2319,7 +2692,7 @@ def _design_delta_same_path_work_item_io(work_item_source: bytes):
         ), patch.object(Path, "write_text", reject_write_text):
             yield evidence
     finally:
-        disk_after = original_read_bytes(work_item_path)
+        disk_after = original_read_bytes(selected_path)
         disk_after_sha256 = "sha256:" + hashlib.sha256(disk_after).hexdigest()
         evidence["disk_after_sha256"] = disk_after_sha256
         evidence["total"] = sum(counts.values())
@@ -2328,6 +2701,24 @@ def _design_delta_same_path_work_item_io(work_item_source: bytes):
             disk_before_sha256,
             disk_after_sha256,
         )
+
+
+@contextmanager
+def _design_delta_same_path_work_item_io(work_item_source: bytes):
+    with _design_delta_same_path_source_io(
+        DESIGN_DELTA_WORK_ITEM,
+        work_item_source,
+    ) as evidence:
+        yield evidence
+
+
+@contextmanager
+def _design_delta_same_path_drain_io(drain_source: bytes):
+    with _design_delta_same_path_source_io(
+        DESIGN_DELTA_DRAIN,
+        drain_source,
+    ) as evidence:
+        yield evidence
 
 
 def _compile_design_delta_same_path_work_item_variant(

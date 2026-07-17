@@ -40,6 +40,9 @@ DESIGN_DELTA_PHASE_ORCHESTRATION_RETENTION_PLAN_PATH = (
 DESIGN_DELTA_COMPLETED_FINALIZATION_RETENTION_PLAN_PATH = (
     "docs/plans/2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md"
 )
+DESIGN_DELTA_DRAIN_BUILDER_RETENTION_PLAN_PATH = (
+    "docs/plans/2026-07-16-design-delta-drain-builder-checkpoint-retention-plan.md"
+)
 MIGRATION_TASK_1_IMPLEMENTATION_COMMITS = ("4983afff", "fa16bcf0")
 CORRECTION_SUBPLAN_PATH = (
     "docs/plans/2026-07-14-procedure-identity-store-match-scoped-counts-plan.md"
@@ -195,7 +198,7 @@ def _procedure_sequence_selector_surfaces() -> dict[str, str]:
     }
 
 
-def _assert_task_5_complete_and_task_6_step_1_current(
+def _assert_task_6_complete_and_task_7_step_1_current(
     surface: str,
     label: str,
 ) -> None:
@@ -205,6 +208,7 @@ def _assert_task_5_complete_and_task_6_step_1_current(
     assert canonical.count(DESIGN_DELTA_BLOCKED_RECOVERY_RETENTION_PLAN_PATH) == 1, label
     assert canonical.count(DESIGN_DELTA_PHASE_ORCHESTRATION_RETENTION_PLAN_PATH) == 1, label
     assert canonical.count(DESIGN_DELTA_COMPLETED_FINALIZATION_RETENTION_PLAN_PATH) == 1, label
+    assert canonical.count(DESIGN_DELTA_DRAIN_BUILDER_RETENTION_PLAN_PATH) == 1, label
     assert re.search(
         r"\btask 1\b.{0,160}(?:"
         r"rebaseline.{0,80}\bcomplete\w*\b"
@@ -213,13 +217,12 @@ def _assert_task_5_complete_and_task_6_step_1_current(
     ), label
     assert "task 2" in normalized and "complete" in normalized, label
     assert "daff694c" in normalized, label
-    assert "task 3" in normalized and "review" in normalized, label
-    assert "pass" in normalized or "approved" in normalized, label
+    assert "task 3" in normalized and "retained" in normalized, label
     assert "task 4" in normalized and "complete" in normalized, label
     for commit in ("c9687539", "26d9ecd0", "848ceb52"):
         assert commit in normalized, (label, commit)
-    assert "1 procedure candidate" in normalized, label
-    assert "31 effect adapters" in normalized, label
+    assert "0 procedure candidates" in normalized, label
+    assert "32 effect adapters" in normalized, label
     assert "63 legacy retire" in normalized, label
     assert re.search(r"\b(?:thirteen|13)\b.{0,40}\bpublic\b", normalized), label
     assert re.search(r"\b(?:one|1)\b.{0,40}\bhistory\b", normalized), label
@@ -228,11 +231,14 @@ def _assert_task_5_complete_and_task_6_step_1_current(
     assert "phase orchestration" in normalized and "retained" in normalized, label
     assert "completed finalization" in normalized, label
     assert "4 + 6 + 9 + 2 = 21" in normalized, label
-    assert "workflow_boundary_type_invalid" in surface, label
-    assert re.search(r"\btask 5\b.{0,80}\bcomplete\w*\b", normalized), label
+    assert "task 5" in normalized and "retained" in normalized, label
     assert re.search(
-        r"\btask 6\b.{0,40}\bstep 1\b.{0,80}\bcurrent\b"
-        r"|\bcurrent\b.{0,80}\btask 6\b.{0,40}\bstep 1\b",
+        r"\btask 6\b.{0,80}\bcomplete\w*\b",
+        normalized,
+    ), label
+    assert re.search(
+        r"\btask 7\b.{0,40}\bstep 1\b.{0,80}\bcurrent\b"
+        r"|\bcurrent\b.{0,80}\btask 7\b.{0,40}\bstep 1\b",
         normalized,
     ), label
     for commit in MIGRATION_TASK_1_IMPLEMENTATION_COMMITS:
@@ -313,10 +319,10 @@ def test_procedure_first_status_surfaces_share_current_migration_wave_boundary()
         assert "runtime hardening remains pending" not in normalized, label
 
 
-def test_migration_wave_task_5_closeout_advances_to_task_6_step_1() -> None:
+def test_migration_wave_task_6_closeout_advances_to_task_7_step_1() -> None:
     plan = (REPO_ROOT / CURRENT_SELECTOR_PATH).read_text(encoding="utf-8")
     current_queue = plan.split(
-        "## Current queue after Task 5 closeout",
+        "## Current queue after Task 6 closeout",
         1,
     )[1].split("## Per-family migration protocol", 1)[0]
     public_boundary_row = next(
@@ -349,16 +355,21 @@ def test_migration_wave_task_5_closeout_advances_to_task_6_step_1() -> None:
     assert re.findall(r"(?m)^- \[([ xX])\] \*\*Step", task_5) == [
         "x", "x", "x", "x", "x"
     ]
-    for task_number, expected_step_count in {6: 5, 7: 4, 8: 5}.items():
+    for task_number, expected_step_count in {6: 5}.items():
+        assert re.findall(
+            r"(?m)^- \[([ xX])\] \*\*Step",
+            remaining_tasks[task_number],
+        ) == ["x"] * expected_step_count
+    for task_number, expected_step_count in {7: 4, 8: 5}.items():
         assert re.findall(
             r"(?m)^- \[([ xX])\] \*\*Step",
             remaining_tasks[task_number],
         ) == [" "] * expected_step_count
-    normalized_task_6 = _normalized_routing_text(remaining_tasks[6])
+    normalized_task_7 = _normalized_routing_text(remaining_tasks[7])
     assert re.search(
         r"\bcurrent sub selector\b.{0,40}\bstep 1\b"
         r"|\bstep 1\b.{0,40}\bcurrent sub selector\b",
-        normalized_task_6,
+        normalized_task_7,
     )
 
     for commit in MIGRATION_TASK_1_IMPLEMENTATION_COMMITS:
@@ -380,7 +391,7 @@ def test_migration_wave_task_5_closeout_advances_to_task_6_step_1() -> None:
         **_procedure_sequence_selector_surfaces(),
     }
     for label, surface in selector_surfaces.items():
-        _assert_task_5_complete_and_task_6_step_1_current(surface, label)
+        _assert_task_6_complete_and_task_7_step_1_current(surface, label)
 
     for label in ("docs index", "roadmap current routing"):
         _assert_exact_ordered_routing_paths(selector_surfaces[label], label)
@@ -438,7 +449,7 @@ def test_task_2_step_1_closes_on_bounded_identity_retirement_ineligibility() -> 
     assert canonical_index.count(CURRENT_SELECTOR_PATH) == 1
     assert _normalized_routing_text(index_routing).count("current selector") == 1
     assert "task 3" in _normalized_routing_text(index_routing)
-    _assert_task_5_complete_and_task_6_step_1_current(
+    _assert_task_6_complete_and_task_7_step_1_current(
         index_routing,
         "docs index component routing",
     )
@@ -558,10 +569,10 @@ def test_task_2_step_3_closes_on_live_route_strict_compatibility() -> None:
     (
         "Task 5 completed finalization remains current.",
         "Task 5 remains open; Task 6 has not started.",
-        "Task 5 is complete; Task 7 Step 1 is current.",
+        "Task 6 remains open; Task 7 has not started.",
     ),
 )
-def test_task_6_current_selector_guard_rejects_stale_or_skipped_routing(
+def test_task_7_current_selector_guard_rejects_stale_or_skipped_routing(
     replacement: str,
 ) -> None:
     docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
@@ -570,7 +581,7 @@ def test_task_6_current_selector_guard_rejects_stale_or_skipped_routing(
         "**Current procedure-first substrate:**", 1
     )[0]
     mutated = re.sub(
-        r"Task 5[^.]{0,500}Task 6 Step 1[^.]{0,100}(?:current|selected)\.",
+        r"Task 6[^.]{0,500}Task 7 Step 1[^.]{0,100}(?:current|selected)\.",
         replacement,
         docs_index_routing,
         count=1,
@@ -578,7 +589,7 @@ def test_task_6_current_selector_guard_rejects_stale_or_skipped_routing(
     assert mutated != docs_index_routing
 
     with pytest.raises(AssertionError):
-        _assert_task_5_complete_and_task_6_step_1_current(
+        _assert_task_6_complete_and_task_7_step_1_current(
             mutated,
             "mutated docs-index routing",
         )

@@ -14,7 +14,7 @@
 
 **Status:** Current selector (activated 2026-07-16). Task 1's post-hardening
 rebaseline is complete at `4983afff` with its narrative correction at
-`fa16bcf0`. **Current sub-selector: Task 6 Step 1. Task 5 is complete.**
+`fa16bcf0`. **Current sub-selector: Task 7 Step 1. Tasks 5–6 are complete.**
 The four-call finalizer-projection subfamily is retained by the reviewed
 strict-compatibility decision in
 `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md`;
@@ -65,7 +65,11 @@ quality approval. Task 4 then completed its three separately reviewed group
 audits at `c9687539`, `26d9ecd0`, and `848ceb52`, each after independent
 specification and quality approval. Task 5 then retained its four ordered
 subfamilies, reconciling 4 + 6 + 9 + 2 = 21 active `effect-adapter` rows.
-Task 6 Step 1 is selected without reordering Tasks 6-8 or the later stages.
+Task 6 retained its one builder call under the bounded checkpoint decision and
+is complete; Task 7 Step 1 is selected without reordering Tasks 7–8 or the
+later stages.
+The governing Task 6 evidence is
+`docs/plans/2026-07-16-design-delta-drain-builder-checkpoint-retention-plan.md`.
 Commit
 `79a397bbee257526a07634b30876b1ef4dc0b3fd` authorized the derived
 production-owner/runtime-mirror correction but did not authorize a source
@@ -73,7 +77,7 @@ migration. The first Task 5 subfamily then reached a strict checkpoint-
 compatibility stop: four rows become `effect-adapter`, source and mirror remain
 byte-unchanged. No Task 5 production or runtime-mirror source commit occurred;
 the retention decisions and tests are the closeout evidence. The current queue
-is 1 procedure candidate, 31 effect adapters, and 63
+is 0 procedure candidates, 32 effect adapters, and 63
 legacy-retire rows, plus 13 separate public entries and one history row.
 
 - Accepted contract: `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
@@ -104,8 +108,10 @@ legacy-retire rows, plus 13 separate public entries and one history row.
   then closed as retained on four exported public boundaries and the private
   pending callee's checkpoint-identity delta. Completed finalization then
   closed as retained on two shared-validation diagnostics. Task 5 is complete,
-  and Task 6 Step 1 is current.
-  Production-family Tasks 5–6 retain every later prerequisite in this plan.
+  and Task 6 then retained its one private builder call because the exact
+  compiling inline hypothetical removes a caller-owned checkpoint and adds
+  none. Task 7 Step 1 is current. Production-family Tasks 5–6 retain every
+  later prerequisite in this plan.
 - Preserve the inventory's separate `public-entry` records. In particular, never migrate:
   - `workflows/library/lisp_frontend_design_delta/drain.orc::drain` away from `defworkflow`; or
   - `workflows/examples/design_plan_impl_review_stack_v2_call.orc::design-plan-impl-review-stack` away from `defworkflow`.
@@ -143,12 +149,12 @@ must be a subset of the active task's `Files` list. Never stage, restore, or
 rewrite a protected path. Record its initial `git status --short` output only
 as a guard baseline; user changes to those paths are not plan failures.
 
-## Current queue after Task 5 closeout
+## Current queue after Task 6 closeout
 
 | Class | Count | Disposition |
 | --- | ---: | --- |
-| `procedure-candidate` | 1 | Migrate by `.orc` family after parity. |
-| `effect-adapter` | 31 | Reclassify only after effect, identity, type, artifact/publication, source-map, child-call, checkpoint, exported-entry, state-consumer, live-route, and resume evidence. |
+| `procedure-candidate` | 0 | No active row is currently eligible for migration. |
+| `effect-adapter` | 32 | Reclassify only after effect, identity, type, artifact/publication, source-map, child-call, checkpoint, exported-entry, state-consumer, live-route, and resume evidence. |
 | `legacy-retire` | 63 | Do not translate; coordinate with Stage 6 after replacement evidence. |
 | `public-boundary` | 13 separate entries | Preserve as workflows and negative regression coverage. |
 
@@ -736,21 +742,22 @@ source-migration commit is invented for any group.
 Keep all 21 finalizer-projection, blocked-recovery/finalization,
 phase-orchestration, and completed-finalization records active as
 `effect-adapter`. No source record disappears and no history row is added.
-The four groups reconcile 4 + 6 + 9 + 2 = 21 retained rows. Current counts are
-1 procedure candidate, 31 effect adapters, and 63 legacy-retire rows, plus 13
-public entries, 108 active records, and one unchanged history row;
-`source_commit` remains unchanged.
+The four groups reconcile 4 + 6 + 9 + 2 = 21 retained rows. At Task 5 closeout,
+counts were 1 procedure candidate, 31 effect adapters, and 63 legacy-retire
+rows, plus 13 public entries, 108 active records, and one unchanged history
+row; `source_commit` remained unchanged.
 
 ```bash
 python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >/dev/null
 ```
 
-The focused retention/inventory/public-wrapper gate passed. Task 5 is complete,
-and Task 6 Step 1 is current.
+The focused retention/inventory/public-wrapper gate passed. At Task 5 closeout,
+Task 5 was complete; Task 6 Step 1 then became current.
 
 ### Task 6: Migrate The Internal Drain Builder Without Removing The Public Drain
 
-**Current sub-selector:** Step 1.
+**Status:** Complete by fail-closed checkpoint retention. Task 7 Step 1 is
+current.
 
 **Files:**
 - Modify: `workflows/library/lisp_frontend_design_delta/drain.orc`
@@ -762,65 +769,58 @@ and Task 6 Step 1 is current.
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.md`
 
-- [ ] **Step 1: Write RED positive and negative tests together**
+- [x] **Step 1: Write RED positive and negative tests together**
 
-Require `build-drain-runtime-owned` to become `defproc :lowering inline` only if its internal call has full parity. Simultaneously require `lisp_frontend_design_delta/drain::drain` to remain exported, externally invocable, resumable, and publication-owning.
+The structural test failed RED on the former `procedure-candidate` row. It
+requires the builder to remain one private `defworkflow`, requires exactly one
+workflow call from exported `drain`, and requires `drain` to remain a public
+workflow binding.
 
-Add two fresh production-route tests to
-`tests/test_workflow_lisp_procedure_first_migrations.py`:
+- [x] **Step 2: Audit the complete hypothetical and retain exact checkpoint identity**
 
-- `test_internal_drain_builder_migration_runs_public_entry_with_equal_outputs_artifacts_and_publication` executes the retained `.orc` public entry through the deterministic provider/command harness and compares a clean run with the pre-migration semantic baseline; and
-- `test_internal_drain_builder_migration_resumes_same_public_run_without_replaying_completed_effects` fails after one committed effect, resumes the same `run_id`, and asserts completed effects are reused, checkpoint/presentation IDs are unchanged, and final public output/artifacts match the clean run.
+The minimal compiler-complete exact-path hypothetical converts only the
+builder to pure `defproc :lowering inline`, adds the caller's hidden `(run
+RunCtx)` parameter, and uses ordinary positional procedure application. Both
+sources compile without diagnostics or retained advisories through a
+read/write-safe same-path override. The hypothetical removes checkpoint
+`ckpt:4dc584b1d0c80e14d36a3d5e` and adds none; the builder bundle, call node,
+call effect, call-boundary projection, and six builder-owned state-layout
+records also disappear. Strict compatibility therefore fails and production
+source remains unchanged.
 
-Both tests also require the inline procedure shape, so they fail before the
-source conversion rather than passing as characterization-only tests.
-
-- [ ] **Step 2: Migrate the one candidate and preserve exact checkpoint identity**
-
-Convert the one inventory row. Do not migrate the public `drain`, change its entry name, or rewrite checkpoint baselines to accept a new identity.
-
-- [ ] **Step 3: Run strict drain evidence**
+- [x] **Step 3: Run strict drain evidence**
 
 ```bash
 pytest -q tests/test_workflow_lisp_lowering.py tests/test_workflow_lisp_design_delta_smoke.py tests/test_workflow_lisp_checkpoint_identity_comparison.py -k 'design_delta and drain'
-pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'internal_drain_builder_migration'
+pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'design_delta_drain_builder'
 python -m json.tool artifacts/work/review-parity-check/design_delta_parent_drain.json >/dev/null
 pytest -q tests/test_workflow_lisp_design_delta_smoke.py tests/test_workflow_lisp_route_readiness.py -k 'design_delta or parent_drain'
 python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json
 python -m orchestrator run workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json --input steering_path=docs/steering.md --input target_design_path=docs/design/workflow_lisp_runtime_native_drain_authoring.md --input baseline_design_path=docs/design/workflow_lisp_frontend_specification.md --input architecture_targets__design_gap_id=workflow-lisp-family1-promotion --input architecture_targets__architecture_path=docs/plans/2026-07-07-drain-migration-g8-retirement.md --input architecture_targets__work_item_context_path=artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/section14-parent-dry-run/work_item_context.md --input architecture_targets__check_commands_path=state/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/drain/iterations/4/design-gap-architect/check_commands.json --input architecture_targets__plan_target_path=docs/plans/2026-07-07-yaml-retirement-program.md --input existing_architecture_index_path=artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R38/section14-parent-dry-run/existing-architecture-index.md --dry-run
 ```
 
-Expected: the preserved historical promotion report parses and remains the
-decision record; fresh production-owner smoke, route-readiness, and compile
-checks pass with unchanged public boundary,
-output/artifact/publication/effect/source-map/checkpoint/resume contracts. Do
-not recreate or select the retired `design_delta_parent_drain` parity target.
+Expected: the historical promotion report remains preserved, while focused
+retention/checkpoint/public-wrapper and production compile checks pass. This
+compile-only hypothetical supports no runtime or resume parity claim.
 
-- [ ] **Step 4: Commit and review the source migration**
+- [x] **Step 4: Close without a source or mirror commit**
 
-```bash
-git add workflows/library/lisp_frontend_design_delta/drain.orc tests/test_workflow_lisp_lowering.py tests/test_workflow_lisp_design_delta_smoke.py tests/test_workflow_lisp_migration_parity.py tests/test_workflow_lisp_checkpoint_identity_comparison.py tests/test_workflow_lisp_procedure_first_migrations.py
-git commit -m "Migrate the internal drain builder to a procedure"
-```
+No source migration occurred and no source/runtime-mirror commit exists. The
+bounded decision, structural test, exact compiler comparison, inventory
+reconciliation, and routing checks are the Task 6 closeout evidence.
 
-Obtain independent specification and quality PASS here. Fix and rerun the
-source/runtime/resume checks before recording inventory evidence.
+- [x] **Step 5: Retain the active row without history mutation**
 
-- [ ] **Step 5: Record reviewed history evidence**
-
-Move the one disappeared builder-call record to v2 history with the reviewed
-source commit and runtime/resume evidence, then recompute active/history
-counts.
-
-```bash
-python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >/dev/null
-git add docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md
-git commit -m "Record internal drain procedure evidence"
-```
-
-Obtain specification plus quality PASS on the history/count update.
+Keep the exact builder-call record active as `effect-adapter`. Do not move it
+to history and do not change `source_commit`. Current counts are 0 procedure
+candidates, 32 effect adapters, and 63 legacy-retire rows, plus 13 public
+entries, 108 active records, and one unchanged history row. The governing
+evidence is
+`docs/plans/2026-07-16-design-delta-drain-builder-checkpoint-retention-plan.md`.
 
 ### Task 7: Hand Legacy Rows To Stage 6 Without Translating Them
+
+**Current sub-selector:** Step 1.
 
 **Files:**
 - Modify: `docs/plans/2026-07-07-yaml-retirement-program.md`

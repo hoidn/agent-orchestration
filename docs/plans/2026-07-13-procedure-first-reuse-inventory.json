@@ -278,21 +278,28 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "strict_compatibility is mandatory because the containing lisp_frontend_design_delta/drain::drain is a promoted/live public boundary (live public entry; promotion_eligible, wcc_default, preferred_current_guidance, parity-constrained route). The complete exact-path inline hypothetical removes the caller-owned build-drain-runtime-owned workflow-call checkpoint and adds none; it also removes the builder bundle/call/state projections and changes hidden RunCtx state/artifact defaults.",
+      "reason": "Retain this private workflow call as an effect adapter. The containing public drain is promoted/live, and the minimal compiling inline procedure hypothetical changes checkpoint and state-projection identity even though the public authored input/output, artifact, finalization, and publication shapes remain equal.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "The audit is compile-only and makes no runtime or resume parity claim.",
+          "Reconsider only with identity-preserving lowering or a general atomic upgrader that preserves supported checkpoint and state consumers."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/drain.orc"
+        "workflows/library/lisp_frontend_design_delta/drain.orc",
+        "docs/workflow_lisp_route_readiness_registry.json",
+        "docs/plans/2026-07-16-design-delta-drain-builder-checkpoint-retention-plan.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_procedure_first_public_boundary_inventory_keeps_exported_wrappers",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_drain_builder_row_retains_private_workflow_boundary",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_drain_builder_hypothetical_changes_checkpoint_identity"
       ]
     },
     {
@@ -3669,8 +3676,8 @@
     "actionable_internal_calls": {
       "total": 95,
       "by_classification": {
-        "procedure-candidate": 1,
-        "effect-adapter": 31,
+        "procedure-candidate": 0,
+        "effect-adapter": 32,
         "legacy-retire": 63,
         "public-boundary": 0
       }

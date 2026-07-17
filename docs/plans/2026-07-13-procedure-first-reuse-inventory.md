@@ -2,7 +2,7 @@
 
 Status: Task 4 complete at `c9687539`, `26d9ecd0`, and `848ceb52` after
 per-group specification and quality approval; all four Task 5 subfamilies are
-retained, Task 5 is complete, and Task 6 Step 1 is current
+retained, Tasks 5–6 are complete, and Task 7 Step 1 is current
 Source commit: `db9889937a895d67810dee1ea0b1b53552d30eca`
 Schema: `procedure_first_reuse_inventory.v2`
 
@@ -15,8 +15,8 @@ remaining 95 active internal calls classify as:
 
 | Classification | Sites | Meaning |
 | --- | ---: | --- |
-| `procedure-candidate` | 1 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
-| `effect-adapter` | 31 | Calls retained until effect, identity, type, artifact, publication, source-map, child-call, exported-entry, state-consumer, live-route, and resume obligations are proven. |
+| `procedure-candidate` | 0 | No active internal Workflow Lisp row is currently eligible for typed procedure migration. |
+| `effect-adapter` | 32 | Calls retained until effect, identity, type, artifact, publication, source-map, child-call, exported-entry, state-consumer, live-route, and resume obligations are proven. |
 | `legacy-retire` | 63 | Compatibility, legacy, or example-only calls that retire with their family instead of being translated. |
 | `public-boundary` | 0 | Public entries are recorded separately; they are not internal call sites. |
 
@@ -44,6 +44,7 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `effect-adapter` | `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | 2 |
 | `effect-adapter` | `workflows/examples/same_file_record_call_binding.orc` | 1 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta/design_gap_architect.orc` | 4 |
+| `effect-adapter` | `workflows/library/lisp_frontend_design_delta/drain.orc` | 1 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc` | 3 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 21 |
 | `legacy-retire` | `workflows/examples/backlog_priority_design_plan_impl_stack_v2_call.yaml` | 1 |
@@ -76,7 +77,6 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `legacy-retire` | `workflows/library/revision_study_design_plan_impl_stack.yaml` | 3 |
 | `legacy-retire` | `workflows/library/revision_study_priority_design_plan_impl_stack.yaml` | 1 |
 | `legacy-retire` | `workflows/library/seeded_design_plan_impl_stack.yaml` | 1 |
-| `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/drain.orc` | 1 |
 
 ## Separate Public Entries
 
@@ -135,10 +135,18 @@ zero retired, and zero retained-public.
   provider effects, a typed return, same-run interruption/resume, no
   independent registry entry, and a retained public wrapper before moving to
   append-only history.
-- **Negative public boundary:** `lisp_frontend_design_delta/drain::drain`
-  must remain a workflow because it owns the promoted external run/resume and
-  publication contract. Its internal `build-drain-runtime-owned` call is
-  independently a procedure candidate.
+- **Drain-builder checkpoint retention:** the public
+  `lisp_frontend_design_delta/drain::drain` is bound as promoted/live by its
+  live public-entry record and `promotion_eligible`, `wcc_default`,
+  `preferred_current_guidance`, parity-constrained route. It remains a
+  workflow, and its sole private builder call remains `effect-adapter`. The
+  complete compiling inline hypothetical removes one caller-owned checkpoint
+  and adds none, changes builder call/state projections and hidden `RunCtx`
+  defaults, and therefore fails mandatory strict identity compatibility.
+  Future conversion requires identity-preserving lowering or a general atomic
+  upgrader. The
+  [bounded Task 6 decision](2026-07-16-design-delta-drain-builder-checkpoint-retention-plan.md)
+  makes no runtime or resume parity claim.
 - **Post-hardening runtime baseline:** the retained Design Delta wrapper is
   exercised through deterministic provider and command effects, public output
   and publication checks, source-map/checkpoint projections, and a genuine
