@@ -14,7 +14,7 @@
 
 **Status:** Current selector (activated 2026-07-16). Task 1's post-hardening
 rebaseline is complete at `4983afff` with its narrative correction at
-`fa16bcf0`. **Current sub-selector: Task 5 completed finalization (two calls).**
+`fa16bcf0`. **Current sub-selector: Task 6 Step 1. Task 5 is complete.**
 The four-call finalizer-projection subfamily is retained by the reviewed
 strict-compatibility decision in
 `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md`;
@@ -34,6 +34,13 @@ callee's successful exact-path inline hypothetical removes one caller-owned
 workflow-call boundary checkpoint and adds twelve caller-owned inline
 checkpoints; their checkpoint/storage identities and generated
 presentation-path namespace differ. No runtime-parity claim is made.
+The two-call completed-finalization subfamily is retained by
+`docs/plans/2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md`.
+Its complete exact-path inline hypothetical preserves the same three effects
+but shared validation emits exactly two `workflow_boundary_type_invalid`
+diagnostics for the approved-plan and completed-implementation blocker-class
+variant proofs. No hypothetical executable exists, so no checkpoint, resume,
+or runtime-delta claim is made.
 Task 2 is complete
 at `daff694c`. Steps 1 and 2 each
 reached a bounded fail-closed
@@ -56,14 +63,17 @@ integration gates, inventory reconciliation, and independent reviews passed.
 Task 3 completed without source migration after independent specification and
 quality approval. Task 4 then completed its three separately reviewed group
 audits at `c9687539`, `26d9ecd0`, and `848ceb52`, each after independent
-specification and quality approval. Task 5 remains selected without reordering
-Tasks 5-8 or the later stages. Commit
+specification and quality approval. Task 5 then retained its four ordered
+subfamilies, reconciling 4 + 6 + 9 + 2 = 21 active `effect-adapter` rows.
+Task 6 Step 1 is selected without reordering Tasks 6-8 or the later stages.
+Commit
 `79a397bbee257526a07634b30876b1ef4dc0b3fd` authorized the derived
 production-owner/runtime-mirror correction but did not authorize a source
 migration. The first Task 5 subfamily then reached a strict checkpoint-
 compatibility stop: four rows become `effect-adapter`, source and mirror remain
-byte-unchanged, and no Task 5 source migration or Task 5 completion is claimed.
-The current queue is 3 procedure candidates, 29 effect adapters, and 63
+byte-unchanged. No Task 5 production or runtime-mirror source commit occurred;
+the retention decisions and tests are the closeout evidence. The current queue
+is 1 procedure candidate, 31 effect adapters, and 63
 legacy-retire rows, plus 13 separate public entries and one history row.
 
 - Accepted contract: `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
@@ -92,8 +102,9 @@ legacy-retire rows, plus 13 separate public entries and one history row.
   closed with the classifier retained as an exported public boundary and only
   the five finalizer calls retained by compiler rejection. Phase orchestration
   then closed as retained on four exported public boundaries and the private
-  pending callee's checkpoint-identity delta; completed finalization (two
-  calls) is now selected.
+  pending callee's checkpoint-identity delta. Completed finalization then
+  closed as retained on two shared-validation diagnostics. Task 5 is complete,
+  and Task 6 Step 1 is current.
   Production-family Tasks 5–6 retain every later prerequisite in this plan.
 - Preserve the inventory's separate `public-entry` records. In particular, never migrate:
   - `workflows/library/lisp_frontend_design_delta/drain.orc::drain` away from `defworkflow`; or
@@ -132,12 +143,12 @@ must be a subset of the active task's `Files` list. Never stage, restore, or
 rewrite a protected path. Record its initial `git status --short` output only
 as a guard baseline; user changes to those paths are not plan failures.
 
-## Current queue after phase-orchestration retention
+## Current queue after Task 5 closeout
 
 | Class | Count | Disposition |
 | --- | ---: | --- |
-| `procedure-candidate` | 3 | Migrate by `.orc` family after parity. |
-| `effect-adapter` | 29 | Reclassify only after effect, identity, type, artifact/publication, source-map, child-call, checkpoint, exported-entry, state-consumer, live-route, and resume evidence. |
+| `procedure-candidate` | 1 | Migrate by `.orc` family after parity. |
+| `effect-adapter` | 31 | Reclassify only after effect, identity, type, artifact/publication, source-map, child-call, checkpoint, exported-entry, state-consumer, live-route, and resume evidence. |
 | `legacy-retire` | 63 | Do not translate; coordinate with Stage 6 after replacement evidence. |
 | `public-boundary` | 13 separate entries | Preserve as workflows and negative regression coverage. |
 
@@ -582,6 +593,7 @@ selected; later tasks remain in their existing order.
 - Modify completed bounded retention decisions: `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md`
 - Modify completed bounded retention decisions: `docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md`
 - Modify completed bounded retention decisions: `docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md`
+- Add completed bounded retention decision: `docs/plans/2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md`
 - Create conditionally on any later bounded per-subfamily stop: `docs/plans/2026-07-16-design-delta-<subfamily>-retention-plan.md`
 - Modify on a bounded retention stop: `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`
 - Modify on a reviewed bounded retention stop: `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
@@ -632,14 +644,31 @@ while the private `run-work-item-pending` hypothetical compiles with its
 effects visible but removes its caller-owned workflow-call boundary checkpoint
 and adds twelve caller-owned inline checkpoints. Their checkpoint/storage
 identities and generated presentation-path namespace differ. The nine rows
-remain `effect-adapter`; group 4, completed finalization (two calls), is current.
+remain `effect-adapter`. Group 4 is retained by
+`docs/plans/2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md`:
+the complete exact-path inline hypothetical keeps the same two child-workflow
+effects and one command effect, but shared validation emits exactly two
+`workflow_boundary_type_invalid` diagnostics for missing blocker-class variant
+proofs. The final two rows remain `effect-adapter`; all 21 Task 5 rows are
+retained.
 
 Any call whose callee owns an independent public, publication, or checkpoint
 namespace is not migrated: retain the internal-call row as `effect-adapter`
 and add or preserve the callee's separate `public-entry` record classified
 `public-boundary`.
 
-- [ ] **Step 2: Migrate one subfamily at a time with RED parity tests**
+- [x] **Step 2: Resolve one subfamily at a time with RED structural and parity tests**
+
+All four groups resolved as retained negatives. For completed finalization, the
+exact two-row structural test failed RED on the former
+`procedure-candidate` classifications, then passed after evidence-only
+reclassification. The complete hypothetical test converts only the private
+definition and two calls, preserves the same three effects, removes the one
+genuinely present stale self `calls-workflow` declaration, and proves exact
+shared-validation diagnostics without changing production bytes.
+
+The following positive-migration protocol is retained as historical context;
+no Task 5 source conversion was executed.
 
 For each still-candidate group, add a RED test named for that group which
 enumerates its exact IDs, requires the resolved callee definitions to be
@@ -674,7 +703,13 @@ authority; do not use them to refresh semantic or checkpoint baselines.
 pytest -q tests/test_workflow_lisp_design_delta_smoke.py tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_checkpoint_identity_comparison.py -k 'work_item'
 ```
 
-- [ ] **Step 3: Run runtime and family parity after each subfamily**
+- [x] **Step 3: Run focused and public-wrapper gates for the retained family**
+
+The completed-finalization structural, hypothetical, inventory, and clean plus
+resume public-wrapper selectors passed together (`5 passed`). Because shared
+validation produces no hypothetical executable, no checkpoint, resume, or
+affected-route runtime comparison exists for that hypothetical. The commands
+below describe the positive-migration gate that was not reached.
 
 ```bash
 pytest -q tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_migration_parity.py -k 'design_delta or work_item'
@@ -688,37 +723,34 @@ Also compile and dry-run the retained production owner after each group using
 the fully qualified Design Delta drain command from Task 6. A group does not
 advance on focused unit tests alone.
 
-- [ ] **Step 4: Commit each subfamily separately**
+- [x] **Step 4: Record per-subfamily retention evidence without source commits**
 
-```bash
-git add workflows/library/lisp_frontend_design_delta/bootstrap.orc workflows/library/lisp_frontend_design_delta/implementation_phase.orc workflows/library/lisp_frontend_design_delta/plan_phase.orc workflows/library/lisp_frontend_design_delta/projections.orc workflows/library/lisp_frontend_design_delta/work_item.orc tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/bootstrap.orc tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/implementation_phase.orc tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/plan_phase.orc tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/projections.orc tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/work_item.orc tests/test_workflow_lisp_design_delta_smoke.py tests/test_workflow_lisp_procedure_first_migrations.py tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_checkpoint_identity_comparison.py tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_migration_parity.py
-git commit -m "Migrate Design Delta work-item <subfamily> procedures"
-```
+Task 5 has no source or runtime-mirror commit. The earlier three decisions are
+retention evidence at `8701aa10`, `336ece6e`, and `fd74dd29`; completed
+finalization closes through its bounded decision, structural/compiler tests,
+and inventory evidence under this task's explicit no-commit constraint. No
+source-migration commit is invented for any group.
 
-The `finalizer-projections`, `blocked-recovery`, and `phase-orchestration`
-subfamilies have no source commit; retain them in inventory evidence. Replace
-`<subfamily>` with `completed-finalization` for the remaining eligible source
-group; never use one bulk commit. After each commit,
-obtain independent specification and quality PASS for the exact ID group
-before starting the next.
+- [x] **Step 5: Update inventory and close Task 5 on retention evidence**
 
-- [ ] **Step 5: Update inventory in a separate evidence commit**
-
-Keep the 19 retained finalizer-projection, blocked-recovery/finalization, and
-phase-orchestration records active. Move only source records that actually
-disappear—at most the remaining two completed-finalization calls—into v2
-history with their source commit hashes, reconcile the retained 4+6+9 plus
-candidate two-call group counts, and attach evidence selectors.
+Keep all 21 finalizer-projection, blocked-recovery/finalization,
+phase-orchestration, and completed-finalization records active as
+`effect-adapter`. No source record disappears and no history row is added.
+The four groups reconcile 4 + 6 + 9 + 2 = 21 retained rows. Current counts are
+1 procedure candidate, 31 effect adapters, and 63 legacy-retire rows, plus 13
+public entries, 108 active records, and one unchanged history row;
+`source_commit` remains unchanged.
 
 ```bash
 python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >/dev/null
-git add docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md
-git commit -m "Record work-item procedure migration evidence"
 ```
 
-Obtain specification plus quality PASS before Task 6.
+The focused retention/inventory/public-wrapper gate passed. Task 5 is complete,
+and Task 6 Step 1 is current.
 
 ### Task 6: Migrate The Internal Drain Builder Without Removing The Public Drain
+
+**Current sub-selector:** Step 1.
 
 **Files:**
 - Modify: `workflows/library/lisp_frontend_design_delta/drain.orc`

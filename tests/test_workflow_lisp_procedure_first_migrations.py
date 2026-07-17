@@ -144,6 +144,12 @@ DESIGN_DELTA_PHASE_ORCHESTRATION_RETENTION_DECISION = (
     / "plans"
     / "2026-07-16-design-delta-phase-orchestration-retention-plan.md"
 )
+DESIGN_DELTA_COMPLETED_FINALIZATION_RETENTION_DECISION = (
+    REPO_ROOT
+    / "docs"
+    / "plans"
+    / "2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md"
+)
 DESIGN_DELTA_PUBLIC_ENTRY = "lisp_frontend_design_delta/drain::drain"
 _DESIGN_DELTA_RUNTIME_PROJECTION_DIGESTS = {
     "artifacts": "sha256:0c0925b3d70fa64626186ecd608cf01c0039aae5d4edf2a74465f722157c3732",
@@ -319,8 +325,8 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
     assert inventory["counts"]["actionable_internal_calls"] == {
         "total": 95,
         "by_classification": {
-            "procedure-candidate": 3,
-            "effect-adapter": 29,
+            "procedure-candidate": 1,
+            "effect-adapter": 31,
             "legacy-retire": 63,
             "public-boundary": 0,
         },
@@ -1662,6 +1668,86 @@ def test_design_delta_phase_orchestration_rows_retain_workflow_boundaries(
     assert "run-work-item-pending" not in work_item_exports.procedures_by_name
 
 
+def test_design_delta_completed_finalization_rows_retain_private_workflow_boundary(
+    tmp_path: Path,
+) -> None:
+    inventory = _load_json(REUSE_INVENTORY)
+    records_by_id = {row["id"]: row for row in inventory["records"]}
+    prefix = (
+        "internal-call:workflows/library/lisp_frontend_design_delta/"
+        "work_item.orc:"
+    )
+    retained_ids = {
+        f"{prefix}finalize-selected-item-from-completed-implementation:1",
+        f"{prefix}finalize-selected-item-from-completed-implementation:2",
+    }
+    decision_path = (
+        DESIGN_DELTA_COMPLETED_FINALIZATION_RETENTION_DECISION.relative_to(
+            REPO_ROOT
+        ).as_posix()
+    )
+    inventory_path = REUSE_INVENTORY_NARRATIVE.relative_to(REPO_ROOT).as_posix()
+    selector = (
+        "tests/test_workflow_lisp_procedure_first_migrations.py::"
+        "test_design_delta_completed_finalization_rows_retain_private_workflow_boundary"
+    )
+    compile_selector = (
+        "tests/test_workflow_lisp_procedure_first_migrations.py::"
+        "test_design_delta_completed_finalization_hypothetical_fails_shared_validation"
+    )
+
+    observed_ids = {
+        row["id"]
+        for row in inventory["records"]
+        if row["source_path"]
+        == DESIGN_DELTA_WORK_ITEM.relative_to(REPO_ROOT).as_posix()
+        and row["callee"]
+        == "finalize-selected-item-from-completed-implementation"
+    }
+    assert observed_ids == retained_ids
+    for record_id in retained_ids:
+        record = records_by_id[record_id]
+        assert record["record_kind"] == "internal-call"
+        assert record["classification"] == "effect-adapter"
+        assert record["classification"] != "public-boundary"
+        assert record["named_substrate_gap"].startswith(
+            "workflow_boundary_type_invalid"
+        )
+        assert {
+            record["source_path"],
+            decision_path,
+            inventory_path,
+            selector,
+            compile_selector,
+        } <= set(record["evidence_paths"])
+
+    source = DESIGN_DELTA_WORK_ITEM.read_text(encoding="utf-8")
+    callee = "finalize-selected-item-from-completed-implementation"
+    assert len(re.findall(rf"\(defworkflow\s+{callee}\b", source)) == 1
+    assert not re.search(rf"\(defproc\s+{callee}\b", source)
+    assert len(re.findall(rf"\(call\s+{callee}\b", source)) == 2
+
+    linked_result, _ = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    work_item_exports = linked_result.graph.export_surfaces_by_name[
+        "lisp_frontend_design_delta/work_item"
+    ]
+    assert work_item_exports.workflows_by_name["run-work-item"].kind == "workflow"
+    assert "run-work-item" not in work_item_exports.procedures_by_name
+    assert callee not in work_item_exports.workflows_by_name
+    assert callee not in work_item_exports.procedures_by_name
+    work_item_compile = linked_result.compiled_results_by_name[
+        "lisp_frontend_design_delta/work_item"
+    ]
+    assert callee in {
+        workflow.definition.name.rsplit("::", 1)[-1]
+        for workflow in work_item_compile.typed_workflows
+    }
+    assert callee not in {
+        procedure.definition.name.rsplit("::", 1)[-1]
+        for procedure in work_item_compile.typed_procedures
+    }
+
+
 def _design_delta_default_state_value(type_payload: Mapping[str, object]) -> object:
     kind = type_payload.get("kind")
     if kind == "primitive":
@@ -2048,6 +2134,63 @@ def _design_delta_pending_proposed_inline_source(old_source: bytes) -> bytes:
             "                 target_design_path\n"
             "                 baseline_design_path\n"
             "                 progress_ledger_path)",
+            1,
+        ),
+    )
+    for old, new, expected_count in replacements:
+        assert source.count(old) == expected_count
+        source = source.replace(old, new)
+    return source.encode("utf-8")
+
+
+def _design_delta_completed_finalization_proposed_inline_source(
+    old_source: bytes,
+) -> bytes:
+    source = old_source.decode("utf-8")
+    replacements = (
+        (
+            "  (defworkflow finalize-selected-item-from-completed-implementation\n",
+            "  (defproc finalize-selected-item-from-completed-implementation\n",
+            1,
+        ),
+        (
+            "  (defproc finalize-selected-item-from-completed-implementation\n"
+            "    ((implementation_phase_result ImplementationPhaseResult))\n"
+            "    -> SelectedItemResult\n"
+            "    (let* ((plan\n"
+            "             (call project-selected-item-finalizer-approved-plan\n",
+            "  (defproc finalize-selected-item-from-completed-implementation\n"
+            "    ((implementation_phase_result ImplementationPhaseResult))\n"
+            "    -> SelectedItemResult\n"
+            "    :effects ((calls-workflow lisp_frontend_design_delta/work_item::"
+            "project-selected-item-finalizer-approved-plan)\n"
+            "              (calls-workflow lisp_frontend_design_delta/work_item::"
+            "project-selected-item-finalizer-completed-implementation)\n"
+            "              (uses-command apply_resource_transition))\n"
+            "    :lowering inline\n"
+            "    (let* ((plan\n"
+            "             (call project-selected-item-finalizer-approved-plan\n",
+            1,
+        ),
+        (
+            "              (call finalize-selected-item-from-completed-implementation\n"
+            "                :implementation_phase_result implementation)",
+            "              (finalize-selected-item-from-completed-implementation\n"
+            "                implementation)",
+            1,
+        ),
+        (
+            "                              (call "
+            "finalize-selected-item-from-completed-implementation\n"
+            "                                :implementation_phase_result implementation)",
+            "                              (finalize-selected-item-from-completed-implementation\n"
+            "                                implementation)",
+            1,
+        ),
+        (
+            "              (calls-workflow lisp_frontend_design_delta/work_item::"
+            "finalize-selected-item-from-completed-implementation)\n",
+            "",
             1,
         ),
     )
@@ -2772,6 +2915,125 @@ def test_design_delta_blocked_recovery_hypothetical_fails_closed_at_typecheck(
     assert set(proposed_reads["served_sha256"]) == {proposed_sha256}
     assert proposed_reads["disk_before_sha256"] == retained_sha256
     assert proposed_reads["disk_after_sha256"] == retained_sha256
+    assert DESIGN_DELTA_WORK_ITEM.read_bytes() == retained_source
+
+
+def test_design_delta_completed_finalization_hypothetical_fails_shared_validation(
+    tmp_path: Path,
+) -> None:
+    retained_source = DESIGN_DELTA_WORK_ITEM.read_bytes()
+    proposed_source = _design_delta_completed_finalization_proposed_inline_source(
+        retained_source
+    )
+    retained_sha256 = "sha256:" + hashlib.sha256(retained_source).hexdigest()
+    proposed_sha256 = "sha256:" + hashlib.sha256(proposed_source).hexdigest()
+    assert retained_sha256 != proposed_sha256
+    proposed_text = proposed_source.decode("utf-8")
+    callee = "finalize-selected-item-from-completed-implementation"
+    assert len(re.findall(rf"\(defproc\s+{callee}\b", proposed_text)) == 1
+    assert not re.search(rf"\(defworkflow\s+{callee}\b", proposed_text)
+    assert not re.search(rf"\(call\s+{callee}\b", proposed_text)
+    assert len(re.findall(rf"\({callee}\b", proposed_text)) == 2
+    assert (
+        f"(calls-workflow lisp_frontend_design_delta/work_item::{callee})"
+        not in proposed_text
+    )
+    proposed_definition = proposed_text.split(
+        f"  (defproc {callee}", 1
+    )[1].split("\n  (defworkflow finalize-selected-item-from-blocked", 1)[0]
+    assert proposed_definition.count("(calls-workflow ") == 2
+    assert proposed_definition.count("(uses-command apply_resource_transition)") == 1
+    assert set(
+        re.findall(
+            r"\((?:calls-workflow|uses-command)\s+[^)]+\)",
+            proposed_definition,
+        )
+    ) == {
+        "(calls-workflow lisp_frontend_design_delta/work_item::"
+        "project-selected-item-finalizer-approved-plan)",
+        "(calls-workflow lisp_frontend_design_delta/work_item::"
+        "project-selected-item-finalizer-completed-implementation)",
+        "(uses-command apply_resource_transition)",
+    }
+    assert ":lowering inline" in proposed_definition
+
+    (tmp_path / "retained").mkdir()
+    retained_result, retained_reads = _compile_design_delta_same_path_work_item_variant(
+        tmp_path / "retained",
+        retained_source,
+    )
+    assert retained_result.entry_result.validated_bundles[DESIGN_DELTA_PUBLIC_ENTRY]
+    assert retained_reads["selected_sha256"] == retained_sha256
+    assert set(retained_reads["served_sha256"]) == {retained_sha256}
+    assert retained_reads["disk_before_sha256"] == retained_sha256
+    assert retained_reads["disk_after_sha256"] == retained_sha256
+
+    (tmp_path / "proposed").mkdir()
+    with _design_delta_same_path_work_item_io(proposed_source) as proposed_reads:
+        with pytest.raises(LispFrontendCompileError) as excinfo:
+            _compile_design_delta_parent_drain_entrypoint(tmp_path / "proposed")
+
+    diagnostics = excinfo.value.diagnostics
+    assert [diagnostic.code for diagnostic in diagnostics] == [
+        "workflow_boundary_type_invalid",
+        "workflow_boundary_type_invalid",
+    ]
+    expected_by_projection = {
+        "project-selected-item-finalizer-completed-implementation": {
+            "start": (159, 14),
+            "end": (160, 73),
+            "path_symbol": "__implementation__call_lisp_frontend_design_delta/"
+            "work_item::project-selected-item-finalizer-completed-implementation",
+            "variant_symbol": "__match_implementation__blocked",
+        },
+        "project-selected-item-finalizer-approved-plan": {
+            "start": (156, 14),
+            "end": (157, 73),
+            "path_symbol": "__plan__call_lisp_frontend_design_delta/work_item::"
+            "project-selected-item-finalizer-approved-plan",
+            "variant_symbol": "__match_plan__blocked",
+        },
+    }
+    observed_projections = set()
+    proposed_lines = proposed_text.splitlines()
+    for diagnostic in diagnostics:
+        assert diagnostic.phase == "shared_validation"
+        assert diagnostic.validation_pass == "shared_validation"
+        assert diagnostic.authority_layer == "shared_validation"
+        assert diagnostic.diagnostic_kind == "validation"
+        assert diagnostic.form_path == (
+            "workflow-lisp",
+            "defproc",
+            callee,
+        )
+        assert Path(diagnostic.span.start.path).resolve() == (
+            DESIGN_DELTA_WORK_ITEM.resolve()
+        )
+        source_line = proposed_lines[diagnostic.span.start.line - 1]
+        projection = next(
+            name for name in expected_by_projection if name in source_line
+        )
+        observed_projections.add(projection)
+        expected = expected_by_projection[projection]
+        assert (
+            diagnostic.span.start.line,
+            diagnostic.span.start.column,
+        ) == expected["start"]
+        assert (
+            diagnostic.span.end.line,
+            diagnostic.span.end.column,
+        ) == expected["end"]
+        assert expected["path_symbol"] in diagnostic.message
+        assert expected["variant_symbol"] in diagnostic.message
+        assert ".artifacts.return__blocker-class" in diagnostic.message
+        assert diagnostic.message.count("return__blocker-class") == 2
+    assert observed_projections == set(expected_by_projection)
+
+    assert proposed_reads["selected_sha256"] == proposed_sha256
+    assert set(proposed_reads["served_sha256"]) == {proposed_sha256}
+    assert proposed_reads["disk_before_sha256"] == retained_sha256
+    assert proposed_reads["disk_after_sha256"] == retained_sha256
+    assert proposed_reads["rejected_writes"] == []
     assert DESIGN_DELTA_WORK_ITEM.read_bytes() == retained_source
 
 

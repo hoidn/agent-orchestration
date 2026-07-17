@@ -1,9 +1,8 @@
 # Procedure-First Reuse Inventory
 
 Status: Task 4 complete at `c9687539`, `26d9ecd0`, and `848ceb52` after
-per-group specification and quality approval; Task 5's first three subfamilies
-are retained, completed finalization (two calls) is current, and Task 5 remains
-open
+per-group specification and quality approval; all four Task 5 subfamilies are
+retained, Task 5 is complete, and Task 6 Step 1 is current
 Source commit: `db9889937a895d67810dee1ea0b1b53552d30eca`
 Schema: `procedure_first_reuse_inventory.v2`
 
@@ -16,8 +15,8 @@ remaining 95 active internal calls classify as:
 
 | Classification | Sites | Meaning |
 | --- | ---: | --- |
-| `procedure-candidate` | 3 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
-| `effect-adapter` | 29 | Calls retained until effect, identity, type, artifact, publication, source-map, child-call, exported-entry, state-consumer, live-route, and resume obligations are proven. |
+| `procedure-candidate` | 1 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
+| `effect-adapter` | 31 | Calls retained until effect, identity, type, artifact, publication, source-map, child-call, exported-entry, state-consumer, live-route, and resume obligations are proven. |
 | `legacy-retire` | 63 | Compatibility, legacy, or example-only calls that retire with their family instead of being translated. |
 | `public-boundary` | 0 | Public entries are recorded separately; they are not internal call sites. |
 
@@ -46,7 +45,7 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `effect-adapter` | `workflows/examples/same_file_record_call_binding.orc` | 1 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta/design_gap_architect.orc` | 4 |
 | `effect-adapter` | `workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc` | 3 |
-| `effect-adapter` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 19 |
+| `effect-adapter` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 21 |
 | `legacy-retire` | `workflows/examples/backlog_priority_design_plan_impl_stack_v2_call.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/call_subworkflow_demo.yaml` | 1 |
 | `legacy-retire` | `workflows/examples/depends_on_inject_imported_v2_call.yaml` | 1 |
@@ -78,7 +77,6 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `legacy-retire` | `workflows/library/revision_study_priority_design_plan_impl_stack.yaml` | 1 |
 | `legacy-retire` | `workflows/library/seeded_design_plan_impl_stack.yaml` | 1 |
 | `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/drain.orc` | 1 |
-| `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 2 |
 
 ## Separate Public Entries
 
@@ -161,6 +159,11 @@ zero retired, and zero retained-public.
   generated presentation-path namespace. The
   [phase-orchestration decision](2026-07-16-design-delta-phase-orchestration-retention-plan.md)
   owns the exact IDs, effects, and identity-delta claim boundary.
+- **Completed-finalization retention:** the final two calls remain
+  `effect-adapter` because the complete inline hypothetical fails shared
+  validation with exactly two `workflow_boundary_type_invalid` diagnostics.
+  The [completed-finalization decision](2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md)
+  owns the exact diagnostic and unchanged-source proof.
 
 ## Effect-Adapter Rule
 
@@ -208,14 +211,23 @@ effects visible, but removes caller-owned workflow-call boundary checkpoint
 checkpoints. Their checkpoint/storage identities and generated
 presentation-path namespace differ. This identity delta, not runtime-parity
 evidence, retains the ninth row.
+The two completed-finalization rows remain `effect-adapter` under the
+[shared-validation retention decision](2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md).
+The private callee's complete exact-path conversion declares the same two
+child-workflow effects and one command effect, but shared validation emits one
+`workflow_boundary_type_invalid` diagnostic for the approved-plan blocker-class
+variant proof and one for the completed-implementation blocker-class variant
+proof. No hypothetical executable exists, so there is no checkpoint, resume,
+or runtime-delta claim.
 A Stage 5 family audit may reclassify a row when current tests prove that
 ordinary landed `defproc` composition already covers its actual effects.
 Classification labels alone do not authorize substrate work.
 
 ## Task 5 Finalizer-Projection Checkpoint-Retention Audit
 
-Status: reviewed strict-compatibility retention; Task 5 remains open and its
-later blocked recovery/finalization subfamily is also retained.
+Historical audit status: reviewed strict-compatibility retention; at this
+boundary Task 5 remained open and its later blocked recovery/finalization
+subfamily was also retained.
 
 The exact four finalizer-projection rows remain active as `effect-adapter`, so
 the active inventory at that audit boundary was 18 `procedure-candidate`, 14
@@ -229,9 +241,10 @@ source evidence is owned by the
 
 ## Task 5 Blocked Recovery/Finalization Lowering-Retention Audit
 
-Status: two-ground retention—exported-entry strict compatibility for the
-classifier and a compiler stop for five finalizer calls. Phase orchestration
-(nine calls) is current, Task 5 remains open, and subfamily order is unchanged.
+Historical audit status: two-ground retention—exported-entry strict
+compatibility for the classifier and a compiler stop for five finalizer calls.
+At this boundary phase orchestration (nine calls) was current, Task 5 remained
+open, and subfamily order was unchanged.
 
 The exact six blocked recovery/finalization rows remain active as
 `effect-adapter`, so the active inventory is 12 `procedure-candidate`, 20
@@ -250,9 +263,9 @@ are owned by the [blocked-recovery lowering-retention plan](2026-07-16-design-de
 
 ## Task 5 Phase-Orchestration Retention Audit
 
-Status: fail-closed retention on public-entry and checkpoint identity;
-completed finalization (two calls) is current, Task 5 remains open, and its
-order is unchanged.
+Historical audit status: fail-closed retention on public-entry and checkpoint
+identity; at this boundary completed finalization (two calls) was current,
+Task 5 remained open, and its order was unchanged.
 
 The exact nine phase-orchestration rows remain active `effect-adapter`, so the
 active inventory is 3 `procedure-candidate`, 29 `effect-adapter`, and 63
@@ -265,6 +278,20 @@ decision makes no affected-
 route runtime-parity, remap, state-upgrader, source-migration, or Task 5
 completion claim. Full evidence is owned by the
 [phase-orchestration retention plan](2026-07-16-design-delta-phase-orchestration-retention-plan.md).
+
+## Task 5 Completed-Finalization Retention And Closeout
+
+Status: fail-closed shared-validation retention; Task 5 complete and Task 6
+Step 1 current.
+
+The exact two completed-finalization rows remain active `effect-adapter`.
+Current counts are 1 `procedure-candidate`, 31 `effect-adapter`, and 63
+`legacy-retire` rows, plus 13 separate public entries, 108 active records, and
+one history row. The source commit and history are unchanged. The
+[completed-finalization retention plan](2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md)
+owns the exact transformation, two structured diagnostics, write guard, and
+claim boundary. Task 5's four groups reconcile as 4 + 6 + 9 + 2 = 21 retained
+rows; no production or mirror source commit occurred.
 
 ## Task 4 Generic YAML Reclassification Audit
 

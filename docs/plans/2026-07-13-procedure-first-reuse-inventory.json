@@ -832,21 +832,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "workflow_boundary_type_invalid: the complete exact-path inline conversion reaches shared validation but emits one missing blocker-class variant-proof diagnostic for the approved-plan projection and one for the completed-implementation projection; no hypothetical executable exists.",
+      "reason": "Retain this completed-finalization call as an effect adapter because the exact two-call private-callee conversion fails shared validation on both blocker-class variant proofs before producing an executable.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "The write-safe source override serves only the hypothetical bytes and leaves production bytes unchanged. This retention makes no hypothetical executable, checkpoint, resume, or runtime-delta claim."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "docs/plans/2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_completed_finalization_rows_retain_private_workflow_boundary",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_completed_finalization_hypothetical_fails_shared_validation"
       ]
     },
     {
@@ -1103,21 +1107,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "workflow_boundary_type_invalid: the complete exact-path inline conversion reaches shared validation but emits one missing blocker-class variant-proof diagnostic for the approved-plan projection and one for the completed-implementation projection; no hypothetical executable exists.",
+      "reason": "Retain this completed-finalization call as an effect adapter because the exact two-call private-callee conversion fails shared validation on both blocker-class variant proofs before producing an executable.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "The write-safe source override serves only the hypothetical bytes and leaves production bytes unchanged. This retention makes no hypothetical executable, checkpoint, resume, or runtime-delta claim."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/work_item.orc"
+        "workflows/library/lisp_frontend_design_delta/work_item.orc",
+        "docs/plans/2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_completed_finalization_rows_retain_private_workflow_boundary",
+        "tests/test_workflow_lisp_procedure_first_migrations.py::test_design_delta_completed_finalization_hypothetical_fails_shared_validation"
       ]
     },
     {
@@ -3661,8 +3669,8 @@
     "actionable_internal_calls": {
       "total": 95,
       "by_classification": {
-        "procedure-candidate": 3,
-        "effect-adapter": 29,
+        "procedure-candidate": 1,
+        "effect-adapter": 31,
         "legacy-retire": 63,
         "public-boundary": 0
       }
