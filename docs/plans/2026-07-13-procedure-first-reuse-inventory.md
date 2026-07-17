@@ -2,7 +2,7 @@
 
 Status: Task 4 complete at `c9687539`, `26d9ecd0`, and `848ceb52` after
 per-group specification and quality approval; all four Task 5 subfamilies are
-retained, Tasks 5–6 are complete, and Task 7 Step 1 is current
+retained, Tasks 5–7 are complete, and Task 8 Step 1 is current.
 Source commit: `db9889937a895d67810dee1ea0b1b53552d30eca`
 Schema: `procedure_first_reuse_inventory.v2`
 
@@ -524,6 +524,57 @@ procedure candidates, effect adapters, and legacy-retire rows. The eight
 separate public entries and one history row are unchanged. It modifies no YAML,
 does not complete the Stage 6 archive gate, and provides no parity, deletion
 authorization, state upgrader, identity remap, or cross-source resume contract.
+
+## Stage-6 YAML Retirement Handoff
+
+Status: machine-routed and pending every Stage-6 execution gate; no YAML or run
+mutation is authorized here.
+
+The machine authority is the adjacent JSON file's
+`yaml_retirement_handoff` object, captured against Task-6 closeout commit
+`56a832bffc11ea4572eae3e6285690a74db7d990`. It partitions all 110 authored
+workflow YAML/YML paths exactly once:
+
+| Queue | Paths | Legacy rows | Disposition |
+| --- | ---: | ---: | --- |
+| `delete_non_survivor_estate` | 100 | 53 | Early independent deletion in dependency-aware batches of at most 15 after its own gates. |
+| `archive_design_delta_yaml_twin` | 7 | 10 | Archive after the delete queue and after reconfirming the promoted `.orc` primary and historical evidence. |
+| `port_verified_iteration` | 1 | 0 | Build and promote its own `.orc` port through parity. |
+| `port_generic_run_watchdog` | 1 | 0 | Plan, build, and promote its own `.orc` port through parity. |
+| `hold_non_progress_step_back` | 1 | 0 | Preserve until the owning recovery work records disposition. |
+
+The 53 + 10 queue records reconcile all 63 active `legacy-retire` IDs. The
+32 active Workflow Lisp `effect-adapter` IDs and all 13 `public-entry` IDs are
+listed separately as `preserve_workflow_lisp_boundary`; YAML retirement must
+not reinterpret or delete those `.orc` boundaries when a YAML twin disappears.
+
+Archive means Git-history retention with pre-delete content-addressed blob IDs,
+not a live YAML archive tree. The Design Delta historical parent report remains
+decision evidence, but it does not prove individual child parity, identity
+transfer, or cross-source resume.
+
+The machine handoff binds the Design Delta archive to the existing `.orc`
+primary, route-readiness registry, historical parent parity report, and drain
+migration plan. It binds verified-iteration planning input to Task 15 of the
+post-foundation target-completion plan. These paths are prerequisites and
+provenance, not fresh parity evidence.
+
+Every queue is `pending`. Task 7 deliberately defers the actual reference and
+run-consumer captures to Stage 6: the reference capture is
+`pending_stage_6_scan`, and supported-root scope is `pending_adjudication`.
+A later deletion/archive requires zero unclassified
+active repository references and zero match-scoped supported nonterminal run or
+nested call-frame consumers. Missing/unreadable status fails closed. Unrelated
+store-wide nonterminal totals remain disclosed hygiene rather than gating
+counts. The planning probe's 84 `running`/`suspended` labels are recorded only
+as hygiene pending supported-root adjudication; they are not characterized as
+live or supported. Repository scans also make no claim about unknown downstream
+clones.
+
+The checked human projection is
+`docs/workflow_yaml_estate_triage.md`. This handoff supplies routing only: no
+source deletion, port, archive, primary flip, parity result, run-state
+disposition, or Stage-6 completion claim follows from it.
 
 ## Exclusions
 

@@ -1,222 +1,221 @@
-# User-Facing YAML Retirement Program Plan (Tranche 6, steps 2–6)
+# User-Facing YAML Retirement Program (Stage 6)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Tasks 4–7 carry explicit gates — check the gate before dispatching.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use
+> `superpowers:subagent-driven-development` to execute this plan task by task.
+> Use TDD for implementation changes and obtain specification and code-quality
+> review at every review gate.
 
-**Goal:** Retire YAML as a user-facing workflow authoring surface; `.orc` becomes the only authoring format, while the converged executable-IR runtime and the shared surface-validation core remain unchanged.
+**Goal:** Retire YAML and YML as user-facing workflow-authoring formats. `.orc`
+becomes the only authored workflow surface. Persisted run data and internal
+debug serialization are outside this program.
 
-**Architecture:** Four ungated enabling tasks (language-gap list, dashboard typed-IR migration, loader split, deprecation surface) followed by gated per-family promotion through the existing migration-parity machinery and a final deletion sweep. Nothing in this plan invents new promotion infrastructure — `migration_parity.py`'s kernel, `parity_targets.json`, and the route-readiness registry are the engine.
+**Architecture:** The content-addressed handoff in
+`docs/plans/2026-07-13-procedure-first-reuse-inventory.json` is the exact work
+list. It partitions every authored YAML/YML path into five queues: two ports,
+one protected holdout, one Design Delta historical archive, and deletion of the
+remaining estate. Shared validation remains available to the `.orc` frontend
+and persisted-run compatibility after the YAML parser is removed.
 
-**Steering decision (user, 2026-07-07):** YAML-surface retirement is a program desideratum. The design-delta family endgame is promote-`.orc`-then-delete-YAML. One recorded sub-decision remains open: whether `verified_iteration_drain` gets its own `.orc` port or is absorbed by the promoted design_delta family — settle it at Task 5, family 2.
-
-**Steering amendment (user, 2026-07-14): deletion-first retirement.** The
-surviving YAML estate is exactly two families — `verified_iteration_drain`
-and `generic_run_watchdog` — and each gets its own `.orc` port through the
-existing parity machinery. This resolves the open Task-5 sub-decision: own
-port, not absorption. Every other example, demo, library, and campaign YAML
-workflow is reclassified `delete` (the neurips and ptychopinn campaigns are
-confirmed finished), and Task 6's deletion sweep — including pruning the
-YAML-referencing tests and fixtures in the same tranche — may run as an
-early independent tranche scheduled around the tracked-plan pilot's
-quiescence window, without waiting for the migration waves. Task 5's
-per-family promotion tail therefore shrinks to the two named ports.
-Temporary holdout: `non_progress_step_back_demo.yaml` stays until the
-in-flight step-back recovery work concludes, then is deleted or ported by
-that work's owner. The demoted Design Delta YAML twins keep their planned
-Stage-6 archive step. Endgame: zero YAML workflow files, then Task 7 deletes
-the user-facing YAML frontend. The triage table's draft classes are
-superseded by this survivor list.
+**Steering decision:** Retirement is deletion-first. The only workflows that
+receive new `.orc` ports are `verified_iteration_drain` and
+`generic_run_watchdog`. The seven demoted Design Delta YAML twins are preserved
+only through content-addressed git history before deletion. The protected
+non-progress step-back workflow stays held until its owner records a
+disposition. Every other authored YAML/YML file is deleted after the reference
+and supported-run gates pass. The `delete_non_survivor_estate` queue is an
+early independent tranche: Stage 6 may execute it as soon as its own gates and
+reviews pass, without waiting for Tasks 1–5 or either new port. The Design
+Delta archive remains ordered after that deletion queue.
 
 ## Entry gate
 
-- `docs/workflow_yaml_estate_triage.md` must exist first (produced by `docs/plans/2026-07-07-refactoring-dead-code-and-lowering-consolidation.md` Task 13) — it is this program's work-list. Do not start this plan before that triage doc exists.
-- The drain migration plan (`docs/plans/2026-07-07-drain-migration-g8-retirement.md`) exists; its phases gate Task 5's drain-family promotions.
+- `docs/plans/2026-07-13-procedure-first-reuse-inventory.json` contains a
+  validated `yaml_retirement_handoff` at schema version
+  `procedure_first_yaml_retirement_handoff.v1`.
+- `docs/workflow_yaml_estate_triage.md` is an exact human-readable projection
+  of the handoff, not an independently maintained work list.
+- Re-validate both with
+  `tests/test_workflow_lisp_procedure_first_migrations.py` before mutating a
+  workflow.
 
-## Global Constraints
+## Global constraints
 
-- Run all commands from the repo root `/home/ollie/Documents/agent-orchestration`.
-- The working tree may contain the user's in-flight work. **Stage by explicit path only.** Never `git add -A`, `git add -u`, or `git commit -a`.
-- Commit messages: short imperative sentence, repo style. No conventional-commit prefixes, no mention of Claude/Claude Code, no Co-Authored-By trailers.
-- No worktrees. Never `--no-verify`.
-- Narrowest pytest selectors first; fresh output is the verification evidence. Workflow/prompt/artifact-contract changes additionally rerun one orchestrator/demo smoke.
-- Do not touch `state/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN-R*` directories (compile-evidence inputs).
-- Out of scope for "user-facing retirement": internal/debug YAML (`emit_debug_yaml` artifacts, persisted run metadata). Those are not authoring surfaces.
-- Anchors verified 2026-07-07; re-verify by name before each task.
+- Run all commands from the repository root.
+- Stage explicit paths only; never use broad staging commands.
+- Do not create worktrees.
+- Use narrow tests before broad tests and fresh command output as evidence.
+- Execute deletion batches in import-dependency order and limit each batch to
+  at most 15 workflow files.
+- Do not infer live or supported use from store-wide status totals. Deletion
+  gates use match-scoped, supported-root scans of top-level and nested workflow
+  consumers. Missing or unreadable status is nonterminal and fails closed.
+- The supported run-root scope is **pending adjudication** until an owner-bound
+  record closes it. Store-wide totals remain visible as non-gating hygiene.
+- A deletion is not authorized by this plan alone. Its queue gate and the
+  applicable Stage-6 owner or review boundary must be satisfied first; once
+  those conditions pass, the deletion-first steering authorizes the independent
+  non-survivor tranche without a port prerequisite.
+- Do not modify the protected in-flight step-back recovery files while their
+  queue remains on hold.
+- Task 7's handoff intentionally defers the repository-reference capture and
+  supported-root run-consumer scan to Stage 6. Their machine statuses remain
+  `pending_stage_6_scan` and `pending_adjudication`; the handoff contains no
+  synthetic eligibility claim.
 
----
+## Protected working-tree guard
 
-### Task 1: Language-gap list (`.orc` vs YAML feature parity) — UNGATED
+These seven user-owned paths remain outside this program until their owning
+work changes their disposition:
 
-The final deletion (Task 7) is gated on this list being empty or explicitly waived. Known member: **native bounded loops** — `cycle_guard_demo` is pinned `eligible_for_primary_surface: false` with reason "demo-only until native bounded-loop parity is intentionally designed later" (see `artifacts/work/review-parity-check/cycle_guard_demo.json` and `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json`).
+- `docs/plans/2026-06-20-workflow-step-back-non-progress-recovery-plan.md`
+- `docs/plans/2026-07-01-workflow-audit-tier-fixes.md`
+- `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/remaining-neurips-migration-experiment/migration_experiment_recommendation_report.md`
+- `state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt`
+- `tests/test_workflow_non_progress_step_back_demo.py`
+- `workflows/examples/non_progress_step_back_demo.yaml`
+- `workflows/library/prompts/workflow_step_back/diagnose_non_progress.md`
 
-**Files:**
-- Create: `docs/workflow_yaml_orc_gap_list.md`
-
-- [ ] **Step 1: Enumerate the YAML feature surface**
-
-The authored YAML surface is what `orchestrator/loader.py` validates/normalizes plus the typed step kinds. Collect:
-```bash
-grep -n "def _validate_\|def _normalize_" orchestrator/loader.py
-python -c "from orchestrator.workflow.surface_ast import SurfaceStepKind; print([k.value for k in SurfaceStepKind])"
-```
-
-- [ ] **Step 2: Enumerate the `.orc` form surface**
-
-```bash
-python -c "
-from orchestrator.workflow_lisp import form_registry
-import inspect
-src = inspect.getsource(form_registry)
-" 2>/dev/null || grep -n "FormKind\|register_form\|\"remove_by\"" orchestrator/workflow_lisp/form_registry.py | head -40
-```
-Cross-check with `docs/capability_status_matrix.md` (the repo's implemented/partial/designed ledger) — do not re-derive what it already records.
-
-- [ ] **Step 3: Write the gap list**
-
-For each YAML-expressible feature with no `.orc` equivalent, one entry: feature, evidence (workflow file using it, from the triage table), and a decision field with exactly one of: `design` (link the design doc that must own it — native bounded loops goes here), `drop` (feature retired with its last YAML user), `wait` (blocked on a named gate). No entry may read "TBD" — `wait` with a named gate is the honest unknown.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add docs/workflow_yaml_orc_gap_list.md
-git commit -m "Add yaml to orc language gap list"
-```
-
----
-
-### Task 2: Move the dashboard off raw-YAML structure reads — UNGATED
-
-`dashboard/server.py` re-reads workflow YAML and re-classifies steps with an untyped parallel classifier: `_read_workflow_yaml_for_structure` (:1898-1924) and `_workflow_step_kind` (:2036-2051), duplicating `SurfaceStepKind`/`ExecutableNodeKind` logic. `dashboard/projection.py:19,150` already reaches `WorkflowLoader` — the typed path exists.
-
-**Files:**
-- Modify: `dashboard/server.py` (or the dashboard module root discovered in Step 1)
-
-- [ ] **Step 1: Verify anchors and find the callers**
+Before every commit, print the complete cached path list, then run this literal
+guard; it must print nothing:
 
 ```bash
-grep -rn "_read_workflow_yaml_for_structure\|_workflow_step_kind" dashboard/ | grep -v test
-grep -rn "WorkflowLoader" dashboard/
-ls tests/ | grep -i dashboard
+git diff --cached --name-only -- \
+  'docs/plans/2026-06-20-workflow-step-back-non-progress-recovery-plan.md' \
+  'docs/plans/2026-07-01-workflow-audit-tier-fixes.md' \
+  'docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/remaining-neurips-migration-experiment/migration_experiment_recommendation_report.md' \
+  'state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt' \
+  'tests/test_workflow_non_progress_step_back_demo.py' \
+  'workflows/examples/non_progress_step_back_demo.yaml' \
+  'workflows/library/prompts/workflow_step_back/diagnose_non_progress.md'
 ```
 
-- [ ] **Step 2: Replace the raw reads**
+Never stage, restore, rewrite, format, or delete a protected path.
 
-Route the structure/step-kind needs through the loaded bundle (`WorkflowLoader.load_bundle` → surface AST → `SurfaceStepKind`), mirroring how `projection.py` does it. Delete `_workflow_step_kind`'s string-matching classifier; the surface AST already knows the kind. Keep the function names as thin wrappers if dashboard tests bind them (check with the Step-1 grep of tests).
+## Stage-6 Queue Manifest
 
-- [ ] **Step 3: Verify**
+The manifest below is an exact summary of the machine-readable handoff. Queue
+membership and counts are tested in both directions; no sixth queue and no
+unclassified authored YAML/YML path are permitted.
 
-Run the dashboard test files found in Step 1 (`pytest <files> -q`) plus an import smoke: `python -c "import dashboard.server"`. If the dashboard has a runnable smoke (check `grep -rn "if __name__" dashboard/server.py`), start it against a sample state dir and confirm the workflow-structure endpoint renders (document the exact command used and its output in the task report).
+| Queue ID | Paths | Legacy rows | Status | Prerequisite queues | Disposition and gate |
+|---|---:|---:|---|---|---|
+| `delete_non_survivor_estate` | 100 | 53 | `pending` | none | Early independent deletion in dependency-ordered batches of at most 15 after zero unclassified active references and zero supported matching nonterminal top-level or nested consumers. |
+| `archive_design_delta_yaml_twin` | 7 | 10 | `pending` | `delete_non_survivor_estate` | Record each pre-delete blob identity in git history, verify the structured `.orc`, registry, parity, and drain-plan evidence, then delete; do not create a live archive copy. |
+| `port_verified_iteration` | 1 | 0 | `pending` | none | Use the structured Task-15 plan input, then create and promote one dedicated `.orc` port through the parity contract before applying its deletion gates. |
+| `port_generic_run_watchdog` | 1 | 0 | `pending` | none | Create and promote one dedicated `.orc` port through the parity contract, then apply the deletion gates to its YAML source. |
+| `hold_non_progress_step_back` | 1 | 0 | `pending` | none | No mutation until the step-back recovery owner records an explicit delete-or-port disposition; then requeue through a reviewed handoff update. |
 
-- [ ] **Step 4: Commit**
+### Task 1: Close the `.orc` language-gap list — ENABLING
 
-```bash
-git add <touched dashboard files>
-git commit -m "Read workflow structure from typed surface in dashboard"
-```
+- [ ] Reconcile `docs/workflow_yaml_orc_gap_list.md` against only the two port
+  queues and the protected holdout. A feature used exclusively by deleted
+  workflows receives a recorded `drop` decision, not speculative `.orc`
+  implementation.
+- [ ] Every surviving gap has one of: implemented design, named blocking gate,
+  or explicit owner waiver. No entry may use an unbound “TBD”.
+- [ ] Review the final list before either port begins.
 
----
+### Task 2: Move dashboard structure reads to the typed surface — ENABLING
 
-### Task 3: Split the YAML parse frontend from the shared validation core in `loader.py` — UNGATED
+- [ ] Replace raw YAML structure reclassification in the dashboard with the
+  loaded typed surface (`SurfaceStepKind` / executable IR).
+- [ ] Preserve the public dashboard behavior with contract and dataflow tests;
+  do not test literal prompt or warning wording.
+- [ ] Run the focused dashboard suite and an import or endpoint smoke.
 
-Every Lisp workflow also flows through loader validators: `lowering/core.py:2345-2419` (`_validate_one_lowered_workflow`) calls loader `_validate_*` / `_normalize_v214_ergonomics`. The split makes Task 7's YAML-frontend deletion a file-scoped change instead of a surgical one.
+### Task 3: Split YAML parsing from shared validation — ENABLING
 
-**Files:**
-- Create: `orchestrator/workflow_surface_validation.py`
-- Modify: `orchestrator/loader.py`, `orchestrator/workflow_lisp/lowering/core.py`
+- [ ] Move validation and normalization used by both frontends into a shared
+  module. Keep YAML parsing and file loading isolated behind the legacy loader.
+- [ ] Redirect `.orc` lowering to the shared validation module without changing
+  executable-IR semantics.
+- [ ] Run focused lowering, loader, characterization, collect-only, and one
+  end-to-end route smoke before review.
 
-**Interfaces:** Produces `workflow_surface_validation.py` exporting the shared `_validate_*` / `_normalize_*` functions under their current names; `loader.py` keeps `WorkflowLoader` (YAML read/parse/bundle) and re-exports nothing new.
+### Task 4: Add the deprecation surface — GATE ALREADY SATISFIED
 
-- [ ] **Step 1: Measure exactly which loader names the Lisp path uses**
+- [ ] The promoted Design Delta `.orc` primary satisfies this task's real-target
+  gate; warning work need not wait for either new Task-5 port. Warn once on
+  fresh YAML/YML loads. Existing persisted-run resume behavior remains
+  separately governed.
+- [ ] Route new authors and templates to `.orc`.
+- [ ] Test warning behavior and routing, not literal warning phrasing.
 
-```bash
-grep -n "loader\.\|from orchestrator.loader import\|from ..loader import\|from orchestrator import loader" orchestrator/workflow_lisp/lowering/core.py orchestrator/workflow_lisp/*.py orchestrator/workflow/*.py | grep -v "\.pyc"
-```
-The moved set = the union of names used outside `loader.py` itself, plus their private helpers (trace with `grep -n "def <name>" orchestrator/loader.py` and read each body for intra-module calls).
+### Task 5: Build and promote exactly two `.orc` ports — GATED PER ROW
 
-- [ ] **Step 2: Move the shared set to `workflow_surface_validation.py`**
+| Family | Required promotion evidence |
+|---|---|
+| `verified_iteration_drain` | Dedicated `.orc` source; parity-target registration; passing typed parity report; promoted launch routing; fresh `.orc` workflow smoke; then reference and supported-run deletion gates. |
+| `generic_run_watchdog` | Dedicated `.orc` source; parity-target registration; passing typed parity report; promoted launch routing; fresh `.orc` workflow smoke; then reference and supported-run deletion gates. |
 
-Mechanical move; `loader.py` imports the moved names from the new module (keeping `from orchestrator.loader import X` working for any existing importer — verify importers with `grep -rn "from orchestrator.loader import\|from orchestrator import loader" orchestrator/ tests/ dashboard/`). `lowering/core.py` switches its imports to the new module.
+For each row, use one reviewable promotion sequence:
 
-- [ ] **Step 3: Verify**
+- [ ] Author the `.orc` workflow without changing family behavior.
+- [ ] Register it in the existing parity target and readiness machinery.
+- [ ] Produce a passing parity report with all required roles and artifact
+  lineage present.
+- [ ] Promote `.orc` launch routing while retaining the YAML source for one
+  verification cycle.
+- [ ] Run a fresh `.orc` smoke or real launch and obtain both independent
+  reviews.
+- [ ] Re-run the reference and supported-run scans before queuing the old YAML
+  source for deletion.
 
-```bash
-python -c "import orchestrator.loader, orchestrator.workflow_surface_validation"
-pytest tests/test_workflow_lisp_lowering.py -q
-pytest tests/ -q --collect-only > /dev/null && echo COLLECT_OK
-```
-Plus one YAML-route smoke: `pytest tests/test_workflow_executor_characterization.py -q` (loads YAML workflows end to end).
+### Task 6: Execute the gated archive and deletion queues
 
-- [ ] **Step 4: Commit**
+- [ ] Freeze an exact pre-edit scan over tracked repository references, working
+  tree references, and the YAML import graph. Classify every reference as
+  active, historical, test/fixture, or documentation. Deletion requires zero
+  unclassified active references.
+- [ ] Adjudicate and bind the supported run roots. Query exact old workflow
+  identities and nested consumers. Deletion requires zero supported matching
+  nonterminal runs and call frames. Missing or unreadable status fails closed;
+  store-wide totals are disclosed but do not gate unrelated identities.
+- [ ] For `archive_design_delta_yaml_twin`, verify the exact seven paths from
+  the handoff, their existing `.orc` replacement, historical parity report,
+  and a pre-delete blob ID for each file. Git history is the archive; do not
+  persist a second live workflow bundle.
+- [ ] For `delete_non_survivor_estate`, delete in dependency order and in
+  batches of at most 15 paths. Remove or rewrite active imports, tests,
+  fixtures, and routing in the same reviewed tranche.
+- [ ] After an owner disposition, process `hold_non_progress_step_back` only
+  through its newly reviewed queue assignment.
+- [ ] After each tranche, regenerate the exact inventory and triage projection,
+  run narrow behavioral tests, then run the broad suite in tmux.
 
-```bash
-git add orchestrator/loader.py orchestrator/workflow_surface_validation.py orchestrator/workflow_lisp/lowering/core.py
-git commit -m "Split shared surface validation out of yaml loader"
-```
+Historical prose may still name deleted files. Retirement does not require
+zero textual history; it requires zero unclassified active references, exact
+queue reconciliation, preserved content identities, and passing runtime gates.
 
----
+### Task 7: Remove the user-facing YAML frontend — FINAL GATE
 
-### Task 4: Deprecation surface — GATED on first family promotion (Task 5 family 1)
+This task begins only after both ports are promoted, the held workflow is
+resolved, all five queues reconcile to zero live authored YAML/YML paths, and
+Tasks 2–3 have made dashboard and `.orc` lowering independent of YAML parsing.
 
-Users need a real `.orc` target before the warning fires. Do not land this before at least one production family is `.orc`-primary.
+- [ ] Replace fresh YAML/YML execution in run and resume commands with a clear
+  `.orc`-required error.
+- [ ] Remove YAML parsing and authored-file loading while retaining only the
+  separately justified persisted-terminal-run compatibility surface.
+- [ ] Verify `find workflows -type f \( -name '*.yaml' -o -name '*.yml' \)` is
+  empty and the machine inventory agrees.
+- [ ] Run focused CLI, loader, lowering, dashboard, and migration-parity tests;
+  then the broad suite with `pytest -q -n 16 --dist=worksteal` in tmux.
+- [ ] Run a fresh `.orc` production smoke and update capability and routing docs
+  only after executable verification passes.
 
-**Files:**
-- Modify: `orchestrator/cli/commands/run.py` (the non-`.orc` branch at :329's `else`), `orchestrator/cli/commands/resume.py` (equivalent branch), `docs/index.md`, `workflows/templates/` (1 file per triage)
+## Program completion contract
 
-- [ ] **Step 1:** In the YAML branch of `run.py` (after `loader = WorkflowLoader(workspace)` succeeds), emit once: `logger.warning("YAML workflow authoring is deprecated; author new workflows in .orc (see docs/index.md).")`. Mirror in `resume.py` for fresh YAML loads only — resumes of existing runs stay silent.
-- [ ] **Step 2:** Update `docs/index.md` routing (currently routes YAML drains as production workflows around :537-546) to point authors at `.orc` and the promoted family; replace the `workflows/templates/` YAML template with an `.orc` equivalent per the triage table.
-- [ ] **Step 3:** Verify: `pytest tests/test_cli_safety.py -q` plus a manual `python -m orchestrator run <any triage 'example' yaml> --dry-run` showing the warning once. No test may assert the literal warning text (repo rule) — if a test is needed, assert a warning of category/логger name, not phrasing.
-- [ ] **Step 4:** Commit: `git add <files>` / `git commit -m "Deprecate yaml workflow authoring surface"`.
+Stage 6 is complete only when:
 
----
-
-### Task 5: Per-family `.orc` promotion — GATED per family
-
-Uniform checklist, one family at a time, using the promotion machinery. Family order and gates:
-
-| # | Family (YAML primary or retained twin) | Gate |
-|---|---|---|
-| 1 | `lisp_frontend_design_delta_drain.yaml` (+ 6 `v214` library imports) | Promotion handoff recorded, Phase 3 Tasks 3.1–3.4 are complete with the historical report preserved, Task 4.1 stripped the Design-Delta-only parity lanes, and Task 4.2 retired the temporary G8 build serializer. Gates P3 and P4 are independently reviewed and satisfied; Task 4.1 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The semantic-migration freeze is lifted. `.orc` is primary and YAML/`v214` archive remains deferred to Stage 6. Current work selection and later-stage order are governed by `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`. |
-| 2 | `verified_iteration_drain.yaml` | Record the port-vs-absorb decision first (one paragraph in the triage doc); if port: after family 1 |
-| 3 | `lisp_frontend_autonomous_drain.yaml` | After family 1 (shares the drain stdlib surface) |
-| 4 | `neurips_steered_backlog_drain.yaml` | After family 1; `.legacy.yaml` twin is deleted, not ported (triage class `delete`) |
-| 5 | `major_project_tranche_drain_from_manifest_v2_call.yaml`, `major_project_tranche_drain_stack_v2_call.yaml` | After family 3 |
-| 6 | `lisp_frontend_proc_refs_partial_application_drain.yaml` | After the ProcRef tranche it exercises is stable (check `docs/design/workflow_lisp_proc_refs_partial_application.md` status) |
-
-Per-family checklist (each bullet = one commit-sized step):
-
-- [ ] Author/complete the `.orc` port under `workflows/library/<family>/` or `workflows/examples/`, reusing existing candidates where the triage table shows an `.orc` twin.
-- [ ] Register the family in `workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json` (schema `workflow_lisp_migration_parity_targets.v1` — copy an existing target block) with smoke/parity evidence commands.
-- [ ] Run the parity gate: `python -m orchestrator migration-parity ...` (exact subcommand per `orchestrator/cli/main.py:491-515`) until the report is `non_regressive: true` with all evidence roles passing.
-- [ ] Flip primary surface: update the launch entry points (docs/index.md routing, any scripts referencing the YAML path), set the registry/readiness labels, keep the YAML twin in place for one verification cycle.
-- [ ] Run one real (or dry-run, for expensive families) drain/workflow launch on the `.orc` primary; treat fresh run output as the promotion evidence.
-- [ ] Archive the YAML twin (git rm; the `v214` library files retire only when their last importer flips).
-
----
-
-### Task 6: Estate deletion sweeps by triage class — class `delete`/`example-archive` UNGATED, class `library` per family, class `production` after Task 5
-
-- [ ] **Step 1 (ungated):** Delete triage-class `delete` files (e.g. `neurips_steered_backlog_drain.legacy.yaml`) and archive-class examples with no importers (`yaml importers == 0` in the triage table). Verify: `pytest tests/test_workflow_lisp_examples.py -q` and `grep -rn "<deleted basename>" orchestrator/ tests/ docs/ workflows/` per file → no hits. One commit per batch of ≤15 files.
-- [ ] **Step 2 (per family):** With each Task-5 family archival, delete its `v214`/library YAML imports once `grep -rln "<library file basename>" workflows/` shows no remaining importer.
-- [ ] **Step 3:** Keep the triage doc updated (re-run the Phase-1 Task-13 generator script and commit the refreshed table alongside each sweep).
-
----
-
-### Task 7: Delete the user-facing YAML frontend — GATED on: gap list empty/waived AND all production families promoted AND triage table shows zero `production` YAML rows
-
-**Files:**
-- Modify: `orchestrator/cli/commands/run.py`, `orchestrator/cli/commands/resume.py`
-- Modify: `orchestrator/loader.py`
-- Delete: remaining `workflows/**/*.yaml` per triage; the YAML template
-
-- [ ] **Step 1:** Remove the non-`.orc` branch in `run.py` (the `else` after the `.orc` suffix check at :329) — replace with a hard error naming the `.orc` requirement. Same in `resume.py` for fresh loads; decide (and record) the policy for resuming pre-retirement YAML runs — the conservative default is: keep resume working for existing persisted runs for one release, delete later.
-- [ ] **Step 2:** Delete the YAML read/parse path from `loader.py` (now isolated by Task 3); `WorkflowLoader` either shrinks to the persisted-bundle loader the runtime still needs or is deleted — decide by `grep -rn "WorkflowLoader" orchestrator/ dashboard/ tests/` at execution time.
-- [ ] **Step 3:** Delete remaining YAML files per triage; `find workflows -name "*.yaml"` → empty (or exactly the recorded resume-compat exceptions).
-- [ ] **Step 4:** Full suite in tmux (`pytest -q`) + one `.orc` production workflow smoke launch. Update `docs/index.md` and `docs/capability_status_matrix.md` (YAML surface → legacy/removed).
-- [ ] **Step 5:** Commit in reviewable slices (CLI, loader, estate) with explicit paths.
-
----
-
-## Program-level verification strategy
-
-- Tasks 1–3 are ordinary refactors: targeted suites + collect-only + one YAML-route characterization run each.
-- Tasks 4–7 change user-facing behavior: each requires a fresh workflow launch (dry-run acceptable where the family is expensive) as evidence, per the repo rule that workflow-touching changes rerun an orchestrator smoke.
-- The promotion machinery is the admissibility contract for every family flip: no family's YAML twin is deleted while its parity report is anything but `non_regressive: true`.
+1. exactly the two specified `.orc` ports are primary and verified;
+2. the handoff reconciles all 110 original authored YAML/YML paths through the
+   five fixed queues;
+3. git history preserves the seven Design Delta pre-delete blob identities;
+4. no active or unclassified YAML/YML reference or supported old-identity
+   consumer remains;
+5. no authored workflow YAML/YML file remains under `workflows/`;
+6. fresh YAML/YML execution is rejected while the separately documented
+   persisted-run compatibility policy remains intact; and
+7. focused, broad, end-to-end, specification, and code-quality checks pass on
+   the final tree.

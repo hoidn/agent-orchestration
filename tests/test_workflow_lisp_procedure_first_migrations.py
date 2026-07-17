@@ -305,6 +305,591 @@ def _load_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+_YAML_RETIREMENT_QUEUE_COUNTS = {
+    "delete_non_survivor_estate": (100, 53),
+    "archive_design_delta_yaml_twin": (7, 10),
+    "port_verified_iteration": (1, 0),
+    "port_generic_run_watchdog": (1, 0),
+    "hold_non_progress_step_back": (1, 0),
+}
+_YAML_RETIREMENT_QUEUE_DISPOSITIONS = {
+    "delete_non_survivor_estate": ("delete", "none"),
+    "archive_design_delta_yaml_twin": ("archive", "existing_orc_primary"),
+    "port_verified_iteration": ("port", "new_orc_port"),
+    "port_generic_run_watchdog": ("port", "new_orc_port"),
+    "hold_non_progress_step_back": ("hold", "owner_disposition"),
+}
+_YAML_RETIREMENT_QUEUE_GATES = {
+    "delete_non_survivor_estate": (
+        "Task 6: dependency-aware estate deletion batches",
+        [],
+    ),
+    "archive_design_delta_yaml_twin": (
+        "Design Delta archive gate and Task 6",
+        ["delete_non_survivor_estate"],
+    ),
+    "port_verified_iteration": ("Task 5: verified-iteration port", []),
+    "port_generic_run_watchdog": ("Task 5: generic-run-watchdog port", []),
+    "hold_non_progress_step_back": ("Step-back recovery owner handoff", []),
+}
+_YAML_RETIREMENT_REPLACEMENT_PATHS = {
+    "delete_non_survivor_estate": [],
+    "archive_design_delta_yaml_twin": [
+        "workflows/library/lisp_frontend_design_delta/drain.orc"
+    ],
+    "port_verified_iteration": [
+        "workflows/library/verified_iteration_drain/drain.orc"
+    ],
+    "port_generic_run_watchdog": [],
+    "hold_non_progress_step_back": [],
+}
+_YAML_RETIREMENT_EVIDENCE = {
+    "delete_non_survivor_estate": [],
+    "archive_design_delta_yaml_twin": [
+        {
+            "role": "existing_orc_primary",
+            "path": "workflows/library/lisp_frontend_design_delta/drain.orc",
+        },
+        {
+            "role": "route_readiness_registry",
+            "path": "docs/workflow_lisp_route_readiness_registry.json",
+        },
+        {
+            "role": "historical_parity_report",
+            "path": (
+                "artifacts/work/review-parity-check/design_delta_parent_drain.json"
+            ),
+        },
+        {
+            "role": "drain_migration_plan",
+            "path": "docs/plans/2026-07-07-drain-migration-g8-retirement.md",
+        },
+    ],
+    "port_verified_iteration": [
+        {
+            "role": "translation_plan_task_15_input",
+            "path": "docs/plans/2026-07-05-post-foundation-target-completion-plan.md",
+        }
+    ],
+    "port_generic_run_watchdog": [],
+    "hold_non_progress_step_back": [],
+}
+_YAML_RETIREMENT_SINGLETONS = {
+    "port_verified_iteration": "workflows/examples/verified_iteration_drain.yaml",
+    "port_generic_run_watchdog": "workflows/examples/generic_run_watchdog.yaml",
+    "hold_non_progress_step_back": (
+        "workflows/examples/non_progress_step_back_demo.yaml"
+    ),
+}
+_DESIGN_DELTA_YAML_TWIN_PATHS = {
+    "workflows/examples/lisp_frontend_design_delta_drain.yaml",
+    "workflows/library/lisp_frontend_design_delta_selector.v214.yaml",
+    (
+        "workflows/library/"
+        "lisp_frontend_design_delta_design_gap_architect.v214.yaml"
+    ),
+    "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml",
+    "workflows/library/lisp_frontend_design_delta_done_review.v214.yaml",
+    "workflows/library/lisp_frontend_design_delta_plan_phase.v214.yaml",
+    (
+        "workflows/library/"
+        "lisp_frontend_design_delta_implementation_phase.v214.yaml"
+    ),
+}
+
+
+def _authored_yaml_estate_paths() -> set[str]:
+    return {
+        path.relative_to(REPO_ROOT).as_posix()
+        for suffix in ("*.yaml", "*.yml")
+        for path in WORKFLOWS.rglob(suffix)
+    }
+
+
+def _normalized_string_digest(values: set[str] | list[str]) -> str:
+    payload = "".join(f"{value}\n" for value in sorted(values))
+    return f"sha256:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
+
+
+def _validate_yaml_retirement_handoff(inventory: dict[str, object]) -> None:
+    handoff = inventory["yaml_retirement_handoff"]
+    assert set(handoff) == {
+        "schema_version",
+        "captured_at_commit",
+        "governing_plan",
+        "claim_scope",
+        "estate",
+        "queues",
+        "preserved_workflow_lisp_boundaries",
+        "reference_scan_contract",
+        "run_consumer_scan_contract",
+        "reconciliation",
+    }
+    assert handoff["schema_version"] == "procedure_first_yaml_retirement_handoff.v1"
+    assert handoff["captured_at_commit"] == (
+        "56a832bffc11ea4572eae3e6285690a74db7d990"
+    )
+    assert handoff["governing_plan"] == (
+        "docs/plans/2026-07-07-yaml-retirement-program.md"
+    )
+    assert set(handoff["claim_scope"]) == {
+        "authoring_roots",
+        "suffixes",
+        "downstream_clones_discovered",
+    }
+    assert handoff["claim_scope"] == {
+        "authoring_roots": ["workflows"],
+        "suffixes": [".yaml", ".yml"],
+        "downstream_clones_discovered": False,
+    }
+
+    estate = handoff["estate"]
+    assert set(estate) == {"path_count", "normalized_path_sha256", "paths"}
+    estate_paths = estate["paths"]
+    assert estate_paths == sorted(estate_paths)
+    assert len(estate_paths) == len(set(estate_paths)) == 110
+    assert set(estate_paths) == _authored_yaml_estate_paths()
+    assert estate["path_count"] == 110
+    assert estate["normalized_path_sha256"] == _normalized_string_digest(estate_paths)
+    assert "workflows/examples/test_validation.yml" in estate_paths
+
+    queues = handoff["queues"]
+    assert [queue["queue_id"] for queue in queues] == list(
+        _YAML_RETIREMENT_QUEUE_COUNTS
+    )
+    queued_paths: list[str] = []
+    queued_legacy_ids: list[str] = []
+    for queue in queues:
+        assert set(queue) == {
+            "queue_id",
+            "status",
+            "disposition",
+            "paths",
+            "legacy_retire_record_ids",
+            "replacement",
+            "evidence_paths",
+            "archive_destination",
+            "stage_6_gate",
+            "prerequisite_queue_ids",
+            "reference_gate",
+            "run_consumer_gate",
+        }
+        queue_id = queue["queue_id"]
+        expected_paths, expected_legacy = _YAML_RETIREMENT_QUEUE_COUNTS[queue_id]
+        assert queue["status"] == "pending"
+        expected_disposition, expected_replacement = (
+            _YAML_RETIREMENT_QUEUE_DISPOSITIONS[queue_id]
+        )
+        assert queue["disposition"] == expected_disposition
+        assert set(queue["replacement"]) == {"kind", "paths", "rationale"}
+        assert queue["replacement"]["kind"] == expected_replacement
+        assert queue["replacement"]["paths"] == (
+            _YAML_RETIREMENT_REPLACEMENT_PATHS[queue_id]
+        )
+        assert isinstance(queue["replacement"]["rationale"], str)
+        assert queue["replacement"]["rationale"].strip()
+        assert queue["evidence_paths"] == _YAML_RETIREMENT_EVIDENCE[queue_id]
+        for evidence in queue["evidence_paths"]:
+            assert set(evidence) == {"role", "path"}
+            assert (REPO_ROOT / evidence["path"]).is_file()
+        expected_gate, expected_prerequisites = _YAML_RETIREMENT_QUEUE_GATES[
+            queue_id
+        ]
+        assert queue["stage_6_gate"] == expected_gate
+        assert queue["prerequisite_queue_ids"] == expected_prerequisites
+        assert queue["paths"] == sorted(queue["paths"])
+        assert queue["legacy_retire_record_ids"] == sorted(
+            queue["legacy_retire_record_ids"]
+        )
+        assert len(queue["paths"]) == expected_paths
+        assert len(queue["legacy_retire_record_ids"]) == expected_legacy
+        assert queue["archive_destination"] == {
+            "kind": "git_history",
+            "require_predelete_blob_ids": True,
+        }
+        assert queue["reference_gate"] == "zero_unclassified_active_references"
+        assert queue["run_consumer_gate"] == (
+            "zero_supported_matching_nonterminal_consumers"
+        )
+        queued_paths.extend(queue["paths"])
+        queued_legacy_ids.extend(queue["legacy_retire_record_ids"])
+
+    assert len(queued_paths) == len(set(queued_paths)) == 110
+    assert set(queued_paths) == set(estate_paths)
+    assert set(
+        next(
+            queue["paths"]
+            for queue in queues
+            if queue["queue_id"] == "archive_design_delta_yaml_twin"
+        )
+    ) == _DESIGN_DELTA_YAML_TWIN_PATHS
+    for queue_id, path in _YAML_RETIREMENT_SINGLETONS.items():
+        queue = next(queue for queue in queues if queue["queue_id"] == queue_id)
+        assert queue["paths"] == [path]
+
+    records = inventory["records"]
+    legacy_records = {
+        row["id"]: row
+        for row in records
+        if row["record_kind"] == "internal-call"
+        and row["classification"] == "legacy-retire"
+    }
+    assert len(queued_legacy_ids) == len(set(queued_legacy_ids)) == 63
+    assert set(queued_legacy_ids) == set(legacy_records)
+    for queue in queues:
+        queue_paths = set(queue["paths"])
+        for record_id in queue["legacy_retire_record_ids"]:
+            assert legacy_records[record_id]["source_path"] in queue_paths
+
+    preserved = handoff["preserved_workflow_lisp_boundaries"]
+    assert set(preserved) == {
+        "disposition",
+        "effect_adapter_record_ids",
+        "public_entry_record_ids",
+    }
+    assert preserved["disposition"] == "preserve_workflow_lisp_boundary"
+    effect_ids = {
+        row["id"]
+        for row in records
+        if row["record_kind"] == "internal-call"
+        and row["classification"] == "effect-adapter"
+    }
+    public_ids = {
+        row["id"] for row in records if row["record_kind"] == "public-entry"
+    }
+    assert len(effect_ids) == 32
+    assert len(public_ids) == 13
+    assert preserved["effect_adapter_record_ids"] == sorted(effect_ids)
+    assert preserved["public_entry_record_ids"] == sorted(public_ids)
+    assert not (set(queued_legacy_ids) & (effect_ids | public_ids))
+
+    reference = handoff["reference_scan_contract"]
+    assert set(reference) == {
+        "capture_status",
+        "scopes",
+        "allowed_classifications",
+        "deletion_rule",
+        "records",
+        "normalized_records_sha256",
+    }
+    assert reference["capture_status"] == "pending_stage_6_scan"
+    assert reference["scopes"] == [
+        "tracked_repository",
+        "working_tree",
+        "yaml_import_graph",
+    ]
+    assert reference["deletion_rule"] == "zero_unclassified_active_references"
+    assert set(reference["allowed_classifications"]) == {
+        "delete_with_source",
+        "reroute_to_orc",
+        "temporary_yaml_frontend_test",
+        "historical_reference_retained",
+    }
+    assert reference["records"] == []
+    assert reference["normalized_records_sha256"] == _normalized_string_digest([])
+    run_scan = handoff["run_consumer_scan_contract"]
+    assert set(run_scan) == {
+        "capture_status",
+        "root_scope_status",
+        "matching_scope",
+        "missing_or_unreadable_status",
+        "gate_fields",
+        "non_gating_store_fields",
+        "deletion_rule",
+        "observed_nonterminal_label_count",
+        "observed_nonterminal_label_claim",
+    }
+    assert run_scan["capture_status"] == "hygiene_only_pending_scope_adjudication"
+    assert run_scan["root_scope_status"] == "pending_adjudication"
+    assert run_scan["missing_or_unreadable_status"] == "nonterminal"
+    assert run_scan["gate_fields"] == [
+        "matching_terminal_run_count",
+        "matching_nonterminal_run_count",
+        "matching_call_frame_count",
+    ]
+    assert run_scan["non_gating_store_fields"] == [
+        "store_terminal_run_count",
+        "store_nonterminal_run_count",
+    ]
+    assert run_scan["observed_nonterminal_label_count"] == 84
+    assert run_scan["observed_nonterminal_label_claim"] == "hygiene_only"
+
+    assert handoff["reconciliation"] == {
+        "estate_path_count": 110,
+        "queued_path_count": 110,
+        "legacy_retire_record_count": 63,
+        "queued_legacy_retire_record_count": 63,
+        "effect_adapter_record_count": 32,
+        "preserved_effect_adapter_record_count": 32,
+        "public_entry_record_count": 13,
+        "preserved_public_entry_record_count": 13,
+    }
+
+
+def test_yaml_retirement_handoff_partitions_estate_records_and_boundaries() -> None:
+    _validate_yaml_retirement_handoff(_load_json(REUSE_INVENTORY))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "missing_estate_path",
+        "extra_nonexistent_estate_path",
+        "duplicate_queue_path",
+        "missing_yml_path",
+        "missing_legacy_id",
+        "duplicate_legacy_id",
+        "wrong_queue_legacy_id",
+        "retire_effect_adapter",
+        "retire_public_entry",
+        "missing_public_boundary",
+        "sixth_queue",
+        "renamed_queue",
+        "changed_design_delta_set",
+        "wrong_port_replacement",
+        "store_total_used_as_gate",
+        "missing_status_treated_terminal",
+        "reference_gate_weakened",
+        "extra_handoff_key",
+        "wrong_governing_plan",
+        "wrong_queue_gate",
+        "wrong_queue_prerequisite",
+        "missing_evidence_path",
+        "wrong_reference_scope",
+        "wrong_reference_status",
+        "wrong_reference_digest",
+    ),
+)
+def test_yaml_retirement_handoff_rejects_missing_extra_or_crossed_membership(
+    mutation: str,
+) -> None:
+    inventory = _load_json(REUSE_INVENTORY)
+    handoff = inventory["yaml_retirement_handoff"]
+    queues = handoff["queues"]
+    delete_queue = queues[0]
+    design_delta_queue = queues[1]
+    if mutation == "missing_estate_path":
+        handoff["estate"]["paths"].pop()
+    elif mutation == "extra_nonexistent_estate_path":
+        handoff["estate"]["paths"].append("workflows/examples/absent.yaml")
+    elif mutation == "duplicate_queue_path":
+        queues[2]["paths"] = [delete_queue["paths"][0]]
+    elif mutation == "missing_yml_path":
+        handoff["estate"]["paths"].remove(
+            "workflows/examples/test_validation.yml"
+        )
+    elif mutation == "missing_legacy_id":
+        delete_queue["legacy_retire_record_ids"].pop()
+    elif mutation == "duplicate_legacy_id":
+        delete_queue["legacy_retire_record_ids"].append(
+            delete_queue["legacy_retire_record_ids"][0]
+        )
+    elif mutation == "wrong_queue_legacy_id":
+        record_id = delete_queue["legacy_retire_record_ids"].pop()
+        design_delta_queue["legacy_retire_record_ids"].append(record_id)
+        design_delta_queue["legacy_retire_record_ids"].sort()
+    elif mutation == "retire_effect_adapter":
+        delete_queue["legacy_retire_record_ids"][0] = handoff[
+            "preserved_workflow_lisp_boundaries"
+        ]["effect_adapter_record_ids"][0]
+        delete_queue["legacy_retire_record_ids"].sort()
+    elif mutation == "retire_public_entry":
+        delete_queue["legacy_retire_record_ids"][0] = handoff[
+            "preserved_workflow_lisp_boundaries"
+        ]["public_entry_record_ids"][0]
+        delete_queue["legacy_retire_record_ids"].sort()
+    elif mutation == "missing_public_boundary":
+        handoff["preserved_workflow_lisp_boundaries"][
+            "public_entry_record_ids"
+        ].pop()
+    elif mutation == "sixth_queue":
+        queues.append(deepcopy(queues[-1]))
+        queues[-1]["queue_id"] = "unexpected_queue"
+    elif mutation == "renamed_queue":
+        queues[0]["queue_id"] = "renamed_delete_queue"
+    elif mutation == "changed_design_delta_set":
+        design_delta_queue["paths"][0] = delete_queue["paths"][0]
+        design_delta_queue["paths"].sort()
+    elif mutation == "wrong_port_replacement":
+        queues[2]["replacement"]["kind"] = "none"
+    elif mutation == "store_total_used_as_gate":
+        handoff["run_consumer_scan_contract"]["gate_fields"][1] = (
+            "store_nonterminal_run_count"
+        )
+    elif mutation == "missing_status_treated_terminal":
+        handoff["run_consumer_scan_contract"]["missing_or_unreadable_status"] = (
+            "terminal"
+        )
+    elif mutation == "reference_gate_weakened":
+        handoff["reference_scan_contract"]["deletion_rule"] = (
+            "classified_references_may_remain_active"
+        )
+    elif mutation == "extra_handoff_key":
+        handoff["unexpected"] = True
+    elif mutation == "wrong_governing_plan":
+        handoff["governing_plan"] = "docs/plans/wrong.md"
+    elif mutation == "wrong_queue_gate":
+        delete_queue["stage_6_gate"] = "Task 5"
+    elif mutation == "wrong_queue_prerequisite":
+        design_delta_queue["prerequisite_queue_ids"] = []
+    elif mutation == "missing_evidence_path":
+        design_delta_queue["evidence_paths"].pop()
+    elif mutation == "wrong_reference_scope":
+        handoff["reference_scan_contract"]["scopes"].pop()
+    elif mutation == "wrong_reference_status":
+        handoff["reference_scan_contract"]["capture_status"] = "complete"
+    elif mutation == "wrong_reference_digest":
+        handoff["reference_scan_contract"]["normalized_records_sha256"] = (
+            "sha256:" + "0" * 64
+        )
+
+    with pytest.raises((AssertionError, KeyError)):
+        _validate_yaml_retirement_handoff(inventory)
+
+
+_YAML_REFERENCE_CLASSIFICATIONS = {
+    "delete_with_source",
+    "reroute_to_orc",
+    "temporary_yaml_frontend_test",
+    "historical_reference_retained",
+}
+_YAML_TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
+
+
+def _yaml_retirement_reference_gate_passes(
+    records: list[dict[str, object]],
+) -> bool:
+    return all(
+        not record.get("active", False)
+        or record.get("classification") in _YAML_REFERENCE_CLASSIFICATIONS
+        for record in records
+    )
+
+
+def _yaml_retirement_run_gate_passes(runs: list[dict[str, object]]) -> bool:
+    for run in runs:
+        if not run.get("supported", False):
+            continue
+        matches = bool(run.get("matches_top_level", False)) or bool(
+            run.get("matching_nested_call_frame_count", 0)
+        )
+        if not matches:
+            continue
+        if run.get("status") not in _YAML_TERMINAL_RUN_STATUSES:
+            return False
+    return True
+
+
+@pytest.mark.parametrize(
+    ("references", "runs", "expected"),
+    (
+        ([], [], True),
+        ([], [{"supported": True, "matches_top_level": True, "status": "running"}], False),
+        (
+            [],
+            [
+                {
+                    "supported": True,
+                    "matches_top_level": False,
+                    "matching_nested_call_frame_count": 1,
+                    "status": "suspended",
+                }
+            ],
+            False,
+        ),
+        ([], [{"supported": True, "matches_top_level": True}], False),
+        (
+            [],
+            [{"supported": True, "matches_top_level": False, "status": "running"}],
+            True,
+        ),
+        (
+            [],
+            [{"supported": True, "matches_top_level": True, "status": "completed"}],
+            True,
+        ),
+        ([{"active": True}], [], False),
+        (
+            [
+                {
+                    "active": True,
+                    "classification": "historical_reference_retained",
+                }
+            ],
+            [],
+            True,
+        ),
+    ),
+    ids=(
+        "empty-positive-control",
+        "matching-top-level-nonterminal-rejects",
+        "matching-nested-nonterminal-rejects-containing-run",
+        "missing-status-rejects",
+        "unrelated-store-nonterminal-passes",
+        "matching-terminal-passes",
+        "unclassified-active-reference-rejects",
+        "classified-historical-reference-passes",
+    ),
+)
+def test_yaml_retirement_pending_gate_semantics(
+    references: list[dict[str, object]],
+    runs: list[dict[str, object]],
+    expected: bool,
+) -> None:
+    assert (
+        _yaml_retirement_reference_gate_passes(references)
+        and _yaml_retirement_run_gate_passes(runs)
+    ) is expected
+
+
+def test_yaml_estate_triage_projects_every_handoff_path_and_queue() -> None:
+    inventory = _load_json(REUSE_INVENTORY)
+    handoff = inventory["yaml_retirement_handoff"]
+    triage = (
+        REPO_ROOT / "docs" / "workflow_yaml_estate_triage.md"
+    ).read_text(encoding="utf-8")
+    projected_rows: list[list[str]] = []
+    for line in triage.splitlines():
+        if not line.startswith("| workflows/"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        assert len(cells) == 8
+        projected_rows.append(cells)
+
+    projected_paths = [cells[0] for cells in projected_rows]
+    assert len(projected_paths) == len(set(projected_paths)) == 110
+    rows = {cells[0]: cells for cells in projected_rows}
+
+    assert set(rows) == set(handoff["estate"]["paths"])
+    assert "workflows/examples/test_validation.yml" in rows
+    queues = {
+        queue["queue_id"]: queue for queue in handoff["queues"]
+    }
+    for queue_id, queue in queues.items():
+        for path in queue["paths"]:
+            cells = rows[path]
+            assert cells[1] == queue_id
+            assert cells[2] == queue["disposition"]
+            expected_replacement_or_rationale = (
+                queue["replacement"]["paths"][0]
+                if queue["replacement"]["paths"]
+                else queue["replacement"]["rationale"]
+            )
+            assert cells[3] == expected_replacement_or_rationale
+            assert cells[4] == str(
+                sum(
+                    record_id.startswith(f"internal-call:{path}:")
+                    for record_id in queue["legacy_retire_record_ids"]
+                )
+            )
+            assert cells[5] == "git_history"
+            assert cells[6] == "pending"
+            assert cells[7] == "reference + supported-run-consumer"
+
+    assert "YAML Workflow Estate Triage (DRAFT)" not in triage
+    assert handoff["estate"]["normalized_path_sha256"] in triage
+
+
 def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts() -> None:
     inventory = _load_json(REUSE_INVENTORY)
     narrative = REUSE_INVENTORY.with_suffix(".md").read_text(encoding="utf-8")

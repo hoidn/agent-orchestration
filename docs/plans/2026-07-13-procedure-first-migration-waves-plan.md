@@ -14,7 +14,7 @@
 
 **Status:** Current selector (activated 2026-07-16). Task 1's post-hardening
 rebaseline is complete at `4983afff` with its narrative correction at
-`fa16bcf0`. **Current sub-selector: Task 7 Step 1. Tasks 5–6 are complete.**
+`fa16bcf0`. **Current sub-selector: Task 8 Step 1. Tasks 5–7 are complete.**
 The four-call finalizer-projection subfamily is retained by the reviewed
 strict-compatibility decision in
 `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md`;
@@ -66,8 +66,12 @@ audits at `c9687539`, `26d9ecd0`, and `848ceb52`, each after independent
 specification and quality approval. Task 5 then retained its four ordered
 subfamilies, reconciling 4 + 6 + 9 + 2 = 21 active `effect-adapter` rows.
 Task 6 retained its one builder call under the bounded checkpoint decision and
-is complete; Task 7 Step 1 is selected without reordering Tasks 7–8 or the
-later stages.
+is complete. Task 7 then materialized the exact Stage-6 handoff without any
+workflow or run mutation: 110 authored YAML/YML paths are partitioned across
+five queues, all 63 legacy-retire rows map 53/10 into the deletion and Design
+Delta archive queues, and all 32 effect adapters plus 13 public entries remain
+preserved outside retirement. Task 8 Step 1 is selected without advancing the
+governing roadmap to Stage 6.
 The governing Task 6 evidence is
 `docs/plans/2026-07-16-design-delta-drain-builder-checkpoint-retention-plan.md`.
 Commit
@@ -110,8 +114,8 @@ legacy-retire rows, plus 13 separate public entries and one history row.
   closed as retained on two shared-validation diagnostics. Task 5 is complete,
   and Task 6 then retained its one private builder call because the exact
   compiling inline hypothetical removes a caller-owned checkpoint and adds
-  none. Task 7 Step 1 is current. Production-family Tasks 5–6 retain every
-  later prerequisite in this plan.
+  none. Task 7 is complete and Task 8 Step 1 is current. Production-family
+  Tasks 5–6 retain every later prerequisite in this plan.
 - Preserve the inventory's separate `public-entry` records. In particular, never migrate:
   - `workflows/library/lisp_frontend_design_delta/drain.orc::drain` away from `defworkflow`; or
   - `workflows/examples/design_plan_impl_review_stack_v2_call.orc::design-plan-impl-review-stack` away from `defworkflow`.
@@ -756,8 +760,8 @@ Task 5 was complete; Task 6 Step 1 then became current.
 
 ### Task 6: Migrate The Internal Drain Builder Without Removing The Public Drain
 
-**Status:** Complete by fail-closed checkpoint retention. Task 7 Step 1 is
-current.
+**Status:** Complete by fail-closed checkpoint retention. Task 7 is complete;
+Task 8 Step 1 is current.
 
 **Files:**
 - Modify: `workflows/library/lisp_frontend_design_delta/drain.orc`
@@ -820,24 +824,41 @@ evidence is
 
 ### Task 7: Hand Legacy Rows To Stage 6 Without Translating Them
 
-**Current sub-selector:** Step 1.
+**Status:** Complete as a handoff-only task. Task 8 Step 1 is current. The
+handoff partitions 110 authored YAML/YML paths into the exact five Stage-6
+queues, maps all 63 legacy-retire rows as 53 delete plus 10 Design Delta
+archive rows, and preserves all 32 effect-adapter plus 13 public-entry IDs.
+All Stage-6 queues remain pending their own reference, supported-run-consumer,
+parity, archive, or owner gates. No workflow, run store, compiler, runtime,
+prompt, fixture, or parity artifact was mutated.
 
 **Files:**
+- Modify: `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`
 - Modify: `docs/plans/2026-07-07-yaml-retirement-program.md`
 - Modify: `docs/workflow_yaml_estate_triage.md`
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.md`
+- Create: `docs/plans/2026-07-16-yaml-retirement-handoff-plan.md`
 - Test: `tests/test_workflow_lisp_procedure_first_migrations.py`
+- Test: `tests/test_workflow_lisp_drain_roadmap_routing.py`
 
-- [ ] **Step 1: Reconcile all 63 legacy-retire rows**
+- [x] **Step 1: Reconcile all 63 legacy-retire rows**
 
-For each YAML family, name its retained public `.orc` replacement or deletion rationale, parity evidence, external-reference search, archive destination, and Stage 6 task/gate. A `legacy-retire` call site is not proof that its containing file may be deleted.
+The machine handoff records every exact YAML/YML path, its replacement or
+deletion rationale, archive destination, and Stage-6 gate. Its two legacy-row
+queues contain exactly 53 and 10 stable IDs and partition all 63 active
+`legacy-retire` rows. A legacy call site is explicitly not treated as proof
+that its containing file may be deleted.
 
-- [ ] **Step 2: Add Stage 6 queue entries only**
+- [x] **Step 2: Add Stage 6 queue entries only**
 
-Update the YAML retirement plan/triage with bounded family queues and prerequisites. Do not delete, archive, rename, or flip a primary in this task.
+The inventory, narrative projection, triage, and retirement program now agree
+on exactly five queues: 100 non-survivor deletions, seven Design Delta Git-
+history archives, one verified-iteration port, one generic-watchdog port, and
+one protected non-progress holdout. This task did not delete, archive, rename,
+port, or flip a primary.
 
-- [ ] **Step 3: Prove no live reference is silently removed**
+- [x] **Step 3: Prove no live reference is silently removed**
 
 ```bash
 rg -n 'workflows/(examples|library)/.*\.yaml' docs workflows tests README.md
@@ -846,12 +867,18 @@ python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >
 git diff --check -- docs/plans/2026-07-07-yaml-retirement-program.md docs/workflow_yaml_estate_triage.md docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md tests/test_workflow_lisp_procedure_first_migrations.py
 ```
 
-- [ ] **Step 4: Commit the handoff**
+The handoff records repository and working-tree reference classification as a
+pending Stage-6 scan and supported-root scope as pending adjudication. The 84
+observed running/suspended labels are disclosed as hygiene only, not as a live
+or supported conclusion. Deletion remains fail-closed until exact,
+match-scoped top-level and nested consumers are zero in adjudicated roots.
 
-```bash
-git add docs/plans/2026-07-07-yaml-retirement-program.md docs/workflow_yaml_estate_triage.md docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md tests/test_workflow_lisp_procedure_first_migrations.py
-git commit -m "Route compatibility workflows to YAML retirement"
-```
+- [x] **Step 4: Close the reviewed handoff**
+
+The focused machine-schema, queue-partition, triage-projection, program-routing,
+and both-direction mutation tests are the closeout evidence. Integration and
+commit are owned by the enclosing roadmap execution; Task 8 performs the
+whole-wave focused/broad gates and the final selector synchronization.
 
 ### Task 8: Close The Migration-Wave Gate
 

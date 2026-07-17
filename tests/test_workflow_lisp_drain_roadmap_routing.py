@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -319,7 +320,7 @@ def test_procedure_first_status_surfaces_share_current_migration_wave_boundary()
         assert "runtime hardening remains pending" not in normalized, label
 
 
-def test_migration_wave_task_6_closeout_advances_to_task_7_step_1() -> None:
+def test_migration_wave_task_7_handoff_advances_local_selector_to_task_8() -> None:
     plan = (REPO_ROOT / CURRENT_SELECTOR_PATH).read_text(encoding="utf-8")
     current_queue = plan.split(
         "## Current queue after Task 6 closeout",
@@ -360,16 +361,23 @@ def test_migration_wave_task_6_closeout_advances_to_task_7_step_1() -> None:
             r"(?m)^- \[([ xX])\] \*\*Step",
             remaining_tasks[task_number],
         ) == ["x"] * expected_step_count
-    for task_number, expected_step_count in {7: 4, 8: 5}.items():
+    for task_number, expected_step_count in {7: 4}.items():
+        assert re.findall(
+            r"(?m)^- \[([ xX])\] \*\*Step",
+            remaining_tasks[task_number],
+        ) == ["x"] * expected_step_count
+    for task_number, expected_step_count in {8: 5}.items():
         assert re.findall(
             r"(?m)^- \[([ xX])\] \*\*Step",
             remaining_tasks[task_number],
         ) == [" "] * expected_step_count
     normalized_task_7 = _normalized_routing_text(remaining_tasks[7])
+    assert "complete" in normalized_task_7
+    normalized_status = _normalized_routing_text(_migration_plan_status(plan))
     assert re.search(
-        r"\bcurrent sub selector\b.{0,40}\bstep 1\b"
-        r"|\bstep 1\b.{0,40}\bcurrent sub selector\b",
-        normalized_task_7,
+        r"\btask 8\b.{0,40}\bstep 1\b.{0,80}\bcurrent\b"
+        r"|\bcurrent\b.{0,80}\btask 8\b.{0,40}\bstep 1\b",
+        normalized_status,
     )
 
     for commit in MIGRATION_TASK_1_IMPLEMENTATION_COMMITS:
@@ -385,7 +393,6 @@ def test_migration_wave_task_6_closeout_advances_to_task_7_step_1() -> None:
         "Workflow Lisp procedure-first reuse contract",
     )
     selector_surfaces = {
-        "migration plan status": _migration_plan_status(plan),
         "docs index": docs_index_routing,
         "capability matrix": capability_row,
         **_procedure_sequence_selector_surfaces(),
@@ -395,6 +402,137 @@ def test_migration_wave_task_6_closeout_advances_to_task_7_step_1() -> None:
 
     for label in ("docs index", "roadmap current routing"):
         _assert_exact_ordered_routing_paths(selector_surfaces[label], label)
+
+
+def test_yaml_retirement_program_uses_exact_handoff_queues_and_two_ports() -> None:
+    program = (
+        REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md"
+    ).read_text(encoding="utf-8")
+    inventory = json.loads(
+        (
+            REPO_ROOT
+            / "docs"
+            / "plans"
+            / "2026-07-13-procedure-first-reuse-inventory.json"
+        ).read_text(encoding="utf-8")
+    )
+    handoff = inventory["yaml_retirement_handoff"]
+    manifest = program.split("## Stage-6 Queue Manifest", 1)[1].split(
+        "### Task 1:", 1
+    )[0]
+    manifest_rows = {
+        cells[0]: cells
+        for line in manifest.splitlines()
+        if line.startswith("| `")
+        for cells in ([cell.strip(" `") for cell in line.strip("|").split("|")],)
+    }
+    expected = {
+        queue["queue_id"]: (
+            str(len(queue["paths"])),
+            str(len(queue["legacy_retire_record_ids"])),
+        )
+        for queue in handoff["queues"]
+    }
+    assert set(manifest_rows) == set(expected)
+    for queue_id, (path_count, legacy_count) in expected.items():
+        row = manifest_rows[queue_id]
+        assert row[1] == path_count
+        assert row[2] == legacy_count
+        assert row[3] == "pending"
+
+    assert manifest_rows["delete_non_survivor_estate"][4] == "none"
+    assert manifest_rows["archive_design_delta_yaml_twin"][4] == (
+        "delete_non_survivor_estate"
+    )
+    for queue_id in (
+        "port_verified_iteration",
+        "port_generic_run_watchdog",
+        "hold_non_progress_step_back",
+    ):
+        assert manifest_rows[queue_id][4] == "none"
+
+    task_5 = program.split("### Task 5:", 1)[1].split("### Task 6:", 1)[0]
+    task_5_rows = [
+        line for line in task_5.splitlines() if line.startswith("| `")
+    ]
+    assert len(task_5_rows) == 2
+    assert "verified_iteration_drain" in task_5_rows[0]
+    assert "generic_run_watchdog" in task_5_rows[1]
+    for retired_family in (
+        "lisp_frontend_autonomous_drain",
+        "neurips_steered_backlog_drain",
+        "major_project_tranche_drain",
+        "lisp_frontend_proc_refs_partial_application_drain",
+    ):
+        assert retired_family not in task_5
+
+    normalized = _normalized_routing_text(program)
+    for contract_term in (
+        "yaml and yml",
+        "git history",
+        "zero unclassified active references",
+        "zero supported matching nonterminal",
+        "pending adjudication",
+        "early independent",
+    ):
+        assert contract_term in normalized
+    assert "`pending_stage_6_scan`" in program
+    assert re.search(r"design delta \.?orc primary satisfies", normalized)
+    assert "class delete example archive ungated" not in normalized
+    assert "port vs absorb decision" not in normalized
+
+    protected_paths = {
+        "docs/plans/2026-06-20-workflow-step-back-non-progress-recovery-plan.md",
+        "docs/plans/2026-07-01-workflow-audit-tier-fixes.md",
+        (
+            "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/"
+            "remaining-neurips-migration-experiment/"
+            "migration_experiment_recommendation_report.md"
+        ),
+        "state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt",
+        "tests/test_workflow_non_progress_step_back_demo.py",
+        "workflows/examples/non_progress_step_back_demo.yaml",
+        "workflows/library/prompts/workflow_step_back/diagnose_non_progress.md",
+    }
+    protected = program.split("## Protected working-tree guard", 1)[1].split(
+        "## Stage-6 Queue Manifest", 1
+    )[0]
+    listed = {
+        line[3:-1]
+        for line in protected.splitlines()
+        if line.startswith("- `") and line.endswith("`")
+    }
+    assert listed == protected_paths
+    assert "git diff --cached --name-only --" in protected
+    for path in protected_paths:
+        assert f"'{path}'" in protected
+
+
+def test_yaml_retirement_handoff_plan_stages_exact_eight_owned_paths() -> None:
+    handoff_plan = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "2026-07-16-yaml-retirement-handoff-plan.md"
+    ).read_text(encoding="utf-8")
+    stage_block = handoff_plan.split("Stage only these eight paths:", 1)[1].split(
+        "```", 2
+    )[1]
+    staged_paths = {
+        line.strip().removesuffix(" \\")
+        for line in stage_block.splitlines()
+        if line.strip().startswith(("docs/", "tests/"))
+    }
+    assert staged_paths == {
+        "docs/plans/2026-07-07-yaml-retirement-program.md",
+        "docs/workflow_yaml_estate_triage.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.json",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "docs/plans/2026-07-13-procedure-first-migration-waves-plan.md",
+        "docs/plans/2026-07-16-yaml-retirement-handoff-plan.md",
+        "tests/test_workflow_lisp_procedure_first_migrations.py",
+        "tests/test_workflow_lisp_drain_roadmap_routing.py",
+    }
 
 
 def test_task_2_step_1_closes_on_bounded_identity_retirement_ineligibility() -> None:
@@ -798,9 +936,17 @@ def test_design_delta_primary_and_archive_deferral_remain_routed() -> None:
 
     triage_path = REPO_ROOT / "docs" / "workflow_yaml_estate_triage.md"
     triage_row = _markdown_table_row(triage_path, yaml_path)
-    assert "| yes |" in triage_row
-    assert ".orc primary" in triage_row
-    assert "Stage 6" in triage_row
+    triage_cells = [cell.strip() for cell in triage_row.strip().strip("|").split("|")]
+    assert triage_cells == [
+        yaml_path,
+        "archive_design_delta_yaml_twin",
+        "archive",
+        orc_path,
+        "6",
+        "git_history",
+        "pending",
+        "reference + supported-run-consumer",
+    ]
 
     migration_record = (
         REPO_ROOT
