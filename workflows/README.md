@@ -4,9 +4,10 @@ This file is an informative catalog of workflow YAML and Workflow Lisp `.orc`
 examples under `workflows/`. A promoted `.orc` entry with shared-validation,
 runtime, and parity evidence is the primary surface for its family. Otherwise,
 the retained YAML surface remains the exact-behavior authority until its own
-promotion gate closes.
+promotion gate closes. That migration rule preserves existing authority; it
+does not make YAML a starting point for new workflow families.
 
-Run workflows from the repo root:
+Existing YAML compatibility workflows can still be checked from the repo root:
 
 ```bash
 python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
@@ -36,6 +37,11 @@ python -m orchestrator run workflows/examples/dsl_follow_on_plan_impl_review_loo
 ```
 
 ## Which Example Should I Copy?
+
+| Goal | Starting point | Route status |
+| --- | --- | --- |
+| Start new authoring | [Workflow Lisp review/revise example](examples/review_revise_design_docs.orc) | `preferred_current_guidance` / `wcc_default` in the route-readiness registry; use when its typed review/fix shape fits. |
+| Maintain existing YAML | [Legacy YAML drafting guide](../docs/workflow_drafting_guide.md) | Compatibility guidance only; do not create a new YAML/YML workflow or template. |
 
 Fresh preferred starting points:
 
@@ -92,7 +98,8 @@ nearby parity evidence; route identity remains registry metadata.
 - `workflows/examples/*.orc`: Workflow Lisp authoring examples that compile
   through the frontend; check each catalog entry before treating one as a
   runnable replacement for YAML
-- `workflows/templates/`: non-running workflow templates for new workflow families
+- `workflows/templates/`: frozen non-running compatibility-template inventory;
+  new template work starts from a registry-approved `.orc` example
 - `workflows/library/`: reusable imported subworkflows used by `call`-based examples
 - `workflows/library/prompts/`: repo-owned prompt assets bundled with reusable imported workflows
 - `workflows/examples/prompts/`: prompt files used only by example workflows stored under `workflows/examples/`

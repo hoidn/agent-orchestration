@@ -428,10 +428,37 @@
   - Advisory authoring-time linting:
     - `orchestrate run --dry-run` and `orchestrate report` may surface non-fatal warnings for migration patterns such as shell gates that should become `assert`, stringly `when.equals` routing that should become typed predicates, raw `goto` diamonds that should become structured control, and imported/exported output-name collisions.
     - Lint warnings are advisory only in the first pass and never change workflow load validity or runtime exit codes.
+
   - reusable-call contract boundary:
     - Task 10 reserves `imports`, `call`, `with`, `asset_file`, and `asset_depends_on` semantics before execution support lands.
     - When Task 11 lands, those fields require `version: "2.5"` or higher.
     - `version: "2.4"` is a documentation/contract boundary, not a promise that the current loader/runtime executes reusable-call workflows.
+
+### YAML fresh-load deprecation advisory
+
+YAML/YML is a legacy compatibility frontend. It remains executable until the
+separate parser-retirement gate closes, but explicit fresh authored-root loads
+surface a structured advisory event.
+
+| Load purpose | Event policy |
+| --- | --- |
+| Explicit fresh YAML/YML root | Emit one event before parsing for each public root-load attempt. |
+| Persisted compatibility read | Explicitly suppress the event for resume, report, dashboard, and persisted `.orc` rebuild paths. |
+| Recursive YAML import | Do not emit a separate event; the containing explicit root owns the event. |
+| Non-YAML root | Do not emit the YAML deprecation event. |
+
+The event uses logger `orchestrator.loader.yaml_deprecation` at `WARNING` and
+has these structured fields:
+
+- `workflow_deprecation_code` = `workflow_yaml_authoring_deprecated`;
+- `workflow_deprecation_path` = the string form of
+  `Path(requested_path).resolve(strict=False)`; and
+- `workflow_deprecation_format` = `yaml`.
+
+The event is advisory and observability-only. Its presence or suppression must
+not change parsing, validation, diagnostics, bundle identity, execution,
+resume behavior, or exit codes. Warning message wording is not part of the
+contract.
 
 - Control flow defaults
   - `strict_flow: true`: any non-zero exit halts unless an applicable `on.failure.goto` exists.

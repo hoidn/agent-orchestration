@@ -1,7 +1,14 @@
 # Workflow Drafting Guide
 
+Status: legacy compatibility guide
+New-author start: [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
+
 This guide is informative. The normative contracts live under `specs/` (start at `specs/index.md`).
-This guide is about DSL authoring choices, not runtime operations.
+This guide is for maintaining, debugging, or migrating existing YAML/YML
+workflows, not for starting new workflow families. YAML remains executable
+during the compatibility period; its eventual parser removal is a separate
+retirement gate. This guide is about legacy DSL authoring choices, not runtime
+operations.
 
 Companion docs:
 - Concept model and terminology: `docs/orchestration_start_here.md`
@@ -9,7 +16,10 @@ Companion docs:
 - Inline glue and command-adapter boundary:
   `docs/design/workflow_command_adapter_contract.md`
 
-Goal: help you author workflows that are reliable when prompts, deterministic artifacts, and control flow all interact.
+Goal: help you preserve or migrate existing YAML workflows reliably when
+prompts, deterministic artifacts, and control flow all interact. For new
+authoring, begin with the Workflow Lisp guide and a registry-approved `.orc`
+example.
 
 ## 1) Mental Model: Four Authoring Surfaces
 
@@ -42,10 +52,10 @@ ordinary workflow authoring, keep these rules in view:
 - Structured bundles and typed artifacts are authority. Reports, rendered
   plans, debug YAML, pointer files, and summaries are views or materialized
   representations.
-- Do not parse markdown reports to recover semantic fields such as blocker
-  class, review decision, selected item path, phase status, or drain status in
-  new high-level workflows. Text extraction belongs only in explicitly marked
-  legacy adapters or compatibility surfaces with fixtures.
+- When revising an existing YAML/YML workflow, do not parse markdown reports
+  to recover semantic fields such as blocker class, review decision, selected
+  item path, phase status, or drain status. Text extraction belongs only in
+  explicitly marked legacy adapters or compatibility surfaces with fixtures.
 - Artifact values are authoritative. A pointer file contains or represents an
   artifact value; it is not itself the semantic value unless the contract says
   the artifact value is that pointer path.
@@ -75,9 +85,9 @@ Command steps are allowed. Hidden workflow semantics in inline command text are
 migration debt.
 
 Use command steps for external tools or named adapters with explicit contracts.
-Do not use `python -c`, `python -`, `bash -c`, heredocs, nested
+Do not add `python -c`, `python -`, `bash -c`, heredocs, nested
 `subprocess.run`, or inline JSON/pointer/report parsing to decide workflow
-state in new high-level workflows.
+state while maintaining an existing YAML/YML compatibility surface.
 
 Procedural behavior should be one of:
 
@@ -162,9 +172,20 @@ For v2.10 provider-session steps, treat the session handle as runtime-owned data
 
 ### Managed Provider Steps (v2.13)
 
-Use `managed_jobs` when a provider may launch long-running local, Slurm, or training-style jobs that must be audited, recovered, and resumed without relaunching the provider. Start from `workflows/examples/managed_provider_jobs_demo.yaml` for a runnable local pattern.
+**Authoring scope:** `existing_yaml_compatibility`
+**New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
 
-Do not hand-author guard wrappers, audit paths, or `RecoverManagedJobs` command steps in new v2.13 workflows. Manual recovery steps are a compatibility fallback for older runtimes.
+Use `managed_jobs` when an existing YAML/YML workflow has a provider that may
+launch long-running local, Slurm, or training-style jobs that must be audited,
+recovered, and resumed without relaunching the provider. The retained
+`workflows/examples/managed_provider_jobs_demo.yaml` is a compatibility example
+for that v2.13 surface. Genuinely new authoring starts in the
+[Workflow Lisp drafting guide](lisp_workflow_drafting_guide.md) and selects a
+registry-approved `.orc` example whose typed shape fits.
+
+When updating an existing v2.13 YAML/YML workflow, do not hand-author guard
+wrappers, audit paths, or `RecoverManagedJobs` command steps. Manual recovery
+steps are a compatibility fallback for older runtimes.
 
 Workflow YAML owns only the managed boundary and routes:
 
@@ -257,9 +278,10 @@ Use when a step writes one JSON bundle whose valid shape depends on an enum
 discriminant. This is the right surface for "completed versus blocked" style
 outputs where each variant has different required and forbidden fields.
 
-Do not emulate tagged unions with a flat `output_bundle` full of optional
-fields in new v2.14 workflows. That pattern hides which fields are actually
-available and pushes variant reasoning into downstream shell or prompt prose.
+When updating an existing v2.14 YAML/YML workflow, do not emulate tagged unions
+with a flat `output_bundle` full of optional fields. That pattern hides which
+fields are actually available and pushes variant reasoning into downstream
+shell or prompt prose.
 
 Provider and adjudicated-provider steps receive an injected variant contract.
 Command steps are validated after successful execution without prompt
@@ -348,7 +370,7 @@ Two practical upgrades now exist:
 - v1.5: use first-class `assert` instead of shelling out to `test`, `jq`, or tiny one-line Python gates.
 - v1.6: use typed predicates plus structured `ref:` for booleans, generic typed comparisons, and recovered-failure routing instead of stringly `when.equals` hacks.
 - v1.8: use `max_visits` and `max_transitions` instead of shell counters or ad hoc file-backed loop budgets when the goal is simply to cap a raw `goto` loop.
-- v2.0: when authoring new typed predicates in nested scopes, use explicit `self.steps.*`, `parent.steps.*`, and `root.steps.*` refs and add stable step `id` values anywhere later refactors should preserve lineage or resume identity.
+- v2.0: when adding typed predicates to nested scopes in an existing YAML/YML workflow, use explicit `self.steps.*`, `parent.steps.*`, and `root.steps.*` refs and add stable step `id` values anywhere later refactors should preserve lineage or resume identity.
 - v2.1: prefer typed workflow `inputs`/`outputs` over ad hoc `context` conventions when the value is part of the workflow boundary and should survive validation, resume, and later `call` reuse.
 - v2.2: prefer top-level structured `if/else` when the workflow intent is branch selection rather than a reusable raw `goto` diamond.
 - v2.6: prefer top-level structured `match` when a typed enum decision has three or more stable cases, or when you want the workflow shape to stay aligned with the decision artifact values instead of layering chained predicates.
@@ -376,18 +398,22 @@ For design, design-review, and planning prompts that may affect architecture, da
 
 ### Conservative Prompt Handling When Reusing Workflows
 
-When migrating, forking, specializing, or drafting a new workflow from an
-existing workflow, copy prompt files verbatim by default. Change prompt text only
-for a documented semantic reason, such as a renamed actor, a changed input role,
-a different target contract, or a new output contract that the provider must
-understand.
+**Authoring scope:** `existing_yaml_compatibility`
+**New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
+
+When migrating, forking, or specializing an existing YAML/YML compatibility
+workflow, copy prompt files verbatim by default. Change prompt text only for a
+documented semantic reason, such as a renamed actor, a changed input role, a
+different target contract, or a changed output contract that the provider must
+understand. Genuinely new work starts from the Workflow Lisp guide and a
+registry-approved `.orc` example rather than cloning the YAML path.
 
 Keep prompt deltas small and reviewable:
 
 - preserve task boundaries, review standards, and completion criteria unless
   the migration intentionally changes them;
 - prefer mechanical substitutions such as `full design` -> `target design`
-  only inside the new workflow path that needs that meaning;
+  only inside the migrated or specialized workflow path that needs that meaning;
 - do not globally edit shared prompt files when only one specialized workflow
   needs different terminology or scope;
 - use copied prompt variants when a fork's semantics diverge from the original
@@ -401,7 +427,7 @@ Keep prompt deltas small and reviewable:
 If a migrated workflow needs different semantics, record the reason near the
 workflow, plan, or prompt diff. A prompt that becomes longer, stricter, or more
 domain-specific should have a clear migration reason, not merely accumulated
-wording from the new wrapper.
+wording from the migrated wrapper.
 
 ### Guard Against Substitute-Path Closure
 
@@ -462,9 +488,16 @@ If a workflow can be derailed by an unrelated commit landing in the same checkou
 
 ### Adjudicated Provider Steps
 
+**Authoring scope:** `existing_yaml_compatibility`
+**New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
+
 Use `adjudicated_provider` for artifact-producing work where comparing multiple candidates is worth the extra runtime and audit state. Good fits include design drafts, report generation, structured analyses, and other deterministic-output steps where downstream workflow state should see only the selected artifact.
 
-Start from `workflows/examples/adjudicated_provider_demo.yaml` when authoring one for the first time; it is the canonical runnable example for the v2.11 surface.
+For an existing YAML/YML workflow that already depends on this surface,
+`workflows/examples/adjudicated_provider_demo.yaml` is the retained runnable
+compatibility example for v2.11 behavior. Genuinely new adjudicated-provider
+work starts in the Workflow Lisp guide and selects a registry-approved `.orc`
+shape; do not copy the YAML demo as the basis of another family.
 
 Do not use it as a generic implementation or source-edit competition mechanism in V1. The first release promotes declared deterministic outputs only; arbitrary patch selection belongs in a separate workflow design.
 
@@ -548,13 +581,18 @@ For post-v2.0 workflows, separate display names from durable identity:
 
 ### Preparing A Workflow For `call`
 
-Before drafting a new design -> plan -> implementation workflow, check `workflows/README.md` for an
-existing call-based stack or phase workflow that already matches the shape. If one exists, copy or import
-that stack and its imported subworkflows recursively instead of flattening it into a one-off monolith.
-Use a monolith only when import portability or a debugging snapshot is the explicit goal.
+**Authoring scope:** `existing_yaml_compatibility`
+**New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
+
+Before extending or migrating an existing YAML/YML design -> plan ->
+implementation workflow, check `workflows/README.md` for an existing
+compatibility stack or phase workflow that already matches the required
+behavior. Preserve or import that stack and its imported subworkflows
+recursively instead of flattening it into a one-off monolith. Use a monolith
+only when import portability or a debugging snapshot is the explicit goal.
 
 For domain-specific work that still fits the generic design -> plan -> implementation prompts, prefer an
-adapter over a new phase stack. The adapter should translate domain seeds into a backlog-compatible
+adapter over duplicating the compatibility phase stack. The adapter should translate domain seeds into a backlog-compatible
 working design seed plus per-item state/artifact roots, then call `workflows/library/backlog_item_design_plan_impl_stack.yaml`.
 `workflows/library/revision_study_priority_design_plan_impl_stack.yaml` is the reference pattern for
 revision-study seeds; it intentionally lets the generic design draft/revision passes rewrite the generated
@@ -594,9 +632,14 @@ Why this matters:
 
 For this pattern, `RunChecks` should usually consume `check_plan` from execution/fix producers, not from plan-drafting producers. Malformed or stale check definitions should normally become structured `check_results` evidence for review/fix, rather than terminating the workflow immediately.
 
-## 8) Drafting Checklist
+## 8) Compatibility-Edit Checklist
 
-Before running a new workflow, confirm the basics:
+**Authoring scope:** `existing_yaml_compatibility`
+**New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
+
+Before running an existing YAML/YML workflow after compatibility edits,
+confirm the basics. For genuinely new work, use the Workflow Lisp drafting
+checklist instead.
 
 | Area | Sanity check |
 | --- | --- |
@@ -605,7 +648,7 @@ Before running a new workflow, confirm the basics:
 | Dataflow | `publishes.from` references a real produced artifact name; `consumes` matches real runtime dependencies. |
 | Prompts | Prompt text does not conflict with injected blocks. |
 | Control flow | Gates encode completion, not just "a file exists"; loops have bounded retries/cycles. |
-| New DSL surface combinations | If a workflow combines structured loops, calls, or matches with deterministic output contracts or dynamic paths, copy an exact current working example or run a minimal runtime smoke for that exact contract shape. `--dry-run` validates schema and dependencies, not post-execution contract substitution. |
+| Structured DSL combinations | If a maintained workflow combines structured loops, calls, or matches with deterministic output contracts or dynamic paths, compare against exact compatibility evidence or run a minimal runtime smoke for that contract shape. `--dry-run` validates schema and dependencies, not post-execution contract substitution. |
 | First run | Use `--debug` so you can inspect composed prompts. |
 
 ## 9) Debugging Where Things Go Wrong

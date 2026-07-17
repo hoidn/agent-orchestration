@@ -43,9 +43,10 @@ surfaces. Use [Workflow Lisp Runtime-Native Drain Authoring](design/workflow_lis
 as the concrete checklist for Design Delta Drain-style authoring shape.
 Use `specs/` for normative runtime and DSL behavior.
 
-During the coexistence period, use [Workflow Drafting Guide](workflow_drafting_guide.md)
-for YAML-specific authoring guidance. When the YAML guide is deprecated, preserve
-it as a compatibility guide rather than deleting it.
+During the coexistence period, use the legacy
+[Workflow Drafting Guide](workflow_drafting_guide.md) only when maintaining,
+debugging, or migrating an existing YAML/YML workflow. It is compatibility
+guidance, not the new-author start.
 
 Use `.orc` for new high-level workflows when the needed frontend forms are
 available and the workflow does not depend on runtime behavior that still exists
@@ -55,8 +56,12 @@ only in YAML. Use YAML only for:
 - compatibility fixtures;
 - low-level runtime tests;
 - debug projections;
-- generated Core DSL inspection;
-- cases not yet supported by the Lisp frontend.
+- generated Core DSL inspection.
+
+If new work needs a form that the current `.orc` frontend does not support, do
+not create a new YAML workflow as a workaround. Retain an existing authoritative
+workflow when migrating, or record a capability gap for new work so the missing
+surface can be designed and implemented deliberately.
 
 For migrations, keep the existing YAML workflow authoritative until the `.orc`
 version has compile, shared-validation, dry-run or smoke, and parity evidence.
@@ -1475,7 +1480,16 @@ effect visibility, source maps, and generated path handling.
 Do not replace a missing or unsupported standard-library lowering with ad hoc
 inline command text, report parsing, pointer choreography, or macro-generated
 hidden effects. Either use the supported form, add a reviewed lowering
-contract, or stay in lower-level YAML/Core fixtures.
+contract, retain the existing authority during migration, or record a
+capability gap. For new authoring, do not create a new YAML workflow to bypass
+the missing form; lower-level YAML/Core stays limited to compatibility and
+fixture coverage.
+
+| Missing-form context | Required disposition |
+| --- | --- |
+| Existing migration | `retain_existing_authority` |
+| New authoring | `record_capability_gap` |
+| New YAML/YML workaround | `prohibited` |
 
 ### 13.1 `run-provider-phase`
 

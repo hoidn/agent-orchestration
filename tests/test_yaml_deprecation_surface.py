@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import ast
+import json
 import logging
 from pathlib import Path
+import re
 
 import pytest
 
@@ -22,6 +24,77 @@ _PURE_EXPR_LOOP_COUNTER = (
     / "valid"
     / "pure_expr_loop_counter.orc"
 )
+_REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _read_repository_text(relative_path: str) -> str:
+    return (_REPOSITORY_ROOT / relative_path).read_text(encoding="utf-8")
+
+
+def _markdown_section(document: str, heading: str) -> str:
+    lines = document.splitlines()
+    start = lines.index(heading)
+    heading_level = len(heading) - len(heading.lstrip("#"))
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        candidate = lines[index]
+        if not candidate.startswith("#"):
+            continue
+        candidate_level = len(candidate) - len(candidate.lstrip("#"))
+        if candidate_level <= heading_level:
+            end = index
+            break
+    return "\n".join(lines[start:end])
+
+
+def _markdown_table_rows(section: str) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for line in section.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if all(re.fullmatch(r":?-+:?", cell) for cell in cells):
+            continue
+        rows.append(cells)
+    return rows
+
+
+def _markdown_link_target(cell: str) -> str:
+    match = re.search(r"\[[^]]+\]\(([^)]+)\)", cell)
+    assert match is not None, cell
+    return match.group(1).strip("<>")
+
+
+def _markdown_metadata(section: str) -> dict[str, str]:
+    metadata: dict[str, str] = {}
+    for line in section.splitlines():
+        match = re.fullmatch(r"\*\*([^*]+):\*\*\s+(.+)", line)
+        if match is not None:
+            metadata[match.group(1)] = match.group(2)
+    return metadata
+
+
+def _route_registry_entry(path: str) -> dict[str, object]:
+    registry = json.loads(
+        _read_repository_text("docs/workflow_lisp_route_readiness_registry.json")
+    )
+    matches = [entry for entry in registry["surfaces"] if entry["path"] == path]
+    assert len(matches) == 1
+    return matches[0]
+
+
+def _assert_registry_approved_orc(path: str) -> None:
+    assert path.endswith(".orc")
+    entry = _route_registry_entry(path)
+    assert entry["copy_safety"] == "preferred_current_guidance"
+    assert entry["route_label"] == "wcc_default"
+
+
+def _repository_path_for_link(document_path: str, link_target: str) -> str:
+    absolute_target = (
+        _REPOSITORY_ROOT / Path(document_path).parent / link_target
+    ).resolve(strict=False)
+    return absolute_target.relative_to(_REPOSITORY_ROOT).as_posix()
 
 
 def _write_valid_workflow(path: Path, *, name: str = "example") -> None:
@@ -372,3 +445,208 @@ def test_persisted_constructor_guard_detects_alias_hidden_unsuppressed_call(
     with pytest.raises(AssertionError):
         for call in calls:
             _assert_explicit_warning_suppression(call)
+
+
+def test_author_routing_documentation_hub_defaults_to_workflow_lisp() -> None:
+    document = _read_repository_text("docs/index.md")
+    fast_triage = _markdown_table_rows(
+        _markdown_section(document, "## Fast Triage")
+    )
+    rows_by_need = {row[0]: row for row in fast_triage[1:]}
+
+    assert _markdown_link_target(rows_by_need["Author new workflows"][1]) == (
+        "lisp_workflow_drafting_guide.md"
+    )
+    assert _markdown_link_target(
+        rows_by_need["Maintain existing YAML workflows"][1]
+    ) == "workflow_drafting_guide.md"
+
+    authoring_path = _markdown_section(document, "### When Authoring Workflows")
+    first_link = re.search(r"\[[^]]+\]\(([^)]+)\)", authoring_path)
+    assert first_link is not None
+    assert first_link.group(1) == "lisp_workflow_drafting_guide.md"
+
+
+def test_author_routing_yaml_guide_is_legacy_compatibility_not_new_author_start() -> None:
+    document = _read_repository_text("docs/workflow_drafting_guide.md")
+    preamble = document.split("\n## ", 1)[0]
+
+    metadata = {
+        key.strip(): value.strip()
+        for line in preamble.splitlines()
+        if ":" in line
+        for key, value in [line.split(":", 1)]
+    }
+    assert metadata["Status"] == "legacy compatibility guide"
+    assert _markdown_link_target(metadata["New-author start"]) == (
+        "lisp_workflow_drafting_guide.md"
+    )
+
+
+@pytest.mark.parametrize(
+    "heading",
+    (
+        "### Managed Provider Steps (v2.13)",
+        "### Conservative Prompt Handling When Reusing Workflows",
+        "### Adjudicated Provider Steps",
+        "### Preparing A Workflow For `call`",
+        "## 8) Compatibility-Edit Checklist",
+    ),
+)
+def test_author_routing_deep_yaml_guide_sections_are_compatibility_scoped(
+    heading: str,
+) -> None:
+    document = _read_repository_text("docs/workflow_drafting_guide.md")
+    metadata = _markdown_metadata(_markdown_section(document, heading))
+
+    assert metadata["Authoring scope"] == "`existing_yaml_compatibility`"
+    assert _markdown_link_target(metadata["New-author route"]) == (
+        "lisp_workflow_drafting_guide.md"
+    )
+
+
+@pytest.mark.parametrize(
+    ("heading", "route_scope"),
+    (
+        (
+            "### [Generic Run Watchdog]"
+            "(../workflows/examples/generic_run_watchdog.yaml)",
+            "`existing_yaml_compatibility`",
+        ),
+        (
+            "### [Managed Provider Jobs Demo]"
+            "(../workflows/examples/managed_provider_jobs_demo.yaml)",
+            "`existing_yaml_compatibility`",
+        ),
+        ("### [Workflow Examples Directory](../workflows/examples/)", "`reference_only`"),
+        (
+            "### [NeurIPS Hybrid ResNet Plan/Implementation Workflow]"
+            "(../workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml)",
+            "`existing_yaml_compatibility`",
+        ),
+    ),
+)
+def test_author_routing_docs_index_yaml_catalog_entries_are_not_copy_routes(
+    heading: str,
+    route_scope: str,
+) -> None:
+    document = _read_repository_text("docs/index.md")
+    metadata = _markdown_metadata(_markdown_section(document, heading))
+
+    assert metadata["Route scope"] == route_scope
+    assert metadata["Copy role"] == "`not_new_author_template`"
+    assert _markdown_link_target(metadata["New-author route"]) == (
+        "lisp_workflow_drafting_guide.md"
+    )
+
+
+def test_author_routing_readme_and_catalog_select_registry_approved_orc() -> None:
+    documents_and_headings = (
+        ("README.md", "## Start Here"),
+        ("workflows/README.md", "## Which Example Should I Copy?"),
+    )
+
+    for relative_path, heading in documents_and_headings:
+        rows = _markdown_table_rows(
+            _markdown_section(_read_repository_text(relative_path), heading)
+        )
+        rows_by_goal = {row[0]: row for row in rows[1:]}
+        selected_path = _repository_path_for_link(
+            relative_path,
+            _markdown_link_target(rows_by_goal["Start new authoring"][1]),
+        )
+        _assert_registry_approved_orc(selected_path)
+
+
+def test_author_routing_templates_default_to_orc_and_inventory_yaml_only() -> None:
+    document = _read_repository_text("workflows/templates/README.md")
+    rows = _markdown_table_rows(_markdown_section(document, "## Template Routes"))
+    rows_by_purpose = {row[0]: row for row in rows[1:]}
+
+    new_author_path = _repository_path_for_link(
+        "workflows/templates/README.md",
+        _markdown_link_target(rows_by_purpose["New template"][1]),
+    )
+    _assert_registry_approved_orc(new_author_path)
+
+    compatibility_path = _markdown_link_target(
+        rows_by_purpose["Existing YAML inventory"][1]
+    )
+    assert compatibility_path == "autonomous_drain_with_work_instructions.v214.yaml"
+    assert rows_by_purpose["Existing YAML inventory"][2] == "Compatibility only"
+    assert (_REPOSITORY_ROOT / "workflows/templates" / compatibility_path).is_file()
+
+
+def test_author_routing_new_author_routes_never_select_frozen_yaml_template() -> None:
+    frozen_template = "autonomous_drain_with_work_instructions.v214.yaml"
+    route_sections = (
+        _markdown_section(_read_repository_text("README.md"), "## Start Here"),
+        _markdown_section(_read_repository_text("docs/index.md"), "## Fast Triage"),
+        _markdown_section(
+            _read_repository_text("workflows/README.md"),
+            "## Which Example Should I Copy?",
+        ),
+        _markdown_section(
+            _read_repository_text("workflows/templates/README.md"),
+            "## Template Routes",
+        ),
+    )
+
+    selected_new_author_paths: list[str] = []
+    for section in route_sections:
+        for row in _markdown_table_rows(section)[1:]:
+            if row[0] in {"Start new authoring", "Author new workflows", "New template"}:
+                selected_new_author_paths.append(_markdown_link_target(row[1]))
+
+    assert len(selected_new_author_paths) == 4
+    assert selected_new_author_paths.count("lisp_workflow_drafting_guide.md") == 1
+    assert sum(path.endswith(".orc") for path in selected_new_author_paths) == 3
+    assert not any(path.endswith((".yaml", ".yml")) for path in selected_new_author_paths)
+    assert frozen_template not in selected_new_author_paths
+
+
+def test_author_routing_lisp_guide_records_gap_instead_of_creating_yaml() -> None:
+    guide = _read_repository_text("docs/lisp_workflow_drafting_guide.md")
+    availability_rule = _markdown_section(guide, "## 13. Standard High-Level Forms")
+
+    rows = _markdown_table_rows(availability_rule)
+    dispositions = {row[0]: row[1] for row in rows[1:]}
+    assert dispositions == {
+        "Existing migration": "`retain_existing_authority`",
+        "New authoring": "`record_capability_gap`",
+        "New YAML/YML workaround": "`prohibited`",
+    }
+
+
+def test_author_routing_normative_yaml_warning_contract_is_structured() -> None:
+    contract = _markdown_section(
+        _read_repository_text("specs/dsl.md"),
+        "### YAML fresh-load deprecation advisory",
+    )
+
+    for contract_identifier in (
+        "orchestrator.loader.yaml_deprecation",
+        "workflow_yaml_authoring_deprecated",
+        "workflow_deprecation_code",
+        "workflow_deprecation_path",
+        "workflow_deprecation_format",
+        "Path(requested_path).resolve(strict=False)",
+    ):
+        assert contract_identifier in contract
+
+    policy_rows = _markdown_table_rows(contract)
+    policies_by_purpose = {row[0]: row[1] for row in policy_rows[1:]}
+    assert "one" in policies_by_purpose["Explicit fresh YAML/YML root"]
+    assert "before parsing" in policies_by_purpose["Explicit fresh YAML/YML root"]
+    assert "suppress" in policies_by_purpose["Persisted compatibility read"]
+    assert "advisory" in contract.lower()
+
+
+def test_author_routing_capability_status_keeps_yaml_legacy() -> None:
+    rows = _markdown_table_rows(
+        _read_repository_text("docs/capability_status_matrix.md")
+    )
+    rows_by_surface = {row[0]: row for row in rows[1:] if len(row) == 7}
+
+    assert rows_by_surface["YAML fresh-load deprecation surface"][1] == "Implemented"
+    assert rows_by_surface["YAML DSL v2.x"][1] == "Legacy"

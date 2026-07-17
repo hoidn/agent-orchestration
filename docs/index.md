@@ -17,8 +17,8 @@ Informative guidance and mental models live in `docs/`.
 | Check the current Workflow Lisp pure-expression, projection, materialized-view, resource-transition, or stdlib phase/drain surface | [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md) | Documents the closed operator set, computed-`if` proof boundary, generated `pure_projection` / `materialize_view` runtime surfaces, the declared/runtime-native `resource-transition` lane, and the `phase-scope` / `finalize-selected-item` / `backlog-drain` stdlib contract. |
 | Check whether imported generic helpers can compose constrained `match`, imported transitions/resources, and `materialize-view` through ordinary specialization | [Capability Status Matrix](capability_status_matrix.md) | Routes to the landed G5A proof surface and its owning evidence lanes. |
 | Choose a design doc | [Design Documentation Index](design/README.md) | Groups current contracts, migration guidance, frontend direction, and deferred work. |
-| Author YAML workflows | [Workflow Drafting Guide](workflow_drafting_guide.md) | Authoring guidance for runtime, prompt, flow, and artifact contracts. |
-| Author Workflow Lisp `.orc` workflows | [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) | Lisp-first authoring guidance and migration cautions. |
+| Author new workflows | [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) | Preferred `.orc` authoring route, availability guidance, and typed-contract patterns. |
+| Maintain existing YAML workflows | [Workflow Drafting Guide](workflow_drafting_guide.md) | Legacy compatibility guidance for preserving, debugging, or migrating an existing YAML/YML surface. |
 | Start or adapt the current target-design / design-gap drain | [Design Delta drain `.orc`](../workflows/library/lisp_frontend_design_delta/drain.orc) | Promoted Workflow Lisp primary for the Design Delta family; its YAML twin remains compatibility/reference material until the Stage 6 archive gate. |
 | Keep new docs discoverable | [Documentation Conventions](documentation_conventions.md) | Status, authority, evidence, and copy-safety checklist. |
 | Copy a workflow example | [Workflow Index](../workflows/README.md) | Catalog status and copy-safe run commands. |
@@ -39,7 +39,7 @@ These are the highest-impact terminology and contract confusions.
 | Migration promotion | "If a `.orc` workflow compiles and dry-runs, it can replace the YAML primary." | Promotion requires computed parity evidence for output contracts, terminal states, artifacts, resume/reuse behavior, accepted differences, and deprecated mechanics. | [Workflow Lisp Key Migration Parity Architecture](design/workflow_lisp_key_migration_parity_architecture.md), [Workflow Language Design Principles](design/workflow_language_design_principles.md), [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) |
 | Inline command glue | "Python and shell commands should either be banned entirely or accepted as normal workflow authoring." | Command steps are allowed for external tools and certified adapters. Hidden workflow semantics in inline Python/shell, ad hoc JSON rewrites, pointer-as-state, or report parsing are migration debt and need typed procedures, certified command adapters, or runtime-native effects. | [Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md), [Workflow Drafting Guide](workflow_drafting_guide.md) |
 | Adjudicated provider output | "The best candidate's stdout becomes the step output." | `adjudicated_provider` scores output-valid candidates, promotes only declared deterministic outputs, and suppresses candidate/evaluator stdout from normal step output state. | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Step IO](../specs/io.md) |
-| Managed provider jobs | "Managed training jobs should be encoded as manual guard and recovery command steps." | `managed_jobs` is a v2.13 provider-step modifier. Workflow YAML declares policy, watch roots, backend, poll budget, and managed outcome routes; runtime-owned guard, shim, audit, recovery, and resumable state replace hand-authored recovery glue. | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md), [Managed Provider Jobs Demo](../workflows/examples/managed_provider_jobs_demo.yaml) |
+| Managed provider jobs | "Managed training jobs should be encoded as manual guard and recovery command steps." | For retained YAML compatibility workflows, `managed_jobs` is a v2.13 provider-step modifier: YAML declares policy, watch roots, backend, poll budget, and managed outcome routes, while runtime-owned guard, shim, audit, recovery, and resumable state replace hand-authored recovery glue. New authoring starts in Workflow Lisp. | [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md), [Legacy Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md) |
 | Structured result channel | "JSON printed to stdout counts as a provider/command structured result." | Results travel only as validated bundles at runtime-bound output locations (`output_bundle.path` / `variant_output.path`); wrong-path writes fail closed; stdout/stderr are observability evidence, never a result channel. The declared return type is the contract; the bound-path bundle is the sanctioned transport behind it. | [Workflow Lisp Runtime Migration Foundation](design/workflow_lisp_runtime_migration_foundation.md), [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md), [Step IO](../specs/io.md) |
 
 ---
@@ -92,11 +92,14 @@ document owns the answer.
 
 ### When Authoring Workflows
 
-- Start with [Workflow Drafting Guide](workflow_drafting_guide.md).
+- Start with [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md).
+- Check the [Capability Status Matrix](capability_status_matrix.md) and the
+  route-readiness registry before selecting a form or copy-safe `.orc` example.
 - Check [DSL](../specs/dsl.md), [Step IO](../specs/io.md), and
   [Providers](../specs/providers.md) for normative behavior.
 - Use [Prompt Index](../prompts/README.md) when provider prompts are involved.
-- For Lisp-first authoring, use [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md).
+- Use [Workflow Drafting Guide](workflow_drafting_guide.md) only to maintain,
+  debug, or migrate an existing YAML/YML workflow.
 
 ### When Reviewing Plans Or Backlog Drains
 
@@ -132,9 +135,9 @@ document owns the answer.
 **Use this when:** You want email alerts for workflow completion or failures across one or more repositories.
 
 ### [Workflow Drafting Guide](workflow_drafting_guide.md)
-**Description:** Authoring guidance for writing robust workflows, including prompt/runtime/flow contract separation, deterministic handoff patterns, managed-provider job conventions, and special-case guidance for workflows with DSL-level git rollback/checkpoint behavior.
-**Keywords:** authoring, prompts, contracts, deterministic-handoff, managed-jobs, gates, git
-**Use this when:** You are writing or refactoring workflow YAML and prompt patterns.
+**Description:** Legacy compatibility guidance for preserving or migrating existing YAML/YML workflows, including prompt/runtime/flow contract separation, deterministic handoff patterns, managed-provider job conventions, and special-case guidance for workflows with DSL-level git rollback/checkpoint behavior.
+**Keywords:** legacy, compatibility, yaml, migration, prompts, contracts, deterministic-handoff, managed-jobs, gates, git
+**Use this when:** You are maintaining, debugging, or migrating an existing YAML/YML workflow; start new authoring in the Workflow Lisp guide.
 
 ### [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
 **Description:** Lisp-first authoring guidance for `.orc` workflows, focused on typed procedures, structured results, semantic/executable authority boundaries, current contract navigation, and avoiding YAML-shaped Lisp.
@@ -525,19 +528,26 @@ document owns the answer.
 
 If your immediate goal is to write or revise a workflow, use this read order:
 
-1. [Workflow Drafting Guide](workflow_drafting_guide.md)
-   Why: start with authoring conventions, handoff patterns, and the prompt/runtime/flow contract split so you do not write syntactically valid but operationally weak workflows.
+1. [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
+   Why: start with the preferred `.orc` frontend, typed procedures and results,
+   current availability boundaries, and the registry-backed copy-safety route.
 
 2. [Workflow DSL and Control Flow](../specs/dsl.md)
-   Why: this is the authoritative schema and control-flow contract for top-level keys, step fields, version gates, `for_each`, `consumes`, `publishes`, and routing.
+   Why: this is the authoritative shared runtime/control-flow contract and the
+   compatibility contract for the retained YAML frontend.
 
 3. [Variable Model and Substitution](../specs/variables.md), [Dependencies and Injection](../specs/dependencies.md), and [Providers and Prompt Delivery](../specs/providers.md)
    Why: these three specs cover the authoring details that most often cause broken workflows: substitution rules, dependency injection behavior, and what providers actually receive.
 
-4. [Prompt Index](../prompts/README.md), [Workflow Index](../workflows/README.md), [Workflow Prompt Map](workflow_prompt_map.md), plus one or two runnable examples under [workflows/examples/](../workflows/examples/)
-   Why: use the prompt catalog, exhaustive prompt map, and workflow examples to copy the current house style for review prompts, loop contracts, gates, artifact contracts, and prompt layout instead of inventing patterns from scratch.
+4. [Prompt Index](../prompts/README.md), [Workflow Index](../workflows/README.md), [Workflow Prompt Map](workflow_prompt_map.md), plus a registry-approved `.orc` example under [workflows/examples/](../workflows/examples/)
+   Why: use the prompt catalog, exhaustive prompt map, and copy-safe Workflow
+   Lisp examples rather than copying legacy or migration-only YAML patterns.
 
-Minimum rule of thumb: if you have only read `docs/index.md`, you can find the docs; if you have read the four items above, you can usually write an effective workflow without extra repo archaeology.
+Minimum rule of thumb: if you have only read `docs/index.md`, you can find the
+docs; if you have read the four items above, you can usually write an effective
+`.orc` workflow without extra repo archaeology. For an existing YAML/YML file,
+use the [legacy compatibility guide](workflow_drafting_guide.md) and preserve
+its authority until the applicable migration or retirement gate closes.
 
 For new DSL surfaces, macro systems, frontend languages, or reusable workflow
 families, also read [Workflow Language Design Principles](design/workflow_language_design_principles.md)
@@ -562,9 +572,9 @@ before adding or preserving the command boundary.
 **Use this when:** Diagnosing run behavior and state transitions.
 
 ### [Workflow Drafting Guide](workflow_drafting_guide.md)
-**Description:** Workflow authoring patterns focused on deterministic handoff and high-signal control-flow gates.  
-**Keywords:** drafting, dsl-authoring, output-contracts, loop-patterns  
-**Use this when:** Designing new loops (execute/review/fix), gates, and prompt contracts.
+**Description:** Legacy YAML/YML compatibility patterns focused on deterministic handoff and high-signal control-flow gates.
+**Keywords:** legacy, compatibility, yaml, migration, output-contracts, loop-patterns
+**Use this when:** Preserving, debugging, or migrating an existing YAML/YML workflow; do not use it as the new-author start.
 
 ### [Local Workflow Steering](steering.md)
 **Description:** Current local steering for the DSL v2.14 backlog-drain run, including selectable and deferred roadmap phases.  
@@ -581,7 +591,7 @@ before adding or preserving the command boundary.
 ### [Workflow DSL and Control Flow](../specs/dsl.md)
 **Description:** Full workflow schema and control-flow semantics, including version-gated fields and mutual exclusivity rules.  
 **Keywords:** dsl, schema, steps, goto, for_each, artifacts  
-**Use this when:** Authoring workflow YAML or validating field-level behavior.
+**Use this when:** Validating field-level behavior, shared runtime semantics, or the retained YAML compatibility contract.
 
 ### [Variable Model and Substitution](../specs/variables.md)
 **Description:** Variable namespaces, substitution locations, escapes, and undefined-variable failure semantics.  
@@ -673,9 +683,12 @@ before adding or preserving the command boundary.
 **Use this when:** You need to find the right workflow file before reading or running it.
 
 ### [Generic Run Watchdog](../workflows/examples/generic_run_watchdog.yaml)
-**Description:** v2.14 reusable watchdog that probes any orchestrator run by `run_id`, emits generic evidence for running/completed/failed/stalled states, and invokes a repair provider only when recovery is needed.
-**Keywords:** workflows, watchdog, run-monitoring, repair, resume, v2.14
-**Use this when:** You need a scheduled check that can diagnose a crashed, failed, or stalled workflow run and drive a principled repair plus resume/relaunch action.
+**Route scope:** `existing_yaml_compatibility`
+**Copy role:** `not_new_author_template`
+**New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
+**Description:** Retained v2.14 YAML compatibility watchdog that probes an existing orchestrator run by `run_id`, emits evidence for running/completed/failed/stalled states, and invokes a repair provider only when recovery is needed.
+**Keywords:** workflows, watchdog, run-monitoring, repair, resume, v2.14, yaml-compatibility
+**Use this when:** Operating or auditing the existing YAML watchdog while its migration queue remains open; do not copy it to start another workflow family.
 
 ### [Lisp Frontend Autonomous Drain](../workflows/examples/lisp_frontend_autonomous_drain.yaml)
 **Description:** v2.14 local drain for Lisp frontend MVP/full-design work. The selector can choose an active backlog item or identify an unimplemented design gap, draft an implementation architecture, and route the normalized work item through the plan/implementation stack without roadmap phase gating.
@@ -688,9 +701,12 @@ before adding or preserving the command boundary.
 **Use this when:** Running the scoped ProcRef / partial-application implementation tranche without reopening the completed full frontend drain.
 
 ### [Managed Provider Jobs Demo](../workflows/examples/managed_provider_jobs_demo.yaml)
-**Description:** Minimal v2.13 workflow showing `managed_jobs` on a provider step, a local managed training launch, runtime-owned audit/recovery state, and managed outcome routing to review/fix steps.
-**Keywords:** managed-jobs, provider, v2.13, audit, recovery, shim
-**Use this when:** You need a copyable starting point for provider-launched training or batch jobs that should be recovered without relaunching the provider.
+**Route scope:** `existing_yaml_compatibility`
+**Copy role:** `not_new_author_template`
+**New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
+**Description:** Retained v2.13 YAML compatibility demo showing `managed_jobs` on a provider step, a local managed training launch, runtime-owned audit/recovery state, and managed outcome routing to review/fix steps.
+**Keywords:** managed-jobs, provider, v2.13, audit, recovery, shim, yaml-compatibility
+**Use this when:** Maintaining or debugging an existing YAML/YML managed-jobs workflow; it is compatibility evidence, not a copyable new-author starting point.
 
 ### [v0 Artifact-Contract Prototype Runbook](../workflows/examples/README_v0_artifact_contract.md)
 **Description:** Runbook for deterministic file-based handoff prototypes, including verification commands and known limits.  
@@ -698,14 +714,20 @@ before adding or preserving the command boundary.
 **Use this when:** Running or extending backlog/plan execute-review-fix prototypes.
 
 ### [Workflow Examples Directory](../workflows/examples/)
-**Description:** Concrete YAML workflows covering retries, conditionals, loops, prompt auditing, capture modes, and dataflow contracts.  
-**Keywords:** examples, yaml, retries, loops, dataflow  
-**Use this when:** You want a working template instead of starting from a blank workflow.
+**Route scope:** `reference_only`
+**Copy role:** `not_new_author_template`
+**New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
+**Description:** Reference corpus of retained YAML compatibility workflows plus Workflow Lisp examples; individual route-readiness metadata determines `.orc` copy safety.
+**Keywords:** examples, reference-corpus, yaml-compatibility, workflow-lisp, retries, loops, dataflow
+**Use this when:** Inspecting historical or compatibility behavior. Select new-author examples through the route-readiness registry rather than treating the directory as a template source.
 
 ### [NeurIPS Hybrid ResNet Plan/Implementation Workflow](../workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml)
-**Description:** Input-required call-based workflow that loops over roadmap tranche selection from a supplied design and roadmap, then runs plan drafting/review and implementation/review for each selected tranche.
-**Keywords:** workflows, call, roadmap, design, tranche-selection, plan-review, implementation-review
-**Use this when:** You need a local reusable template for adaptive roadmap draining while keeping roadmap, design, selected tranche context, and progress ledger context explicit in planning provider steps.
+**Route scope:** `existing_yaml_compatibility`
+**Copy role:** `not_new_author_template`
+**New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
+**Description:** Input-required retained YAML compatibility workflow that loops over roadmap tranche selection from a supplied design and roadmap, then runs plan drafting/review and implementation/review for each selected tranche.
+**Keywords:** workflows, call, roadmap, design, tranche-selection, plan-review, implementation-review, yaml-compatibility
+**Use this when:** Maintaining or auditing this existing NeurIPS/Hybrid-ResNet route and its explicit roadmap, design, tranche, and ledger context; do not use it as a reusable template for new authoring.
 
 ### [PtychoPINN Backlog Plan Slice Loop (Downstream Reference)](../workflows/examples/ptychopinn_backlog_plan_slice_impl_review_loop.yaml)
 **Description:** Informative snapshot of a real downstream workflow copied from `PtychoPINN/workflows/agent_orchestration/backlog_plan_slice_impl_review_loop.yaml` at source commit `370f641fdf84` (copied March 3, 2026).  

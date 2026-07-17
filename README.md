@@ -163,17 +163,19 @@ composable way to author them.
 - Runs are deterministic where the workflow is, sequential by default, and
   leave complete local evidence. There is no service dependency.
 
-## Two Authoring Surfaces
+## Workflow Frontends
 
-- **YAML DSL** (`specs/dsl.md`) — the mature, normative surface. Workflows
-  across versions 1.x–2.14 run in production today; `specs/` is the
-  authority when documents disagree.
-- **Workflow Lisp** (`.orc`) — the typed frontend. It compiles through a
+- **Workflow Lisp** (`.orc`) — the preferred frontend for new authoring. It
+  compiles through a
   real middle-end (typed elaboration, ANF normalization,
   defunctionalization) into the same validated runtime. Migration is
   evidence-gated: a YAML workflow stays authoritative until its `.orc`
   replacement passes computed parity gates, never because the `.orc`
   version merely compiles.
+- **YAML DSL** (`specs/dsl.md`) — the legacy compatibility frontend. Existing
+  workflows across versions 1.x–2.14 remain executable while their migration
+  or retirement queues are open; new workflow families do not start here.
+  `specs/` remains authoritative for its runtime contract.
 
 Use [`docs/capability_status_matrix.md`](docs/capability_status_matrix.md) to
 check whether a given surface is implemented, partial, designed, or legacy
@@ -248,15 +250,15 @@ Deeper reading:
 | --- | --- |
 | Understand the repo map | [`docs/index.md`](docs/index.md) |
 | Learn the execution model | [`docs/orchestration_start_here.md`](docs/orchestration_start_here.md) |
-| Author or revise workflow YAML | [`docs/workflow_drafting_guide.md`](docs/workflow_drafting_guide.md) |
+| Start new authoring | [Workflow Lisp review/revise example](workflows/examples/review_revise_design_docs.orc) |
 | Author Workflow Lisp `.orc` | [`docs/lisp_workflow_drafting_guide.md`](docs/lisp_workflow_drafting_guide.md) |
+| Maintain existing YAML | [Legacy YAML drafting guide](docs/workflow_drafting_guide.md) |
 | Check the normative DSL contract | [`specs/index.md`](specs/index.md) and [`specs/dsl.md`](specs/dsl.md) |
 | Find runnable examples | [`workflows/README.md`](workflows/README.md) |
 | Compare Workflow Lisp to YAML | [`docs/workflow_lisp_mvp_comparison.md`](docs/workflow_lisp_mvp_comparison.md) |
 
-If you are new to the repo, first validate the call-based design -> plan ->
-implementation example below. It is self-contained and does not execute
-provider commands when run with `--dry-run`.
+If you are new to the repo, first compile the registry-approved `.orc` example
+below. Compilation validates the typed frontend without executing providers.
 
 ## Install
 
@@ -289,46 +291,39 @@ python -m orchestrator --help
 The CLI program name is `orchestrate`, but the examples use
 `python -m orchestrator` so they work directly from a checkout.
 
-## First Dry Run
+## First Compile Check
 
-Validate the modular design -> plan -> implementation stack:
+Validate the generic typed review/revise example:
 
 ```bash
-python -m orchestrator run \
-  workflows/examples/design_plan_impl_review_stack_v2_call.yaml \
-  --dry-run
+python -m orchestrator compile \
+  workflows/examples/review_revise_design_docs.orc \
+  --entry-workflow review_revise_design_docs::review-revise-design-docs \
+  --provider-externs-file workflows/examples/inputs/review_revise_design_docs/providers.json \
+  --prompt-externs-file workflows/examples/inputs/review_revise_design_docs/prompts.json
 ```
 
-Expected result: the workflow loads, imported subworkflows validate, typed
-inputs and outputs validate, and no provider command executes.
-
-The example exercises the reusable stack:
-
-- top-level workflow:
-  [`workflows/examples/design_plan_impl_review_stack_v2_call.yaml`](workflows/examples/design_plan_impl_review_stack_v2_call.yaml)
-- design phase:
-  [`workflows/library/tracked_design_phase.yaml`](workflows/library/tracked_design_phase.yaml)
-- plan phase:
-  [`workflows/library/tracked_plan_phase.yaml`](workflows/library/tracked_plan_phase.yaml)
-- implementation phase:
-  [`workflows/library/design_plan_impl_implementation_phase.yaml`](workflows/library/design_plan_impl_implementation_phase.yaml)
-- input brief:
-  [`workflows/examples/inputs/provider_session_resume_brief.md`](workflows/examples/inputs/provider_session_resume_brief.md)
+Expected result: the frontend compiles through the default WCC/schema-2 route,
+shared validation succeeds, and no provider command executes. The route-readiness
+registry marks this example `preferred_current_guidance`; it is a review/fix
+starting point, not a universal template or a YAML parity claim.
 
 ## Run For Real
 
-Only run provider workflows after `--dry-run` succeeds and your provider CLI
-works in the same shell.
+Only run provider workflows after compile and dry-run checks succeed and your
+provider CLI works in the same shell. Supply the selected `.orc` entrypoint's
+declared typed inputs and extern files; the
+[workflow catalog](workflows/README.md) records runnable and input-required
+routes.
 
 ```bash
 python -m orchestrator run \
-  workflows/examples/design_plan_impl_review_stack_v2_call.yaml \
+  <workflow.orc> --entry-workflow <module::entry> \
+  --provider-externs-file <providers.json> \
+  --prompt-externs-file <prompts.json> \
+  --input-file <inputs.json> \
   --stream-output
 ```
-
-That run reads the example brief, drafts and reviews a design, drafts and
-reviews an execution plan, executes implementation work with a bounded
-review/fix loop, and writes run state, logs, and declared artifacts.
 
 If the run stops partway through, resume it:
 
