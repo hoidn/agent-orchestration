@@ -8,10 +8,14 @@
     ((model String)
      (effort String))
     -> WorkResult
-    (provider-result providers.execute
-      :prompt prompts.execute
-      :inputs ()
-      :model model
-      :effort effort
-      :timeout-sec 7200
-      :returns WorkResult)))
+    (let* ((provider-boundary
+             (provider-result providers.execute
+               :prompt prompts.execute
+               :inputs ()
+               :model model
+               :effort effort
+               :timeout-sec 7200
+               :returns WorkResult)))
+      (command-result finish
+        :argv ("python" "finish.py")
+        :returns WorkResult))))

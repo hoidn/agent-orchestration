@@ -107,6 +107,19 @@ TRANSITION_RESUME_FIXTURE_SOURCE = """(workflow-lisp
       (record Output
         :summary_path summary_path
         :transition_status transition.status))))\n"""
+BOOL_PROVIDER_FIXTURE_SOURCE = """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.15")
+  (defmodule lexical_checkpoint_bool_provider)
+  (export orchestrate)
+  (defworkflow orchestrate
+    ()
+    -> Bool
+    (provider-result providers.execute
+      :prompt prompts.execute
+      :inputs ()
+      :returns Bool)))
+"""
 
 
 def _checkpoints_module():
@@ -180,6 +193,58 @@ def _compile_policy_fixture(tmp_path: Path, *, prompt_binding_path: str = "promp
         for name, bundle in result.validated_bundles_by_name.items()
         if name == "orchestrate" or name.endswith("::orchestrate")
     )
+
+
+def _materialize_bool_provider_sidecars(tmp_path: Path, *, run_id: str):
+    from orchestrator.contracts.output_contract import validate_output_bundle
+
+    prompt_path = tmp_path / "prompt.md"
+    prompt_path.write_text("Return a boolean.\n", encoding="utf-8")
+    workflow_path = tmp_path / "lexical_checkpoint_bool_provider.orc"
+    workflow_path.write_text(BOOL_PROVIDER_FIXTURE_SOURCE, encoding="utf-8")
+    result = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(tmp_path,),
+        provider_externs={"providers.execute": "fake"},
+        prompt_externs={"prompts.execute": "prompt.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = next(
+        candidate
+        for name, candidate in result.validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+    state_manager = StateManager(tmp_path, run_id=run_id)
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+    )
+
+    def _fake_provider(self, step, state):
+        _, resolved_output_bundle, path_error = self._resolve_output_contract_paths(step, state)
+        assert path_error is None and resolved_output_bundle is not None
+        bundle_path = self.workspace / resolved_output_bundle["path"]
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text("true\n", encoding="utf-8")
+        return {
+            "status": "completed",
+            "exit_code": 0,
+            "duration_ms": 0,
+            "artifacts": validate_output_bundle(
+                resolved_output_bundle,
+                workspace=self.workspace,
+            ),
+        }
+
+    with patch.object(WorkflowExecutor, "_execute_provider", _fake_provider):
+        final_state = WorkflowExecutor(
+            bundle,
+            tmp_path,
+            state_manager,
+            retry_delay_ms=0,
+        ).execute(on_error="stop")
+    return bundle, state_manager, final_state
 
 
 def _certified_adapter_command_boundaries():
@@ -883,6 +948,29 @@ def test_restore_payload_validation_requires_stable_schema_and_binding_metadata(
     invalid["schema_version"] = "workflow_lisp_lexical_restore_payload.v0"
     with pytest.raises(ValueError, match="lexical_restore_payload_schema_invalid"):
         restore.validate_restore_payload(invalid)
+
+    empty_without_barrier = deepcopy(payload)
+    empty_without_barrier["bindings"] = []
+    empty_without_barrier["active_variant_proofs"] = []
+    empty_without_barrier["loop_frame"] = None
+    with pytest.raises(ValueError, match="lexical_restore_payload_schema_invalid"):
+        restore.validate_restore_payload(empty_without_barrier)
+
+    barrier_only = deepcopy(empty_without_barrier)
+    barrier_only["eligibility"] = []
+    barrier_only["completed_effect_barrier"] = {
+        "effect_kind": "provider",
+        "step_id": "root.provider",
+        "source_map_origin_key": "source:test",
+        "completed_effect_refs_digest": "sha256:completed-effects",
+    }
+    barrier_only["restorable"] = True
+    restore.validate_restore_payload(barrier_only)
+
+    empty_eligibility_without_barrier = deepcopy(payload)
+    empty_eligibility_without_barrier["eligibility"] = []
+    with pytest.raises(ValueError, match="lexical_restore_payload_schema_invalid"):
+        restore.validate_restore_payload(empty_eligibility_without_barrier)
 
     missing_binding_digest = deepcopy(payload)
     missing_binding_digest["bindings"][0]["value_digest"] = ""
@@ -1623,6 +1711,7 @@ def test_restore_selector_fails_closed_for_transition_evidence_drift(
             "bridge_path",
         ):
             effect_ref.pop(key, None)
+        record["restore_payload"]["completed_effect_barrier"] = None
     elif mutation == "resource_observation_invalid":
         record["restore_payload"] = _restore_payload(
             record_id="record:test",
@@ -1795,6 +1884,366 @@ def test_restore_selector_rejects_r3_authoritative_bundle_drift_on_disk(tmp_path
     assert decision.kind == "INVALID"
     assert decision.policy_decision == "INVALID"
     assert "lexical_checkpoint_effect_policy_structured_output_invalid" in decision.diagnostics
+
+
+def test_completed_provider_checkpoint_emits_restorable_effect_barrier(tmp_path: Path) -> None:
+    checkpoints = _checkpoints_module()
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_policy_sidecars(
+        tmp_path,
+        run_id="restore-policy-provider-effect-barrier",
+    )
+
+    assert final_state["status"] == "completed"
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "provider"
+    )
+    record = _latest_checkpoint_record(
+        tmp_path=tmp_path,
+        state_manager=state_manager,
+        point=point,
+    )
+
+    assert record["completed_effect_refs"]
+    assert record["restore_payload"]["completed_effect_barrier"] == {
+        "effect_kind": "provider",
+        "step_id": point.step_id,
+        "source_map_origin_key": point.origin_key,
+        "completed_effect_refs_digest": checkpoints._completed_effect_refs_digest(
+            tuple(record["completed_effect_refs"])
+        ),
+    }
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "RESTORED"
+    assert decision.policy_decision == "REUSABLE"
+
+
+def test_completed_bool_provider_checkpoint_restores_direct_json_root(tmp_path: Path) -> None:
+    checkpoints = _checkpoints_module()
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_bool_provider_sidecars(
+        tmp_path,
+        run_id="restore-policy-provider-bool-root",
+    )
+
+    assert final_state["status"] == "completed"
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "provider"
+    )
+    record = _latest_checkpoint_record(
+        tmp_path=tmp_path,
+        state_manager=state_manager,
+        point=point,
+    )
+    assert record["restore_payload"]["completed_effect_barrier"][
+        "completed_effect_refs_digest"
+    ] == checkpoints._completed_effect_refs_digest(tuple(record["completed_effect_refs"]))
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "RESTORED"
+    assert decision.policy_decision == "REUSABLE"
+
+
+@pytest.mark.parametrize(
+    ("document", "run_suffix"),
+    (("{", "invalid-json"), ("false\n", "digest-tamper")),
+)
+def test_bool_provider_checkpoint_authoritative_reread_fails_closed(
+    tmp_path: Path,
+    document: str,
+    run_suffix: str,
+) -> None:
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_bool_provider_sidecars(
+        tmp_path,
+        run_id=f"restore-policy-provider-bool-root-{run_suffix}",
+    )
+
+    assert final_state["status"] == "completed"
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "provider"
+    )
+    record = _latest_checkpoint_record(
+        tmp_path=tmp_path,
+        state_manager=state_manager,
+        point=point,
+    )
+    bundle_path = tmp_path / record["completed_effect_refs"][0]["bundle_path"]
+    bundle_path.write_text(document, encoding="utf-8")
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "INVALID"
+
+
+@pytest.mark.parametrize("root_kind", ["bool", "object"])
+def test_provider_checkpoint_rejects_step_artifact_drift_with_unchanged_bundle_and_barrier(
+    tmp_path: Path,
+    root_kind: str,
+) -> None:
+    checkpoints = _checkpoints_module()
+    restore = _restore_module()
+    if root_kind == "bool":
+        bundle, state_manager, final_state = _materialize_bool_provider_sidecars(
+            tmp_path,
+            run_id="restore-policy-provider-bool-artifact-drift",
+        )
+    else:
+        bundle, state_manager, final_state = _materialize_policy_sidecars(
+            tmp_path,
+            run_id="restore-policy-provider-object-artifact-drift",
+        )
+
+    assert final_state["status"] == "completed"
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "provider"
+    )
+    record = _latest_checkpoint_record(
+        tmp_path=tmp_path,
+        state_manager=state_manager,
+        point=point,
+    )
+    state = state_manager.load().to_dict()
+    artifacts = state["steps"][point.presentation_key]["artifacts"]
+    assert record["completed_effect_refs"][0]["artifact_digest"] == checkpoints._sha256_json(
+        artifacts
+    )
+    if root_kind == "bool":
+        artifacts["__result__"] = False
+    else:
+        artifacts["status"] = "DRIFTED"
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state,
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "INVALID"
+    assert "lexical_checkpoint_effect_policy_structured_output_invalid" in decision.diagnostics
+
+
+@pytest.mark.parametrize("artifact_digest", [None, 17])
+def test_provider_checkpoint_rejects_missing_or_malformed_artifact_digest(
+    tmp_path: Path,
+    artifact_digest: object,
+) -> None:
+    checkpoints = _checkpoints_module()
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_bool_provider_sidecars(
+        tmp_path,
+        run_id=f"restore-policy-provider-artifact-digest-{artifact_digest}",
+    )
+
+    assert final_state["status"] == "completed"
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "provider"
+    )
+
+    def mutate(record):
+        ref = record["completed_effect_refs"][0]
+        if artifact_digest is None:
+            ref.pop("artifact_digest")
+        else:
+            ref["artifact_digest"] = artifact_digest
+        digest = checkpoints._completed_effect_refs_digest(tuple(record["completed_effect_refs"]))
+        record["validity_envelope"]["completed_effect_refs_digest"] = digest
+        record["restore_payload"]["completed_effect_barrier"][
+            "completed_effect_refs_digest"
+        ] = digest
+
+    _rewrite_checkpoint_record(
+        tmp_path=tmp_path,
+        state_manager=state_manager,
+        point=point,
+        mutate=mutate,
+    )
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "INVALID"
+    assert "lexical_checkpoint_effect_policy_structured_output_invalid" in decision.diagnostics
+
+
+def test_completed_provider_checkpoint_without_persisted_payload_remains_not_restorable(
+    tmp_path: Path,
+) -> None:
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_policy_sidecars(
+        tmp_path,
+        run_id="restore-policy-provider-historical-no-payload",
+    )
+
+    assert final_state["status"] == "completed"
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "provider"
+    )
+    _rewrite_checkpoint_record(
+        tmp_path=tmp_path,
+        state_manager=state_manager,
+        point=point,
+        mutate=lambda record: record.pop("restore_payload"),
+    )
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "NOT_RESTORABLE"
+
+
+@pytest.mark.parametrize("effect_ref_count", [0, 2])
+def test_restore_selector_rejects_effect_barrier_without_exactly_one_completed_ref(
+    tmp_path: Path,
+    effect_ref_count: int,
+) -> None:
+    checkpoints = _checkpoints_module()
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_policy_sidecars(
+        tmp_path,
+        run_id=f"restore-policy-provider-effect-ref-count-{effect_ref_count}",
+    )
+
+    assert final_state["status"] == "completed"
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "provider"
+    )
+
+    def mutate(record):
+        original_ref = deepcopy(record["completed_effect_refs"][0])
+        record["completed_effect_refs"] = (
+            [] if effect_ref_count == 0 else [original_ref, deepcopy(original_ref)]
+        )
+        digest = checkpoints._completed_effect_refs_digest(
+            tuple(record["completed_effect_refs"])
+        )
+        record["validity_envelope"]["completed_effect_refs_digest"] = digest
+        record["restore_payload"]["completed_effect_barrier"][
+            "completed_effect_refs_digest"
+        ] = digest
+
+    _rewrite_checkpoint_record(
+        tmp_path=tmp_path,
+        state_manager=state_manager,
+        point=point,
+        mutate=mutate,
+    )
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "INVALID"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("effect_kind", "command"),
+        ("step_id", "root.drifted"),
+        ("source_map_origin_key", "source:drifted"),
+        ("completed_effect_refs_digest", "sha256:drifted"),
+    ),
+)
+def test_restore_selector_rejects_completed_effect_barrier_drift(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_policy_sidecars(
+        tmp_path,
+        run_id=f"restore-policy-provider-effect-barrier-{field}",
+    )
+
+    assert final_state["status"] == "completed"
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "provider"
+    )
+    _rewrite_checkpoint_record(
+        tmp_path=tmp_path,
+        state_manager=state_manager,
+        point=point,
+        mutate=lambda record: record["restore_payload"]["completed_effect_barrier"].__setitem__(
+            field,
+            value,
+        ),
+    )
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "INVALID"
+    assert "lexical_restore_payload_schema_invalid" in decision.diagnostics
 
 
 def test_restore_selector_rejects_r3_provider_prompt_drift_on_disk(tmp_path: Path) -> None:

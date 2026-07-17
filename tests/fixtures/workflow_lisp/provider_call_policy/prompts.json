@@ -1,3 +1,4 @@
 {
-  "prompts.execute": "tests/fixtures/workflow_lisp/provider_call_policy/prompt.md"
+  "prompts.execute": "tests/fixtures/workflow_lisp/provider_call_policy/prompt.md",
+  "prompts.public_execute": "tests/fixtures/workflow_lisp/provider_call_policy/prompt.md"
 }

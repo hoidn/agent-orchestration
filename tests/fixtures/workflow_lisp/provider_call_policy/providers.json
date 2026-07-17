@@ -1,3 +1,5 @@
 {
-  "providers.execute": "test-provider"
+  "providers.execute": "test-provider",
+  "providers.public_codex": "codex_unrestricted_workspace",
+  "providers.public_claude": "claude_unrestricted_workspace"
 }

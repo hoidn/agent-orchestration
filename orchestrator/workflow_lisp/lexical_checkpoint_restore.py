@@ -421,6 +421,7 @@ def capture_restore_payload(
     point: Any,
     execution_index: int,
     loop_iteration: int | None,
+    completed_effect_refs: Sequence[Mapping[str, Any]],
 ) -> Mapping[str, Any] | None:
     restore = _mapping(getattr(point, "details", {}).get("restore"))
     if not restore:
@@ -547,10 +548,29 @@ def capture_restore_payload(
             loop_frame["frame_digest"] = _loop_frame_digest(loop_frame)
             loop_frame["frame_state_digest"] = loop_frame["frame_digest"]
 
+    completed_effect_barrier = None
+    if completed_effect_refs:
+        if len(completed_effect_refs) != 1:
+            raise ValueError(DIAGNOSTIC_CODES.payload_schema_invalid)
+        effect_boundary = _mapping(getattr(point, "details", {}).get("effect_boundary"))
+        effect_kind = effect_boundary.get("effect_kind")
+        if (
+            not isinstance(effect_kind, str)
+            or not effect_kind
+            or not _mapping(effect_boundary.get("policy"))
+        ):
+            raise ValueError(DIAGNOSTIC_CODES.payload_schema_invalid)
+        completed_effect_barrier = {
+            "effect_kind": effect_kind,
+            "step_id": getattr(point, "step_id", ""),
+            "source_map_origin_key": getattr(point, "origin_key", ""),
+            "completed_effect_refs_digest": _sha256_json(list(completed_effect_refs)),
+        }
+
     payload = {
         "schema_version": RESTORE_PAYLOAD_SCHEMA_VERSION,
         "eligibility": list(restore.get("eligibility", ())),
-        "restorable": bool(bindings or proofs or loop_frame),
+        "restorable": bool(bindings or proofs or loop_frame or completed_effect_barrier),
         "resume_after": {
             "program_point_id": getattr(point, "program_point_id", ""),
             "step_id": getattr(point, "step_id", ""),
@@ -560,7 +580,7 @@ def capture_restore_payload(
         "bindings": bindings,
         "active_variant_proofs": proofs,
         "loop_frame": loop_frame,
-        "completed_effect_barrier": None,
+        "completed_effect_barrier": completed_effect_barrier,
         "resource_observations": [],
     }
     if not payload["restorable"]:
@@ -578,7 +598,12 @@ def validate_restore_payload(
     if payload.get("schema_version") != RESTORE_PAYLOAD_SCHEMA_VERSION:
         raise ValueError(DIAGNOSTIC_CODES.payload_schema_invalid)
     eligibility = payload.get("eligibility")
-    if not isinstance(eligibility, list) or not eligibility or not set(eligibility) <= RESTORE_ELIGIBILITY_CLASSES:
+    has_completed_effect_barrier = payload.get("completed_effect_barrier") is not None
+    if (
+        not isinstance(eligibility, list)
+        or (not eligibility and not has_completed_effect_barrier)
+        or not set(eligibility) <= RESTORE_ELIGIBILITY_CLASSES
+    ):
         raise ValueError(DIAGNOSTIC_CODES.payload_schema_invalid)
     resume_after = _mapping(payload.get("resume_after"))
     _non_empty_string(resume_after.get("program_point_id"), DIAGNOSTIC_CODES.payload_schema_invalid)
@@ -644,6 +669,56 @@ def validate_restore_payload(
             raise ValueError(DIAGNOSTIC_CODES.resource_observation_mismatch) from exc
         if expected_origin_key is not None and observation_map.get("source_map_origin_key") != expected_origin_key:
             raise ValueError(DIAGNOSTIC_CODES.resource_observation_mismatch)
+
+    completed_effect_barrier = payload.get("completed_effect_barrier")
+    if completed_effect_barrier is not None:
+        barrier = _mapping(completed_effect_barrier)
+        if set(barrier) != {
+            "effect_kind",
+            "step_id",
+            "source_map_origin_key",
+            "completed_effect_refs_digest",
+        }:
+            raise ValueError(DIAGNOSTIC_CODES.payload_schema_invalid)
+        for field in (
+            "effect_kind",
+            "step_id",
+            "source_map_origin_key",
+            "completed_effect_refs_digest",
+        ):
+            _non_empty_string(barrier.get(field), DIAGNOSTIC_CODES.payload_schema_invalid)
+        if expected_origin_key is not None and barrier.get("source_map_origin_key") != expected_origin_key:
+            raise ValueError(DIAGNOSTIC_CODES.payload_schema_invalid)
+
+    has_lexical_state = bool(bindings or proofs or loop_frame)
+    if payload.get("restorable") is not True or not (has_lexical_state or completed_effect_barrier is not None):
+        raise ValueError(DIAGNOSTIC_CODES.payload_schema_invalid)
+
+
+def validate_completed_effect_barrier(
+    payload: Mapping[str, Any],
+    *,
+    expected_point: Mapping[str, Any],
+    completed_effect_refs: Sequence[Mapping[str, Any]],
+) -> None:
+    """Bind a persisted restore barrier to already-validated completed effects."""
+
+    barrier = _mapping(payload.get("completed_effect_barrier"))
+    if not barrier:
+        return
+    if len(completed_effect_refs) != 1:
+        raise ValueError(DIAGNOSTIC_CODES.payload_schema_invalid)
+    effect_boundary = _mapping(expected_point.get("effect_boundary"))
+    if not _mapping(effect_boundary.get("policy")):
+        raise ValueError(DIAGNOSTIC_CODES.payload_schema_invalid)
+    expected = {
+        "effect_kind": effect_boundary.get("effect_kind"),
+        "step_id": expected_point.get("step_id"),
+        "source_map_origin_key": expected_point.get("origin_key"),
+        "completed_effect_refs_digest": _sha256_json(list(completed_effect_refs)),
+    }
+    if dict(barrier) != expected:
+        raise ValueError(DIAGNOSTIC_CODES.payload_schema_invalid)
 
 
 def _workflow_path_from_state(state_manager: Any, state: Mapping[str, Any]) -> Path | None:
@@ -1511,6 +1586,34 @@ def select_restore_candidate(
                         transition_resume=transition_resume,
                     )
                 if policy_decision == "BARRIER":
+                    restore_payload = record.get("restore_payload")
+                    if isinstance(restore_payload, Mapping) and restore_payload.get(
+                        "completed_effect_barrier"
+                    ) is not None:
+                        try:
+                            validate_restore_payload(
+                                restore_payload,
+                                expected_origin_key=point.origin_key,
+                                state_manager=state_manager,
+                            )
+                            validate_completed_effect_barrier(
+                                restore_payload,
+                                expected_point=point_payload,
+                                completed_effect_refs=tuple(
+                                    _mapping(ref)
+                                    for ref in _sequence(record.get("completed_effect_refs"))
+                                ),
+                            )
+                        except ValueError as exc:
+                            return RestoreDecision(
+                                kind=RESTORE_DECISION_INVALID,
+                                checkpoint_id=point.checkpoint_id,
+                                record_id=record_id,
+                                source_map_origin_key=origin_key,
+                                policy_decision="INVALID",
+                                diagnostics=(str(exc),),
+                                transition_resume=transition_resume,
+                            )
                     saw_non_restorable = True
                     invalid_diagnostics.extend(policy_diagnostics)
                     continue
@@ -1569,6 +1672,14 @@ def select_restore_candidate(
                         restore_payload_value,
                         expected_origin_key=point.origin_key,
                         state_manager=state_manager,
+                    )
+                    validate_completed_effect_barrier(
+                        restore_payload_value,
+                        expected_point=point_payload,
+                        completed_effect_refs=tuple(
+                            _mapping(ref)
+                            for ref in _sequence(record.get("completed_effect_refs"))
+                        ),
                     )
                 except ValueError as exc:
                     return RestoreDecision(

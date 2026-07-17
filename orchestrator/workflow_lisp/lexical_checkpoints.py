@@ -973,6 +973,11 @@ def validate_completed_effect_refs_against_authoritative_state(
     if effect_kind in {"command", "provider"}:
         if step_state.get("status") != "completed":
             raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        step_artifacts = step_state.get("artifacts")
+        if not isinstance(step_artifacts, Mapping) or ref.get("artifact_digest") != _sha256_json(
+            step_artifacts
+        ):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.structured_output_invalid)
         output_bundle = _mapping(runtime_step.get("output_bundle"))
         fields = output_bundle.get("fields")
         if not isinstance(fields, list):
@@ -980,7 +985,7 @@ def validate_completed_effect_refs_against_authoritative_state(
         bundle_path = ref.get("bundle_path")
         if not isinstance(bundle_path, str) or not bundle_path:
             raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.structured_output_invalid)
-        payload = _json_object_from_workspace(workspace, bundle_path)
+        payload = _json_value_from_workspace(workspace, bundle_path)
         structured_output = _mapping(_mapping(point_policy.get("evidence_requirements")).get("structured_output"))
         if ref.get("bundle_path_ref") != structured_output.get("bundle_path_ref"):
             raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.structured_output_invalid)
@@ -1471,16 +1476,17 @@ def emit_runtime_shadow_record(
                 "diagnostics": [],
             },
         }
+        completed_effect_refs = collect_completed_effect_refs(executor, point=point)
+        record["completed_effect_refs"] = [dict(ref) for ref in completed_effect_refs]
         restore_payload = capture_restore_payload(
             executor=executor,
             point=point,
             execution_index=execution_index,
             loop_iteration=loop_iteration,
+            completed_effect_refs=completed_effect_refs,
         )
         if restore_payload is not None:
             record["restore_payload"] = dict(restore_payload)
-        completed_effect_refs = collect_completed_effect_refs(executor, point=point)
-        record["completed_effect_refs"] = [dict(ref) for ref in completed_effect_refs]
         if (
             restore_payload is not None
             and isinstance(record.get("restore_payload"), Mapping)

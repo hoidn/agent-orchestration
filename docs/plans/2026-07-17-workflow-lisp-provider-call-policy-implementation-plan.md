@@ -28,7 +28,8 @@ tmux.
 `docs/plans/2026-07-17-workflow-lisp-provider-call-policy-design.md` at commit
 `069b8e79`.
 
-**Execution status:** Tasks 1-6 are complete; Task 7 is next. This plan is a living,
+**Execution status:** Tasks 1-6 are complete; Task 7 implementation and regression
+gates are green, with independent review/commit remaining. This plan is a living,
 reviewed execution artifact: every task updates its own completed checkboxes and the status line above,
 stages this file with that task's code/tests, and commits the plan update in the same
 task commit. A task may mark its implementation/test steps complete before review;
@@ -97,7 +98,7 @@ stage them. They are not part of the candidate index, but Task 8 records their
 presence/status/exact bytes in a separate allowed-untracked manifest so the tested
 working tree is fully disclosed:
 
-- `docs/plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md`
+- `docs/plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-implementation-plan.md`
 - `docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md`
 
 Before every commit in this plan, run both commands:
@@ -1006,15 +1007,19 @@ or claim design closure before that point.
 - Modify: `tests/fixtures/workflow_lisp/provider_call_policy/policy.orc`
 - Modify: `tests/fixtures/workflow_lisp/provider_call_policy/providers.json`
 - Modify: `tests/fixtures/workflow_lisp/provider_call_policy/prompts.json`
+- Verify only: `orchestrator/workflow/executor.py` (existing post-persist hook)
+- Modify: `orchestrator/workflow_lisp/lexical_checkpoints.py`
+- Modify: `orchestrator/workflow_lisp/lexical_checkpoint_restore.py`
+- Modify: `tests/test_workflow_lisp_lexical_checkpoint_restore.py`
 
-- [ ] **Step 1: Add the public E2E fixture**
+- [x] **Step 1: Add the public E2E fixture**
 
   The workflow must accept root String model/effort inputs, name a compiler-known
   provider extern, author a positive literal timeout, return a validated structured
   provider result, then reach a deterministic command-result boundary that fails
   until a marker exists. The command writes only to the runtime-bound bundle path.
 
-- [ ] **Step 2: Collect the new tests before running them**
+- [x] **Step 2: Collect the new tests before running them**
 
   ```bash
   pytest --collect-only -q \
@@ -1025,7 +1030,7 @@ or claim design closure before that point.
 
   Expected: all intended node IDs collect with no import/fixture error.
 
-- [ ] **Step 3: Write the red public compile/run acceptance test**
+- [x] **Step 3: Write the red public compile/run acceptance test**
 
   Name the parameterized public test exactly
   `test_public_compile_run_resume_uses_call_policy`; its two cases are the shared
@@ -1038,7 +1043,11 @@ or claim design closure before that point.
   Parameterize the compiler-known extern binding over
   `codex_unrestricted_workspace` and `claude_unrestricted_workspace`. Assert actual
   argv, bound model/effort, literal timeout, one normal provider invocation, normal
-  bundle validation/commit, and the expected downstream interruption.
+  bundle validation/commit, then use the generic post-checkpoint-persist hook to
+  interrupt exactly after the provider record is durable and before the command
+  starts. The persisted provider record must carry one validated completed-effect
+  ref plus a strict `completed_effect_barrier`; the command checkpoint must report
+  canonical `record_absent`.
 
   Run:
 
@@ -1050,21 +1059,31 @@ or claim design closure before that point.
   Expected: both parameter cases collect and FAIL until the complete public path is
   wired; a zero-test selection is a failure, never a passing smoke.
 
-- [ ] **Step 4: Make only fixture/test corrections needed by the public path**
+- [x] **Step 4: Correct completed-boundary restore persistence generically**
 
-  Do not add an E2E-only compiler, registry, or executor hook. Any production defect
-  found here returns to the owning earlier task and must receive focused red/green
-  coverage there before this task continues.
+  Collect completed-effect refs before restore-payload capture. Permit otherwise
+  empty lexical restore state only when a persisted barrier binds exactly one
+  policy-authorized completed ref by effect kind, step ID, source origin, and digest.
+  Validate authoritative refs before barrier cross-validation; never synthesize a
+  payload while reading, and keep historical no-payload records non-restorable.
+  Authoritative structured-output rereads accept any direct transportable JSON root,
+  use the same root-value digest captured at commit time, and fail closed on invalid
+  JSON or digest drift without adding an envelope or type-specific branch. Reuse
+  also requires the completed-effect ref's artifact digest to match the exact
+  persisted step artifacts, preventing artifact-only state drift from becoming
+  downstream semantic input while the bundle and barrier remain unchanged.
+  The existing generic post-persist hook observes only the already-durable record.
 
-- [ ] **Step 5: Write the unchanged-policy resume test**
+- [x] **Step 5: Write the unchanged-policy resume test**
 
-  After the provider boundary commits and the downstream command fails, create the
+  After the provider boundary commits and the one-shot post-persist interruption
+  proves the downstream command and checkpoint were never attempted, create the
   marker and call public `resume_workflow` with the same run ID. Assert resume calls
   `build_frontend_bundle`, reuses persisted root inputs, selects the validated prior
   boundary through normal checkpoint logic, does not invoke the provider a second
   time, completes the command result, and commits the typed workflow result.
 
-- [ ] **Step 6: Write both-direction drift tests**
+- [x] **Step 6: Write both-direction drift tests**
 
   From equivalent interrupted runs, change one literal policy value, one binding
   expression, add one keyword, and remove one keyword. Public resume must reject each
@@ -1073,14 +1092,14 @@ or claim design closure before that point.
   written by the existing resume contract. Do not bypass checksums to construct a
   passing case.
 
-- [ ] **Step 7: Prove debug/projection data is not resume authority**
+- [x] **Step 7: Prove debug/projection data is not resume authority**
 
   Tamper with emitted debug YAML, runtime-plan display data, and source-map views
   while leaving authoritative source/state unchanged; unchanged resume still follows
   the existing authoritative rebuild/checkpoint route. Then tamper authoritative
   source policy and prove view files cannot make it pass.
 
-- [ ] **Step 8: Run public E2E and resume regressions**
+- [x] **Step 8: Run public E2E and resume regressions**
 
   ```bash
   pytest -q \
@@ -1096,8 +1115,9 @@ or claim design closure before that point.
 - [ ] **Step 9: Review and commit**
 
   Check the completed Task 7 boxes and update **Execution status**. Stage this plan,
-  exactly the E2E test and five fixture/profile files. Run both reviews and the
-  protected-path guard, then commit the unchanged reviewed tree:
+  the E2E test and five fixture/profile files, plus the generic completed-effect
+  barrier implementation and focused restore tests named in this task. Run both
+  reviews and the protected-path guard, then commit the unchanged reviewed tree:
 
   ```bash
   git commit -m "test: prove provider call policy run and resume"
@@ -1202,7 +1222,7 @@ or claim design closure before that point.
     workflows/library/prompts/workflow_step_back/diagnose_non_progress.md
   )
   ALLOWED_UNTRACKED_PLANS=(
-    docs/plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md
+    docs/plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-implementation-plan.md
     docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md
   )
   mkdir -p "$(dirname "$SOCKET")" "$EVIDENCE_ROOT"
@@ -1320,7 +1340,7 @@ or claim design closure before that point.
     workflows/library/prompts/workflow_step_back/diagnose_non_progress.md
   )
   ALLOWED_UNTRACKED_PLANS=(
-    docs/plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md
+    docs/plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-implementation-plan.md
     docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md
   )
   read_tmux_env() {

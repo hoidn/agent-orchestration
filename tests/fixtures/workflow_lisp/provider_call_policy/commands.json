@@ -1,0 +1,9 @@
+{
+  "finish": {
+    "kind": "external_tool",
+    "stable_command": [
+      "python",
+      "finish.py"
+    ]
+  }
+}
