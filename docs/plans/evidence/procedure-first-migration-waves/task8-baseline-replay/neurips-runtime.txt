@@ -1,0 +1,94 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch _
+
+tmp_path = PosixPath('/tmp/pytest-of-ollie/pytest-5678/test_neurips_steered_backlog_r0')
+
+    def test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch(tmp_path):
+        workspace = tmp_path / "workspace"
+        workflow_path = _copy_runtime_files(workspace)
+        _replace_active_backlog_with_future_phase_gap_fixture(workspace)
+    
+        provider_sequence = [
+            ("DraftMissingBacklogItem", _write_gap_draft),
+            ("SelectNextItem", _write_selector_blocked_after_gap),
+        ]
+        call_index = {"value": 0}
+    
+        def _prepare_invocation(_self, *args, **kwargs):
+            return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
+    
+        def _execute(_self, _invocation, **kwargs):
+            expected_step, writer = provider_sequence[call_index["value"]]
+            actual_step = kwargs.get("step_name")
+            if actual_step is not None:
+                assert actual_step == expected_step
+            call_index["value"] += 1
+            writer(workspace)
+            return SimpleNamespace(
+                exit_code=0,
+                stdout=b"ok",
+                stderr=b"",
+                duration_ms=1,
+                error=None,
+                missing_placeholders=None,
+                invalid_prompt_placeholder=False,
+                raw_stdout=None,
+                normalized_stdout=None,
+                provider_session=None,
+            )
+    
+        loader = WorkflowLoader(workspace)
+        workflow = loader.load(workflow_path)
+        workflow_relpath = workflow_path.relative_to(workspace).as_posix()
+        bound_inputs = bind_workflow_inputs(workflow_input_contracts(workflow), _fixture_workflow_inputs(), workspace)
+        state_manager = StateManager(workspace=workspace, run_id="test-run")
+        state_manager.initialize(workflow_relpath, _bundle_context_dict(workflow), bound_inputs=bound_inputs)
+        executor = WorkflowExecutor(workflow, workspace, state_manager)
+    
+        with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+            ProviderExecutor, "execute", _execute
+        ):
+            executor.execute()
+    
+        assert call_index["value"] == 2
+        assert (workspace / "docs/backlog/active/2026-04-27-future-item.md").is_file()
+        assert (workspace / "docs/backlog/active/2026-04-28-phase2-gap.md").is_file()
+        summary = json.loads(
+>           (workspace / "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog-drain-summary.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+tests/test_neurips_steered_backlog_runtime.py:963: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../miniconda3/lib/python3.13/pathlib/_local.py:546: in read_text
+    return PathBase.read_text(self, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../miniconda3/lib/python3.13/pathlib/_abc.py:632: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/tmp/pytest-of-ollie/pytest-5678/test_neurips_steered_backlog_r0/workspace/artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog-drain-summary.json')
+mode = 'r', buffering = -1, encoding = 'utf-8', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/tmp/pytest-of-ollie/pytest-5678/test_neurips_steered_backlog_r0/workspace/artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog-drain-summary.json'
+
+../../miniconda3/lib/python3.13/pathlib/_local.py:537: FileNotFoundError
+------------------------------ Captured log call -------------------------------
+ERROR    orchestrator.workflow.executor:executor.py:4141 Step 'SelectNextItem' failed with exit code 2. Stopping execution (strict_flow=true, on_error=stop)
+ERROR    orchestrator.workflow.executor:executor.py:4141 Step 'DrainBacklogItems' failed with exit code 2. Stopping execution (strict_flow=true, on_error=stop)
+=========================== short test summary info ============================
+FAILED tests/test_neurips_steered_backlog_runtime.py::test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch
+1 failed in 1.17s

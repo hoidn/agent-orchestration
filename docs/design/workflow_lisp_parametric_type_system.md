@@ -377,12 +377,13 @@ monomorphic specialized body and recompute its **caller-visible transitive
 effect summary** after type-parameter and ProcRef resolution and before
 lowering.
 
-This is the accepted semantic model. The current
-`procedure_typecheck.direct_effects` carrier is conservative: it already
-includes callee transitive effects and therefore does not expose a distinct
-body-local direct view. A mandatory Stage 5 substrate plan must establish that
-direct view and recompute the caller-visible transitive view after
-specialization before the procedure-first pilot.
+This semantic model is implemented by the resolved-effect substrate.
+`TypedProcedureDef.direct_effect_summary` retains body-local effect atoms plus
+procedure-call edges, while the compiler recomputes
+`transitive_effect_summary` over the fully materialized monomorphic procedure
+set after generic and ProcRef specialization and before lowering. Family
+migration remains separately gated by public identity, checkpoint, state,
+publication, and live-consumer compatibility evidence.
 
 Inline lowering remains required for procedure-first migrations and is useful
 structural evidence: the selected hooks' concrete provider, command,
@@ -652,9 +653,9 @@ through.
   conflicting bindings fail with `parametric_type_binding_ambiguous`.
 - A specialized generic semantically retains a body-local direct view and
   recomputes caller-visible transitive effects after concrete ProcRef
-  resolution. The current conservative `direct_effects` carrier must be split
-  or supplemented before the pilot. Effectful procedure-first migrations
-  lower inline; census and
+  resolution. The implemented direct body-local carrier and recomputed
+  transitive carrier are distinct and verified after specialization.
+  Effectful procedure-first migrations lower inline; census and
   effect-visibility surfaces for a consuming workflow are equivalent to those
   of the hand-monomorphized program, with no hook effect hidden behind a copied
   summary.

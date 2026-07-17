@@ -1,0 +1,35 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys _
+
+tmp_path = PosixPath('/tmp/pytest-of-ollie/pytest-5675/test_executable_ir_artifact_om0')
+
+    def test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys(
+        tmp_path: Path,
+    ) -> None:
+        result = _build_frontend_bundle_from_fixture(
+            tmp_path,
+            fixture_path=Path("tests/fixtures/workflow_lisp/valid/pointer_materialization_effects.orc"),
+            module_name="pointer_effects",
+            entry_workflow="orchestrate",
+        )
+        executable_ir_payload = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
+        serialized = json.dumps(executable_ir_payload, sort_keys=True)
+    
+        assert executable_ir_payload["schema_version"] == "workflow_executable_ir.v1"
+        assert "_surface_step" not in serialized
+        assert "_surface_workflow" not in serialized
+        assert "typed_workflow" not in serialized
+>       assert "form_path" not in serialized
+E       assert 'form_path' not in '{"artifacts...on": "2.14"}'
+E         
+E         'form_path' is contained here:
+E         ?           ^^
+E           nance": {"form_path": ["workflow-lisp", "defworkflow", "orchestrate"], "line": 52, "path": "/tmp/pytest-of-ollie/pytest-5675/test_executable_ir_artifact_om0/pointer_materialization_effects.orc", "workflow_name": "pointer_materialization_effects::orchestrate"}}], "runtime_context_inputs": ["phase-ctx__artifact-root", "phase-ctx__phase-name", "phase-ctx__run__artifact-root", "phase-ctx__run__run-id", "phase-ctx__run__state-root", "phase-ctx__state-root"], "source_root": "/tmp/pytest-of-ollie/pytest-5675/test_executable_ir_artifact_om0", "workf...
+E         
+E         ...Full output truncated (2 lines hidden), use '-vv' to show
+
+tests/test_workflow_semantic_ir.py:1148: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_workflow_semantic_ir.py::test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys
+1 failed in 0.40s

@@ -2,7 +2,7 @@
 
 Status: Task 4 complete at `c9687539`, `26d9ecd0`, and `848ceb52` after
 per-group specification and quality approval; all four Task 5 subfamilies are
-retained, Tasks 5–7 are complete, and Task 8 Step 1 is current.
+retained, Tasks 5–7 are complete, and Task 8 Step 4 is current.
 Source commit: `db9889937a895d67810dee1ea0b1b53552d30eca`
 Schema: `procedure_first_reuse_inventory.v2`
 

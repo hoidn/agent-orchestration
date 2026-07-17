@@ -12,9 +12,11 @@
 
 ## Authority, order, and invariants
 
-**Status:** Current selector (activated 2026-07-16). Task 1's post-hardening
-rebaseline is complete at `4983afff` with its narrative correction at
-`fa16bcf0`. **Current sub-selector: Task 8 Step 1. Tasks 5–7 are complete.**
+**Status:** Historical complete. Task 1's post-hardening rebaseline completed
+at `4983afff` with its narrative correction at `fa16bcf0`; the Task 7 Stage-6
+handoff landed at `7e6adc36`; and Task 8 passed both independent reviews.
+**The current selector is Stage 6 YAML retirement Task 1 in
+`docs/plans/2026-07-07-yaml-retirement-program.md`.**
 The four-call finalizer-projection subfamily is retained by the reviewed
 strict-compatibility decision in
 `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md`;
@@ -70,8 +72,8 @@ is complete. Task 7 then materialized the exact Stage-6 handoff without any
 workflow or run mutation: 110 authored YAML/YML paths are partitioned across
 five queues, all 63 legacy-retire rows map 53/10 into the deletion and Design
 Delta archive queues, and all 32 effect adapters plus 13 public entries remain
-preserved outside retirement. Task 8 Step 1 is selected without advancing the
-governing roadmap to Stage 6.
+preserved outside retirement. Task 8 is complete and the governing roadmap now
+advances to Stage 6 Task 1.
 The governing Task 6 evidence is
 `docs/plans/2026-07-16-design-delta-drain-builder-checkpoint-retention-plan.md`.
 Commit
@@ -114,8 +116,8 @@ legacy-retire rows, plus 13 separate public entries and one history row.
   closed as retained on two shared-validation diagnostics. Task 5 is complete,
   and Task 6 then retained its one private builder call because the exact
   compiling inline hypothetical removes a caller-owned checkpoint and adds
-  none. Task 7 is complete and Task 8 Step 1 is current. Production-family
-  Tasks 5–6 retain every later prerequisite in this plan.
+  none. Task 7 and Task 8 are complete. Production-family Tasks 5–6 retain
+  every later prerequisite in this plan.
 - Preserve the inventory's separate `public-entry` records. In particular, never migrate:
   - `workflows/library/lisp_frontend_design_delta/drain.orc::drain` away from `defworkflow`; or
   - `workflows/examples/design_plan_impl_review_stack_v2_call.orc::design-plan-impl-review-stack` away from `defworkflow`.
@@ -760,8 +762,8 @@ Task 5 was complete; Task 6 Step 1 then became current.
 
 ### Task 6: Migrate The Internal Drain Builder Without Removing The Public Drain
 
-**Status:** Complete by fail-closed checkpoint retention. Task 7 is complete;
-Task 8 Step 1 is current.
+**Status:** Complete by fail-closed checkpoint retention. Tasks 7–8 are also
+complete; Stage 6 YAML retirement Task 1 is current.
 
 **Files:**
 - Modify: `workflows/library/lisp_frontend_design_delta/drain.orc`
@@ -824,7 +826,8 @@ evidence is
 
 ### Task 7: Hand Legacy Rows To Stage 6 Without Translating Them
 
-**Status:** Complete as a handoff-only task. Task 8 Step 1 is current. The
+**Status:** Complete as a handoff-only task at `7e6adc36`. Task 8 is complete
+and Stage 6 YAML retirement Task 1 is current. The
 handoff partitions 110 authored YAML/YML paths into the exact five Stage-6
 queues, maps all 63 legacy-retire rows as 53 delete plus 10 Design Delta
 archive rows, and preserves all 32 effect-adapter plus 13 public-entry IDs.
@@ -883,11 +886,31 @@ whole-wave focused/broad gates and the final selector synchronization.
 ### Task 8: Close The Migration-Wave Gate
 
 **Files:**
+- Modify as pre-routing evidence: `docs/design/workflow_lisp_parametric_type_system.md`
+- Modify as pre-routing evidence: `docs/lisp_workflow_drafting_guide.md`
+- Modify as pre-routing evidence: `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`
+- Modify as pre-routing evidence: `docs/plans/2026-07-13-procedure-first-reuse-inventory.md`
+- Modify as pre-routing evidence: `docs/plans/2026-07-16-yaml-retirement-handoff-plan.md`
+- Create: `docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/adjudication.json`
+- Create: `docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/output-contract.txt`
+- Create: `docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/semantic-prompt-lineage.txt`
+- Create: `docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/executable-ir-keys.txt`
+- Create: `docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/semantic-command-boundary.txt`
+- Create: `docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/provider-role.txt`
+- Create: `docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/neurips-runtime.txt`
+- Modify as pre-routing evidence: `tests/test_workflow_lisp_drain_roadmap_routing.py`
+- Preserve byte-for-byte: `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json`
+- Preserve byte-for-byte: `docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline-correction.json`
+- Preserve byte-for-byte: `tests/workflow_lisp_procedure_identity.py`
 - Modify only after all reviews pass: `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
 - Modify only after all reviews pass: `docs/capability_status_matrix.md`
 - Modify only after all reviews pass: `docs/index.md`
 
-- [ ] **Step 1: Validate the final inventory**
+The paths above are Task 8's exact evidence and closeout scope. The staging
+command in Step 5 names each writable path explicitly; the three preserved
+authorities are validation inputs only and must remain unstaged and unchanged.
+
+- [x] **Step 1: Validate the final inventory**
 
 ```bash
 python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >/dev/null
@@ -895,9 +918,18 @@ rg -n --glob '*.orc' '\(call\s+' workflows | sort
 rg -n --glob '*.yaml' --glob '*.yml' '^[[:space:]-]*call:[[:space:]]' workflows | sort
 ```
 
-Every current direct call is either resolved by a completed migration, retained as a reviewed public/effect boundary, or assigned to a specific Stage 6 retirement family.
+Every actionable direct call is either resolved by a completed migration,
+retained as a reviewed public/effect boundary, or assigned to a specific
+Stage 6 retirement family. The six reviewed exclusions remain outside that
+actionable population.
 
-- [ ] **Step 2: Run focused route, parity, source-map, checkpoint, and runtime suites**
+Fresh reconciliation found 101 authored direct calls: 95 active inventory
+records plus six documented exclusions. The two Workflow Lisp runtime-fixture
+calls remain runtime evidence rather than migration work. The four YAML
+template calls are excluded as placeholders but are indirectly assigned to
+Stage 6 through their containing template in `delete_non_survivor_estate`.
+
+- [x] **Step 2: Run focused route, parity, source-map, checkpoint, and runtime suites**
 
 ```bash
 pytest -q tests/test_workflow_lisp_procedure_first_migrations.py tests/test_workflow_lisp_route_readiness.py tests/test_workflow_lisp_migration_parity.py tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_checkpoint_identity_comparison.py tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_design_delta_smoke.py
@@ -905,7 +937,20 @@ pytest -q tests/test_workflow_lisp_procedure_first_migrations.py tests/test_work
 
 Expected: PASS.
 
-- [ ] **Step 3: Run the broad suite in tmux**
+Fresh result: **565 passed, 6 skipped**.
+
+A separate post-adjudication routing replay was run after the content-addressed
+baseline evidence and its fail-closed schema/Git validators were added:
+
+```bash
+pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py
+```
+
+Fresh routing-replay result: **36 passed**. This selector is distinct from the
+565-test focused family gate and does not replace or upgrade the broad-suite
+result below.
+
+- [x] **Step 3: Run the broad suite in tmux**
 
 Use the `tmux` skill:
 
@@ -915,16 +960,62 @@ pytest -q -n 16 --dist=worksteal
 
 Expected: PASS except only established unrelated failures with fresh isolated reruns and explicit disposition.
 
-- [ ] **Step 4: Obtain independent per-family and whole-wave reviews**
+Final corrected-tree tmux result: **6 failed, 4992 passed, 17 skipped**. The
+three added replay/capture-contract tests account for the pass-count increase
+from the earlier pre-adjudication run. The failure set is
+the six `established_unrelated` node IDs recorded in
+`docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json`
+and its accepted correction artifact
+`docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline-correction.json`:
+
+- `tests/test_workflow_output_contract_integration.py::test_provider_valid_output_bundle_overrides_raw_nonzero_exit`
+- `tests/test_workflow_semantic_ir.py::test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence`
+- `tests/test_workflow_semantic_ir.py::test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys`
+- `tests/test_workflow_semantic_ir.py::test_compiled_bundle_semantic_ir_preserves_command_boundary_classification`
+- `tests/test_provider_role_routing.py::test_design_delta_drain_defaults_route_work_to_codex_gpt54`
+- `tests/test_neurips_steered_backlog_runtime.py::test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch`
+
+A fresh isolated rerun is content-addressed in
+`docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/`.
+Four normalized logs are exact digest matches to the accepted corrected
+baseline. Two are reviewed `logger_location_only_drift`: the output-contract
+log changes one normalized line and the NeurIPS log changes two normalized
+lines, exclusively from `executor.py:4027` to `executor.py:4141`. Reversing
+that locator change reproduces each accepted corrected digest exactly, with
+all other normalized lines equal. Commits `835f0921`, `218c4753`, `b017203c`,
+and `a5529b68` moved that unchanged logger before the Task 1 wave-start commit
+`4983afff`; therefore this is not described as exact digest baseline
+equivalence for all six rows. The baseline, correction artifact, and
+normalizer remain byte-identical to their pinned authorities. Step 4 remains
+the current gate, so this adjudication does not itself authorize the final
+routing change or describe the broad suite as finally accepted.
+
+- [x] **Step 4: Obtain independent per-family and whole-wave reviews**
 
 Each family needs specification and quality passes before the next begins. The final reviews check all inventory records, retained public negatives, effect-adapter evidence, migration parity, YAML-retirement handoff, stop-condition compliance, and absence of shared substrate changes in family commits.
 
-- [ ] **Step 5: Advance routing only after the gate passes**
+The sealed whole-wave specification review returned **PASS** and the sealed
+whole-wave quality review returned **APPROVED**. Both reviewed the final
+content-addressed capture, Git-backed provenance and descendant/divergence
+validation, the Task 7 handoff at `7e6adc36`, and the exact claim limits below.
+
+- [x] **Step 5: Advance routing only after the gate passes**
 
 Record exact completed/migrated/retained/retirement counts, review evidence, and the next Stage 6 selector. Do not describe procedure-first adoption as universal if any effect-adapter remains.
 
+The migration wave is complete with 0 active procedure candidates, 32 retained
+effect adapters, 63 YAML legacy-retire rows queued for Stage 6, 13 separate
+public entries, and one migrated history row. The sealed focused gate passed
+565 tests with 6 skipped; the routing replay passed 36 tests; and the broad
+gate recorded 4992 passed, 17 skipped, and the same six established unrelated
+failures. The content-addressed adjudication proves four normalized-log digest
+exact matches plus two logger-location-only rows. These results do not make
+procedure-first adoption universal: all 32 effect adapters remain active
+workflow boundaries. The current selector is Stage 6 YAML retirement Task 1;
+provider live binding and the `.orc` language server remain next in that order.
+
 ```bash
-git add docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md docs/capability_status_matrix.md docs/index.md
+git add docs/design/workflow_lisp_parametric_type_system.md docs/lisp_workflow_drafting_guide.md docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md docs/plans/2026-07-13-procedure-first-migration-waves-plan.md docs/plans/2026-07-13-procedure-first-reuse-inventory.md docs/plans/2026-07-16-yaml-retirement-handoff-plan.md docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/adjudication.json docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/output-contract.txt docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/semantic-prompt-lineage.txt docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/executable-ir-keys.txt docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/semantic-command-boundary.txt docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/provider-role.txt docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/neurips-runtime.txt docs/capability_status_matrix.md docs/index.md tests/test_workflow_lisp_drain_roadmap_routing.py
 git commit -m "Close procedure-first migration waves"
 ```
 

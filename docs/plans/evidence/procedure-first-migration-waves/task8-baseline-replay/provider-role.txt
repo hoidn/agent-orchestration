@@ -1,0 +1,19 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_design_delta_drain_defaults_route_work_to_codex_gpt54 __________
+
+    def test_design_delta_drain_defaults_route_work_to_codex_gpt54():
+        workflow = yaml.safe_load(
+            (REPO_ROOT / "workflows/examples/lisp_frontend_design_delta_drain.yaml").read_text(encoding="utf-8")
+        )
+    
+>       assert workflow["inputs"]["design_gap_draft_provider"]["default"] == "codex"
+E       AssertionError: assert 'claude' == 'codex'
+E         
+E         - codex
+E         + claude
+
+tests/test_provider_role_routing.py:54: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_provider_role_routing.py::test_design_delta_drain_defaults_route_work_to_codex_gpt54
+1 failed in 0.24s

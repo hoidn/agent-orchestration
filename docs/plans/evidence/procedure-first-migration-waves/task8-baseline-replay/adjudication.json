@@ -1,0 +1,166 @@
+{
+  "schema": "procedure_first_migration_wave_baseline_replay.v1",
+  "captured_at": "2026-07-17T00:26:55-07:00",
+  "repository": {
+    "head_commit": "7e6adc367a6a16745b5334b2ffc05795f061141d",
+    "head_tree": "f0cf970830624c6e6a79ab5c5e8d617d75883072",
+    "task_1_wave_start_commit": "4983afff66ba87f42b879f86181b4d4be0563ddf",
+    "task_1_wave_start_tree": "7dafec183ebfd8c8d15ae9a535cb7637529232e8",
+    "inventory_source_commit": "db9889937a895d67810dee1ea0b1b53552d30eca",
+    "inventory_source_tree": "c885d5a3ef05bb629485ca12323200ece24eeeca"
+  },
+  "pre_evidence_dirty_scope": {
+    "capture_point": "immediately before creating task8-baseline-replay",
+    "entries": [
+      {"status": "M", "path": "docs/design/workflow_lisp_parametric_type_system.md", "sha256": "add7d2d75b8189ef95a1e2933cd6190f27278b36433e7e6a23b62754989bf3bd", "scope": "task8_pre_routing_evidence"},
+      {"status": "M", "path": "docs/lisp_workflow_drafting_guide.md", "sha256": "3bc54613e33cb72e88553ced4c985a5777e8c99c7f16892b8e87f2da109c6bd8", "scope": "task8_pre_routing_evidence"},
+      {"status": "M", "path": "docs/plans/2026-06-20-workflow-step-back-non-progress-recovery-plan.md", "sha256": "9db000b1889c07156ccbf69cadae8a7cc3ea3993275f13e982d74778759b2684", "scope": "pre_existing_user_change_excluded"},
+      {"status": "M", "path": "docs/plans/2026-07-01-workflow-audit-tier-fixes.md", "sha256": "0e59fdcd45625f7f6b5985cb6a86692547e4a6b8d7c2a3335a809043c983cde3", "scope": "pre_existing_user_change_excluded"},
+      {"status": "M", "path": "docs/plans/2026-07-13-procedure-first-migration-waves-plan.md", "sha256": "bedb2a8fa89226cb1004ee6e9ca74c1b2666682a2d197c287ef6699bb6a13ec9", "scope": "task8_pre_routing_evidence"},
+      {"status": "M", "path": "docs/plans/2026-07-13-procedure-first-reuse-inventory.md", "sha256": "b9a01585d8ca71d4665f273ed67fcc1074aa9faa0bef7e06bfac03b5ea805c9d", "scope": "task8_pre_routing_evidence"},
+      {"status": "M", "path": "docs/plans/2026-07-16-yaml-retirement-handoff-plan.md", "sha256": "b7247849c19a917109ca88a037dbeeb9e86e0cad877fc7d578afe721a4bd7ad2", "scope": "task8_pre_routing_evidence"},
+      {"status": "M", "path": "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/remaining-neurips-migration-experiment/migration_experiment_recommendation_report.md", "sha256": "95ca608f11d58953ed39ca42881c18911f34c47b85481f391dddc75e957059a6", "scope": "pre_existing_user_change_excluded"},
+      {"status": "M", "path": "state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt", "sha256": "6ba015e073855b2c33aa7e6220fb7148bb528fd9fc0215b670c0411d8a1106e5", "scope": "pre_existing_user_change_excluded"},
+      {"status": "M", "path": "tests/test_workflow_lisp_drain_roadmap_routing.py", "sha256": "03df4df121f3a46a02735cb429b8d44ebe122a7e33c6b953f3e9ae58c630a906", "scope": "task8_pre_routing_evidence"},
+      {"status": "M", "path": "tests/test_workflow_non_progress_step_back_demo.py", "sha256": "ff8cf3f6d14136a2a93eb20da09841623d7cf8de4fb742fe65461fc06b20e46c", "scope": "pre_existing_user_change_excluded"},
+      {"status": "M", "path": "workflows/examples/non_progress_step_back_demo.yaml", "sha256": "8887b2c8d6d645cd5aed94a7b6121fdfebdae7dba25dd5105a8071bd0554fc25", "scope": "pre_existing_user_change_excluded"},
+      {"status": "M", "path": "workflows/library/prompts/workflow_step_back/diagnose_non_progress.md", "sha256": "56cc78c3f6c96fa4fe9945c14e7145ea66aab51a8e999c7e5d730b696b58fe06", "scope": "pre_existing_user_change_excluded"}
+    ]
+  },
+  "authorities": {
+    "baseline": {
+      "path": "docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json",
+      "capture_commit": "d5eb004309a544bfad56b80439dc106c628f2d63",
+      "captured_repository_commit": "dfd34c769de43dc7006094e5376a8bf4c6b1f593",
+      "current_file_commit": "50f78791320c540181946fb3a29dce355b19fed3",
+      "current_sha256": "2b4db936e3747e72fc67aab77ee738d2d0179ec40db170ee7648e6471ce5ec6e"
+    },
+    "correction": {
+      "path": "docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline-correction.json",
+      "accepted_projection_commit": "50f78791320c540181946fb3a29dce355b19fed3",
+      "current_file_commit": "b7212487764bda8ff93dc995c4ca8e1a6eec54ee",
+      "current_sha256": "4c1b7e3ce36872df9e9f522c5709801290d10541676d5e58cbd31facecac6cbd"
+    },
+    "normalizer": {
+      "path": "tests/workflow_lisp_procedure_identity.py",
+      "implementation_commit": "ffd4503de7d40dbbadb388655adce4e140a516a0",
+      "current_file_commit": "ffd4503de7d40dbbadb388655adce4e140a516a0",
+      "implementation_symbol": "normalize_procedure_prerequisite_failure_log",
+      "pinned_sha256": "f1157d11c8b8f8c1a2aacb72d4424ef3ddfc5c2cbe8ace076f6411ac6fc28dec",
+      "current_sha256": "f1157d11c8b8f8c1a2aacb72d4424ef3ddfc5c2cbe8ace076f6411ac6fc28dec",
+      "status": "unchanged"
+    }
+  },
+  "provenance": {
+    "finding": "The logger-location movement predates the procedure-first migration wave.",
+    "pre_wave_commits": [
+      {"commit": "835f092107d583338611250a91a98bd2a254d6ce", "tree": "a6cce8de5b972180e6b1f6fd3f9370db2f87add1", "executor_logger_line_after_commit": 4101},
+      {"commit": "218c475303aa11507f643819e88e74090dc5ecec", "tree": "6f7332cbe066b5b323c8d39a346e7d0fe09e6e11", "executor_logger_line_after_commit": 4115},
+      {"commit": "b017203c398c212751e605fb34706920a022fd80", "tree": "9e7115f70d138d1f74fca557b4a211818a76819d", "executor_logger_line_after_commit": 4137},
+      {"commit": "a5529b6870caac3178833e75934b3211378795b1", "tree": "1c54f56f3f5779c2599b8d44beb76af498996a80", "executor_logger_line_after_commit": 4141}
+    ],
+    "ancestry_contract": "The final provenance commit must be an ancestor of task_1_wave_start_commit."
+  },
+  "summary": {
+    "selected_failure_count": 6,
+    "exact_match_count": 4,
+    "logger_location_only_drift_count": 2,
+    "unexpected_failure_count": 0
+  },
+  "failures": [
+    {
+      "nodeid": "tests/test_workflow_output_contract_integration.py::test_provider_valid_output_bundle_overrides_raw_nonzero_exit",
+      "category": "established_unrelated",
+      "normalized_failure_signature": "AssertionError | assert result[\"exit_code\"] == 0 | compared: 2 == 0",
+      "command": "pytest -q tests/test_workflow_output_contract_integration.py::test_provider_valid_output_bundle_overrides_raw_nonzero_exit",
+      "exit_code": 1,
+      "raw_log": {"path": "docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/output-contract.txt", "bytes": 2949, "sha256": "934a110a19ece7def496b75c3f4e0c8a2936883e52140ef62b1cad5dfdf376c7"},
+      "normalized_sha256": "9c41d776695b1a28142cf8c59acbf17475436d915c1f976ffdb0af4a20e8b252",
+      "accepted_baseline_normalized_sha256": "58edf05cdda00547d9218a5938c8fc03801101e013c674ec7980dc39b956d3be",
+      "disposition": "logger_location_only_drift",
+      "normalized_diff": {
+        "from_locator": "executor.py:4027",
+        "to_locator": "executor.py:4141",
+        "changed_line_count": 1,
+        "all_other_normalized_lines_equal": true,
+        "line_changes": [
+          {"before": "ERROR    orchestrator.workflow.executor:executor.py:4027 Step 'Review' failed with exit code 2. Stopping execution (strict_flow=true, on_error=stop)", "after": "ERROR    orchestrator.workflow.executor:executor.py:4141 Step 'Review' failed with exit code 2. Stopping execution (strict_flow=true, on_error=stop)"}
+        ]
+      }
+    },
+    {
+      "nodeid": "tests/test_workflow_semantic_ir.py::test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence",
+      "category": "established_unrelated",
+      "normalized_failure_signature": "AssertionError | assert getattr(prompt_surface, \"typed_prompt_inputs\") | compared: () is truthy",
+      "command": "pytest -q tests/test_workflow_semantic_ir.py::test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence",
+      "exit_code": 1,
+      "raw_log": {"path": "docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/semantic-prompt-lineage.txt", "bytes": 1631, "sha256": "27e9643e595f853cae90c838c439d49ba8e557c949e1f631273ad8ad5f2b76a9"},
+      "normalized_sha256": "6f475adbe48a0cc6e4b3140c29f3ed3cf792e0ac2f37f37c40c948f42b862e41",
+      "accepted_baseline_normalized_sha256": "6f475adbe48a0cc6e4b3140c29f3ed3cf792e0ac2f37f37c40c948f42b862e41",
+      "disposition": "exact_match"
+    },
+    {
+      "nodeid": "tests/test_workflow_semantic_ir.py::test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys",
+      "category": "established_unrelated",
+      "normalized_failure_signature": "AssertionError | assert \"form_path\" not in serialized | compared: \"form_path\" is contained in serialized",
+      "command": "pytest -q tests/test_workflow_semantic_ir.py::test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys",
+      "exit_code": 1,
+      "raw_log": {"path": "docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/executable-ir-keys.txt", "bytes": 2280, "sha256": "84e6a57e72f529fdc549050abb7d3c0e76977af3931f84aaf115b09e5452a821"},
+      "normalized_sha256": "a841f6f2534f43b3ef3780afa96cd16ef6c3956b32e77b5acf34c8a462e53710",
+      "accepted_baseline_normalized_sha256": "a841f6f2534f43b3ef3780afa96cd16ef6c3956b32e77b5acf34c8a462e53710",
+      "disposition": "exact_match"
+    },
+    {
+      "nodeid": "tests/test_workflow_semantic_ir.py::test_compiled_bundle_semantic_ir_preserves_command_boundary_classification",
+      "category": "established_unrelated",
+      "normalized_failure_signature": "AssertionError | assert any(step.boundary_kind == \"certified_adapter\" and step.boundary_name == \"apply_resource_transition\" for step in resource_command_steps) | compared: False is truthy",
+      "command": "pytest -q tests/test_workflow_semantic_ir.py::test_compiled_bundle_semantic_ir_preserves_command_boundary_classification",
+      "exit_code": 1,
+      "raw_log": {"path": "docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/semantic-command-boundary.txt", "bytes": 3745, "sha256": "030fc29b1eb93fc76adfdd237188b9ef99c652af768d29b9b4a7fc8bfbd4767f"},
+      "normalized_sha256": "b0ae95ae8725578714724c86fea1479e15374d28c476a1ed5ae9ce2e9fbe6c5d",
+      "accepted_baseline_normalized_sha256": "b0ae95ae8725578714724c86fea1479e15374d28c476a1ed5ae9ce2e9fbe6c5d",
+      "disposition": "exact_match"
+    },
+    {
+      "nodeid": "tests/test_provider_role_routing.py::test_design_delta_drain_defaults_route_work_to_codex_gpt54",
+      "category": "established_unrelated",
+      "normalized_failure_signature": "AssertionError | assert workflow[\"inputs\"][\"design_gap_draft_provider\"][\"default\"] == \"codex\" | compared: \"claude\" == \"codex\"",
+      "command": "pytest -q tests/test_provider_role_routing.py::test_design_delta_drain_defaults_route_work_to_codex_gpt54",
+      "exit_code": 1,
+      "raw_log": {"path": "docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/provider-role.txt", "bytes": 918, "sha256": "178a943724903c4a6379947199e0480d3e3946d01d8c8c2889c304d1c305c843"},
+      "normalized_sha256": "ef20b51acbd115fbf35fe1338f60c44ebed325e4fe97b7ed80018a39a06bb4d4",
+      "accepted_baseline_normalized_sha256": "ef20b51acbd115fbf35fe1338f60c44ebed325e4fe97b7ed80018a39a06bb4d4",
+      "disposition": "exact_match"
+    },
+    {
+      "nodeid": "tests/test_neurips_steered_backlog_runtime.py::test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch",
+      "category": "established_unrelated",
+      "normalized_failure_signature": "FileNotFoundError | [Errno 2] No such file or directory: \"$PYTEST_TMP/test_neurips_steered_backlog_r0/workspace/artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog-drain-summary.json\"",
+      "command": "pytest -q tests/test_neurips_steered_backlog_runtime.py::test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch",
+      "exit_code": 1,
+      "raw_log": {"path": "docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/neurips-runtime.txt", "bytes": 5153, "sha256": "f0035f8cdabab8857b6c692db2affaf9116c93003166952b931e4da032b2a49f"},
+      "normalized_sha256": "e5600424f0ac256dfa9d640272a702585fb5b7f0b5b3646e07da7f2d07e3b8e3",
+      "accepted_baseline_normalized_sha256": "908a4f623f045b0762da26bf732c4e0a7df8ca1568cdff605b0d3ad688da3367",
+      "disposition": "logger_location_only_drift",
+      "normalized_diff": {
+        "from_locator": "executor.py:4027",
+        "to_locator": "executor.py:4141",
+        "changed_line_count": 2,
+        "all_other_normalized_lines_equal": true,
+        "line_changes": [
+          {"before": "ERROR    orchestrator.workflow.executor:executor.py:4027 Step 'SelectNextItem' failed with exit code 2. Stopping execution (strict_flow=true, on_error=stop)", "after": "ERROR    orchestrator.workflow.executor:executor.py:4141 Step 'SelectNextItem' failed with exit code 2. Stopping execution (strict_flow=true, on_error=stop)"},
+          {"before": "ERROR    orchestrator.workflow.executor:executor.py:4027 Step 'DrainBacklogItems' failed with exit code 2. Stopping execution (strict_flow=true, on_error=stop)", "after": "ERROR    orchestrator.workflow.executor:executor.py:4141 Step 'DrainBacklogItems' failed with exit code 2. Stopping execution (strict_flow=true, on_error=stop)"}
+        ]
+      }
+    }
+  ],
+  "claims_not_made": [
+    "This adjudication does not claim that the broad test suite passes.",
+    "This adjudication does not claim exact normalized-log digest equality for the two logger-location-only rows.",
+    "This adjudication does not classify any failure as caused, fixed, or made acceptable by the migration wave.",
+    "This adjudication does not authorize editing, refreshing, or replacing the accepted baseline, correction artifact, or normalizer.",
+    "This adjudication does not authorize any workflow, runtime, run-root, or external-state mutation.",
+    "This adjudication does not advance the roadmap selector or authorize Stage 6; independent Task 8 reviews remain required.",
+    "The pre-evidence dirty-scope record identifies coexistence and ownership boundaries; it does not adopt excluded user changes into this task."
+  ]
+}

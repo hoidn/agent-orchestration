@@ -1,0 +1,66 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_provider_valid_output_bundle_overrides_raw_nonzero_exit _________
+
+tmp_path = PosixPath('/tmp/pytest-of-ollie/pytest-5677/test_provider_valid_output_bun0')
+
+    def test_provider_valid_output_bundle_overrides_raw_nonzero_exit(tmp_path: Path):
+        """A validated provider bundle is authority even if agent tooling exits nonzero."""
+        workflow = {
+            "version": "1.3",
+            "name": "bundle-provider-valid-after-nonzero",
+            "steps": [{
+                "name": "Review",
+                "provider": "codex",
+                "output_bundle": {
+                    "path": "artifacts/work/review.json",
+                    "fields": [{
+                        "name": "review_decision",
+                        "json_pointer": "/review_decision",
+                        "type": "enum",
+                        "allowed": ["APPROVE", "REVISE"],
+                    }],
+                },
+            }],
+        }
+    
+        workflow_file = _write_workflow(tmp_path, workflow)
+        loader = WorkflowLoader(tmp_path)
+        loaded = loader.load(workflow_file)
+    
+        state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+        state_manager.initialize("workflow.yaml")
+    
+        executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+        executor.provider_executor.prepare_invocation = lambda *args, **kwargs: (SimpleNamespace(), None)
+    
+        def _fake_execute(_invocation, **_kwargs):
+            (tmp_path / "artifacts" / "work").mkdir(parents=True, exist_ok=True)
+            (tmp_path / "artifacts" / "work" / "review.json").write_text(
+                '{"review_decision":"APPROVE"}\n',
+                encoding="utf-8",
+            )
+            return SimpleNamespace(
+                exit_code=2,
+                stdout=b"",
+                stderr=b"one exploratory tool command failed",
+                duration_ms=1,
+                error=None,
+                missing_placeholders=None,
+                invalid_prompt_placeholder=False,
+            )
+    
+        executor.provider_executor.execute = _fake_execute
+    
+        state = executor.execute()
+        result = state["steps"]["Review"]
+    
+>       assert result["exit_code"] == 0
+E       assert 2 == 0
+
+tests/test_workflow_output_contract_integration.py:1135: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    orchestrator.workflow.executor:executor.py:4141 Step 'Review' failed with exit code 2. Stopping execution (strict_flow=true, on_error=stop)
+=========================== short test summary info ============================
+FAILED tests/test_workflow_output_contract_integration.py::test_provider_valid_output_bundle_overrides_raw_nonzero_exit
+1 failed in 0.32s

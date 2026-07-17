@@ -1,0 +1,77 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__ test_compiled_bundle_semantic_ir_preserves_command_boundary_classification __
+
+tmp_path = PosixPath('/tmp/pytest-of-ollie/pytest-5679/test_compiled_bundle_semantic_0')
+
+    def test_compiled_bundle_semantic_ir_preserves_command_boundary_classification(tmp_path: Path) -> None:
+        structured_result = compile_stage3_module(
+            Path("tests/fixtures/workflow_lisp/valid/structured_results.orc"),
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            command_boundaries={
+                "run_checks": ExternalToolBinding(
+                    name="run_checks",
+                    stable_command=("python", "scripts/run_checks.py"),
+                )
+            },
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+    
+        command_bundle = structured_result.validated_bundles["command_checks"]
+        command_effects = [
+            effect
+            for effect in command_bundle.semantic_ir.effects.values()
+            if effect.effect_kind == "command_call"
+        ]
+        assert any(effect.boundary_kind == "external_tool" for effect in command_effects)
+    
+        build_module = importlib.import_module("orchestrator.workflow_lisp.build")
+        request_cls = getattr(build_module, "FrontendBuildRequest")
+        resource_source = Path("tests/fixtures/workflow_lisp/valid/resource_stdlib_transition.orc").read_text(
+            encoding="utf-8"
+        )
+        resource_module_path = tmp_path / "resource" / "module.orc"
+        resource_module_path.parent.mkdir(parents=True, exist_ok=True)
+        resource_module_path.write_text(
+            resource_source.replace(
+                '  (:target-dsl "2.14")\n',
+                '  (:target-dsl "2.14")\n  (defmodule resource/module)\n  (export move-selected-item)\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        resource_result = build_module.build_frontend_bundle(
+            request_cls(
+                source_path=resource_module_path,
+                source_roots=(tmp_path,),
+                entry_workflow="move-selected-item",
+                provider_externs_path=None,
+                prompt_externs_path=None,
+                imported_workflow_bundles_path=None,
+                command_boundaries_path=None,
+                emit_debug_yaml=False,
+                workspace_root=tmp_path,
+            )
+        )
+        resource_bundle = resource_result.validated_bundle
+        resource_effects = [
+            effect
+            for effect in resource_bundle.semantic_ir.effects.values()
+            if effect.effect_kind == "command_call"
+        ]
+        resource_command_steps = _core_command_steps(resource_bundle.core_workflow_ast.body)
+    
+        assert any(effect.boundary_kind == "certified_adapter" for effect in resource_effects)
+>       assert any(
+            step.boundary_kind == "certified_adapter" and step.boundary_name == "apply_resource_transition"
+            for step in resource_command_steps
+        )
+E       assert False
+E        +  where False = any(<generator object test_compiled_bundle_semantic_ir_preserves_command_boundary_classification.<locals>.<genexpr> at 0x7c7ad86798a0>)
+
+tests/test_workflow_semantic_ir.py:1828: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_workflow_semantic_ir.py::test_compiled_bundle_semantic_ir_preserves_command_boundary_classification
+1 failed in 0.35s

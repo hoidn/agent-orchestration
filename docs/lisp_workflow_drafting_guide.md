@@ -811,10 +811,11 @@ workflow-entry export. Use `defproc` for internal reuse.
 
 Use `defproc` for reusable internal effectful graph behavior.
 
-Status boundary: the procedure-first migration and private-workflow adoption
-rules below are accepted design but remain Stage 5-gated. Do not promote a
-family on this guidance alone; use the capability matrix and procedure-first
-roadmap for current availability and pilot readiness.
+Status boundary: procedure-first authoring, explicit lowering modes, and the
+resolved direct/transitive-effect substrate are implemented. Family conversion
+remains compatibility-gated, and the completed migration wave retained many
+workflow boundaries. Do not promote a family on this guidance alone; use the
+capability matrix and current roadmap evidence for route availability.
 
 ```lisp
 (defproc ensure-approved-plan
@@ -863,11 +864,13 @@ publication, and child-workflow effects must remain explicit. Returning a
 value or artifact from a procedure never publishes it implicitly; public
 publication stays on the workflow boundary.
 
-This is accepted semantics, not current carrier shape. Today
-`procedure_typecheck.direct_effects` conservatively includes callee transitive
-effects. Mandatory Stage 5 substrate work must establish a distinct body-local
-direct view and recompute the caller-visible transitive view after
-specialization before the pilot.
+This is the current carrier shape. `TypedProcedureDef.direct_effect_summary`
+retains body-local effect atoms plus procedure-call edges, and the compiler
+recomputes `transitive_effect_summary` over the materialized monomorphic
+procedure set after generic and ProcRef specialization. That implementation
+does not make every private workflow an eligible procedure: public identity,
+checkpoint, state, publication, and live-consumer compatibility gates still
+decide each migration.
 
 Current parametric boundary: generic `defproc` headers with `:forall` are
 implemented for compile-time-only specialization. The compiler infers concrete

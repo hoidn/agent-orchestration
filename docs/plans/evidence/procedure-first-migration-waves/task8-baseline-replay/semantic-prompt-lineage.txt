@@ -1,0 +1,27 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__ test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence ___
+
+tmp_path = PosixPath('/tmp/pytest-of-ollie/pytest-5676/test_semantic_ir_adds_typed_pr0')
+
+    def test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence(
+        tmp_path: Path,
+    ) -> None:
+        bundle = _compile_entrypoint_fixture(
+            tmp_path,
+            fixture_path=TYPED_PROMPT_INPUT_FIXTURE,
+            entry_workflow="run-typed-prompt-phase-demo",
+            extra_source_roots=(TYPED_PROMPT_INPUT_FIXTURE.parent,),
+        ).validated_bundles_by_name["typed_prompt_input_phase::run-typed-prompt-phase-demo"]
+    
+        workflow = bundle.semantic_ir.workflows[bundle.surface.name]
+        prompt_surface = bundle.semantic_ir.prompt_surfaces[workflow.prompt_surface_ids[0]]
+    
+>       assert getattr(prompt_surface, "typed_prompt_inputs")
+E       AssertionError: assert ()
+E        +  where () = getattr(SemanticPromptSurface(prompt_surface_id='prompt:typed_prompt_input_phase::run-typed-prompt-phase-demo:root.typed_promp...int': None, 'example': None, 'role': None}), typed_prompt_inputs=(), inject_output_contract=True, inject_consumes=None), 'typed_prompt_inputs')
+
+tests/test_workflow_semantic_ir.py:895: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_workflow_semantic_ir.py::test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence
+1 failed in 0.35s

@@ -90,13 +90,13 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-13-procedure-first-pilot-plan.md` | Complete. Evidence landed at `63e03330`, `e6a85cb7`, `de522c76`, `f5dbac88`, `76205d4f`, and `0769e837`; holistic specification and quality reviews approved HEAD `0769e837`. Exactly two dedicated runs completed, and the route remains `leaf_runtime_candidate` / `migration_candidate` / `migration_evidence_only`. Historical clean artifact equality is `not_asserted`. This is one reviewed internal pilot, not a general compatibility, family-wave, promotion, or YAML-retirement claim. |
 | `2026-07-13-resume-projection-integrity-hardening-design-plan.md` | Complete. Characterization landed at `1cd60767`, the accepted design at `52e2b05f`, the normative state/acceptance contract at `00135832`, and the reviewed implementation plan at `26a5d3db`; holistic routing reviews and fresh focused/broad validation passed at closeout. This row does not claim runtime implementation. |
 | `2026-07-13-resume-projection-integrity-hardening-implementation-plan.md` | Complete at `fdf1e06b`. The generic runtime hardening, focused acceptance gate, deterministic public CLI smoke, broad baseline-equivalence check, and independent specification/quality reviews are recorded in the plan. Do not re-execute it as the live selector. |
-| `2026-07-13-procedure-first-migration-waves-plan.md` | Current selector. Task 1's post-hardening rebaseline completed at `4983afff` plus correction `fa16bcf0`; Task 2 completed at `daff694c`. Task 3 retained seven internal calls under strict compatibility. Task 4 completed its three audit groups at `c9687539`, `26d9ecd0`, and `848ceb52`. Task 5 retained four finalizer-projection calls in `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md`, six blocked-recovery/finalization calls in `docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md`, nine phase-orchestration calls in `docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md`, and two completed-finalization calls in `docs/plans/2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md`, reconciling 4 + 6 + 9 + 2 = 21 retained calls. Task 6 retained the sole private drain-builder call under `docs/plans/2026-07-16-design-delta-drain-builder-checkpoint-retention-plan.md`: the complete compiling inline hypothetical removes one caller-owned checkpoint and adds none, so no source or history migration occurred. The queue is now 0 procedure candidates, 32 effect adapters, and 63 legacy-retire rows, plus 13 separate public entries and one history row. Task 6 is complete; Task 7 Step 1 is current. Preserve Tasks 7–8 and the later stage order. |
+| `2026-07-13-procedure-first-migration-waves-plan.md` | Historical complete. Task 1's post-hardening rebaseline completed at `4983afff` plus correction `fa16bcf0`; Task 2 completed at `daff694c`. Task 3 retained seven internal calls under strict compatibility. Task 4 completed its three audit groups at `c9687539`, `26d9ecd0`, and `848ceb52`. Task 5 retained four finalizer-projection calls in `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md`, six blocked-recovery/finalization calls in `docs/plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md`, nine phase-orchestration calls in `docs/plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md`, and two completed-finalization calls in `docs/plans/2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md`, reconciling 4 + 6 + 9 + 2 = 21 retained calls. Task 6 retained the sole private drain-builder call under `docs/plans/2026-07-16-design-delta-drain-builder-checkpoint-retention-plan.md`: the complete compiling inline hypothetical removes one caller-owned checkpoint and adds none, so no source or history migration occurred. Task 7 handed all 63 legacy-retire rows to Stage 6 at `7e6adc36`. Task 8 sealed 565 passed/6 skipped focused, 36 passed routing, and 4992 passed/17 skipped with six established unrelated broad failures adjudicated as four digest-exact plus two logger-location-only. Specification PASS and quality APPROVED closed the wave. The final queue is 0 procedure candidates, 32 effect adapters, and 63 legacy-retire rows, plus 13 separate public entries and one history row; this is not universal procedure-first adoption. |
 | `2026-07-16-tracked-design-phase-identity-retirement-plan.md` | Complete by fail-closed eligibility stop. The generic scanner found 26 supported old-identity consumers in the completed pilot root, so the source stayed unchanged and the row moved to `effect-adapter`. This was not a competing roadmap selector and authorized no YAML edit, remap, or cross-source resume claim. |
 | `2026-07-16-design-plan-impl-implementation-phase-identity-retirement-plan.md` | Complete by fail-closed eligibility stop. The generic scanner found 24 supported old-identity consumers in the completed pilot root, so the source stayed unchanged and the row moved to `effect-adapter`. This was not a competing roadmap selector and authorized no run, YAML edit, remap, or cross-source resume claim. |
 | `2026-07-16-same-file-build-checks-identity-retirement-plan.md` | Complete by fail-closed route-eligibility stop. The containing route is live/current and therefore requires strict compatibility; the source stayed unchanged and the row moved to `effect-adapter` even though known-store scans found zero matching consumers. This was not a competing roadmap selector and authorized no run or owner gate. |
 | `2026-07-16-design-delta-exported-workflow-retention-plan.md` | Complete after specification PASS and quality APPROVED. Seven calls remain active `effect-adapter` because their five unique callees are exported CLI-selectable workflows that cannot use reviewed internal retirement; five separate public-boundary records make that negative explicit. No source/run mutation or store/owner gate occurred. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
-| `2026-07-07-yaml-retirement-program.md` | Amended 2026-07-14 to deletion-first retirement: survivors are `verified_iteration_drain` and `generic_run_watchdog`, each getting its own `.orc` port through the parity kernel; every other YAML workflow is reclassified delete. The former pilot-quiescence scheduling window is closed. Any early independent Task 6 tranche now requires separate selection and does not reorder Stage 6 authority. See the program's steering amendment and roadmap Stage 6. |
+| `2026-07-07-yaml-retirement-program.md` | Current selector at Task 1, the `.orc` language-gap list. Amended 2026-07-14 to deletion-first retirement: survivors are `verified_iteration_drain` and `generic_run_watchdog`, each getting its own `.orc` port through the parity kernel; every other YAML workflow is reclassified delete or held in its explicit fixed queue. The early independent deletion queue remains eligible only through its own pending reference and supported-root scan gates; selecting Task 1 does not waive or reorder those gates. |
 
 ## Concrete Execution Sequence
 
@@ -194,8 +194,9 @@ The design/specification/implementation-plan artifacts are complete at
 hardening then completed at `fdf1e06b` with its focused acceptance gate,
 deterministic public CLI smoke, broad baseline-equivalence check, and final
 independent specification/quality reviews. The completed hardening plan is now
-historical execution evidence. The current selector is
-`docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`; its Task 1
+historical execution evidence. The procedure-first migration wave is complete;
+its execution record is
+`docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`. Its Task 1
 rebaseline completed at `4983afff` plus `fa16bcf0`. Task 2's small-example
 family is complete; Steps 1 and 2 retained ineligible boundaries
 after deterministic scans found 26 and 24 supported old-identity consumers,
@@ -233,11 +234,14 @@ under `docs/plans/2026-07-16-design-delta-drain-builder-checkpoint-retention-pla
 because the compiling inline hypothetical removes one caller-owned checkpoint
 and adds none. The current inventory is 0 procedure candidates, 32 effect
 adapters, and 63 legacy-retire rows, plus 13 separate public entries and one
-history row. Task 6 is complete; Task 7 Step 1 is current.
-After Tasks 7–8, continue with
-`docs/plans/2026-07-07-yaml-retirement-program.md`,
-`docs/design/workflow_lisp_provider_live_binding.md`, and
-`docs/design/workflow_lisp_language_server.md`, in that order.
+history row. Task 7 completed its exact Stage-6 handoff at `7e6adc36`, and
+Task 8 sealed the wave with 565 passed/6 skipped focused, 36 passed routing,
+and 4992 passed/17 skipped plus six established unrelated broad failures:
+four digest-exact and two logger-location-only. The final specification review
+returned PASS and quality review returned APPROVED. The current selector is
+`docs/plans/2026-07-07-yaml-retirement-program.md` Task 1. After YAML
+retirement, continue with `docs/design/workflow_lisp_provider_live_binding.md`
+and `docs/design/workflow_lisp_language_server.md`, in that order.
 
 The completed Phase 1 execution order was:
 
@@ -417,6 +421,9 @@ compatibility or a family migration wave.
 
 ### Stage 5: Implement Procedure-First Reuse In Waves
 
+The procedure-first migration wave is complete. The current selector is Stage
+6 YAML retirement Task 1.
+
 Execute only accepted plans, in this order:
 
 1. **Native transportable-return substrate — completed historical
@@ -468,7 +475,7 @@ Execute only accepted plans, in this order:
 8. **Effect-adapter evidence wave — complete.** Task 4 audited all 25 YAML
    rows in three independently approved groups at `c9687539`, `26d9ecd0`, and
    `848ceb52`. No YAML was translated or modified by this classification wave.
-9. **Production-family wave — current selector.** Task 5's
+9. **Production-family wave — complete on retained-boundary evidence.** Task 5's
    `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md`
    passed final specification and quality re-review and closed the finalizer-
    projection subfamily as a strict-compatibility retention: four calls remain
@@ -494,11 +501,14 @@ Execute only accepted plans, in this order:
    retains the sole private builder call because its compiling inline
    hypothetical removes a caller-owned checkpoint and adds none. The queue is
    0 procedure candidates, 32 effect adapters, and 63 legacy-retire rows, plus
-   13 separate public entries and one history row. Task 6 is complete; Task 7
-   Step 1 is current, preserving Tasks 7–8 and later-stage order.
-10. **Compatibility retirement handoff.** Execute Tasks 7–8; delete no YAML
-   family here, and advance to Stage 6 only through its existing retirement
-   gates.
+   13 separate public entries and one history row. This is not universal
+   procedure-first adoption because all 32 effect adapters remain.
+10. **Compatibility retirement handoff and closeout — complete.** Task 7's
+   exact Stage-6 handoff landed at `7e6adc36`; Task 8 then sealed 565 passed/6
+   skipped focused, 36 passed routing, and 4992 passed/17 skipped with the six
+   established unrelated broad failures adjudicated as four digest-exact plus
+   two logger-location-only. Whole-wave specification PASS and quality APPROVED
+   advance the selector to Stage 6 Task 1 without deleting a YAML family here.
 
 Every wave must pass:
 
@@ -510,14 +520,19 @@ Every wave must pass:
 
 ### Stage 6: Resume YAML Retirement
 
+**Current selector:** Task 1, close the `.orc` language-gap list. Provider live
+binding and the `.orc` language server remain next, in that order.
+
 Use the procedure-first model as the target authoring architecture. The
 2026-07-14 steering amendment to
 `docs/plans/2026-07-07-yaml-retirement-program.md` selects deletion-first
 retirement:
 
-The former pilot-quiescence scheduling window is closed. Any early independent
-Task 6 estate-deletion tranche now requires separate selection and does not
-reorder Stage 6 authority or the later stages.
+The former pilot-quiescence scheduling window is closed. The early independent
+estate-deletion queue retains its deletion-first semantics, but it remains
+fail-closed on the pending repository-reference and supported-root scan gates;
+Task 1 selection neither waives those gates nor changes the queue dependency
+order or the later stages.
 
 1. Run the estate deletion sweep as an early independent tranche — it
    touches no governed compiler/runtime/validation surface: delete every

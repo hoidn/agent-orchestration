@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 import re
+import shlex
+import subprocess
 from pathlib import Path
 
 import pytest
+
+from tests.workflow_lisp_procedure_identity import (
+    normalize_procedure_prerequisite_failure_log,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -43,6 +51,10 @@ DESIGN_DELTA_COMPLETED_FINALIZATION_RETENTION_PLAN_PATH = (
 )
 DESIGN_DELTA_DRAIN_BUILDER_RETENTION_PLAN_PATH = (
     "docs/plans/2026-07-16-design-delta-drain-builder-checkpoint-retention-plan.md"
+)
+TASK8_BASELINE_REPLAY_PATH = (
+    "docs/plans/evidence/procedure-first-migration-waves/"
+    "task8-baseline-replay/adjudication.json"
 )
 MIGRATION_TASK_1_IMPLEMENTATION_COMMITS = ("4983afff", "fa16bcf0")
 CORRECTION_SUBPLAN_PATH = (
@@ -119,6 +131,437 @@ CONTRADICTORY_CLOSEOUT_STATE = re.compile(
     r"|semantic migration freeze (?:remains|is) (?:in force|active)"
     r")\b"
 )
+
+_TASK8_EXPECTED_PROVENANCE = [
+    (
+        "835f092107d583338611250a91a98bd2a254d6ce",
+        "a6cce8de5b972180e6b1f6fd3f9370db2f87add1",
+        4101,
+    ),
+    (
+        "218c475303aa11507f643819e88e74090dc5ecec",
+        "6f7332cbe066b5b323c8d39a346e7d0fe09e6e11",
+        4115,
+    ),
+    (
+        "b017203c398c212751e605fb34706920a022fd80",
+        "9e7115f70d138d1f74fca557b4a211818a76819d",
+        4137,
+    ),
+    (
+        "a5529b6870caac3178833e75934b3211378795b1",
+        "1c54f56f3f5779c2599b8d44beb76af498996a80",
+        4141,
+    ),
+]
+_TASK8_EXPECTED_CLAIMS_NOT_MADE = [
+    "This adjudication does not claim that the broad test suite passes.",
+    (
+        "This adjudication does not claim exact normalized-log digest equality "
+        "for the two logger-location-only rows."
+    ),
+    (
+        "This adjudication does not classify any failure as caused, fixed, or "
+        "made acceptable by the migration wave."
+    ),
+    (
+        "This adjudication does not authorize editing, refreshing, or replacing "
+        "the accepted baseline, correction artifact, or normalizer."
+    ),
+    (
+        "This adjudication does not authorize any workflow, runtime, run-root, "
+        "or external-state mutation."
+    ),
+    (
+        "This adjudication does not advance the roadmap selector or authorize "
+        "Stage 6; independent Task 8 reviews remain required."
+    ),
+    (
+        "The pre-evidence dirty-scope record identifies coexistence and ownership "
+        "boundaries; it does not adopt excluded user changes into this task."
+    ),
+]
+_TASK8_EXPECTED_DIRTY_SCOPE = {
+    "docs/design/workflow_lisp_parametric_type_system.md": (
+        "add7d2d75b8189ef95a1e2933cd6190f27278b36433e7e6a23b62754989bf3bd",
+        "task8_pre_routing_evidence",
+    ),
+    "docs/lisp_workflow_drafting_guide.md": (
+        "3bc54613e33cb72e88553ced4c985a5777e8c99c7f16892b8e87f2da109c6bd8",
+        "task8_pre_routing_evidence",
+    ),
+    "docs/plans/2026-06-20-workflow-step-back-non-progress-recovery-plan.md": (
+        "9db000b1889c07156ccbf69cadae8a7cc3ea3993275f13e982d74778759b2684",
+        "pre_existing_user_change_excluded",
+    ),
+    "docs/plans/2026-07-01-workflow-audit-tier-fixes.md": (
+        "0e59fdcd45625f7f6b5985cb6a86692547e4a6b8d7c2a3335a809043c983cde3",
+        "pre_existing_user_change_excluded",
+    ),
+    "docs/plans/2026-07-13-procedure-first-migration-waves-plan.md": (
+        "bedb2a8fa89226cb1004ee6e9ca74c1b2666682a2d197c287ef6699bb6a13ec9",
+        "task8_pre_routing_evidence",
+    ),
+    "docs/plans/2026-07-13-procedure-first-reuse-inventory.md": (
+        "b9a01585d8ca71d4665f273ed67fcc1074aa9faa0bef7e06bfac03b5ea805c9d",
+        "task8_pre_routing_evidence",
+    ),
+    "docs/plans/2026-07-16-yaml-retirement-handoff-plan.md": (
+        "b7247849c19a917109ca88a037dbeeb9e86e0cad877fc7d578afe721a4bd7ad2",
+        "task8_pre_routing_evidence",
+    ),
+    (
+        "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/"
+        "remaining-neurips-migration-experiment/"
+        "migration_experiment_recommendation_report.md"
+    ): (
+        "95ca608f11d58953ed39ca42881c18911f34c47b85481f391dddc75e957059a6",
+        "pre_existing_user_change_excluded",
+    ),
+    "state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt": (
+        "6ba015e073855b2c33aa7e6220fb7148bb528fd9fc0215b670c0411d8a1106e5",
+        "pre_existing_user_change_excluded",
+    ),
+    "tests/test_workflow_lisp_drain_roadmap_routing.py": (
+        "03df4df121f3a46a02735cb429b8d44ebe122a7e33c6b953f3e9ae58c630a906",
+        "task8_pre_routing_evidence",
+    ),
+    "tests/test_workflow_non_progress_step_back_demo.py": (
+        "ff8cf3f6d14136a2a93eb20da09841623d7cf8de4fb742fe65461fc06b20e46c",
+        "pre_existing_user_change_excluded",
+    ),
+    "workflows/examples/non_progress_step_back_demo.yaml": (
+        "8887b2c8d6d645cd5aed94a7b6121fdfebdae7dba25dd5105a8071bd0554fc25",
+        "pre_existing_user_change_excluded",
+    ),
+    "workflows/library/prompts/workflow_step_back/diagnose_non_progress.md": (
+        "56cc78c3f6c96fa4fe9945c14e7145ea66aab51a8e999c7e5d730b696b58fe06",
+        "pre_existing_user_change_excluded",
+    ),
+}
+
+
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _assert_exact_keys(value: dict[str, object], expected: set[str]) -> None:
+    assert set(value) == expected
+
+
+def _git_bytes(*args: str, check: bool = True) -> bytes:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=REPO_ROOT,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if check:
+        assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+    return result.stdout
+
+
+def _git_is_ancestor(ancestor: str, descendant: str) -> bool:
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+        cwd=REPO_ROOT,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return result.returncode == 0
+
+
+def _assert_capture_point_precedes_current_head(
+    capture_commit: str,
+    current_head: str,
+    *,
+    is_ancestor=_git_is_ancestor,
+) -> None:
+    assert is_ancestor(capture_commit, current_head)
+
+
+def _assert_task8_baseline_replay_contract(
+    replay: dict[str, object],
+    *,
+    raw_overrides: dict[str, bytes] | None = None,
+) -> None:
+    _assert_exact_keys(
+        replay,
+        {
+            "schema",
+            "captured_at",
+            "repository",
+            "pre_evidence_dirty_scope",
+            "authorities",
+            "provenance",
+            "summary",
+            "failures",
+            "claims_not_made",
+        },
+    )
+    assert replay["schema"] == "procedure_first_migration_wave_baseline_replay.v1"
+    repository = replay["repository"]
+    _assert_exact_keys(
+        repository,
+        {
+            "head_commit",
+            "head_tree",
+            "task_1_wave_start_commit",
+            "task_1_wave_start_tree",
+            "inventory_source_commit",
+            "inventory_source_tree",
+        },
+    )
+    assert repository == {
+        "head_commit": "7e6adc367a6a16745b5334b2ffc05795f061141d",
+        "head_tree": "f0cf970830624c6e6a79ab5c5e8d617d75883072",
+        "task_1_wave_start_commit": "4983afff66ba87f42b879f86181b4d4be0563ddf",
+        "task_1_wave_start_tree": "7dafec183ebfd8c8d15ae9a535cb7637529232e8",
+        "inventory_source_commit": "db9889937a895d67810dee1ea0b1b53552d30eca",
+        "inventory_source_tree": "c885d5a3ef05bb629485ca12323200ece24eeeca",
+    }
+    assert (
+        _git_bytes("rev-parse", f"{repository['head_commit']}^{{tree}}")
+        .decode()
+        .strip()
+        == repository["head_tree"]
+    )
+    _assert_capture_point_precedes_current_head(repository["head_commit"], "HEAD")
+    for commit_key, tree_key in (
+        ("task_1_wave_start_commit", "task_1_wave_start_tree"),
+        ("inventory_source_commit", "inventory_source_tree"),
+    ):
+        assert (
+            _git_bytes("rev-parse", f"{repository[commit_key]}^{{tree}}").decode().strip()
+            == repository[tree_key]
+        )
+
+    dirty_scope = replay["pre_evidence_dirty_scope"]
+    _assert_exact_keys(dirty_scope, {"capture_point", "entries"})
+    dirty_entries = dirty_scope["entries"]
+    assert len(dirty_entries) == len(_TASK8_EXPECTED_DIRTY_SCOPE)
+    for entry in dirty_entries:
+        _assert_exact_keys(entry, {"status", "path", "sha256", "scope"})
+    assert {
+        entry["path"]: (entry["sha256"], entry["scope"])
+        for entry in dirty_entries
+    } == _TASK8_EXPECTED_DIRTY_SCOPE
+    assert all(entry["status"] == "M" for entry in dirty_entries)
+    assert all(re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]) for entry in dirty_entries)
+    assert {entry["scope"] for entry in dirty_entries} == {
+        "task8_pre_routing_evidence",
+        "pre_existing_user_change_excluded",
+    }
+
+    authorities = replay["authorities"]
+    _assert_exact_keys(authorities, {"baseline", "correction", "normalizer"})
+    _assert_exact_keys(
+        authorities["baseline"],
+        {
+            "path",
+            "capture_commit",
+            "captured_repository_commit",
+            "current_file_commit",
+            "current_sha256",
+        },
+    )
+    _assert_exact_keys(
+        authorities["correction"],
+        {
+            "path",
+            "accepted_projection_commit",
+            "current_file_commit",
+            "current_sha256",
+        },
+    )
+    _assert_exact_keys(
+        authorities["normalizer"],
+        {
+            "path",
+            "implementation_commit",
+            "current_file_commit",
+            "implementation_symbol",
+            "pinned_sha256",
+            "current_sha256",
+            "status",
+        },
+    )
+    authority_paths = {
+        "baseline": "docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline.json",
+        "correction": "docs/plans/2026-07-13-procedure-migration-identity-compatibility-baseline-correction.json",
+        "normalizer": "tests/workflow_lisp_procedure_identity.py",
+    }
+    for name, path in authority_paths.items():
+        authority = authorities[name]
+        assert authority["path"] == path
+        current = (REPO_ROOT / path).read_bytes()
+        assert authority["current_sha256"] == _sha256_bytes(current)
+        committed = _git_bytes("show", f"{authority['current_file_commit']}:{path}")
+        assert current == committed
+    normalizer = authorities["normalizer"]
+    assert authorities["baseline"]["current_file_commit"] == "50f78791320c540181946fb3a29dce355b19fed3"
+    assert authorities["correction"]["current_file_commit"] == "b7212487764bda8ff93dc995c4ca8e1a6eec54ee"
+    assert normalizer["implementation_commit"] == "ffd4503de7d40dbbadb388655adce4e140a516a0"
+    assert normalizer["current_file_commit"] == normalizer["implementation_commit"]
+    assert normalizer["implementation_symbol"] == "normalize_procedure_prerequisite_failure_log"
+    assert normalizer["pinned_sha256"] == normalizer["current_sha256"]
+    assert normalizer["status"] == "unchanged"
+
+    correction = json.loads((REPO_ROOT / authority_paths["correction"]).read_text(encoding="utf-8"))
+    accepted_rows = {
+        row["nodeid"]: row for row in correction["failures"][:6]
+    }
+    rows = replay["failures"]
+    assert len(rows) == 6
+    assert [row["nodeid"] for row in rows] == list(accepted_rows)
+    raw_overrides = raw_overrides or {}
+    seen_paths: set[str] = set()
+    exact_count = 0
+    drift_count = 0
+    for row in rows:
+        base_keys = {
+            "nodeid",
+            "category",
+            "normalized_failure_signature",
+            "command",
+            "exit_code",
+            "raw_log",
+            "normalized_sha256",
+            "accepted_baseline_normalized_sha256",
+            "disposition",
+        }
+        expected_row_keys = (
+            base_keys | {"normalized_diff"}
+            if row["disposition"] == "logger_location_only_drift"
+            else base_keys
+        )
+        _assert_exact_keys(row, expected_row_keys)
+        accepted = accepted_rows[row["nodeid"]]
+        assert row["category"] == accepted["category"] == "established_unrelated"
+        assert row["normalized_failure_signature"] == accepted["normalized_failure_signature"]
+        assert row["command"] == f"pytest -q {row['nodeid']}"
+        assert row["exit_code"] == 1
+        assert row["accepted_baseline_normalized_sha256"] == accepted["corrected_normalized_failure_sha256"]
+
+        raw_contract = row["raw_log"]
+        _assert_exact_keys(raw_contract, {"path", "bytes", "sha256"})
+        path = raw_contract["path"]
+        assert path.startswith(
+            "docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/"
+        )
+        assert path not in seen_paths
+        seen_paths.add(path)
+        raw = raw_overrides.get(path, (REPO_ROOT / path).read_bytes())
+        assert raw_contract["bytes"] == len(raw)
+        assert raw_contract["sha256"] == _sha256_bytes(raw)
+        normalized = normalize_procedure_prerequisite_failure_log(
+            raw.decode("utf-8"), repo_root=REPO_ROOT
+        )
+        normalized_sha = _sha256_bytes(normalized.encode("utf-8"))
+        assert row["normalized_sha256"] == normalized_sha
+
+        if row["disposition"] == "exact_match":
+            exact_count += 1
+            assert "normalized_diff" not in row
+            assert normalized_sha == row["accepted_baseline_normalized_sha256"]
+            continue
+
+        assert row["disposition"] == "logger_location_only_drift"
+        drift_count += 1
+        diff = row["normalized_diff"]
+        _assert_exact_keys(
+            diff,
+            {
+                "from_locator",
+                "to_locator",
+                "changed_line_count",
+                "all_other_normalized_lines_equal",
+                "line_changes",
+            },
+        )
+        for line_change in diff["line_changes"]:
+            _assert_exact_keys(line_change, {"before", "after"})
+        assert diff["from_locator"] == "executor.py:4027"
+        assert diff["to_locator"] == "executor.py:4141"
+        assert diff["all_other_normalized_lines_equal"] is True
+        changed_lines = [
+            line for line in normalized.splitlines() if diff["to_locator"] in line
+        ]
+        assert diff["changed_line_count"] == len(changed_lines) == len(diff["line_changes"])
+        assert diff["line_changes"] == [
+            {
+                "before": line.replace(diff["to_locator"], diff["from_locator"]),
+                "after": line,
+            }
+            for line in changed_lines
+        ]
+        locator_reverted = normalized.replace(diff["to_locator"], diff["from_locator"])
+        assert _sha256_bytes(locator_reverted.encode("utf-8")) == row["accepted_baseline_normalized_sha256"]
+
+    _assert_exact_keys(
+        replay["summary"],
+        {
+            "selected_failure_count",
+            "exact_match_count",
+            "logger_location_only_drift_count",
+            "unexpected_failure_count",
+        },
+    )
+    assert replay["summary"] == {
+        "selected_failure_count": 6,
+        "exact_match_count": exact_count,
+        "logger_location_only_drift_count": drift_count,
+        "unexpected_failure_count": 0,
+    }
+    assert (exact_count, drift_count) == (4, 2)
+    provenance = replay["provenance"]
+    _assert_exact_keys(
+        provenance, {"finding", "pre_wave_commits", "ancestry_contract"}
+    )
+    assert provenance["finding"] == (
+        "The logger-location movement predates the procedure-first migration wave."
+    )
+    for row in provenance["pre_wave_commits"]:
+        _assert_exact_keys(
+            row, {"commit", "tree", "executor_logger_line_after_commit"}
+        )
+    assert [
+        (row["commit"], row["tree"], row["executor_logger_line_after_commit"])
+        for row in provenance["pre_wave_commits"]
+    ] == _TASK8_EXPECTED_PROVENANCE
+    assert provenance["ancestry_contract"] == (
+        "The final provenance commit must be an ancestor of task_1_wave_start_commit."
+    )
+    for row in provenance["pre_wave_commits"]:
+        assert _git_bytes("rev-parse", f"{row['commit']}^{{tree}}").decode().strip() == row["tree"]
+        executor_source = _git_bytes(
+            "show", f"{row['commit']}:orchestrator/workflow/executor.py"
+        ).decode("utf-8")
+        logger_lines = [
+            line_number
+            for line_number, line in enumerate(executor_source.splitlines(), start=1)
+            if "logger.error(f\"Step '{step_name}' failed with exit code {exit_code}. \"" in line
+        ]
+        assert logger_lines == [row["executor_logger_line_after_commit"]]
+        ancestor = subprocess.run(
+            [
+                "git",
+                "merge-base",
+                "--is-ancestor",
+                row["commit"],
+                repository["task_1_wave_start_commit"],
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert ancestor.returncode == 0, ancestor.stderr.decode(
+            "utf-8", errors="replace"
+        )
+    assert replay["claims_not_made"] == _TASK8_EXPECTED_CLAIMS_NOT_MADE
 CURRENT_RECOVERY_FIX_COMMIT = "1cba48c8"
 CONTRADICTORY_RECOVERY_STATUS = re.compile(
     r"\bgeneric prerequisite fix (?:remains|is) (?:open|pending|in progress|underway)\b"
@@ -187,11 +630,16 @@ def _procedure_sequence_selector_surfaces() -> dict[str, str]:
         / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
     )
     sequence = sequence_path.read_text(encoding="utf-8")
+    migration_disposition = _markdown_table_row(
+        sequence_path,
+        "2026-07-13-procedure-first-migration-waves-plan.md",
+    )
+    yaml_disposition = _markdown_table_row(
+        sequence_path,
+        "2026-07-07-yaml-retirement-program.md",
+    )
     return {
-        "roadmap disposition": _markdown_table_row(
-            sequence_path,
-            "2026-07-13-procedure-first-migration-waves-plan.md",
-        ),
+        "roadmap disposition": migration_disposition + "\n" + yaml_disposition,
         "roadmap current routing": _procedure_sequence_current_routing(),
         "roadmap Stage 5 selector": sequence.split(
             "### Stage 5: Implement Procedure-First Reuse In Waves", 1
@@ -199,47 +647,39 @@ def _procedure_sequence_selector_surfaces() -> dict[str, str]:
     }
 
 
-def _assert_task_6_complete_and_task_7_step_1_current(
+def _assert_migration_wave_complete_and_yaml_task_1_current(
     surface: str,
     label: str,
 ) -> None:
     normalized = _normalized_routing_text(surface)
     canonical = _canonical_routing_paths(surface)
-    assert canonical.count(DESIGN_DELTA_FINALIZER_RETENTION_PLAN_PATH) == 1, label
-    assert canonical.count(DESIGN_DELTA_BLOCKED_RECOVERY_RETENTION_PLAN_PATH) == 1, label
-    assert canonical.count(DESIGN_DELTA_PHASE_ORCHESTRATION_RETENTION_PLAN_PATH) == 1, label
-    assert canonical.count(DESIGN_DELTA_COMPLETED_FINALIZATION_RETENTION_PLAN_PATH) == 1, label
-    assert canonical.count(DESIGN_DELTA_DRAIN_BUILDER_RETENTION_PLAN_PATH) == 1, label
-    assert re.search(
-        r"\btask 1\b.{0,160}(?:"
-        r"rebaseline.{0,80}\bcomplete\w*\b"
-        r"|\bcomplete\w*\b.{0,80}rebaseline)",
+    assert canonical.count(CURRENT_SELECTOR_PATH) == 1, label
+    assert "historical complete" in normalized or re.search(
+        r"\bmigration wave\b.{0,80}\bcomplete\w*\b",
         normalized,
     ), label
-    assert "task 2" in normalized and "complete" in normalized, label
-    assert "daff694c" in normalized, label
-    assert "task 3" in normalized and "retained" in normalized, label
-    assert "task 4" in normalized and "complete" in normalized, label
-    for commit in ("c9687539", "26d9ecd0", "848ceb52"):
-        assert commit in normalized, (label, commit)
     assert "0 procedure candidates" in normalized, label
     assert "32 effect adapters" in normalized, label
     assert "63 legacy retire" in normalized, label
     assert re.search(r"\b(?:thirteen|13)\b.{0,40}\bpublic\b", normalized), label
     assert re.search(r"\b(?:one|1)\b.{0,40}\bhistory\b", normalized), label
-    assert "finalizer" in normalized and "retained" in normalized, label
-    assert "strict compatibility" in normalized, label
-    assert "phase orchestration" in normalized and "retained" in normalized, label
-    assert "completed finalization" in normalized, label
-    assert "4 + 6 + 9 + 2 = 21" in normalized, label
-    assert "task 5" in normalized and "retained" in normalized, label
+    assert "7e6adc36" in normalized, label
+    assert "565" in normalized and "6 skipped" in normalized, label
+    assert "36" in normalized and "routing" in normalized, label
+    assert "4992" in normalized and "17 skipped" in normalized, label
     assert re.search(
-        r"\btask 6\b.{0,80}\bcomplete\w*\b",
+        r"\b(?:six|6)\b.{0,30}\bestablished unrelated\b",
+        normalized,
+    ), label
+    assert re.search(r"\b(?:four|4)\b.{0,20}\bexact\b", normalized), label
+    assert re.search(
+        r"\b(?:two|2)\b.{0,30}\blogger location only\b",
         normalized,
     ), label
     assert re.search(
-        r"\btask 7\b.{0,40}\bstep 1\b.{0,80}\bcurrent\b"
-        r"|\bcurrent\b.{0,80}\btask 7\b.{0,40}\bstep 1\b",
+        r"\byaml retirement\b.{0,100}\btask 1\b.{0,80}\bcurrent\b"
+        r"|\byaml retirement\b.{0,100}\bcurrent\b.{0,80}\btask 1\b"
+        r"|\bcurrent\b.{0,100}\byaml retirement\b.{0,100}\btask 1\b",
         normalized,
     ), label
     for commit in MIGRATION_TASK_1_IMPLEMENTATION_COMMITS:
@@ -294,7 +734,7 @@ def _assert_current_task_3_recovery_status(
     assert CONTRADICTORY_RECOVERY_STATUS.search(normalized) is None, label
 
 
-def test_procedure_first_status_surfaces_share_current_migration_wave_boundary() -> None:
+def test_procedure_first_status_surfaces_route_completed_wave_to_yaml_task_1() -> None:
     capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
     docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
         encoding="utf-8"
@@ -314,13 +754,13 @@ def test_procedure_first_status_surfaces_share_current_migration_wave_boundary()
         canonical = _canonical_routing_paths(surface)
         assert canonical.count(CURRENT_SELECTOR_PATH) == 1, label
         normalized = _normalized_routing_text(surface)
-        assert "migration wave" in normalized, label
+        assert "migration wave" in normalized and "complete" in normalized, label
         assert "current selector" in normalized, label
         assert "migration waves remain blocked" not in normalized, label
         assert "runtime hardening remains pending" not in normalized, label
 
 
-def test_migration_wave_task_7_handoff_advances_local_selector_to_task_8() -> None:
+def test_migration_wave_closeout_advances_selector_to_yaml_task_1() -> None:
     plan = (REPO_ROOT / CURRENT_SELECTOR_PATH).read_text(encoding="utf-8")
     current_queue = plan.split(
         "## Current queue after Task 6 closeout",
@@ -370,13 +810,15 @@ def test_migration_wave_task_7_handoff_advances_local_selector_to_task_8() -> No
         assert re.findall(
             r"(?m)^- \[([ xX])\] \*\*Step",
             remaining_tasks[task_number],
-        ) == [" "] * expected_step_count
+        ) == ["x"] * expected_step_count
     normalized_task_7 = _normalized_routing_text(remaining_tasks[7])
     assert "complete" in normalized_task_7
     normalized_status = _normalized_routing_text(_migration_plan_status(plan))
+    assert "complete" in normalized_status
+    assert "historical" in normalized_status
     assert re.search(
-        r"\btask 8\b.{0,40}\bstep 1\b.{0,80}\bcurrent\b"
-        r"|\bcurrent\b.{0,80}\btask 8\b.{0,40}\bstep 1\b",
+        r"\byaml retirement\b.{0,100}\btask 1\b.{0,80}\bcurrent\b"
+        r"|\bcurrent\b.{0,100}\byaml retirement\b.{0,100}\btask 1\b",
         normalized_status,
     )
 
@@ -398,10 +840,145 @@ def test_migration_wave_task_7_handoff_advances_local_selector_to_task_8() -> No
         **_procedure_sequence_selector_surfaces(),
     }
     for label, surface in selector_surfaces.items():
-        _assert_task_6_complete_and_task_7_step_1_current(surface, label)
+        _assert_migration_wave_complete_and_yaml_task_1_current(surface, label)
 
     for label in ("docs index", "roadmap current routing"):
         _assert_exact_ordered_routing_paths(selector_surfaces[label], label)
+
+
+def test_task8_baseline_replay_is_content_addressed_and_bounded() -> None:
+    replay = json.loads((REPO_ROOT / TASK8_BASELINE_REPLAY_PATH).read_text(encoding="utf-8"))
+    _assert_task8_baseline_replay_contract(replay)
+
+    plan = (REPO_ROOT / CURRENT_SELECTOR_PATH).read_text(encoding="utf-8")
+    task8 = _migration_task_section(plan, 8)
+    staging_line = next(
+        line for line in task8.splitlines() if line.startswith("git add ")
+    )
+    staged_paths = set(shlex.split(staging_line)[2:])
+    evidence_root = (
+        "docs/plans/evidence/procedure-first-migration-waves/task8-baseline-replay/"
+    )
+    assert staged_paths == {
+        "docs/design/workflow_lisp_parametric_type_system.md",
+        "docs/lisp_workflow_drafting_guide.md",
+        "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md",
+        "docs/plans/2026-07-13-procedure-first-migration-waves-plan.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.md",
+        "docs/plans/2026-07-16-yaml-retirement-handoff-plan.md",
+        f"{evidence_root}adjudication.json",
+        f"{evidence_root}output-contract.txt",
+        f"{evidence_root}semantic-prompt-lineage.txt",
+        f"{evidence_root}executable-ir-keys.txt",
+        f"{evidence_root}semantic-command-boundary.txt",
+        f"{evidence_root}provider-role.txt",
+        f"{evidence_root}neurips-runtime.txt",
+        "docs/capability_status_matrix.md",
+        "docs/index.md",
+        "tests/test_workflow_lisp_drain_roadmap_routing.py",
+    }
+
+
+def test_task8_capture_point_accepts_a_descendant_head_and_rejects_divergence() -> None:
+    capture = "capture-commit"
+    descendant = "future-closeout-commit"
+    accepted_edges = {(capture, capture), (capture, descendant)}
+
+    _assert_capture_point_precedes_current_head(
+        capture,
+        descendant,
+        is_ancestor=lambda ancestor, current: (ancestor, current) in accepted_edges,
+    )
+    with pytest.raises(AssertionError):
+        _assert_capture_point_precedes_current_head(
+            capture,
+            "divergent-commit",
+            is_ancestor=lambda ancestor, current: (
+                ancestor,
+                current,
+            ) in accepted_edges,
+        )
+
+
+def test_task8_baseline_replay_rejects_contract_and_evidence_tampering() -> None:
+    replay = json.loads((REPO_ROOT / TASK8_BASELINE_REPLAY_PATH).read_text(encoding="utf-8"))
+    mutations = []
+
+    wrong_digest = copy.deepcopy(replay)
+    wrong_digest["failures"][0]["raw_log"]["sha256"] = "0" * 64
+    mutations.append(wrong_digest)
+
+    wrong_signature = copy.deepcopy(replay)
+    wrong_signature["failures"][0]["normalized_failure_signature"] += " changed"
+    mutations.append(wrong_signature)
+
+    wrong_nodeid = copy.deepcopy(replay)
+    wrong_nodeid["failures"][0]["nodeid"] = "tests/example.py::test_other_failure"
+    mutations.append(wrong_nodeid)
+
+    wrong_category = copy.deepcopy(replay)
+    wrong_category["failures"][0]["category"] = "migration_wave_failure"
+    mutations.append(wrong_category)
+
+    wrong_diff = copy.deepcopy(replay)
+    wrong_diff["failures"][0]["normalized_diff"]["changed_line_count"] = 2
+    mutations.append(wrong_diff)
+
+    wrong_provenance = copy.deepcopy(replay)
+    wrong_provenance["provenance"]["pre_wave_commits"][0]["commit"] = "0" * 40
+    mutations.append(wrong_provenance)
+
+    wrong_capture_commit = copy.deepcopy(replay)
+    wrong_capture_commit["repository"]["head_commit"] = "0" * 40
+    mutations.append(wrong_capture_commit)
+
+    wrong_capture_tree = copy.deepcopy(replay)
+    wrong_capture_tree["repository"]["head_tree"] = "0" * 40
+    mutations.append(wrong_capture_tree)
+
+    irrelevant_claim = copy.deepcopy(replay)
+    irrelevant_claim["claims_not_made"].append(
+        "This unrelated statement is not part of the reviewed evidence contract."
+    )
+    mutations.append(irrelevant_claim)
+
+    unexpected_authority_field = copy.deepcopy(replay)
+    unexpected_authority_field["authorities"]["baseline"]["note"] = "unchecked"
+    mutations.append(unexpected_authority_field)
+
+    unexpected_top_level_field = copy.deepcopy(replay)
+    unexpected_top_level_field["note"] = "unchecked"
+    mutations.append(unexpected_top_level_field)
+
+    reversed_failures = copy.deepcopy(replay)
+    reversed_failures["failures"].reverse()
+    mutations.append(reversed_failures)
+
+    changed_finding = copy.deepcopy(replay)
+    changed_finding["provenance"]["finding"] = "The movement may predate the wave."
+    mutations.append(changed_finding)
+
+    for mutation in mutations:
+        with pytest.raises(AssertionError):
+            _assert_task8_baseline_replay_contract(mutation)
+
+    non_locator = copy.deepcopy(replay)
+    row = non_locator["failures"][0]
+    path = row["raw_log"]["path"]
+    mutated_raw = (REPO_ROOT / path).read_bytes().replace(
+        b"E       assert 2 == 0", b"E       assert 3 == 0", 1
+    )
+    assert mutated_raw != (REPO_ROOT / path).read_bytes()
+    row["raw_log"]["bytes"] = len(mutated_raw)
+    row["raw_log"]["sha256"] = _sha256_bytes(mutated_raw)
+    normalized = normalize_procedure_prerequisite_failure_log(
+        mutated_raw.decode("utf-8"), repo_root=REPO_ROOT
+    )
+    row["normalized_sha256"] = _sha256_bytes(normalized.encode("utf-8"))
+    with pytest.raises(AssertionError):
+        _assert_task8_baseline_replay_contract(
+            non_locator, raw_overrides={path: mutated_raw}
+        )
 
 
 def test_yaml_retirement_program_uses_exact_handoff_queues_and_two_ports() -> None:
@@ -587,7 +1164,7 @@ def test_task_2_step_1_closes_on_bounded_identity_retirement_ineligibility() -> 
     assert canonical_index.count(CURRENT_SELECTOR_PATH) == 1
     assert _normalized_routing_text(index_routing).count("current selector") == 1
     assert "task 3" in _normalized_routing_text(index_routing)
-    _assert_task_6_complete_and_task_7_step_1_current(
+    _assert_migration_wave_complete_and_yaml_task_1_current(
         index_routing,
         "docs index component routing",
     )
@@ -710,7 +1287,7 @@ def test_task_2_step_3_closes_on_live_route_strict_compatibility() -> None:
         "Task 6 remains open; Task 7 has not started.",
     ),
 )
-def test_task_7_current_selector_guard_rejects_stale_or_skipped_routing(
+def test_yaml_task_1_current_selector_guard_rejects_stale_or_skipped_routing(
     replacement: str,
 ) -> None:
     docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
@@ -719,15 +1296,15 @@ def test_task_7_current_selector_guard_rejects_stale_or_skipped_routing(
         "**Current procedure-first substrate:**", 1
     )[0]
     mutated = re.sub(
-        r"Task 6[^.]{0,500}Task 7 Step 1[^.]{0,100}(?:current|selected)\.",
+        r"(?:Stage 6 )?YAML retirement[^.]{0,200}Task 1[^.]{0,100}(?:current|selected)\.",
         replacement,
         docs_index_routing,
-        count=1,
+        count=0,
     )
     assert mutated != docs_index_routing
 
     with pytest.raises(AssertionError):
-        _assert_task_6_complete_and_task_7_step_1_current(
+        _assert_migration_wave_complete_and_yaml_task_1_current(
             mutated,
             "mutated docs-index routing",
         )

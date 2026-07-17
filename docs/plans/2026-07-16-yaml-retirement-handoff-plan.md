@@ -22,6 +22,12 @@ match-scoped supported nonterminal run/call-frame consumers.
 **Tech Stack:** JSON, Markdown, PyYAML-backed test helpers, `git grep`, `rg`,
 pytest, Git, and the existing procedure-first inventory/routing tests.
 
+**Status:** Complete at `7e6adc367a6a16745b5334b2ffc05795f061141d`.
+Tasks 1–5 produced the reviewed, machine-checked five-queue handoff and closed
+Migration-Waves Task 7 without changing workflow source or run stores. All
+Stage-6 queues remain pending their own gates; Migration-Waves Task 8 owns the
+whole-wave closeout and final routing change.
+
 ---
 
 ## Authority And Entry Gate
@@ -286,13 +292,13 @@ the queue manifest but does not authorize changing its bytes.
 - Modify: `tests/test_workflow_lisp_procedure_first_migrations.py`
 - Modify: `tests/test_workflow_lisp_drain_roadmap_routing.py`
 
-- [ ] **Step 1: Capture the Task-7 baseline**
+- [x] **Step 1: Capture the Task-7 baseline**
 
 Record the full Task-6 completion commit, `git status --short`, the seven
 protected-file digests, and the current inventory totals. Confirm no Task-7
 owned file is already modified.
 
-- [ ] **Step 2: Add a reusable handoff validator in the migration test module**
+- [x] **Step 2: Add a reusable handoff validator in the migration test module**
 
 Implement a test-only validator that:
 
@@ -310,7 +316,7 @@ Implement a test-only validator that:
 
 Use structured JSON assertions. Do not assert literal explanatory prose.
 
-- [ ] **Step 3: Add both-direction mutation coverage**
+- [x] **Step 3: Add both-direction mutation coverage**
 
 Parameterize copies of the handoff document and prove the validator rejects:
 
@@ -326,7 +332,7 @@ Parameterize copies of the handoff document and prove the validator rejects:
 - a changed Design Delta seven-path set; and
 - a port queue whose replacement kind is `none`.
 
-- [ ] **Step 4: Add run/reference gate contract tests**
+- [x] **Step 4: Add run/reference gate contract tests**
 
 Add generic fixtures proving:
 
@@ -342,7 +348,7 @@ Add generic fixtures proving:
 These are contract/record tests only; they must not mutate `.orchestrate` or
 launch a workflow.
 
-- [ ] **Step 5: Add roadmap-program structural guards**
+- [x] **Step 5: Add roadmap-program structural guards**
 
 In `tests/test_workflow_lisp_drain_roadmap_routing.py`, parse stable headings
 and table fields to require:
@@ -359,7 +365,7 @@ Reject the stale six-family promotion table and the superseded open
 port-vs-absorb state structurally. Avoid tests coupled to exact paragraph
 phrasing.
 
-- [ ] **Step 6: Collect and run RED selectors**
+- [x] **Step 6: Collect and run RED selectors**
 
 ```bash
 pytest --collect-only -q \
@@ -385,7 +391,7 @@ Do not commit RED-only tests.
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.md`
 - Test: `tests/test_workflow_lisp_procedure_first_migrations.py`
 
-- [ ] **Step 1: Generate the exact estate and record mappings read-only**
+- [x] **Step 1: Generate the exact estate and record mappings read-only**
 
 From the repository root, enumerate both suffixes, calculate the normalized
 path-list digest, and extract active record IDs from JSON. Do not derive a
@@ -404,7 +410,7 @@ jq -r '.records[] | select(.record_kind == "public-entry") | .id' \
 Expected after Task 6: 110 YAML/YML paths, 63 legacy IDs, 32 effect-adapter
 IDs, and 13 public-entry IDs.
 
-- [ ] **Step 2: Add the minimal handoff object**
+- [x] **Step 2: Add the minimal handoff object**
 
 Populate the schema exactly as specified. Store all 110 estate paths, all 100
 delete paths, all record IDs, and all preserved boundary IDs explicitly and in
@@ -423,7 +429,7 @@ retirement. For the watchdog queue, record a named prerequisite for a new
 bounded implementation plan rather than inventing an `.orc` path that does not
 exist.
 
-- [ ] **Step 3: Freeze a pending reference-scan contract without overclaiming**
+- [x] **Step 3: Freeze a pending reference-scan contract without overclaiming**
 
 Task 7 is handoff-only and intentionally defers the actual reference scan to
 Stage 6. Record the exact future scopes (`tracked_repository`, `working_tree`,
@@ -447,7 +453,7 @@ does not claim they were scanned or removed.
 Record that this scope covers the repository and current working tree, not
 unknown downstream clones.
 
-- [ ] **Step 4: Record the run-consumer scan contract, not an eligibility claim**
+- [x] **Step 4: Record the run-consumer scan contract, not an eligibility claim**
 
 Document the match-scoped query fields and fail-closed status semantics in the
 handoff. A fresh read-only probe may disclose store-wide hygiene totals, but
@@ -455,7 +461,7 @@ leave supported-root scope `pending_adjudication` and every queue `pending`.
 Do not call a `running`/`suspended` label live or supported without separate
 evidence. Do not mutate, terminalize, repair, resume, or delete any run.
 
-- [ ] **Step 5: Update the narrative inventory**
+- [x] **Step 5: Update the narrative inventory**
 
 Add one concise “Stage-6 YAML Retirement Handoff” section that:
 
@@ -469,7 +475,7 @@ Add one concise “Stage-6 YAML Retirement Handoff” section that:
   and
 - makes no deletion, parity, resume, or downstream-consumer claim.
 
-- [ ] **Step 6: Run GREEN inventory selectors**
+- [x] **Step 6: Run GREEN inventory selectors**
 
 ```bash
 python -m json.tool \
@@ -487,13 +493,13 @@ Expected: PASS.
 - Modify: `docs/workflow_yaml_estate_triage.md`
 - Test: `tests/test_workflow_lisp_procedure_first_migrations.py`
 
-- [ ] **Step 1: Replace draft authority with projection authority**
+- [x] **Step 1: Replace draft authority with projection authority**
 
 Keep the JSON handoff as machine authority. Change the triage header from a
 superseded draft heuristic to a generated human projection that names the JSON
 object and its capture commit/digest.
 
-- [ ] **Step 2: Include both YAML suffixes and every exact path**
+- [x] **Step 2: Include both YAML suffixes and every exact path**
 
 Project all 110 inventory paths, including
 `workflows/examples/test_validation.yml`. For each row show:
@@ -510,14 +516,14 @@ Project all 110 inventory paths, including
 Remove the stale draft-class totals. End with exact queue totals and legacy-ID
 totals derived from the JSON handoff.
 
-- [ ] **Step 3: Add reproducible extraction commands**
+- [x] **Step 3: Add reproducible extraction commands**
 
 Embed commands that cover both `.yaml` and `.yml` and validate the projection
 against the JSON object. Do not refer to a nonexistent “Phase-1 Task-13
 generator script”; the historical plan contains an inline one-off generator,
 not a checked-in script.
 
-- [ ] **Step 4: Run projection tests**
+- [x] **Step 4: Run projection tests**
 
 ```bash
 pytest -q tests/test_workflow_lisp_procedure_first_migrations.py \
@@ -532,7 +538,7 @@ Expected: PASS with the Markdown path/queue projection equal to JSON.
 - Modify: `docs/plans/2026-07-07-yaml-retirement-program.md`
 - Test: `tests/test_workflow_lisp_drain_roadmap_routing.py`
 
-- [ ] **Step 1: Normalize the steering and architecture header**
+- [x] **Step 1: Normalize the steering and architecture header**
 
 Mark the older “port versus absorb remains open” paragraph as superseded or
 remove its live instruction. State once that exactly verified-iteration and
@@ -542,7 +548,7 @@ Correct the architecture summary: Tasks 1–3 are ungated enabling work; the
 deprecation surface is gated but its first-family condition is already met by
 the Design Delta `.orc` primary. Do not describe four tasks as ungated.
 
-- [ ] **Step 2: Add the five exact handoff queues**
+- [x] **Step 2: Add the five exact handoff queues**
 
 Make the JSON handoff the Stage-6 work list and reproduce its five queue IDs,
 counts, dependencies, and statuses. Preserve the high-level deletion-first
@@ -559,7 +565,7 @@ order:
 
 This ordering records future work only. Do not check any Stage-6 execution box.
 
-- [ ] **Step 3: Replace the stale six-family Task-5 table**
+- [x] **Step 3: Replace the stale six-family Task-5 table**
 
 Task 5 must contain exactly two promotion families:
 
@@ -570,7 +576,7 @@ Task 5 must contain exactly two promotion families:
 Delete the stale promotion instructions for autonomous drain, NeurIPS, major
 project, and ProcRef families; they are members of the deletion queue.
 
-- [ ] **Step 4: Strengthen estate deletion and archive gates**
+- [x] **Step 4: Strengthen estate deletion and archive gates**
 
 Replace “ungated” deletion with these requirements per exact batch:
 
@@ -590,7 +596,7 @@ Do not require zero textual references: historical plans/evidence may retain
 classified references. Do not let store-wide unrelated nonterminal totals gate
 a batch.
 
-- [ ] **Step 5: Correct suffix, archive, generator, and resume wording**
+- [x] **Step 5: Correct suffix, archive, generator, and resume wording**
 
 - Cover both `*.yaml` and `*.yml` in estate and final-zero checks.
 - Define archive as Git-history removal, not a live YAML archive tree.
@@ -601,7 +607,7 @@ a batch.
   terminal historical runs remains a separately recorded Stage-6 decision.
 - Carry forward the exact protected-path guard from this plan.
 
-- [ ] **Step 6: Run the corrected-program tests**
+- [x] **Step 6: Run the corrected-program tests**
 
 ```bash
 pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py \
@@ -618,7 +624,7 @@ Expected: PASS.
 - Test: `tests/test_workflow_lisp_procedure_first_migrations.py`
 - Test: `tests/test_workflow_lisp_drain_roadmap_routing.py`
 
-- [ ] **Step 1: Run the complete focused handoff gate**
+- [x] **Step 1: Run the complete focused handoff gate**
 
 ```bash
 python -m json.tool \
@@ -645,14 +651,14 @@ git diff --check -- \
 Expected: JSON parses, collection succeeds, focused tests pass, and diff check
 is clean.
 
-- [ ] **Step 2: Prove the task stayed handoff-only**
+- [x] **Step 2: Prove the task stayed handoff-only**
 
 Compare the Task-7 start commit and working tree. No workflow source, runtime,
 compiler, prompt, run store, fixture, or parity artifact may have changed under
 this task. The only dirty paths outside the owned set must match the recorded
 user baseline.
 
-- [ ] **Step 3: Obtain independent specification review**
+- [x] **Step 3: Obtain independent specification review**
 
 The reviewer checks:
 
@@ -667,7 +673,7 @@ The reviewer checks:
 
 Expected: PASS. Fix every valid issue and rerun the complete focused gate.
 
-- [ ] **Step 4: Obtain independent quality review**
+- [x] **Step 4: Obtain independent quality review**
 
 The reviewer checks deterministic ordering/digests, schema clarity, mutation
 coverage, durable path/section references, protected-path discipline, absence
@@ -677,7 +683,7 @@ triage, program, and selector.
 Expected: APPROVED. Fix every valid issue, rerun the complete focused gate,
 then repeat both reviews when a correction changes contract meaning.
 
-- [ ] **Step 5: Mark Task 7 complete and Task 8 current**
+- [x] **Step 5: Mark Task 7 complete and Task 8 current**
 
 Only after both reviews pass, update the migration-wave plan:
 
@@ -687,7 +693,7 @@ Only after both reviews pass, update the migration-wave plan:
 - state that all Stage-6 queues remain pending their own gates; and
 - select Task 8 Step 1 without advancing the governing roadmap to Stage 6.
 
-- [ ] **Step 6: Rerun routing tests after selector update**
+- [x] **Step 6: Rerun routing tests after selector update**
 
 ```bash
 pytest -q \
@@ -698,7 +704,7 @@ pytest -q \
 
 Expected: PASS with Task 7 complete and Task 8 Step 1 current.
 
-- [ ] **Step 7: Stage exact paths and commit**
+- [x] **Step 7: Stage exact paths and commit**
 
 Stage only these eight paths:
 
