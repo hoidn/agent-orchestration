@@ -9,9 +9,10 @@
 becomes the only authored workflow surface. Persisted run data and internal
 debug serialization are outside this program.
 
-**Current selector:** Task 2, move dashboard structure reads to the typed
-surface. Task 1 is complete; its reviewed gap contract is
-`docs/workflow_yaml_orc_gap_list.md`.
+**Current selector:** Task 3, split YAML parsing from shared validation. Tasks
+1-2 are complete; Task 1's reviewed gap contract is
+`docs/workflow_yaml_orc_gap_list.md`, and Task 2's persisted-surface plan is
+`docs/plans/2026-07-16-dashboard-persisted-typed-surface-plan.md`.
 
 **Architecture:** The content-addressed handoff in
 `docs/plans/2026-07-13-procedure-first-reuse-inventory.json` is the exact work
@@ -130,11 +131,26 @@ close any queue, scan, port, promotion, or deletion gate.
 
 ### Task 2: Move dashboard structure reads to the typed surface — ENABLING
 
-- [ ] Replace raw YAML structure reclassification in the dashboard with the
+- [x] Replace raw YAML structure reclassification in the dashboard with the
   loaded typed surface (`SurfaceStepKind` / executable IR).
-- [ ] Preserve the public dashboard behavior with contract and dataflow tests;
+- [x] Preserve the public dashboard behavior with contract and dataflow tests;
   do not test literal prompt or warning wording.
-- [ ] Run the focused dashboard suite and an import or endpoint smoke.
+- [x] Run the focused dashboard suite and an import or endpoint smoke.
+
+**Task 2 evidence:** New build bundles persist a canonical, digest-bound typed
+workflow surface, and `.orc` dashboard reads decode only that artifact while
+legacy YAML remains isolated behind `WorkflowLoader`. Source deletion/edit
+smokes covered both a one-node workflow and an imported three-node workflow.
+The persisted-surface producer passed 174 focused checks, the dashboard reader
+passed 126 dashboard/CLI checks, and both halves received independent
+specification PASS and quality APPROVED reviews. The fresh broad run completed
+with 5099 passed, 17 skipped, and only the six already-adjudicated unrelated
+failures. Historical retirement comparisons retain their frozen meaning by
+projecting only the four additive dashboard-surface provenance fields; the
+retirement module passed 306 checks. The reviewed design revisions landed at
+`81b511a7` and `e5335da5`, the producer at `8e81855a`, the historical-evidence
+amendment at `1db310e6`, its implementation at `53d416ed`, and the dashboard
+reader at `816f61ca`.
 
 ### Task 3: Split YAML parsing from shared validation — ENABLING
 

@@ -155,29 +155,35 @@ def _section(text: str, heading: str) -> str:
     return remainder if next_heading == -1 else remainder[:next_heading]
 
 
-def test_yaml_retirement_task_1_is_closed_and_task_2_is_current() -> None:
+def test_yaml_retirement_tasks_1_and_2_are_closed_and_task_3_is_current() -> None:
     program = YAML_RETIREMENT_PROGRAM.read_text(encoding="utf-8")
     task_1 = _section(program, "### Task 1: Close the `.orc` language-gap list — ENABLING")
     task_2 = _section(program, "### Task 2: Move dashboard structure reads to the typed surface — ENABLING")
+    task_3 = _section(program, "### Task 3: Split YAML parsing from shared validation — ENABLING")
 
     assert task_1.count("- [x]") == 3
     assert "- [ ]" not in task_1
-    assert task_2.count("- [ ]") == 3
-    assert "**Current selector:** Task 2" in program
+    assert task_2.count("- [x]") == 3
+    assert "- [ ]" not in task_2
+    assert task_3.count("- [ ]") == 3
+    assert "**Current selector:** Task 3" in program
     assert "PASS" in task_1
     assert "APPROVED" in task_1
+    assert "PASS" in task_2
+    assert "APPROVED" in task_2
 
 
-def test_canonical_routing_surfaces_select_yaml_retirement_task_2() -> None:
+def test_canonical_routing_surfaces_select_yaml_retirement_task_3() -> None:
     roadmap = ROADMAP.read_text(encoding="utf-8")
     capability = CAPABILITY_MATRIX.read_text(encoding="utf-8")
     index = DOCS_INDEX.read_text(encoding="utf-8")
 
     for text in (roadmap, capability, index):
-        assert "YAML retirement Task 2" in text
+        assert "YAML retirement Task 3" in text
         assert "YAML retirement Task 1 is current" not in text
+        assert "YAML retirement Task 2 is current" not in text
 
     stage_6 = _section(roadmap, "### Stage 6: Resume YAML Retirement")
-    assert "**Current selector:** Task 2" in stage_6
-    assert "Task 1 is complete" in stage_6
+    assert "**Current selector:** Task 3" in stage_6
+    assert "tasks 1-2 are complete" in " ".join(stage_6.lower().split())
     assert "docs/workflow_yaml_orc_gap_list.md" in stage_6

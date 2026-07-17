@@ -21,6 +21,14 @@ model, and otherwise degrades to state-only summaries.
 `SurfaceStepKind`, Workflow Lisp build artifacts, runtime observability, dashboard,
 pytest, tmux.
 
+**Status:** Complete. The reviewed producer, frozen-evidence compatibility,
+dashboard reader, and routing closeout landed through `8e81855a`, `53d416ed`,
+`816f61ca`, and the Task 2 closeout commit. Focused producer/runtime checks
+passed 174 tests, dashboard/CLI checks passed 126, the retirement module passed
+306, and the broad suite completed with 5099 passed, 17 skipped, and the six
+established unrelated failures. Independent specification review returned PASS
+and code-quality review returned APPROVED.
+
 ---
 
 ## Scope, authority, and accepted future cost
@@ -108,25 +116,31 @@ Modify:
   `tests/test_dashboard_projection.py`, `tests/test_dashboard_server.py`, and
   `tests/test_cli_dashboard_command.py` — reader, path, renderer, endpoint,
   degradation.
-- `docs/plans/2026-07-07-yaml-retirement-program.md`, `docs/index.md`, and
-  `docs/capability_status_matrix.md` — reviewed closeout only.
+- `docs/plans/2026-07-07-yaml-retirement-program.md`,
+  `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`,
+  `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`,
+  `docs/index.md`, and `docs/capability_status_matrix.md` — reviewed routing
+  closeout only.
+- `tests/test_workflow_yaml_orc_gap_list.py` and
+  `tests/test_workflow_lisp_drain_roadmap_routing.py` — closeout-selector
+  exclusivity and canonical-routing contract only.
 
 ## Task 1: Freeze producer, topology, and anchor behavior
 
-- [ ] Add RED producer tests using a minimal `.orc` and real
+- [x] Add RED producer tests using a minimal `.orc` and real
   `imported_bundle_mix`. Require exactly three nodes for the real fixture: entry,
   same-file helper, external selector. The helper's unused closure imports must
   not become nodes or edges.
-- [ ] Add both-direction call topology tests: root/nested/finalization calls are
+- [x] Add both-direction call topology tests: root/nested/finalization calls are
   followed; unused imports ignored; two aliases and a diamond deduplicate; missing
   used alias fails; an extra serialized alias fails; cycle fails; same-name
   differing payload fails; missing/unreachable nodes fail.
-- [ ] Add wire tests: duplicate keys fail, noncanonical valid JSON bytes fail,
+- [x] Add wire tests: duplicate keys fail, noncanonical valid JSON bytes fail,
   unknown/missing fields fail, unsupported schema fails, invalid/uppercase/short
   digest syntax fails, and exact canonical bytes/digest pass.
-- [ ] Add RED runtime tests proving only a complete four-key anchor is persisted
+- [x] Add RED runtime tests proving only a complete four-key anchor is persisted
   and a CLI-created run records byte-identical manifest/state anchors.
-- [ ] Collect and prove RED:
+- [x] Collect and prove RED:
 
 ```bash
 pytest --collect-only -q tests/test_workflow_lisp_build_artifacts.py \
@@ -142,35 +156,35 @@ Expected: real missing artifact/schema/anchor failures, not fixture errors.
 
 ## Task 2: Implement and self-validate the producer
 
-- [ ] Implement frozen graph/step/common/finalization types and the recursive
+- [x] Implement frozen graph/step/common/finalization types and the recursive
   actual-call collector in `persisted_surface.py`.
-- [ ] Serialize workflow-name-keyed nodes. Compare canonical payload on repeat
+- [x] Serialize workflow-name-keyed nodes. Compare canonical payload on repeat
   names; identical deduplicates, differing fails. Do not traverse unused imports.
-- [ ] Implement strict byte decoder and topology validation, including canonical
+- [x] Implement strict byte decoder and topology validation, including canonical
   byte equality before object acceptance.
-- [ ] Bump `BUILD_SCHEMA_VERSION` and emit canonical
+- [x] Bump `BUILD_SCHEMA_VERSION` and emit canonical
   `persisted_workflow_surface.json`. Add the identical four-key anchor to manifest
   and selected-bundle provenance using build-relative POSIX path.
-- [ ] Decode/validate final emitted bytes and compare the produced entry/anchor
+- [x] Decode/validate final emitted bytes and compare the produced entry/anchor
   before returning `FrontendBuildResult`.
-- [ ] Persist the exact provenance anchor in runtime observability only when all
+- [x] Persist the exact provenance anchor in runtime observability only when all
   four values are valid.
-- [ ] Run GREEN producer/runtime selectors and the complete
+- [x] Run GREEN producer/runtime selectors and the complete
   `tests/test_workflow_lisp_build_artifacts.py` plus
   `tests/test_runtime_observability.py`, `tests/test_runtime_observability_cli.py`,
   and `tests/test_persisted_workflow_surface.py` suites.
 
 ## Task 3: Replace dashboard fresh reconstruction
 
-- [ ] Add genuine RED tests using real build output for: exact three-node imported
+- [x] Add genuine RED tests using real build output for: exact three-node imported
   closure; valid-content tamper; noncanonical bytes; duplicate keys; each state or
   manifest binding mismatch; partial/malformed state anchor; wholly absent legacy
   anchor; source deletion/edit; relative and absolute deleted-source path; lexical
   traversal; symlink escape; no frontend/loader/elaboration/lowering call.
-- [ ] Add renderer RED coverage for finalization and every current link-bearing
+- [x] Add renderer RED coverage for finalization and every current link-bearing
   field, including adjudicated-provider candidate/evaluator prompt/rubric assets.
-- [ ] Add CLI dashboard RED coverage for a bound run, legacy run, and corrupt run.
-- [ ] Verify RED with exact selectors:
+- [x] Add CLI dashboard RED coverage for a bound run, legacy run, and corrupt run.
+- [x] Verify RED with exact selectors:
 
 ```bash
 pytest -q tests/test_dashboard_compiled_workflow.py \
@@ -179,20 +193,20 @@ pytest -q tests/test_dashboard_server.py tests/test_cli_dashboard_command.py \
   -k 'persisted_surface or finalization or adjudicated'
 ```
 
-- [ ] Implement reader verification in this fixed order: closed state anchor and
+- [x] Implement reader verification in this fixed order: closed state anchor and
   digest syntax; content-addressed build root; supported build manifest schema;
   exact manifest anchor equality; safe bound artifact path; actual SHA-256;
   canonical byte equality; closed graph decode; entry/closure invariants.
-- [ ] Rename false `workflow_bundle` dashboard fields/helpers to
+- [x] Rename false `workflow_bundle` dashboard fields/helpers to
   `workflow_structure`. Render live YAML bundle and persisted graph through narrow
   typed adapters.
-- [ ] Resolve `.orc` workflow paths lexically/safely without requiring final source
+- [x] Resolve `.orc` workflow paths lexically/safely without requiring final source
   existence; retain existing readable resolution for YAML.
-- [ ] Run complete dashboard focused suites GREEN.
+- [x] Run complete dashboard focused suites GREEN.
 
 ## Task 4: Verification, reviews, closeout, and commits
 
-- [ ] Collect every changed test once:
+- [x] Collect every changed test once:
 
 ```bash
 pytest --collect-only -q tests/test_dashboard_compiled_workflow.py \
@@ -202,7 +216,7 @@ pytest --collect-only -q tests/test_dashboard_compiled_workflow.py \
   tests/test_persisted_workflow_surface.py
 ```
 
-- [ ] Run focused tests:
+- [x] Run focused tests:
 
 ```bash
 pytest -q -n 16 --dist=worksteal tests/test_dashboard_compiled_workflow.py \
@@ -212,9 +226,9 @@ pytest -q -n 16 --dist=worksteal tests/test_dashboard_compiled_workflow.py \
   tests/test_persisted_workflow_surface.py
 ```
 
-- [ ] Run real minimal and `imported_bundle_mix` build/dashboard smokes; delete the
+- [x] Run real minimal and `imported_bundle_mix` build/dashboard smokes; delete the
   copied `.orc` before repeat projection and require identical typed structure.
-- [ ] Run pycompile/import checks. For the architecture grep below, exit 1 is PASS
+- [x] Run pycompile/import checks. For the architecture grep below, exit 1 is PASS
   (no matches), exit 0 is a blocking match, and exit >1 is command failure:
 
 ```bash
@@ -233,7 +247,7 @@ set -e
 test "$status" -eq 1
 ```
 
-- [ ] Use the `tmux` skill for the broad suite:
+- [x] Use the `tmux` skill for the broad suite:
 
 ```bash
 pytest -q -n 16 --dist=worksteal
@@ -245,16 +259,16 @@ comparison, validate the complete current persisted-surface binding first and
 apply only an exact, reviewed compatibility projection; never regenerate frozen
 evidence or weaken production identity comparisons.
 
-- [ ] Obtain independent specification and code-quality reviews. Specification
+- [x] Obtain independent specification and code-quality reviews. Specification
   review must verify honest read-model claims, actual-call closure, exact anchor,
   path safety, and degradation. Quality review must verify closed decoding,
   ownership, no frontend dependency, renderer completeness, and test behavior.
-- [ ] Fix every accepted finding TDD-first and restart both reviews if schema,
+- [x] Fix every accepted finding TDD-first and restart both reviews if schema,
   authority, topology, or degradation changes.
-- [ ] After approval only, update the Stage 6 roadmap, index, and capability matrix:
+- [x] After approval only, update the Stage 6 roadmap, index, and capability matrix:
   mark Task 2 complete with exact evidence, keep YAML `Legacy`, select Task 3, and
   do not imply parser removal.
-- [ ] Run `git diff --check` and print every changed path. Use these exact five
+- [x] Run `git diff --check` and print every changed path. Use these exact five
   independently-green commit allowlists in order; never use broad staging:
 
   1. reviewed plan first:
@@ -278,8 +292,14 @@ evidence or weaken production identity comparisons.
      `tests/test_dashboard_compiled_workflow.py`,
      `tests/test_dashboard_projection.py`, `tests/test_dashboard_server.py`,
      `tests/test_cli_dashboard_command.py`;
-  5. closeout: `docs/plans/2026-07-07-yaml-retirement-program.md`,
-     `docs/index.md`, `docs/capability_status_matrix.md`.
+  5. routing closeout:
+     `docs/plans/2026-07-16-dashboard-persisted-typed-surface-plan.md`,
+     `docs/plans/2026-07-07-yaml-retirement-program.md`,
+     `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`,
+     `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`,
+     `docs/index.md`, `docs/capability_status_matrix.md`,
+     `tests/test_workflow_yaml_orc_gap_list.py`, and
+     `tests/test_workflow_lisp_drain_roadmap_routing.py`.
 
   Before the producer commit, run its complete producer/runtime focused suite on
   that tree. Before the historical-compatibility commit, run its affected selectors
@@ -316,12 +336,12 @@ test -z "$protected"
   `git diff --cached --name-only`. Repeat the exact equality, cached diff-check,
   literal seven-path guard, and printed cached list immediately before every
   commit.
-- [ ] Preserve the review/commit sequence represented by those five allowlists:
+- [x] Preserve the review/commit sequence represented by those five allowlists:
   obtain final plan review and commit the plan before implementation; obtain a
   focused producer/runtime review and commit that independently green group;
   verify and commit any exact frozen historical-comparison compatibility
   correction; obtain combined reader/dashboard and holistic reviews and commit that
-  independently green group; then verify and commit the closeout documentation.
+  independently green group; then verify and commit the routing closeout.
   The parent executor creates each real commit using only its corresponding
   verified allowlist.
 
