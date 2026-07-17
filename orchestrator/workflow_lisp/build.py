@@ -112,6 +112,7 @@ class FrontendBuildRequest:
     imported_workflow_bundles_path: Path | None = None
     command_boundaries_path: Path | None = None
     emit_debug_yaml: bool = False
+    emit_yaml_deprecation_warning: bool = True
     workspace_root: Path | None = None
     lint_profile: str = LINT_PROFILE_DEFAULT
     lowering_route: LoweringRoute | str | None = None
@@ -258,6 +259,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         prompt_externs_path=resolved_request.prompt_externs_path,
         command_boundaries_path=resolved_request.command_boundaries_path,
         lowering_route=resolved_request.lowering_route,
+        emit_yaml_deprecation_warning=resolved_request.emit_yaml_deprecation_warning,
     )
     imported_workflow_bundles = {
         binding.canonical_key: binding.bundle
@@ -630,6 +632,7 @@ def load_imported_workflow_bundle_manifest(
     prompt_externs_path: Path | None = None,
     command_boundaries_path: Path | None = None,
     lowering_route: LoweringRoute | str | None = None,
+    emit_yaml_deprecation_warning: bool = True,
 ) -> tuple[ImportedWorkflowBundleBinding, ...]:
     """Load imported workflow bundles from one explicit manifest file."""
 
@@ -658,7 +661,10 @@ def load_imported_workflow_bundle_manifest(
         )
 
     bindings: list[ImportedWorkflowBundleBinding] = []
-    loader = WorkflowLoader(workspace_root)
+    loader = WorkflowLoader(
+        workspace_root,
+        emit_yaml_deprecation_warning=emit_yaml_deprecation_warning,
+    )
     for canonical_key, raw_entry in payload.items():
         if not isinstance(canonical_key, str) or not canonical_key:
             raise LispFrontendCompileError(
@@ -713,6 +719,7 @@ def load_imported_workflow_bundle_manifest(
                     imported_workflow_bundles_path=None,
                     command_boundaries_path=command_boundaries_path,
                     emit_debug_yaml=False,
+                    emit_yaml_deprecation_warning=emit_yaml_deprecation_warning,
                     workspace_root=workspace_root,
                     lowering_route=lowering_route,
                 )

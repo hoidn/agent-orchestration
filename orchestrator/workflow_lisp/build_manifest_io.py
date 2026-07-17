@@ -60,6 +60,7 @@ def _resolve_request(request: FrontendBuildRequest) -> FrontendBuildRequest:
         else None,
         command_boundaries_path=request.command_boundaries_path.resolve() if request.command_boundaries_path else None,
         emit_debug_yaml=request.emit_debug_yaml,
+        emit_yaml_deprecation_warning=request.emit_yaml_deprecation_warning,
         workspace_root=workspace_root,
         lint_profile=request.lint_profile,
         lowering_route=request.lowering_route,

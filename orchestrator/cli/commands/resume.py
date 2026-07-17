@@ -201,13 +201,19 @@ def _load_resume_workflow_bundle(
     force_restart: bool = False,
 ) -> ResumeWorkflowBundle:
     if workflow_path.suffix != ".orc":
-        loader = WorkflowLoader(workspace_dir)
+        loader = WorkflowLoader(
+            workspace_dir,
+            emit_yaml_deprecation_warning=False,
+        )
         return ResumeWorkflowBundle(bundle=loader.load_bundle(workflow_path))
 
     metadata = read_process_metadata(run_root)
     argv = metadata.argv if metadata is not None else ()
     if force_restart and metadata is None:
-        loader = WorkflowLoader(workspace_dir)
+        loader = WorkflowLoader(
+            workspace_dir,
+            emit_yaml_deprecation_warning=False,
+        )
         return ResumeWorkflowBundle(
             bundle=loader.load_bundle(workflow_path),
             lowering_schema_version=LOWERING_SCHEMA_WCC,
@@ -236,6 +242,7 @@ def _load_resume_workflow_bundle(
             imported_workflow_bundles_path=first_path("--imported-workflow-bundles-file"),
             command_boundaries_path=first_path("--command-boundaries-file"),
             emit_debug_yaml=_argv_has_flag(argv, "--emit-debug-yaml"),
+            emit_yaml_deprecation_warning=False,
             workspace_root=workspace_dir,
             lowering_route=(
                 None

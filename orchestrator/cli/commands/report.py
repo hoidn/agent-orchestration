@@ -120,7 +120,10 @@ def report_workflow(
 
     load_error: Optional[str] = None
     try:
-        workflow = WorkflowLoader(Path.cwd()).load_bundle(workflow_path)
+        workflow = WorkflowLoader(
+            Path.cwd(),
+            emit_yaml_deprecation_warning=False,
+        ).load_bundle(workflow_path)
     except Exception as exc:
         workflow = None
         load_error = str(exc)

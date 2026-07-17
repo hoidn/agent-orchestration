@@ -1,6 +1,7 @@
 """Tests for report CLI command."""
 
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -100,6 +101,37 @@ def test_report_supports_json_format(tmp_path, capsys, monkeypatch):
     assert result == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["run"]["run_id"] == "20260227T000003Z-cccccc"
+
+
+def test_report_persisted_yaml_read_emits_no_authoring_deprecation(
+    tmp_path,
+    capsys,
+    caplog,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    run_id = "20260227T000003Z-persistedyaml"
+    _write_run(runs_root, run_id)
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="orchestrator.loader.yaml_deprecation",
+    ):
+        result = report_workflow(
+            run_id=run_id,
+            runs_root=str(runs_root),
+            format="json",
+        )
+
+    assert result == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["run"]["run_id"] == run_id
+    assert [
+        record
+        for record in caplog.records
+        if record.name == "orchestrator.loader.yaml_deprecation"
+    ] == []
 
 
 def test_report_json_surfaces_typed_terminal_observability_summary_read_only(

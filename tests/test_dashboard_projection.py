@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -104,6 +105,43 @@ def test_projector_carries_loaded_typed_workflow_surface_for_dashboard_consumers
     assert detail.workflow_structure.surface.name == "typed-dashboard-flow"
     assert detail.workflow_structure.surface.steps[0].kind is SurfaceStepKind.FOR_EACH
     assert detail.workflow_structure.surface.steps[0].for_each_steps[0].kind is SurfaceStepKind.COMMAND
+
+
+def test_projector_persisted_yaml_read_emits_no_authoring_deprecation(
+    tmp_path: Path,
+    caplog,
+):
+    workflow_path = _write_yaml(
+        tmp_path / "workflows" / "persisted.yaml",
+        {
+            "version": "1.3",
+            "name": "persisted-dashboard-flow",
+            "steps": [{"name": "Done", "command": ["echo", "done"]}],
+        },
+    )
+    _write_state(
+        tmp_path,
+        "persisted-yaml-run",
+        {
+            "run_id": "persisted-yaml-run",
+            "status": "completed",
+            "workflow_file": str(workflow_path.relative_to(tmp_path)),
+        },
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="orchestrator.loader.yaml_deprecation",
+    ):
+        detail = RunProjector().project_detail(_scan_one(tmp_path))
+
+    assert detail.row.workflow_name == "persisted-dashboard-flow"
+    assert detail.workflow_structure is not None
+    assert [
+        record
+        for record in caplog.records
+        if record.name == "orchestrator.loader.yaml_deprecation"
+    ] == []
 
 
 def test_projector_uses_injected_time_for_workflow_aware_stale_heartbeat(

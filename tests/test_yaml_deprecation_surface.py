@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import logging
 from pathlib import Path
 
@@ -33,6 +34,55 @@ def _assert_yaml_event(record: logging.LogRecord, requested_path: Path) -> None:
     assert record.workflow_deprecation_code == _EVENT_CODE
     assert record.workflow_deprecation_path == str(requested_path.resolve(strict=False))
     assert record.workflow_deprecation_format == "yaml"
+
+
+def _canonical_import_bindings(tree: ast.AST) -> dict[str, str]:
+    bindings: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                bindings[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                local_name = alias.asname or alias.name.split(".", 1)[0]
+                bindings[local_name] = alias.name if alias.asname else local_name
+    return bindings
+
+
+def _canonical_expression_name(
+    expression: ast.expr,
+    bindings: dict[str, str],
+) -> str | None:
+    if isinstance(expression, ast.Name):
+        return bindings.get(expression.id, expression.id)
+    if isinstance(expression, ast.Attribute):
+        owner = _canonical_expression_name(expression.value, bindings)
+        return f"{owner}.{expression.attr}" if owner else None
+    return None
+
+
+def _constructor_calls(module_path: Path, canonical_name: str) -> list[ast.Call]:
+    tree = ast.parse(module_path.read_text(encoding="utf-8"))
+    bindings = _canonical_import_bindings(tree)
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and _canonical_expression_name(node.func, bindings) == canonical_name
+    ]
+
+
+def _assert_explicit_warning_suppression(call: ast.Call) -> None:
+    policy = next(
+        (
+            keyword.value
+            for keyword in call.keywords
+            if keyword.arg == "emit_yaml_deprecation_warning"
+        ),
+        None,
+    )
+    assert isinstance(policy, ast.Constant)
+    assert policy.value is False
 
 
 @pytest.mark.parametrize("suffix", (".yaml", ".yml", ".YAML"))
@@ -213,3 +263,64 @@ def test_warning_policy_changes_neither_bundle_nor_validation_diagnostics(
         suppressed.load_bundle(invalid_path)
 
     assert enabled_error.value.errors == suppressed_error.value.errors
+
+
+def test_persisted_consumer_constructors_explicitly_suppress_yaml_deprecation() -> None:
+    repository_root = Path(__file__).resolve().parent.parent
+    expectations = (
+        (
+            repository_root / "orchestrator/cli/commands/resume.py",
+            "orchestrator.loader.WorkflowLoader",
+            2,
+        ),
+        (
+            repository_root / "orchestrator/cli/commands/resume.py",
+            "orchestrator.workflow_lisp.build.FrontendBuildRequest",
+            1,
+        ),
+        (
+            repository_root / "orchestrator/cli/commands/report.py",
+            "orchestrator.loader.WorkflowLoader",
+            1,
+        ),
+        (
+            repository_root / "orchestrator/dashboard/projection.py",
+            "orchestrator.loader.WorkflowLoader",
+            1,
+        ),
+    )
+
+    for module_path, canonical_name, expected_count in expectations:
+        calls = _constructor_calls(module_path, canonical_name)
+        assert len(calls) == expected_count
+        for call in calls:
+            _assert_explicit_warning_suppression(call)
+
+
+def test_persisted_constructor_guard_detects_alias_hidden_unsuppressed_call(
+    tmp_path: Path,
+) -> None:
+    mutated_module = tmp_path / "persisted_consumer.py"
+    mutated_module.write_text(
+        "\n".join(
+            (
+                "from orchestrator.loader import WorkflowLoader",
+                "from orchestrator.loader import WorkflowLoader as PersistedLoader",
+                "import orchestrator.loader as loader_module",
+                "WorkflowLoader(root, emit_yaml_deprecation_warning=False)",
+                "loader_module.WorkflowLoader(root, emit_yaml_deprecation_warning=False)",
+                "PersistedLoader(root)",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    calls = _constructor_calls(
+        mutated_module,
+        "orchestrator.loader.WorkflowLoader",
+    )
+
+    assert len(calls) == 3
+    with pytest.raises(AssertionError):
+        for call in calls:
+            _assert_explicit_warning_suppression(call)

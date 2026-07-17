@@ -2,6 +2,7 @@
 
 import os
 import json
+import logging
 import pytest
 from pathlib import Path
 import signal
@@ -1839,6 +1840,105 @@ steps:
     checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
 
     return workflow_path, checksum
+
+
+def test_persisted_yaml_resume_load_emits_no_authoring_deprecation(
+    temp_workspace,
+    sample_workflow,
+    caplog,
+):
+    workflow_path, _checksum = sample_workflow
+    run_id = "persisted-yaml-deprecation"
+    expected_bundle = WorkflowLoader(
+        temp_workspace,
+        emit_yaml_deprecation_warning=False,
+    ).load_bundle(workflow_path)
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(expected_bundle),
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="orchestrator.loader.yaml_deprecation",
+    ):
+        loaded = resume_command._load_resume_workflow_bundle(
+            workflow_path=workflow_path,
+            workspace_dir=temp_workspace,
+            run_root=state_manager.run_root,
+        )
+
+    assert loaded.bundle == expected_bundle
+    assert [
+        record
+        for record in caplog.records
+        if record.name == "orchestrator.loader.yaml_deprecation"
+    ] == []
+
+
+def test_persisted_orc_resume_yaml_bundle_dependency_emits_no_authoring_deprecation(
+    temp_workspace,
+    caplog,
+):
+    fixture_root = Path(__file__).resolve().parent / "fixtures" / "workflow_lisp"
+    source_root = fixture_root / "modules" / "valid" / "imported_bundle_mix"
+    workflow_path = source_root / "neurips" / "entry.orc"
+    cli_fixtures = fixture_root / "cli"
+    imported_manifest = cli_fixtures / "imported_workflow_bundles.json"
+    run_root = temp_workspace / ".orchestrate" / "runs" / "persisted-orc-yaml-dependency"
+    run_root.mkdir(parents=True)
+    (run_root / "state.json").write_text(
+        json.dumps(
+            {
+                "schema_version": StateManager.SCHEMA_VERSION,
+                "run_id": "persisted-orc-yaml-dependency",
+                "workflow_file": str(workflow_path),
+                "status": "failed",
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_process_metadata(
+        run_root,
+        argv=(
+            "python",
+            "-m",
+            "orchestrator",
+            "run",
+            str(workflow_path),
+            "--source-root",
+            str(source_root),
+            "--entry-workflow",
+            "orchestrate",
+            "--provider-externs-file",
+            str(cli_fixtures / "providers.json"),
+            "--prompt-externs-file",
+            str(cli_fixtures / "prompts.json"),
+            "--imported-workflow-bundles-file",
+            str(imported_manifest),
+            "--command-boundaries-file",
+            str(cli_fixtures / "commands.json"),
+        ),
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="orchestrator.loader.yaml_deprecation",
+    ):
+        loaded = resume_command._load_resume_workflow_bundle(
+            workflow_path=workflow_path,
+            workspace_dir=temp_workspace,
+            run_root=run_root,
+        )
+
+    assert loaded.bundle.surface.name.endswith("orchestrate")
+    assert loaded.bundle.imports["selector-run"].surface.name == "selector-run"
+    assert [
+        record
+        for record in caplog.records
+        if record.name == "orchestrator.loader.yaml_deprecation"
+    ] == []
 
 
 @pytest.fixture

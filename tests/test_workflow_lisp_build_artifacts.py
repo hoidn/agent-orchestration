@@ -7,6 +7,7 @@ import json
 from dataclasses import asdict, is_dataclass, replace
 from enum import Enum
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -651,6 +652,136 @@ def _build_request(tmp_path: Path, *, manifest_path: Path | None = None):
         emit_debug_yaml=False,
         workspace_root=tmp_path,
     )
+
+
+def test_yaml_deprecation_request_normalization_preserves_suppression(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    request = replace(
+        _build_request(tmp_path),
+        emit_yaml_deprecation_warning=False,
+    )
+
+    resolved = build._resolve_request(request)
+
+    assert resolved.emit_yaml_deprecation_warning is False
+
+
+def test_yaml_deprecation_policy_is_absent_from_build_identity_and_persisted_artifacts(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    build = _build_module()
+    enabled_request = _build_request(tmp_path)
+    with caplog.at_level(
+        "WARNING",
+        logger="orchestrator.loader.yaml_deprecation",
+    ):
+        enabled = build.build_frontend_bundle(enabled_request)
+    enabled_records = [
+        record
+        for record in caplog.records
+        if record.name == "orchestrator.loader.yaml_deprecation"
+    ]
+    assert len(enabled_records) == 1
+    assert enabled_records[0].workflow_deprecation_path == str(
+        (CLI_FIXTURES / "imported_selector.yaml").resolve()
+    )
+    enabled_manifest_bytes = enabled.manifest_path.read_bytes()
+    enabled_artifacts = {
+        name: path.read_bytes()
+        for name, path in enabled.artifact_paths.items()
+        if path.exists()
+    }
+
+    suppressed_request = replace(
+        enabled_request,
+        emit_yaml_deprecation_warning=False,
+    )
+    caplog.clear()
+    with caplog.at_level(
+        "WARNING",
+        logger="orchestrator.loader.yaml_deprecation",
+    ):
+        suppressed = build.build_frontend_bundle(suppressed_request)
+    assert [
+        record
+        for record in caplog.records
+        if record.name == "orchestrator.loader.yaml_deprecation"
+    ] == []
+    suppressed_manifest_bytes = suppressed.manifest_path.read_bytes()
+    suppressed_artifacts = {
+        name: path.read_bytes()
+        for name, path in suppressed.artifact_paths.items()
+        if path.exists()
+    }
+
+    assert suppressed.manifest.fingerprint == enabled.manifest.fingerprint
+    assert suppressed.build_root == enabled.build_root
+    assert asdict(suppressed.manifest) == asdict(enabled.manifest)
+    assert suppressed_manifest_bytes == enabled_manifest_bytes
+    assert suppressed.imported_workflow_bundles == enabled.imported_workflow_bundles
+    assert suppressed.validated_bundle == enabled.validated_bundle
+    assert suppressed.validated_bundle.semantic_ir == enabled.validated_bundle.semantic_ir
+    assert suppressed.validated_bundle.ir == enabled.validated_bundle.ir
+    assert suppressed_artifacts == enabled_artifacts
+    assert b"emit_yaml_deprecation_warning" not in suppressed_manifest_bytes
+    assert all(
+        b"emit_yaml_deprecation_warning" not in payload
+        for payload in suppressed_artifacts.values()
+    )
+
+
+@pytest.mark.parametrize("emit_warning", (True, False))
+def test_compiled_imported_bundle_propagates_yaml_deprecation_policy_to_child_build(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    emit_warning: bool,
+) -> None:
+    build = _build_module()
+    child_path = tmp_path / "child.orc"
+    child_path.write_text(
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.14"))\n',
+        encoding="utf-8",
+    )
+    manifest_path = tmp_path / "compiled-bundles.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "child": {
+                    "kind": "compiled",
+                    "path": child_path.name,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    template_bundle = build.WorkflowLoader(
+        tmp_path,
+        emit_yaml_deprecation_warning=False,
+    ).load_bundle(CLI_FIXTURES / "imported_selector.yaml")
+    captured_requests = []
+
+    def capture_child_request(request):
+        captured_requests.append(request)
+        return SimpleNamespace(
+            validated_bundle=template_bundle,
+            selected_workflow_name=template_bundle.surface.name,
+            manifest=SimpleNamespace(fingerprint="child-fingerprint"),
+        )
+
+    monkeypatch.setattr(build, "build_frontend_bundle", capture_child_request)
+
+    bindings = build.load_imported_workflow_bundle_manifest(
+        manifest_path,
+        workspace_root=tmp_path,
+        emit_yaml_deprecation_warning=emit_warning,
+    )
+
+    assert len(bindings) == 1
+    assert len(captured_requests) == 1
+    assert captured_requests[0].emit_yaml_deprecation_warning is emit_warning
 
 
 def _procedure_identity_build_request(tmp_path: Path):

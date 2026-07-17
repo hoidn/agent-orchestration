@@ -183,7 +183,10 @@ class RunProjector:
                     state=state,
                 )
             else:
-                workflow = WorkflowLoader(run.workspace.root).load_bundle(resolved)
+                workflow = WorkflowLoader(
+                    run.workspace.root,
+                    emit_yaml_deprecation_warning=False,
+                ).load_bundle(resolved)
         except Exception as exc:
             return None, None, f"failed to load workflow metadata: {exc}"
         workflow_name = getattr(workflow, "entry_workflow", None)
