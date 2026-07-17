@@ -685,9 +685,15 @@ def test_yaml_deprecation_policy_is_absent_from_build_identity_and_persisted_art
         if record.name == "orchestrator.loader.yaml_deprecation"
     ]
     assert len(enabled_records) == 1
+    assert enabled_records[0].levelname == "WARNING"
+    assert (
+        enabled_records[0].workflow_deprecation_code
+        == "workflow_yaml_authoring_deprecated"
+    )
     assert enabled_records[0].workflow_deprecation_path == str(
         (CLI_FIXTURES / "imported_selector.yaml").resolve()
     )
+    assert enabled_records[0].workflow_deprecation_format == "yaml"
     enabled_manifest_bytes = enabled.manifest_path.read_bytes()
     enabled_artifacts = {
         name: path.read_bytes()
@@ -731,6 +737,119 @@ def test_yaml_deprecation_policy_is_absent_from_build_identity_and_persisted_art
         b"emit_yaml_deprecation_warning" not in payload
         for payload in suppressed_artifacts.values()
     )
+
+
+def test_fresh_build_yaml_dependency_recursive_import_emits_only_for_root(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    child_path = tmp_path / "child.yml"
+    child_path.write_text(
+        'version: "2.14"\n'
+        "name: child\n"
+        "steps:\n"
+        "  - name: Done\n"
+        "    command: [echo, done]\n",
+        encoding="utf-8",
+    )
+    root_path = tmp_path / "selector-root.yaml"
+    root_path.write_text(
+        (CLI_FIXTURES / "imported_selector.yaml")
+        .read_text(encoding="utf-8")
+        .replace(
+            "name: selector-run\n",
+            "name: selector-run\nimports:\n  child: child.yml\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    manifest_path = tmp_path / "imported-workflows.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "selector-run": {
+                    "kind": "yaml",
+                    "path": root_path.name,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(
+        "WARNING",
+        logger="orchestrator.loader.yaml_deprecation",
+    ):
+        result = _build_module().build_frontend_bundle(
+            _build_request(tmp_path, manifest_path=manifest_path)
+        )
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "orchestrator.loader.yaml_deprecation"
+    ]
+    assert len(records) == 1
+    assert records[0].levelname == "WARNING"
+    assert records[0].workflow_deprecation_code == "workflow_yaml_authoring_deprecated"
+    assert records[0].workflow_deprecation_path == str(root_path.resolve())
+    assert records[0].workflow_deprecation_format == "yaml"
+    assert result.imported_workflow_bundles[0].resolved_bundle_path == root_path.resolve()
+    assert "child" in result.imported_workflow_bundles[0].bundle.imports
+
+
+def test_fresh_build_two_explicit_yaml_dependency_roots_emit_two_events(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    selector_path = tmp_path / "selector.yaml"
+    selector_path.write_text(
+        (CLI_FIXTURES / "imported_selector.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    unused_path = tmp_path / "unused.yml"
+    unused_path.write_text(
+        (CLI_FIXTURES / "imported_selector.yaml")
+        .read_text(encoding="utf-8")
+        .replace("name: selector-run\n", "name: unused\n", 1),
+        encoding="utf-8",
+    )
+    manifest_path = tmp_path / "imported-workflows.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "selector-run": {"kind": "yaml", "path": selector_path.name},
+                "unused": {"kind": "yaml", "path": unused_path.name},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(
+        "WARNING",
+        logger="orchestrator.loader.yaml_deprecation",
+    ):
+        result = _build_module().build_frontend_bundle(
+            _build_request(tmp_path, manifest_path=manifest_path)
+        )
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "orchestrator.loader.yaml_deprecation"
+    ]
+    assert len(records) == 2
+    assert {
+        record.workflow_deprecation_path
+        for record in records
+    } == {str(selector_path.resolve()), str(unused_path.resolve())}
+    assert all(
+        record.levelname == "WARNING"
+        and record.workflow_deprecation_code == "workflow_yaml_authoring_deprecated"
+        and record.workflow_deprecation_format == "yaml"
+        for record in records
+    )
+    assert len(result.imported_workflow_bundles) == 2
 
 
 @pytest.mark.parametrize("emit_warning", (True, False))

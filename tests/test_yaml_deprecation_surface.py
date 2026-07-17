@@ -8,12 +8,20 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.cli.main import main as cli_main
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
 
 
 _LOGGER_NAME = "orchestrator.loader.yaml_deprecation"
 _EVENT_CODE = "workflow_yaml_authoring_deprecated"
+_PURE_EXPR_LOOP_COUNTER = (
+    Path(__file__).resolve().parent
+    / "fixtures"
+    / "workflow_lisp"
+    / "valid"
+    / "pure_expr_loop_counter.orc"
+)
 
 
 def _write_valid_workflow(path: Path, *, name: str = "example") -> None:
@@ -34,6 +42,46 @@ def _assert_yaml_event(record: logging.LogRecord, requested_path: Path) -> None:
     assert record.workflow_deprecation_code == _EVENT_CODE
     assert record.workflow_deprecation_path == str(requested_path.resolve(strict=False))
     assert record.workflow_deprecation_format == "yaml"
+
+
+def test_fresh_cli_yaml_dry_run_emits_one_structured_event_and_succeeds(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow_path = tmp_path / "workflow.yaml"
+    _write_valid_workflow(workflow_path)
+    monkeypatch.chdir(tmp_path)
+
+    with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
+        exit_code = cli_main(["run", str(workflow_path), "--dry-run"])
+
+    assert exit_code == 0
+    records = _deprecation_records(caplog)
+    assert len(records) == 1
+    _assert_yaml_event(records[0], workflow_path)
+
+
+def test_fresh_cli_orc_dry_run_without_yaml_dependency_emits_no_event(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
+        exit_code = cli_main(
+            [
+                "run",
+                str(_PURE_EXPR_LOOP_COUNTER),
+                "--entry-workflow",
+                "run-counter",
+                "--dry-run",
+            ]
+        )
+
+    assert exit_code == 0
+    assert _deprecation_records(caplog) == []
 
 
 def _canonical_import_bindings(tree: ast.AST) -> dict[str, str]:
