@@ -440,6 +440,7 @@ def test_compile_stage3_entrypoint_registers_canonical_callable_keys(tmp_path: P
 
 def test_compile_stage3_entrypoint_does_not_relabel_explicit_classic_yaml_bundle(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     yaml_path = tmp_path / "imported_selector.yaml"
     yaml_path.write_text(
@@ -454,6 +455,18 @@ def test_compile_stage3_entrypoint_does_not_relabel_explicit_classic_yaml_bundle
     )
     imported_bundle = WorkflowLoader(tmp_path).load_bundle(yaml_path)
     assert imported_bundle.provenance.frontend_kind is None
+    monkeypatch.setattr(
+        "orchestrator.loader.WorkflowLoader.__init__",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("legacy YAML loader used after imported bundle construction")
+        ),
+    )
+    monkeypatch.setattr(
+        "orchestrator.loader.yaml.load",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("YAML parser used after imported bundle construction")
+        ),
+    )
 
     source_root = VALID_FIXTURES / "imported_bundle_mix"
     result = _compile_stage3_entrypoint(

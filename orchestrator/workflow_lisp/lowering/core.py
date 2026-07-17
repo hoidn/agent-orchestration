@@ -2,7 +2,7 @@
 
 This module is the bridge from frontend semantics to the existing workflow
 runtime. It takes typechecked frontend expressions and emits the same
-dictionary shape produced by YAML loading, so the shared loader, elaborator,
+dictionary shape produced by YAML loading, so the shared validator, elaborator,
 semantic IR builder, and executable IR pipeline can handle the result.
 
 The important rule is that lowering must not make the generated workflow mean
@@ -36,13 +36,16 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from orchestrator.exceptions import ValidationSubjectRef, WorkflowValidationError
-from orchestrator.loader import WorkflowBoundaryValidationPolicy, WorkflowLoader
+from orchestrator.exceptions import ValidationSubjectRef
+from orchestrator.workflow.validation import (
+    WorkflowBoundaryValidationPolicy,
+    WorkflowMappingBuildRequest,
+    WorkflowMappingValidationOptions,
+    validate_workflow_mapping,
+)
 from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 from orchestrator.workflow.executable_ir import ProviderStepConfig
-from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_managed_write_root_inputs
-from orchestrator.workflow.lowering import build_loaded_workflow_bundle
 from orchestrator.workflow.references import StructuredStepReference, parse_structured_ref
 from orchestrator.workflow.state_layout import (
     GeneratedPathAllocation,
@@ -930,11 +933,11 @@ def validate_lowered_workflows(
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
     validation_profile: object | None = None,
 ) -> Mapping[str, LoadedWorkflowBundle]:
-    """Run lowered workflow dictionaries through the existing validation path.
+    """Run lowered workflow dictionaries through shared in-memory validation.
 
     Lowering is not allowed to be authoritative by itself. This function feeds
-    generated mappings into the same loader/elaboration/lowering path used by
-    authored YAML and remaps shared validation failures back through
+    generated mappings into the same normalization/elaboration/lowering service
+    composed by authored YAML and remaps shared validation failures back through
     `LoweringOriginMap`.
     """
 
@@ -2387,20 +2390,12 @@ def _validate_one_lowered_workflow(
     workflow_is_imported: bool,
     boundary_validation_policy: WorkflowBoundaryValidationPolicy,
 ) -> LoadedWorkflowBundle:
-    """Validate one lowered workflow mapping through the shared loader path."""
+    """Validate one lowered mapping through the shared in-memory coordinator."""
 
-    loader = WorkflowLoader(
-        workspace_root,
-        boundary_validation_policy=boundary_validation_policy,
-    )
-    loader._allow_private_collection_output_schemas = True
-    loader._allow_generated_repeat_until_on_exhausted_refs = True
-    loader._generated_repeat_until_on_exhausted_refs = {
-        step_name: dict(output_refs)
-        for step_name, output_refs in lowered_workflow.generated_repeat_until_on_exhausted_refs.items()
-    }
+    nested_structured_step_names: frozenset[str] = frozenset()
+    shared_parent_ref_allowances: frozenset[tuple[str, str]] = frozenset()
     if boundary_validation_policy is WorkflowBoundaryValidationPolicy.DEDICATED_RUNTIME_PROOF:
-        loader._dedicated_runtime_proof_nested_structured_step_names = set(
+        nested_structured_step_names = frozenset(
             step_name
             for step_name in lowered_workflow.runtime_proof_nested_structured_step_names
             if _is_runtime_proof_generated_private_step(
@@ -2409,62 +2404,36 @@ def _validate_one_lowered_workflow(
                 is_generated_private_workflow=lowered_workflow.is_generated_private_workflow,
             )
         )
-        loader._dedicated_runtime_proof_parent_ref_allowances = set(
+        shared_parent_ref_allowances = frozenset(
             _runtime_proof_parent_ref_allowances_for_generated_private_steps(
                 lowered_workflow.runtime_proof_shared_validation_parent_ref_allowances,
                 step_origins=lowered_workflow.origin_map.step_spans,
                 is_generated_private_workflow=lowered_workflow.is_generated_private_workflow,
             )
         )
-    workflow = dict(lowered_workflow.authored_mapping)
-    loader.errors = []
-    loader._workflow_input_specs = {
-        str(name): dict(spec)
-        for name, spec in workflow.get("inputs", {}).items()
-        if isinstance(name, str) and isinstance(spec, Mapping)
-    }
-    loader._current_workflow_path = lowered_workflow.typed_workflow.definition.span.start.path
-    loader._current_workflow_path = Path(loader._current_workflow_path)
-    loader._current_source_root = loader._current_workflow_path.parent
-    loader._current_imports = dict(imported_bundles)
-    loader._current_workflow_is_imported = workflow_is_imported
-    loader._normalize_v214_ergonomics(workflow, str(workflow.get("version", "")))
-    surface = elaborate_surface_workflow(
-        workflow,
-        workflow_path=loader._current_workflow_path,
-        imported_bundles=imported_bundles,
-        generated_path_allocations=lowered_workflow.generated_path_allocations,
-        lexical_checkpoint_points=lowered_workflow.lexical_checkpoint_points,
-        managed_write_root_inputs=tuple(
-            item.generated_name
-            for item in lowered_workflow.boundary_projection.generated_internal_inputs
-            if item.reason == "managed_write_root"
-        ),
-        runtime_context_inputs=tuple(
-            item.generated_name
-            for item in lowered_workflow.boundary_projection.generated_internal_inputs
-            if item.reason == "runtime_owned_context"
-        ),
-        private_exec_context_bindings=lowered_workflow.private_exec_context_bindings,
-        compatibility_bridge_inputs=lowered_workflow.compatibility_bridge_inputs,
-        validation_backend=loader,
-        workflow_is_imported=workflow_is_imported,
-        allow_generated_step_kinds=True,
-    )
-    if surface is None or loader.errors:
-        _raise_remapped_validation_error(lowered_workflow, loader.errors)
-    frontend_provenance = replace(
-        surface.provenance,
-        frontend_kind="workflow_lisp",
-    )
-    surface = replace(
-        surface,
-        provenance=frontend_provenance,
-    )
-    try:
-        return build_loaded_workflow_bundle(
-            surface,
-            imports=imported_bundles,
+    result = validate_workflow_mapping(
+        WorkflowMappingBuildRequest(
+            authored_mapping=lowered_workflow.authored_mapping,
+            workflow_path=Path(
+                lowered_workflow.typed_workflow.definition.span.start.path
+            ),
+            imported_bundles=imported_bundles,
+            workflow_is_imported=workflow_is_imported,
+            frontend_kind="workflow_lisp",
+            generated_path_allocations=lowered_workflow.generated_path_allocations,
+            lexical_checkpoint_points=lowered_workflow.lexical_checkpoint_points,
+            managed_write_root_inputs=tuple(
+                item.generated_name
+                for item in lowered_workflow.boundary_projection.generated_internal_inputs
+                if item.reason == "managed_write_root"
+            ),
+            runtime_context_inputs=tuple(
+                item.generated_name
+                for item in lowered_workflow.boundary_projection.generated_internal_inputs
+                if item.reason == "runtime_owned_context"
+            ),
+            private_exec_context_bindings=lowered_workflow.private_exec_context_bindings,
+            compatibility_bridge_inputs=lowered_workflow.compatibility_bridge_inputs,
             private_artifact_ids=lowered_workflow.private_artifact_ids,
             runtime_proof_parent_ref_allowances=(
                 _runtime_proof_parent_ref_allowances_for_generated_private_steps(
@@ -2476,9 +2445,25 @@ def _validate_one_lowered_workflow(
                 is WorkflowBoundaryValidationPolicy.DEDICATED_RUNTIME_PROOF
                 else ()
             ),
-        )
-    except WorkflowValidationError as exc:
-        _raise_remapped_validation_error(lowered_workflow, list(exc.errors))
+        ),
+        options=WorkflowMappingValidationOptions(
+            workspace_root=workspace_root,
+            boundary_validation_policy=boundary_validation_policy,
+            allow_private_collection_output_schemas=True,
+            allow_generated_repeat_until_on_exhausted_refs=True,
+            generated_repeat_until_on_exhausted_refs=(
+                lowered_workflow.generated_repeat_until_on_exhausted_refs
+            ),
+            dedicated_runtime_proof_nested_structured_step_names=(
+                nested_structured_step_names
+            ),
+            dedicated_runtime_proof_parent_ref_allowances=shared_parent_ref_allowances,
+        ),
+    )
+    if result.errors:
+        _raise_remapped_validation_error(lowered_workflow, list(result.errors))
+    assert result.bundle is not None
+    return result.bundle
 
 
 def _require_phase_scope_name_match(

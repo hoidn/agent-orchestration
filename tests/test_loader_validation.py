@@ -211,6 +211,117 @@ def _enable_v214_loader(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def test_workflow_loader_uses_shared_validator_by_composition() -> None:
+    from orchestrator.workflow import validation
+
+    assert validation._WorkflowMappingValidator not in WorkflowLoader.__mro__
+    assert "_WorkflowMappingValidator" not in Path(
+        __import__("orchestrator.loader", fromlist=["__file__"]).__file__
+    ).read_text(encoding="utf-8")
+
+
+def test_parsed_yaml_delegates_once_to_shared_validation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestrator.loader as loader_module
+
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(
+        'version: "2.14"\nname: delegated-once\nsteps:\n  - name: Done\n    command: [echo, done]\n',
+        encoding="utf-8",
+    )
+    calls = []
+    real_validate = loader_module.validate_workflow_mapping
+
+    def capture(request, *, options):
+        calls.append((request.workflow_path, options))
+        return real_validate(request, options=options)
+
+    monkeypatch.setattr(loader_module, "validate_workflow_mapping", capture)
+    WorkflowLoader(tmp_path).load_bundle(workflow_path)
+
+    assert [path for path, _ in calls] == [workflow_path.resolve()]
+
+
+def test_recursive_import_delegates_each_parsed_yaml_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestrator.loader as loader_module
+
+    child = tmp_path / "child.yaml"
+    child.write_text(
+        'version: "2.14"\nname: child\ninputs: {}\noutputs: {}\nsteps:\n  - name: Child\n    command: [echo, child]\n',
+        encoding="utf-8",
+    )
+    root = tmp_path / "root.yaml"
+    root.write_text(
+        'version: "2.14"\nname: root\nimports:\n  child: child.yaml\nsteps:\n  - name: Root\n    command: [echo, root]\n',
+        encoding="utf-8",
+    )
+    calls = []
+    real_validate = loader_module.validate_workflow_mapping
+
+    def capture(request, *, options):
+        calls.append(request.workflow_path)
+        return real_validate(request, options=options)
+
+    monkeypatch.setattr(loader_module, "validate_workflow_mapping", capture)
+    WorkflowLoader(tmp_path).load_bundle(root)
+
+    assert calls == [root.resolve(), child.resolve()]
+
+
+@pytest.mark.parametrize(
+    ("attribute", "replacement"),
+    (
+        ("SUPPORTED_VERSIONS", {"2.14"}),
+        ("VERSION_ORDER", ["2.14"]),
+        ("SUPPORTED_OUTPUT_TYPES", {"string"}),
+        ("PRIVATE_COLLECTION_OUTPUT_TYPES", {"list"}),
+        ("STRING_CONTRACT_VERSION", "2.14"),
+        ("ENV_VAR_PATTERN", re.compile(r"never-env")),
+        ("INPUT_REF_PATTERN", re.compile(r"never-input")),
+    ),
+)
+def test_compatibility_policy_binding_reaches_shared_validation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    attribute: str,
+    replacement,
+) -> None:
+    import orchestrator.loader as loader_module
+
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(
+        'version: "2.14"\nname: policy-binding\nsteps:\n  - name: Done\n    command: [echo, done]\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(WorkflowLoader, attribute, replacement)
+    observed = []
+    real_validate = loader_module.validate_workflow_mapping
+
+    def capture(request, *, options):
+        observed.append(getattr(options, attribute.lower()))
+        return real_validate(request, options=options)
+
+    monkeypatch.setattr(loader_module, "validate_workflow_mapping", capture)
+    WorkflowLoader(tmp_path).load_bundle(workflow_path)
+
+    expected = tuple(replacement) if attribute == "VERSION_ORDER" else replacement
+    expected = (
+        frozenset(replacement)
+        if attribute in {
+            "SUPPORTED_VERSIONS",
+            "SUPPORTED_OUTPUT_TYPES",
+            "PRIVATE_COLLECTION_OUTPUT_TYPES",
+        }
+        else expected
+    )
+    assert observed == [expected]
+
+
 def _compile_loop_recur_workflow(workspace: Path) -> dict:
     from orchestrator.workflow_lisp.compiler import compile_stage3_module
 
@@ -322,7 +433,12 @@ def _compile_nested_implementation_phase_workflow(workspace: Path) -> dict:
 
 
 def test_analyze_reusable_write_roots_accepts_hyphenated_relpath_input_refs(tmp_path: Path) -> None:
-    loader = WorkflowLoader(tmp_path)
+    from orchestrator.workflow.validation import (
+        WorkflowMappingBuildRequest,
+        WorkflowMappingValidationOptions,
+        validate_workflow_mapping,
+    )
+
     workflow = {
         "name": "hyphenated-hidden-input",
         "version": "2.14",
@@ -354,10 +470,24 @@ def test_analyze_reusable_write_roots_accepts_hyphenated_relpath_input_refs(tmp_
         ],
     }
 
-    managed_inputs, errors = loader._analyze_reusable_write_roots(workflow)
+    result = validate_workflow_mapping(
+        WorkflowMappingBuildRequest(
+            authored_mapping=workflow,
+            workflow_path=tmp_path / "workflow.orc",
+            workflow_is_imported=True,
+            frontend_kind="workflow_lisp",
+        ),
+        options=WorkflowMappingValidationOptions(
+            workspace_root=tmp_path,
+            boundary_validation_policy=WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
+        ),
+    )
 
-    assert managed_inputs == {"phase-ctx__state-root"}
-    assert errors == []
+    assert result.errors == ()
+    assert result.bundle is not None
+    assert result.bundle.provenance.managed_write_root_inputs == (
+        "phase-ctx__state-root",
+    )
 
 
 class TestLoaderValidation:
@@ -440,7 +570,7 @@ steps:
             pytest.fail("bundle construction must not run for duplicate import aliases")
 
         monkeypatch.setattr(
-            "orchestrator.loader.build_loaded_workflow_bundle",
+            "orchestrator.workflow.validation.build_loaded_workflow_bundle",
             reject_bundle_construction,
         )
 
@@ -487,7 +617,7 @@ steps:
             pytest.fail("bundle construction must not run for duplicate import aliases")
 
         monkeypatch.setattr(
-            "orchestrator.loader.build_loaded_workflow_bundle",
+            "orchestrator.workflow.validation.build_loaded_workflow_bundle",
             reject_bundle_construction,
         )
 
@@ -535,7 +665,7 @@ steps:
             pytest.fail("bundle construction must not run for duplicate import aliases")
 
         monkeypatch.setattr(
-            "orchestrator.loader.build_loaded_workflow_bundle",
+            "orchestrator.workflow.validation.build_loaded_workflow_bundle",
             reject_bundle_construction,
         )
 
@@ -585,7 +715,7 @@ steps:
             pytest.fail("bundle construction must not run for duplicate import sections")
 
         monkeypatch.setattr(
-            "orchestrator.loader.build_loaded_workflow_bundle",
+            "orchestrator.workflow.validation.build_loaded_workflow_bundle",
             reject_bundle_construction,
         )
 
@@ -637,7 +767,7 @@ steps:
             pytest.fail("bundle construction must not run for duplicate import sections")
 
         monkeypatch.setattr(
-            "orchestrator.loader.build_loaded_workflow_bundle",
+            "orchestrator.workflow.validation.build_loaded_workflow_bundle",
             reject_bundle_construction,
         )
 
@@ -688,7 +818,7 @@ steps:
             pytest.fail("bundle construction must not run for duplicate import aliases")
 
         monkeypatch.setattr(
-            "orchestrator.loader.build_loaded_workflow_bundle",
+            "orchestrator.workflow.validation.build_loaded_workflow_bundle",
             reject_bundle_construction,
         )
 
@@ -5954,49 +6084,60 @@ steps:
         ],
     )
     def test_v215_guidance_json_compatibility_validator_rejects_non_json_values(self, value):
-        loader = self._v215_loader()
-        loader._validate_guidance_payload(
-            {"example": value},
-            context="test.guidance",
-            version="2.15",
-            allow_context=False,
+        from orchestrator.workflow.validation import (
+            WorkflowMappingBuildRequest,
+            WorkflowMappingValidationOptions,
+            validate_workflow_mapping,
+        )
+        workflow = self._guidance_output_bundle_workflow()
+        workflow["result_guidance"] = {"example": value}
+        result = validate_workflow_mapping(
+            WorkflowMappingBuildRequest(
+                authored_mapping=workflow,
+                workflow_path=self.workspace / "workflow.orc",
+                frontend_kind="workflow_lisp",
+            ),
+            options=WorkflowMappingValidationOptions(
+                workspace_root=self.workspace,
+                boundary_validation_policy=WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
+                allow_private_collection_output_schemas=True,
+            ),
         )
 
-        assert any("JSON-compatible" in error.message for error in loader.errors)
+        assert any("JSON-compatible" in error.message for error in result.errors)
 
     @pytest.mark.parametrize("container", ["context", "variant"])
     def test_v215_nested_guidance_examples_reject_non_json_values_directly(self, container):
-        loader = self._v215_loader()
-        field = {
-            "name": "approved",
-            "json_pointer": "/review/approved",
-            "type": "bool",
-        }
+        from orchestrator.workflow.validation import (
+            WorkflowMappingBuildRequest,
+            WorkflowMappingValidationOptions,
+            validate_workflow_mapping,
+        )
         if container == "context":
-            loader._validate_guidance_payload(
-                {
-                    "guidance_context": [{
-                        "json_pointer": "/review",
-                        "example": {"not-json"},
-                    }],
-                },
-                context="field",
-                version="2.15",
-                allow_context=True,
-                leaf_pointer=field["json_pointer"],
-                field_spec=field,
-            )
+            workflow = self._guidance_output_bundle_workflow()
+            field = workflow["steps"][0]["output_bundle"]["fields"][0]
+            field["guidance_context"] = [{
+                "json_pointer": "/review",
+                "example": {"not-json"},
+            }]
         else:
+            workflow = self._guidance_variant_output_workflow()
+            field = workflow["steps"][0]["variant_output"]["shared_fields"][0]
             field["guidance_by_variant"] = {"APPROVE": {"example": {"not-json"}}}
-            loader._validate_field_guidance(
-                field,
-                context="shared",
-                version="2.15",
-                allowed_variants=["APPROVE"],
-                allow_guidance_by_variant=True,
-            )
+        result = validate_workflow_mapping(
+            WorkflowMappingBuildRequest(
+                authored_mapping=workflow,
+                workflow_path=self.workspace / "workflow.orc",
+                frontend_kind="workflow_lisp",
+            ),
+            options=WorkflowMappingValidationOptions(
+                workspace_root=self.workspace,
+                boundary_validation_policy=WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
+                allow_private_collection_output_schemas=True,
+            ),
+        )
 
-        assert any("JSON-compatible" in error.message for error in loader.errors)
+        assert any("JSON-compatible" in error.message for error in result.errors)
 
     def _collection_outputs_workflow(self, version: str) -> dict:
         return {

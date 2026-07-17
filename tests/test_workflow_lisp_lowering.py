@@ -6392,8 +6392,7 @@ def test_compile_stage3_module_remaps_executable_ir_shared_validation_failures(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
-    original_build_loaded_workflow_bundle = lowering_module.build_loaded_workflow_bundle
+    validation_module = importlib.import_module("orchestrator.workflow.validation")
     baseline = compile_stage3_module(
         STRUCTURED_RESULTS_FIXTURE,
         provider_externs={"providers.execute": "test-provider"},
@@ -6414,8 +6413,11 @@ def test_compile_stage3_module_remaps_executable_ir_shared_validation_failures(
     )
     generated_step_id = next(iter(command_checks.origin_map.step_spans))
 
+    calls = []
+
     def fail_executable_checkpoint(*args, **kwargs):
         del args, kwargs
+        calls.append("shared coordinator")
         raise WorkflowValidationError(
             [
                 ValidationError(
@@ -6428,7 +6430,7 @@ def test_compile_stage3_module_remaps_executable_ir_shared_validation_failures(
         )
 
     monkeypatch.setattr(
-        lowering_module,
+        validation_module,
         "build_loaded_workflow_bundle",
         fail_executable_checkpoint,
     )
@@ -6454,12 +6456,7 @@ def test_compile_stage3_module_remaps_executable_ir_shared_validation_failures(
     assert diagnostic.authority_layer == "shared_validation"
     assert diagnostic.span.start.path.endswith("structured_results.orc")
     assert "unknown node id `missing`" in diagnostic.message
-
-    monkeypatch.setattr(
-        lowering_module,
-        "build_loaded_workflow_bundle",
-        original_build_loaded_workflow_bundle,
-    )
+    assert calls == ["shared coordinator"]
 
 
 def test_compile_stage3_module_validates_hyphenated_workflow_names(tmp_path: Path) -> None:
