@@ -28,7 +28,7 @@ tmux.
 `docs/plans/2026-07-17-workflow-lisp-provider-call-policy-design.md` at commit
 `069b8e79`.
 
-**Execution status:** Not started. This plan is a living, reviewed execution
+**Execution status:** Task 1 complete; Task 2 is next. This plan is a living, reviewed execution
 artifact: every task updates its own completed checkboxes and the status line above,
 stages this file with that task's code/tests, and commits the plan update in the same
 task commit. A task may mark its implementation/test steps complete before review;
@@ -283,13 +283,13 @@ or claim design closure before that point.
 - Create: `tests/fixtures/workflow_lisp/provider_call_policy/prompt.md`
 - Create: `tests/baselines/workflow_lisp/provider_call_policy_keyword_free.json`
 
-- [ ] **Step 1: Add the keyword-free fixture and characterization helper**
+- [x] **Step 1: Add the keyword-free fixture and characterization helper**
 
   Use a provider-result returning a small transportable record, a compiler-known
   provider extern, and a prompt extern. Do not author `:model`, `:effort`, or
   `:timeout-sec`.
 
-- [ ] **Step 2: Build one canonical representation payload**
+- [x] **Step 2: Build one canonical representation payload**
 
   The payload must contain the provider-result portion of `_json_data` typed AST,
   `_statement_to_json` Core provider statement, executable provider config JSON,
@@ -297,7 +297,7 @@ or claim design closure before that point.
   is workspace-independent. Canonicalize with sorted keys and compact separators,
   then store those exact bytes in the baseline file.
 
-- [ ] **Step 3: Prove the characterization passes before feature code**
+- [x] **Step 3: Prove the characterization passes before feature code**
 
   Run:
 
@@ -308,7 +308,7 @@ or claim design closure before that point.
   Expected: PASS on the pre-feature code. This is the compatibility baseline, not
   a red test.
 
-- [ ] **Step 4: Prove the runtime/topology exclusions before feature code**
+- [x] **Step 4: Prove the runtime/topology exclusions before feature code**
 
   Add characterization assertions that runtime plan, Semantic IR, persisted graph,
   and source-map subject schemas contain the ordinary provider occurrence but no
@@ -322,7 +322,7 @@ or claim design closure before that point.
 
   Expected: PASS.
 
-- [ ] **Step 5: Review and commit the characterization**
+- [x] **Step 5: Review and commit the characterization**
 
   Check the completed Task 1 boxes and update **Execution status**. Stage this plan
   plus exactly the six characterization files listed in this task, run both reviews
