@@ -1,6 +1,8 @@
 # Procedure-First Reuse Inventory
 
-Status: Task 4 Step 1 evidence; all ten YAML groups audited
+Status: Task 4 complete at `c9687539`, `26d9ecd0`, and `848ceb52` after
+per-group specification and quality approval; Task 5 Step 1 is the current
+selector
 Source commit: `db9889937a895d67810dee1ea0b1b53552d30eca`
 Schema: `procedure_first_reuse_inventory.v2`
 
@@ -178,8 +180,9 @@ The calls are real child-workflow boundaries with call frames and observable
 effects. `legacy-retire` means that those boundaries retire with their
 containing YAML families; it does not prove parity, does not authorize deletion,
 and does not authorize cross-source resume. Stage 6 still owns the separate
-external-reference, archive/deletion, and run-state reconciliation gates. Task
-4 Step 1 remains the current selector for the remaining YAML groups.
+external-reference, archive/deletion, and run-state reconciliation gates. At
+this historical group boundary, Task 4 Step 1 remained selected for the two
+remaining audit groups; Task 4 is now complete and Task 5 Step 1 is current.
 
 ### Exact Records
 

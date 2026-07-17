@@ -14,8 +14,9 @@
 
 **Status:** Current selector (activated 2026-07-16). Task 1's post-hardening
 rebaseline is complete at `4983afff` with its narrative correction at
-`fa16bcf0`. **Current sub-selector: Task 4 Step 1, audit the ten YAML
-effect-adapter groups.** Task 2 is complete at `daff694c`. Steps 1 and 2 each
+`fa16bcf0`. **Current sub-selector: Task 5 Step 1, split the 21 production
+work-item calls into independently testable subfamilies.** Task 2 is complete
+at `daff694c`. Steps 1 and 2 each
 reached a bounded fail-closed
 identity-retirement stop:
 `docs/plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md`
@@ -34,8 +35,10 @@ public CLI smoke, broad baseline equivalence, and independent specification and
 quality reviews. No Task 2 source migration occurred. Its retained-boundary
 integration gates, inventory reconciliation, and independent reviews passed.
 Task 3 completed without source migration after independent specification and
-quality approval. Task 4 is now activated without reordering Tasks 5-8 or the
-later stages.
+quality approval. Task 4 then completed its three separately reviewed group
+audits at `c9687539`, `26d9ecd0`, and `848ceb52`, each after independent
+specification and quality approval. Task 5 Step 1 is selected without
+reordering Tasks 5-8 or the later stages.
 
 - Accepted contract: `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
 - Reviewed queue: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
@@ -56,9 +59,10 @@ later stages.
 - The hardening implementation gate passed, and Task 1 rebaselined that
   evidence and the inventory on the post-hardening checkout. Task 2 completed
   without a source migration, and Task 3 completed its exported-boundary
-  retention decision after both independent reviews. Task 4 Step 1 is now
-  selected. Production-family Tasks 5–6 retain every later prerequisite in
-  this plan.
+  retention decision after both independent reviews. Task 4 completed all 25
+  YAML-row audits in three independently approved groups at `c9687539`,
+  `26d9ecd0`, and `848ceb52`. Task 5 Step 1 is now selected.
+  Production-family Tasks 5–6 retain every later prerequisite in this plan.
 - Preserve the inventory's separate `public-entry` records. In particular, never migrate:
   - `workflows/library/lisp_frontend_design_delta/drain.orc::drain` away from `defworkflow`; or
   - `workflows/examples/design_plan_impl_review_stack_v2_call.orc::design-plan-impl-review-stack` away from `defworkflow`.
@@ -96,13 +100,13 @@ must be a subset of the active task's `Files` list. Never stage, restore, or
 rewrite a protected path. Record its initial `git status --short` output only
 as a guard baseline; user changes to those paths are not plan failures.
 
-## Current queue after Task 3 retention
+## Current queue after Task 4 reclassification
 
 | Class | Count | Disposition |
 | --- | ---: | --- |
 | `procedure-candidate` | 22 | Migrate by `.orc` family after parity. |
-| `effect-adapter` | 35 | Reclassify only after effect, identity, artifact/publication, source-map, child-call, checkpoint, exported-entry, state-consumer, live-route, and resume evidence. |
-| `legacy-retire` | 38 | Do not translate; coordinate with Stage 6 after replacement evidence. |
+| `effect-adapter` | 10 | Reclassify only after effect, identity, artifact/publication, source-map, child-call, checkpoint, exported-entry, state-consumer, live-route, and resume evidence. |
+| `legacy-retire` | 63 | Do not translate; coordinate with Stage 6 after replacement evidence. |
 | `public-boundary` | 8 separate entries | Preserve as workflows and negative regression coverage. |
 
 The v2 inventory also contains one append-only `migrated` history row for the
@@ -470,11 +474,11 @@ The ten reviewed groups are:
 - `workflows/library/neurips_selected_backlog_item.v214.yaml` (3)
 - `workflows/library/neurips_selected_backlog_item.yaml` (3)
 
-- [ ] **Step 1: Audit one group at a time**
+- [x] **Step 1: Audit one group at a time**
 
 For each row record current callee resolution, public invocation/child-workflow role, provider/command/transition/publication effects, artifact ownership, source-map evidence, state/checkpoint identity, resume behavior, and whether an already-promoted `.orc` primary supersedes it.
 
-- [ ] **Step 2: Apply only evidence-supported reclassifications**
+- [x] **Step 2: Apply only evidence-supported reclassifications**
 
 - `legacy-retire`: when an accepted `.orc` primary already carries the behavior and the YAML row should retire rather than be translated.
 - Keep or reclassify the internal call as `effect-adapter` when any named
@@ -491,7 +495,7 @@ Every changed row must include evidence paths/selectors and an updated reason;
 never infer classification merely from a matching filename. Internal-call rows
 must never use `public-boundary`.
 
-- [ ] **Step 3: Test counts, vocabulary, and public negatives**
+- [x] **Step 3: Test counts, vocabulary, and public negatives**
 
 ```bash
 python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >/dev/null
@@ -499,7 +503,7 @@ pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'inventory o
 git diff --check -- docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md tests/test_workflow_lisp_procedure_first_migrations.py
 ```
 
-- [ ] **Step 4: Commit each audited family group separately**
+- [x] **Step 4: Commit each audited family group separately**
 
 ```bash
 git add docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md tests/test_workflow_lisp_procedure_first_migrations.py
@@ -510,6 +514,17 @@ After each commit, obtain independent specification and quality PASS for that
 group's evidence, active/history counts, and retained public negatives before
 auditing the next group. Do not combine NeurIPS, Design Delta, and generic
 example groups in one review/commit.
+
+Closeout evidence: the generic group reclassified seven rows at `c9687539`,
+the NeurIPS group reclassified 12 at `26d9ecd0`, and the Design Delta/library
+group reclassified six at `848ceb52`. Each group passed its focused structural
+inventory tests and independent specification/quality reviews before the next
+group began. The final queue is 22 procedure candidates, 10 effect adapters,
+and 63 legacy-retire rows, plus eight separate public entries and one unchanged
+history row. These were classification-only changes: no YAML was modified, and
+the audits claim no parity, deletion authorization, identity remap, state
+upgrader, or cross-source resume contract. Task 5 Step 1 is now selected; later
+tasks remain in their existing order.
 
 ### Task 5: Migrate The Production Work-Item Family
 
@@ -690,7 +705,7 @@ Obtain specification plus quality PASS on the history/count update.
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.md`
 - Test: `tests/test_workflow_lisp_procedure_first_migrations.py`
 
-- [ ] **Step 1: Reconcile all 38 legacy-retire rows and newly reclassified rows**
+- [ ] **Step 1: Reconcile all 63 legacy-retire rows**
 
 For each YAML family, name its retained public `.orc` replacement or deletion rationale, parity evidence, external-reference search, archive destination, and Stage 6 task/gate. A `legacy-retire` call site is not proof that its containing file may be deleted.
 
