@@ -988,12 +988,19 @@ Then call workflows clearly:
   :providers providers.implementation)
 ```
 
+Reserve cross-module `call` for callees that own a durable public boundary
+under the section 4 table and
+`docs/design/workflow_lisp_procedure_first_reuse_contract.md`. Reuse that
+does not need its own run/resume identity belongs in an exported `defproc`,
+not a workflow call.
+
 Rules:
 
 - export only stable workflow/library surfaces;
 - keep internal helpers private;
 - avoid wildcard imports;
-- avoid duplicate names that canonicalize to the same field name.
+- avoid duplicate names that canonicalize to the same field name (the
+  compiler rejects duplicate import aliases and duplicate exports outright).
 
 ## 8. Structured Provider Results
 
@@ -2408,7 +2415,7 @@ compatibility, and runtime tests.
 | `requires_variant` | Explicit variant proof for low-level steps |
 | `match` | Structured branch/proof context |
 | `repeat_until` | Bounded post-test loop |
-| `call` | Reusable workflow call |
+| `call` | Public-boundary workflow call |
 
 Do not duplicate this low-level substrate in high-level `.orc` unless you are
 writing a compatibility fixture, runtime test, or standard-library lowering.
