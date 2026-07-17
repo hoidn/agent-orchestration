@@ -178,6 +178,7 @@ class _WorkflowMappingValidator:
         self._current_imports = dict(request.imported_bundles)
         self._provider_registry = ProviderRegistry()
         self._current_workflow_is_imported = request.workflow_is_imported
+        self._frontend_kind = request.frontend_kind
         self._current_validation_workflow_name: Optional[str] = None
         self._allow_private_collection_output_schemas = (
             options.allow_private_collection_output_schemas
@@ -842,6 +843,11 @@ class _WorkflowMappingValidator:
                 self._add_error(f"Provider '{name}' must be a dictionary")
                 continue
 
+            if "call_policy_bindings" in config:
+                self._add_error(
+                    f"Provider '{name}': call_policy_bindings is reserved for internal provider templates"
+                )
+
             if 'command' not in config:
                 self._add_error(f"Provider '{name}' missing required 'command' field")
             elif not isinstance(config['command'], list):
@@ -1193,6 +1199,9 @@ class _WorkflowMappingValidator:
 
             if 'managed_jobs' in step:
                 self._validate_managed_jobs(step, name, version)
+
+            if 'provider_call_policy' in step:
+                self._validate_provider_call_policy(step, name)
 
             # AT-40: Reject deprecated command_override
             if 'command_override' in step:
@@ -2849,6 +2858,8 @@ class _WorkflowMappingValidator:
         """Validate variable usage and reject ${env.*} namespace (AT-7)."""
         # Fields that allow variable substitution
         variable_fields = ['command', 'input_file', 'output_file', 'provider', 'provider_params']
+        if self._frontend_kind == "workflow_lisp":
+            variable_fields.append("provider_call_policy")
 
         for field in variable_fields:
             if field in step:
@@ -2860,6 +2871,34 @@ class _WorkflowMappingValidator:
             self._validate_legacy_condition_variable_usage(step['when'], f"step '{name}' when")
         if 'assert' in step:
             self._validate_legacy_condition_variable_usage(step['assert'], f"step '{name}' assert")
+
+    def _validate_provider_call_policy(self, step: Dict[str, Any], name: str) -> None:
+        context = f"Step '{name}': provider_call_policy"
+        if self._frontend_kind != "workflow_lisp":
+            self._add_error(
+                f"{context} is reserved for frontend_kind='workflow_lisp' compiler output"
+            )
+            return
+        if "provider" not in step:
+            self._add_error(f"{context} is supported only on provider steps")
+            return
+
+        policy = step.get("provider_call_policy")
+        if not isinstance(policy, dict):
+            self._add_error(f"{context} must be a non-empty dictionary")
+            return
+        if not policy:
+            self._add_error(f"{context} must not be empty")
+            return
+
+        allowed = {"model", "effort"}
+        unknown = set(policy) - allowed
+        if unknown:
+            keys = ", ".join(sorted(str(key) for key in unknown))
+            self._add_error(f"{context} contains unknown key(s): {keys}")
+        for key in ("model", "effort"):
+            if key in policy and not isinstance(policy[key], str):
+                self._add_error(f"{context}.{key} must be a string")
 
     def _validate_call_step(
         self,

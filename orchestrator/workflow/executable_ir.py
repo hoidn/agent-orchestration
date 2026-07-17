@@ -15,6 +15,14 @@ from .surface_ast import WorkflowProvenance, empty_frozen_mapping
 WORKFLOW_EXECUTABLE_IR_SCHEMA_VERSION = "workflow_executable_ir.v1"
 
 
+def _serialize_provider_call_policy(policy: Mapping[str, str]) -> dict[str, str]:
+    unexpected = set(policy) - {"model", "effort"}
+    if unexpected:
+        keys = ", ".join(sorted(str(key) for key in unexpected))
+        raise ValueError(f"unexpected provider call policy key(s): {keys}")
+    return {key: policy[key] for key in ("model", "effort") if key in policy}
+
+
 class WorkflowRegion(str, Enum):
     """Top-level execution region membership."""
 
@@ -187,6 +195,13 @@ class ProviderStepConfig:
     common: StepCommonConfig = field(default_factory=StepCommonConfig)
     provider: str = ""
     provider_params: Any = None
+    provider_call_policy: Mapping[str, str] | None = field(
+        default=None,
+        metadata={
+            "json_omit_if_none": True,
+            "json_serializer": _serialize_provider_call_policy,
+        },
+    )
     input_file: Any = None
     asset_file: Any = None
     depends_on: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
@@ -966,7 +981,17 @@ def _json_value(value: Any) -> Any:
     if isinstance(value, list):
         return [_json_value(item) for item in value]
     if is_dataclass(value):
-        return {field.name: _json_value(getattr(value, field.name)) for field in fields(value)}
+        payload: dict[str, Any] = {}
+        for field_def in fields(value):
+            field_value = getattr(value, field_def.name)
+            if field_def.metadata.get("json_omit_if_none") and field_value is None:
+                continue
+            serializer = field_def.metadata.get("json_serializer")
+            if serializer is not None:
+                payload[field_def.name] = serializer(field_value)
+                continue
+            payload[field_def.name] = _json_value(field_value)
+        return payload
     return value
 
 

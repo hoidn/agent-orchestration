@@ -98,6 +98,7 @@ class CoreProviderStep:
     common: Any
     provider: str | None
     provider_params: Any = None
+    provider_call_policy: Mapping[str, str] | None = None
     managed_jobs: Any = None
     input_file: Any = None
     asset_file: Any = None
@@ -506,6 +507,7 @@ def _build_statement(
             common=step.common,
             provider=step.provider,
             provider_params=step.provider_params,
+            provider_call_policy=step.provider_call_policy,
             managed_jobs=step.managed_jobs,
             input_file=step.input_file,
             asset_file=step.asset_file,
@@ -892,6 +894,7 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
         kwargs.update(
             provider=statement.provider,
             provider_params=statement.provider_params,
+            provider_call_policy=statement.provider_call_policy,
             managed_jobs=statement.managed_jobs,
             input_file=statement.input_file,
             asset_file=statement.asset_file,
@@ -1064,6 +1067,14 @@ def _meta_to_json(meta: CoreStmtMeta) -> dict[str, Any]:
     }
 
 
+def _serialize_provider_call_policy(policy: Mapping[str, str]) -> dict[str, str]:
+    unexpected = set(policy) - {"model", "effort"}
+    if unexpected:
+        keys = ", ".join(sorted(str(key) for key in unexpected))
+        raise ValueError(f"unexpected provider call policy key(s): {keys}")
+    return {key: policy[key] for key in ("model", "effort") if key in policy}
+
+
 def _statement_to_json(statement: Any) -> dict[str, Any]:
     payload = {"meta": _meta_to_json(statement.meta), "common": _json_data(statement.common)}
     if isinstance(statement, CoreCommandStep):
@@ -1094,6 +1105,10 @@ def _statement_to_json(statement: Any) -> dict[str, Any]:
                 "consumes_injection_position": statement.consumes_injection_position,
             }
         )
+        if statement.provider_call_policy is not None:
+            payload["provider_call_policy"] = _serialize_provider_call_policy(
+                statement.provider_call_policy
+            )
         return payload
     if isinstance(statement, CoreAdjudicatedProviderStep):
         payload.update({"kind": "adjudicated_provider", "adjudicated_provider": _json_data(statement.adjudicated_provider)})

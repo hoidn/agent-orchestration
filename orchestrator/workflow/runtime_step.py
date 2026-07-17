@@ -181,6 +181,10 @@ class RuntimeStep(Mapping[str, Any]):
                 value = thaw_runtime_value(config.provider_params)
                 if _include_value(value):
                     return value
+            if key == "provider_call_policy":
+                value = thaw_runtime_value(config.provider_call_policy)
+                if _include_value(value):
+                    return value
             if key == "input_file":
                 value = thaw_runtime_value(config.input_file)
                 if _include_value(value):
@@ -347,6 +351,7 @@ class RuntimeStep(Mapping[str, Any]):
             yield "provider"
             for key in (
                 "provider_params",
+                "provider_call_policy",
                 "input_file",
                 "asset_file",
                 "depends_on",

@@ -28,7 +28,7 @@ tmux.
 `docs/plans/2026-07-17-workflow-lisp-provider-call-policy-design.md` at commit
 `069b8e79`.
 
-**Execution status:** Task 3 complete; Task 4 is next. This plan is a living, reviewed execution
+**Execution status:** Tasks 1-4 are complete; Task 5 is next. This plan is a living, reviewed execution
 artifact: every task updates its own completed checkboxes and the status line above,
 stages this file with that task's code/tests, and commits the plan update in the same
 task commit. A task may mark its implementation/test steps complete before review;
@@ -582,7 +582,7 @@ or claim design closure before that point.
 - Modify: `tests/test_workflow_shared_validation.py`
 - Modify: `tests/test_workflow_ir_lowering.py`
 
-- [ ] **Step 1: Write red typed-layer preservation tests**
+- [x] **Step 1: Write red typed-layer preservation tests**
 
   Compile `policy.orc` and assert the same closed mapping exists on `SurfaceStep`,
   `CoreProviderStep`, `ProviderStepConfig`, executable IR JSON, content-addressed
@@ -597,7 +597,7 @@ or claim design closure before that point.
 
   Expected: FAIL because typed provider configs do not carry policy.
 
-- [ ] **Step 2: Add optional typed policy fields and propagation**
+- [x] **Step 2: Add optional typed policy fields and propagation**
 
   Add `provider_call_policy: Mapping[str, str] | None = None` only to provider
   step/config records. Freeze it during elaboration, preserve it through Core
@@ -605,7 +605,7 @@ or claim design closure before that point.
   it only when non-empty; do not fall back to the looser existing
   `provider_params: Any` annotation for this closed typed contract.
 
-- [ ] **Step 3: Write red closed-map validation tests**
+- [x] **Step 3: Write red closed-map validation tests**
 
   Through `validate_workflow_mapping`, reject empty maps, unknown keys, non-String
   literal/template values, nested values, and `timeout_sec` inside policy. Accept
@@ -625,7 +625,7 @@ or claim design closure before that point.
 
   Expected: FAIL before shared validation owns the distinction.
 
-- [ ] **Step 4: Implement origin-aware shared validation**
+- [x] **Step 4: Implement origin-aware shared validation**
 
   Retain `request.frontend_kind` in the request-scoped validator. Reject the
   internal step field unless it equals `workflow_lisp`; then validate the closed
@@ -634,7 +634,7 @@ or claim design closure before that point.
   compiler-generated route so unresolved runtime templates retain the existing
   substitution owner.
 
-- [ ] **Step 5: Write red omission and canonical-order tests**
+- [x] **Step 5: Write red omission and canonical-order tests**
 
   Assert absent policy is `None` in typed records but omitted from Core and
   executable JSON rather than serialized as `null`. Build stable minimal Core and
@@ -663,7 +663,7 @@ or claim design closure before that point.
   Expected: FAIL if absent policy is emitted, policy uses global lexical
   effort-before-model ordering, or the fix changes unrelated mapping ordering.
 
-- [ ] **Step 6: Add a field-local policy serializer without changing global map order**
+- [x] **Step 6: Add a field-local policy serializer without changing global map order**
 
   In Core `_statement_to_json`, conditionally add `provider_call_policy` only when
   non-`None`, constructing a fresh dict by the closed canonical tuple
@@ -679,7 +679,7 @@ or claim design closure before that point.
   before `model`. Do not globally omit `None`, change unrelated dataclass fields, or
   rewrite old artifact schemas.
 
-- [ ] **Step 7: Prove unchanged non-authority projections and identity behavior**
+- [x] **Step 7: Prove unchanged non-authority projections and identity behavior**
 
   Assert runtime plan topology, persisted dashboard graph, Semantic IR schema, and
   source-map subjects do not gain policy fields. Compile sources differing in one
@@ -687,7 +687,7 @@ or claim design closure before that point.
   build/program composite, and workflow-checksum identity changes through existing
   inputs without changing the identity algorithms.
 
-- [ ] **Step 8: Run typed IR/build regressions**
+- [x] **Step 8: Run typed IR/build regressions**
 
   ```bash
   pytest -q \
@@ -701,7 +701,7 @@ or claim design closure before that point.
 
   Expected: PASS, including the unchanged byte golden.
 
-- [ ] **Step 9: Review and commit**
+- [x] **Step 9: Review and commit**
 
   Check the completed Task 4 boxes and update **Execution status**. Stage this plan,
   exactly the seven production files and three test files. Run both reviews and the

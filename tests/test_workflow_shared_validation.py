@@ -154,6 +154,116 @@ def _default_options(tmp_path: Path):
     )
 
 
+def _provider_policy_mapping(policy) -> dict:
+    return {
+        "version": "2.15",
+        "name": "provider-policy-validation",
+        "providers": {
+            "impl": {
+                "command": ["provider"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [
+            {
+                "name": "Execute",
+                "id": "execute",
+                "provider": "impl",
+                "provider_call_policy": policy,
+            }
+        ],
+    }
+
+
+def _validate_provider_policy(tmp_path: Path, policy, *, frontend_kind: str | None):
+    validation = _validation_module()
+    return validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=_provider_policy_mapping(policy),
+            workflow_path=tmp_path / "provider-policy.orc",
+            frontend_kind=frontend_kind,
+        ),
+        options=_default_options(tmp_path),
+    )
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        None,
+        "model",
+        [],
+        {},
+        {"unknown": "x"},
+        {"timeout_sec": "30"},
+        {"model": 1},
+        {"model": True},
+        {"model": {"nested": "x"}},
+        {"effort": ["high"]},
+    ],
+)
+def test_provider_call_policy_rejects_non_closed_or_non_string_mappings(
+    tmp_path: Path,
+    policy,
+) -> None:
+    result = _validate_provider_policy(tmp_path, policy, frontend_kind="workflow_lisp")
+
+    assert result.bundle is None
+    assert any("provider_call_policy" in error.message for error in result.errors)
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        {"model": "gpt-5"},
+        {"effort": "${inputs.effort}"},
+        {"model": "${inputs.model}", "effort": "high"},
+    ],
+)
+def test_provider_call_policy_accepts_closed_string_mapping_for_workflow_lisp(
+    tmp_path: Path,
+    policy,
+) -> None:
+    result = _validate_provider_policy(tmp_path, policy, frontend_kind="workflow_lisp")
+
+    assert result.errors == ()
+    assert result.bundle is not None
+    assert dict(result.bundle.surface.steps[0].provider_call_policy or {}) == policy
+
+
+def test_yaml_reservation_rejects_internal_provider_call_policy(tmp_path: Path) -> None:
+    result = _validate_provider_policy(
+        tmp_path,
+        {"model": "gpt-5"},
+        frontend_kind=None,
+    )
+
+    assert result.bundle is None
+    assert any(
+        "provider_call_policy" in error.message and "workflow_lisp" in error.message
+        for error in result.errors
+    )
+
+
+def test_yaml_reservation_rejects_provider_call_policy_bindings(tmp_path: Path) -> None:
+    validation = _validation_module()
+    mapping = _provider_policy_mapping({"model": "gpt-5"})
+    del mapping["steps"][0]["provider_call_policy"]
+    mapping["providers"]["impl"]["call_policy_bindings"] = {
+        "model": {"target_param": "model"}
+    }
+    result = validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=mapping,
+            workflow_path=tmp_path / "provider-policy.yaml",
+        ),
+        options=_default_options(tmp_path),
+    )
+
+    assert result.bundle is None
+    assert any("call_policy_bindings" in error.message for error in result.errors)
+
+
 def test_shared_validation_builds_bundle_from_in_memory_mapping(tmp_path: Path) -> None:
     validation = _validation_module()
     result = validation.validate_workflow_mapping(

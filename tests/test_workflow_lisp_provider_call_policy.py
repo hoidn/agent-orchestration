@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import fields, replace
 from pathlib import Path
@@ -8,15 +9,18 @@ from typing import Any
 
 import pytest
 
+from orchestrator.state import StateManager
 from orchestrator.workflow.core_ast import _statement_to_json
 from orchestrator.workflow.executable_ir import (
     ProviderStepConfig,
+    _json_value,
     workflow_executable_ir_to_json,
 )
 from orchestrator.workflow.persisted_surface import (
     serialize_persisted_workflow_surface_graph,
 )
 from orchestrator.workflow.runtime_step import RuntimeStep
+from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
 from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
 from orchestrator.workflow_lisp.build import _json_data
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
@@ -152,6 +156,43 @@ def _compile_policy_fixture(path: Path, *, route: str = "wcc_m4"):
         validate_shared=False,
         workspace_root=REPO_ROOT,
         lowering_route=route,
+    )
+
+
+def _compile_validated_policy_fixture():
+    return compile_stage3_module(
+        POLICY_FIXTURE.relative_to(REPO_ROOT),
+        entry_workflow="policy",
+        provider_externs=_load_manifest("providers.json"),
+        prompt_externs=_load_manifest("prompts.json"),
+        validate_shared=True,
+        workspace_root=REPO_ROOT,
+        lowering_route="wcc_m4",
+    )
+
+
+def _build_policy_source(tmp_path: Path, source: str, *, name: str):
+    source_path = tmp_path / name / "policy.orc"
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source = source.replace(
+        '  (:target-dsl "2.15")\n',
+        '  (:target-dsl "2.15")\n  (defmodule policy)\n  (export policy)\n',
+        1,
+    )
+    source_path.write_text(source, encoding="utf-8")
+    prompt_path = source_path.parent / "tests/fixtures/workflow_lisp/provider_call_policy/prompt.md"
+    prompt_path.parent.mkdir(parents=True, exist_ok=True)
+    prompt_path.write_text("Return a WorkResult bundle.\n", encoding="utf-8")
+    return build_frontend_bundle(
+        FrontendBuildRequest(
+            source_path=source_path,
+            source_roots=(source_path.parent,),
+            entry_workflow="policy",
+            provider_externs_path=FIXTURE_ROOT / "providers.json",
+            prompt_externs_path=FIXTURE_ROOT / "prompts.json",
+            workspace_root=source_path.parent,
+            lowering_route="wcc_m4",
+        )
     )
 
 
@@ -740,8 +781,9 @@ def test_keyword_free_provider_result_matches_pre_feature_golden_bytes() -> None
 
 
 def test_provider_call_policy_projection_exclusions_remain_policy_neutral() -> None:
-    result = _compile_keyword_free()
-    bundle = result.validated_bundles[WORKFLOW_NAME]
+    result = _compile_validated_policy_fixture()
+    bundle = result.validated_bundles["policy"]
+    node_id = "root.policy__result"
     runtime_plan = _json_data(bundle.runtime_plan)
     semantic_ir = workflow_semantic_ir_to_json(bundle.semantic_ir)
     persisted_graph = serialize_persisted_workflow_surface_graph(bundle)
@@ -751,21 +793,106 @@ def test_provider_call_policy_projection_exclusions_remain_policy_neutral() -> N
                 compiled_results_by_name={"__main__": result},
                 validated_bundles_by_name=result.validated_bundles,
             ),
-            selected_name=WORKFLOW_NAME,
+            selected_name="policy",
             display_name_resolver=lambda workflow_name: workflow_name,
         )
     )
 
-    assert runtime_plan["nodes"][NODE_ID]["kind"] == "provider"
+    assert runtime_plan["nodes"][node_id]["kind"] == "provider"
     assert any(effect["effect_kind"] == "provider_call" for effect in semantic_ir["effects"].values())
-    persisted_steps = persisted_graph["nodes"][WORKFLOW_NAME]["steps"]
+    persisted_steps = persisted_graph["nodes"]["policy"]["steps"]
     assert [step["kind"] for step in persisted_steps] == ["provider"]
-    source_workflow = source_map["workflows"][WORKFLOW_NAME]
+    source_workflow = source_map["workflows"]["policy"]
     assert [node["step_kind"] for node in source_workflow["core_nodes"]] == ["provider"]
     assert [node["kind"] for node in source_workflow["executable_nodes"]] == ["provider"]
 
     for projection in (runtime_plan, semantic_ir, persisted_graph, source_map):
         assert not _contains_key(projection, "provider_call_policy")
+
+
+def test_content_addressed_core_and_executable_artifacts_carry_provider_call_policy(
+    tmp_path: Path,
+) -> None:
+    result = _build_policy_source(
+        tmp_path,
+        POLICY_FIXTURE.read_text(encoding="utf-8"),
+        name="artifact-build",
+    )
+    core_payload = json.loads(
+        result.artifact_paths["core_workflow_ast"].read_text(encoding="utf-8")
+    )
+    executable_payload = json.loads(
+        result.artifact_paths["executable_ir"].read_text(encoding="utf-8")
+    )
+
+    assert result.build_root.name == result.manifest.fingerprint
+    assert core_payload["body"][0]["provider_call_policy"] == {
+        "model": "${inputs.model}",
+        "effort": "${inputs.effort}",
+    }
+    assert len(executable_payload["nodes"]) == 1
+    node = next(iter(executable_payload["nodes"].values()))
+    assert node["execution_config"]["provider_call_policy"] == {
+        "model": "${inputs.model}",
+        "effort": "${inputs.effort}",
+    }
+
+
+def test_provider_call_policy_edits_change_existing_source_and_build_identities(
+    tmp_path: Path,
+) -> None:
+    base = POLICY_FIXTURE.read_text(encoding="utf-8")
+    literal = base.replace(":model model", ':model "gpt-5"')
+    without_effort = base.replace("      :effort effort\n", "")
+    cases = {
+        "literal": (literal, literal.replace('"gpt-5"', '"gpt-5.1"')),
+        "binding_expression": (
+            base,
+            base.replace(":model model", ":model effort"),
+        ),
+        "keyword_added": (without_effort, base),
+        "keyword_removed": (base, without_effort),
+    }
+    stable_root = tmp_path / "stable"
+    stable_source_path = stable_root / "policy.orc"
+    state_manager = StateManager(stable_root, run_id="provider-policy-identity")
+
+    def capture(source: str) -> dict[str, Any]:
+        result = _build_policy_source(tmp_path, source, name="stable")
+        program_identity = json.loads(
+            result.artifact_paths["lexical_checkpoint_points"].read_text(
+                encoding="utf-8"
+            )
+        )["program_identity"]
+        return {
+            "source_path": Path(result.manifest.source_path),
+            "source_roots": tuple(result.manifest.source_roots),
+            "source_digest": result.manifest.source_sha256,
+            "build_fingerprint": result.manifest.fingerprint,
+            "program_identity": program_identity,
+            "executable_ir_digest": hashlib.sha256(
+                result.artifact_paths["executable_ir"].read_bytes()
+            ).hexdigest(),
+            "workflow_checksum": state_manager.calculate_checksum(stable_source_path),
+        }
+
+    identical_first = capture(base)
+    identical_second = capture(base)
+    assert identical_first == identical_second
+    assert identical_first["source_path"] == stable_source_path
+    assert identical_first["source_roots"] == (str(stable_root),)
+
+    for before_source, after_source in cases.values():
+        before = capture(before_source)
+        after = capture(after_source)
+
+        assert before["source_path"] == after["source_path"] == stable_source_path
+        assert before["source_roots"] == after["source_roots"] == (str(stable_root),)
+        assert before["source_digest"] != after["source_digest"]
+        assert before["build_fingerprint"] != after["build_fingerprint"]
+        assert before["program_identity"] != after["program_identity"]
+        assert before["executable_ir_digest"] != after["executable_ir_digest"]
+        assert before["workflow_checksum"] != after["workflow_checksum"]
 
 
 def test_wcc_provider_call_policy_payload_preserves_present_operands() -> None:
@@ -949,3 +1076,131 @@ def test_procedure_policy_specialization_uses_caller_bound_inputs_through_loop()
         not _contains_key(mapping, "provider_call_policy_specialization")
         for mapping in mappings
     )
+
+
+def test_provider_call_policy_survives_surface_core_executable_and_runtime_step() -> None:
+    result = _compile_validated_policy_fixture()
+    bundle = result.validated_bundles["policy"]
+    expected_policy = {
+        "model": "${inputs.model}",
+        "effort": "${inputs.effort}",
+    }
+
+    surface_step = bundle.surface.steps[0]
+    core_step = bundle.core_workflow_ast.body[0]
+    node = bundle.ir.nodes["root.policy__result"]
+    config = node.execution_config
+    assert isinstance(config, ProviderStepConfig)
+
+    assert dict(surface_step.provider_call_policy or {}) == expected_policy
+    assert dict(core_step.provider_call_policy or {}) == expected_policy
+    assert dict(config.provider_call_policy or {}) == expected_policy
+    with pytest.raises(TypeError):
+        surface_step.provider_call_policy["model"] = "mutated"  # type: ignore[index]
+    assert workflow_executable_ir_to_json(bundle.ir)["nodes"][node.node_id][
+        "execution_config"
+    ]["provider_call_policy"] == expected_policy
+    assert dict(RuntimeStep(node=node, name="Policy", step_id="policy"))[
+        "provider_call_policy"
+    ] == expected_policy
+    assert surface_step.common.timeout_sec == 7200
+    assert core_step.common.timeout_sec == 7200
+    assert config.common.timeout_sec == 7200
+
+
+def test_provider_call_policy_absence_is_none_and_omitted_from_typed_json() -> None:
+    result = _compile_keyword_free()
+    bundle = result.validated_bundles[WORKFLOW_NAME]
+    surface_step = bundle.surface.steps[0]
+    core_step = bundle.core_workflow_ast.body[0]
+    node = bundle.ir.nodes[NODE_ID]
+    config = node.execution_config
+    assert isinstance(config, ProviderStepConfig)
+
+    assert surface_step.provider_call_policy is None
+    assert core_step.provider_call_policy is None
+    assert config.provider_call_policy is None
+    assert "provider_call_policy" not in _statement_to_json(core_step)
+    assert "provider_call_policy" not in _json_value(config)
+    assert "provider_call_policy" not in dict(
+        RuntimeStep(node=node, name=RUNTIME_NAME, step_id=RUNTIME_STEP_ID)
+    )
+
+
+def test_provider_call_policy_serializers_use_field_local_model_effort_order() -> None:
+    result = _compile_validated_policy_fixture()
+    bundle = result.validated_bundles["policy"]
+    core_step = bundle.core_workflow_ast.body[0]
+    node = bundle.ir.nodes["root.policy__result"]
+    config = node.execution_config
+    assert isinstance(config, ProviderStepConfig)
+
+    expected_core = (
+        b'{"meta":{"id":"root.policy__result","step_id":"policy__result",'
+        b'"step_kind":"provider","display_name":"policy__result","lexical_scope":[],'
+        b'"origin_key":"policy::root.policy__result","generated_by":null},"common":'
+        b'{"on":null,"consumes":[],"consume_bundle":null,"publishes":[],'
+        b'"expected_outputs":[],"output_bundle":{"path":"${inputs.__write_root__policy__result__result_bundle}",'
+        b'"fields":[{"name":"approved","json_pointer":"/approved","type":"bool"},'
+        b'{"name":"summary","json_pointer":"/summary","type":"string"}]},'
+        b'"variant_output":null,"pre_snapshot":null,"requires_variant":null,'
+        b'"persist_artifacts_in_state":null,"provider_session":null,"max_visits":null,'
+        b'"retries":null,"env":null,"secrets":[],"timeout_sec":7200,'
+        b'"output_capture":null,"output_file":null,"allow_parse_error":null},'
+        b'"kind":"provider","provider":"test-provider","provider_params":null,'
+        b'"managed_jobs":null,"input_file":null,"asset_file":'
+        b'"tests/fixtures/workflow_lisp/provider_call_policy/prompt.md","depends_on":{},'
+        b'"asset_depends_on":[],"inject_output_contract":true,"inject_consumes":null,'
+        b'"prompt_consumes":null,"typed_prompt_inputs":[],"consumes_injection_position":null,'
+        b'"provider_call_policy":{"model":"m","effort":"e"}}'
+    )
+    expected_executable = (
+        b'{"common":{"on":{},"consumes":[],"consume_bundle":null,"publishes":[],'
+        b'"expected_outputs":[],"output_bundle":{"fields":[{"json_pointer":"/approved",'
+        b'"name":"approved","type":"bool"},{"json_pointer":"/summary","name":"summary",'
+        b'"type":"string"}],"path":"${inputs.__write_root__policy__result__result_bundle}"},'
+        b'"variant_output":null,"pre_snapshot":null,"requires_variant":null,'
+        b'"persist_artifacts_in_state":null,"provider_session":null,"max_visits":null,'
+        b'"retries":null,"env":null,"secrets":[],"timeout_sec":7200,'
+        b'"output_capture":null,"output_file":null,"allow_parse_error":null},'
+        b'"provider":"test-provider","provider_params":null,'
+        b'"provider_call_policy":{"model":"m","effort":"e"},"input_file":null,'
+        b'"asset_file":"tests/fixtures/workflow_lisp/provider_call_policy/prompt.md",'
+        b'"depends_on":{},"asset_depends_on":[],"inject_output_contract":true,'
+        b'"inject_consumes":null,"prompt_consumes":null,"typed_prompt_inputs":[],'
+        b'"consumes_injection_position":null,"managed_jobs":null}'
+    )
+
+    for policy in (
+        {"model": "m", "effort": "e"},
+        {"effort": "e", "model": "m"},
+    ):
+        core_bytes = json.dumps(
+            _statement_to_json(replace(core_step, provider_call_policy=policy)),
+            separators=(",", ":"),
+        ).encode("utf-8")
+        executable_bytes = json.dumps(
+            _json_value(replace(config, provider_call_policy=policy)),
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+        assert core_bytes == expected_core
+        assert executable_bytes == expected_executable
+
+
+def test_provider_call_policy_serializer_rejects_unexpected_key() -> None:
+    result = _compile_validated_policy_fixture()
+    bundle = result.validated_bundles["policy"]
+    core_step = bundle.core_workflow_ast.body[0]
+    node = bundle.ir.nodes["root.policy__result"]
+    config = node.execution_config
+    assert isinstance(config, ProviderStepConfig)
+
+    with pytest.raises(ValueError, match="unexpected provider call policy key"):
+        _statement_to_json(
+            replace(core_step, provider_call_policy={"model": "m", "unknown": "x"})
+        )
+    with pytest.raises(ValueError, match="unexpected provider call policy key"):
+        _json_value(
+            replace(config, provider_call_policy={"model": "m", "unknown": "x"})
+        )

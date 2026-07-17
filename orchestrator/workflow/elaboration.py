@@ -462,6 +462,11 @@ def _elaborate_step(
         command=_frozen_command(step.get("command")) if kind is SurfaceStepKind.COMMAND else (),
         provider=step.get("provider") if kind is SurfaceStepKind.PROVIDER and isinstance(step.get("provider"), str) else None,
         provider_params=freeze_value(step["provider_params"]) if kind is SurfaceStepKind.PROVIDER and "provider_params" in step else None,
+        provider_call_policy=(
+            freeze_mapping(step["provider_call_policy"])
+            if kind is SurfaceStepKind.PROVIDER and "provider_call_policy" in step
+            else None
+        ),
         managed_jobs=(
             _parse_surface_managed_jobs_config(step.get("managed_jobs"))
             if kind is SurfaceStepKind.PROVIDER

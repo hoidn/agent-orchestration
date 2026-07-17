@@ -245,6 +245,7 @@ class SurfaceStep:
     command: Any = ()
     provider: Optional[str] = None
     provider_params: Any = None
+    provider_call_policy: Optional[Mapping[str, str]] = None
     managed_jobs: Optional[SurfaceManagedJobsConfig] = None
     adjudicated_provider: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     input_file: Any = None

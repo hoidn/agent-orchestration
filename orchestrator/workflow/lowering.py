@@ -1011,6 +1011,7 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
             common=common,
             provider=step.provider or "",
             provider_params=step.provider_params,
+            provider_call_policy=step.provider_call_policy,
             input_file=step.input_file,
             asset_file=step.asset_file,
             depends_on=step.depends_on,

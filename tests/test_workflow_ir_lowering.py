@@ -25,6 +25,7 @@ from orchestrator.workflow.executable_ir import (
     RepeatUntilFrameNode,
     RepeatUntilStepConfig,
     SetScalarStepConfig,
+    _json_value,
 )
 from orchestrator.workflow import lowering
 from orchestrator.workflow import executable_ir
@@ -859,6 +860,17 @@ def test_ir_lowering_preserves_scalar_commands_and_provider_dependency_mappings(
         "required": ["data.txt"],
         "inject": True,
     }
+
+
+def test_unrelated_mapping_order_remains_lexical_in_executable_ir_serializer() -> None:
+    config = ProviderStepConfig(
+        provider="provider",
+        depends_on=MappingProxyType({"required": ("data.txt",), "inject": True}),
+    )
+
+    payload = _json_value(config)
+
+    assert list(payload["depends_on"]) == ["inject", "required"]
 
 
 def test_ir_lowering_preserves_consume_prompt_metadata_and_empty_prompt_consumes(
