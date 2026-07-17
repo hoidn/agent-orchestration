@@ -13,8 +13,8 @@ remaining 95 active internal calls classify as:
 
 | Classification | Sites | Meaning |
 | --- | ---: | --- |
-| `procedure-candidate` | 29 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
-| `effect-adapter` | 28 | Calls retained until effect, identity, artifact, publication, source-map, child-call, state-consumer, live-route, and resume obligations are proven. |
+| `procedure-candidate` | 22 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
+| `effect-adapter` | 35 | Calls retained until effect, identity, artifact, publication, source-map, child-call, exported-entry, state-consumer, live-route, and resume obligations are proven. |
 | `legacy-retire` | 38 | Compatibility, legacy, or example-only calls that retire with their family instead of being translated. |
 | `public-boundary` | 0 | Public entries are recorded separately; they are not internal call sites. |
 
@@ -42,6 +42,8 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `effect-adapter` | `workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml` | 2 |
 | `effect-adapter` | `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | 2 |
 | `effect-adapter` | `workflows/examples/same_file_record_call_binding.orc` | 1 |
+| `effect-adapter` | `workflows/library/lisp_frontend_design_delta/design_gap_architect.orc` | 4 |
+| `effect-adapter` | `workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc` | 3 |
 | `effect-adapter` | `workflows/examples/lisp_frontend_autonomous_drain.yaml` | 4 |
 | `effect-adapter` | `workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml` | 1 |
 | `effect-adapter` | `workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml` | 3 |
@@ -71,9 +73,7 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `legacy-retire` | `workflows/library/revision_study_design_plan_impl_stack.yaml` | 3 |
 | `legacy-retire` | `workflows/library/revision_study_priority_design_plan_impl_stack.yaml` | 1 |
 | `legacy-retire` | `workflows/library/seeded_design_plan_impl_stack.yaml` | 1 |
-| `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/design_gap_architect.orc` | 4 |
 | `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/drain.orc` | 1 |
-| `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc` | 3 |
 | `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/work_item.orc` | 21 |
 
 ## Separate Public Entries
@@ -87,7 +87,18 @@ invocation registrations. Schema v2 keeps only current-source rows in
   remains the public stack entry even when its three internal phases migrate.
 
 These three are a conservative machine-evidenced lower bound, not a claim that
-no other source has ever been invoked by a historical command.
+no other source has ever been invoked by a historical command. Task 3's export
+audit adds five current library entries that are directly CLI-selectable:
+
+- `lisp_frontend_design_delta/selector::select-next-work`;
+- `lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture-stdlib`;
+- `lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib`;
+- `lisp_frontend_design_delta/design_gap_architect::project-design-gap-architecture-targets`; and
+- `lisp_frontend_design_delta/design_gap_architect::project-design-gap-architecture-targets-stdlib`.
+
+The inventory therefore records eight current public entries. These five
+library entries are public-boundary negatives for procedure migration; they
+are not promotion claims.
 
 ## Completed History
 
@@ -141,6 +152,11 @@ its containing route is active `wcc_default`, `leaf_runtime_candidate`, and
 compatibility for that live/current route even though the complete
 hypothetical retired-identity query found no known store consumer. See
 `docs/plans/2026-07-16-same-file-build-checks-identity-retirement-plan.md`.
+Seven Design Delta library rows are retained because their five unique callees
+are exported workflows and therefore CLI-selectable public boundaries. Strict
+compatibility is mandatory, and the recorded workflow/call checkpoints cannot
+survive inline lowering exactly. See
+`docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md`.
 A Stage 5 family audit may
 reclassify a row when current tests prove that ordinary landed `defproc`
 composition already covers its actual effects. Classification labels alone do

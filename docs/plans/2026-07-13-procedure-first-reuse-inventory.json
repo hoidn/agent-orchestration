@@ -138,21 +138,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "The callee is an exported workflow and CLI-selectable entry; strict_compatibility is mandatory and inline lowering cannot preserve its workflow/call identities.",
+      "reason": "Retain this call as an effect adapter because the accepted identity-retirement exception excludes exported workflows.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Reconsider only after a separately reviewed public-entry retirement or a general atomic state upgrader preserves the supported boundary."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc"
+        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+        "docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md",
+        "docs/design/workflow_lisp_procedure_migration_identity_compatibility.md",
+        "orchestrator/workflow_lisp/build.py",
+        "tests/baselines/drain_checkpoint_identity/design_delta_drain.json"
       ]
     },
     {
@@ -169,21 +173,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "The callee is an exported workflow and CLI-selectable entry; strict_compatibility is mandatory and inline lowering cannot preserve its workflow/call identities.",
+      "reason": "Retain this call as an effect adapter because the accepted identity-retirement exception excludes exported workflows.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Reconsider only after a separately reviewed public-entry retirement or a general atomic state upgrader preserves the supported boundary."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc"
+        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+        "docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md",
+        "docs/design/workflow_lisp_procedure_migration_identity_compatibility.md",
+        "orchestrator/workflow_lisp/build.py",
+        "tests/baselines/drain_checkpoint_identity/design_delta_drain.json"
       ]
     },
     {
@@ -200,21 +208,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "The callee is an exported workflow and CLI-selectable entry; strict_compatibility is mandatory and inline lowering cannot preserve its workflow/call identities.",
+      "reason": "Retain this call as an effect adapter because the accepted identity-retirement exception excludes exported workflows.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Reconsider only after a separately reviewed public-entry retirement or a general atomic state upgrader preserves the supported boundary."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc"
+        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+        "docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md",
+        "docs/design/workflow_lisp_procedure_migration_identity_compatibility.md",
+        "orchestrator/workflow_lisp/build.py",
+        "tests/baselines/drain_checkpoint_identity/design_delta_drain.json"
       ]
     },
     {
@@ -231,21 +243,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "The callee is an exported workflow and CLI-selectable entry; strict_compatibility is mandatory and inline lowering cannot preserve its workflow/call identities.",
+      "reason": "Retain this call as an effect adapter because the accepted identity-retirement exception excludes exported workflows.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Reconsider only after a separately reviewed public-entry retirement or a general atomic state upgrader preserves the supported boundary."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc"
+        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+        "docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md",
+        "docs/design/workflow_lisp_procedure_migration_identity_compatibility.md",
+        "orchestrator/workflow_lisp/build.py",
+        "tests/baselines/drain_checkpoint_identity/design_delta_drain.json"
       ]
     },
     {
@@ -293,21 +309,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "The callee is an exported workflow and CLI-selectable entry; strict_compatibility is mandatory and inline lowering cannot preserve its workflow/call identities.",
+      "reason": "Retain this call as an effect adapter because the accepted identity-retirement exception excludes exported workflows.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Reconsider only after a separately reviewed public-entry retirement or a general atomic state upgrader preserves the supported boundary."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc"
+        "workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc",
+        "docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md",
+        "docs/design/workflow_lisp_procedure_migration_identity_compatibility.md",
+        "orchestrator/workflow_lisp/build.py",
+        "tests/baselines/drain_checkpoint_identity/design_delta_drain.json"
       ]
     },
     {
@@ -324,21 +344,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "The callee is an exported workflow and CLI-selectable entry; strict_compatibility is mandatory and inline lowering cannot preserve its workflow/call identities.",
+      "reason": "Retain this call as an effect adapter because the accepted identity-retirement exception excludes exported workflows.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Reconsider only after a separately reviewed public-entry retirement or a general atomic state upgrader preserves the supported boundary."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc"
+        "workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc",
+        "docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md",
+        "docs/design/workflow_lisp_procedure_migration_identity_compatibility.md",
+        "orchestrator/workflow_lisp/build.py",
+        "tests/baselines/drain_checkpoint_identity/design_delta_drain.json"
       ]
     },
     {
@@ -355,21 +379,25 @@
       "resolution": "authored-direct-call",
       "source_class": "library",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "The callee is an exported workflow and CLI-selectable entry; strict_compatibility is mandatory and inline lowering cannot preserve its workflow/call identities.",
+      "reason": "Retain this call as an effect adapter because the accepted identity-retirement exception excludes exported workflows.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Reconsider only after a separately reviewed public-entry retirement or a general atomic state upgrader preserves the supported boundary."
         ]
       },
       "evidence_paths": [
-        "workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc"
+        "workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc",
+        "docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md",
+        "docs/design/workflow_lisp_procedure_migration_identity_compatibility.md",
+        "orchestrator/workflow_lisp/build.py",
+        "tests/baselines/drain_checkpoint_identity/design_delta_drain.json"
       ]
     },
     {
@@ -2977,6 +3005,185 @@
       ]
     },
     {
+      "id": "public-entry:lisp_frontend_design_delta/selector::select-next-work",
+      "record_kind": "public-entry",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/selector.orc",
+      "source_line": 31,
+      "caller": "external",
+      "caller_kind": "external",
+      "call_alias": null,
+      "callee_path": "workflows/library/lisp_frontend_design_delta/selector.orc",
+      "callee": "lisp_frontend_design_delta/selector::select-next-work",
+      "resolution": "exported-entry",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "public-boundary",
+      "effect_summary": [
+        "provider"
+      ],
+      "public_boundary_evidence": [
+        "exported workflow",
+        "CLI-selectable entry",
+        "persisted checkpoint boundary"
+      ],
+      "named_substrate_gap": null,
+      "reason": "The exported selector workflow remains an externally selectable entry and owns provider/checkpoint identity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": []
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/selector.orc",
+        "orchestrator/workflow_lisp/build.py",
+        "tests/baselines/drain_checkpoint_identity/design_delta_drain.json",
+        "docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md"
+      ]
+    },
+    {
+      "id": "public-entry:lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture-stdlib",
+      "record_kind": "public-entry",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+      "source_line": 151,
+      "caller": "external",
+      "caller_kind": "external",
+      "call_alias": null,
+      "callee_path": "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+      "callee": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture-stdlib",
+      "resolution": "exported-entry",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "public-boundary",
+      "effect_summary": [
+        "provider",
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [
+        "exported workflow",
+        "CLI-selectable entry",
+        "persisted checkpoint boundary"
+      ],
+      "named_substrate_gap": null,
+      "reason": "The exported architecture-draft workflow remains externally selectable and owns provider/checkpoint identity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": []
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+        "orchestrator/workflow_lisp/build.py",
+        "tests/baselines/drain_checkpoint_identity/design_delta_drain.json",
+        "docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md"
+      ]
+    },
+    {
+      "id": "public-entry:lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib",
+      "record_kind": "public-entry",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+      "source_line": 215,
+      "caller": "external",
+      "caller_kind": "external",
+      "call_alias": null,
+      "callee_path": "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+      "callee": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib",
+      "resolution": "exported-entry",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "public-boundary",
+      "effect_summary": [
+        "materialize-view",
+        "command",
+        "workflow-call"
+      ],
+      "public_boundary_evidence": [
+        "exported workflow",
+        "CLI-selectable entry",
+        "persisted checkpoint boundary"
+      ],
+      "named_substrate_gap": null,
+      "reason": "The exported architecture-validation workflow remains externally selectable and owns materialization, command, and checkpoint identity.",
+      "uncertainty": {
+        "level": "low",
+        "notes": []
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+        "orchestrator/workflow_lisp/build.py",
+        "tests/baselines/drain_checkpoint_identity/design_delta_drain.json",
+        "docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md"
+      ]
+    },
+    {
+      "id": "public-entry:lisp_frontend_design_delta/design_gap_architect::project-design-gap-architecture-targets",
+      "record_kind": "public-entry",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+      "source_line": 75,
+      "caller": "external",
+      "caller_kind": "external",
+      "call_alias": null,
+      "callee_path": "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+      "callee": "lisp_frontend_design_delta/design_gap_architect::project-design-gap-architecture-targets",
+      "resolution": "exported-entry",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "public-boundary",
+      "effect_summary": [],
+      "public_boundary_evidence": [
+        "exported workflow",
+        "CLI-selectable entry",
+        "persisted checkpoint boundary"
+      ],
+      "named_substrate_gap": null,
+      "reason": "The exported architecture-target projection remains an externally selectable workflow/checkpoint boundary.",
+      "uncertainty": {
+        "level": "low",
+        "notes": []
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+        "orchestrator/workflow_lisp/build.py",
+        "tests/baselines/drain_checkpoint_identity/design_delta_drain.json",
+        "docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md"
+      ]
+    },
+    {
+      "id": "public-entry:lisp_frontend_design_delta/design_gap_architect::project-design-gap-architecture-targets-stdlib",
+      "record_kind": "public-entry",
+      "frontend": "workflow-lisp",
+      "source_path": "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+      "source_line": 95,
+      "caller": "external",
+      "caller_kind": "external",
+      "call_alias": null,
+      "callee_path": "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+      "callee": "lisp_frontend_design_delta/design_gap_architect::project-design-gap-architecture-targets-stdlib",
+      "resolution": "exported-entry",
+      "source_class": "library",
+      "live_status": "live",
+      "classification": "public-boundary",
+      "effect_summary": [],
+      "public_boundary_evidence": [
+        "exported workflow",
+        "CLI-selectable entry",
+        "persisted checkpoint boundary"
+      ],
+      "named_substrate_gap": null,
+      "reason": "The exported stdlib architecture-target projection remains an externally selectable workflow/checkpoint boundary.",
+      "uncertainty": {
+        "level": "low",
+        "notes": []
+      },
+      "evidence_paths": [
+        "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+        "orchestrator/workflow_lisp/build.py",
+        "tests/baselines/drain_checkpoint_identity/design_delta_drain.json",
+        "docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md"
+      ]
+    },
+    {
       "id": "public-entry:lisp_frontend_design_delta/drain::drain",
       "record_kind": "public-entry",
       "frontend": "workflow-lisp",
@@ -3092,13 +3299,13 @@
     "actionable_internal_calls": {
       "total": 95,
       "by_classification": {
-        "procedure-candidate": 29,
-        "effect-adapter": 28,
+        "procedure-candidate": 22,
+        "effect-adapter": 35,
         "legacy-retire": 38,
         "public-boundary": 0
       }
     },
-    "separate_public_entries": 3,
+    "separate_public_entries": 8,
     "excluded_from_actionable_population": {
       "total": 6,
       "by_reason": {

@@ -97,6 +97,12 @@ PARITY_TARGETS = MIGRATION_INPUTS / "parity_targets.json"
 DESIGN_DELTA_DRAIN = (
     WORKFLOWS / "library" / "lisp_frontend_design_delta" / "drain.orc"
 )
+DESIGN_DELTA_SELECTOR = (
+    WORKFLOWS / "library" / "lisp_frontend_design_delta" / "selector.orc"
+)
+DESIGN_DELTA_ARCHITECT = (
+    WORKFLOWS / "library" / "lisp_frontend_design_delta" / "design_gap_architect.orc"
+)
 DESIGN_DELTA_PUBLIC_ENTRY = "lisp_frontend_design_delta/drain::drain"
 _DESIGN_DELTA_RUNTIME_PROJECTION_DIGESTS = {
     "artifacts": "sha256:0c0925b3d70fa64626186ecd608cf01c0039aae5d4edf2a74465f722157c3732",
@@ -250,7 +256,7 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
     assert inventory["source_commit"] == "db9889937a895d67810dee1ea0b1b53552d30eca"
     records = inventory["records"]
     history = inventory["history"]
-    assert len(records) == 98
+    assert len(records) == 103
     assert len(history) == 1
     assert len({record["id"] for record in records}) == len(records)
     assert not ({record["id"] for record in records} & {row["id"] for row in history})
@@ -262,7 +268,8 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
         record for record in records if record["record_kind"] == "public-entry"
     ]
     assert len(internal_records) == 95
-    assert len(public_records) == 3
+    assert len(public_records) == 8
+    assert inventory["counts"]["separate_public_entries"] == len(public_records)
     assert inventory["counts"]["raw_authored_call_sites"] == {
         "yaml": 67,
         "workflow_lisp": 34,
@@ -271,8 +278,8 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
     assert inventory["counts"]["actionable_internal_calls"] == {
         "total": 95,
         "by_classification": {
-            "procedure-candidate": 29,
-            "effect-adapter": 28,
+            "procedure-candidate": 22,
+            "effect-adapter": 35,
             "legacy-retire": 38,
             "public-boundary": 0,
         },
@@ -820,6 +827,84 @@ def test_same_file_build_checks_stays_workflow_on_live_route() -> None:
         decision,
     )
     assert "Task 2 Step 4 is the next sub-selector" in decision
+
+
+def test_design_delta_exported_workflows_remain_public_boundaries(
+    tmp_path: Path,
+) -> None:
+    inventory = _load_json(REUSE_INVENTORY)
+    records_by_id = {row["id"]: row for row in inventory["records"]}
+    internal_prefix = "internal-call:workflows/library/lisp_frontend_design_delta/"
+    retained_ids = {
+        f"{internal_prefix}stdlib_adapters.orc:select-next-work:1",
+        f"{internal_prefix}stdlib_adapters.orc:draft-design-gap-architecture-stdlib:1",
+        f"{internal_prefix}stdlib_adapters.orc:validate-design-gap-architecture-stdlib:1",
+        f"{internal_prefix}design_gap_architect.orc:project-design-gap-architecture-targets:1",
+        f"{internal_prefix}design_gap_architect.orc:project-design-gap-architecture-targets:2",
+        f"{internal_prefix}design_gap_architect.orc:project-design-gap-architecture-targets-stdlib:1",
+        f"{internal_prefix}design_gap_architect.orc:project-design-gap-architecture-targets-stdlib:2",
+    }
+    exported_callees = {
+        "lisp_frontend_design_delta/selector::select-next-work",
+        (
+            "lisp_frontend_design_delta/design_gap_architect::"
+            "draft-design-gap-architecture-stdlib"
+        ),
+        (
+            "lisp_frontend_design_delta/design_gap_architect::"
+            "validate-design-gap-architecture-stdlib"
+        ),
+        (
+            "lisp_frontend_design_delta/design_gap_architect::"
+            "project-design-gap-architecture-targets"
+        ),
+        (
+            "lisp_frontend_design_delta/design_gap_architect::"
+            "project-design-gap-architecture-targets-stdlib"
+        ),
+    }
+
+    assert retained_ids <= set(records_by_id)
+    for record_id in retained_ids:
+        record = records_by_id[record_id]
+        assert record["classification"] == "effect-adapter"
+        assert "export" in record["named_substrate_gap"].lower()
+        assert "strict_compatibility" in record["named_substrate_gap"]
+
+    for callee in exported_callees:
+        record = records_by_id[f"public-entry:{callee}"]
+        assert record["record_kind"] == "public-entry"
+        assert record["classification"] == "public-boundary"
+        assert record["callee"] == callee
+        assert record["resolution"] == "exported-entry"
+        assert "exported workflow" in record["public_boundary_evidence"]
+        assert "CLI-selectable entry" in record["public_boundary_evidence"]
+
+    selector_source = DESIGN_DELTA_SELECTOR.read_text(encoding="utf-8")
+    architect_source = DESIGN_DELTA_ARCHITECT.read_text(encoding="utf-8")
+    assert re.search(r"\(defworkflow\s+select-next-work\b", selector_source)
+    for name in (
+        "draft-design-gap-architecture-stdlib",
+        "validate-design-gap-architecture-stdlib",
+        "project-design-gap-architecture-targets",
+        "project-design-gap-architecture-targets-stdlib",
+    ):
+        assert re.search(rf"\(defworkflow\s+{name}\b", architect_source)
+
+    linked_result, _ = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    selector_exports = linked_result.graph.export_surfaces_by_name[
+        "lisp_frontend_design_delta/selector"
+    ].workflows_by_name
+    architect_exports = linked_result.graph.export_surfaces_by_name[
+        "lisp_frontend_design_delta/design_gap_architect"
+    ].workflows_by_name
+    assert "select-next-work" in selector_exports
+    assert {
+        "draft-design-gap-architecture-stdlib",
+        "validate-design-gap-architecture-stdlib",
+        "project-design-gap-architecture-targets",
+        "project-design-gap-architecture-targets-stdlib",
+    } <= set(architect_exports)
 
 
 def _design_delta_default_state_value(type_payload: Mapping[str, object]) -> object:

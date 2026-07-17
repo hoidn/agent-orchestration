@@ -14,8 +14,8 @@
 
 **Status:** Current selector (activated 2026-07-16). Task 1's post-hardening
 rebaseline is complete at `4983afff` with its narrative correction at
-`fa16bcf0`. **Current sub-selector: Task 3 Step 1, resolve the seven Design
-Delta candidate rows.** Task 2 is complete at `daff694c`. Steps 1 and 2 each
+`fa16bcf0`. **Current sub-selector: Task 4 Step 1, audit the ten YAML
+effect-adapter groups.** Task 2 is complete at `daff694c`. Steps 1 and 2 each
 reached a bounded fail-closed
 identity-retirement stop:
 `docs/plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md`
@@ -33,7 +33,9 @@ completed at `fdf1e06b` with fresh focused acceptance evidence, a deterministic
 public CLI smoke, broad baseline equivalence, and independent specification and
 quality reviews. No Task 2 source migration occurred. Its retained-boundary
 integration gates, inventory reconciliation, and independent reviews passed.
-Task 3 is now activated without reordering Tasks 4-8 or the later stages.
+Task 3 completed without source migration after independent specification and
+quality approval. Task 4 is now activated without reordering Tasks 5-8 or the
+later stages.
 
 - Accepted contract: `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
 - Reviewed queue: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
@@ -52,9 +54,11 @@ Task 3 is now activated without reordering Tasks 4-8 or the later stages.
   implementation plan records the implementation evidence; its accepted design
   and planning artifacts alone remain insufficient proof.
 - The hardening implementation gate passed, and Task 1 rebaselined that
-  evidence and the inventory on the post-hardening checkout. Task 2 is now the
-  first authorized family source migration. Production-family Tasks 5–6 retain
-  every later prerequisite in this plan.
+  evidence and the inventory on the post-hardening checkout. Task 2 completed
+  without a source migration, and Task 3 completed its exported-boundary
+  retention decision after both independent reviews. Task 4 Step 1 is now
+  selected. Production-family Tasks 5–6 retain every later prerequisite in
+  this plan.
 - Preserve the inventory's separate `public-entry` records. In particular, never migrate:
   - `workflows/library/lisp_frontend_design_delta/drain.orc::drain` away from `defworkflow`; or
   - `workflows/examples/design_plan_impl_review_stack_v2_call.orc::design-plan-impl-review-stack` away from `defworkflow`.
@@ -92,14 +96,14 @@ must be a subset of the active task's `Files` list. Never stage, restore, or
 rewrite a protected path. Record its initial `git status --short` output only
 as a guard baseline; user changes to those paths are not plan failures.
 
-## Current queue after Task 2 Step 3
+## Current queue after Task 3 retention
 
 | Class | Count | Disposition |
 | --- | ---: | --- |
-| `procedure-candidate` | 29 | Migrate by `.orc` family after parity. |
-| `effect-adapter` | 28 | Reclassify only after effect, identity, artifact/publication, source-map, child-call, checkpoint, state-consumer, live-route, and resume evidence. |
+| `procedure-candidate` | 22 | Migrate by `.orc` family after parity. |
+| `effect-adapter` | 35 | Reclassify only after effect, identity, artifact/publication, source-map, child-call, checkpoint, exported-entry, state-consumer, live-route, and resume evidence. |
 | `legacy-retire` | 38 | Do not translate; coordinate with Stage 6 after replacement evidence. |
-| `public-boundary` | 3 separate entries | Preserve as workflows and negative regression coverage. |
+| `public-boundary` | 8 separate entries | Preserve as workflows and negative regression coverage. |
 
 The v2 inventory also contains one append-only `migrated` history row for the
 completed pilot call; history is separate from the 95 active records above.
@@ -337,8 +341,13 @@ Step 1 is now selected.
 - Modify: `tests/test_workflow_lisp_checkpoint_identity_comparison.py`
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.md`
+- Add: `docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md`
+- Modify: `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
+- Modify: `docs/index.md`
+- Modify: `docs/capability_status_matrix.md`
+- Modify: `tests/test_workflow_lisp_drain_roadmap_routing.py`
 
-- [ ] **Step 1: Resolve the seven candidate rows**
+- [x] **Step 1: Resolve the seven candidate rows**
 
 Resolve the four `design_gap_architect.orc` calls and three `stdlib_adapters.orc`
 calls. Confirm each callee has no independent public-entry evidence. If any
@@ -357,9 +366,18 @@ The exact active IDs are:
 Use their full `internal-call:workflows/library/lisp_frontend_design_delta/...`
 prefixes from the inventory when updating history.
 
-- [ ] **Step 2: Migrate `stdlib_adapters.orc` first**
+Resolution: all five unique callees are exported `defworkflow`s and therefore
+CLI-selectable entries. The accepted identity-retirement class excludes an
+exported callee, and the checkpoint baseline records all seven call boundaries.
+`docs/plans/2026-07-16-design-delta-exported-workflow-retention-plan.md`
+therefore retains all seven internal calls as `effect-adapter` and records the
+five unique callees separately as `public-boundary`. No store/owner gate is
+needed after this earlier fail-closed eligibility stop.
 
-Run three independent RED/green cycles in this order: `select-next-work`,
+- [x] **Step 2: Retain the three exported stdlib-adapter callees**
+
+Historical counterfactual only: the original plan was to run three independent
+RED/green cycles in this order: `select-next-work`,
 `draft-design-gap-architecture-stdlib`, then
 `validate-design-gap-architecture-stdlib`. Each RED test names the callee and
 requires `defproc :lowering inline`, ordinary procedure application in the
@@ -367,29 +385,33 @@ adapter, retained public drain, and unchanged transitive effects. Convert only
 that callee plus its adapter use, preserve explicit effects, run the focused
 checks below, commit `Migrate Design Delta <callee> adapter to a procedure`,
 and obtain independent specification and quality PASS before starting the
-next callee.
+next callee. The governing export/public-boundary rule prohibits those edits,
+so all three source definitions and calls remain byte-unchanged.
 
 ```bash
 pytest -q tests/test_workflow_lisp_design_delta_smoke.py tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_checkpoint_identity_comparison.py -k 'stdlib_adapter or design_delta'
 pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'procedure_first_design_delta_public_wrapper'
 ```
 
-- [ ] **Step 3: Migrate `design_gap_architect.orc`**
+- [x] **Step 3: Retain the two exported architecture-target callees**
 
-Run two independent RED/green cycles: first
+Historical counterfactual only: the original plan was to run two independent
+RED/green cycles: first
 `project-design-gap-architecture-targets` and its two call IDs, then the
 `-stdlib` callee and its two call IDs. Each RED test names both active IDs,
 requires the callee to become `defproc :lowering inline`, and preserves the
 imported module signature, artifacts, effect graph, source-map origins, state
 roots, checkpoints, and resume behavior. Commit and obtain independent
-specification/quality PASS after each callee group.
+specification/quality PASS after each callee group. The governing
+export/public-boundary rule prohibits those edits, so both source definitions
+and all four calls remain byte-unchanged.
 
 ```bash
 pytest -q tests/test_workflow_lisp_design_delta_smoke.py tests/test_workflow_lisp_source_map.py tests/test_workflow_lisp_checkpoint_identity_comparison.py -k 'design_gap_architect'
 pytest -q tests/test_workflow_lisp_procedure_first_migrations.py -k 'procedure_first_design_delta_public_wrapper'
 ```
 
-- [ ] **Step 4: Run Design Delta integration without changing the public drain**
+- [x] **Step 4: Run Design Delta integration without changing the public drain**
 
 ```bash
 pytest -q tests/test_workflow_lisp_design_delta_smoke.py tests/test_workflow_lisp_generic_stdlib_composition.py tests/test_workflow_lisp_imported_stdlib_macro_payload_helper_composition.py tests/test_workflow_lisp_route_readiness.py
@@ -402,10 +424,19 @@ Expected: tests PASS, both CLI commands exit 0, and
 the two CLI commands after every Task 3 source commit, not only at the final
 integration step.
 
-- [ ] **Step 5: Update history after the five reviewed source commits**
+No Task 3 source commit occurred. Fresh unchanged-boundary results: targeted
+identity/source-map coverage `20 passed, 31 deselected`; retained public
+wrapper `2 passed, 117 deselected`; Design Delta/library integration `85
+passed`; production compile exit 0 with seven established warning diagnostics;
+and production dry-run exit 0 with `Workflow validation successful`.
 
-Move all seven disappeared active call records to v2 history with the exact
-five source commit hashes and evidence, then recompute active/history counts.
+- [x] **Step 5: Reconcile retained calls, exported public entries, and final reviews**
+
+No call disappeared and no row moves to history. Keep all seven active call
+records as `effect-adapter`, add the five exported workflow entries as
+`public-boundary`, and recompute counts to 22 procedure candidates, 35 effect
+adapters, 38 legacy-retire rows, eight separate public entries, and one
+unchanged history row.
 
 ```bash
 python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >/dev/null
@@ -414,7 +445,9 @@ git add docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/20
 git commit -m "Record Design Delta library procedure evidence"
 ```
 
-Obtain specification plus quality PASS before Task 4.
+The inventory JSON parses, the focused TDD selector passes, and independent
+specification PASS plus quality APPROVED close Task 3. Task 4 Step 1 is now
+selected.
 
 ### Task 4: Reclassify The 25 YAML Effect-Adapter Rows From Evidence
 
