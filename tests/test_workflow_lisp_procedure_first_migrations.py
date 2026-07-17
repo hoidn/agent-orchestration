@@ -85,6 +85,13 @@ STACK_IMPLEMENTATION_KNOWN_STORE_SCAN = (
 STACK_IMPLEMENTATION_IDENTITY_WITNESS = (
     STACK_IMPLEMENTATION_ELIGIBILITY_STOP.parent / "identity_delta_witness.json"
 )
+SAME_FILE_EXAMPLE = WORKFLOWS / "examples" / "same_file_record_call_binding.orc"
+SAME_FILE_RETIREMENT_DECISION = (
+    REPO_ROOT
+    / "docs"
+    / "plans"
+    / "2026-07-16-same-file-build-checks-identity-retirement-plan.md"
+)
 ROUTE_READINESS_REGISTRY = REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json"
 PARITY_TARGETS = MIGRATION_INPUTS / "parity_targets.json"
 DESIGN_DELTA_DRAIN = (
@@ -264,8 +271,8 @@ def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts()
     assert inventory["counts"]["actionable_internal_calls"] == {
         "total": 95,
         "by_classification": {
-            "procedure-candidate": 30,
-            "effect-adapter": 27,
+            "procedure-candidate": 29,
+            "effect-adapter": 28,
             "legacy-retire": 38,
             "public-boundary": 0,
         },
@@ -780,6 +787,39 @@ def test_procedure_first_public_boundary_inventory_keeps_exported_wrappers() -> 
         active_by_id[stack_id]["source_path"],
         "design-plan-impl-review-stack",
     ) in parity_entries
+
+
+def test_same_file_build_checks_stays_workflow_on_live_route() -> None:
+    inventory = _load_json(REUSE_INVENTORY)
+    registry = _load_json(ROUTE_READINESS_REGISTRY)
+    source = SAME_FILE_EXAMPLE.read_text(encoding="utf-8")
+    decision = SAME_FILE_RETIREMENT_DECISION.read_text(encoding="utf-8")
+
+    record_id = (
+        "internal-call:workflows/examples/same_file_record_call_binding.orc:"
+        "build-checks:1"
+    )
+    record = next(row for row in inventory["records"] if row["id"] == record_id)
+    route = next(
+        row
+        for row in registry["surfaces"]
+        if row["path"] == "workflows/examples/same_file_record_call_binding.orc"
+    )
+
+    assert record["classification"] == "effect-adapter"
+    assert record["live_status"] == "live"
+    assert "strict_compatibility" in record["named_substrate_gap"]
+    assert route["path"] == "workflows/examples/same_file_record_call_binding.orc"
+    assert route["route_label"] == "wcc_default"
+    assert route["readiness_label"] == "leaf_runtime_candidate"
+    assert route["copy_safety"] == "preferred_current_guidance"
+    assert re.search(r"\(defworkflow\s+build-checks\b", source)
+    assert "(call build-checks :input input)" in source
+    assert re.search(
+        r"evaluated against source\s+baseline commit `174b7351`",
+        decision,
+    )
+    assert "Task 2 Step 4 is the next sub-selector" in decision
 
 
 def _design_delta_default_state_value(type_payload: Mapping[str, object]) -> object:

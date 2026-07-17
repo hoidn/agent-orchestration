@@ -105,21 +105,23 @@
       "resolution": "authored-direct-call",
       "source_class": "example",
       "live_status": "live",
-      "classification": "procedure-candidate",
+      "classification": "effect-adapter",
       "effect_summary": [
         "workflow-call"
       ],
       "public_boundary_evidence": [],
-      "named_substrate_gap": null,
-      "reason": "The call is an internal Workflow Lisp workflow-as-function site with no public-entry evidence at this call; migrate through ordinary typed defproc composition after family parity.",
+      "named_substrate_gap": "The containing same-file example is an active wcc_default leaf_runtime_candidate and preferred_current_guidance route; strict_compatibility is mandatory for promoted/live routes.",
+      "reason": "Retain this internal workflow boundary. The hypothetical inline conversion compiles and has no known old-identity store consumer, but the governing identity design forbids reviewed identity retirement on the current live/copy-safe route.",
       "uncertainty": {
         "level": "low",
         "notes": [
-          "The lexical extractor records the call site and callee token; enclosing caller and resolved import path are deferred to the migration wave."
+          "Reconsider only after a separately reviewed route-status change establishes that the containing route is neither promoted nor live; zero matching store consumers alone are insufficient."
         ]
       },
       "evidence_paths": [
-        "workflows/examples/same_file_record_call_binding.orc"
+        "workflows/examples/same_file_record_call_binding.orc",
+        "docs/plans/2026-07-16-same-file-build-checks-identity-retirement-plan.md",
+        "docs/workflow_lisp_route_readiness_registry.json"
       ]
     },
     {
@@ -3090,8 +3092,8 @@
     "actionable_internal_calls": {
       "total": 95,
       "by_classification": {
-        "procedure-candidate": 30,
-        "effect-adapter": 27,
+        "procedure-candidate": 29,
+        "effect-adapter": 28,
         "legacy-retire": 38,
         "public-boundary": 0
       }

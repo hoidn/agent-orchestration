@@ -13,8 +13,8 @@ remaining 95 active internal calls classify as:
 
 | Classification | Sites | Meaning |
 | --- | ---: | --- |
-| `procedure-candidate` | 30 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
-| `effect-adapter` | 27 | Calls retained until effect, identity, artifact, publication, source-map, child-call, state-consumer, and resume obligations are proven. |
+| `procedure-candidate` | 29 | Internal Workflow Lisp reuse eligible for typed procedure migration with family parity. |
+| `effect-adapter` | 28 | Calls retained until effect, identity, artifact, publication, source-map, child-call, state-consumer, live-route, and resume obligations are proven. |
 | `legacy-retire` | 38 | Compatibility, legacy, or example-only calls that retire with their family instead of being translated. |
 | `public-boundary` | 0 | Public entries are recorded separately; they are not internal call sites. |
 
@@ -41,6 +41,7 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | --- | --- | ---: |
 | `effect-adapter` | `workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml` | 2 |
 | `effect-adapter` | `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | 2 |
+| `effect-adapter` | `workflows/examples/same_file_record_call_binding.orc` | 1 |
 | `effect-adapter` | `workflows/examples/lisp_frontend_autonomous_drain.yaml` | 4 |
 | `effect-adapter` | `workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml` | 1 |
 | `effect-adapter` | `workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml` | 3 |
@@ -70,7 +71,6 @@ invocation registrations. Schema v2 keeps only current-source rows in
 | `legacy-retire` | `workflows/library/revision_study_design_plan_impl_stack.yaml` | 3 |
 | `legacy-retire` | `workflows/library/revision_study_priority_design_plan_impl_stack.yaml` | 1 |
 | `legacy-retire` | `workflows/library/seeded_design_plan_impl_stack.yaml` | 1 |
-| `procedure-candidate` | `workflows/examples/same_file_record_call_binding.orc` | 1 |
 | `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/design_gap_architect.orc` | 4 |
 | `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/drain.orc` | 1 |
 | `procedure-candidate` | `workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc` | 3 |
@@ -135,6 +135,12 @@ consumers under the generic scanner. Their content-addressed replay evidence is
 `docs/plans/evidence/procedure-first-migration-waves/tracked-design-phase/eligibility_stop.json`
 and
 `docs/plans/evidence/procedure-first-migration-waves/design-plan-impl-implementation-phase/eligibility_stop.json`.
+A third `.orc` row, `same_file_record_call_binding.orc`, is retained because
+its containing route is active `wcc_default`, `leaf_runtime_candidate`, and
+`preferred_current_guidance`. The governing identity design requires strict
+compatibility for that live/current route even though the complete
+hypothetical retired-identity query found no known store consumer. See
+`docs/plans/2026-07-16-same-file-build-checks-identity-retirement-plan.md`.
 A Stage 5 family audit may
 reclassify a row when current tests prove that ordinary landed `defproc`
 composition already covers its actual effects. Classification labels alone do

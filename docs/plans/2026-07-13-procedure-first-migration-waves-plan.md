@@ -14,19 +14,23 @@
 
 **Status:** Current selector (activated 2026-07-16). Task 1's post-hardening
 rebaseline is complete at `4983afff` with its narrative correction at
-`fa16bcf0`. **Current sub-selector: Task 2 Step 3,
-`same_file_record_call_binding.orc`.** Task 2 Steps 1 and 2 each reached a
-bounded fail-closed identity-retirement stop:
+`fa16bcf0`. **Current sub-selector: Task 2 Step 4, the small-example
+integration gates.** Task 2 Steps 1 and 2 each reached a bounded fail-closed
+identity-retirement stop:
 `docs/plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md`
 records 26 supported old-identity consumers for `tracked-design-phase`, and
 `docs/plans/2026-07-16-design-plan-impl-implementation-phase-identity-retirement-plan.md`
-records 24 for `design-plan-impl-implementation-phase`. Both callees remain
-workflows and both inventory rows are now `effect-adapter`. This is not a new
+records 24 for `design-plan-impl-implementation-phase`. Step 3 reached the
+stricter route-eligibility stop recorded in
+`docs/plans/2026-07-16-same-file-build-checks-identity-retirement-plan.md`:
+the containing route is active `wcc_default`, `leaf_runtime_candidate`, and
+`preferred_current_guidance`, so strict compatibility is mandatory. All three
+callees remain workflows and all three inventory rows are now `effect-adapter`. This is not a new
 design or a reordering of the remaining Task 2 work or Tasks 3-8. The prerequisite
 `docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
 completed at `fdf1e06b` with fresh focused acceptance evidence, a deterministic
 public CLI smoke, broad baseline equivalence, and independent specification and
-quality reviews. No Task 2 family migration is complete, and no later task is
+quality reviews. No Task 2 source migration occurred, and no later task is
 activated or reordered by this status transition.
 
 - Accepted contract: `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
@@ -86,12 +90,12 @@ must be a subset of the active task's `Files` list. Never stage, restore, or
 rewrite a protected path. Record its initial `git status --short` output only
 as a guard baseline; user changes to those paths are not plan failures.
 
-## Current queue after Task 2 Step 2
+## Current queue after Task 2 Step 3
 
 | Class | Count | Disposition |
 | --- | ---: | --- |
-| `procedure-candidate` | 30 | Migrate by `.orc` family after parity. |
-| `effect-adapter` | 27 | Reclassify only after effect, identity, artifact/publication, source-map, child-call, checkpoint, state-consumer, and resume evidence. |
+| `procedure-candidate` | 29 | Migrate by `.orc` family after parity. |
+| `effect-adapter` | 28 | Reclassify only after effect, identity, artifact/publication, source-map, child-call, checkpoint, state-consumer, live-route, and resume evidence. |
 | `legacy-retire` | 38 | Do not translate; coordinate with Stage 6 after replacement evidence. |
 | `public-boundary` | 3 separate entries | Preserve as workflows and negative regression coverage. |
 
@@ -262,30 +266,22 @@ source remains byte-unchanged and the active row is retained as
 `effect-adapter`. No source migration commit or run is permitted by that
 decision. Step 3 is now selected.
 
-- [ ] **Step 3: Migrate and review `same_file_record_call_binding.orc`**
+- [x] **Step 3: Resolve `same_file_record_call_binding.orc` without an ineligible migration**
 
-Convert only the internal `build-checks` callee and its call to an inline procedure. Retain its existing exported workflow entry. Add output/effect/source-map assertions to `test_same_file_record_call_binding_orc_compiles_with_shared_validation`.
+The exact hypothetical `defproc :lowering inline` plus positional-call
+conversion compiles, preserves the public contract, and has no matching
+consumer in either known retained store. Those diagnostics do not make the
+retirement eligible: the route registry identifies the containing source as
+active `wcc_default`, `leaf_runtime_candidate`, and
+`preferred_current_guidance`. The governing identity-compatibility design
+requires `strict_compatibility` for a promoted or live route, while the
+hypothetical conversion changes compiler-owned internal identities.
 
-Add
-`test_same_file_record_call_binding_public_wrapper_runtime_after_procedure_migration`
-to `tests/test_workflow_lisp_procedure_first_migrations.py`. Execute the
-exported wrapper with the deterministic `run_checks` command double and assert
-the same typed `WorkflowOutput`, command artifact, caller-visible command
-effect, and public entry identity as the pre-migration baseline.
-
-```bash
-pytest -q tests/test_workflow_lisp_examples.py tests/test_workflow_lisp_procedure_first_migrations.py -k 'same_file_record_call_binding'
-python -m orchestrator compile workflows/examples/same_file_record_call_binding.orc --entry-workflow run-same-file-record-call-binding --command-boundaries-file tests/fixtures/workflow_lisp/cli/commands.json
-python -m orchestrator run workflows/examples/same_file_record_call_binding.orc --entry-workflow run-same-file-record-call-binding --command-boundaries-file tests/fixtures/workflow_lisp/cli/commands.json --input report_path=artifacts/work/defproc_procedural_substrate_execution_report.md --dry-run
-```
-
-Expected: compile and dry-run exit 0 through the source's exported
-`run-same-file-record-call-binding` entry and shared command-contract
-validation.
-
-Commit this source/tests slice as
-`Migrate same-file record helper to a procedure`, then obtain independent
-specification and quality PASS before continuing.
+`docs/plans/2026-07-16-same-file-build-checks-identity-retirement-plan.md`
+therefore closes the step by fail-closed eligibility stop. The source remains
+byte-unchanged, `build-checks` remains a workflow, its call remains explicit,
+no run or owner gate was created, and its active inventory row is retained as
+`effect-adapter`. Step 4 is now selected.
 
 - [ ] **Step 4: Rerun design-plan runtime/parity and example route readiness**
 
@@ -294,31 +290,31 @@ pytest -q tests/test_workflow_lisp_key_migrations.py tests/test_workflow_lisp_mi
 pytest -q tests/test_workflow_lisp_examples.py tests/test_workflow_lisp_route_readiness.py -k 'same_file_record_call_binding or design_plan_impl_review_stack'
 ```
 
-- [ ] **Step 5: Record the migration and retained Steps 1-2 dispositions**
+- [ ] **Step 5: Record the retained Steps 1-3 dispositions**
 
 The pilot record is already in v2 history. Keep the Step 1
 `tracked-design-phase` and Step 2 `design-plan-impl-implementation-phase`
-calls active as `effect-adapter` with their eligibility-stop evidence. Move
-only the newly completed same-file example call record from active `records`
-to append-only `history` with `disposition: migrated`, its completion commit,
-and evidence selectors. Recompute active counts and history counts, retain the
-design-stack `public-entry` negative as an active record, and keep the
-same-file exported wrapper protected by its behavioral negative test.
+calls active as `effect-adapter` with their eligibility-stop evidence. Keep
+the Step 3 `build-checks` call active as `effect-adapter` with its live-route
+strict-compatibility decision. No Task 2 row moves to history because no
+source migration occurred. Recompute active counts, retain the design-stack
+`public-entry` negative as an active record, and verify the same-file exported
+wrapper remains a workflow boundary.
 
 ```bash
 python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >/dev/null
 git diff --check -- docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json
 ```
 
-- [ ] **Step 6: Commit the reviewed inventory evidence**
+- [ ] **Step 6: Commit the reviewed inventory and routing evidence**
 
 ```bash
 git add docs/plans/2026-07-13-procedure-first-reuse-inventory.json docs/plans/2026-07-13-procedure-first-reuse-inventory.md workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json
-git commit -m "Record example procedure migration evidence"
+git commit -m "Retain same-file helper on live route"
 ```
 
 Stage only files that changed. Obtain specification and quality PASS on the
-v2 history/count reconciliation before starting Task 3.
+v2 active/history count reconciliation before starting Task 3.
 
 ### Task 3: Migrate The Design Delta Library And Stdlib Adapters
 
