@@ -235,6 +235,7 @@ git commit -m "feat: warn on fresh YAML workflow loads"
 - Modify: `orchestrator/cli/commands/report.py`
 - Modify: `orchestrator/dashboard/projection.py`
 - Modify: `orchestrator/workflow_lisp/build.py`
+- Modify: `orchestrator/workflow_lisp/build_manifest_io.py`
 - Modify: `tests/test_resume_command.py`
 - Modify: `tests/test_cli_report_command.py`
 - Modify: `tests/test_dashboard_projection.py`
@@ -282,6 +283,9 @@ construction site in resume, report, and dashboard projection.
 Add `emit_yaml_deprecation_warning: bool = True` to `FrontendBuildRequest` and
 forward it only to the loader used by explicit YAML bundle dependencies.
 Persisted `.orc` resume passes `False`; fresh build callers retain the default.
+Request normalization must preserve the policy without adding it to any
+identity or persisted payload; `build_frontend_bundle()` consumes the normalized
+request rather than bypassing normalization through the caller-owned object.
 Prove the policy is absent from build fingerprints, manifests, bundle identity,
 semantic/executable IR, and persisted state. Do not change fresh `run.py` or
 direct loader defaults.
@@ -307,7 +311,7 @@ validation or conceal load failures.
 
 - [ ] **Step 6: Commit the reviewed persisted suppression**
 
-Stage exactly the nine Task-2 paths, then run:
+Stage exactly the ten Task-2 paths, then run:
 
 ```bash
 EXPECTED="$(printf '%s\n' \
@@ -315,6 +319,7 @@ EXPECTED="$(printf '%s\n' \
   orchestrator/cli/commands/resume.py \
   orchestrator/dashboard/projection.py \
   orchestrator/workflow_lisp/build.py \
+  orchestrator/workflow_lisp/build_manifest_io.py \
   tests/test_cli_report_command.py \
   tests/test_dashboard_projection.py \
   tests/test_resume_command.py \
