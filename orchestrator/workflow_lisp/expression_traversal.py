@@ -140,7 +140,12 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
     if isinstance(expr, LetProcExpr):
         return (expr.binding.local_body, expr.body)
     if isinstance(expr, ProviderResultExpr):
-        return (expr.provider, expr.prompt) + expr.inputs
+        children = [expr.provider, expr.prompt, *expr.inputs]
+        if expr.model is not None:
+            children.append(expr.model)
+        if expr.effort is not None:
+            children.append(expr.effort)
+        return tuple(children)
     if isinstance(expr, ProviderBundlePathExpr):
         return (expr.source_expr,)
     if isinstance(expr, CommandResultExpr):

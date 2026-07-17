@@ -525,6 +525,16 @@ def _normalize_expr(
                 _normalize_expr(arg, typed_functions_by_name=typed_functions_by_name)
                 for arg in expr.inputs
             ),
+            model=(
+                _normalize_expr(expr.model, typed_functions_by_name=typed_functions_by_name)
+                if expr.model is not None
+                else None
+            ),
+            effort=(
+                _normalize_expr(expr.effort, typed_functions_by_name=typed_functions_by_name)
+                if expr.effort is not None
+                else None
+            ),
         )
     if isinstance(expr, WithPhaseExpr):
         return replace(

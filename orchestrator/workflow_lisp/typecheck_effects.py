@@ -13,6 +13,7 @@ from .expressions import (
     CommandResultExpr,
     EnumMemberExpr,
     ExprNode,
+    FieldAccessExpr,
     LiteralExpr,
     NameExpr,
     ProviderBundlePathExpr,
@@ -307,6 +308,67 @@ def typecheck_provider_result_expr(
             form_path=expr.prompt.form_path,
             expansion_stack=expr.prompt.expansion_stack,
         )
+    policy_summaries = []
+    for field_name, policy_expr in (("model", expr.model), ("effort", expr.effort)):
+        if policy_expr is None:
+            continue
+        typed_policy = recurse(policy_expr)
+        if typed_policy.type_ref != PrimitiveTypeRef(name="String"):
+            raise_error(
+                f"`provider-result :{field_name}` must have type `String`",
+                code=f"provider_result_{field_name}_type_invalid",
+                span=policy_expr.span,
+                form_path=policy_expr.form_path,
+                expansion_stack=policy_expr.expansion_stack,
+            )
+        if (
+            not isinstance(policy_expr, (LiteralExpr, NameExpr, FieldAccessExpr))
+            or typed_policy.effect_summary.direct_effects
+            or typed_policy.effect_summary.transitive_effects
+        ):
+            raise_error(
+                f"`provider-result :{field_name}` must use an inline-lowerable String operand",
+                code="provider_result_policy_operand_not_inline_lowerable",
+                span=policy_expr.span,
+                form_path=policy_expr.form_path,
+                expansion_stack=policy_expr.expansion_stack,
+            )
+        policy_summaries.append(typed_policy.effect_summary)
+    if expr.timeout_sec is not None:
+        typed_timeout = recurse(expr.timeout_sec)
+        if not isinstance(expr.timeout_sec, LiteralExpr):
+            raise_error(
+                "`provider-result :timeout-sec` requires an integer literal",
+                code="provider_result_timeout_literal_required",
+                span=expr.timeout_sec.span,
+                form_path=expr.timeout_sec.form_path,
+                expansion_stack=expr.timeout_sec.expansion_stack,
+            )
+        if typed_timeout.type_ref != PrimitiveTypeRef(name="Int"):
+            raise_error(
+                "`provider-result :timeout-sec` literal must have type `Int`",
+                code="provider_result_timeout_type_invalid",
+                span=expr.timeout_sec.span,
+                form_path=expr.timeout_sec.form_path,
+                expansion_stack=expr.timeout_sec.expansion_stack,
+            )
+        if not isinstance(expr.timeout_sec.value, int) or isinstance(expr.timeout_sec.value, bool):
+            raise_error(
+                "`provider-result :timeout-sec` literal must have type `Int`",
+                code="provider_result_timeout_type_invalid",
+                span=expr.timeout_sec.span,
+                form_path=expr.timeout_sec.form_path,
+                expansion_stack=expr.timeout_sec.expansion_stack,
+            )
+        if expr.timeout_sec.value <= 0:
+            raise_error(
+                "`provider-result :timeout-sec` must be greater than zero",
+                code="provider_result_timeout_nonpositive",
+                span=expr.timeout_sec.span,
+                form_path=expr.timeout_sec.form_path,
+                expansion_stack=expr.timeout_sec.expansion_stack,
+            )
+        policy_summaries.append(typed_timeout.effect_summary)
     input_summaries = []
     for input_expr in expr.inputs:
         typed_input = recurse(input_expr)
@@ -321,6 +383,7 @@ def typecheck_provider_result_expr(
         effect=merge_effect_summaries(
             typed_provider.effect_summary,
             typed_prompt.effect_summary,
+            *policy_summaries,
             *input_summaries,
             provider_summary,
         ),

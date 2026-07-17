@@ -473,22 +473,33 @@ def _apply_hygiene(
         )
     if head_name == "provider-result":
         updated = list(datum.items)
-        for index in (1, 3):
-            if index < len(updated):
-                updated[index] = _apply_hygiene(
-                    updated[index],
+        if len(updated) > 1:
+            updated[1] = _apply_hygiene(
+                updated[1],
+                macro_name=macro_name,
+                expansion_id=expansion_id,
+                env=active_env,
+            )
+        for index in range(2, len(updated) - 1, 2):
+            keyword = updated[index]
+            if not isinstance(keyword, SyntaxKeyword):
+                continue
+            value_index = index + 1
+            if keyword.value in {":prompt", ":model", ":effort"}:
+                updated[value_index] = _apply_hygiene(
+                    updated[value_index],
                     macro_name=macro_name,
                     expansion_id=expansion_id,
                     env=active_env,
                 )
-        if len(updated) > 5 and isinstance(updated[5], SyntaxList):
-            updated[5] = replace(
-                updated[5],
-                items=tuple(
-                    _apply_hygiene(item, macro_name=macro_name, expansion_id=expansion_id, env=active_env)
-                    for item in updated[5].items
-                ),
-            )
+            elif keyword.value == ":inputs" and isinstance(updated[value_index], SyntaxList):
+                updated[value_index] = replace(
+                    updated[value_index],
+                    items=tuple(
+                        _apply_hygiene(item, macro_name=macro_name, expansion_id=expansion_id, env=active_env)
+                        for item in updated[value_index].items
+                    ),
+                )
         return replace(datum, items=tuple(updated))
     if head_name == "command-result":
         updated = list(datum.items)

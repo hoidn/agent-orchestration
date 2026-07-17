@@ -28,7 +28,7 @@ tmux.
 `docs/plans/2026-07-17-workflow-lisp-provider-call-policy-design.md` at commit
 `069b8e79`.
 
-**Execution status:** Task 1 complete; Task 2 is next. This plan is a living, reviewed execution
+**Execution status:** Task 2 complete; Task 3 is next. This plan is a living, reviewed execution
 artifact: every task updates its own completed checkboxes and the status line above,
 stages this file with that task's code/tests, and commits the plan update in the same
 task commit. A task may mark its implementation/test steps complete before review;
@@ -344,7 +344,7 @@ or claim design closure before that point.
 - Modify: `orchestrator/workflow_lisp/functions.py`
 - Modify: `tests/test_workflow_lisp_provider_call_policy.py`
 
-- [ ] **Step 1: Write red parser and AST tests**
+- [x] **Step 1: Write red parser and AST tests**
 
   Cover each keyword alone, all three in multiple orders, present-versus-absent
   fields, authored value spans, missing values, duplicate keywords, and an unknown
@@ -359,14 +359,14 @@ or claim design closure before that point.
 
   Expected: FAIL because the fields and allowlist do not exist.
 
-- [ ] **Step 2: Add optional AST fields with omission metadata**
+- [x] **Step 2: Add optional AST fields with omission metadata**
 
   Add `model`, `effort`, and `timeout_sec` to `ProviderResultExpr`. Use
   `json_omit_if_none` metadata so absent fields do not alter public typed-AST bytes.
   Elaborate each present value through the existing expression elaborator and keep
   the timeout as its authored literal node.
 
-- [ ] **Step 3: Add red exact typing and value-domain tests**
+- [x] **Step 3: Add red exact typing and value-domain tests**
 
   Accept String literal, workflow input, procedure parameter, lexical name, and
   field projection model/effort operands. Typecheck before checking source shape or
@@ -396,7 +396,7 @@ or claim design closure before that point.
 
   Expected: FAIL with missing policy type rules.
 
-- [ ] **Step 4: Implement minimal type/effect checks**
+- [x] **Step 4: Implement minimal type/effect checks**
 
   Recurse through each present operand once. First require exactly
   `PrimitiveTypeRef("String")` and emit the field-specific type diagnostic on
@@ -409,7 +409,7 @@ or claim design closure before that point.
   provider-result summary. Validate timeout literal kind/type/positivity at compile
   time; do not add a runtime timeout parser.
 
-- [ ] **Step 5: Add red traversal, macro, and normalization tests**
+- [x] **Step 5: Add red traversal, macro, and normalization tests**
 
   Require `iter_child_exprs`, `walk_expr`, function normalization, and macro hygiene
   to preserve model/effort independently of keyword order. Require the timeout node
@@ -424,7 +424,7 @@ or claim design closure before that point.
 
   Expected: FAIL before the walkers are updated.
 
-- [ ] **Step 6: Update shared traversal and keyword-aware rewrites**
+- [x] **Step 6: Update shared traversal and keyword-aware rewrites**
 
   Append only present model/effort operands to provider-result children. Normalize
   them through the existing expression normalizer. In macro hygiene, locate keyword
@@ -432,7 +432,7 @@ or claim design closure before that point.
   than by fixed indices; do not rewrite the type-bearing return declaration or
   literal timeout into a value expression.
 
-- [ ] **Step 7: Run the complete Task 2 selector**
+- [x] **Step 7: Run the complete Task 2 selector**
 
   ```bash
   pytest -q \
@@ -445,7 +445,7 @@ or claim design closure before that point.
 
   Expected: PASS.
 
-- [ ] **Step 8: Re-run the keyword-free byte golden**
+- [x] **Step 8: Re-run the keyword-free byte golden**
 
   ```bash
   pytest -q tests/test_workflow_lisp_provider_call_policy.py::test_keyword_free_provider_result_matches_pre_feature_golden_bytes
@@ -453,7 +453,7 @@ or claim design closure before that point.
 
   Expected: PASS byte-for-byte; do not update the golden after production changes.
 
-- [ ] **Step 9: Review and commit**
+- [x] **Step 9: Review and commit**
 
   Check the completed Task 2 boxes and update **Execution status**. Stage this plan,
   the five production files, and the focused test file; run both reviews and the

@@ -358,6 +358,18 @@ class ProviderResultExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    model: "ExprNode | None" = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    effort: "ExprNode | None" = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    timeout_sec: "ExprNode | None" = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
     return_spec: ReturnSpec | None = field(
         default=None,
         repr=False,
@@ -2456,6 +2468,28 @@ def _elaborate_provider_result(
         procedure_names=procedure_names,
     )
     sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`provider-result`")
+    allowed_sections = {
+        ":prompt",
+        ":inputs",
+        ":returns",
+        ":model",
+        ":effort",
+        ":timeout-sec",
+    }
+    invalid_section = next((name for name in sections if name not in allowed_sections), None)
+    if invalid_section is not None:
+        keyword_node = next(
+            item
+            for item in datum.items[2::2]
+            if isinstance(item, SyntaxKeyword) and item.value == invalid_section
+        )
+        _raise_error(
+            f"`provider-result` does not accept keyword `{invalid_section}`",
+            code="provider_result_keyword_invalid",
+            span=keyword_node.span,
+            form_path=form_path,
+            expansion_stack=keyword_node.expansion_stack,
+        )
     prompt_node = sections.get(":prompt")
     inputs_node = sections.get(":inputs")
     returns_node = sections.get(":returns")
@@ -2499,6 +2533,44 @@ def _elaborate_provider_result(
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
+        model=(
+            _elaborate(
+                sections[":model"],
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            )
+            if ":model" in sections
+            else None
+        ),
+        effort=(
+            _elaborate(
+                sections[":effort"],
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            )
+            if ":effort" in sections
+            else None
+        ),
+        timeout_sec=(
+            LiteralExpr(
+                value=sections[":timeout-sec"].value,
+                literal_kind="float",
+                span=sections[":timeout-sec"].span,
+                form_path=form_path,
+                expansion_stack=sections[":timeout-sec"].expansion_stack,
+            )
+            if isinstance(sections.get(":timeout-sec"), SyntaxFloat)
+            else _elaborate(
+                sections[":timeout-sec"],
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            )
+            if ":timeout-sec" in sections
+            else None
+        ),
         return_spec=return_spec,
     )
 
