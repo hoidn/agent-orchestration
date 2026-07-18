@@ -655,6 +655,7 @@ python -m orchestrator migration-parity --targets-file workflows/examples/inputs
 - Modify: `docs/workflow_lisp_route_readiness_registry.json`
 - Modify: `tests/test_workflow_lisp_route_readiness.py`
 - Modify: `tests/test_workflow_lisp_generic_run_watchdog.py`
+- Modify: `tests/test_workflow_lisp_migration_parity.py`
 - Modify: `workflows/README.md`
 - Modify: `docs/capability_status_matrix.md`
 - Modify: `docs/index.md`
@@ -669,33 +670,59 @@ python -m orchestrator migration-parity --targets-file workflows/examples/inputs
 
 - `tests/test_workflow_lisp_route_readiness.py::test_watchdog_route_is_promotion_eligible_and_parity_constrained`
 - `tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_post_promotion_both_branch_smoke_is_fresh`
+- `tests/test_workflow_lisp_migration_parity.py::test_checked_in_watchdog_parity_target_has_complete_promoted_contract`
 - `tests/test_yaml_deprecation_surface.py::test_watchdog_catalog_routes_new_launches_to_orc_and_retains_yaml_compatibility`
 
-- [ ] Add the tests and run RED against candidate readiness/catalog state.
+**Post-review scope correction:** Task 8 introduced a complete candidate-state
+manifest contract in `tests/test_workflow_lisp_migration_parity.py`. Promotion
+changes the same manifest interface, so Task 9 owns the corresponding promoted-
+state assertion. Leaving the candidate assertion outside Task 9 would make the
+repository inconsistent even when the narrower promotion selectors pass.
+
+- [ ] Add the three new promotion tests and run RED against candidate
+  readiness/catalog state.
 
 ```bash
 pytest -q tests/test_workflow_lisp_route_readiness.py::test_watchdog_route_is_promotion_eligible_and_parity_constrained tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_post_promotion_both_branch_smoke_is_fresh tests/test_yaml_deprecation_surface.py::test_watchdog_catalog_routes_new_launches_to_orc_and_retains_yaml_compatibility
 ```
 
   Expected RED: exit 1 because candidate readiness/catalog still retain YAML as
-  primary; Task-8 candidate parity remains green.
-- [ ] Flip target eligibility true and remove its blocked reason. Set exact final
-  registry tuple `route_label=wcc_default`,
+  primary; Task-8 runtime parity remains green.
+- [ ] Flip target eligibility true and remove its blocked reason. Set the exact
+  final registry tuple `route_label=wcc_default`,
   `readiness_label=promotion_eligible`, `lowering_route=wcc_m4`,
   `lowering_schema_version=2`, `copy_safety=preferred_current_guidance`, and
-  `parity_constrained=true`; validate agreement, generate the strict final
-  report, then change only catalog/docs routing:
+  `parity_constrained=true`; validate target/registry agreement.
+- [ ] Run the retained Task-8 candidate-state contract after the promotion flip
+  and require RED before updating it to the owned promoted-state contract:
 
 ```bash
+pytest -q tests/test_workflow_lisp_migration_parity.py::test_checked_in_watchdog_parity_target_has_complete_candidate_contract
+```
+
+  Expected RED: exit 1 because the retained assertion still requires candidate
+  eligibility and the obsolete blocker. Rename it to the owned promoted-
+  contract node and preserve all other complete-contract checks.
+- [ ] Generate both reports only after the shared bound identity is final:
+
+```bash
+python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final
 python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final --target generic_run_watchdog --require-promotable
+python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final
 python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final --target verified_iteration_drain --require-promotable
 ```
 
-- [ ] Close only watchdog family gates and retain its YAML source.
+  The unfiltered commands are mandatory aggregate bootstraps: a fresh output
+  root has no admissible reports for unselected families, and a shared-manifest
+  change invalidates every preserved target identity before the strict selected-
+  family gate is meaningful.
+
+- [ ] Route the catalog/documented CLI to `.orc`, close only watchdog family
+  gates, and retain its YAML source.
 - [ ] Run and require GREEN:
 
 ```bash
-pytest -q tests/test_workflow_lisp_generic_run_watchdog.py tests/test_workflow_lisp_route_readiness.py -k 'watchdog or current_parity_targets_and_checked_in_registry_agree'
+pytest -q tests/test_workflow_lisp_generic_run_watchdog.py tests/test_workflow_lisp_migration_parity.py tests/test_workflow_lisp_route_readiness.py -k 'watchdog or current_parity_targets_and_checked_in_registry_agree'
 pytest -q tests/test_workflow_yaml_orc_gap_list.py tests/test_workflow_lisp_drain_roadmap_routing.py tests/test_yaml_deprecation_surface.py -k 'watchdog or task_5 or author_routing'
 python -m orchestrator workflow-lisp-route-readiness --check
 python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final --target generic_run_watchdog --require-promotable
@@ -705,7 +732,7 @@ python -m orchestrator migration-parity --targets-file workflows/examples/inputs
   Rerun both strict parity commands after any bound manifest/registry edit.
   Both are mandatory because the shared edit invalidates the prior verified
   report as well as the watchdog candidate report.
-- [ ] Complete ordered reviews and commit only the twelve tracked files.
+- [ ] Complete ordered reviews and commit only the thirteen tracked files.
 
 ## Task 10: Close Roadmap Task 5 And Hand Off Both Deletion Gates
 
