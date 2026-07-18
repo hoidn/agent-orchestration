@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -103,6 +104,18 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def _write_runtime_bundle(
+    payload: dict[str, Any], *, semantic_output_rel: Path
+) -> None:
+    raw_path = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "").strip()
+    if not raw_path:
+        return
+    bundle_rel = _safe_relpath(raw_path)
+    if bundle_rel == semantic_output_rel:
+        return
+    _write_json(REPO_ROOT / bundle_rel, payload)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-id", required=True)
@@ -166,6 +179,7 @@ def main() -> int:
 
     watch = {
         "schema": "orchestrator_run_watch/v1",
+        "watch_bundle_path": output_rel.as_posix(),
         "target_run_id": run_id,
         "watch_status": watch_status,
         "repair_required": repair_required,
@@ -182,6 +196,17 @@ def main() -> int:
         "policy_path": policy_path,
     }
     _write_json(REPO_ROOT / output_rel, watch)
+    _write_runtime_bundle(
+        {
+            "watch_bundle_path": output_rel.as_posix(),
+            "watch_status": watch_status,
+            "repair_required": repair_required,
+            "recommended_recovery": recommended_recovery,
+            "evidence_bundle_path": evidence_path.relative_to(REPO_ROOT).as_posix(),
+            "repair_result_target_path": repair_result_target.as_posix(),
+        },
+        semantic_output_rel=output_rel,
+    )
     return 0
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -11,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 YAML_WORKFLOW = ROOT / "workflows/examples/generic_run_watchdog.yaml"
 ORC_WORKFLOW = ROOT / "workflows/library/generic_run_watchdog/watchdog.orc"
 PORT_DESIGN = ROOT / "docs/plans/2026-07-18-generic-run-watchdog-orc-port-design.md"
+MIGRATION_INPUTS = ROOT / "workflows/examples/inputs/workflow_lisp_migrations"
 
 
 def _table_after_heading(text: str, heading: str) -> list[dict[str, str]]:
@@ -253,3 +255,47 @@ def test_watchdog_port_design_closes_both_typed_branches() -> None:
     assert "explicitly deferred" in normalized
     assert "docs/backlog/active/2026 05 30 watchdog recovery status model.md" in normalized
     assert "no family specific compiler branch" in normalized
+
+
+def test_watchdog_extern_manifests_bind_existing_assets() -> None:
+    providers = json.loads(
+        (MIGRATION_INPUTS / "generic_run_watchdog.providers.json").read_text()
+    )
+    prompts = json.loads(
+        (MIGRATION_INPUTS / "generic_run_watchdog.prompts.json").read_text()
+    )
+    commands = json.loads(
+        (MIGRATION_INPUTS / "generic_run_watchdog.commands.json").read_text()
+    )
+
+    assert providers == {
+        "providers.repair.codex": "codex_unrestricted_workspace",
+        "providers.repair.claude": "claude_unrestricted_workspace",
+    }
+    assert prompts == {
+        "prompts.generic-run-watchdog.repair-run-failure": {
+            "input_file": (
+                "workflows/library/prompts/generic_run_watchdog/"
+                "repair_run_failure.md"
+            )
+        }
+    }
+    assert commands == {
+        "probe_orchestrator_run": {
+            "kind": "external_tool",
+            "stable_command": [
+                "python",
+                "workflows/library/scripts/probe_orchestrator_run.py",
+            ],
+        },
+        "publish_run_watchdog_result": {
+            "kind": "external_tool",
+            "stable_command": [
+                "python",
+                "workflows/library/scripts/publish_run_watchdog_result.py",
+            ],
+        },
+    }
+    for row in [*prompts.values(), *commands.values()]:
+        relpath = row.get("input_file") or row["stable_command"][1]
+        assert (ROOT / relpath).is_file()

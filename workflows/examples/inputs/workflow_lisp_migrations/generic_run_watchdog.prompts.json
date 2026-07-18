@@ -1,0 +1,5 @@
+{
+  "prompts.generic-run-watchdog.repair-run-failure": {
+    "input_file": "workflows/library/prompts/generic_run_watchdog/repair_run_failure.md"
+  }
+}

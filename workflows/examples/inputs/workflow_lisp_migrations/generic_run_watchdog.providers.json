@@ -1,0 +1,4 @@
+{
+  "providers.repair.codex": "codex_unrestricted_workspace",
+  "providers.repair.claude": "claude_unrestricted_workspace"
+}

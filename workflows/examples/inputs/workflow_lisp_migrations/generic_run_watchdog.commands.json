@@ -1,0 +1,16 @@
+{
+  "probe_orchestrator_run": {
+    "kind": "external_tool",
+    "stable_command": [
+      "python",
+      "workflows/library/scripts/probe_orchestrator_run.py"
+    ]
+  },
+  "publish_run_watchdog_result": {
+    "kind": "external_tool",
+    "stable_command": [
+      "python",
+      "workflows/library/scripts/publish_run_watchdog_result.py"
+    ]
+  }
+}
