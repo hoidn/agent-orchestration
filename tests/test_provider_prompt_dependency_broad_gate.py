@@ -15,6 +15,13 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER = REPO_ROOT / "scripts/provider_prompt_dependency_broad_gate.py"
+BROAD_BASELINE = (
+    REPO_ROOT
+    / "tests/baselines/workflow_lisp/provider_prompt_dependencies_broad_known_failures.json"
+)
+BASELINE_HELPER_MIGRATION_INVARIANT_SHA256 = (
+    "eba9b11a15ef5c42a10b05055a3835c342d9d71d6b7ab6662b6dcb75f3a71be4"
+)
 TASK10_OVERLAY_ELIGIBLE = [
     "tests/test_workflow_lisp_provider_prompt_dependencies_e2e.py",
     "tests/fixtures/workflow_lisp/provider_prompt_dependencies/mixed.orc",
@@ -1786,6 +1793,27 @@ def test_full_baseline_validator_rejects_independently_resealed_contract_tamper(
         gate.validate_baseline(baseline, repo_root=repo)
 
 
+def test_reviewed_baseline_helper_migration_changes_only_helper_and_record_digests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gate = _load_helper()
+    baseline = json.loads(BROAD_BASELINE.read_text(encoding="utf-8"))
+    invariant = {key: value for key, value in baseline.items() if key != "record_sha256"}
+    invariant["normalization"] = dict(invariant["normalization"])
+    invariant["normalization"]["helper_sha256"] = "__HELPER_SHA256__"
+
+    assert hashlib.sha256(_canonical(invariant)).hexdigest() == (
+        BASELINE_HELPER_MIGRATION_INVARIANT_SHA256
+    )
+    assert baseline["normalization"]["helper_sha256"] == hashlib.sha256(
+        HELPER.read_bytes()
+    ).hexdigest()
+    captured_interpreter = baseline["failure_rows"][0]["isolated_argv"][0]
+    with monkeypatch.context() as context:
+        context.setattr(gate.sys, "executable", captured_interpreter)
+        gate.validate_baseline(baseline, repo_root=REPO_ROOT)
+
+
 def test_baseline_builder_rejects_same_count_authority_failure_swap(
     replay_repo: Path,
 ) -> None:
@@ -2116,6 +2144,67 @@ def test_pytest_summary_totals_reconcile_explicit_zero_and_nonzero_xfail_xpass(
     mismatched = _write(tmp_path / "mismatched.log", summary.replace("failed", "passed", 1))
     with pytest.raises(gate.GateError, match="reconcile"):
         gate._authoritative_broad_totals(collection, mismatched, junit)
+
+
+@pytest.mark.parametrize(
+    ("summary", "normalized"),
+    [
+        (
+            "6 failed, 5762 passed, 17 skipped, 33 warnings in 64.79s\n",
+            "6 failed, 5762 passed, 17 skipped, 33 warnings in $TIME\n",
+        ),
+        (
+            "6 failed, 5762 passed, 17 skipped, 33 warnings in 64.79s (0:01:04)\n",
+            "6 failed, 5762 passed, 17 skipped, 33 warnings in $TIME\n",
+        ),
+        (
+            "6 failed, 5762 passed, 17 skipped, 33 warnings in 64.79s (100:59:59)\r\n",
+            "6 failed, 5762 passed, 17 skipped, 33 warnings in $TIME\r\n",
+        ),
+    ],
+)
+def test_pytest_elapsed_summary_accepts_seconds_and_optional_wall_clock_duration(
+    tmp_path: Path, summary: str, normalized: str
+) -> None:
+    gate = _load_helper()
+    log = _write(tmp_path / "broad.log", summary)
+
+    assert gate._pytest_summary_totals(log) == {
+        "tests": 5785,
+        "failures": 6,
+        "errors": 0,
+        "skipped": 17,
+        "passed": 5762,
+        "xfailed": 0,
+        "xpassed": 0,
+    }
+    assert gate.normalize_failure_text(summary, repo_root=tmp_path) == normalized
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        " (0:1:04)",
+        " (0:01:4)",
+        " (0:60:00)",
+        " (0:00:60)",
+        " (0:99:99)",
+        " (0:01:04) trailing",
+        " (0:01:04) ",
+        " ",
+        " trailing",
+    ],
+)
+def test_pytest_elapsed_summary_rejects_malformed_or_trailing_duration_text(
+    tmp_path: Path, suffix: str
+) -> None:
+    gate = _load_helper()
+    summary = f"6 failed, 5762 passed, 17 skipped in 64.79s{suffix}\n"
+    log = _write(tmp_path / "broad.log", summary)
+
+    with pytest.raises(gate.GateError, match="cannot derive pytest broad summary totals"):
+        gate._pytest_summary_totals(log)
+    assert gate.normalize_failure_text(summary, repo_root=tmp_path) == summary
 
 
 @pytest.mark.parametrize("tamper", ["unknown", "missing", "duplicate_pass", "duplicate_skip"])

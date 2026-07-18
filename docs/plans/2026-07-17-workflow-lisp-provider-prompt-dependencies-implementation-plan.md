@@ -633,14 +633,37 @@ the complete payload above; stable-signature SHA-256 covers canonical
 authority row during baseline construction.
 
 The baseline binds the normalizer schema and helper-file digest; Task 11 rejects
-helper drift. Task 1's ordered specification and quality reviewers approve the
-exact baseline, helper, tests, and capture bindings in their own immutable tree,
-and Task 1 commits that byte-identical tree before Task 2 may edit any frontend,
-compiler, IR, runtime, or other feature production path. The baseline is
-immutable afterward; later work never rewrites it to match an outcome. The
-capture may record the protected dirty paths and the separately owned
-YAML-deletion plan listed above, but every other dirty path must be absent or
-explicitly part of Task 1's reviewed subject.
+unreviewed helper drift. Task 1's ordered specification and quality reviewers
+approve the exact baseline, helper, tests, and capture bindings in their own
+immutable tree, and Task 1 commits that byte-identical tree before Task 2 may edit
+any frontend, compiler, IR, runtime, or other feature production path. One exact
+metadata-only migration is enumerated after Task 11 exposed that the helper did
+not accept pytest's valid optional long-duration `H:MM:SS` suffix. The same
+ordered repair reviews must approve the strict parser, its both-direction tests,
+this plan, and a baseline update that changes only
+`normalization.helper_sha256` plus the canonically derived `record_sha256`. The
+pre-migration baseline file SHA-256 is
+`3d71df6eb7777db7af96ec9271a259078aa307cfbd5da71d7c4a6bc96f6426d0`,
+record SHA-256 is
+`d6677f99da9ba471696cd2b47d38397881ec9a50eea69a56807d38a592df3b90`,
+and helper SHA-256 is
+`1473354e2c40829061fb281350d97e779117691d106c2a86cedbb485d9163ca7`.
+The reviewed migration target has baseline file SHA-256
+`c382f8f70264f1cdc9a31d2100009463b8e8b56a51fb41cd67a4cb5c6e1b82c6`,
+record SHA-256
+`ead6d7f11ad9b2222a376135ac5c03336b1685c107a39d4c117e89892a063058`,
+and helper SHA-256
+`b60c395e78dd757bd7bf1cb1eeac70428ba84195f3991443b91ec16e537a538c`.
+A canonical projection that omits `record_sha256` and replaces only the helper
+digest with the fixed `__HELPER_SHA256__` sentinel has SHA-256
+`eba9b11a15ef5c42a10b05055a3835c342d9d71d6b7ab6662b6dcb75f3a71be4`
+on both sides, proving that authorities, subject, capture, environment, totals,
+and all failure rows are byte-semantically unchanged. No raw evidence or outcome
+is regenerated or used to rewrite the baseline. After this one reviewed
+migration lands, the baseline is immutable again; later work never rewrites it
+to match an outcome. The capture may record the protected dirty paths and the
+separately owned YAML-deletion plan listed above, but every other dirty path must
+be absent or explicitly part of Task 1's reviewed subject.
 
 Every Task 11 or Task 13 broad run writes a temporary closed
 `workflow_broad_outcome.v1` containing the same subject-manifest,
@@ -2823,6 +2846,39 @@ recorded below predate retrospective production blockers. They are not completio
 evidence. After every repair lands with its ordered reviews, delete the current
 temporary capture, create a fresh subject from the new HEAD, and rerun Task 11
 from Step 1. The checkboxes are therefore reopened.
+
+The subsequent Task 11 capture at HEAD
+`21de86ceffd9a31262e86741871d75d279215e21` is also diagnostic evidence only.
+Its subject file SHA-256 was
+`569eb15d996456302a106c2ba59b90537470bb34feab6ef63c8b97e09e958be5`
+and its record SHA-256 was
+`691ba1dee449f5f03e3b59a8d3797b0046e03fb561afaf2121565dd33064e3b7`.
+Collection exited `0` with `5785` tests. The broad run exited `1` with `6`
+failed, `5762` passed, `17` skipped, `33` warnings, and the valid pytest summary
+duration `64.79s (0:01:04)`. `build-outcome` stopped fail-closed with `cannot
+derive pytest broad summary totals` because the helper accepted only a seconds
+duration at end of line. The generic parser repair accepts pytest's optional
+tightly formed parenthesized `H:MM:SS` suffix, normalizes the complete variable
+duration, and continues to reject malformed suffixes and trailing junk. Because
+the helper, its tests, and this plan changed after subject capture, the entire
+capture is invalidated. After this repair passes its ordered reviews and lands,
+Task 11 must delete the temporary capture, create a fresh subject from the new
+HEAD, and rerun Steps 1-4; every Task 11 checkbox remains reopened. Specification
+review `TASK11-DURATION-SPEC-FAIL-20260718-D73C9C0A-01` rejected the first repair
+candidate because it recorded the wrong full capture HEAD, allowed out-of-range
+minute/second fields and trailing whitespace, consumed LF/CRLF during
+normalization, and did not migrate the baseline's bound helper digest. The
+replacement candidate uses unbounded hour digits with `[0-5]\d` minute/second
+fields, a strict captured `\r?$` terminator that preserves line endings, and the
+one reviewed metadata-only baseline migration enumerated above.
+Specification review `TASK11-DURATION-SPEC-PASS-20260718-A61B42A7-01` accepted
+that corrected candidate. Functional-quality review
+`TASK11-DURATION-QUALITY-REJECT-20260718-A61B42A7-01` rejected the same tree
+because its new baseline-validation test launched the helper with a historical,
+machine-specific interpreter path from captured evidence. The replacement test
+calls the loaded validator directly and supplies the captured interpreter string
+only as contract data, so no executable at that historical path is required;
+the captured baseline remains byte-unchanged.
 
 - [ ] **Step 1: Run the complete focused tranche.**
 

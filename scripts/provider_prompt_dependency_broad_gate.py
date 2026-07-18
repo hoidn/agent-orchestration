@@ -59,7 +59,7 @@ _PYTEST_SESSION_ROOT = re.compile(
     r"|/(?:[^/\s'\"<>!=|&+*]+/)*pytest-of-[^/\s'\"<>!=|&+*]+/pytest-\d+)"
 )
 _ELAPSED = re.compile(
-    r"(?m)^(?P<prefix>\d+ (?:failed|passed|skipped|deselected|xfailed|xpassed|error|errors|warning|warnings)(?:, \d+ (?:failed|passed|skipped|deselected|xfailed|xpassed|error|errors|warning|warnings))* in )\d+(?:\.\d+)?s\s*$"
+    r"(?m)^(?P<prefix>\d+ (?:failed|passed|skipped|deselected|xfailed|xpassed|error|errors|warning|warnings)(?:, \d+ (?:failed|passed|skipped|deselected|xfailed|xpassed|error|errors|warning|warnings))* in )\d+(?:\.\d+)?s(?: \(\d+:[0-5]\d:[0-5]\d\))?(?P<line_ending>\r?)$"
 )
 _REPR_ADDR = re.compile(r"(?P<prefix><[^\s<][^\r\n]*?\bat )0x[0-9A-Fa-f]+(?=>)")
 
@@ -959,7 +959,9 @@ def load_exit_status(path: Path, *, expected_phase: str, expected_exit: int) -> 
 def normalize_failure_text(text: str, *, repo_root: Path) -> str:
     normalized = text.replace(repo_root.resolve().as_posix(), "$REPO")
     normalized = _PYTEST_SESSION_ROOT.sub("$PYTEST_TMP", normalized)
-    normalized = _ELAPSED.sub(lambda m: f"{m.group('prefix')}$TIME", normalized)
+    normalized = _ELAPSED.sub(
+        lambda m: f"{m.group('prefix')}$TIME{m.group('line_ending')}", normalized
+    )
     normalized = _REPR_ADDR.sub(lambda m: f"{m.group('prefix')}$ADDR", normalized)
     normalized = _LOGGING_LINE.sub(lambda m: f"{m.group('prefix')}$LINE", normalized)
     return normalized
