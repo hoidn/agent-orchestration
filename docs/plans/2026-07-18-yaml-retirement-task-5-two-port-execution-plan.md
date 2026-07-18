@@ -231,6 +231,7 @@ pytest -q tests/test_verified_iteration_drain.py
 - `tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_lowers_prepare_check_record_and_direct_summary_return`
 - `tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_projects_terminal_and_exhaustion_states`
 - `tests/test_verified_iteration_drain.py::test_record_typed_provider_values_are_authoritative_over_compatibility_files`
+- `tests/test_verified_iteration_drain.py::test_record_typed_skipped_review_preserves_no_change`
 - `tests/test_verified_iteration_drain.py::test_verified_command_adapters_write_runtime_and_compatibility_outputs`
 
 - [ ] Replace only the Task-1 absence assertion with the four Workflow Lisp
@@ -249,13 +250,22 @@ pytest -q tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_or
   Pass the typed verdict/review values to Record as its authoritative control
   inputs. Keep the matching token files, worker notes, findings, and blocked
   notes as semantic/YAML compatibility files; update prompt output instructions
-  without testing literal prose.
+  without testing literal prose. Represent a guard-skipped iteration review as
+  an orchestration-only typed `SKIPPED` outcome while keeping the provider's
+  accepted return values closed to `APPROVE|FINDINGS`.
 - [ ] Add the Record authority test and run it RED before adding direct typed
   value flags; contradictory compatibility tokens must not override typed
   provider values.
 
 ```bash
 pytest -q tests/test_verified_iteration_drain.py::test_record_typed_provider_values_are_authoritative_over_compatibility_files
+```
+
+- [ ] Add the skipped-review parity test and run it RED before introducing the
+  typed `SKIPPED` orchestration outcome.
+
+```bash
+pytest -q tests/test_verified_iteration_drain.py::test_record_typed_skipped_review_preserves_no_change
 ```
 
 - [ ] Change the dual-output adapter expectation to a Boolean runtime
@@ -273,7 +283,7 @@ pytest -q tests/test_verified_iteration_drain.py::test_verified_command_adapters
 
 ```bash
 pytest -q tests/test_workflow_lisp_verified_iteration_drain.py -k 'compiles_with_exact_public_contract or binds_provider_policy or lowers_prepare or projects_terminal'
-pytest -q tests/test_verified_iteration_drain.py::test_record_typed_provider_values_are_authoritative_over_compatibility_files tests/test_verified_iteration_drain.py::test_verified_command_adapters_write_runtime_and_compatibility_outputs
+pytest -q tests/test_verified_iteration_drain.py::test_record_typed_provider_values_are_authoritative_over_compatibility_files tests/test_verified_iteration_drain.py::test_record_typed_skipped_review_preserves_no_change tests/test_verified_iteration_drain.py::test_verified_command_adapters_write_runtime_and_compatibility_outputs
 pytest -q tests/test_verified_iteration_drain.py
 python -m orchestrator compile workflows/library/verified_iteration_drain/drain.orc --entry-workflow verified_iteration_drain/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.commands.json
 python -m orchestrator run workflows/library/verified_iteration_drain/drain.orc --entry-workflow verified_iteration_drain/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.commands.json --input target_design_path=docs/design/workflow_lisp_frontend_specification.md --input check_commands_path=workflows/examples/inputs/verified_iteration_drain/workflow_lisp_runtime_native_drain_authoring.checks.json --dry-run
