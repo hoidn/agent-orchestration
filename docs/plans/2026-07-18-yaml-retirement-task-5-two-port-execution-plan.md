@@ -218,6 +218,7 @@ pytest -q tests/test_verified_iteration_drain.py
 - Create: `workflows/library/verified_iteration_drain/drain.orc`
 - Modify: `tests/test_workflow_lisp_verified_iteration_drain.py`
 - Modify: `tests/test_verified_iteration_drain.py`
+- Modify: `workflows/library/scripts/prepare_verified_iteration.py`
 - Modify: `workflows/library/scripts/run_verified_iteration_checks.py`
 - Modify: `workflows/library/scripts/record_verified_iteration.py`
 - Modify: `workflows/library/prompts/verified_iteration_drain/work.md`
@@ -268,8 +269,9 @@ pytest -q tests/test_verified_iteration_drain.py::test_record_typed_provider_val
 pytest -q tests/test_verified_iteration_drain.py::test_record_typed_skipped_review_preserves_no_change
 ```
 
-- [ ] Change the dual-output adapter expectation to a Boolean runtime
-  `commits_landed` value and run it RED before changing the Check adapter.
+- [ ] Change the dual-output adapter expectation to include Prepare's runtime
+  `ledger_path` and a Boolean runtime `commits_landed` value. Run it RED before
+  changing the Prepare and Check adapters.
 
 ```bash
 pytest -q tests/test_verified_iteration_drain.py::test_verified_command_adapters_write_runtime_and_compatibility_outputs
@@ -278,7 +280,10 @@ pytest -q tests/test_verified_iteration_drain.py::test_verified_command_adapters
 - [ ] Use typed command results for prepare/check/record and return Record's
   summary relpath directly. The Check runtime bundle exposes `commits_landed`
   as `Bool` while its YAML compatibility artifact retains the legacy lowercase
-  string token.
+  string token. Prepare returns the existing ledger path it creates so dynamic
+  artifact-root selection never depends on pure-expression path concatenation;
+  the loop's non-escaping initial summary seed is a fixed valid path and every
+  successful terminal or exhausted outcome returns Record's selected-root path.
 - [ ] Run and require GREEN:
 
 ```bash
@@ -289,7 +294,7 @@ python -m orchestrator compile workflows/library/verified_iteration_drain/drain.
 python -m orchestrator run workflows/library/verified_iteration_drain/drain.orc --entry-workflow verified_iteration_drain/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.commands.json --input target_design_path=docs/design/workflow_lisp_frontend_specification.md --input check_commands_path=workflows/examples/inputs/verified_iteration_drain/workflow_lisp_runtime_native_drain_authoring.checks.json --dry-run
 ```
 
-- [ ] Complete ordered reviews and commit only the eight implementation paths
+- [ ] Complete ordered reviews and commit only the nine implementation paths
   listed above; commit this correctness amendment separately before refreezing
   the implementation review object.
 
