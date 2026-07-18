@@ -1438,6 +1438,85 @@ def test_nontruncated_candidate_does_not_add_debug_field(tmp_path: Path) -> None
     assert "debug" not in candidate
 
 
+@pytest.mark.parametrize(
+    ("failure_domain", "expected_reason", "expected_message"),
+    [
+        (
+            "prompt_completion",
+            "prompt_completion_failed",
+            "Provider prompt completion failed",
+        ),
+        (
+            "dependency_injection",
+            "invalid_injection_contract",
+            "Provider prompt composition failed",
+        ),
+    ],
+)
+def test_adjudicated_content_attempt_preserves_prompt_failure_domain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_domain: str,
+    expected_reason: str,
+    expected_message: str,
+) -> None:
+    (tmp_path / "context.txt").write_text("context", encoding="utf-8")
+    provider_called = tmp_path / "provider-called"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["depends_on"] = {
+        "required": ["context.txt"],
+        "inject": {"mode": "content"},
+    }
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        f"from pathlib import Path; Path({provider_called.as_posix()!r}).touch()",
+    ]
+    captured_errors: list[dict | None] = []
+
+    if failure_domain == "prompt_completion":
+        monkeypatch.setattr(
+            PromptComposer,
+            "apply_output_contract_prompt_suffix",
+            lambda *_args, **_kwargs: "\ud800",
+        )
+    else:
+        def _reject_dependency_injection(*_args, **_kwargs):
+            raise ValueError("INVALID_INJECTION_SENTINEL")
+
+        monkeypatch.setattr(
+            PromptComposer,
+            "apply_rendered_content_dependency",
+            _reject_dependency_injection,
+        )
+
+    def _capture_error(executor: WorkflowExecutor) -> None:
+        original = executor._compose_provider_attempt_for_step
+
+        def _compose(*args, **kwargs):
+            prompt, error, debug = original(*args, **kwargs)
+            captured_errors.append(error)
+            return prompt, error, debug
+
+        executor._compose_provider_attempt_for_step = _compose
+
+    state = _run(tmp_path, workflow, mutate_executor=_capture_error)
+
+    result = state["steps"]["Draft"]
+    candidate = result["adjudication"]["candidates"]["a"]
+    assert result["status"] == "failed"
+    assert candidate["candidate_status"] == "prompt_failed"
+    assert candidate["failure_type"] == "contract_violation"
+    assert candidate["failure_type"] != "candidate_failed"
+    assert candidate["failure_message"] == expected_message
+    assert len(captured_errors) == 1
+    assert captured_errors[0]["error"]["context"]["reason"] == expected_reason
+    assert not provider_called.exists()
+
+
 def test_retry_prompt_failure_does_not_retain_prior_attempt_injection_debug(tmp_path: Path) -> None:
     (tmp_path / "large-context.txt").write_text("x" * 300_000, encoding="utf-8")
     attempt_file = tmp_path / "candidate-content-attempts"

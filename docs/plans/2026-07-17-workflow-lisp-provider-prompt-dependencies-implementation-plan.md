@@ -2452,6 +2452,59 @@ kind/path and current `composed_prompt_hash`, while an explicitly authored varia
 ID remains unchanged across retries. The earlier quality verdict is superseded;
 the corrected integrated Task 9 tree still requires fresh ordered reviews.
 
+A retrospective review subsequently bound the committed Task 9 subject as commit
+`42839223d126b0070f2978c0f6da5696c6bda65e`, tree
+`61c39268e7855823cd927e33eb496172ebe97ea5`, and patch SHA-256
+`70e8427b7d90879f5d366a317d1bc9c305758ad176786464a926ab88c4ba25d5`.
+Specification verdict `TASK9-RETRO-SPEC-PASS-20260718-61C39268-01` found no
+functional specification issue. Functional-quality verdict
+`TASK9-RETRO-QUALITY-REJECT-20260718-61C39268-01` found that
+`compose_content_dependency_attempt` invoked its downstream final-prompt callback
+inside the executor's broad dependency-render exception domain. An `OSError`
+while writing typed prompt-input evidence, a later prompt-completion `ValueError`,
+or a strict UTF-8 encoding failure could therefore be falsely published as
+`invalid_injection_contract` / `render` dependency evidence. Focused TDD now
+places only the callback, its string-result check, and final UTF-8 encode behind
+a generic typed completion exception preserving the prior
+`TypeError`/`ValueError`/`OSError` catch domain. The executor handles that exception
+before dependency failures as `prompt_completion_failed`, without publishing a
+prompt-dependency record or event and without provider preparation or execution.
+A genuine dependency-injection `ValueError` remains in the dependency domain and
+still publishes the closed failure record.
+
+The historical verification sentence above also understated its already-committed
+subject: the five-module collection was `174`, not `173`, and the adjudicated
+runtime/resume tranche was `82`, not `81`. This repair adds one collected ordinary
+regression covering four completion-failure directions, so the first repair candidate
+collects `175` across those five modules and the ordinary prompt/injection tranche
+passes `87`, not the prior `86`; the modified module passes `76` and the adjacent
+prompting/adjudication/resume/evidence regression tranche passes `377`. Task 8's
+durability repair is present at `12899009`. Task 10 remains approved at commit
+`be8247ea` under `TASK10-SPEC-PASS-20260718-AC9F4728-02` and
+`TASK10-QUALITY-APPROVED-20260718-AC9F4728-02`; this Task 9 repair does not alter
+that contract. Task 11's previously captured subject and evidence are invalidated
+and remain reopened; they must be regenerated only after this correction receives
+fresh ordered reviews and lands.
+
+The first frozen repair candidate then failed specification review as
+`TASK9-FAILURE-REPAIR-SPEC-FAIL-20260718-CE0443FB-01`. The new typed completion
+exception was handled by the primary typed-evidence consumer, but the shared
+`_compose_provider_attempt_for_step` consumer used by adjudicated and other
+non-primary composition still caught only raw `TypeError` / `ValueError` dependency
+failures. A downstream strict-encoding completion error therefore escaped into
+adjudication as generic `candidate_failed`. Focused TDD reproduced that escape and
+retained the opposite-direction control: the shared consumer now catches
+`PromptCompletionError` before its existing dependency-error branch and returns
+`prompt_completion_failed`, while a genuine
+`apply_rendered_content_dependency` `ValueError` remains
+`invalid_injection_contract`. Both stop before provider execution and surface as
+the ordinary `contract_violation` candidate failure rather than `candidate_failed`.
+The failed frozen candidate is superseded and claims no approval. Fresh verification
+of the replacement records `177` collected five-module integration tests, `148`
+passes across both modified modules, and `307` adjacent
+prompting/resume/evidence/provider regressions; the adjudicated runtime/resume
+tranche is now `84`. Both ordered reviews must restart on the new exact subject.
+
 ```bash
 pytest --collect-only -q tests/test_prompt_contract_injection.py tests/test_injection_integration.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_resume.py tests/test_at72_provider_state_persistence.py
 pytest -q tests/test_prompt_contract_injection.py tests/test_injection_integration.py

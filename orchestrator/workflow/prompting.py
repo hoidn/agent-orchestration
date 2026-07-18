@@ -29,6 +29,10 @@ from .executor_runtime import RuntimeStepInput
 _RenderOwner = TypeVar("_RenderOwner")
 
 
+class PromptCompletionError(Exception):
+    """A failure after dependency injection while completing the final prompt."""
+
+
 @dataclass(frozen=True)
 class ContentDependencyAttemptComposition:
     """One attempt's render, final UTF-8 prompt, debug view, and owner result."""
@@ -211,10 +215,13 @@ class PromptComposer:
                 rendered,
                 position=position,
             )
-            final = finish_prompt(injected)
-            if not isinstance(final, str):
-                raise TypeError("finish_prompt must return a string")
-            return final.encode("utf-8", errors="strict")
+            try:
+                final = finish_prompt(injected)
+                if not isinstance(final, str):
+                    raise TypeError("finish_prompt must return a string")
+                return final.encode("utf-8", errors="strict")
+            except (TypeError, ValueError, OSError) as exc:
+                raise PromptCompletionError(str(exc)) from exc
 
         owner_result: Any = None
         if render_owner is None:

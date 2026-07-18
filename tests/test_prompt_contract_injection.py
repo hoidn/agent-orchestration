@@ -145,6 +145,34 @@ def _replace_typed_depends_on_value(
     )
 
 
+def _replace_typed_prompt_inputs(
+    executor: WorkflowExecutor,
+    typed_prompt_inputs: tuple[dict[str, object], ...],
+) -> None:
+    node_id, node = next(
+        (node_id, node)
+        for node_id, node in executor.executable_ir.nodes.items()
+        if getattr(
+            node.execution_config,
+            "compiler_prompt_dependency_contract",
+            None,
+        )
+        is not None
+    )
+    nodes = dict(executor.executable_ir.nodes)
+    nodes[node_id] = replace(
+        node,
+        execution_config=replace(
+            node.execution_config,
+            typed_prompt_inputs=typed_prompt_inputs,
+        ),
+    )
+    executor.executable_ir = replace(
+        executor.executable_ir,
+        nodes=MappingProxyType(nodes),
+    )
+
+
 def _install_typed_success_provider(
     executor: WorkflowExecutor,
     workspace: Path,
@@ -878,13 +906,13 @@ def test_typed_invalid_injection_contract_publishes_failure_before_preparation(
 ) -> None:
     executor, manager = _typed_dependency_runtime(tmp_path, "typed-invalid-injection")
 
-    def _reject_composition(**_kwargs):
+    def _reject_injection(*_args, **_kwargs):
         raise ValueError("INVALID_INJECTION_SENTINEL")
 
     monkeypatch.setattr(
         executor.prompt_composer,
-        "compose_content_dependency_attempt",
-        _reject_composition,
+        "apply_rendered_content_dependency",
+        _reject_injection,
     )
     executor.provider_executor.prepare_invocation = lambda *_args, **_kwargs: (
         pytest.fail("provider preparation must not be reached")
@@ -907,6 +935,93 @@ def test_typed_invalid_injection_contract_publishes_failure_before_preparation(
         "evaluated_relpath": None,
     }
     assert record["provider_calls"] == {"preparation": False, "execution": False}
+
+
+def test_typed_prompt_completion_failures_are_not_dependency_failures(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    for failure_kind, sentinel in (
+        ("typed-evidence", "TYPED_EVIDENCE_WRITE_SENTINEL"),
+        ("later-completion", "PROMPT_COMPLETION_SENTINEL"),
+        ("unencodable-completion", None),
+        ("non-string-completion", None),
+    ):
+        workspace = tmp_path / failure_kind
+        workspace.mkdir()
+        executor, manager = _typed_dependency_runtime(
+            workspace,
+            f"typed-{failure_kind}-failure",
+        )
+        if failure_kind == "typed-evidence":
+            _replace_typed_prompt_inputs(
+                executor,
+                (
+                    {
+                        "binding_name": "context",
+                        "value_source": {"ref": "inputs.context"},
+                    },
+                ),
+            )
+            monkeypatch.setattr(
+                executor,
+                "_resolve_typed_prompt_input_value",
+                lambda *_args, **_kwargs: ({"focus": "contracts"}, None),
+            )
+            monkeypatch.setattr(
+                executor.prompt_composer,
+                "apply_typed_prompt_input_injection",
+                lambda *_args, **_kwargs: (
+                    "COMPLETED_PROMPT",
+                    [{"binding_name": "context"}],
+                ),
+            )
+
+            def _reject_typed_evidence(**_kwargs):
+                raise OSError(sentinel)
+
+            monkeypatch.setattr(
+                executor,
+                "_write_typed_prompt_input_evidence",
+                _reject_typed_evidence,
+            )
+        elif failure_kind == "later-completion":
+            def _reject_completion(*_args, **_kwargs):
+                raise ValueError(sentinel)
+
+            monkeypatch.setattr(
+                executor.prompt_composer,
+                "apply_output_contract_prompt_suffix",
+                _reject_completion,
+            )
+        elif failure_kind == "unencodable-completion":
+            monkeypatch.setattr(
+                executor.prompt_composer,
+                "apply_output_contract_prompt_suffix",
+                lambda *_args, **_kwargs: "\ud800",
+            )
+        else:
+            monkeypatch.setattr(
+                executor.prompt_composer,
+                "apply_output_contract_prompt_suffix",
+                lambda *_args, **_kwargs: object(),
+            )
+        executor.provider_executor.prepare_invocation = lambda *_args, **_kwargs: (
+            pytest.fail("provider preparation must not be reached")
+        )
+
+        state = executor.execute(on_error="stop")
+
+        step = state["steps"]["mixed__result"]
+        assert step["exit_code"] == 2
+        assert step["error"]["context"]["reason"] == "prompt_completion_failed"
+        if sentinel is not None:
+            assert sentinel in step["error"]["context"]["error"]
+        persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        events = next(iter(persisted["provider_attempt_allocations"].values()))[
+            "events"
+        ]
+        assert [event["event"] for event in events] == ["allocated"]
 
 
 def test_typed_truncation_debug_matches_published_render_metadata(

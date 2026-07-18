@@ -112,7 +112,7 @@ from .predicates import (
     ScorePredicateNode,
     is_numeric_predicate_value,
 )
-from .prompting import PromptComposer
+from .prompting import PromptCompletionError, PromptComposer
 from .prompt_dependency_evidence import (
     authored_row_id,
     build_failure_evidence,
@@ -5570,6 +5570,11 @@ class WorkflowExecutor:
                         render_owner=render_owner,
                     )
                     attempt_prompt = composition.final_prompt.decode('utf-8')
+                except PromptCompletionError as exc:
+                    return self._contract_violation_result(
+                        "Provider prompt completion failed",
+                        {"reason": "prompt_completion_failed", "error": str(exc)},
+                    )
                 except ContentDependencySnapshotError as exc:
                     self._best_effort_publish_prompt_dependency_failure(
                         contract=compiler_prompt_dependency_contract,
@@ -6013,6 +6018,11 @@ class WorkflowExecutor:
                     position=inject_config.get('position', 'prepend'),
                     finish_prompt=finish,
                 )
+            except PromptCompletionError as exc:
+                return None, self._contract_violation_result(
+                    "Provider prompt completion failed",
+                    {"reason": "prompt_completion_failed", "error": str(exc)},
+                ), None
             except (TypeError, ValueError) as exc:
                 return None, self._contract_violation_result(
                     "Provider prompt composition failed",
