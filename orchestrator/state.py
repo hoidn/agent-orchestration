@@ -467,44 +467,85 @@ class StateManager:
         with provider_attempt_process_locks(self.run_root):
             with self._lock:
                 self._reload_state_for_coordinated_mutation()
-                owner = resolve_aggregate_run_owner(origin_manager)
-                validate_provider_attempt_scope(scope, owner)
-                assert self.state is not None
-                allocations = validate_provider_attempt_allocations(
-                    self.state.provider_attempt_allocations
+                self._record_provider_attempt_publication_already_process_locked(
+                    origin_manager,
+                    scope,
+                    ordinal,
+                    relative_path=relative_path,
+                    file_sha256=file_sha256,
+                    record_kind=record_kind,
                 )
-                entry = allocations.get(scope.key)
-                if entry is None:
-                    raise ValueError("provider attempt allocation is missing")
-                matching_allocated = any(
-                    event == {"ordinal": ordinal, "event": "allocated"}
-                    for event in entry["events"]
-                )
-                if not matching_allocated:
-                    raise ValueError("provider attempt allocation ordinal is missing")
-                if any(
-                    event.get("ordinal") == ordinal
-                    and event.get("event") == "evidence_published"
-                    for event in entry["events"]
-                ):
-                    raise ValueError("provider attempt evidence is already published")
-                allocation_index = entry["events"].index(
-                    {"ordinal": ordinal, "event": "allocated"}
-                )
-                entry["events"].insert(
-                    allocation_index + 1,
-                    {
-                        "ordinal": ordinal,
-                        "event": "evidence_published",
-                        "relative_path": relative_path,
-                        "file_sha256": file_sha256,
-                        "record_kind": record_kind,
-                    },
-                )
-                self.state.provider_attempt_allocations = (
-                    validate_provider_attempt_allocations(allocations)
-                )
-                self._persist_state_durably()
+
+    def _record_provider_attempt_publication_already_process_locked(
+        self,
+        origin_manager: Any,
+        scope: Any,
+        ordinal: int,
+        *,
+        relative_path: str,
+        file_sha256: str,
+        record_kind: str,
+    ) -> None:
+        """Persist a publication while the caller holds both process locks and RLock."""
+
+        from .workflow.provider_attempts import validate_provider_attempt_allocations
+
+        allocations, entry = (
+            self._validate_provider_attempt_publication_already_process_locked(
+                origin_manager, scope, ordinal
+            )
+        )
+        allocated = {"ordinal": ordinal, "event": "allocated"}
+        entry["events"].insert(
+            entry["events"].index(allocated) + 1,
+            {
+                "ordinal": ordinal,
+                "event": "evidence_published",
+                "relative_path": relative_path,
+                "file_sha256": file_sha256,
+                "record_kind": record_kind,
+            },
+        )
+        self.state.provider_attempt_allocations = validate_provider_attempt_allocations(
+            allocations
+        )
+        self._persist_state_durably()
+
+    def _validate_provider_attempt_publication_already_process_locked(
+        self,
+        origin_manager: Any,
+        scope: Any,
+        ordinal: int,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Validate publication eligibility while both process locks and RLock are held."""
+
+        from .workflow.provider_attempts import (
+            resolve_aggregate_run_owner,
+            validate_provider_attempt_allocations,
+            validate_provider_attempt_scope,
+        )
+
+        owner = resolve_aggregate_run_owner(origin_manager)
+        if owner.root_manager is not self:
+            raise ValueError("already-locked publication must execute on aggregate root")
+        validate_provider_attempt_scope(scope, owner)
+        assert self.state is not None
+        allocations = validate_provider_attempt_allocations(
+            self.state.provider_attempt_allocations
+        )
+        entry = allocations.get(scope.key)
+        if entry is None:
+            raise ValueError("provider attempt allocation is missing")
+        allocated = {"ordinal": ordinal, "event": "allocated"}
+        if allocated not in entry["events"]:
+            raise ValueError("provider attempt allocation ordinal is missing")
+        if any(
+            event.get("ordinal") == ordinal
+            and event.get("event") == "evidence_published"
+            for event in entry["events"]
+        ):
+            raise ValueError("provider attempt evidence is already published")
+        return allocations, entry
 
     def _generate_run_id(self) -> str:
         """Generate run ID in format: YYYYMMDDTHHMMSSZ-<6char>."""

@@ -8,7 +8,7 @@
 > (`- [ ]`) syntax for tracking.
 
 **Goal:** Add the approved generic, typed
-`provider-result :prompt-dependencies` surface, one safe per-attempt dependency
+`provider-result :prompt-dependencies` surface, one bounded per-attempt dependency
 snapshot/render boundary shared by ordinary and adjudicated provider execution,
 and crash-durable content-free evidence without changing keyword-free `.orc`
 artifacts or making evidence resume authority.
@@ -17,16 +17,16 @@ artifacts or making evidence resume authority.
 WCC, then pass the compiler-produced `CompilerPromptDependencyContract` through a
 typed side table keyed by stable provider step ID rather than smuggling an origin
 marker through the YAML-shaped mapping. Core, executable, semantic, source-map,
-and authenticated persisted surfaces retain their owned views while
-`runtime_plan` remains topology-only. At runtime, one descriptor-relative safe-I/O
-owner resolves, reads, normalizes, de-duplicates, orders, and renders an immutable
+and persisted surfaces retain their owned views while `runtime_plan` remains
+topology-only. At runtime, one shared snapshot owner resolves, reads, normalizes,
+de-duplicates, orders, and renders an immutable
 snapshot once per provider attempt; a root-owned durable allocator and immutable
 publication protocol give Workflow Lisp attempts evidence identities but never
 participate in provider selection, checkpoint reuse, or resume decisions.
 
 **Tech Stack:** Python 3.11+, frozen dataclasses and enums, Workflow Lisp
-WCC/schema 2, shared typed workflow IR, POSIX descriptor-relative filesystem
-operations, `fcntl.flock`, canonical JSON/SHA-256, pytest/xdist, multiprocessing,
+WCC/schema 2, shared typed workflow IR, ordinary POSIX filesystem operations,
+`fcntl.flock`, canonical JSON/SHA-256, pytest/xdist, multiprocessing,
 and tmux.
 
 **Approved design:**
@@ -45,62 +45,31 @@ committed at `cd2f4c1f`.
 Task 6 is wholly skipped under the 2026-07-18 user scope override and makes no
 platform-preflight or descriptor-read claim. Task 7's functional durability,
 aggregate-owner, closed-scope, allocator, event, and concurrency implementation
-completed its first RED/GREEN pass and focused/regression selectors, but its
-exact candidate tree `81896bcb` was rejected by specification-compliance review:
-intermediate manager resume-scope prefixes were not validated, nested
-live/snapshotted states could carry root-owned allocator data, and loop scopes
-accepted unrelated runtime-step identities. All three findings now have focused
-test-first corrections: every intermediate scope prefix is checked, nested live
-and recursively parsed states must have no allocator projection, and loop runtime
-identities must match the canonical loop/iteration prefix plus a non-empty nested
-suffix. Replacement candidate recapture and restarted ordered reviews remain
-parent-owned. The resulting exact replacement tree `088f926d` passed the
-restarted specification review but was rejected by implementation-quality
-review: direct durable `_write_state()` calls reloaded away their caller's
-in-memory mutation, publication events could not follow interleaved allocations
-for the same scope, and allocator validation admitted missing allocation
-ordinals. All three quality findings now have focused test-first corrections:
-external state mutations use explicit reload-before-mutate transactions, the
-remaining private compatibility write preserves both the caller's mutation and
-newer allocator projection, publication is inserted into canonical ordinal order
-regardless of call order, and allocation ordinals must be exactly contiguous.
-The next exact replacement tree `bfb4c9dd` was rejected by restarted
-specification review because managers that loaded an affected run before its
-first allocation still used legacy writes, allowing one manager's ordinary
-mutation to erase another manager's newly durable allocator projection. The
-focused test-first correction uses one generic recursive executable-bundle
-detector to enable coordinated writes for every affected run/resume manager
-before competing state mutation, including contracts reachable only through an
-import. Fresh run enables before initialization; resume enables after bundle
-load and the non-mutating lowering-schema gate but before audit, observability,
-session, or executor mutation; force-restart also enables its replacement manager
-before initialization. Existing nonempty allocator state still auto-enables on
-load. Backup repair of an unreadable state remains a recovery-only boundary: it
-cannot concurrently expose a validated allocator and gains no Task 6 platform,
-probe, descriptor, or path-security claim. Another parent-owned recapture and
-ordered review produced exact tree `507946d6`, which was rejected by
-specification review because the recursive detector returned immediately after
-finding a contract and could therefore skip a malformed sibling import depending
-on mapping order. The focused test-first correction validates every identity-
-deduplicated node in the complete shared/cyclic graph before returning the
-accumulated affected result; malformed nodes fail closed even beside or beneath
-an affected node. The following exact tree `d4c16b32` passed specification review
-but was rejected by implementation-quality review because an already durable
-manager's repair transaction reloaded the corrupt primary before consulting
-backups, semantic backup-validation errors did not fall through to older backups,
-and an accepted allocator-bearing backup did not enable later durable writes.
-Focused test-first corrections make repair coordinate without reloading the
-corrupt primary, skip syntactically or semantically invalid backups, and enable
-durability after accepting allocator state. This remains a corrupt-state recovery
-boundary that cannot host a conforming concurrent allocator and adds no security
-claim. The following exact tree `6358f9ec` was rejected by implementation-quality
-review because a fresh repair manager selected the legacy copy path before
-enabling durability from its accepted allocator-bearing backup. The focused
-test-first correction derives restoration durability immediately after complete
-backup validation, enables it before restoration, and uses the durable file- and
-directory-synced writer for that repair itself; unaffected non-allocator repair
-retains legacy copy behavior and no lock residue. Another parent-owned recapture
-and ordered review restart remain pending.
+passed both ordered reviews and committed at `dd23f224`. Task 8's functional
+record, publication, allocator-projection, terminal-index, CLI, and concurrency
+implementation is the current candidate. Its prior exact tree
+`ea1dd5c1aecf79452c5ed0e7fbf5b566ec502036` / patch
+`df50e604e5abbd05147f5f7293cc83b935e72184fee880b0b3066afed38849b2`
+passed specification review as `TASK8-SPEC-PASS-20260718-EA1DD5C1-01` but was
+rejected by functional implementation-quality review as
+`TASK8-QUALITY-REJECT-20260718-EA1DD5C1-01`: the success validator admitted
+impossible render-status ordering and multiple truncated groups. Focused
+test-first metadata-order corrections are in progress; both ordered reviews must
+restart on a new exact tree and patch before Task 8 can pass. The corrected
+replacement tree `638b67f030c1bada99b24cb766e7b929151c252e` / patch
+`f6f986d1140c4aa77ba61e006fefb4001fd819cafdee5c93067fea7d8a5313a5`
+was then rejected by functional implementation-quality review as
+`TASK8-QUALITY-REJECT-20260718-638B67F0-02`: the production state machine was
+correct, but tests lacked a genuine shared-renderer positive boundary proving
+legal complete/truncated/omitted sequences. Renderer-derived positive regressions
+now cover both `complete* -> truncated -> omitted*` and
+`complete* -> omitted*`. The final replacement tree
+`14296ca07657624a19e463d9a8bf08bd8caa6b1d` / patch
+`1065e07edda7c73f82eec3dd3b1b506668d18f3fc26d2421160f8a1755ea5fb4`
+passed the restarted functional specification review as
+`TASK8-SPEC-PASS-20260718-14296CA0-03` and the ordered implementation-quality
+review as `TASK8-QUALITY-APPROVED-20260718-14296CA0-01`. Task 8 is ready for its
+scoped commit.
 Workflow-family port evidence and documentation status closure remain
 unauthorized.
 
@@ -110,7 +79,9 @@ unauthorized.
 
 This execution implements the functional subset retained by the 2026-07-18 user
 scope override, not the complete approved prerequisite and not a path-only
-compiler shortcut. Excluded hardening remains unimplemented and unclaimed:
+compiler shortcut.
+
+Retained functional scope:
 
 - closed `:prompt-dependencies` syntax with required/optional typed `relpath`
   operands, literal position, and optional literal instruction;
@@ -119,14 +90,16 @@ compiler shortcut. Excluded hardening remains unimplemented and unclaimed:
   from YAML mappings;
 - exact injection-byte accounting and stable successful-YAML compatibility below
   the new boundary;
-- descriptor-relative stable UTF-8 reads and an operational platform probe are
-  excluded and unimplemented;
 - one snapshot/render call per ordinary or adjudicated provider attempt;
 - root-owned, crash-durable attempt allocation and cross-process state/evidence
   locking;
 - immutable success/failure evidence plus an offline, terminal-only validated
   index; and
 - pending/completed resume behavior that never reads evidence as authority.
+
+Excluded security hardening remains unimplemented and unclaimed: descriptor-
+relative stable reads, platform probes, symlink/traversal/hostile-directory
+defenses, authentication/provenance mechanisms, and adversarial-security tests.
 
 Implementation starts only after the provider-call-policy prerequisite plan has
 completed its final reviewed commit. Both features touch `ProviderResultExpr`,
@@ -138,7 +111,7 @@ this plan's execution-status line before Task 1 begins.
 The direct design deliberately makes binary injection, globs in typed `.orc`,
 dynamic instructions, arbitrary renderers, native-Windows fallback, and evidence-
 driven resume harder to add. Those require separate designs rather than widening
-this security-sensitive tranche.
+this functional tranche.
 
 Do not create a worktree. The repository's `AGENTS.md` explicitly forbids it.
 
@@ -156,14 +129,14 @@ authority:
 - `docs/design/workflow_lisp_executable_ir.md`;
 - `specs/dependencies.md`;
 - `specs/providers.md`;
-- `specs/security.md`;
 - `specs/state.md`; and
 - `docs/plans/2026-07-17-workflow-lisp-provider-call-policy-implementation-plan.md`
   for the immediately preceding, separately reviewed provider-result edits.
 
-The design is the controlling feature contract when older specs merely describe
-the current unsafe reader or approximate cap. Task 12 updates those durable specs
-only after implementation and evidence are real.
+The approved design controls only the retained functional clauses for this
+execution. Its excluded security clauses are not execution authority under the
+2026-07-18 user override. Task 12 updates durable functional specs only after
+implementation and evidence are real.
 
 ## Protected And Concurrent Working-Tree Contract
 
@@ -2110,6 +2083,14 @@ Suggested commit: `feat: allocate durable provider attempt identities`
 
 **Owner:** fresh evidence implementer.
 
+**Execution scope:** functional evidence correctness, immutable ordinary-file
+publication, terminal reconciliation, and concurrency only. Per the execution
+override, this task does **not** implement or claim descriptor-relative access,
+`openat`/`O_NOFOLLOW`, symlink or traversal resistance, hostile-directory or
+platform preflight guarantees, provenance/authentication, or adversarial-security
+coverage. Those security-only clauses are intentionally skipped rather than
+silently treated as satisfied.
+
 **Files:**
 
 - Create `tests/test_prompt_dependency_evidence.py`
@@ -2120,52 +2101,78 @@ Suggested commit: `feat: allocate durable provider attempt identities`
 - Modify `orchestrator/workflow/provider_attempts.py`
 - Modify this plan
 
-- [ ] **Step 1: Write canonical success/failure schema RED tests.**
+- [x] **Step 1: Write canonical functional success/failure schema RED tests.**
 
-Instantiate every field from the design. Enforce exact keys, JSON types,
-nullability, digest syntax/domains, row IDs, ordering, group/alias/stability
-cross-fields, truncation cross-fields/counts, compiler binding, safe paths,
-scope/step/visit/path identity, provider-call false flags, and self-digest. Reject
-one-field tampering in both directions. Assert no dependency or prompt body occurs
-anywhere in serialized records.
+Use the distinct closed schemas
+`workflow_prompt_dependency_evidence.functional.v1` and
+`workflow_prompt_dependency_failure_evidence.functional.v1`. Instantiate the
+functional fields derivable from the Task-5 immutable snapshot/render and Task-7
+scope/ordinal: run, compiler contract, attempt identity, authored-row disposition,
+canonical groups, instruction metadata, injection metadata, final-prompt metadata,
+failure category/operation, provider-call false, and self-digest. Enforce exact
+keys, JSON types, digest syntax, ordering, cross-fields, and no serialized body.
+Embed the complete closed output of
+`serialize_compiler_prompt_dependency_contract` in both record kinds so offline
+validation can cross-check row cardinality/order/binding refs, position, and the
+authored-versus-default instruction source without executable IR.
+Both schemas carry an explicit closed `record_kind`. Builders take authoritative
+in-memory `RunState` identity fields directly and never reread `state.json` to
+populate a record. Failure records carry nullable authored-row ID/evaluated-path
+context and closed `provider_calls={preparation:false,execution:false}`.
+The closed run object is exactly `run_id`, `workflow_file`, and
+`workflow_checksum`; it does not serialize an absolute root or duplicate resume
+scope. Row IDs are `sha256:` digests over canonical
+`{source_origin_key,role,authored_index,binding_ref}`. Instruction source is one
+of `authored`, `default_required`, or `default_optional`, derived from the closed
+compiler contract.
+Reject one-field tampering in both directions. Alias/stability/stat/raw-path,
+safe-path, per-section, provenance, authentication, and adversarial-security
+clauses are skipped.
 
-- [ ] **Step 2: Implement canonical record builders/validators.**
+- [x] **Step 2: Implement canonical record builders/validators.**
 
 Use compact `ensure_ascii=True` canonical JSON with no trailing newline. Success
-records derive only from immutable snapshot plus final prompt bytes. Failure
+records derive only from one builder-owned authoritative render and final prompt
+bytes returned by a composition callback that consumes that same render; the
+operation returns the render, final prompt, and record without rerendering. Failure
 records expose stable safe categories/operations only. Keep record-file SHA
 separate from embedded record SHA.
 
-- [ ] **Step 3: Write immutable publication RED tests.**
+- [x] **Step 3: Write ordinary immutable publication RED tests.**
 
 Use the exact aggregate-relative destination
 `workflow_lisp/prompt_dependencies/<step_key>/<visit_key>/attempt-<ordinal-as-%06d>.json`,
 where each key is the first 24 lowercase hex characters of the specified full
-identity digest. Cover key collisions by repeating every unhashed identity in
-the record; safe fixed directory walk; symlinked parent; path traversal; temp
-random grammar; short writes; file fsync; link no-clobber `EEXIST`; parent fsync;
-temp unlink/fsync; every fault; normal cleanup; and crash leaving temp,
-destination, or both. No provider preparation follows incomplete publication.
+identity digest. Repeat every unhashed identity in the record. Cover deterministic
+destination derivation, short writes, file fsync, atomic hard-link no-clobber,
+all-destination-`EEXIST` rejection, parent fsync, temp cleanup plus fsync, failure
+propagation, and publication-event ordering. No arbitrary destination input.
+Descriptor-relative, symlink, traversal, hostile-directory, and other
+security-only publication cases are skipped.
 
-- [ ] **Step 4: Implement descriptor-relative no-clobber publication.**
+- [x] **Step 4: Implement functional no-clobber publication.**
 
-Follow the exact mode-0600 openat/write/fsync/close/linkat/unlink/fsync protocol.
-Never replace a destination. Persist `evidence_published` in canonical ordinal
-order only after the complete file is immutable, binding relative path, final
-file digest, and record kind.
+Use a deterministic generated path, canonical ASCII JSON without a newline,
+complete short-write handling to a temporary file, file fsync, atomic hard-link
+no-clobber, parent fsync, and temporary cleanup plus parent fsync. Any destination
+`EEXIST`, including same bytes, rejects current-record publication so a crash orphan
+cannot later be promoted into a manifest event. Never replace a
+destination. Persist `evidence_published` in canonical ordinal order only after
+the complete file is immutable, binding relative path, final file digest, and
+record kind. Preserve state-then-aggregate lock order and propagate failures.
 
-- [ ] **Step 5: Write offline allocator-projection/index RED tests.**
+- [x] **Step 5: Write functional offline allocator-projection/index RED tests.**
 
 Cover terminal completed/failed status; nonterminal rejection; frozen full state
 digest; exact allocator projection; all publications and allocation-only gaps;
-missing/tampered/duplicate/wrong-kind records; orphan; recognized crash temp
-cleanup; unexpected sibling; unsafe manifest path; unsorted/duplicate rows; wrong
-counts; index self-digest; immutable same-bytes `EEXIST`; conflicting `EEXIST`;
-and stale index after later resume. The only index destination is
+missing/corrupt/duplicate/wrong-kind records; orphan; allocation-only gaps;
+unsorted/duplicate rows; wrong counts; index self-digest; immutable same-bytes
+`EEXIST`; conflicting `EEXIST`; and stale index after later resume. Manifest-path
+and adversarial filesystem security cases are skipped. The only index destination is
 `workflow_lisp/prompt_dependencies/validated-indexes/<allocator-projection-sha256-hex>.json`
 under the aggregate root.
 
-- [ ] **Step 6: Implement terminal validator and CLI.**
+- [x] **Step 6: Implement the functional terminal validator and CLI.**
 
 Hold state-mutation then aggregate-evidence flocks continuously through both state
 reads, scan, candidate build, immutable index link/fsync, final state recheck, and
@@ -2177,14 +2184,14 @@ modules. It rejects the offline terminal-validator and validated-index builder/C
 symbols while allowing runtime record builders and immutable current-record
 publication APIs.
 
-- [ ] **Step 7: Write multiprocess quiescence/lock-order RED tests.**
+- [x] **Step 7: Write functional multiprocess quiescence/lock-order RED tests.**
 
 One process holds validation while conforming resume/status/nested-frame writers
 block then proceed. An injected bypass writer changes state and is detected. Run a
 stress loop across allocation, record publication, manifest event, ordinary state
 write, and validation; require bounded completion with no deadlock.
 
-- [ ] **Step 8: Run evidence selectors, freeze the review subject, and dispatch
+- [x] **Step 8: Run evidence selectors, freeze the review subject, and dispatch
   the ordered reviews.**
 
 ```bash
@@ -2192,6 +2199,15 @@ pytest --collect-only -q tests/test_prompt_dependency_evidence.py
 pytest -q tests/test_prompt_dependency_evidence.py
 pytest -q tests/test_provider_attempt_allocation.py tests/test_state_manager.py
 ```
+
+Final reviewed subject: tree
+`14296ca07657624a19e463d9a8bf08bd8caa6b1d`, binary patch SHA-256
+`1065e07edda7c73f82eec3dd3b1b506668d18f3fc26d2421160f8a1755ea5fb4`,
+specification token `TASK8-SPEC-PASS-20260718-14296CA0-03`, and quality token
+`TASK8-QUALITY-APPROVED-20260718-14296CA0-01`. Fresh parent verification recorded
+56 Task-8 passes and 108 Task-7/state regression passes; the independent reviews
+recorded 268 broader regression passes. Security-only criteria were excluded by
+the binding execution override.
 
 Suggested commit: `feat: publish prompt dependency evidence`
 
@@ -2946,14 +2962,15 @@ include roadmap progress in durable specs.
 - [ ] **Step 3: Update design and drafting docs.**
 
 Add the public syntax/type examples and explain required versus optional exact
-paths, deterministic order, truncation, supported platform, and completed-result
+paths, deterministic order, truncation, and completed-result
 reuse. Keep examples free of family names and do not present globs/dynamic paths as
 supported `.orc` forms.
 
 - [ ] **Step 4: Update status/routing docs and close design status.**
 
 Bind the implementation commits, focused/broad results, and both reviews. Mark the
-approved design implemented without changing its decisions. Route the next
+retained functional subset implemented while leaving the excluded security
+clauses explicitly unimplemented. Route the next
 survivor-port work to this mechanism; do not claim port parity evidence exists.
 
 - [ ] **Step 5: Run documentation/routing selectors.**
@@ -3094,7 +3111,8 @@ retry/resume, provider-policy, and parity evidence.
 - [ ] Core/executable/persisted/Semantic/source-map views retain only their owned
   contract; runtime plan remains unchanged.
 - [ ] Required/present-optional unsafe content fails before provider preparation.
-- [ ] Operational safe-I/O probe and unsupported-platform failure are real.
+- [x] Operational safe-I/O probe and unsupported-platform failure are skipped
+  under the 2026-07-18 security-scope override.
 - [ ] Ordinary and adjudicated retries snapshot/render exactly once per attempt.
 - [ ] Truncation agrees across prompt markers, structured evidence, and the
   existing persisted provider-result `debug.injection` surface; non-truncated
@@ -3115,7 +3133,7 @@ retry/resume, provider-policy, and parity evidence.
   the reviewed exact-six-minus-reviewed-remediations comparator with explicit
   collection, pytest, and pane exit status, all bound to the launch subject
   manifest and unchanged review envelope.
-- [ ] Independent specification and quality/security reviews approve the exact
+- [ ] Independent specification and functional implementation-quality reviews approve the exact
   final tree.
 - [ ] Durable docs close only the generic prerequisite and do not claim survivor
   promotion or YAML retirement.
