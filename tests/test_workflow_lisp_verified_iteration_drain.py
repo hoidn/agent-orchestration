@@ -967,3 +967,29 @@ def test_verified_orc_retry_refreshes_dependencies_and_resume_is_idempotent(
     assert result["provider_executions_after_completed_resume"] == 3
     assert result["ledger_before_completed_resume"] == result["ledger_after_completed_resume"]
     assert result["summary_before_completed_resume"] == result["summary_after_completed_resume"]
+
+
+def test_verified_post_promotion_orc_smoke_is_fresh(tmp_path: Path) -> None:
+    targets = json.loads((MIGRATION_INPUTS / "parity_targets.json").read_text())
+    target = next(
+        row
+        for row in targets["targets"]
+        if row["workflow_family"] == "verified_iteration_drain"
+    )
+    assert target["promotion_eligibility"] == {
+        "eligible_for_primary_surface": True,
+    }
+
+    result = _run_verified_runtime_scenario(
+        tmp_path,
+        worker_verdicts=("DONE",),
+        done_review_decisions=("APPROVE",),
+    )
+
+    assert result["state"]["status"] == "completed"
+    assert result["state"]["workflow_outputs"] == {
+        "return__drain_status": "DONE",
+        "return__drain_summary_path": "artifacts/work/verified/drain-summary.json",
+    }
+    assert result["provider_roles"] == ["worker", "done_review"]
+    assert result["captured_prompt_sha256s"] == result["evidence_prompt_sha256s"]

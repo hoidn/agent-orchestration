@@ -26,6 +26,23 @@ python -m orchestrator run workflows/library/lisp_frontend_design_delta/drain.or
   --input-file <design-delta-inputs.json>
 ```
 
+## Verified-Iteration Drain Launch
+
+New verified-iteration launches use the promoted Workflow Lisp primary. Supply
+the target-owned design and check-command paths together with any desired
+provider/model overrides; the retained YAML twin is compatibility evidence,
+not the launch route for new runs.
+
+```bash
+python -m orchestrator run workflows/library/verified_iteration_drain/drain.orc \
+  --entry-workflow verified_iteration_drain/drain::drain \
+  --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.providers.json \
+  --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.prompts.json \
+  --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.commands.json \
+  --input target_design_path=<target-design-relpath> \
+  --input check_commands_path=<check-commands-relpath>
+```
+
 Some workflows declare required typed inputs. For those, pass fixture inputs explicitly:
 
 ```bash
@@ -153,6 +170,8 @@ The prompt map reports missing paths; a missing path may indicate a stale exampl
 | `workflows/examples/generic_run_watchdog.yaml` | Current structured; input-required | `2.14` | `generic-run-watchdog-v214` | Generic one-pass watchdog for any orchestrator run id: probes persisted run state, writes an evidence bundle, skips provider work for healthy or completed runs, and calls a repair provider for failed/stalled/unknown runs with a required final resume/relaunch/restart/decline action. Intended to be invoked by cron, systemd timer, tmux loop, or another scheduler every N minutes. |
 | `workflows/examples/lisp_frontend_autonomous_drain.yaml` | Current structured; reusable call-based; input-required | `2.14` | `lisp-frontend-autonomous-drain-v214` | Local Lisp frontend drain without roadmap phase gating: each loop builds a backlog manifest, lets the selector choose an active backlog item or an unimplemented design gap, drafts a design-gap implementation architecture when needed, normalizes both sources into one work item, and calls the Lisp plan/implementation stack. |
 | `workflows/library/lisp_frontend_design_delta/drain.orc` | Workflow Lisp production primary; reusable library; input-required | `2.14` | `lisp_frontend_design_delta/drain::drain` | Primary Design Delta target/baseline drain. Its route-readiness entry is `wcc_default` / `promotion_eligible` with preferred-current-guidance copy safety. The retained strict migration-parity report records the historical promotion decision; it is not a live parity target. Fresh promotion compile, dry-run, smoke, and parity evidence is recorded; Phase 3 Tasks 3.1–3.4 are complete, and Gates P3 and P4 are independently reviewed and satisfied while retaining the historical report. Task 4.1 stripped the Design-Delta-only parity lanes, and Task 4.2 retired the temporary G8 build serializer. Task 4.1 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The semantic-migration freeze is lifted. Current work selection and later-stage order are governed by `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`. |
+| `workflows/library/verified_iteration_drain/drain.orc` | Workflow Lisp production primary; input-required | `2.15` | `verified_iteration_drain/drain::drain` | Promoted verified-iteration primary with exact compile/runtime/parity evidence. New launches use this `.orc` route; the final typed parity report is `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`. |
+| `workflows/examples/verified_iteration_drain.yaml` | Compatibility/reference twin; retained until Task 6 deletion gate | `2.14` | `verified-iteration-drain` | Retained executable YAML compatibility surface for one verification cycle. Do not use it for new launches; Task 6 owns its reference and supported-run deletion gates. |
 | `workflows/examples/lisp_frontend_design_delta_drain.yaml` | Compatibility/reference twin; retained until Stage 6 | `2.14` | `lisp-frontend-design-delta-drain-v214` | Former Design Delta primary retained for one verification cycle and historical contract comparison. Do not use it as the current launch or authoring surface; archive it only at the Stage 6 gate. |
 | `workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml` | Current structured; reusable call-based; input-required | `2.14` | `lisp-frontend-proc-refs-partial-application-drain-v214` | Focused successor drain for the ProcRef / `bind-proc` design delta: calls the design-delta target/baseline stack with the ProcRef delta as the active target, the full frontend spec as baseline context, and separate ProcRef state, artifact, and plan namespaces. |
 | `workflows/examples/kiss_backlog_item.orc` | Workflow Lisp shared-validation example; input-required | `2.14` | `run-backlog-item` | Minimal `.orc` single-backlog-item stack: typed backlog item inputs, plan provider result, plan review/revise loop, implementation provider result, implementation review/fix loop, and final structured summary output. It compiles through shared validation and dry-runs through the `.orc` runtime bridge; it is a single-item authoring example, not a production queue drain or parity replacement for the mature YAML stacks. |

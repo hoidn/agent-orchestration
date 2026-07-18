@@ -101,7 +101,7 @@ roadmap selector is the
 | Doc | Applies to | Current checkout? | Normal authoring guidance? | Notes |
 | --- | --- | ---: | ---: | --- |
 | [lisp_frontend_review_fix_loops.md](lisp_frontend_review_fix_loops.md) | Review/fix loop semantics | Partial/unknown from this index; read the doc and linked evidence | Yes | Use with review/revise stdlib and parity architecture docs. |
-| [verified_iteration_drain.md](verified_iteration_drain.md) | Verified-iteration drain: single fused-session select/plan/implement/verify loop | Designed (pilot) | No | Pilot alternative alongside, not replacing, the `lisp_frontend_*` drain family; treats the repo, git history, and check exit codes as the sole authority instead of a second typed state copy. See `docs/plans/2026-07-02-verified-iteration-drain.md` and `workflows/examples/verified_iteration_drain.yaml`. |
+| [verified_iteration_drain.md](verified_iteration_drain.md) | Verified-iteration drain: single fused-session select/plan/implement/verify loop | Implemented; Workflow Lisp primary | Yes | Promoted `.orc` alternative alongside, not replacing, the `lisp_frontend_*` drain family; treats the repo, git history, and check exit codes as the sole authority instead of a second typed state copy. New launches use `workflows/library/verified_iteration_drain/drain.orc`; the YAML twin remains compatibility/reference evidence until its Task 6 deletion gate. |
 
 ## Historical Or Narrow Decision Notes
 

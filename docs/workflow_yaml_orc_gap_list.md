@@ -38,7 +38,7 @@ No owner waiver is recorded by this audit.
 
 | Queue ID | Disposition | YAML path | Decision gate |
 |---|---|---|---|
-| `port_verified_iteration` | `port` | `workflows/examples/verified_iteration_drain.yaml` | Apply the implemented generic provider-policy/profile capabilities; close `prompt-dependency-parity` and `verified-iteration-artifact-lineage`; then execute the Stage 6 per-family promotion gate. |
+| `port_verified_iteration` | `port` | `workflows/examples/verified_iteration_drain.yaml` | Family prompt-dependency parity, artifact lineage, typed parity, fresh `.orc` smoke, and promoted launch routing are closed. Retain YAML compatibility until the Stage 6 Task 6 reference and supported-run deletion gates pass. |
 | `port_generic_run_watchdog` | `port` | `workflows/examples/generic_run_watchdog.yaml` | Apply the implemented generic provider-policy/profile capabilities; close `prompt-dependency-parity` and `generic-run-watchdog-port-plan-and-parity`; then execute the Stage 6 per-family promotion gate. |
 | `hold_non_progress_step_back` | `hold` | `workflows/examples/non_progress_step_back_demo.yaml` | `step-back-owner-disposition`; no port or deletion is inferred while the protected queue remains held. |
 
@@ -48,13 +48,13 @@ No owner waiver is recorded by this audit.
 |---|---|---|---|---|
 | `common.public-boundary-defaults` | `port_verified_iteration`, `port_generic_run_watchdog` | `default` on scalar, enum, integer, and relpath inputs | `implemented` | Bounded `defworkflow` scalar, enum, integer, and path defaults are implemented in the Workflow Lisp frontend specification and boundary-default tests. |
 | `common.runtime-provider-selection` | `port_verified_iteration`, `port_generic_run_watchdog` | runtime `provider` input choosing one of a closed provider set | `implemented` | Keep each provider as a compiler-known extern and route the typed provider enum through effectful `if`; provider refs do not become runtime values. |
-| `common.provider-call-policy` | `port_verified_iteration`, `port_generic_run_watchdog` | `provider_params` model/effort counterpart and `timeout_sec`: typed model and effort plus positive literal timeout with public compile-run-resume | `implemented` | Generic implementation closure: typed model and effort plus positive literal timeout are implemented through lowering, executable identity, runtime, and public compile-run-resume evidence. Family parity and promotion remain pending; YAML deletion remains pending. |
+| `common.provider-call-policy` | `port_verified_iteration`, `port_generic_run_watchdog` | `provider_params` model/effort counterpart and `timeout_sec`: typed model and effort plus positive literal timeout with public compile-run-resume | `implemented` | Generic implementation closure: typed model and effort plus positive literal timeout are implemented through lowering, executable identity, runtime, and public compile-run-resume evidence. Verified-iteration family parity and promotion are closed; watchdog family parity and promotion and YAML deletion remain pending. |
 | `common.provider-invocation-profile` | `port_verified_iteration`, `port_generic_run_watchdog` | shared no-default unrestricted Codex Claude profiles | `implemented` | Exact argv profile evidence: `codex_unrestricted_workspace` uses `defaults={}`, `input_mode=stdin`, and `["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${reasoning_effort}"]`; `claude_unrestricted_workspace` uses `defaults={}`, `input_mode=stdin`, and `["claude", "-p", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]`. Both are shared provider data, not family-specific compiler routes. |
 | `common.structured-results` | `port_verified_iteration`, `port_generic_run_watchdog` | provider `expected_outputs` sidecars and command `output_bundle` records | `implemented` | `provider-result`, `command-result`, native transportable returns, records, unions, enums, optionals, and runtime-owned bundle paths replace scalar sidecar parsing. Port scripts must honor the runtime bundle target and keep semantic files separate. |
-| `common.prompt-dependency-parity` | `port_verified_iteration`, `port_generic_run_watchdog` | `depends_on` required files with `inject` content, ordering, and an optional instruction | `blocking_gate` | The generic typed prompt dependency mechanism is implemented: required and optional exact relpaths, literal prepend/append policy, deterministic canonical order, a 262144 byte cap, one immutable snapshot per attempt, and a fresh snapshot per retry. This remains `prompt-dependency-parity` because each port must prove its exact dependency set, instruction meaning, ordering, and non-truncation where required. |
+| `common.prompt-dependency-parity` | `port_verified_iteration`, `port_generic_run_watchdog` | `depends_on` required files with `inject` content, ordering, and an optional instruction | `blocking_gate` | The generic typed prompt dependency mechanism is implemented: required and optional exact relpaths, literal prepend/append policy, deterministic canonical order, a 262144 byte cap, one immutable snapshot per attempt, and a fresh snapshot per retry. Verified iteration proved its exact dependencies and closed its family application; the shared row remains blocking only for the watchdog port's exact dependency set, instruction meaning, ordering, and non-truncation proof. |
 | `common.command-boundary` | `port_verified_iteration`, `port_generic_run_watchdog` | stable Python command steps that read workspace or run state and write structured artifacts | `implemented` | `command-result` plus external-tool or fully certified adapter bindings is the current route. Hidden stdout parsing and inline shell remain forbidden. |
 | `verified.bounded-loop` | `port_verified_iteration` | `repeat_until`, maximum 40, typed terminal condition, and `on_exhausted` to `STALLED` | `implemented` | `loop/recur` supports runtime maximums, typed carried state, effectful bodies, typed `continue` and `done`, and scalar exhaustion projection through shared `repeat_until`. |
-| `verified.iteration-artifact-lineage` | `port_verified_iteration` | `loop.index`-scoped work orders, verdicts, checks, reviews, ledger, status tokens, and resume-visible outputs | `blocking_gate` | `verified-iteration-artifact-lineage`: the compiled port and one-continue plus one-terminal smoke must prove per-iteration uniqueness, exact command and provider dependencies, Record idempotence, and resume-safe lineage. Generated paths may differ only where the parity contract classifies them private. |
+| `verified.iteration-artifact-lineage` | `port_verified_iteration` | `loop.index`-scoped work orders, verdicts, checks, reviews, ledger, status tokens, and resume-visible outputs | `implemented` | Closed by the compiled `.orc` contract, one-continue plus terminal runtime evidence, resume/idempotence coverage, and the passing typed report at `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`. Per-iteration uniqueness, exact dependencies, and generated-path classification are bound by that evidence. |
 | `verified.summary-pointer-helper` | `port_verified_iteration` | `PublishSummaryPath` calling `write_lisp_frontend_relpath_value.py` only to echo the summary path | `drop` | Return the typed summary relpath produced by the Record result directly. Do not port `write_lisp_frontend_relpath_value.py` as workflow behavior. |
 | `verified.task-15-input-drift` | `port_verified_iteration` | Task 15 describes two prompt files and three commands, while the YAML has three provider prompt assets and a fourth pointer-only command | `implemented` | The port binds `work.md`, `review_iteration.md`, and `review_done.md`; it retains the prepare, check, and record command semantics and applies the preceding `drop` decision to the pointer helper. This gap list is the corrected Task 15 translation input. |
 | `watchdog.probe-and-publication` | `port_generic_run_watchdog` | probe `output_bundle`, optional repair bundle consumption, and final watchdog `output_bundle` | `implemented` | Keep the run probe and final durable publication as explicit external command boundaries with typed record contracts and path-safe results. The probe's clock and run-store reads remain visible effects. |
@@ -79,10 +79,10 @@ The characterized YAML inputs remain the family proof targets:
 - generic watchdog: the workflow-level model and effort defaults plus the 7200
   second repair timeout.
 
-This generic implementation closure does not prove either survivor family.
-Each port must still bind its exact inputs and deadlines, prove actual provider
-selection/argv plus prompt and artifact behavior, and pass its own run/resume and
-promotion gates. Family parity and promotion remain pending. YAML deletion
+This generic implementation closure alone does not prove a survivor family.
+Verified iteration has now bound its exact inputs and deadlines, provider
+selection/argv, prompt and artifact behavior, run/resume behavior, and promotion
+report. The watchdog family proof and promotion remain pending. YAML deletion
 remains pending the reference, supported-root-consumer, and Task-7 parser gates.
 Dynamic provider selection remains separate and is already expressible by
 branching over a closed typed enum while each branch names a compiler-known
@@ -103,18 +103,17 @@ Compile success alone is still insufficient. Each port's provider-input
 evidence must show that the request preserves all required semantic inputs from
 the YAML dependency injection. The watchdog proof also binds the prepend
 instruction's meaning, not its literal wording. Missing content, wrong order,
-unexpected truncation, or reliance on an undeclared ambient file keeps the gate
-closed. Family parity and promotion remain pending; YAML deletion remains
-pending.
+unexpected truncation, or reliance on an undeclared ambient file keeps a family
+gate closed. Verified iteration passed this proof; the watchdog family proof
+and promotion remain pending. YAML deletion remains pending.
 
 ### `verified-iteration-artifact-lineage`
 
-The Task 15 smoke must exercise one `CONTINUE` iteration and one terminal
-route. It must bind loop-carried status, all three reviews/verdict channels,
-the check result, ledger/status writes, summary publication, and Record's
-resume idempotence. This is a family proof gate over implemented generic loop,
-result, state-layout, and command machinery; it is not permission to add a
-family-name compiler branch.
+The Task 15 smoke exercises one `CONTINUE` iteration and one terminal route and
+binds loop-carried status, all three reviews/verdict channels, the check result,
+ledger/status writes, summary publication, and Record resume idempotence. The
+fresh post-promotion smoke and final typed parity report close this family proof
+without adding a family-name compiler branch.
 
 ### `generic-run-watchdog-port-plan-and-parity`
 
@@ -159,8 +158,9 @@ plan, and related working-tree files remain byte-for-byte outside Stage 6.
 ## Port-entry decision
 
 The generic provider-policy, invocation-profile, and typed prompt-dependency
-prerequisites are available, but neither port may claim parity or enter
-promotion until its remaining family proof gates close. Family parity and
-promotion remain pending; YAML deletion remains pending. The protected holdout
-remains excluded until `step-back-owner-disposition` closes. No other
-unclassified gap remains in this three-queue scope.
+prerequisites are available. Verified iteration has closed its family proof and
+promotion gates and now routes new launches to its `.orc` primary. The watchdog
+port remains fail-closed on its family proof and promotion gates. YAML deletion
+remains pending for both families. The protected holdout remains excluded until
+`step-back-owner-disposition` closes. No other unclassified gap remains in this
+three-queue scope.

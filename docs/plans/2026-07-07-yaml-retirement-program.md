@@ -107,7 +107,7 @@ unclassified authored YAML/YML path are permitted.
 |---|---:|---:|---|---|---|
 | `delete_non_survivor_estate` | 100 | 53 | `pending` | none | Early independent deletion in dependency-ordered batches of at most 15 after zero unclassified active references and zero supported matching nonterminal top-level or nested consumers. |
 | `archive_design_delta_yaml_twin` | 7 | 10 | `pending` | `delete_non_survivor_estate` | Record each pre-delete blob identity in git history, verify the structured `.orc`, registry, parity, and drain-plan evidence, then delete; do not create a live archive copy. |
-| `port_verified_iteration` | 1 | 0 | `pending` | none | Use the structured Task-15 plan input, then create and promote one dedicated `.orc` port through the parity contract before applying its deletion gates. |
+| `port_verified_iteration` | 1 | 0 | `pending` | none | The dedicated `.orc` is promoted and new launches route to it; the queue remains pending only for Task 6 reference and supported-run deletion gates over the retained YAML twin. |
 | `port_generic_run_watchdog` | 1 | 0 | `pending` | none | Create and promote one dedicated `.orc` port through the parity contract, then apply the deletion gates to its YAML source. |
 | `hold_non_progress_step_back` | 1 | 0 | `pending` | none | No mutation until the step-back recovery owner records an explicit delete-or-port disposition; then requeue through a reviewed handoff update. |
 
@@ -199,16 +199,17 @@ routing tests; `.orc` and YAML dry-run smokes observed respectively zero and one
 event; the broad suite recorded 5181 passed and 17 skipped with exactly the six
 established unrelated failures. Independent specification review returned PASS
 and quality review returned APPROVED for exact HEAD `b329c4b3` and tree
-`00b1a2d1`. This closes only Task 4: YAML remains executable and `Legacy`, both
-Task-5 port rows retain every per-row gate, Task 6 retains every deletion gate,
-and Task 7 parser removal remains incomplete.
+`00b1a2d1`. At the Task 4 closeout this closed only Task 4: YAML remained
+executable and `Legacy`, both Task-5 port rows retained every per-row gate,
+Task 6 retained every deletion gate, and Task 7 parser removal remained
+incomplete. The Task 5 table below records subsequent family progress.
 
 ### Task 5: Build and promote exactly two `.orc` ports — GATED PER ROW
 
-| Family | Required promotion evidence |
-|---|---|
-| `verified_iteration_drain` | Dedicated `.orc` source; parity-target registration; passing typed parity report; promoted launch routing; fresh `.orc` workflow smoke; then reference and supported-run deletion gates. |
-| `generic_run_watchdog` | Dedicated `.orc` source; parity-target registration; passing typed parity report; promoted launch routing; fresh `.orc` workflow smoke; then reference and supported-run deletion gates. |
+| Family | Required promotion evidence | Family status |
+|---|---|---|
+| `verified_iteration_drain` | Dedicated `.orc` source; parity-target registration; passing typed parity report; promoted launch routing; fresh `.orc` workflow smoke; then reference and supported-run deletion gates. | **Promotion gates closed.** `.orc` is the primary launch route; final report: `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`. YAML remains present and executable until Task 6. |
+| `generic_run_watchdog` | Dedicated `.orc` source; parity-target registration; passing typed parity report; promoted launch routing; fresh `.orc` workflow smoke; then reference and supported-run deletion gates. | **Pending.** No watchdog promotion or deletion gate is closed by verified-iteration evidence. |
 
 For each row, use one reviewable promotion sequence:
 
@@ -222,6 +223,11 @@ For each row, use one reviewable promotion sequence:
   reviews.
 - [ ] Re-run the reference and supported-run scans before queuing the old YAML
   source for deletion.
+
+The first row has completed the source, registration, typed parity, promoted
+launch, and fresh mocked-provider `.orc` smoke steps. Its YAML verification
+cycle remains deliberately open for Task 6 scans and deletion. The second row
+retains every Task 5 gate.
 
 ### Task 6: Execute the gated archive and deletion queues
 

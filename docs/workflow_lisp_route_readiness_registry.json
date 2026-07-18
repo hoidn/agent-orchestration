@@ -715,7 +715,7 @@
       "surface_kind": "library_workflow"
     },
     {
-      "copy_safety": "migration_evidence_only",
+      "copy_safety": "preferred_current_guidance",
       "entry_workflow": "verified_iteration_drain/drain::drain",
       "evidence": [
         "tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_compiles_with_exact_public_contract",
@@ -727,8 +727,8 @@
       "lowering_schema_version": 2,
       "parity_constrained": true,
       "path": "workflows/library/verified_iteration_drain/drain.orc",
-      "readiness_label": "leaf_runtime_candidate",
-      "route_label": "migration_candidate",
+      "readiness_label": "promotion_eligible",
+      "route_label": "wcc_default",
       "surface_id": "workflows.library.verified_iteration_drain.drain",
       "surface_kind": "migration_target"
     },

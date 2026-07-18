@@ -2761,7 +2761,7 @@ def test_design_plan_impl_stack_manifest_uses_defaulted_dry_run_and_procedure_fi
     assert "resume-or-start reusable phase-state validation" not in json.dumps(target)
 
 
-def test_checked_in_verified_parity_target_has_complete_candidate_contract() -> None:
+def test_checked_in_verified_parity_target_has_complete_promoted_contract() -> None:
     payload = json.loads(
         (
             Path(__file__).resolve().parents[1]
@@ -2778,10 +2778,9 @@ def test_checked_in_verified_parity_target_has_complete_candidate_contract() -> 
     assert target["yaml_primary"] == "workflows/examples/verified_iteration_drain.yaml"
     assert target["entry_workflow"] == "verified_iteration_drain/drain::drain"
     assert target["promotion_eligibility"] == {
-        "eligible_for_primary_surface": False,
-        "blocked_reason": "candidate evidence only until the promotion task passes",
+        "eligible_for_primary_surface": True,
     }
-    assert target["readiness_label"] == "leaf_runtime_candidate"
+    assert target["readiness_label"] == "promotion_eligible"
     assert target["lowering_route"] == "wcc_m4"
     assert target["lowering_schema_version"] == 2
     assert "required_family_evidence_roles" not in target

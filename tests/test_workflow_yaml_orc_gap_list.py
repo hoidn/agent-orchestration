@@ -39,7 +39,7 @@ EXPECTED_GAPS = {
     "common.prompt-dependency-parity": "blocking_gate",
     "common.command-boundary": "implemented",
     "verified.bounded-loop": "implemented",
-    "verified.iteration-artifact-lineage": "blocking_gate",
+    "verified.iteration-artifact-lineage": "implemented",
     "verified.summary-pointer-helper": "drop",
     "verified.task-15-input-drift": "implemented",
     "watchdog.probe-and-publication": "implemented",
@@ -118,7 +118,7 @@ def test_every_scoped_gap_has_a_closed_classification_and_binding() -> None:
     assert "TBD" not in text.upper()
 
 
-def test_generic_provider_closures_do_not_claim_family_or_yaml_completion() -> None:
+def test_generic_provider_closures_keep_watchdog_and_yaml_pending() -> None:
     text = GAP_LIST.read_text(encoding="utf-8")
     rows = _table_after_heading(text, "## Gap decisions")
     decisions = {row["Gap ID"]: row for row in rows}
@@ -134,11 +134,12 @@ def test_generic_provider_closures_do_not_claim_family_or_yaml_completion() -> N
     assert "no-default unrestricted" in profile["Observed YAML mechanics"].lower()
     assert "exact argv profile evidence" in profile["Gate or authority"].lower()
     assert "not family-specific compiler routes" in profile["Gate or authority"].lower()
-    assert "family parity and promotion remain pending" in normalized
+    assert "verified iteration family parity and promotion are closed" in normalized
+    assert "watchdog family parity and promotion" in normalized
     assert "yaml deletion remains pending" in normalized
 
 
-def test_prompt_dependency_gap_uses_implemented_generic_mechanism_without_closing_port_parity() -> None:
+def test_prompt_dependency_gap_closes_verified_only_and_keeps_watchdog_blocked() -> None:
     text = GAP_LIST.read_text(encoding="utf-8")
     rows = _table_after_heading(text, "## Gap decisions")
     decision = next(
@@ -152,7 +153,9 @@ def test_prompt_dependency_gap_uses_implemented_generic_mechanism_without_closin
     assert "required and optional exact relpaths" in normalized_row
     assert "262144 byte" in normalized_row
     assert "fresh snapshot per retry" in normalized_row
-    assert "family parity and promotion remain pending" in normalized
+    assert "verified iteration proved its exact dependencies" in normalized_row
+    assert "remains blocking only for the watchdog port" in normalized_row
+    assert "watchdog family proof and promotion remain pending" in normalized
     assert "yaml deletion remains pending" in normalized
 
 
@@ -172,6 +175,22 @@ def test_prompt_dependency_status_is_discoverable_without_promoting_yaml_or_surv
         assert "verified iteration drain" in normalized
         assert "generic run watchdog" in normalized
         assert "parity" in normalized and "pending" in normalized
+
+
+def test_verified_family_gate_is_closed_without_closing_watchdog_or_yaml_deletion() -> None:
+    text = GAP_LIST.read_text(encoding="utf-8")
+    rows = _table_after_heading(text, "## Gap decisions")
+    decisions = {row["Gap ID"]: row for row in rows}
+
+    assert decisions["verified.iteration-artifact-lineage"]["Classification"] == "implemented"
+    assert decisions["watchdog.port-plan-and-parity"]["Classification"] == "blocking_gate"
+    assert (
+        "artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/"
+        "verified_iteration_drain.json"
+    ) in text
+    normalized = " ".join(text.lower().replace("-", " ").split())
+    assert "verified iteration has closed its family proof and promotion gates" in normalized
+    assert "yaml deletion remains pending for both families" in normalized
 
 
 def test_gap_list_covers_the_observed_yaml_mechanics_without_expanding_scope() -> None:

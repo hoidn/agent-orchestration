@@ -210,7 +210,7 @@ document owns the answer.
 **Use this when:** Designing either retained `.orc` port, checking its still-binding provider/prompt/parity gates, or reviewing why the protected holdout remains owner-gated.
 
 ### [Workflow Lisp Provider Prompt Dependencies](plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md)
-**Description:** Implemented generic functional contract for typed required and optional exact relpaths on `provider-result`, deterministic bounded content injection, one immutable per-attempt snapshot, crash-durable attempt allocation, and content-free evidence. Runtime plan remains topology-only and evidence is non-authoritative. YAML content mode remains Legacy with stable-success compatibility and fresh-per-retry behavior; `verified_iteration_drain` and `generic_run_watchdog` parity and promotion remain pending.
+**Description:** Implemented generic functional contract for typed required and optional exact relpaths on `provider-result`, deterministic bounded content injection, one immutable per-attempt snapshot, crash-durable attempt allocation, and content-free evidence. Runtime plan remains topology-only and evidence is non-authoritative. YAML content mode remains Legacy with stable-success compatibility and fresh-per-retry behavior. `verified_iteration_drain` has closed its family parity and promotion gate with final report `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`; `generic_run_watchdog` parity and promotion remain pending, as does YAML deletion.
 **Keywords:** workflow-lisp, provider, prompt-dependencies, relpath, snapshot, retry, evidence
 **Use this when:** Authoring or reviewing `.orc` provider calls that must receive workspace file contents, or implementing the still-pending survivor-family parity proofs.
 
@@ -286,9 +286,9 @@ document owns the answer.
 **Use this when:** Launching or reviewing the local NeurIPS-style workflow for DSL v2.14 materialization and variants.
 
 ### [Verified-Iteration Drain](design/verified_iteration_drain.md)
-**Description:** Designed pilot for a single fused-session select/plan/implement/verify drain that treats the repo, git history, and check exit codes as sole authority, run alongside (not replacing) the `lisp_frontend_*` drain family.
-**Keywords:** drain, pilot, repeat_until, repo-as-truth, verified-iteration
-**Use this when:** Evaluating or running the verified-iteration pilot loop instead of authoring a new `lisp_frontend_*`-style drain.
+**Description:** Implemented verified-iteration drain whose promoted Workflow Lisp primary runs a single fused-session select/plan/implement/verify loop and treats the repo, git history, and check exit codes as sole authority. New launches use `workflows/library/verified_iteration_drain/drain.orc`; the YAML twin remains compatibility/reference evidence until Task 6 deletion gates pass.
+**Keywords:** drain, workflow-lisp, repeat_until, repo-as-truth, verified-iteration
+**Use this when:** Launching or adapting the promoted verified-iteration `.orc` loop alongside (not replacing) the `lisp_frontend_*` drain family.
 
 ### [Prompt Index](../prompts/README.md)
 **Description:** Curated catalog of canonical prompt files, with recent workflow prompt families and superseded near-duplicates called out explicitly.

@@ -1,8 +1,16 @@
 # Verified-Iteration Drain
 
-Status: designed (pilot; does not replace the `lisp_frontend_*` drain family)
+Status: implemented; Workflow Lisp production primary (does not replace the
+`lisp_frontend_*` drain family)
 Created: 2026-07-02
 Implementation plan: `docs/plans/2026-07-02-verified-iteration-drain.md`
+
+The promoted authoring and launch surface is
+`workflows/library/verified_iteration_drain/drain.orc`, entry
+`verified_iteration_drain/drain::drain`. Its final typed parity report is
+`artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`.
+The YAML twin remains executable only for compatibility/reference verification
+until the Stage 6 Task 6 reference and supported-run deletion gates pass.
 
 ## Problem
 
@@ -115,7 +123,7 @@ only what was measured.
 
 ## Component Contracts (IDL-style)
 
-### Workflow boundary — `workflows/examples/verified_iteration_drain.yaml`
+### Workflow boundary — `workflows/library/verified_iteration_drain/drain.orc`
 
 - Inputs: `target_design_path` (relpath under docs/design, must exist),
   `check_commands_path` (relpath, JSON list of shell commands — fixed at
@@ -128,6 +136,12 @@ only what was measured.
   output; CONTINUE never escapes in practice), `drain_summary_path`.
 - Dependencies: git available in the workspace; the three scripts below; the
   three prompts below. No imports of other workflow files.
+
+Launch new runs through Workflow Lisp with the provider, prompt, and command
+extern manifests under
+`workflows/examples/inputs/workflow_lisp_migrations/`. The retained
+`workflows/examples/verified_iteration_drain.yaml` mirrors the public behavior
+for compatibility evidence; it is not the new-launch route.
 
 ### `workflows/library/scripts/prepare_verified_iteration.py`
 

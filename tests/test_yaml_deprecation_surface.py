@@ -558,6 +558,29 @@ def test_author_routing_readme_and_catalog_select_registry_approved_orc() -> Non
         _assert_registry_approved_orc(selected_path)
 
 
+def test_verified_catalog_routes_new_launches_to_orc_and_retains_yaml_compatibility() -> None:
+    document = _read_repository_text("workflows/README.md")
+    rows = _markdown_table_rows(_markdown_section(document, "## Workflow Catalog"))
+    rows_by_path = {row[0].strip("`"): row for row in rows[1:]}
+    orc_path = "workflows/library/verified_iteration_drain/drain.orc"
+    yaml_path = "workflows/examples/verified_iteration_drain.yaml"
+
+    assert rows_by_path[orc_path][1] == "Workflow Lisp production primary; input-required"
+    assert rows_by_path[yaml_path][1] == (
+        "Compatibility/reference twin; retained until Task 6 deletion gate"
+    )
+    _assert_registry_approved_orc(orc_path)
+    assert (_REPOSITORY_ROOT / yaml_path).is_file()
+
+    launch = _markdown_section(document, "## Verified-Iteration Drain Launch")
+    assert "python -m orchestrator run workflows/library/verified_iteration_drain/drain.orc" in launch
+    assert "--entry-workflow verified_iteration_drain/drain::drain" in launch
+    assert "verified_iteration_drain.providers.json" in launch
+    assert "verified_iteration_drain.prompts.json" in launch
+    assert "verified_iteration_drain.commands.json" in launch
+    assert "python -m orchestrator run workflows/examples/verified_iteration_drain.yaml" not in launch
+
+
 def test_author_routing_templates_default_to_orc_and_inventory_yaml_only() -> None:
     document = _read_repository_text("workflows/templates/README.md")
     rows = _markdown_table_rows(_markdown_section(document, "## Template Routes"))
