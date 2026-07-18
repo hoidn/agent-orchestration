@@ -1,0 +1,3 @@
+{
+  "prompts.execute": "tests/fixtures/workflow_lisp/provider_prompt_dependencies/prompt.md"
+}
