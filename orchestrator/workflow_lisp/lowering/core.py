@@ -2445,6 +2445,9 @@ def _validate_one_lowered_workflow(
             private_exec_context_bindings=lowered_workflow.private_exec_context_bindings,
             compatibility_bridge_inputs=lowered_workflow.compatibility_bridge_inputs,
             private_artifact_ids=lowered_workflow.private_artifact_ids,
+            compiler_prompt_dependency_contracts=(
+                lowered_workflow.compiler_prompt_dependency_contracts
+            ),
             runtime_proof_parent_ref_allowances=(
                 _runtime_proof_parent_ref_allowances_for_generated_private_steps(
                     lowered_workflow.runtime_proof_executable_parent_ref_allowances,

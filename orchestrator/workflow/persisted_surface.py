@@ -18,6 +18,15 @@ from types import MappingProxyType
 from typing import Any
 
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+from orchestrator.workflow.prompt_dependency_contract import (
+    COMPILER_PROMPT_DEPENDENCY_CONTRACT_SCHEMA,
+    CompilerPromptDependencyContract,
+    PromptDependencyOriginKind,
+    PromptDependencyPathInterpretation,
+    PromptDependencyPosition,
+    serialize_compiler_prompt_dependency_contract,
+    validate_compiler_prompt_dependency_contract,
+)
 from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
 
 
@@ -58,6 +67,7 @@ class PersistedSurfaceStep:
     else_steps: tuple["PersistedSurfaceStep", ...]
     match_cases: Mapping[str, tuple["PersistedSurfaceStep", ...]]
     repeat_until: PersistedSurfaceRepeatUntil | None
+    compiler_prompt_dependency_contract: CompilerPromptDependencyContract | None = None
 
 
 @dataclass(frozen=True)
@@ -264,7 +274,7 @@ def decode_persisted_workflow_surface_graph(
 
 def _serialize_step(step: SurfaceStep) -> dict[str, Any]:
     common = step.common
-    return {
+    payload = {
         "name": step.name,
         "step_id": step.step_id,
         "kind": step.kind.value,
@@ -306,6 +316,13 @@ def _serialize_step(step: SurfaceStep) -> dict[str, Any]:
             else None
         ),
     }
+    if step.compiler_prompt_dependency_contract is not None:
+        payload["compiler_prompt_dependency_contract"] = (
+            serialize_compiler_prompt_dependency_contract(
+                step.compiler_prompt_dependency_contract
+            )
+        )
+    return payload
 
 
 _STEP_KEYS = {
@@ -326,6 +343,7 @@ _STEP_KEYS = {
     "match_cases",
     "repeat_until",
 }
+_OPTIONAL_STEP_KEYS = {"compiler_prompt_dependency_contract"}
 _COMMON_KEYS = {
     "publishes",
     "consumes",
@@ -336,7 +354,9 @@ _COMMON_KEYS = {
 
 
 def _decode_step(value: Any) -> PersistedSurfaceStep:
-    raw = _mapping_with_keys(value, _STEP_KEYS, "persisted surface step")
+    raw = _mapping(value, "persisted surface step")
+    if not _STEP_KEYS <= set(raw) or set(raw) - _STEP_KEYS - _OPTIONAL_STEP_KEYS:
+        raise ValueError("persisted surface step has unsupported or missing fields")
     try:
         kind = SurfaceStepKind(_non_empty_string(raw["kind"], "step kind"))
     except ValueError as exc:
@@ -419,7 +439,91 @@ def _decode_step(value: Any) -> PersistedSurfaceStep:
             }
         ),
         repeat_until=repeat_until,
+        compiler_prompt_dependency_contract=(
+            _decode_compiler_prompt_dependency_contract(
+                raw["compiler_prompt_dependency_contract"]
+            )
+            if "compiler_prompt_dependency_contract" in raw
+            else None
+        ),
     )
+
+
+_COMPILER_PROMPT_DEPENDENCY_CONTRACT_KEYS = {
+    "schema",
+    "origin_kind",
+    "path_interpretation",
+    "evidence_required",
+    "source_origin_key",
+    "source_workflow_sha256",
+    "required_binding_refs",
+    "optional_binding_refs",
+    "position",
+    "instruction_utf8_sha256_or_null",
+    "normalized_contract_sha256",
+}
+
+
+def _decode_compiler_prompt_dependency_contract(
+    value: Any,
+) -> CompilerPromptDependencyContract:
+    raw = _mapping_with_keys(
+        value,
+        _COMPILER_PROMPT_DEPENDENCY_CONTRACT_KEYS,
+        "compiler prompt dependency contract",
+    )
+    try:
+        contract = CompilerPromptDependencyContract(
+            schema=_non_empty_string(raw["schema"], "compiler contract schema"),
+            origin_kind=PromptDependencyOriginKind(
+                _non_empty_string(raw["origin_kind"], "compiler contract origin kind")
+            ),
+            path_interpretation=PromptDependencyPathInterpretation(
+                _non_empty_string(
+                    raw["path_interpretation"],
+                    "compiler contract path interpretation",
+                )
+            ),
+            evidence_required=raw["evidence_required"],
+            source_origin_key=_non_empty_string(
+                raw["source_origin_key"], "compiler contract source origin"
+            ),
+            source_workflow_sha256=_non_empty_string(
+                raw["source_workflow_sha256"], "compiler contract source digest"
+            ),
+            required_binding_refs=tuple(
+                _non_empty_string(item, "required compiler binding ref")
+                for item in _list(
+                    raw["required_binding_refs"], "required compiler binding refs"
+                )
+            ),
+            optional_binding_refs=tuple(
+                _non_empty_string(item, "optional compiler binding ref")
+                for item in _list(
+                    raw["optional_binding_refs"], "optional compiler binding refs"
+                )
+            ),
+            position=PromptDependencyPosition(
+                _non_empty_string(raw["position"], "compiler contract position")
+            ),
+            instruction_utf8_sha256_or_null=(
+                _non_empty_string(
+                    raw["instruction_utf8_sha256_or_null"],
+                    "compiler contract instruction digest",
+                )
+                if raw["instruction_utf8_sha256_or_null"] is not None
+                else None
+            ),
+            normalized_contract_sha256=_non_empty_string(
+                raw["normalized_contract_sha256"],
+                "compiler contract normalized digest",
+            ),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("persisted compiler prompt dependency contract is invalid") from exc
+    if contract.schema != COMPILER_PROMPT_DEPENDENCY_CONTRACT_SCHEMA:
+        raise ValueError("persisted compiler prompt dependency contract schema is unsupported")
+    return validate_compiler_prompt_dependency_contract(contract)
 
 
 def _validate_step_kind_shape(

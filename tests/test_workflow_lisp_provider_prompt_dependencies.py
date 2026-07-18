@@ -11,8 +11,17 @@ from typing import Any
 
 import pytest
 
-from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
-from orchestrator.workflow.persisted_surface import serialize_persisted_workflow_surface_graph
+from orchestrator.exceptions import WorkflowValidationError
+from orchestrator.workflow.executable_ir import (
+    ExecutableNodeKind,
+    validate_executable_workflow,
+    workflow_executable_ir_to_json,
+)
+from orchestrator.workflow.persisted_surface import (
+    canonical_persisted_surface_bytes,
+    decode_persisted_workflow_surface_graph,
+    serialize_persisted_workflow_surface_graph,
+)
 from orchestrator.workflow.prompt_dependency_contract import (
     COMPILER_PROMPT_DEPENDENCY_CONTRACT_SCHEMA,
     CompilerPromptDependencyContract,
@@ -25,6 +34,13 @@ from orchestrator.workflow.prompt_dependency_contract import (
     validate_compiler_prompt_dependency_contract,
 )
 from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
+from orchestrator.workflow.runtime_step import RuntimeStep
+from orchestrator.workflow.validation import (
+    WorkflowBoundaryValidationPolicy,
+    WorkflowMappingBuildRequest,
+    WorkflowMappingValidationOptions,
+    validate_workflow_mapping,
+)
 from orchestrator.workflow_lisp.build import _json_data
 from orchestrator.workflow_lisp.compiler import (
     _linked_module_type_environment,
@@ -62,6 +78,10 @@ from orchestrator.workflow_lisp.source_map import (
     build_source_map_document,
     validate_source_map_document,
 )
+from orchestrator.workflow_lisp.lexical_checkpoints import (
+    _provider_prompt_input_contract_digest,
+)
+from orchestrator.workflow_lisp.lowering.core import _validate_one_lowered_workflow
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.syntax import SyntaxNode
 from orchestrator.workflow_lisp.type_env import (
@@ -1346,3 +1366,206 @@ def test_prompt_dependency_source_map_rejects_duplicate_and_missing_origins() ->
     with pytest.raises(LispFrontendCompileError) as missing_exc:
         validate_source_map_document(missing)
     assert missing_exc.value.diagnostics[0].code == "source_map_prompt_dependency_invalid"
+
+
+def _only_provider_node(bundle):
+    return next(
+        node
+        for node in bundle.ir.nodes.values()
+        if node.kind is ExecutableNodeKind.PROVIDER
+    )
+
+
+def test_prompt_dependency_shared_ir_transport_and_persisted_round_trip() -> None:
+    result = _compile_dependency_fixture(route="wcc_m4")
+    lowered = result.lowered_workflows[0]
+    bundle = _validate_one_lowered_workflow(
+        lowered,
+        workspace_root=REPO_ROOT,
+        imported_bundles={},
+        workflow_is_imported=False,
+        boundary_validation_policy=WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
+    )
+    (contract,) = lowered.compiler_prompt_dependency_contracts.values()
+    surface_step = bundle.surface.steps[0]
+    core_step = bundle.core_workflow_ast.body[0]
+    provider_node = _only_provider_node(bundle)
+    runtime_step = RuntimeStep(
+        node=provider_node,
+        name=provider_node.presentation_name,
+        step_id=provider_node.step_id,
+    )
+    semantic_surface = next(iter(bundle.semantic_ir.prompt_surfaces.values()))
+
+    assert surface_step.compiler_prompt_dependency_contract is contract
+    assert core_step.compiler_prompt_dependency_contract is contract
+    assert provider_node.execution_config.compiler_prompt_dependency_contract is contract
+    assert runtime_step.compiler_prompt_dependency_contract is contract
+    assert "compiler_prompt_dependency_contract" not in runtime_step
+    with pytest.raises(KeyError):
+        runtime_step["compiler_prompt_dependency_contract"]
+    assert semantic_surface.compiler_prompt_dependency_contract is contract
+    executable_json = workflow_executable_ir_to_json(bundle.ir)
+    executable_node = next(
+        node
+        for node in executable_json["nodes"].values()
+        if node["kind"] == ExecutableNodeKind.PROVIDER.value
+    )
+    assert executable_node["execution_config"][
+        "compiler_prompt_dependency_contract"
+    ] == serialize_compiler_prompt_dependency_contract(contract)
+    semantic_json = workflow_semantic_ir_to_json(bundle.semantic_ir)
+    semantic_prompt_surface = next(
+        iter(semantic_json["prompt_surfaces"].values())
+    )
+    assert semantic_prompt_surface["compiler_prompt_dependency_contract"] == (
+        serialize_compiler_prompt_dependency_contract(contract)
+    )
+
+    wire = serialize_persisted_workflow_surface_graph(bundle)
+    wire_step = wire["nodes"]["mixed"]["steps"][0]
+    assert wire_step["compiler_prompt_dependency_contract"] == (
+        serialize_compiler_prompt_dependency_contract(contract)
+    )
+    decoded = decode_persisted_workflow_surface_graph(
+        canonical_persisted_surface_bytes(wire)
+    )
+    assert (
+        decoded.nodes["mixed"].steps[0].compiler_prompt_dependency_contract
+        == contract
+    )
+
+    runtime_plan = _json_data(bundle.runtime_plan)
+    assert "compiler_prompt_dependency_contract" not in json.dumps(
+        runtime_plan, sort_keys=True
+    )
+
+
+def test_prompt_dependency_executable_validation_rejects_untyped_contract() -> None:
+    result = _compile_dependency_fixture(route="wcc_m4")
+    bundle = _validate_one_lowered_workflow(
+        result.lowered_workflows[0],
+        workspace_root=REPO_ROOT,
+        imported_bundles={},
+        workflow_is_imported=False,
+        boundary_validation_policy=WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
+    )
+    provider_node = _only_provider_node(bundle)
+    invalid_node = replace(
+        provider_node,
+        execution_config=replace(
+            provider_node.execution_config,
+            compiler_prompt_dependency_contract={"not": "typed"},
+        ),
+    )
+    invalid_ir = replace(
+        bundle.ir,
+        nodes={
+            **bundle.ir.nodes,
+            invalid_node.node_id: invalid_node,
+        },
+    )
+
+    with pytest.raises(
+        WorkflowValidationError,
+        match="provider prompt dependency contract is invalid",
+    ):
+        validate_executable_workflow(invalid_ir)
+
+
+def test_prompt_dependency_side_table_reconciles_exact_workflow_lisp_provider_steps() -> None:
+    result = _compile_dependency_fixture(route="wcc_m4")
+    lowered = result.lowered_workflows[0]
+    contract = next(iter(lowered.compiler_prompt_dependency_contracts.values()))
+
+    for contracts in (
+        {},
+        {"root.missing-provider": contract},
+        {next(iter(lowered.compiler_prompt_dependency_contracts)): {"not": "typed"}},
+    ):
+        with pytest.raises(LispFrontendCompileError):
+            _validate_one_lowered_workflow(
+                replace(
+                    lowered,
+                    compiler_prompt_dependency_contracts=contracts,
+                ),
+                workspace_root=REPO_ROOT,
+                imported_bundles={},
+                workflow_is_imported=False,
+                boundary_validation_policy=(
+                    WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
+                ),
+            )
+
+    request = WorkflowMappingBuildRequest(
+        authored_mapping=lowered.authored_mapping,
+        workflow_path=FIXTURE_ROOT / "mixed.orc",
+        frontend_kind=None,
+        compiler_prompt_dependency_contracts=(
+            lowered.compiler_prompt_dependency_contracts
+        ),
+    )
+    validation = validate_workflow_mapping(
+        request,
+        options=WorkflowMappingValidationOptions(
+            workspace_root=REPO_ROOT,
+            boundary_validation_policy=(
+                WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
+            ),
+            allow_private_collection_output_schemas=True,
+        ),
+    )
+    assert validation.bundle is None
+    assert any(
+        "Workflow Lisp" in error.message
+        for error in validation.errors
+    )
+
+
+def test_prompt_dependency_checkpoint_identity_includes_typed_contract() -> None:
+    result = _compile_dependency_fixture(route="wcc_m4")
+    bundle = _validate_one_lowered_workflow(
+        result.lowered_workflows[0],
+        workspace_root=REPO_ROOT,
+        imported_bundles={},
+        workflow_is_imported=False,
+        boundary_validation_policy=WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
+    )
+    provider_node = _only_provider_node(bundle)
+    runtime_step = RuntimeStep(
+        node=provider_node,
+        name=provider_node.presentation_name,
+        step_id=provider_node.step_id,
+    )
+    contract = runtime_step.compiler_prompt_dependency_contract
+    changed = _build_compiler_prompt_dependency_contract(
+        required_binding_refs=(*contract.required_binding_refs, "inputs.extra"),
+        optional_binding_refs=contract.optional_binding_refs,
+        position=contract.position,
+        instruction="Use the supplied dependency set.",
+        source_origin_key=contract.source_origin_key,
+        source_workflow_bytes=(FIXTURE_ROOT / "mixed.orc").read_bytes(),
+    )
+    changed_node = replace(
+        provider_node,
+        execution_config=replace(
+            provider_node.execution_config,
+            compiler_prompt_dependency_contract=changed,
+        ),
+    )
+    changed_runtime_step = RuntimeStep(
+        node=changed_node,
+        name=changed_node.presentation_name,
+        step_id=changed_node.step_id,
+    )
+
+    assert _provider_prompt_input_contract_digest(runtime_step) != (
+        _provider_prompt_input_contract_digest(changed_runtime_step)
+    )
+
+
+def test_prompt_dependency_absence_keeps_runtime_plan_bytes_exact() -> None:
+    expected = json.loads(BASELINE.read_text(encoding="utf-8"))
+    for route, route_name in (("legacy", "classic_direct"), ("wcc_m4", "wcc_schema_2")):
+        observed = _route_artifacts(route)
+        assert observed["runtime_plan"] == expected["routes"][route_name]["runtime_plan"]

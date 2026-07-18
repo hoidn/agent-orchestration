@@ -6,6 +6,7 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from .prompt_dependency_contract import CompilerPromptDependencyContract
 from .executable_ir import (
     AdjudicatedProviderStepConfig,
     CallBoundaryNode,
@@ -148,6 +149,17 @@ class RuntimeStep(Mapping[str, Any]):
         if isinstance(self.node, FinalizationStepNode):
             return self.node.execution_kind
         return self.node.kind
+
+    @property
+    def compiler_prompt_dependency_contract(
+        self,
+    ) -> CompilerPromptDependencyContract | None:
+        """Typed compiler contract, intentionally outside the mapping view."""
+
+        config = self._config()
+        if isinstance(config, ProviderStepConfig):
+            return config.compiler_prompt_dependency_contract
+        return None
 
     def _config(self) -> Any:
         return self.node.execution_config

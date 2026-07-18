@@ -1022,6 +1022,9 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
             typed_prompt_inputs=step.typed_prompt_inputs,
             consumes_injection_position=step.consumes_injection_position,
             managed_jobs=_managed_jobs_config(step.managed_jobs),
+            compiler_prompt_dependency_contract=(
+                step.compiler_prompt_dependency_contract
+            ),
         )
     if step.kind is SurfaceStepKind.ADJUDICATED_PROVIDER:
         return AdjudicatedProviderStepConfig(

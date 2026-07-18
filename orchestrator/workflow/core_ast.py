@@ -10,6 +10,8 @@ from typing import Any, Mapping
 
 from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
 
+from .prompt_dependency_contract import CompilerPromptDependencyContract
+from .state_layout import GeneratedPathAllocation
 from .surface_ast import (
     ImportedWorkflowMetadata,
     PrivateExecContextBinding,
@@ -24,7 +26,6 @@ from .surface_ast import (
     WorkflowProvenance,
     empty_frozen_mapping,
 )
-from .state_layout import GeneratedPathAllocation
 
 
 CORE_WORKFLOW_AST_SCHEMA_VERSION = "core_workflow_ast.v1"
@@ -109,6 +110,10 @@ class CoreProviderStep:
     prompt_consumes: tuple[Any, ...] | None = None
     typed_prompt_inputs: tuple[Any, ...] = ()
     consumes_injection_position: str | None = None
+    compiler_prompt_dependency_contract: CompilerPromptDependencyContract | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
     _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
 
 
@@ -518,6 +523,9 @@ def _build_statement(
             prompt_consumes=step.prompt_consumes,
             typed_prompt_inputs=step.typed_prompt_inputs,
             consumes_injection_position=step.consumes_injection_position,
+            compiler_prompt_dependency_contract=(
+                step.compiler_prompt_dependency_contract
+            ),
             _surface_step=step,
         )
     if step.kind is SurfaceStepKind.ADJUDICATED_PROVIDER:
@@ -905,6 +913,9 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
             prompt_consumes=statement.prompt_consumes,
             typed_prompt_inputs=statement.typed_prompt_inputs,
             consumes_injection_position=statement.consumes_injection_position,
+            compiler_prompt_dependency_contract=(
+                statement.compiler_prompt_dependency_contract
+            ),
         )
     elif isinstance(statement, CoreAdjudicatedProviderStep):
         kwargs["adjudicated_provider"] = statement.adjudicated_provider

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field, fields, is_dataclass, replace
+from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -20,6 +21,10 @@ from .core_ast import (
     _surface_step_from_core_statement,
 )
 from .executable_ir import ExecutableWorkflow
+from .prompt_dependency_contract import (
+    CompilerPromptDependencyContract,
+    serialize_compiler_prompt_dependency_contract,
+)
 from .references import ReferenceResolutionError, StructuredStepReference, parse_structured_ref
 from .runtime_plan import WorkflowRuntimePlan
 from .state_projection import WorkflowStateProjection
@@ -156,6 +161,13 @@ class SemanticPromptSurface:
     typed_prompt_inputs: tuple[Any, ...] = ()
     inject_output_contract: bool | None = None
     inject_consumes: bool | None = None
+    compiler_prompt_dependency_contract: CompilerPromptDependencyContract | None = field(
+        default=None,
+        metadata={
+            "json_omit_if_none": True,
+            "json_serializer": serialize_compiler_prompt_dependency_contract,
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -374,6 +386,9 @@ def derive_workflow_semantic_ir(
                 typed_prompt_inputs=step.typed_prompt_inputs or (),
                 inject_output_contract=step.inject_output_contract,
                 inject_consumes=step.inject_consumes,
+                compiler_prompt_dependency_contract=(
+                    step.compiler_prompt_dependency_contract
+                ),
             )
             effect_id = _effect_id(workflow_name, statement_surface.surface_step_id, "provider_call")
             effects[effect_id] = SemanticEffectEntry(
@@ -2981,6 +2996,8 @@ def _json_value(value: Any) -> Any:
         return value
     if isinstance(value, Path):
         return str(value)
+    if isinstance(value, Enum):
+        return value.value
     if isinstance(value, Mapping):
         return {str(key): _json_value(item) for key, item in value.items()}
     if isinstance(value, tuple):
@@ -2988,7 +3005,16 @@ def _json_value(value: Any) -> Any:
     if isinstance(value, list):
         return [_json_value(item) for item in value]
     if is_dataclass(value):
-        return {field.name: _json_value(getattr(value, field.name)) for field in fields(value)}
+        payload: dict[str, Any] = {}
+        for field_def in fields(value):
+            field_value = getattr(value, field_def.name)
+            if field_def.metadata.get("json_omit_if_none") and field_value is None:
+                continue
+            serializer = field_def.metadata.get("json_serializer")
+            payload[field_def.name] = _json_value(
+                serializer(field_value) if serializer is not None else field_value
+            )
+        return payload
     return value
 
 

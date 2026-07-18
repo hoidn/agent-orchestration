@@ -27,6 +27,10 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_output_contracts,
 )
 from orchestrator.workflow.lowering import build_loaded_workflow_bundle
+from orchestrator.workflow.prompt_dependency_contract import (
+    CompilerPromptDependencyContract,
+    validate_compiler_prompt_dependency_contract,
+)
 from orchestrator.workflow.state_layout import GeneratedPathAllocation
 from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 from orchestrator.workflow.predicates import (
@@ -144,6 +148,9 @@ class WorkflowMappingBuildRequest:
     compatibility_bridge_inputs: tuple[str, ...] = ()
     private_artifact_ids: tuple[str, ...] = ()
     runtime_proof_parent_ref_allowances: tuple[tuple[str, str], ...] = ()
+    compiler_prompt_dependency_contracts: Mapping[
+        str, CompilerPromptDependencyContract
+    ] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -6175,6 +6182,13 @@ def validate_workflow_mapping(
 
     workflow = deepcopy(dict(request.authored_mapping))
     validator = _WorkflowMappingValidator(request, options)
+    if (
+        request.compiler_prompt_dependency_contracts
+        and request.frontend_kind != "workflow_lisp"
+    ):
+        validator._add_error(
+            "compiler prompt dependency contracts require the Workflow Lisp frontend"
+        )
     version = workflow.get("version")
     if not version:
         validator._add_error("'version' field is required")
@@ -6235,6 +6249,11 @@ def validate_workflow_mapping(
             workflow_is_imported=request.workflow_is_imported,
             allow_generated_step_kinds=allow_generated_step_kinds,
         )
+        if surface is not None and request.frontend_kind == "workflow_lisp":
+            surface = _attach_compiler_prompt_dependency_contracts(
+                surface,
+                request.compiler_prompt_dependency_contracts,
+            )
     except ValueError as exc:
         validator._add_error(str(exc))
         surface = None
@@ -6259,3 +6278,99 @@ def validate_workflow_mapping(
     except WorkflowValidationError as exc:
         return WorkflowMappingValidationResult(None, tuple(exc.errors))
     return WorkflowMappingValidationResult(bundle, ())
+
+
+def _attach_compiler_prompt_dependency_contracts(
+    surface: "SurfaceWorkflow",
+    contracts: Mapping[str, CompilerPromptDependencyContract],
+) -> "SurfaceWorkflow":
+    """Attach the compiler side table after stable surface step IDs exist."""
+
+    from types import MappingProxyType
+
+    from orchestrator.workflow.surface_ast import SurfaceStepKind
+
+    if not isinstance(contracts, Mapping):
+        raise ValueError("compiler prompt dependency contracts must be a mapping")
+    normalized: dict[str, CompilerPromptDependencyContract] = {}
+    for step_id, contract in contracts.items():
+        if not isinstance(step_id, str) or not step_id:
+            raise ValueError("compiler prompt dependency contract step IDs must be non-empty")
+        try:
+            normalized[step_id] = validate_compiler_prompt_dependency_contract(contract)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"compiler prompt dependency contract for `{step_id}` is invalid"
+            ) from exc
+
+    expected_step_ids: set[str] = set()
+
+    def attach_step(step: "SurfaceStep") -> "SurfaceStep":
+        contract_step_id = step.authored_id or step.step_id
+        if step.kind is SurfaceStepKind.PROVIDER and step.depends_on:
+            expected_step_ids.add(contract_step_id)
+        attached = normalized.get(contract_step_id)
+        if attached is not None and step.kind is not SurfaceStepKind.PROVIDER:
+            raise ValueError(
+                f"compiler prompt dependency contract `{contract_step_id}` does not name a provider step"
+            )
+        then_branch = (
+            replace(
+                step.then_branch,
+                steps=tuple(attach_step(child) for child in step.then_branch.steps),
+            )
+            if step.then_branch is not None
+            else None
+        )
+        else_branch = (
+            replace(
+                step.else_branch,
+                steps=tuple(attach_step(child) for child in step.else_branch.steps),
+            )
+            if step.else_branch is not None
+            else None
+        )
+        match_cases = MappingProxyType(
+            {
+                name: replace(
+                    case,
+                    steps=tuple(attach_step(child) for child in case.steps),
+                )
+                for name, case in step.match_cases.items()
+            }
+        )
+        repeat_until = (
+            replace(
+                step.repeat_until,
+                steps=tuple(attach_step(child) for child in step.repeat_until.steps),
+            )
+            if step.repeat_until is not None
+            else None
+        )
+        return replace(
+            step,
+            compiler_prompt_dependency_contract=attached,
+            for_each_steps=tuple(attach_step(child) for child in step.for_each_steps),
+            then_branch=then_branch,
+            else_branch=else_branch,
+            match_cases=match_cases,
+            repeat_until=repeat_until,
+        )
+
+    steps = tuple(attach_step(step) for step in surface.steps)
+    finalization = (
+        replace(
+            surface.finalization,
+            steps=tuple(attach_step(step) for step in surface.finalization.steps),
+        )
+        if surface.finalization is not None
+        else None
+    )
+    if set(normalized) != expected_step_ids:
+        missing = sorted(expected_step_ids - set(normalized))
+        extra = sorted(set(normalized) - expected_step_ids)
+        raise ValueError(
+            "compiler prompt dependency contract side table does not exactly match "
+            f"Workflow Lisp provider steps (missing={missing}, extra={extra})"
+        )
+    return replace(surface, steps=steps, finalization=finalization)

@@ -8,6 +8,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
+from .prompt_dependency_contract import CompilerPromptDependencyContract
+
 from .state_layout import GeneratedPathAllocation
 
 
@@ -257,6 +259,10 @@ class SurfaceStep:
     prompt_consumes: Optional[tuple[Any, ...]] = None
     typed_prompt_inputs: tuple[Any, ...] = ()
     consumes_injection_position: Optional[str] = None
+    compiler_prompt_dependency_contract: CompilerPromptDependencyContract | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
     wait_for: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     set_scalar: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     resource_transition: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)

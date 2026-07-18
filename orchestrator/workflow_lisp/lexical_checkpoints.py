@@ -478,19 +478,31 @@ def _workflow_version_policy_from_workspace(workspace: Path, relative_path: str)
 
 
 def _provider_prompt_input_contract_digest(runtime_step: Any) -> str:
-    return _sha256_json(
-        {
-            "provider": runtime_step.get("provider"),
-            "input_file": runtime_step.get("input_file"),
-            "asset_file": runtime_step.get("asset_file"),
-            "prompt_consumes": runtime_step.get("prompt_consumes"),
-            "depends_on": runtime_step.get("depends_on"),
-            "asset_depends_on": runtime_step.get("asset_depends_on"),
-            "inject_output_contract": runtime_step.get("inject_output_contract"),
-            "inject_consumes": runtime_step.get("inject_consumes"),
-            "consumes_injection_position": runtime_step.get("consumes_injection_position"),
-        }
+    from orchestrator.workflow.prompt_dependency_contract import (
+        serialize_compiler_prompt_dependency_contract,
     )
+
+    compiler_contract = getattr(
+        runtime_step,
+        "compiler_prompt_dependency_contract",
+        None,
+    )
+    payload = {
+        "provider": runtime_step.get("provider"),
+        "input_file": runtime_step.get("input_file"),
+        "asset_file": runtime_step.get("asset_file"),
+        "prompt_consumes": runtime_step.get("prompt_consumes"),
+        "depends_on": runtime_step.get("depends_on"),
+        "asset_depends_on": runtime_step.get("asset_depends_on"),
+        "inject_output_contract": runtime_step.get("inject_output_contract"),
+        "inject_consumes": runtime_step.get("inject_consumes"),
+        "consumes_injection_position": runtime_step.get("consumes_injection_position"),
+    }
+    if compiler_contract is not None:
+        payload["compiler_prompt_dependency_contract"] = (
+            serialize_compiler_prompt_dependency_contract(compiler_contract)
+        )
+    return _sha256_json(payload)
 
 
 def _completed_effect_ref_base(point: Any, *, effect_kind: str) -> dict[str, Any]:

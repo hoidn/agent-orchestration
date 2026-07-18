@@ -9,6 +9,11 @@ from typing import Any, Mapping, Optional
 
 from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
 
+from .prompt_dependency_contract import (
+    CompilerPromptDependencyContract,
+    serialize_compiler_prompt_dependency_contract,
+    validate_compiler_prompt_dependency_contract,
+)
 from .surface_ast import WorkflowProvenance, empty_frozen_mapping
 
 
@@ -212,6 +217,13 @@ class ProviderStepConfig:
     typed_prompt_inputs: tuple[Any, ...] = ()
     consumes_injection_position: Optional[str] = None
     managed_jobs: Optional[ManagedJobsConfig] = None
+    compiler_prompt_dependency_contract: CompilerPromptDependencyContract | None = field(
+        default=None,
+        metadata={
+            "json_omit_if_none": True,
+            "json_serializer": serialize_compiler_prompt_dependency_contract,
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -720,6 +732,17 @@ def _validate_node_shape(
                 workflow_name=workflow_name,
                 node=node,
             )
+        if isinstance(node.execution_config, ProviderStepConfig):
+            contract = node.execution_config.compiler_prompt_dependency_contract
+            if contract is not None:
+                try:
+                    validate_compiler_prompt_dependency_contract(contract)
+                except (TypeError, ValueError):
+                    _raise_executable_ir_invalid(
+                        "executable_ir_invalid: provider prompt dependency contract is invalid",
+                        workflow_name=workflow_name,
+                        node=node,
+                    )
     elif isinstance(node, CallBoundaryNode):
         if not isinstance(node.execution_config, CallStepConfig):
             _raise_executable_ir_invalid(
