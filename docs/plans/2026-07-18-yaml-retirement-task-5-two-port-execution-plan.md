@@ -409,6 +409,7 @@ python -m orchestrator migration-parity --targets-file workflows/examples/inputs
 - Modify: `tests/test_workflow_yaml_orc_gap_list.py`
 - Modify: `tests/test_workflow_lisp_drain_roadmap_routing.py`
 - Modify: `tests/test_yaml_deprecation_surface.py`
+- Modify: `tests/test_workflow_lisp_migration_parity.py`
 - Generate, ignored: `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/`
 
 **Owned tests:**
@@ -416,15 +417,23 @@ python -m orchestrator migration-parity --targets-file workflows/examples/inputs
 - `tests/test_workflow_lisp_route_readiness.py::test_verified_route_is_promotion_eligible_and_parity_constrained`
 - `tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_post_promotion_orc_smoke_is_fresh`
 - `tests/test_yaml_deprecation_surface.py::test_verified_catalog_routes_new_launches_to_orc_and_retains_yaml_compatibility`
+- `tests/test_workflow_lisp_migration_parity.py::test_checked_in_verified_parity_target_has_complete_promoted_contract`
 
-- [ ] Add the three tests and run RED against candidate readiness/catalog state.
+**Post-review scope correction:** Task 3 introduced a complete candidate-state
+manifest contract in `tests/test_workflow_lisp_migration_parity.py`. Promotion
+changes the same manifest interface, so Task 4 owns the corresponding promoted-
+state assertion. Leaving the candidate assertion outside Task 4 would make the
+repository inconsistent even when the narrower promotion selectors pass.
+
+- [ ] Add the three new promotion tests and run RED against candidate
+  readiness/catalog state.
 
 ```bash
 pytest -q tests/test_workflow_lisp_route_readiness.py::test_verified_route_is_promotion_eligible_and_parity_constrained tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_post_promotion_orc_smoke_is_fresh tests/test_yaml_deprecation_surface.py::test_verified_catalog_routes_new_launches_to_orc_and_retains_yaml_compatibility
 ```
 
   Expected RED: exit 1 because candidate readiness/catalog still retain YAML as
-  primary; Task-3 candidate parity remains green.
+  primary; Task-3 runtime parity remains green.
 - [ ] Flip the target to
   `promotion_eligibility.eligible_for_primary_surface=true` and remove the
   obsolete blocked reason. Set the exact registry tuple to
@@ -432,6 +441,16 @@ pytest -q tests/test_workflow_lisp_route_readiness.py::test_verified_route_is_pr
   `lowering_route=wcc_m4`, `lowering_schema_version=2`,
   `copy_safety=preferred_current_guidance`, and `parity_constrained=true`.
   Validate target/registry agreement before report generation.
+- [ ] Run the retained Task-3 candidate-state contract after the promotion flip
+  and require RED before updating it to the owned promoted-state contract:
+
+```bash
+pytest -q tests/test_workflow_lisp_migration_parity.py::test_checked_in_verified_parity_target_has_complete_candidate_contract
+```
+
+  Expected RED: exit 1 because the retained assertion still requires candidate
+  eligibility and the obsolete blocker. Rename it to the owned promoted-
+  contract node and preserve all other complete-contract checks.
 - [ ] Generate the final report only after that bound identity is final:
 
 ```bash
@@ -444,6 +463,7 @@ python -m orchestrator migration-parity --targets-file workflows/examples/inputs
 
 ```bash
 pytest -q tests/test_workflow_lisp_verified_iteration_drain.py tests/test_workflow_lisp_route_readiness.py -k 'verified or current_parity_targets_and_checked_in_registry_agree'
+pytest -q tests/test_workflow_lisp_migration_parity.py::test_checked_in_verified_parity_target_has_complete_promoted_contract
 pytest -q tests/test_workflow_yaml_orc_gap_list.py tests/test_workflow_lisp_drain_roadmap_routing.py tests/test_yaml_deprecation_surface.py -k 'verified or task_5 or author_routing'
 python -m orchestrator workflow-lisp-route-readiness --check
 python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final --target verified_iteration_drain --require-promotable
@@ -452,7 +472,7 @@ python -m orchestrator migration-parity --targets-file workflows/examples/inputs
   Any later manifest/registry edit invalidates this report and requires the last
   command again. The fresh smoke is the named pytest runtime test, not a live
   external provider call.
-- [ ] Complete ordered reviews and commit only the fourteen tracked files.
+- [ ] Complete ordered reviews and commit only the fifteen tracked files.
 
 ## Task 5: Freeze The Bounded Watchdog Port Design
 
