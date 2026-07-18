@@ -2408,19 +2408,33 @@ Suggested commit: `refactor: snapshot dependencies per provider attempt`
 
 **Owner:** fresh runtime/E2E implementer.
 
+**Execution override (2026-07-18):** Task 10 is functional-only. Skip all
+security-related work, including escaping-symlink/path cases and adversarial,
+schema-tamper, index-tamper, or evidence-tamper cases. Retain the positive real
+`.orc` E2E, functional crash/resume durability, accidental evidence deletion or
+corruption independence, allocator corruption fail-closed behavior,
+completed-boundary reuse/checkpoint-contract rejection, and root/call/loop scope
+coverage. Typed adjudicated allocator/evidence coverage is N/A because
+`AdjudicatedProviderStepConfig` has no compiler-contract carrier; Task 9 already
+covers YAML adjudicated per-attempt composition and debug behavior. This override
+does not remove or weaken existing security behavior; it excludes security work
+from this execution tranche.
+
 **Files:**
 
 - Create `tests/test_workflow_lisp_provider_prompt_dependencies_e2e.py`
 - Modify `tests/fixtures/workflow_lisp/provider_prompt_dependencies/mixed.orc`
-- Modify `tests/fixtures/workflow_lisp/provider_prompt_dependencies/procedure_loop.orc`
-- Modify `tests/test_workflow_lisp_provider_prompt_dependencies.py`
-- Modify `tests/test_provider_attempt_allocation.py`
-- Modify `tests/test_prompt_dependency_evidence.py`
-- Modify `tests/test_workflow_lisp_lexical_checkpoint_restore.py`
-- Modify `tests/test_workflow_lisp_lexical_checkpoint_default_resume.py`
+- Inspect without modification
+  `tests/fixtures/workflow_lisp/provider_prompt_dependencies/procedure_loop.orc`
+- Verify without modification `tests/test_workflow_lisp_provider_prompt_dependencies.py`
+- Verify without modification `tests/test_provider_attempt_allocation.py`
+- Verify without modification `tests/test_prompt_dependency_evidence.py`
+- Verify without modification `tests/test_workflow_lisp_lexical_checkpoint_restore.py`
+- Verify without modification
+  `tests/test_workflow_lisp_lexical_checkpoint_default_resume.py`
 - Modify this plan
 
-- [ ] **Step 1: Write the real positive `.orc` E2E RED test.**
+- [x] **Step 1: Write the real positive `.orc` E2E RED test.**
 
 Compile the real mixed fixture through public WCC/schema 2 and shared validation,
 load the bundle, bind typed relpath inputs, execute with a capturing provider that
@@ -2429,14 +2443,17 @@ Assert four present sentinel bodies in canonical order, one absent optional row,
 declared placement, exact final-prompt digest, source/contract digests, one
 attempt-specific success record, one valid index, and a completed typed result.
 
-- [ ] **Step 2: Write the negative swapped-path `.orc` E2E RED test.**
+Execution evidence: the new `mixed-e2e` entrypoint compiles through the public
+entrypoint with shared validation, executes a real structured provider result,
+and validates the terminal evidence index. The RED first failed on the absent
+entrypoint; the fixture-only GREEN preserves the pre-existing `mixed` contract.
 
-Replace a required path with an escaping symlink immediately before the provider
-boundary. Assert stable failure, safely published failure evidence when possible,
-zero preparation/execution, no result bundle acceptance, and no completed provider
-checkpoint.
+- [x] **Step 2: Skip the security-only swapped-path `.orc` E2E test.**
 
-- [ ] **Step 3: Write crash-matrix E2E RED tests.**
+Skipped by the functional-only execution override. Existing path/symlink behavior
+is unchanged and no claim about it is made by Task 10.
+
+- [x] **Step 3: Write crash-matrix E2E RED tests.**
 
 Inject crashes: before allocation persistence; after allocation/before record;
 after record/before manifest event; after event/before preparation; during
@@ -2454,29 +2471,83 @@ orphan that rejects only that offline evidence set and emits no validated index.
 The offline verdict must not retroactively change the resumed semantic result or
 provider checkpoint.
 
-- [ ] **Step 4: Write pending-resume evidence-independence RED tests.**
+Execution evidence: a temporary E2E workflow adds a real committed seed boundary
+and downstream command around the fixture-owned provider dependency contract. It
+covers failed allocation persistence, allocation-before-snapshot, immutable
+record-before-publication-event, publication-before-preparation, and provider
+execution interruption. Resume uses a fresh `StateManager` and snapshot. The
+orphan case guards the exact old record against runtime open, then proves offline
+validation alone rejects it and emits no validated index. The initial no-seed RED
+was `lexical_default_resume_prior_boundary_missing`; the fixture gained a seed
+boundary instead of weakening fail-closed resume.
 
-For separate runs delete, corrupt, schema-tamper, and index-tamper prior evidence.
-Pending resume must not enumerate/open it, must allocate from authoritative state,
-and must snapshot fresh. Tamper allocator scope/counter/event order separately and
-assert resume fails closed without consulting evidence.
+Review correction: all resumed runs with prior published/orphan evidence now use
+one scoped guard that rejects exact prior-record reads through `Path`, built-in,
+and `os` entrypoints and rejects enumeration of only the corresponding ancestors
+through `workflow_lisp/prompt_dependencies`. New attempt publication remains
+writable, and unrelated state/checkpoint traversal remains available. A dedicated
+RED/GREEN guard test proves both rejection and fresh-record write permission.
 
-- [ ] **Step 5: Write completed-boundary reuse RED tests.**
+- [x] **Step 4: Write pending-resume evidence-independence RED tests.**
+
+For separate runs accidentally delete or corrupt prior evidence. Pending resume
+must not enumerate/open it, must allocate from authoritative state, and must
+snapshot fresh. Corrupt allocator scope/counter/event order separately and assert
+resume fails closed without consulting evidence. Schema/index/evidence tamper
+security cases are skipped by the functional-only execution override.
+
+Execution evidence: separate deleted and corrupt prior-record runs guard the
+exact historical path against runtime open, mutate a dependency, resume from a
+fresh snapshot/publication, and complete. Offline validation rejects only the
+historical evidence. Allocator closed-shape, counter, event-order, and corruption
+fail-closed coverage remains in `tests/test_provider_attempt_allocation.py`; its
+fresh adjacent suite passed as part of the 138-test allocator/evidence tranche.
+
+- [x] **Step 5: Write completed-boundary reuse RED tests.**
 
 Complete provider, interrupt downstream, then mutate/delete dependency and resume.
 Assert provider result reuse with zero dependency open/allocation/provider calls.
 Change required/optional role, position, instruction, or authoritative persisted
-contract and assert checkpoint rejection. Evidence tamper rejects offline parity
-only and leaves an otherwise-valid completed semantic result unchanged.
+contract and assert checkpoint rejection. Security-oriented evidence tamper is
+skipped; accidental evidence deletion/corruption must leave an otherwise-valid
+completed semantic result unchanged while offline validation reports the evidence
+problem.
 
-- [ ] **Step 6: Write root/call/loop/adjudicated scope E2E tests.**
+Execution evidence: deleted and corrupt evidence cases interrupt after the
+committed provider checkpoint, delete a required dependency, and resume the
+downstream continuation with snapshot, allocation, provider preparation, and
+provider execution guarded to zero calls. The same scoped prior-evidence guard is
+active during completed reuse and provider-execution interruption. Contract
+identity coverage remains split across the typed dependency digest-change test
+and executable lexical checkpoint rejection tests; no synthetic security-tamper
+E2E is claimed.
 
-Use real two-level calls, a loop in a call frame, root for-each, root repeat-until,
-and adjudicated candidates. Assert exact recursive frame IDs, enclosing step visit,
-iteration, runtime step IDs, aggregate-root paths, monotonic ordinals, and one root
-transition. Preserve nested-loop rejection.
+- [x] **Step 6: Prove real `.orc` call-frame scope and record distinct loop N/A boundaries.**
 
-- [ ] **Step 7: Route any exposed production defect back to its owner task.**
+Use real two-level calls, a loop in a call frame, root for-each, and root
+repeat-until. Assert exact recursive frame IDs, enclosing step visit, iteration,
+runtime step IDs, aggregate-root paths, monotonic ordinals, and one root
+transition. Preserve nested-loop rejection. Typed adjudicated allocator/evidence
+is N/A because the adjudicated runtime has no compiler-contract carrier; its YAML
+composition/debug behavior remains covered by Task 9.
+
+Execution evidence: `mixed.orc` now contains a supported real two-level
+same-module call route whose leaf owns the typed prompt-dependency contract. The
+E2E derives both call-frame IDs and the provider runtime identity from compiled
+call/provider nodes, then asserts the exact recursive `call_frame_ids`, leaf
+provider step/visit, ordinal 1 allocation/publication, null loop/adjudication
+fields, absence of nested allocator state, and record/index ownership under the
+aggregate root only. The RED failed solely because the call entrypoint was absent;
+the fixture-only route made it GREEN.
+
+Distinct limitations remain intentionally unclaimed: the imported `defproc`
+route lowers inline and is not a call frame; `loop-carried` does not pass public
+shared validation; and no typed root for-each carrier exists for this contract.
+Loop-in-call and root-loop runtime shapes remain adjacent allocator coverage, not
+evidence supplied by the new call test. Typed adjudicated allocator/evidence is
+N/A; Task 9 owns YAML composition/debug coverage.
+
+- [x] **Step 7: Route any exposed production defect back to its owner task.**
 
 Task 10 owns tests, fixtures, and verification only. If a RED E2E test exposes a
 production defect, stop this task and return the defect to its actual owner under
@@ -2579,7 +2650,12 @@ in dependency order. Never edit production from Task 10, assign a file to an
 unrelated task merely to continue, move interruption points, invent evidence
 recovery, or weaken existing checksum/call-frame/checkpoint guards.
 
-- [ ] **Step 8: Run focused E2E and resume suites.**
+Execution evidence: no production defect was exposed and no production file was
+edited. RED results were fixture-contract gaps (missing entrypoint, terminal
+provider with no continuation, and no prior boundary), corrected only in Task 10
+test/fixture surfaces. The frozen owner-repair overlay route was not entered.
+
+- [x] **Step 8: Run focused E2E and resume suites.**
 
 ```bash
 pytest --collect-only -q tests/test_workflow_lisp_provider_prompt_dependencies_e2e.py
@@ -2588,10 +2664,24 @@ pytest -q tests/test_workflow_lisp_lexical_checkpoint_restore.py tests/test_work
 pytest -q tests/test_resume_command.py tests/test_adjudicated_provider_resume.py
 ```
 
-- [ ] **Step 9: Freeze the review subject and dispatch the ordered reviews.**
+Fresh post-correction evidence: collect-only found 11 tests; the new E2E module
+passed 11; the existing prompt-dependency frontend suite passed 64; allocator plus
+evidence suites passed 138; lexical restore plus default-resume suites passed
+122; resume-command plus adjudicated-resume suites passed 97.
+
+- [x] **Step 9: Freeze the review subject and dispatch the ordered reviews.**
 
 Apply the digest-stable protocol and commit only after both reviewers PASS the
 unchanged tree.
+
+Review history: functional quality verdict
+`TASK10-QUALITY-REJECT-20260718-2AE61543-01` rejected the earlier candidate for
+two test-contract gaps: it substituted adjacent unit coverage for a supported
+real `.orc` call-frame route, and its prior-evidence probes did not cover all
+resumed historical evidence sets or directory enumeration. The accepted
+corrections above supersede the rejected candidate only after a fresh immutable
+subject and restarted ordered specification-then-quality reviews; no earlier
+approval token applies to the corrected tree.
 
 Suggested commit: `test: prove prompt dependency runtime semantics`
 
