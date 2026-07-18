@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -26,8 +27,23 @@ STATE_ROOT = "state/VERIFIED-ITERATION-DRAIN"
 WORK_ROOT = "artifacts/work/VERIFIED-ITERATION-DRAIN"
 
 
-def _run_script(workspace: Path, *argv: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["python", *argv], cwd=workspace, text=True, capture_output=True, check=check)
+def _run_script(
+    workspace: Path,
+    *argv: str,
+    check: bool = True,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    process_env = os.environ.copy()
+    if env:
+        process_env.update(env)
+    return subprocess.run(
+        ["python", *argv],
+        cwd=workspace,
+        text=True,
+        capture_output=True,
+        check=check,
+        env=process_env,
+    )
 
 
 def _git(workspace: Path, *argv: str) -> str:
@@ -53,7 +69,7 @@ def _init_workspace(tmp_path: Path) -> Path:
     return workspace
 
 
-def _prepare(workspace: Path, iteration: int = 0) -> dict:
+def _prepare(workspace: Path, iteration: int = 0, *, env: dict[str, str] | None = None) -> dict:
     _run_script(
         workspace,
         str(ROOT / PREPARE),
@@ -63,6 +79,7 @@ def _prepare(workspace: Path, iteration: int = 0) -> dict:
         "--check-commands-path", "workflows/examples/inputs/pilot_checks.json",
         "--iteration", str(iteration),
         "--output", f"{STATE_ROOT}/iterations/{iteration}/work-order.json",
+        env=env,
     )
     return json.loads((workspace / STATE_ROOT / "iterations" / str(iteration) / "work-order.json").read_text(encoding="utf-8"))
 
@@ -103,7 +120,14 @@ def test_prepare_fails_fast_on_missing_target_design(tmp_path):
     assert result.returncode != 0
 
 
-def _run_checks(workspace: Path, base_sha: str, *, checks: str = "workflows/examples/inputs/pilot_checks.json", iteration: int = 0) -> dict:
+def _run_checks(
+    workspace: Path,
+    base_sha: str,
+    *,
+    checks: str = "workflows/examples/inputs/pilot_checks.json",
+    iteration: int = 0,
+    env: dict[str, str] | None = None,
+) -> dict:
     _run_script(
         workspace,
         str(ROOT / CHECKS),
@@ -111,6 +135,7 @@ def _run_checks(workspace: Path, base_sha: str, *, checks: str = "workflows/exam
         "--base-sha", base_sha,
         "--iteration-dir", f"{STATE_ROOT}/iterations/{iteration}",
         "--output", f"{STATE_ROOT}/iterations/{iteration}/checks-result.json",
+        env=env,
     )
     return json.loads((workspace / STATE_ROOT / "iterations" / str(iteration) / "checks-result.json").read_text(encoding="utf-8"))
 
@@ -170,6 +195,7 @@ def _record(
     stall_limit: str = "3",
     seed_statuses: list[str] | None = None,
     check: bool = True,
+    env: dict[str, str] | None = None,
 ) -> tuple[str, str] | subprocess.CompletedProcess[str]:
     iteration_dir = workspace / STATE_ROOT / "iterations" / str(iteration)
     iteration_dir.mkdir(parents=True, exist_ok=True)
@@ -217,6 +243,7 @@ def _record(
         "--summary-path", f"{WORK_ROOT}/drain-summary.json",
         "--drain-status-path", f"{STATE_ROOT}/iterations/{iteration}/drain-status.txt",
         check=check,
+        env=env,
     )
     if not check:
         return proc
@@ -281,6 +308,57 @@ def test_record_stall_after_consecutive_non_accepted(tmp_path):
     summary = json.loads((workspace / WORK_ROOT / "drain-summary.json").read_text(encoding="utf-8"))
     assert summary["drain_status"] == "STALLED"
     assert summary["statuses"] == ["NO_CHANGE", "FINDINGS", "CHECKS_RED"]
+
+
+def test_verified_command_adapters_write_runtime_and_compatibility_outputs(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    bundle_root = Path("state/runtime-bundles")
+
+    prepare_bundle = bundle_root / "prepare.json"
+    order = _prepare(
+        workspace,
+        env={"ORCHESTRATOR_OUTPUT_BUNDLE_PATH": prepare_bundle.as_posix()},
+    )
+    checks_bundle = bundle_root / "checks.json"
+    checks = _run_checks(
+        workspace,
+        order["base_sha"],
+        env={"ORCHESTRATOR_OUTPUT_BUNDLE_PATH": checks_bundle.as_posix()},
+    )
+    record_bundle = bundle_root / "record.json"
+    status, drain = _record(
+        workspace,
+        env={"ORCHESTRATOR_OUTPUT_BUNDLE_PATH": record_bundle.as_posix()},
+    )
+
+    assert (workspace / order["work_order_path"]).is_file()
+    assert (workspace / checks["checks_log_path"]).is_file()
+    assert (workspace / checks["review_package_path"]).is_file()
+    assert (workspace / WORK_ROOT / "drain-summary.json").is_file()
+    assert (
+        workspace / STATE_ROOT / "iterations/0/drain-status.txt"
+    ).read_text(encoding="utf-8") == f"{drain}\n"
+    assert status == "NO_CHANGE"
+
+    assert [
+        path.as_posix()
+        for path in (prepare_bundle, checks_bundle, record_bundle)
+        if not (workspace / path).is_file()
+    ] == []
+    assert json.loads((workspace / prepare_bundle).read_text(encoding="utf-8")) == {
+        "base_sha": order["base_sha"],
+        "work_order_path": order["work_order_path"],
+    }
+    assert json.loads((workspace / checks_bundle).read_text(encoding="utf-8")) == {
+        "verify_status": checks["verify_status"],
+        "commits_landed": checks["commits_landed"],
+        "checks_log_path": checks["checks_log_path"],
+        "review_package_path": checks["review_package_path"],
+    }
+    assert json.loads((workspace / record_bundle).read_text(encoding="utf-8")) == {
+        "drain_status": drain,
+        "drain_summary_path": f"{WORK_ROOT}/drain-summary.json",
+    }
 
 
 def test_record_accepted_interrupts_stall_window(tmp_path):

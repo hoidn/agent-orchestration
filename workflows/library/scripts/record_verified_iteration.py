@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 REPO_ROOT = Path.cwd()
@@ -140,6 +141,21 @@ def main() -> int:
     drain_status_path = REPO_ROOT / args.drain_status_path
     drain_status_path.parent.mkdir(parents=True, exist_ok=True)
     drain_status_path.write_text(drain_status + "\n", encoding="utf-8")
+    runtime_bundle_path = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH")
+    if runtime_bundle_path:
+        runtime_bundle = REPO_ROOT / runtime_bundle_path
+        runtime_bundle.parent.mkdir(parents=True, exist_ok=True)
+        runtime_bundle.write_text(
+            json.dumps(
+                {
+                    "drain_status": drain_status,
+                    "drain_summary_path": args.summary_path,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
     return 0
 
 

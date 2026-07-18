@@ -1,0 +1,11 @@
+{
+  "prompts.verified-iteration.work": {
+    "input_file": "workflows/library/prompts/verified_iteration_drain/work.md"
+  },
+  "prompts.verified-iteration.review-iteration": {
+    "input_file": "workflows/library/prompts/verified_iteration_drain/review_iteration.md"
+  },
+  "prompts.verified-iteration.review-done": {
+    "input_file": "workflows/library/prompts/verified_iteration_drain/review_done.md"
+  }
+}

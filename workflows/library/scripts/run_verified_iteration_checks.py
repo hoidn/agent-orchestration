@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -69,6 +70,23 @@ def main() -> int:
         "review_package_path": review_package.relative_to(REPO_ROOT).as_posix(),
     }
     (REPO_ROOT / args.output).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    runtime_bundle_path = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH")
+    if runtime_bundle_path:
+        runtime_bundle = REPO_ROOT / runtime_bundle_path
+        runtime_bundle.parent.mkdir(parents=True, exist_ok=True)
+        runtime_bundle.write_text(
+            json.dumps(
+                {
+                    "verify_status": payload["verify_status"],
+                    "commits_landed": payload["commits_landed"],
+                    "checks_log_path": payload["checks_log_path"],
+                    "review_package_path": payload["review_package_path"],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
     return 0
 
 

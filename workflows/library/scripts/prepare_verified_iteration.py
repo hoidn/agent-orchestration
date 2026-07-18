@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -72,6 +73,21 @@ def main() -> int:
     output = REPO_ROOT / args.output
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(order, indent=2) + "\n", encoding="utf-8")
+    runtime_bundle_path = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH")
+    if runtime_bundle_path:
+        runtime_bundle = REPO_ROOT / runtime_bundle_path
+        runtime_bundle.parent.mkdir(parents=True, exist_ok=True)
+        runtime_bundle.write_text(
+            json.dumps(
+                {
+                    "base_sha": order["base_sha"],
+                    "work_order_path": order["work_order_path"],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
     return 0
 
 

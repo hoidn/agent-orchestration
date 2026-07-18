@@ -1,0 +1,6 @@
+{
+  "providers.worker.codex": "codex_unrestricted_workspace",
+  "providers.worker.claude": "claude_unrestricted_workspace",
+  "providers.reviewer.codex": "codex_unrestricted_workspace",
+  "providers.reviewer.claude": "claude_unrestricted_workspace"
+}
