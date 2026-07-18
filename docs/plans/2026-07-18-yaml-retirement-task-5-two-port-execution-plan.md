@@ -218,6 +218,8 @@ pytest -q tests/test_verified_iteration_drain.py
 - Create: `workflows/library/verified_iteration_drain/drain.orc`
 - Modify: `tests/test_workflow_lisp_verified_iteration_drain.py`
 - Modify: `tests/test_verified_iteration_drain.py`
+- Modify: `workflows/library/scripts/run_verified_iteration_checks.py`
+- Modify: `workflows/library/scripts/record_verified_iteration.py`
 - Modify: `workflows/library/prompts/verified_iteration_drain/work.md`
 - Modify: `workflows/library/prompts/verified_iteration_drain/review_iteration.md`
 - Modify: `workflows/library/prompts/verified_iteration_drain/review_done.md`
@@ -228,9 +230,11 @@ pytest -q tests/test_verified_iteration_drain.py
 - `tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_binds_provider_policy_and_prompt_dependencies`
 - `tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_lowers_prepare_check_record_and_direct_summary_return`
 - `tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_projects_terminal_and_exhaustion_states`
+- `tests/test_verified_iteration_drain.py::test_record_typed_provider_values_are_authoritative_over_compatibility_files`
+- `tests/test_verified_iteration_drain.py::test_verified_command_adapters_write_runtime_and_compatibility_outputs`
 
-- [ ] Replace only the Task-1 absence assertion with these compile/contract tests
-  and run them RED because `drain.orc` is absent.
+- [ ] Replace only the Task-1 absence assertion with the four Workflow Lisp
+  compile/contract tests and run them RED because `drain.orc` is absent.
 
 ```bash
 pytest -q tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_compiles_with_exact_public_contract tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_binds_provider_policy_and_prompt_dependencies tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_lowers_prepare_check_record_and_direct_summary_return tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_projects_terminal_and_exhaustion_states
@@ -242,19 +246,42 @@ pytest -q tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_or
 - [ ] Preserve YAML defaults, closed provider branches, 7200/1800/3600-second
   calls, max-40 loop, review guards, terminal states, and exhaustion behavior.
 - [ ] Use exact prompt-dependency sets and runtime-owned typed provider returns.
-  Keep worker notes/findings/blocked notes as semantic files; update prompt
-  output instructions without testing literal prose.
+  Pass the typed verdict/review values to Record as its authoritative control
+  inputs. Keep the matching token files, worker notes, findings, and blocked
+  notes as semantic/YAML compatibility files; update prompt output instructions
+  without testing literal prose.
+- [ ] Add the Record authority test and run it RED before adding direct typed
+  value flags; contradictory compatibility tokens must not override typed
+  provider values.
+
+```bash
+pytest -q tests/test_verified_iteration_drain.py::test_record_typed_provider_values_are_authoritative_over_compatibility_files
+```
+
+- [ ] Change the dual-output adapter expectation to a Boolean runtime
+  `commits_landed` value and run it RED before changing the Check adapter.
+
+```bash
+pytest -q tests/test_verified_iteration_drain.py::test_verified_command_adapters_write_runtime_and_compatibility_outputs
+```
+
 - [ ] Use typed command results for prepare/check/record and return Record's
-  summary relpath directly.
+  summary relpath directly. The Check runtime bundle exposes `commits_landed`
+  as `Bool` while its YAML compatibility artifact retains the legacy lowercase
+  string token.
 - [ ] Run and require GREEN:
 
 ```bash
 pytest -q tests/test_workflow_lisp_verified_iteration_drain.py -k 'compiles_with_exact_public_contract or binds_provider_policy or lowers_prepare or projects_terminal'
+pytest -q tests/test_verified_iteration_drain.py::test_record_typed_provider_values_are_authoritative_over_compatibility_files tests/test_verified_iteration_drain.py::test_verified_command_adapters_write_runtime_and_compatibility_outputs
+pytest -q tests/test_verified_iteration_drain.py
 python -m orchestrator compile workflows/library/verified_iteration_drain/drain.orc --entry-workflow verified_iteration_drain/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.commands.json
 python -m orchestrator run workflows/library/verified_iteration_drain/drain.orc --entry-workflow verified_iteration_drain/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.commands.json --input target_design_path=docs/design/workflow_lisp_frontend_specification.md --input check_commands_path=workflows/examples/inputs/verified_iteration_drain/workflow_lisp_runtime_native_drain_authoring.checks.json --dry-run
 ```
 
-- [ ] Complete ordered reviews and commit only the six listed paths.
+- [ ] Complete ordered reviews and commit only the eight implementation paths
+  listed above; commit this correctness amendment separately before refreezing
+  the implementation review object.
 
 ## Task 3: Register And Prove The Verified Candidate
 
