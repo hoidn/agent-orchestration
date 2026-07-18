@@ -62,10 +62,11 @@ repairs followed, and the strict long-duration broad-summary parser repair passe
 both ordered reviews and is reconstructed at `cb8e2d89`. The allocator-repair and
 Git-native trailer-validator corrections are reconstructed at `bb9f34ad` and
 `70e2ea3c`. Fresh Task 11 focused,
-genericity, broad, isolated-row, and exact-baseline comparison evidence passed,
-but holistic quality review reopened Task 11 for allocator-repair correctness and
-Git-native trailer reconstruction. Documentation closure and workflow-family
-port claims remain unauthorized until Tasks 11-13 complete.
+genericity, broad, isolated-row, and exact-baseline comparison evidence was
+recaptured from the landed reconstruction-reference correction `5f480019`; the
+exact-baseline comparator passed and the final Task 11 plan-only closure is frozen
+for ordered holistic review. Documentation closure and workflow-family port claims
+remain unauthorized until Tasks 11-13 complete.
 
 ---
 
@@ -1767,8 +1768,9 @@ drift rejects completed-effect reuse, while post-completion content drift does n
   ordered reviews.**
 
 Execution checkpoint: all three adjusted functional selectors passed, as did the
-complete provider-prompt-dependency module. Candidate capture and ordered review
-remain pending; this step stays open until both are complete.
+complete provider-prompt-dependency module. The candidate capture then passed both
+ordered reviews and committed at reconstructed
+`6fa32d0deaa65d583f758a08f51958c5d04e6189`.
 
 ```bash
 pytest -q tests/test_workflow_lisp_provider_prompt_dependencies.py -k 'shared_ir or persisted or checkpoint or keyword_free or absence_keeps_runtime_plan or side_table'
@@ -2919,9 +2921,10 @@ pre-rewrite object `fa54148be469f4d58755079bf8b02766738328d5`, exact tree
 reconstruction is `cb8e2d892b82fc825bcbc0759c3f447104c50a0d` with the same
 subject, tree, parent-relative patch, identities, and timestamps.
 
-**Planned enumerated trailer-provenance closure:** the original Task 8, Task 9,
+**Enumerated trailer-provenance closure:** the original Task 8, Task 9,
 and Task 10 commits predate the required review trailers. The final reviewed
-Task 11 plan-only commit, not the earlier mixed-file corrective commits, is the
+Task 11 plan-only commit containing this record—not the earlier mixed-file
+corrective commits—is the
 sole permitted closure record for those three exact mappings; it is not a generic
 missing-trailer waiver. It binds reviewed Task 8 pre-rewrite commit
 `42e0ebc3445f63e05c094b71f069369d763b1985` to reconstructed commit
@@ -3039,7 +3042,7 @@ reviewed reconstructed commits expose all four canonical fields through
 The Task 3 genericity test's abandoned Task 2 history literal is updated to the
 reconstructed full ID before Task 11 recapture.
 
-- [ ] **Step 1: Run the complete focused tranche.**
+- [x] **Step 1: Run the complete focused tranche.**
 
 ```bash
 CAPTURE_ROOT=".orchestrate/tmp/provider-prompt-dependencies-task11/current"
@@ -3093,14 +3096,14 @@ python scripts/provider_prompt_dependency_broad_gate.py verify-subject \
 Expected: all pass with only already-reviewed platform skips.
 
 Fresh evidence at implementation HEAD
-`fa54148be469f4d58755079bf8b02766738328d5`: the launch-phase subject
+`5f4800191cc88652f0d26bc7c1f9e9f49c358cf7`: the launch-phase subject
 verification passed before and after the focused tranche, and the focused
-tranche passed `724` tests in `25.47s`. The fresh subject manifest has file
-SHA-256 `e042908703009b474038b166c843cfad9737ca74951209f23604193b5266c394`,
-record SHA-256 `acdfaba6e460663254a307e26d0e2e5d8727808a4b9e45e7aaaa2085198bf276`,
-and index tree `b29957b9cab299462ddde2b0e6f4d2dc51dac603`.
+tranche passed `736` tests in `25.44s`. The fresh subject manifest has file
+SHA-256 `29092aa55f420508a9b1c8fc9f8e5cddbdaebfb7cc0ea6e8a51d487e7dab5234`,
+record SHA-256 `877f01e4794499975e57e06244cfce0197af635aeb4b44d9258f4653e4aa82d8`,
+and index tree `85c7478f29bf75dc36e42c88178b117d5c28e72e`.
 
-- [ ] **Step 2: Run genericity, absence, and source guards.**
+- [x] **Step 2: Run genericity, absence, and source guards.**
 
 Read the exact implementation base from the Task 1 golden and require it to be an
 ancestor of the current implementation HEAD. The genericity scan covers only the
@@ -3239,14 +3242,15 @@ from ordinary generic provider or module terminology.
 
 Fresh evidence: the implementation base
 `451765a2ebd374111d2cbeab0969cec4830717fb` is an ancestor of the implementation
-HEAD; the genericity subject contains `7155` added lines and zero forbidden
+HEAD `5f4800191cc88652f0d26bc7c1f9e9f49c358cf7`; the genericity subject contains
+`7195` added lines and zero forbidden
 identity matches. The genericity diff SHA-256 is
-`efecb44ad7cdeff541c38ce4ddaf43f19a33f1a040160bd0cf593dd5a2c55756`,
+`46f3e288598cd0e14f2d58866455738fc2dfe52158cd423bcc607ee1ec817a9d`,
 the extracted-added-lines SHA-256 is
-`2c4818e1908378ce0696853556e8472232930980ddc8be9fd6b185e51e110e1a`,
+`727cf80c4d93b8cb29fee67ae2ef6dad6450ac8783784d2d9d8ce4baba1978f0`,
 and all five functional guards passed.
 
-- [ ] **Step 3: Run the broad suite in persistent tmux.**
+- [x] **Step 3: Run the broad suite in persistent tmux.**
 
 Use a private socket and a remain-on-exit pane so process completion is
 observable. Closed command-status records, rather than tmux pane metadata, are
@@ -3425,23 +3429,23 @@ A raw pytest exit `1` is acceptable only when its complete observed set equals
 the reviewed baseline minus reviewed remediations. Do not infer acceptance from
 pane death, pytest's exit alone, or a human reading of the failure summary.
 
-Fresh evidence: collection exited `0` with `5798` collected tests. The broad
-suite exited `1` with exactly `6` failed, `5775` passed, `17` skipped, `33`
-warnings, and `5798` total in `57.03s`; every one of the six baseline rows also
+Fresh evidence: collection exited `0` with `5810` collected tests. The broad
+suite exited `1` with exactly `6` failed, `5787` passed, `17` skipped, `33`
+warnings, and `5810` total in `53.45s`; every one of the six baseline rows also
 exited `1` in isolation.
 The comparator accepted the exact-baseline branch. The baseline file SHA-256 is
-`c382f8f70264f1cdc9a31d2100009463b8e8b56a51fb41cd67a4cb5c6e1b82c6`
+`b32732ba7cf1d70b70694d7edabc4a28100d6d80313711b6402f4fa6af0825fe`
 and its record SHA-256 is
-`ead6d7f11ad9b2222a376135ac5c03336b1685c107a39d4c117e89892a063058`.
+`513802fc9ba0ab9ac93c0278c0f1283c55b94d428309ea83e133c14dcfc666fa`.
 The remediation directory was absent, so no remediation record was selected.
 The outcome file SHA-256 is
-`ea7340471e531903349042f8dab8997e2ef63cb8460674431d2c731d0c2167eb`
+`7a2974c75d9090e0714a4ad3700b9408eb0aff2eceb82fb0ebfcd20a965b82b9`
 and its record SHA-256 is
-`934c133b7c1d7fa7b4bc847dadfc40d96b4ac5102737be0e4b5d1657a3b4ffaf`.
+`b4a5aea8a2e3ed9c6f7e23ff851e0f251dfb1ab433c24b7551c03b58101413d4`.
 The allowed untracked YAML plan remained byte-identical at SHA-256
 `2de3c7aafd13e7518f9030621fcc1a13a70daa8ae1418c6bf81be1d3f8918d2d`.
 
-- [ ] **Step 4: Freeze the implementation-gate subject and dispatch holistic
+- [x] **Step 4: Freeze the implementation-gate subject and dispatch holistic
   reviews.**
 
 Dispatch one independent specification reviewer and one independent functional-
