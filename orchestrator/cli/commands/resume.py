@@ -25,6 +25,9 @@ from orchestrator.workflow.resume_projection_integrity import (
     ResumeScopePath,
     audit_scope,
 )
+from orchestrator.workflow.provider_attempts import (
+    enable_provider_attempt_coordination_for_bundle,
+)
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.monitor.process import (
     process_start_time_token,
@@ -383,24 +386,6 @@ def resume_workflow(
         return 1
 
     observability: Optional[Dict[str, Any]] = None
-    if force_restart:
-        observability = _merge_observability_overrides(
-            state.observability,
-            summary_mode=summary_mode,
-            summary_provider=summary_provider,
-            summary_timeout_sec=summary_timeout_sec,
-            summary_max_input_chars=summary_max_input_chars,
-            summary_profile=summary_profile,
-            live_agent_notes=live_agent_notes,
-            live_agent_note_provider=live_agent_note_provider,
-            live_agent_note_interval_sec=live_agent_note_interval_sec,
-            live_agent_note_timeout_sec=live_agent_note_timeout_sec,
-            live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
-        )
-        if observability is not None:
-            # Preserve the existing force-restart override lifecycle.
-            state.observability = observability
-            state_manager._write_state()
 
     workflow_path = Path(workflow_file)
     if not workflow_path.exists():
@@ -458,6 +443,29 @@ def resume_workflow(
         print("Use --force-restart to start a new run with the candidate schema.", file=sys.stderr)
         return 1
 
+    enable_provider_attempt_coordination_for_bundle(state_manager, workflow_bundle)
+
+    if force_restart:
+        observability = _merge_observability_overrides(
+            state.observability,
+            summary_mode=summary_mode,
+            summary_provider=summary_provider,
+            summary_timeout_sec=summary_timeout_sec,
+            summary_max_input_chars=summary_max_input_chars,
+            summary_profile=summary_profile,
+            live_agent_notes=live_agent_notes,
+            live_agent_note_provider=live_agent_note_provider,
+            live_agent_note_interval_sec=live_agent_note_interval_sec,
+            live_agent_note_timeout_sec=live_agent_note_timeout_sec,
+            live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
+        )
+        if observability is not None:
+            # Preserve the existing force-restart override lifecycle.
+            with state_manager.state_transaction() as transaction_state:
+                transaction_state.observability = observability
+            state = state_manager.state
+            assert state is not None
+
     # Validate checksum unless force restart
     if not force_restart:
         if not state_manager.validate_checksum(str(workflow_path)):
@@ -507,8 +515,10 @@ def resume_workflow(
         )
         if observability is not None:
             # Persist runtime override so future resumes are deterministic.
-            state.observability = observability
-            state_manager._write_state()
+            with state_manager.state_transaction() as transaction_state:
+                transaction_state.observability = observability
+            state = state_manager.state
+            assert state is not None
 
     if force_restart:
         try:
@@ -535,6 +545,10 @@ def resume_workflow(
             backup_enabled=backup_state,
             debug=debug,
             state_dir=state_dir_override,
+        )
+        enable_provider_attempt_coordination_for_bundle(
+            state_manager,
+            workflow_bundle,
         )
         state_manager.initialize(
             workflow_file=str(workflow_path),
@@ -580,12 +594,14 @@ def resume_workflow(
     session_id: str | None = None
     session_status = "failed"
     try:
-        session_id = open_executor_session(
-            state_manager.state,
-            entrypoint="run" if force_restart else "resume",
-            process_start_time=process_start_time_token(os.getpid()),
-        )
-        state_manager._write_state()
+        with state_manager.state_transaction() as transaction_state:
+            session_id = open_executor_session(
+                transaction_state,
+                entrypoint="run" if force_restart else "resume",
+                process_start_time=process_start_time_token(os.getpid()),
+            )
+        state = state_manager.state
+        assert state is not None
         try:
             write_process_metadata(
                 state_manager.run_root,
@@ -654,9 +670,11 @@ def resume_workflow(
         return 1
     finally:
         if session_id is not None and state_manager.state is not None:
-            close_executor_session(
-                state_manager.state,
-                session_id=session_id,
-                status=session_status,
-            )
-            state_manager._write_state()
+            with state_manager.state_transaction() as transaction_state:
+                close_executor_session(
+                    transaction_state,
+                    session_id=session_id,
+                    status=session_status,
+                )
+            state = state_manager.state
+            assert state is not None

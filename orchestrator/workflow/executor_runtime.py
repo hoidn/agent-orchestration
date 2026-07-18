@@ -75,6 +75,18 @@ class ParentCallStateManager(CallStateManager, Protocol):
     @property
     def workspace(self) -> Path: ...
 
+    def allocate_provider_attempt(self, scope: Any) -> int: ...
+
+    def record_provider_attempt_publication(
+        self,
+        scope: Any,
+        ordinal: int,
+        *,
+        relative_path: str,
+        file_sha256: str,
+        record_kind: str,
+    ) -> None: ...
+
     def read_runtime_sidecar_json(
         self,
         path: Path | str,
@@ -85,6 +97,8 @@ class ParentCallStateManager(CallStateManager, Protocol):
         frame_id: str,
         frame_state: Dict[str, Any],
     ) -> None: ...
+
+    def update_bound_inputs(self, bound_inputs: Dict[str, Any]) -> None: ...
 
     def workflow_lisp_checkpoint_shadow_report_path(self) -> Path: ...
 

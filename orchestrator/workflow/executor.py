@@ -2061,7 +2061,7 @@ class WorkflowExecutor:
             bound_inputs = {}
             state['bound_inputs'] = bound_inputs
         if self.state_manager.state is not None:
-            self.state_manager.state.bound_inputs = dict(bound_inputs)
+            self.state_manager.update_bound_inputs(bound_inputs)
 
         workflow_outputs = state.get('workflow_outputs', {})
         if not isinstance(workflow_outputs, dict):
@@ -2080,8 +2080,7 @@ class WorkflowExecutor:
             state['bound_inputs'] = bound_inputs
         if self.state_manager.state is None:
             return
-        self.state_manager.state.bound_inputs = dict(bound_inputs)
-        self.state_manager._write_state()
+        self.state_manager.update_bound_inputs(bound_inputs)
 
     def _entry_managed_write_root_bindings(self) -> Dict[str, str]:
         """Return deterministic runtime-owned managed write-root bindings for entry workflows."""

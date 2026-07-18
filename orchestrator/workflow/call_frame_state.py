@@ -211,6 +211,37 @@ class _CallFrameStateManager:
         """Delegate checksum calculation so nested call frames can nest again."""
         return self.parent_manager.calculate_checksum(workflow_path)
 
+    def allocate_provider_attempt(self, scope: Any) -> int:
+        """Delegate one attempt allocation through the aggregate root owner."""
+
+        from .provider_attempts import resolve_aggregate_run_owner
+
+        owner = resolve_aggregate_run_owner(self)
+        return owner.root_manager._allocate_provider_attempt_from(self, scope)
+
+    def record_provider_attempt_publication(
+        self,
+        scope: Any,
+        ordinal: int,
+        *,
+        relative_path: str,
+        file_sha256: str,
+        record_kind: str,
+    ) -> None:
+        """Delegate one publication event through the aggregate root owner."""
+
+        from .provider_attempts import resolve_aggregate_run_owner
+
+        owner = resolve_aggregate_run_owner(self)
+        owner.root_manager._record_provider_attempt_publication_from(
+            self,
+            scope,
+            ordinal,
+            relative_path=relative_path,
+            file_sha256=file_sha256,
+            record_kind=record_kind,
+        )
+
     def read_runtime_sidecar_json(self, path: Path | str) -> Optional[Dict[str, Any]]:
         return self.parent_manager.read_runtime_sidecar_json(path)
 
@@ -280,6 +311,10 @@ class _CallFrameStateManager:
 
     def update_workflow_outputs(self, workflow_outputs: Dict[str, Any]) -> None:
         self.state.workflow_outputs = workflow_outputs
+        self._persist()
+
+    def update_bound_inputs(self, bound_inputs: Dict[str, Any]) -> None:
+        self.state.bound_inputs = dict(bound_inputs)
         self._persist()
 
     def update_finalization_state(self, finalization: Dict[str, Any]) -> None:

@@ -39,18 +39,68 @@ preimplementation baseline, typed frontend, classic/WCC owner-side-table
 projection, canonical compiler contract, and source-map lineage all passed their
 ordered gates. Task 4 functional typed-IR transport passed both ordered reviews
 and committed at `b43a2025`. Task 5 immutable snapshot rendering, exact byte
-budgeting, stable successful-YAML compatibility, and typed exact resolution have
-completed RED/GREEN and the required regression selectors. Its first candidate
-tree `1e545dcb` was rejected by specification review because it reserved the full
-summary ceiling instead of the actual summary bytes and did not enforce exact
-public snapshot membership. Both findings now have test-first corrections;
-the replacement candidate was rejected by a second specification review because
-an exact 83/84-byte summary-budget cycle raised instead of selecting its feasible
-omission render. That finding now has a test-first finite-cycle correction;
-the subsequent quality review rejected snapshot-backed default classification
-that still trusted the legacy caller flag and renderable snapshots that admitted
-absent required rows. Both quality findings now have test-first corrections;
-replacement immutable candidate recapture and ordered review are in progress.
+budgeting, stable successful-YAML compatibility, and typed exact resolution passed
+its replacement specification-compliance and implementation-quality reviews and
+committed at `cd2f4c1f`.
+Task 6 is wholly skipped under the 2026-07-18 user scope override and makes no
+platform-preflight or descriptor-read claim. Task 7's functional durability,
+aggregate-owner, closed-scope, allocator, event, and concurrency implementation
+completed its first RED/GREEN pass and focused/regression selectors, but its
+exact candidate tree `81896bcb` was rejected by specification-compliance review:
+intermediate manager resume-scope prefixes were not validated, nested
+live/snapshotted states could carry root-owned allocator data, and loop scopes
+accepted unrelated runtime-step identities. All three findings now have focused
+test-first corrections: every intermediate scope prefix is checked, nested live
+and recursively parsed states must have no allocator projection, and loop runtime
+identities must match the canonical loop/iteration prefix plus a non-empty nested
+suffix. Replacement candidate recapture and restarted ordered reviews remain
+parent-owned. The resulting exact replacement tree `088f926d` passed the
+restarted specification review but was rejected by implementation-quality
+review: direct durable `_write_state()` calls reloaded away their caller's
+in-memory mutation, publication events could not follow interleaved allocations
+for the same scope, and allocator validation admitted missing allocation
+ordinals. All three quality findings now have focused test-first corrections:
+external state mutations use explicit reload-before-mutate transactions, the
+remaining private compatibility write preserves both the caller's mutation and
+newer allocator projection, publication is inserted into canonical ordinal order
+regardless of call order, and allocation ordinals must be exactly contiguous.
+The next exact replacement tree `bfb4c9dd` was rejected by restarted
+specification review because managers that loaded an affected run before its
+first allocation still used legacy writes, allowing one manager's ordinary
+mutation to erase another manager's newly durable allocator projection. The
+focused test-first correction uses one generic recursive executable-bundle
+detector to enable coordinated writes for every affected run/resume manager
+before competing state mutation, including contracts reachable only through an
+import. Fresh run enables before initialization; resume enables after bundle
+load and the non-mutating lowering-schema gate but before audit, observability,
+session, or executor mutation; force-restart also enables its replacement manager
+before initialization. Existing nonempty allocator state still auto-enables on
+load. Backup repair of an unreadable state remains a recovery-only boundary: it
+cannot concurrently expose a validated allocator and gains no Task 6 platform,
+probe, descriptor, or path-security claim. Another parent-owned recapture and
+ordered review produced exact tree `507946d6`, which was rejected by
+specification review because the recursive detector returned immediately after
+finding a contract and could therefore skip a malformed sibling import depending
+on mapping order. The focused test-first correction validates every identity-
+deduplicated node in the complete shared/cyclic graph before returning the
+accumulated affected result; malformed nodes fail closed even beside or beneath
+an affected node. The following exact tree `d4c16b32` passed specification review
+but was rejected by implementation-quality review because an already durable
+manager's repair transaction reloaded the corrupt primary before consulting
+backups, semantic backup-validation errors did not fall through to older backups,
+and an accepted allocator-bearing backup did not enable later durable writes.
+Focused test-first corrections make repair coordinate without reloading the
+corrupt primary, skip syntactically or semantically invalid backups, and enable
+durability after accepting allocator state. This remains a corrupt-state recovery
+boundary that cannot host a conforming concurrent allocator and adds no security
+claim. The following exact tree `6358f9ec` was rejected by implementation-quality
+review because a fresh repair manager selected the legacy copy path before
+enabling durability from its accepted allocator-bearing backup. The focused
+test-first correction derives restoration durability immediately after complete
+backup validation, enables it before restoration, and uses the durable file- and
+directory-synced writer for that repair itself; unaffected non-allocator repair
+retains legacy copy behavior and no lock residue. Another parent-owned recapture
+and ordered review restart remain pending.
 Workflow-family port evidence and documentation status closure remain
 unauthorized.
 
@@ -58,8 +108,9 @@ unauthorized.
 
 ## Scope, Sequencing, And Deliberate Cost
 
-This plan implements the complete approved prerequisite, not a path-only compiler
-shortcut:
+This execution implements the functional subset retained by the 2026-07-18 user
+scope override, not the complete approved prerequisite and not a path-only
+compiler shortcut. Excluded hardening remains unimplemented and unclaimed:
 
 - closed `:prompt-dependencies` syntax with required/optional typed `relpath`
   operands, literal position, and optional literal instruction;
@@ -68,7 +119,8 @@ shortcut:
   from YAML mappings;
 - exact injection-byte accounting and stable successful-YAML compatibility below
   the new boundary;
-- descriptor-relative stable UTF-8 reads and an operational platform probe;
+- descriptor-relative stable UTF-8 reads and an operational platform probe are
+  excluded and unimplemented;
 - one snapshot/render call per ordinary or adjudicated provider attempt;
 - root-owned, crash-durable attempt allocation and cross-process state/evidence
   locking;
@@ -1811,7 +1863,8 @@ Suggested commit: `refactor: render immutable dependency snapshots`
 - Modify `orchestrator/deps/__init__.py`
 - Modify this plan
 
-- [ ] **Step 1: Write exact-path validation and real-platform probe RED tests.**
+- [x] **Step 1: Skipped by user scope override — exact-path validation and
+  real-platform probe tests.**
 
 Reject undefined/residual `${...}`, NUL, backslash, empty/dot, absolute, `..`, and
 each of `*`, `?`, `[`. On the actual POSIX test filesystem prove descriptor-
@@ -1820,7 +1873,7 @@ file/directory fsync, hard-link no-clobber, flock, identity fields, cache key, a
 probe cleanup. Force each negative capability independently. On non-POSIX, assert
 stable `unsupported_safe_read_platform` before any dependency open.
 
-- [ ] **Step 2: Implement operational preflight.**
+- [x] **Step 2: Skipped by user scope override — operational preflight.**
 
 Cache only complete success or stable negative result per `(workspace st_dev,
 aggregate run-root st_dev)` and process. Record booleans/platform/devices/failure
@@ -1842,14 +1895,15 @@ remain. Tests must cover both a pre-existing root and this exact empty-root
 residue. `StateManager.initialize` may reuse the empty root only after a complete
 successful probe.
 
-- [ ] **Step 3: Write component-walk and symlink RED tests.**
+- [x] **Step 3: Skipped by user scope override — component-walk and symlink
+  tests.**
 
 Cover safe relative and safe absolute in-workspace symlinks, escape, broken link,
 hop bound, parent swap before final open, parent swap after open, alias retarget,
 delete between phases, direct optional ENOENT versus post-symlink ENOENT, and
 component identity changes. Assert safe relative diagnostics only.
 
-- [ ] **Step 4: Implement trusted descriptor walk.**
+- [x] **Step 4: Skipped by user scope override — trusted descriptor walk.**
 
 Open the workspace with required flags, resolve components using dir-fd
 operations, retain directory identity tuples, open the final component with
@@ -1857,7 +1911,7 @@ operations, retain directory identity tuples, open the final component with
 component/final identity before read and after read. Close every descriptor on
 every exit.
 
-- [ ] **Step 5: Write streaming read RED tests.**
+- [x] **Step 5: Skipped by user scope override — streaming-read security tests.**
 
 Cover FIFO without hang, directory, socket, controlled device-mode `fstat`,
 unreadable open, invalid UTF-8 including chunk boundary, CRLF/lone-CR across chunk
@@ -1870,7 +1924,8 @@ decoder/read-buffer high-water mark must remain fixed as target count grows. Ass
 every target is nevertheless read to EOF and its full raw and normalized counts/
 digests validate after the global retention budget reaches zero.
 
-- [ ] **Step 6: Implement one-pass stable streaming acquisition.**
+- [x] **Step 6: Skipped by user scope override — stable descriptor-relative
+  streaming acquisition.**
 
 Hash raw descriptor bytes, strictly incrementally decode, normalize newlines,
 hash normalized full content, and consume one shared attempt-wide retained-content
@@ -1882,7 +1937,8 @@ retained snapshot content and may not grow with group count. Optional weakens
 absence only. Return stable failure categories/operations; never raw errno prose
 or absolute paths.
 
-- [ ] **Step 7: Prove one descriptor read and no reopen.**
+- [x] **Step 7: Skipped by user scope override — descriptor-owner/source-guard
+  proof.**
 
 Instrument open/read calls: one final descriptor stream per canonical target;
 renderer and evidence-data construction use only the immutable snapshot. Add the
@@ -1893,8 +1949,8 @@ must reject `Path.read_text`, built-in pathname `open`, or any reopen outside th
 descriptor-relative owner while permitting list-mode logic that does not read
 content.
 
-- [ ] **Step 8: Run security selectors, freeze the review subject, and dispatch
-  the ordered reviews.**
+- [x] **Step 8: Skipped by user scope override — Task 6 security verification
+  and reviews.**
 
 ```bash
 pytest -q tests/test_prompt_dependency_content_snapshot.py -k 'safe or platform or symlink or fifo or utf8 or changed or newline'
@@ -1916,66 +1972,78 @@ presence. Suggested commit: `feat: harden prompt dependency reads`
 - Modify `orchestrator/state.py`
 - Modify `orchestrator/workflow/call_frame_state.py`
 - Modify `orchestrator/workflow/executor_runtime.py`
+- Modify `orchestrator/workflow/executor.py`
 - Modify `orchestrator/cli/commands/run.py`
 - Modify `orchestrator/cli/commands/resume.py`
 - Modify this plan
 
-- [ ] **Step 1: Write omitted-state and durable-write RED tests.**
+- [x] **Step 1: Write omitted-state and durable-write RED tests.**
 
 Assert old states load and serialize byte-compatible with no allocator member.
 Once affected, every root write uses `.state-mutation.lock`, short-write handling,
 file fsync, atomic replace, and parent-directory fsync. Inject open/write/fsync/
 replace/dir-fsync failures and prove no false durability claim.
 
-- [ ] **Step 2: Implement generic state locking/durable writer.**
+- [x] **Step 2: Implement generic state locking/durable writer (functional
+  scope).**
 
-Validate lock file with descriptor-relative no-follow open and regular `fstat`.
 Enable it explicitly for typed-contract runs and automatically when a loaded state
 has non-empty allocator data. Ordinary unaffected runs retain existing bytes and
-avoid creating a lock.
+avoid creating a lock. Descriptor-specific path/open validation, no-follow
+hardening, and symlink defenses are omitted by the user scope override; this step
+implements ordinary cross-process locking and file- plus directory-synced durable
+writes only. One generic detector walks the executable bundle/import graph and
+enables this coordination at the command boundary before an affected manager's
+first state mutation; it is allocator enablement, not platform preflight.
 
-- [ ] **Step 3: Write aggregate-owner resolution RED tests.**
+- [x] **Step 3: Write aggregate-owner resolution RED tests.**
 
 Cover root; one- and two-level calls; loop in call; mismatched run ID/workspace
 device/root; wrong deterministic call-frame root; cycle; non-StateManager
 terminal; missing/swapped/truncated/extended `ResumeScopePath`; malformed nested
 RunState; and a nested manager attempting independent allocation.
 
-- [ ] **Step 4: Implement `resolve_aggregate_run_owner`.**
+- [x] **Step 4: Implement `resolve_aggregate_run_owner`.**
 
 Walk `parent_manager` identity-safely, validate every hop, return terminal root,
 ordered scope path, leaf state, and aggregate root. Recursively verify call-frame
 snapshots and delegate all writes exactly once through the root.
 
-- [ ] **Step 5: Write closed `ProviderAttemptScope` RED tests.**
+- [x] **Step 5: Write closed `ProviderAttemptScope` RED tests.**
 
 Cover direct provider, for-each, repeat-until, loop in call, two-level call, and
 adjudicated candidate. Bind exact runtime step/enclosing step/visit/iteration
 fields. Reject missing/extra/nullable/wrong types, current-step contradictions,
 zero visit, nested-loop shape, bad candidate ID, and local retry index leakage.
 
-- [ ] **Step 6: Implement canonical scope and allocator projection.**
+- [x] **Step 6: Implement canonical scope and allocator projection.**
 
 Key scopes by full SHA-256 canonical JSON. Store complete scope,
 `last_allocated_ordinal`, and ordered closed events. Validate all persisted input
-before increment. Gaps are valid; duplicate/reordered/conflicting events are not.
+before increment. Allocation ordinals are exactly contiguous through
+`last_allocated_ordinal`; allocation-only publication gaps are valid. Persisted
+events are canonical by ordinal, with each allocation immediately followed by its
+optional publication; duplicate, noncanonical, or conflicting events are not.
 
-- [ ] **Step 7: Write allocation/publication-event crash RED tests.**
+- [x] **Step 7: Write allocation/publication-event crash RED tests.**
 
 Fault before durable allocation, after allocation, and during the later
 publication-event transition. Prove same next integer only before durability,
 strictly larger afterward, and no evidence-directory enumeration.
 
-- [ ] **Step 8: Implement sole root allocator/event writers.**
+- [x] **Step 8: Implement sole root allocator/event writers.**
 
 Lock order is state-mutation flock, aggregate-evidence flock, then root in-process
 `RLock`; release reverse. Allocation and the later publication-manifest event
 both take all three locks. Ordinary unrelated root-state writes take the first
 and third locks, skipping the middle; record-only publication takes the first two
 and may not acquire the third while retaining them. Persist before returning an
-ordinal/event success.
+ordinal/event success. Publication calls may arrive in any allocated-ordinal
+order; under the locks, insert each event beside its allocation so the durable
+projection remains canonical rather than chronological.
 
-- [ ] **Step 9: Write CLI preflight-order RED tests.**
+- [x] **Step 9: Skipped by user scope override — depends entirely on excluded
+  Task 6 platform preflight.**
 
 For fresh typed `.orc`, preflight occurs after bundle/run-root resolution but
 before `StateManager.initialize`, `state.json`/`logs`/lock/evidence creation,
@@ -1987,7 +2055,8 @@ state, logs, evidence, session, and provider remain absent. For resume and
 force-restart, preflight occurs before any affected root-state write. Legacy YAML
 preflights before its first content snapshot but need not precede initialization.
 
-- [ ] **Step 10: Implement command-boundary preflight hooks.**
+- [x] **Step 10: Skipped by user scope override — depends entirely on excluded
+  Task 6 platform preflight.**
 
 Use one helper that detects typed contracts recursively in the loaded bundle. Do
 not duplicate scan logic in run and resume. Preserve dry-run as no run-state
@@ -1997,14 +2066,43 @@ runs the probe, enforces cleanup/residue, and returns capability success before
 the caller can initialize state. Dry-run may perform the probe and therefore may
 leave only the same empty-directory residue; it creates no semantic run state.
 
-- [ ] **Step 11: Run concurrency selectors, freeze the review subject, and
-  dispatch the ordered reviews.**
+- [x] **Step 11: Run functional concurrency selectors; parent-owned candidate
+  capture and ordered reviews remain next.**
 
 ```bash
 pytest --collect-only -q tests/test_provider_attempt_allocation.py
 pytest -q tests/test_provider_attempt_allocation.py
 pytest -q tests/test_state_manager.py tests/test_workflow_state_compatibility.py tests/test_resume_command.py
 ```
+
+Functional implementer replacement evidence after the `81896bcb`, `bfb4c9dd`,
+and `507946d6` specification rejections and the `088f926d`, `d4c16b32`, and
+`6358f9ec` implementation-quality rejections: the earlier focused quality
+correction tranche passed 11/11; the new module now collected 82 tests and passed
+82/82; the required state/compatibility/resume group passed 115/115; and the
+relevant call-frame/runtime selector `tests/test_subworkflow_calls.py` passed
+71/71. The
+new RED reproduced an affected manager loaded before ordinal 1 erasing the
+allocator through an ordinary mutation; the GREEN proof hook-enables two separate
+processes from the same recursive typed contract while the allocator is empty,
+then uses a barrier to prove both the first allocation and ordinary status
+mutation survive whether allocation or status wins the lock first. Separate
+coverage proves imported-only detection, complete shared/cyclic graph traversal,
+malformed affected siblings in both mapping orders, malformed imports beneath a
+local affected node, and that a genuinely unaffected bundle retains legacy
+serialization with no allocator or lock residue. Repair coverage proves a durable
+manager restores a valid backup without reading corrupt primary JSON, falls back
+from a semantically invalid newest backup to an older valid backup, and
+auto-enables subsequent durable writes after allocator-bearing recovery.
+Allocator-bearing restoration itself is now spy-proven to use the durable writer
+with the exact accepted backup bytes, while unaffected recovery is spy-proven to
+avoid both that writer and lock residue. All changed Python modules passed
+`py_compile`, and a static search
+found no production caller of `StateManager._write_state()` outside its defining
+module. The implementer performed no staging or commit. The parent must capture
+the immutable candidate only after verifying the allowed path set, then restart
+the specification-compliance review before the implementation-quality review;
+neither replacement review is claimed by this functional checkpoint.
 
 Suggested commit: `feat: allocate durable provider attempt identities`
 
@@ -2052,8 +2150,9 @@ destination, or both. No provider preparation follows incomplete publication.
 - [ ] **Step 4: Implement descriptor-relative no-clobber publication.**
 
 Follow the exact mode-0600 openat/write/fsync/close/linkat/unlink/fsync protocol.
-Never replace a destination. Append `evidence_published` only after the complete
-file is immutable, binding relative path, final file digest, and record kind.
+Never replace a destination. Persist `evidence_published` in canonical ordinal
+order only after the complete file is immutable, binding relative path, final
+file digest, and record kind.
 
 - [ ] **Step 5: Write offline allocator-projection/index RED tests.**
 
@@ -2184,7 +2283,8 @@ not evidence or local retry index. Finalize evidence from the same snapshot and
 exact bytes passed to `prepare_invocation`. Never reopen snapshot/evidence and
 never call offline validation. The implementation order is therefore
 `preflight -> allocate -> snapshot/render -> finish composition/final-prompt
-digest -> publish success record -> append evidence_published -> prepare/execute`.
+digest -> publish success record -> persist evidence_published canonically ->
+prepare/execute`.
 Keep failure-record construction on the separate branch above.
 
 - [ ] **Step 7: Write all stable failure-category integration tests.**

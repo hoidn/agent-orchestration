@@ -13,6 +13,13 @@ from typing import Dict, Any, Optional, List, Literal, Mapping
 from dataclasses import dataclass, asdict, field
 import random
 import string
+from contextlib import contextmanager, nullcontext
+
+from .state_locking import (
+    durable_atomic_write,
+    exclusive_file_lock,
+    provider_attempt_process_locks,
+)
 
 
 StateStatus = Literal["running", "completed", "failed"]
@@ -99,6 +106,7 @@ class RunState:
     private_artifact_consumes: Dict[str, Dict[str, int]] = field(default_factory=dict)
     transition_count: int = 0
     step_visits: Dict[str, int] = field(default_factory=dict)
+    provider_attempt_allocations: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict for JSON serialization."""
@@ -137,6 +145,8 @@ class RunState:
             result["error"] = self.error
         if self.current_step is not None:
             result["current_step"] = self.current_step
+        if self.provider_attempt_allocations:
+            result["provider_attempt_allocations"] = self.provider_attempt_allocations
 
         # Convert step results - type assert for type checker
         steps_dict: Dict[str, Any] = result["steps"]
@@ -165,6 +175,24 @@ class RunState:
             for name, state_dict in data["for_each"].items():
                 for_each[name] = ForEachState(**state_dict)
 
+        provider_attempt_allocations = data.get("provider_attempt_allocations", {})
+        if "provider_attempt_allocations" in data:
+            if (
+                not isinstance(provider_attempt_allocations, Mapping)
+                or not provider_attempt_allocations
+            ):
+                raise ValueError(
+                    "provider attempt allocation state must be omitted when empty"
+                )
+            from .workflow.provider_attempts import validate_provider_attempt_allocations
+
+            try:
+                provider_attempt_allocations = validate_provider_attempt_allocations(
+                    provider_attempt_allocations
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError("provider attempt allocation state is invalid") from exc
+
         return cls(
             schema_version=data["schema_version"],
             run_id=data["run_id"],
@@ -192,6 +220,7 @@ class RunState:
             private_artifact_consumes=data.get("private_artifact_consumes", {}),
             transition_count=data.get("transition_count", 0),
             step_visits=data.get("step_visits", {}),
+            provider_attempt_allocations=provider_attempt_allocations,
         )
 
 
@@ -244,6 +273,238 @@ class StateManager:
         # Current state (loaded or new)
         self.state: Optional[RunState] = None
         self._lock = threading.RLock()
+        self._mutation_local = threading.local()
+        self._durable_state_writes = False
+
+    def enable_durable_state_writes(self) -> None:
+        """Coordinate subsequent root-state writes across processes."""
+
+        self._durable_state_writes = True
+
+    @contextmanager
+    def _state_mutation(self, *, reload_from_disk: bool = True):
+        """Acquire process coordination before the root in-process lock.
+
+        Public read-modify-write methods use the default authoritative reload
+        before applying their mutation. ``_write_state`` disables that reload
+        because its caller has already mutated the current state object.
+        Allocator transitions retain their own explicit reload while holding
+        both process locks and the root lock.
+        """
+
+        depth = getattr(self._mutation_local, "depth", 0)
+        if depth:
+            self._mutation_local.depth = depth + 1
+            try:
+                yield
+            finally:
+                self._mutation_local.depth = depth
+            return
+        process_lock = (
+            exclusive_file_lock(self.run_root / ".state-mutation.lock")
+            if self._durable_state_writes
+            else nullcontext()
+        )
+        with process_lock:
+            with self._lock:
+                if (
+                    reload_from_disk
+                    and self._durable_state_writes
+                    and self.state is not None
+                    and self.state_file.exists()
+                ):
+                    self._reload_state_for_coordinated_mutation()
+                self._mutation_local.depth = depth + 1
+                try:
+                    yield
+                finally:
+                    self._mutation_local.depth = depth
+
+    def _reload_state_for_coordinated_mutation(self) -> RunState:
+        self.state = self._read_state_from_disk()
+        return self.state
+
+    def _read_state_from_disk(self) -> RunState:
+        """Read and validate state without changing the manager's current object."""
+
+        with open(self.state_file, "r", encoding="utf-8") as state_stream:
+            payload = json.load(state_stream)
+        if not isinstance(payload, dict):
+            raise ValueError("State file must decode to an object")
+        return RunState.from_dict(payload)
+
+    @contextmanager
+    def state_transaction(self):
+        """Reload, mutate, and persist root state under one coordinated lock."""
+
+        with self._state_mutation():
+            if self.state is None:
+                raise RuntimeError("State not initialized")
+            try:
+                yield self.state
+            except BaseException:
+                self._reload_state_for_coordinated_mutation()
+                raise
+            else:
+                self._write_state()
+
+    def _persist_state_durably(self) -> None:
+        if self.state is None:
+            raise RuntimeError("No state to write")
+        self.state.updated_at = datetime.now(timezone.utc).isoformat()
+        payload = json.dumps(self.state.to_dict(), indent=2).encode("utf-8")
+        durable_atomic_write(self.state_file, payload)
+
+    def allocate_provider_attempt(self, scope: Any) -> int:
+        """Allocate and durably persist one root-owned provider attempt ordinal."""
+
+        return self._allocate_provider_attempt_from(self, scope)
+
+    def _allocate_provider_attempt_from(self, origin_manager: Any, scope: Any) -> int:
+        from .workflow.provider_attempts import (
+            ProviderAttemptScope,
+            resolve_aggregate_run_owner,
+            validate_provider_attempt_allocations,
+            validate_provider_attempt_scope,
+        )
+
+        if not isinstance(scope, ProviderAttemptScope):
+            raise TypeError("ProviderAttemptScope required")
+        owner = resolve_aggregate_run_owner(origin_manager)
+        if owner.root_manager is not self:
+            return owner.root_manager._allocate_provider_attempt_from(origin_manager, scope)
+        self.enable_durable_state_writes()
+        with provider_attempt_process_locks(self.run_root):
+            with self._lock:
+                self._reload_state_for_coordinated_mutation()
+                owner = resolve_aggregate_run_owner(origin_manager)
+                validate_provider_attempt_scope(scope, owner)
+                assert self.state is not None
+                allocations = validate_provider_attempt_allocations(
+                    self.state.provider_attempt_allocations
+                )
+                entry = allocations.get(scope.key)
+                if entry is None:
+                    ordinal = 1
+                    entry = {
+                        "scope": scope.to_dict(),
+                        "last_allocated_ordinal": ordinal,
+                        "events": [{"ordinal": ordinal, "event": "allocated"}],
+                    }
+                    allocations[scope.key] = entry
+                else:
+                    ordinal = entry["last_allocated_ordinal"] + 1
+                    entry["last_allocated_ordinal"] = ordinal
+                    entry["events"].append({"ordinal": ordinal, "event": "allocated"})
+                self.state.provider_attempt_allocations = allocations
+                self._persist_state_durably()
+                return ordinal
+
+    def record_provider_attempt_publication(
+        self,
+        scope: Any,
+        ordinal: int,
+        *,
+        relative_path: str,
+        file_sha256: str,
+        record_kind: str,
+    ) -> None:
+        """Durably persist one closed publication event beside its allocation."""
+
+        self._record_provider_attempt_publication_from(
+            self,
+            scope,
+            ordinal,
+            relative_path=relative_path,
+            file_sha256=file_sha256,
+            record_kind=record_kind,
+        )
+
+    def _record_provider_attempt_publication_from(
+        self,
+        origin_manager: Any,
+        scope: Any,
+        ordinal: int,
+        *,
+        relative_path: str,
+        file_sha256: str,
+        record_kind: str,
+    ) -> None:
+        from .workflow.provider_attempts import (
+            ProviderAttemptScope,
+            resolve_aggregate_run_owner,
+            validate_provider_attempt_allocations,
+            validate_provider_attempt_scope,
+        )
+
+        if not isinstance(scope, ProviderAttemptScope):
+            raise TypeError("ProviderAttemptScope required")
+        if isinstance(ordinal, bool) or not isinstance(ordinal, int) or ordinal <= 0:
+            raise ValueError("provider attempt ordinal must be positive")
+        if not isinstance(relative_path, str) or not relative_path:
+            raise ValueError("publication relative_path must be non-empty")
+        if (
+            not isinstance(file_sha256, str)
+            or len(file_sha256) != 71
+            or not file_sha256.startswith("sha256:")
+            or any(character not in "0123456789abcdef" for character in file_sha256[7:])
+        ):
+            raise ValueError("publication file_sha256 is invalid")
+        if record_kind not in {"prompt_snapshot", "failure"}:
+            raise ValueError("publication record_kind is invalid")
+        owner = resolve_aggregate_run_owner(origin_manager)
+        if owner.root_manager is not self:
+            owner.root_manager._record_provider_attempt_publication_from(
+                origin_manager,
+                scope,
+                ordinal,
+                relative_path=relative_path,
+                file_sha256=file_sha256,
+                record_kind=record_kind,
+            )
+            return
+        self.enable_durable_state_writes()
+        with provider_attempt_process_locks(self.run_root):
+            with self._lock:
+                self._reload_state_for_coordinated_mutation()
+                owner = resolve_aggregate_run_owner(origin_manager)
+                validate_provider_attempt_scope(scope, owner)
+                assert self.state is not None
+                allocations = validate_provider_attempt_allocations(
+                    self.state.provider_attempt_allocations
+                )
+                entry = allocations.get(scope.key)
+                if entry is None:
+                    raise ValueError("provider attempt allocation is missing")
+                matching_allocated = any(
+                    event == {"ordinal": ordinal, "event": "allocated"}
+                    for event in entry["events"]
+                )
+                if not matching_allocated:
+                    raise ValueError("provider attempt allocation ordinal is missing")
+                if any(
+                    event.get("ordinal") == ordinal
+                    and event.get("event") == "evidence_published"
+                    for event in entry["events"]
+                ):
+                    raise ValueError("provider attempt evidence is already published")
+                allocation_index = entry["events"].index(
+                    {"ordinal": ordinal, "event": "allocated"}
+                )
+                entry["events"].insert(
+                    allocation_index + 1,
+                    {
+                        "ordinal": ordinal,
+                        "event": "evidence_published",
+                        "relative_path": relative_path,
+                        "file_sha256": file_sha256,
+                        "record_kind": record_kind,
+                    },
+                )
+                self.state.provider_attempt_allocations = (
+                    validate_provider_attempt_allocations(allocations)
+                )
+                self._persist_state_durably()
 
     def _generate_run_id(self) -> str:
         """Generate run ID in format: YYYYMMDDTHHMMSSZ-<6char>."""
@@ -279,7 +540,7 @@ class StateManager:
         Returns:
             Initialized RunState
         """
-        with self._lock:
+        with self._state_mutation():
             # Create run directory structure
             self.run_root.mkdir(parents=True, exist_ok=True)
             self.logs_dir.mkdir(exist_ok=True)
@@ -330,24 +591,43 @@ class StateManager:
                 data = json.load(f)
 
             self.state = RunState.from_dict(data)
+            if self.state.provider_attempt_allocations:
+                self.enable_durable_state_writes()
             return self.state
 
     def _write_state(self):
         """Write state atomically (temp file + rename)."""
-        with self._lock:
+        top_level_direct_write = getattr(self._mutation_local, "depth", 0) == 0
+        with self._state_mutation(reload_from_disk=False):
             if not self.state:
                 raise RuntimeError("No state to write")
+
+            if (
+                top_level_direct_write
+                and self._durable_state_writes
+                and self.state_file.exists()
+            ):
+                # Allocator projection is root-owned and may advance in another
+                # process after a legacy direct caller mutates another field.
+                # A blind direct commit may preserve its caller mutation, but it
+                # must never roll this independently concurrent projection back.
+                persisted_state = self._read_state_from_disk()
+                self.state.provider_attempt_allocations = (
+                    persisted_state.provider_attempt_allocations
+                )
 
             # Update timestamp
             self.state.updated_at = datetime.now(timezone.utc).isoformat()
 
-            # Write to temp file
-            temp_file = self.state_file.with_suffix('.tmp')
-            with open(temp_file, 'w') as f:
-                json.dump(self.state.to_dict(), f, indent=2)
-
-            # Atomic rename
-            temp_file.replace(self.state_file)
+            if self._durable_state_writes:
+                payload = json.dumps(self.state.to_dict(), indent=2).encode("utf-8")
+                durable_atomic_write(self.state_file, payload)
+            else:
+                # Preserve the established unaffected-run serialization path.
+                temp_file = self.state_file.with_suffix('.tmp')
+                with open(temp_file, 'w') as f:
+                    json.dump(self.state.to_dict(), f, indent=2)
+                temp_file.replace(self.state_file)
 
     def _write_json_atomic(self, path: Path, payload: Dict[str, Any]) -> None:
         """Write an arbitrary JSON payload atomically."""
@@ -463,7 +743,7 @@ class StateManager:
         expected_visit_count: Optional[int] = None,
     ) -> None:
         """Persist a run-level failure, optionally clearing the matching current_step."""
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -490,7 +770,7 @@ class StateManager:
 
     def _record_atomic_root_failure(self, error: Mapping[str, Any]) -> None:
         """Replace only the root failure envelope while preserving raw state."""
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -502,7 +782,13 @@ class StateManager:
             payload["status"] = "failed"
             payload["error"] = dict(error)
             payload["updated_at"] = datetime.now(timezone.utc).isoformat()
-            self._write_json_atomic(self.state_file, payload)
+            if self._durable_state_writes:
+                durable_atomic_write(
+                    self.state_file,
+                    json.dumps(payload, indent=2).encode("utf-8"),
+                )
+            else:
+                self._write_json_atomic(self.state_file, payload)
             self.state = RunState.from_dict(payload)
 
     def record_resume_projection_integrity_failure(
@@ -569,7 +855,7 @@ class StateManager:
             step_name: Name of the step
             result: Step execution result
         """
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -592,7 +878,7 @@ class StateManager:
             step_name: Name of the step within the loop
             result: Step execution result
         """
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -603,7 +889,7 @@ class StateManager:
 
     def clear_loop_step(self, loop_name: str, index: int, step_name: str) -> None:
         """Remove one persisted loop-iteration step result."""
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -620,7 +906,7 @@ class StateManager:
             loop_name: Name of the for_each loop
             loop_results: Array of iteration result dictionaries
         """
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -635,7 +921,7 @@ class StateManager:
             loop_name: Name of the for_each loop
             state: Current loop state
         """
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -649,7 +935,7 @@ class StateManager:
         frame_result: Optional[Dict[str, Any]] = None,
     ):
         """Persist repeat_until bookkeeping and optional loop-frame snapshot."""
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -666,7 +952,7 @@ class StateManager:
         private_artifact_consumes: Optional[Dict[str, Dict[str, int]]] = None,
     ):
         """Update v1.2 artifact dataflow state."""
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -691,7 +977,7 @@ class StateManager:
         expected_visit_count: Optional[int] = None,
     ):
         """Persist one step result plus dataflow changes in a single state write."""
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -722,7 +1008,7 @@ class StateManager:
 
     def update_call_frame(self, frame_id: str, frame_state: Dict[str, Any]):
         """Persist one call-frame snapshot in state.json."""
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -731,16 +1017,25 @@ class StateManager:
 
     def update_workflow_outputs(self, workflow_outputs: Dict[str, Any]):
         """Persist workflow-boundary exported outputs."""
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
             self.state.workflow_outputs = workflow_outputs
             self._write_state()
 
+    def update_bound_inputs(self, bound_inputs: Dict[str, Any]) -> None:
+        """Persist workflow-boundary inputs in one coordinated transaction."""
+
+        with self._state_mutation():
+            if not self.state:
+                raise RuntimeError("State not initialized")
+            self.state.bound_inputs = dict(bound_inputs)
+            self._write_state()
+
     def update_finalization_state(self, finalization: Dict[str, Any]):
         """Persist workflow finalization bookkeeping."""
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -749,7 +1044,7 @@ class StateManager:
 
     def update_run_error(self, error: Optional[Dict[str, Any]]):
         """Persist or clear run-level error metadata."""
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -762,7 +1057,7 @@ class StateManager:
         step_visits: Dict[str, int],
     ):
         """Persist cycle-guard counters in state.json."""
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -776,7 +1071,7 @@ class StateManager:
         Args:
             status: New run status
         """
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -792,7 +1087,7 @@ class StateManager:
         visit_count: Optional[int] = None,
     ):
         """Persist currently running step metadata."""
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -813,7 +1108,7 @@ class StateManager:
 
     def heartbeat_step(self, step_name: Optional[str] = None):
         """Refresh heartbeat timestamp for current running step."""
-        with self._lock:
+        with self._state_mutation():
             if not self.state or self.state.current_step is None:
                 return
 
@@ -830,7 +1125,7 @@ class StateManager:
         preserve_managed_recovery: bool = False,
     ):
         """Clear current running step metadata."""
-        with self._lock:
+        with self._state_mutation():
             if not self.state or self.state.current_step is None:
                 return
 
@@ -858,7 +1153,7 @@ class StateManager:
         managed_jobs: Dict[str, Any],
     ) -> None:
         """Persist a resumable recovery phase for an otherwise settled step."""
-        with self._lock:
+        with self._state_mutation():
             if not self.state:
                 raise RuntimeError("State not initialized")
 
@@ -923,27 +1218,27 @@ class StateManager:
         Returns:
             True if repair successful, False otherwise
         """
-        # Find available backups
-        backup_pattern = "state.json.step_*.bak"
-        backups = sorted(self.state_file.parent.glob(backup_pattern), reverse=True)
+        with self._state_mutation(reload_from_disk=False):
+            backup_pattern = "state.json.step_*.bak"
+            backups = sorted(self.state_file.parent.glob(backup_pattern), reverse=True)
 
-        for backup in backups:
-            try:
-                # Try to load backup
-                with open(backup, 'r') as f:
-                    data = json.load(f)
-
-                # Validate it can be parsed
-                state = RunState.from_dict(data)
-
-                # Restore from backup
-                shutil.copy2(backup, self.state_file)
-                self.state = state
-
-                return True
-
-            except (json.JSONDecodeError, KeyError, TypeError):
-                # This backup is also corrupted, try next
-                continue
+            for backup in backups:
+                try:
+                    with open(backup, 'r') as f:
+                        data = json.load(f)
+                    state = RunState.from_dict(data)
+                    repair_requires_durability = (
+                        self._durable_state_writes
+                        or bool(state.provider_attempt_allocations)
+                    )
+                    if repair_requires_durability:
+                        self.enable_durable_state_writes()
+                        durable_atomic_write(self.state_file, backup.read_bytes())
+                    else:
+                        shutil.copy2(backup, self.state_file)
+                    self.state = state
+                    return True
+                except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                    continue
 
         return False

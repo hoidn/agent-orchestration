@@ -21,6 +21,9 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_public_input_contracts,
 )
 from orchestrator.workflow.linting import lint_workflow
+from orchestrator.workflow.provider_attempts import (
+    enable_provider_attempt_coordination_for_bundle,
+)
 from orchestrator.monitor.process import process_start_time_token, write_process_metadata
 from orchestrator.runtime_observability import close_executor_session, open_executor_session
 from orchestrator.runtime_observability import record_compiled_frontend_provenance
@@ -433,6 +436,8 @@ def run_workflow(args: Namespace) -> int:
             debug=args.debug if hasattr(args, 'debug') else False,
             state_dir=state_dir_override,
         )
+        if bundle is not None:
+            enable_provider_attempt_coordination_for_bundle(state_manager, bundle)
 
         # Create new run
         run_state = state_manager.initialize(
@@ -442,22 +447,24 @@ def run_workflow(args: Namespace) -> int:
             observability=observability,
         )
         if frontend_build is not None:
-            record_compiled_frontend_provenance(
-                run_state,
-                frontend_build.validated_bundle.provenance,
-            )
-            state_manager._write_state()
+            with state_manager.state_transaction() as transaction_state:
+                record_compiled_frontend_provenance(
+                    transaction_state,
+                    frontend_build.validated_bundle.provenance,
+                )
+            run_state = state_manager.state
+            assert run_state is not None
         logger.info(f"Created new run: {run_state.run_id}")
 
         session_id: str | None = None
         session_status = "failed"
         try:
-            session_id = open_executor_session(
-                state_manager.state,
-                entrypoint="run",
-                process_start_time=process_start_time_token(os.getpid()),
-            )
-            state_manager._write_state()
+            with state_manager.state_transaction() as transaction_state:
+                session_id = open_executor_session(
+                    transaction_state,
+                    entrypoint="run",
+                    process_start_time=process_start_time_token(os.getpid()),
+                )
             try:
                 write_process_metadata(
                     state_manager.run_root,
@@ -499,12 +506,12 @@ def run_workflow(args: Namespace) -> int:
             return 0 if run_succeeded else 1
         finally:
             if session_id is not None and state_manager.state is not None:
-                close_executor_session(
-                    state_manager.state,
-                    session_id=session_id,
-                    status=session_status,
-                )
-                state_manager._write_state()
+                with state_manager.state_transaction() as transaction_state:
+                    close_executor_session(
+                        transaction_state,
+                        session_id=session_id,
+                        status=session_status,
+                    )
 
     except FileNotFoundError as e:
         logger.error(f"File not found: {e}")
