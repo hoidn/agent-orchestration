@@ -67,10 +67,13 @@ recaptured from the landed reconstruction-reference correction `5f480019`; the
 exact-baseline comparator passed and the final Task 11 plan-only closure is frozen
 and committed at `b59e283c` after ordered holistic specification PASS
 `TASK11-HOLISTIC-SPEC-PASS-20260718-B69F5B77-01` and functional-quality APPROVED
-`TASK11-HOLISTIC-QUALITY-APPROVED-20260718-B69F5B77-01`. Documentation closure
-is Task 12: its functional documentation subject is frozen for ordered review
-and becomes authoritative only with the unchanged reviewed commit. Task 13 and
-both workflow-family parity/promotion claims remain open and unauthorized.
+`TASK11-HOLISTIC-QUALITY-APPROVED-20260718-B69F5B77-01`. Task 12 functional
+documentation closure committed at `6a21e7d4` after specification PASS
+`TASK12-DOCS-SPEC-PASS-20260718-021E3919-01` and quality APPROVED
+`TASK12-DOCS-QUALITY-APPROVED-20260718-021E3919-01`. Task 13's fresh focused,
+broad, isolated-row, exact-baseline, and commit-history gates passed; its final
+plan-only completion subject is frozen for ordered holistic functional review.
+Both workflow-family parity/promotion claims remain open and unauthorized.
 
 ---
 
@@ -3567,7 +3570,7 @@ Suggested commit: `docs: close prompt dependency prerequisite`
 
 - Modify this plan only for final status/evidence
 
-- [ ] **Step 1: Re-run new/renamed test collection.**
+- [x] **Step 1: Re-run new/renamed test collection.**
 
 ```bash
 CAPTURE_ROOT=".orchestrate/tmp/provider-prompt-dependencies-task13/current"
@@ -3578,7 +3581,10 @@ if tmux -S "$SOCKET" has-session -t "$SESSION" 2>/dev/null; then
   echo "refusing to replace existing tmux session: $SESSION" >&2
   exit 1
 fi
-rm -rf -- "$CAPTURE_ROOT"
+if test -e "$CAPTURE_ROOT"; then
+  mv "$CAPTURE_ROOT" \
+    "${TMPDIR:-/tmp}/provider-prompt-dependencies-task13-invalid-$(date +%Y%m%dT%H%M%S)-$$"
+fi
 python scripts/provider_prompt_dependency_broad_gate.py capture-subject \
   --output "$CAPTURE_ROOT/subject.json" \
   --ignored-evidence-root "$CAPTURE_ROOT" \
@@ -3608,7 +3614,7 @@ python scripts/provider_prompt_dependency_broad_gate.py verify-subject \
   --phase launch
 ```
 
-- [ ] **Step 2: Re-run focused tests and the broad tmux gate from Task 11.**
+- [x] **Step 2: Re-run focused tests and the broad tmux gate from Task 11.**
 
 Fresh output is mandatory after the documentation commit. Use the same closed
 command-status, pane-liveness, and baseline-comparator protocol; do not reuse old logs. Repeat
@@ -3629,16 +3635,47 @@ after pane death, after isolated rows, and after outcome comparison. Pass
 launch-phase verification with
 `--generated-evidence "$CAPTURE_ROOT/outcome.json"`.
 
-- [ ] **Step 3: Run cached-diff/protected-path guards and inspect exact commits.**
+Fresh Task 13 evidence is bound to implementation/documentation HEAD
+`6a21e7d421f4ec23eb6432690bc68e83f65aa80e`. The launch subject file SHA-256 is
+`bde26d43d91a675f9492c859ba40515c3cd8131c6241812fdb15a51bf6a5d179`,
+its record SHA-256 is
+`bdc12b62a2ec891107bc9c1dcac779eccd0c65ac52bfcca8dbb3505719e2c938`,
+and its index tree is `021e391932d5c6371d46e2c74ca2e30bbd26f674`.
+The six named feature modules collected `380` tests. The complete focused tranche
+passed `736` tests in `25.36s`.
+
+The full collection exited `0` with `5814` tests. The broad suite exited `1`
+with exactly `6` failed, `5791` passed, `17` skipped, `33` warnings, and `5814`
+total in `53.64s`; every baseline row reproduced with exit `1` in isolation.
+The comparator accepted the exact-baseline branch with no remediation directory.
+The outcome file SHA-256 is
+`afd882c62dfbf3bf7daa39ff96fc44c0a72040e7ea1f2653697dea276eded932`
+and its record SHA-256 is
+`2f8e89a676f8146f61d8e7d4cd6c516baf4f5438e335440f91470799ca170068`.
+The immutable baseline remains file SHA-256
+`b32732ba7cf1d70b70694d7edabc4a28100d6d80313711b6402f4fa6af0825fe`
+and record SHA-256
+`513802fc9ba0ab9ac93c0278c0f1283c55b94d428309ea83e133c14dcfc666fa`.
+The concurrent YAML-retirement plan remained byte-identical at SHA-256
+`2de3c7aafd13e7518f9030621fcc1a13a70daa8ae1418c6bf81be1d3f8918d2d`.
+
+- [x] **Step 3: Run cached-diff/protected-path guards and inspect exact commits.**
 
 Confirm every task commit includes its plan checkbox update, no protected path,
 no YAML-deletion plan, no family-name mechanism, and no uncommitted task file.
 
-- [ ] **Step 4: Freeze the final exact-tree subject and dispatch holistic
-  specification and quality/security reviews.**
+The final linear audit covered `18` feature commits: `15` expose the exact four
+canonical Git-native review trailers and the three full-ID Task 8/9/10
+exceptions expose none and are closed only by Task 11's reviewed mapping. Every
+direct review tree and parent-relative patch digest matched its trailers. No
+audited commit contains a protected path or the YAML-retirement plan, and both
+genericity guards passed.
 
-The specification reviewer checks every design success criterion and stop/revise
-criterion. The quality reviewer checks descriptor/lock cleanup, bounded memory,
+- [x] **Step 4: Freeze the final exact-tree subject and dispatch holistic
+  specification and functional-quality reviews.**
+
+The specification reviewer checks every retained functional success and
+stop/revise criterion. The quality reviewer checks lock cleanup, bounded memory,
 deadlock safety, schema closure, stable diagnostics, absence compatibility, and
 test quality. Before computing `REVIEW_TREE`, set the final plan status, all Task
 13 checkboxes through this step, and every satisfied Final Acceptance Checklist
@@ -3658,43 +3695,42 @@ Suggested commit: `docs: complete prompt dependency implementation`
 
 **Post-commit handoff without family claims:**
 
-Report exact commit SHAs, focused/broad counts, platform coverage/skips, record and
-index schema versions, and both review artifacts. State only that the generic
+Report exact commit SHAs, focused/broad counts, record and index schema versions,
+and both review artifacts. State only that the generic
 provider-input prerequisite is available. The next roadmap task may use it for
 survivor `.orc` ports, but each port still requires its own artifact, prompt,
 retry/resume, provider-policy, and parity evidence.
 
 ## Final Acceptance Checklist
 
-- [ ] Public `.orc` syntax accepts only typed inline-lowerable exact relpaths.
-- [ ] WCC/schema 2 and classic lowering share one owner projection.
-- [ ] Typed origin metadata never travels through or reconstructs from a YAML map.
-- [ ] Core/executable/persisted/Semantic/source-map views retain only their owned
+- [x] Public `.orc` syntax accepts only typed inline-lowerable exact relpaths.
+- [x] WCC/schema 2 and classic lowering share one owner projection.
+- [x] Typed origin metadata never travels through or reconstructs from a YAML map.
+- [x] Core/executable/persisted/Semantic/source-map views retain only their owned
   contract; runtime plan remains unchanged.
-- [ ] Required/present-optional unsafe content fails before provider preparation.
-- [x] Operational safe-I/O probe and unsupported-platform failure are skipped
-  under the 2026-07-18 security-scope override.
-- [ ] Ordinary and adjudicated retries snapshot/render exactly once per attempt.
-- [ ] Truncation agrees across prompt markers, structured evidence, and the
+- [x] Required and present-optional missing, unreadable, or invalid-UTF-8 content
+  fails before provider preparation.
+- [x] Ordinary and adjudicated retries snapshot/render exactly once per attempt.
+- [x] Truncation agrees across prompt markers, structured evidence, and the
   existing persisted provider-result `debug.injection` surface; non-truncated
   debug shape remains compatible.
-- [ ] Stable YAML successful bytes remain compatible below deliberate boundaries.
-- [ ] Durable root allocation is monotonic, recursive-scope-safe, and crash
+- [x] Stable YAML successful bytes remain compatible below deliberate boundaries.
+- [x] Durable root allocation is monotonic, recursive-scope-safe, and crash
   consistent.
-- [ ] Retained dependency content is globally attempt-bounded independent of
+- [x] Retained dependency content is globally attempt-bounded independent of
   canonical-group count, while every selected file is still streamed fully for
   validation, counts, and digests.
-- [ ] Records/indexes are closed, immutable, digest-verifiable, content-free, and
+- [x] Records/indexes are closed, immutable, digest-verifiable, content-free, and
   quiescence-validated.
-- [ ] Evidence is never runtime/resume authority.
-- [ ] Pending resume snapshots fresh; completed reuse never reopens dependencies.
-- [ ] Keyword-free build artifacts remain exact.
-- [ ] Real `.orc` positive, negative, retry, crash, and resume E2E tests pass.
-- [ ] Broad xdist suite completes normally in tmux and its closed outcome passes
+- [x] Evidence is never runtime/resume authority.
+- [x] Pending resume snapshots fresh; completed reuse never reopens dependencies.
+- [x] Keyword-free build artifacts remain exact.
+- [x] Real `.orc` positive, negative, retry, crash, and resume E2E tests pass.
+- [x] Broad xdist suite completes normally in tmux and its closed outcome passes
   the reviewed exact-six-minus-reviewed-remediations comparator with explicit
   collection, pytest, and pane exit status, all bound to the launch subject
   manifest and unchanged review envelope.
-- [ ] Independent specification and functional implementation-quality reviews approve the exact
+- [x] Independent specification and functional implementation-quality reviews approve the exact
   final tree.
-- [ ] Durable docs close only the generic prerequisite and do not claim survivor
+- [x] Durable docs close only the generic prerequisite and do not claim survivor
   promotion or YAML retirement.
