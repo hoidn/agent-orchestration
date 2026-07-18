@@ -1768,13 +1768,16 @@ def _validate_reviewed_commit(
         raise GateError(f"remediation {label} reviews are not closed")
     _validate_review_approval(reviews["specification"], quality=False)
     _validate_review_approval(reviews["quality"], quality=True)
-    message = _git(repo_root, "show", "-s", "--format=%B", commit).decode("utf-8", "strict")
+    parsed_trailers = _git(
+        repo_root, "show", "-s", "--format=%(trailers:only,unfold)", commit
+    ).decode("utf-8", "strict")
     expected = [
         f"Review-Tree: {tree}",
         f"Spec-Review: {reviews['specification']}",
         f"Quality-Review: {reviews['quality']}",
     ]
-    lines = message.splitlines()
+    relevant_keys = {"review-tree", "spec-review", "quality-review"}
+    lines = parsed_trailers.splitlines()
     positions: list[int] = []
     for trailer in expected:
         found = [index for index, line in enumerate(lines) if line == trailer]
@@ -1782,7 +1785,7 @@ def _validate_reviewed_commit(
             raise GateError(f"remediation {label} commit review trailers mismatch")
         positions.append(found[0])
     if positions != sorted(positions) or any(
-        line.startswith(("Review-Tree:", "Spec-Review:", "Quality-Review:"))
+        line.partition(":")[0].casefold() in relevant_keys
         and line not in expected
         for line in lines
     ):

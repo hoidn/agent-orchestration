@@ -642,12 +642,12 @@ migration after holistic quality review proved that the helper accepted
 blank-separated pseudo-trailers. That correction changes only
 `normalization.helper_sha256` from
 `b60c395e78dd757bd7bf1cb1eeac70428ba84195f3991443b91ec16e537a538c` to
-`9e89808fe8def74d3fb852e5f98f90185e8ade23af9ed45af9ffdafc21dbf43d`
+`e0567213a561699ad9ea94500ac327001061b37acd56d795a118ea6d4e2cc8fc`
 and the canonically derived `record_sha256` from
 `ead6d7f11ad9b2222a376135ac5c03336b1685c107a39d4c117e89892a063058`
-to `ffdf483a20ba4b0bb5a12b9bd0eef4ca50626c9a138bb1e43cc51ec4fafc7d34`.
+to `513802fc9ba0ab9ac93c0278c0f1283c55b94d428309ea83e133c14dcfc666fa`.
 The target baseline file SHA-256 is
-`183b62705ced7cd67aaa8200b3ec71b30a93dd0960ef1595077146c67d5bbad2`;
+`b32732ba7cf1d70b70694d7edabc4a28100d6d80313711b6402f4fa6af0825fe`;
 the canonical helper-sentinel invariant remains
 `eba9b11a15ef5c42a10b05055a3835c342d9d71d6b7ab6662b6dcb75f3a71be4`,
 so no authority, subject, captured evidence, environment, totals, or failure row

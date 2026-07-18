@@ -399,6 +399,92 @@ def _valid_remediation(gate, repo: Path) -> dict[str, object]:
     return payload
 
 
+def _commit_with_review_layout(
+    repo: Path, layout: str
+) -> tuple[str, str, dict[str, str]]:
+    proof = _write(repo / "review-layout-proof.log", "focused proof\n")
+    _git(repo, "add", proof.relative_to(repo).as_posix())
+    tree = _git(repo, "write-tree").stdout.decode().strip()
+    reviews = {
+        "specification": "PASS layout-spec-review-123",
+        "quality": "APPROVED layout-quality-review-456",
+    }
+    trailers = {
+        "tree": f"Review-Tree: {tree}",
+        "tree_value": tree,
+        "specification": f"Spec-Review: {reviews['specification']}",
+        "specification_value": reviews["specification"],
+        "quality": f"Quality-Review: {reviews['quality']}",
+        "quality_value": reviews["quality"],
+    }
+    message = layout.format(**trailers)
+    _git(repo, "commit", "-qm", message)
+    commit = _git(repo, "rev-parse", "HEAD").stdout.decode().strip()
+    return commit, tree, reviews
+
+
+@pytest.mark.parametrize(
+    "layout",
+    [
+        "reviewed change\n\n{tree}\n{specification}\n{quality}\n",
+        (
+            "reviewed change\n\n{tree}\n"
+            "Review-Patch-SHA256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+            "{specification}\nSigned-off-by: Test <test@example.invalid>\n{quality}\n"
+        ),
+    ],
+    ids=["review-only", "interleaved-unrelated"],
+)
+def test_reviewed_commit_accepts_contiguous_terminal_git_trailers(
+    repo: Path, layout: str
+) -> None:
+    gate = _load_helper()
+    commit, tree, reviews = _commit_with_review_layout(repo, layout)
+
+    gate._validate_reviewed_commit(
+        repo_root=repo,
+        commit=commit,
+        tree=tree,
+        reviews=reviews,
+        label="fixture",
+    )
+
+
+@pytest.mark.parametrize(
+    "layout",
+    [
+        "reviewed change\n\n{tree}\n\n{specification}\n\n{quality}\n",
+        "reviewed change\n\n{tree}\n{specification}\n{quality}\n\npostscript\n",
+        "reviewed change\n\n{tree}\n{specification}\n{specification}\n{quality}\n",
+        "reviewed change\n\n{tree}\n{quality}\n{specification}\n",
+        "reviewed change\n\n{tree}\nreview-tree: {tree_value}\n{specification}\n{quality}\n",
+        "reviewed change\n\n{tree}\n{specification}\nqUaLiTy-ReViEw: APPROVED wrong-token\n{quality}\n",
+    ],
+    ids=[
+        "blank-separated",
+        "nonterminal",
+        "duplicate",
+        "reordered",
+        "lowercase-duplicate",
+        "mixed-case-unexpected-value",
+    ],
+)
+def test_reviewed_commit_rejects_noncanonical_review_trailer_layouts(
+    repo: Path, layout: str
+) -> None:
+    gate = _load_helper()
+    commit, tree, reviews = _commit_with_review_layout(repo, layout)
+
+    with pytest.raises(gate.GateError, match="review trailers"):
+        gate._validate_reviewed_commit(
+            repo_root=repo,
+            commit=commit,
+            tree=tree,
+            reviews=reviews,
+            label="fixture",
+        )
+
+
 def _run_gate_cli(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(HELPER), *args],
