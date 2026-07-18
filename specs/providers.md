@@ -166,6 +166,14 @@
     - These annotations and rendered concrete paths are prompt guidance only. Prompt text does not replace the runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding or change runtime contract validation semantics.
   - Do not modify files on disk; only the composed prompt is delivered to the provider.
 
+- Workflow Lisp provider prompt dependencies
+  - `provider-result :prompt-dependencies (:required ... :optional ...)` contributes typed required and optional exact workspace `relpath` operands to the ordinary workspace-dependency composition stage. Position defaults to `prepend`; `append` is the only alternative; an optional instruction is literal text and never provider-parameter substitution.
+  - The composition pipeline first builds the base prompt plus source-relative `asset_depends_on`, applies the per-attempt dependency block at its declared position, then applies typed prompt inputs, consumed-artifact injection under its own position policy, and the output-contract suffix. Pipeline order does not override a stage's explicit prepend/append policy.
+  - Ordinary and adjudicated provider execution use the same snapshot/render owner. Each relevant attempt receives exactly one immutable dependency snapshot shared by rendering and prompt finalization; no stage reopens a dependency. Each retry takes a fresh snapshot before provider preparation.
+  - The completed provider result and its lexical checkpoint include the compiled dependency contract. Compatible completed-result reuse returns the committed structured result without reopening current dependency files. A pending or failed provider boundary takes a new snapshot for its new attempt.
+  - The exact UTF-8 dependency block is limited to `262144` bytes as specified by `dependencies.md`; truncation is deterministic and explicit.
+  - Prompt-dependency evidence is narrower than snapshot/render reuse: only an ordinary typed Workflow Lisp attempt carrying the validated compiler contract derives Workflow Lisp prompt-dependency evidence. YAML and adjudicated paths without that ordinary typed carrier emit no such evidence; their existing debug/state output is separate. YAML content injection still uses the shared snapshot/render owner and fresh-per-retry behavior for stable successful calls while remaining a legacy authoring surface.
+
 - Adjudicated provider prompt and evaluator delivery (v2.11)
   - Each candidate uses the ordinary provider prompt composition contract, including step-wide `asset_depends_on`, `depends_on`, `consumes` injection, and deterministic output-contract suffixes. A candidate `asset_file` or `input_file` override replaces only the base prompt source.
   - Candidate provider commands run with `cwd` set to that candidate's isolated workspace. Provider templates, provider params, env, secrets, and prompt transport otherwise follow the normal provider contract.

@@ -63,6 +63,15 @@ state-projection linkage, materialization actions, routing structure, and the
 other runtime-facing data needed for downstream derivations. It no longer
 contains macros, unresolved procedures, or frontend-only type forms.
 
+Provider execution configuration may contain an optional typed
+`CompilerPromptDependencyContract` alongside ordinary `depends_on` data. The
+contract is produced only by the Workflow Lisp owner emitter and remains in the
+compiler side table keyed by stable provider-step identity until bundle
+assembly reconciles it with the exact provider-step set. Core, executable,
+persisted, and lexical-checkpoint surfaces then retain their owned typed field.
+Executable validation rejects an untyped mapping as an alternative
+representation.
+
 The current executable-node inventory also includes
 `ExecutableNodeKind.PURE_PROJECTION` with `PureProjectionStepConfig`. That node
 kind executes one validated pure-expression payload against resolved binding
@@ -110,6 +119,13 @@ than competing authorities:
 - `workflow_boundary_projection` is a build/debug projection for workflow
   boundary understanding.
 - debug YAML is an optional view, not executable authority.
+
+For provider prompt dependencies, `runtime_plan` remains topology/checkpoint
+planning only. It intentionally omits exact relpath operands, required/optional
+roles, injection position/instruction, snapshot metadata, evidence records,
+and the compiler contract itself. Semantic IR and source maps may explain the
+validated executable contract, while per-attempt state/evidence may describe
+an invocation; none replaces executable authority.
 
 These layers may summarize, enrich, or explain executable structure, but they
 do not redefine what the runtime-facing executable contract is.

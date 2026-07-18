@@ -1698,3 +1698,45 @@ def test_provider_invocation_profile_is_separate_generic_implemented_data() -> N
     assert "`defaults={}`" in row
     assert "`input_mode=stdin`" in row
     assert "exact argv profile evidence" in normalized_row
+
+
+def test_prompt_dependency_contract_is_routed_as_generic_implemented_capability() -> None:
+    matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
+    matrix_row = _markdown_table_row(
+        matrix_path,
+        "Workflow Lisp provider prompt dependencies",
+    )
+    normalized_row = _normalized_routing_text(matrix_row)
+    docs_index = _normalized_routing_text(
+        (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    )
+    design_index = _normalized_routing_text(
+        (REPO_ROOT / "docs" / "design" / "README.md").read_text(encoding="utf-8")
+    )
+
+    assert "implemented" in normalized_row
+    assert "required and optional exact relpaths" in normalized_row
+    assert "262144 byte" in normalized_row
+    assert "one immutable snapshot per attempt" in normalized_row
+    assert "fresh snapshot on retry" in normalized_row
+    assert "runtime plan remains topology only" in normalized_row
+    assert "evidence is non authoritative" in normalized_row
+    assert "yaml content mode remains legacy" in normalized_row
+    assert "family parity" in normalized_row and "pending" in normalized_row
+    assert "workflow lisp provider prompt dependencies" in docs_index
+    assert "workflow lisp provider prompt dependencies" in design_index
+
+
+def test_task_12_scope_is_functional_and_review_subject_is_frozen() -> None:
+    plan = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "2026-07-17-workflow-lisp-provider-prompt-dependencies-implementation-plan.md"
+    ).read_text(encoding="utf-8")
+    task_12 = plan.split("## Task 12:", 1)[1].split("## Task 13:", 1)[0]
+
+    assert "functional contracts" in task_12.lower()
+    for step in range(1, 7):
+        assert f"- [x] **Step {step}:" in task_12
+    assert "- [x] **Step 7:" in task_12

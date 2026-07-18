@@ -2,12 +2,12 @@
 
 ## Metadata
 
-- **Status:** proposed
+- **Status:** partially implemented: retained functional contract
 - **Kind:** feature / architecture decision
 - **Owner:** Workflow Lisp frontend and shared workflow-runtime maintainers
 - **Reviewers:** independent specification and implementation-quality reviewers
 - **Created:** 2026-07-17
-- **Last material update:** 2026-07-17
+- **Last material update:** 2026-07-18
 - **Related docs:**
   - `docs/workflow_yaml_orc_gap_list.md`
   - `docs/design/workflow_language_design_principles.md`
@@ -18,18 +18,25 @@
   - `specs/providers.md`
   - `specs/security.md`
 - **Implementation target:** a generic `provider-result :prompt-dependencies`
-  surface plus shared dependency-content read hardening and structured runtime
-  evidence
+  surface, shared per-attempt dependency snapshots, crash-durable allocation,
+  and structured non-authoritative runtime evidence
+
+The implemented classification covers the typed frontend/compiler/runtime
+contract, deterministic exact-byte rendering, per-attempt snapshots, durable
+allocation, content-free records, offline index, and checkpoint/resume
+semantics. Other clauses in this broader design are outside that functional
+capability classification.
 
 ## Summary
 
-Workflow Lisp `provider-result` can select a provider prompt source and can
-render typed values into a provider request, but it cannot currently declare
-workspace files whose contents must be present in the composed provider prompt.
-This prevents a `.orc` port from preserving a YAML provider step that uses
-`depends_on.required` or `depends_on.optional` with content injection.
+Workflow Lisp `provider-result` can select a provider prompt source, render
+typed values, and declare workspace files whose contents must be present in the
+composed provider prompt. This closes the generic language/runtime prerequisite
+for a `.orc` port that must preserve YAML `depends_on.required` or
+`depends_on.optional` content injection.
 
-Add one narrow, generic `:prompt-dependencies` option to `provider-result`.
+The implemented surface is one narrow, generic `:prompt-dependencies` option on
+`provider-result`.
 The option accepts ordered required and optional operands that already have a
 declared workspace-relpath type, a `prepend` or `append` position, and an
 optional literal instruction. It always requests content injection. Lowering
@@ -38,17 +45,27 @@ dependency-resolution and prompt-composition contract. It does not introduce
 path-literal syntax, a new runtime prompt transport, provider kind, renderer,
 command adapter, or family-specific compiler route.
 
-The shared content-read boundary is also strengthened. Every resolved content
-dependency must be a stable, regular, UTF-8 file inside the resolved workspace
-when it is read. A required file that is missing, unreadable, unsafe, unstable,
-or invalid fails before provider launch. Structured evidence records the exact
-ordered inputs and content digests that produced the prompt without copying
-file bodies into an additional evidence artifact.
+One shared per-attempt owner resolves, reads, UTF-8 decodes, orders, and renders
+an immutable dependency snapshot for ordinary and adjudicated provider paths.
+Each retry gets a fresh snapshot. Structured evidence records the exact ordered
+inputs and content digests that produced the prompt without copying file bodies
+into an additional evidence artifact.
 
 This approach intentionally makes arbitrary binary injection, wildcard
 authoring, dynamic instruction text, and custom renderer behavior harder to add
 later. Those are excluded so the first tranche remains one typed authoring
 surface over one existing normative runtime contract.
+
+Implementation was assembled through the reviewed task commits recorded in
+`docs/plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-implementation-plan.md`
+and closed holistically at `b59e283c`. Fresh closure evidence passed 736 focused
+tests; the broad run collected 5810 tests with 5787 passed, 17 skipped, and the
+exact six-row reviewed baseline; the exact-baseline comparator accepted.
+Ordered reviews recorded specification
+`TASK11-HOLISTIC-SPEC-PASS-20260718-B69F5B77-01` and functional quality
+`TASK11-HOLISTIC-QUALITY-APPROVED-20260718-B69F5B77-01`. These results establish
+the generic mechanism only. Neither survivor-family port or parity gate is
+complete.
 
 ## Context And Authority
 
@@ -60,7 +77,7 @@ The governing rules are:
 
 - `specs/dependencies.md` owns workspace-relative dependency resolution,
   required versus optional matching, content formatting, deterministic
-  lexicographic resolved-path ordering, the approximately 256 KiB injection
+  lexicographic resolved-path ordering, the exact 262144-byte injection
   cap, and prompt-only mutation.
 - `specs/providers.md` owns prompt composition order and keeps base prompt
   sources, workspace dependencies, source assets, consumed artifacts, typed
@@ -91,10 +108,10 @@ provider step
 ```
 
 Current shared Core AST, executable IR, persisted surface, and lexical provider
-checkpoint digests already carry `depends_on`. The missing surface is the
-typed Workflow Lisp authoring path into that existing shared field. The current
-content injector also catches read errors and skips a file; that behavior is
-not adequate for a contract that says required content is present.
+checkpoint digests already carry `depends_on`. The implementation adds the
+typed Workflow Lisp authoring path into that existing shared field. The former
+content injector caught read errors and skipped a file; selected content now
+fails the attempt instead of silently disappearing.
 
 One terminology conflict must be resolved explicitly: plain workspace
 `depends_on` uses **lexicographic resolved-path order**. Declared order belongs
@@ -133,30 +150,21 @@ family route:
   content and composition paths.
 
 These findings establish that no new executable node, provider transport, or
-resume policy is required. They do not establish the missing frontend syntax,
-classified exact-path projection, stable read boundary, Semantic IR extension,
-or structured evidence. Those remain explicit implementation obligations and
-must be proven by the integration fixture described below before the surface is
-classified as implemented.
+resume policy was required. The landed implementation added the frontend
+syntax, classified exact-path projection, Semantic IR extension, and structured
+evidence through those generic owners.
 
-The shared per-attempt snapshot/render owner is specifically an open
-prerequisite, not an existing capability claim. The current ordinary retry and
-adjudicated composition paths sequence resolution/injection separately, and
-ordinary composition occurs outside the retry attempt boundary. Before
-frontend parity evidence is accepted, implementation must consolidate both
-paths and pass a focused spy/capturing-provider fixture proving one snapshot,
-one render, and zero evidence reopens per attempt in both paths.
+The shared per-attempt snapshot/render owner now consolidates ordinary retry
+and adjudicated composition. Focused capturing-provider evidence proves one
+snapshot, one render, and zero evidence reopens per attempt in both paths.
 
-Crash-durable attempt allocation is also an implementation prerequisite. The
-current `StateManager` temp-file replacement is atomic but does not `fsync` the
-file and parent directory, and there is no persisted provider-attempt ordinal.
-Implementation must add the narrowly scoped allocator and durable state-write
-boundary described below, with fault injection at every named crash point,
-before evidence paths can be considered collision-safe.
+Crash-durable attempt allocation is implemented through the narrowly scoped
+root-state allocator and durable state-write boundary described below, with
+fault-injection coverage for its named crash points.
 
 `ResumeScopePath.call_frame_ids` and nested call-frame `RunState` snapshots
-already provide the ordered recursive call identity required below; the new
-allocator must reuse them rather than invent a flat current-frame token.
+provide the ordered recursive call identity required below; the allocator
+reuses them rather than inventing a flat current-frame token.
 Conversely, the current `Path.read_text` injector has no descriptor-relative
 safe-open capability. The implementation must prove the workspace-dir-fd,
 no-follow component walk and nonblocking final-open contract with the FIFO,
@@ -165,8 +173,8 @@ explicit fail-closed prerequisite rather than an implicit pathname fallback.
 
 ## Problem
 
-`provider-result :inputs` and prompt externs cannot express the missing
-behavior:
+Before this implementation, `provider-result :inputs` and prompt externs could
+not express the missing behavior:
 
 - `PromptExtern` selects exactly one `asset_file` or `input_file` base prompt.
 - A typed prompt input using the `posix-path-line` renderer renders a path, not
@@ -509,7 +517,7 @@ each row's true role. An optional-only no-match still emits the same
 instruction-only block as current YAML behavior. A literal authored
 instruction replaces that default. Header syntax, spacing, UTF-8-safe prefix
 selection, and truncation summary remain owned by the content renderer; the
-approximately 256 KiB cap becomes the exact hard boundary clarified below.
+262144-byte cap is the exact hard boundary clarified below.
 Truncation is valid
 generic runtime behavior, but a migration parity gate may require
 `truncated=false` when the old workflow's semantic input would otherwise be
@@ -1287,7 +1295,7 @@ values in Workflow Lisp.
 
 The shared dependency resolver/injector remains the single owner of workspace
 dependency content composition through the per-attempt snapshot/render API.
-The implementation must accept classified required/optional exact-path rows
+The runtime accepts classified required/optional exact-path rows
 rather than collapsing them into one unclassified file list before reads and
 evidence are complete. Both ordinary retry and adjudicated composition must use
 that API; no path may reopen a snapshot to render or write evidence.

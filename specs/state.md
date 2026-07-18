@@ -142,6 +142,38 @@
   dashboards, debug YAML, and source maps may describe the call but are not
   policy or resume authority.
 
+## Provider Prompt-Dependency Attempt State And Resume
+
+- A Workflow Lisp provider boundary with a typed prompt-dependency contract
+  allocates its attempt ordinal in root `RunState.provider_attempt_allocations`.
+  The member is omitted while empty. It is root-owned across ordinary, loop,
+  call-frame, and adjudicated execution; nested state managers do not maintain
+  competing counters.
+- Allocation is a crash-durable state transition. The state file and containing
+  directory are synchronized before the allocated ordinal is used, and the
+  state-mutation lock serializes allocation with other root-state writers.
+  Allocation events and later evidence-publication events form a closed,
+  append-only per-scope sequence. Filesystem evidence paths never allocate or
+  recover an ordinal.
+- The provider lexical checkpoint identity includes the typed dependency
+  contract, including required/optional partition, position, and instruction.
+  Changing that contract is incompatible program input. Mutable file-content
+  digests observed by one attempt are not automatic invalidation input for a
+  compatible completed result.
+- Pending or failed execution allocates a new attempt and takes a fresh
+  immutable dependency snapshot. Compatible completed-result reuse returns the
+  committed structured result without reopening dependency files.
+- Workflow Lisp attempt records are content-free evidence views derived from
+  the immutable in-memory snapshot. They do not contain dependency bodies or
+  prompt text and are not provider selection, execution, checkpoint, or resume
+  authority. Runtime does not enumerate or validate earlier records when
+  resuming.
+- A terminal-only offline validator may derive a content-addressed validated
+  index from a frozen authoritative allocation projection and immutable record
+  digests. That index is reproducible, non-authoritative evidence; runtime and
+  resume never read it. A later authoritative state change makes an older
+  index stale rather than changing runtime behavior.
+
 ## Reusable-Call State Contract (v2.5)
 
 - Caller-visible exports

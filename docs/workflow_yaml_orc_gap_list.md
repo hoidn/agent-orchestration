@@ -51,7 +51,7 @@ No owner waiver is recorded by this audit.
 | `common.provider-call-policy` | `port_verified_iteration`, `port_generic_run_watchdog` | `provider_params` model/effort counterpart and `timeout_sec`: typed model and effort plus positive literal timeout with public compile-run-resume | `implemented` | Generic implementation closure: typed model and effort plus positive literal timeout are implemented through lowering, executable identity, runtime, and public compile-run-resume evidence. Family parity and promotion remain pending; YAML deletion remains pending. |
 | `common.provider-invocation-profile` | `port_verified_iteration`, `port_generic_run_watchdog` | shared no-default unrestricted Codex Claude profiles | `implemented` | Exact argv profile evidence: `codex_unrestricted_workspace` uses `defaults={}`, `input_mode=stdin`, and `["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${reasoning_effort}"]`; `claude_unrestricted_workspace` uses `defaults={}`, `input_mode=stdin`, and `["claude", "-p", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]`. Both are shared provider data, not family-specific compiler routes. |
 | `common.structured-results` | `port_verified_iteration`, `port_generic_run_watchdog` | provider `expected_outputs` sidecars and command `output_bundle` records | `implemented` | `provider-result`, `command-result`, native transportable returns, records, unions, enums, optionals, and runtime-owned bundle paths replace scalar sidecar parsing. Port scripts must honor the runtime bundle target and keep semantic files separate. |
-| `common.prompt-dependency-parity` | `port_verified_iteration`, `port_generic_run_watchdog` | `depends_on` required files with `inject` content, ordering, and an optional instruction | `blocking_gate` | `prompt-dependency-parity`: typed prompt-input rendering is implemented, but each port must prove that the typed request and prompt assets preserve the required dependency content and ordering. Otherwise add the missing generic surface or obtain an explicit owner waiver. |
+| `common.prompt-dependency-parity` | `port_verified_iteration`, `port_generic_run_watchdog` | `depends_on` required files with `inject` content, ordering, and an optional instruction | `blocking_gate` | The generic typed prompt dependency mechanism is implemented: required and optional exact relpaths, literal prepend/append policy, deterministic canonical order, a 262144 byte cap, one immutable snapshot per attempt, and a fresh snapshot per retry. This remains `prompt-dependency-parity` because each port must prove its exact dependency set, instruction meaning, ordering, and non-truncation where required. |
 | `common.command-boundary` | `port_verified_iteration`, `port_generic_run_watchdog` | stable Python command steps that read workspace or run state and write structured artifacts | `implemented` | `command-result` plus external-tool or fully certified adapter bindings is the current route. Hidden stdout parsing and inline shell remain forbidden. |
 | `verified.bounded-loop` | `port_verified_iteration` | `repeat_until`, maximum 40, typed terminal condition, and `on_exhausted` to `STALLED` | `implemented` | `loop/recur` supports runtime maximums, typed carried state, effectful bodies, typed `continue` and `done`, and scalar exhaustion projection through shared `repeat_until`. |
 | `verified.iteration-artifact-lineage` | `port_verified_iteration` | `loop.index`-scoped work orders, verdicts, checks, reviews, ledger, status tokens, and resume-visible outputs | `blocking_gate` | `verified-iteration-artifact-lineage`: the compiled port and one-continue plus one-terminal smoke must prove per-iteration uniqueness, exact command and provider dependencies, Record idempotence, and resume-safe lineage. Generated paths may differ only where the parity contract classifies them private. |
@@ -90,12 +90,22 @@ extern.
 
 ### `prompt-dependency-parity`
 
-The current typed prompt-input route is the preferred implementation, but
-compile success alone is insufficient. Each port's provider-input evidence
-must show that the request preserves all required semantic inputs from the YAML
-dependency injection. The watchdog proof also binds the prepend instruction's
-meaning, not its literal wording. Missing content, wrong ordering, or reliance
-on an undeclared ambient file keeps the gate closed.
+The generic language/runtime prerequisite is implemented through the closed
+`provider-result :prompt-dependencies (:required ... :optional ...)` clause. It
+accepts typed required and optional exact relpaths, deterministic canonical path
+order, literal prepend/append policy, the exact `262144` byte injection cap, one
+immutable snapshot per ordinary or adjudicated attempt, and a fresh snapshot
+on retry. Compiler-owned typed metadata remains out of the topology-only
+runtime plan, while content-free records and their offline index are
+non-authoritative evidence.
+
+Compile success alone is still insufficient. Each port's provider-input
+evidence must show that the request preserves all required semantic inputs from
+the YAML dependency injection. The watchdog proof also binds the prepend
+instruction's meaning, not its literal wording. Missing content, wrong order,
+unexpected truncation, or reliance on an undeclared ambient file keeps the gate
+closed. Family parity and promotion remain pending; YAML deletion remains
+pending.
 
 ### `verified-iteration-artifact-lineage`
 
@@ -139,12 +149,18 @@ plan, and related working-tree files remain byte-for-byte outside Stage 6.
   `tests/test_provider_call_policy.py`, and
   `tests/test_workflow_lisp_provider_call_policy_e2e.py`: typed policy,
   declarative mapping/profile argv, and public compile/run/resume evidence.
+- `tests/test_workflow_lisp_provider_prompt_dependencies.py`,
+  `tests/test_prompt_dependency_content_snapshot.py`,
+  `tests/test_prompt_dependency_evidence.py`, and
+  `tests/test_workflow_lisp_provider_prompt_dependencies_e2e.py`: typed
+  authoring/lowering, immutable snapshots, allocation/evidence, retry/resume,
+  and real `.orc` capability evidence.
 
 ## Port-entry decision
 
-The generic provider-policy and invocation-profile prerequisites are available,
-but neither port may claim parity or enter promotion until its remaining family
-proof gates close. Family parity and promotion remain pending; YAML deletion
-remains pending. The protected holdout remains excluded until
-`step-back-owner-disposition` closes. No other unclassified gap remains in this
-three-queue scope.
+The generic provider-policy, invocation-profile, and typed prompt-dependency
+prerequisites are available, but neither port may claim parity or enter
+promotion until its remaining family proof gates close. Family parity and
+promotion remain pending; YAML deletion remains pending. The protected holdout
+remains excluded until `step-back-owner-disposition` closes. No other
+unclassified gap remains in this three-queue scope.

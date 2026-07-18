@@ -15,7 +15,9 @@
     - `none`: no injection (default).
   - Ordering and size
     - Deterministic lexicographic ordering of resolved paths.
-    - Cap total injected material at ~256 KiB. On truncation, record `steps.<Step>.debug.injection` with truncation details.
+    - Cap the exact UTF-8 injection block at `262144` bytes. The cap includes the instruction, separators, file headers, shown content, inline truncation markers, and aggregate truncation summary; it excludes the prompt composer's outer separator.
+    - Reserve at most `512` bytes for the aggregate truncation summary. A custom instruction is therefore limited to `261630` UTF-8 bytes. Rendering stops after the first truncated or omitted canonical file group, never splits a UTF-8 code point, and never returns a block above the cap.
+    - On truncation, record `steps.<Step>.debug.injection` with explicit shown, truncated, and omitted details.
   - Target and mutability
     - Injection modifies only the composed prompt delivered to the provider. Source files are never modified.
 
@@ -68,6 +70,51 @@ depends_on:
 ```
 
 Content mode formatting and truncation records are defined with examples in the monolithic v1.1.1 spec and preserved in this module.
+
+## Workflow Lisp exact prompt dependencies
+
+Workflow Lisp `provider-result` may add this closed clause:
+
+```lisp
+:prompt-dependencies
+  (:required (work-order-path target-design-path)
+   :optional (prior-findings-path)
+   :position prepend
+   :instruction "Use these files as authoritative inputs:")
+```
+
+- At least one required or optional operand is present. Every operand has a
+  declared workspace `relpath` type and lowers to an existing runtime binding;
+  strings, globs, dynamic instructions, and path literals are not alternate
+  spellings of this surface.
+- Optional means that the exact file may be absent. A present optional file is
+  read and decoded under the same content contract as a required file.
+- `:position` is optional and defaults to `prepend`; the only values are
+  `prepend` and `append`. `:instruction` is optional and, when present, is a
+  literal UTF-8 string. Without it, required or mixed rows use the existing
+  required-dependency instruction and optional-only rows use the existing
+  optional-dependency instruction.
+- Required and present optional targets are combined, de-duplicated by their
+  canonical workspace-relative target, and rendered once in deterministic
+  lexicographic target order. Authored order and required/optional role remain
+  compiler and evidence provenance, not final prompt order; required wins when
+  aliases identify the same target.
+- One provider attempt resolves, reads, newline-normalizes, orders, and renders
+  one immutable dependency snapshot. Rendering and evidence use that object
+  without reopening files. A retry creates a fresh snapshot; an unreadable or
+  invalid-UTF-8 selected file fails that attempt rather than being silently
+  skipped.
+- The typed compiler contract, not the YAML-shaped `depends_on` mapping,
+  identifies the exact-path Workflow Lisp surface. The compiler retains it in
+  a typed side table keyed by provider-step identity. `runtime_plan` remains a
+  topology/checkpoint projection and carries no prompt-dependency paths,
+  policy, or content metadata.
+
+YAML `depends_on.inject.mode: content` remains a legacy authoring surface. Its
+successful below-cap prompt bytes stay compatible, and it shares the immutable
+per-attempt snapshot/render owner, including a fresh snapshot on each retry.
+YAML does not acquire the compiler-only typed contract or Workflow Lisp
+attempt-evidence side effect.
 
 ## Migration and Best Practices
 

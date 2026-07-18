@@ -121,7 +121,12 @@ The current contract is implemented in
   subjects back to authored or generated origins.
 - `SemanticCallEdge` records workflow-call lineage.
 - `SemanticPromptSurface` records provider prompt-delivery surfaces relevant to
-  semantic inspection.
+  semantic inspection. When Workflow Lisp `provider-result` declares typed
+  prompt dependencies, this surface carries the validated
+  `CompilerPromptDependencyContract`; the contract contains required/optional
+  binding refs, position, instruction digest, and its source-origin key. The
+  adjacent source map owns authored clause/operand lineage. The semantic surface
+  does not carry dependency bodies, rendered prompt bytes, or attempt evidence.
 - `SemanticCommandBoundary` records typed command-boundary metadata rather than
   leaving command meaning embedded in shell text.
 - `SemanticExecutableBridge` records the semantic-to-executable linkage for
@@ -161,6 +166,10 @@ Current linkage rules:
   executable contract itself.
 - `runtime_plan` remains a derived runtime-facing summary used for ordering,
   presentation, and checkpoint linkage.
+- Provider prompt-dependency configuration remains in validated executable and
+  semantic ownership. `runtime_plan` stays topology-only and does not acquire
+  path operands, injection policy, compiler-contract metadata, content digests,
+  or evidence locations.
 - build summaries, dashboards, and debug YAML may summarize these surfaces,
   but they do not become semantic or executable authority.
 

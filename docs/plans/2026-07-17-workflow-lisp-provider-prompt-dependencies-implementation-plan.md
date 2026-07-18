@@ -65,8 +65,12 @@ Git-native trailer-validator corrections are reconstructed at `bb9f34ad` and
 genericity, broad, isolated-row, and exact-baseline comparison evidence was
 recaptured from the landed reconstruction-reference correction `5f480019`; the
 exact-baseline comparator passed and the final Task 11 plan-only closure is frozen
-for ordered holistic review. Documentation closure and workflow-family port claims
-remain unauthorized until Tasks 11-13 complete.
+and committed at `b59e283c` after ordered holistic specification PASS
+`TASK11-HOLISTIC-SPEC-PASS-20260718-B69F5B77-01` and functional-quality APPROVED
+`TASK11-HOLISTIC-QUALITY-APPROVED-20260718-B69F5B77-01`. Documentation closure
+is Task 12: its functional documentation subject is frozen for ordered review
+and becomes authoritative only with the unchanged reviewed commit. Task 13 and
+both workflow-family parity/promotion claims remain open and unauthorized.
 
 ---
 
@@ -3469,7 +3473,7 @@ tracked byte.
 
 Suggested commit: `test: gate prompt dependency implementation`
 
-## Task 12: Update Durable Contracts And Close The Generic Roadmap Gap
+## Task 12: Update Durable Functional Contracts And Close The Generic Roadmap Gap
 
 **Owner:** fresh documentation/contracts implementer after Task 11 is committed.
 
@@ -3477,7 +3481,6 @@ Suggested commit: `test: gate prompt dependency implementation`
 
 - Modify `specs/dependencies.md`
 - Modify `specs/providers.md`
-- Modify `specs/security.md`
 - Modify `specs/state.md`
 - Modify `docs/design/workflow_lisp_frontend_specification.md`
 - Modify `docs/design/workflow_lisp_semantic_workflow_ir.md`
@@ -3492,54 +3495,64 @@ Suggested commit: `test: gate prompt dependency implementation`
 - Modify `tests/test_workflow_yaml_orc_gap_list.py`
 - Modify this plan
 
-- [ ] **Step 1: Write routing/status RED tests.**
+- [x] **Step 1: Write routing/status RED tests.**
 
 Require exact discoverability and truthful labels: typed prompt dependencies are
-Implemented only on the probed POSIX-style filesystem boundary; YAML content mode
-is hardened but remains legacy; runtime plan remains topology-only; evidence is
-non-authoritative; the generic provider-input gap closes without promoting
+Implemented for the retained functional contract; YAML content mode remains
+legacy with stable-success compatibility and fresh-per-retry behavior; runtime
+plan remains topology-only; evidence is non-authoritative; the generic
+provider-input gap closes without promoting
 `verified_iteration_drain` or `generic_run_watchdog`.
 
-- [ ] **Step 2: Update normative specs from the landed behavior.**
+- [x] **Step 2: Update normative specs from the landed behavior.**
 
-Document exact authoring, order, cap, stable-read categories, platform probe,
-retry snapshot, allocator/state, evidence/index, lock order, checkpoint, and resume
-contracts. Remove or qualify stale catch-and-skip and approximate-cap text. Do not
-include roadmap progress in durable specs.
+Document exact authoring, order, cap, selected-file failure categories, retry
+snapshot, allocator/state, evidence/index, checkpoint, and resume contracts.
+Remove or qualify stale catch-and-skip and approximate-cap text. Keep excluded
+clauses outside this functional documentation tranche. Do not include roadmap
+progress in durable specs.
 
-- [ ] **Step 3: Update design and drafting docs.**
+- [x] **Step 3: Update design and drafting docs.**
 
 Add the public syntax/type examples and explain required versus optional exact
 paths, deterministic order, truncation, and completed-result
 reuse. Keep examples free of family names and do not present globs/dynamic paths as
 supported `.orc` forms.
 
-- [ ] **Step 4: Update status/routing docs and close design status.**
+- [x] **Step 4: Update status/routing docs and close design status.**
 
 Bind the implementation commits, focused/broad results, and both reviews. Mark the
-retained functional subset implemented while leaving the excluded security
-clauses explicitly unimplemented. Route the next
+retained functional subset implemented without widening its claim. Route the next
 survivor-port work to this mechanism; do not claim port parity evidence exists.
 
-- [ ] **Step 5: Run documentation/routing selectors.**
+- [x] **Step 5: Run documentation/routing selectors.**
 
 ```bash
 pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py tests/test_workflow_yaml_orc_gap_list.py
 pytest -q tests/test_workflow_lisp_provider_prompt_dependencies.py -k 'keyword_free or docs or genericity'
 ```
 
-- [ ] **Step 6: Re-run the real `.orc` smoke.**
+- [x] **Step 6: Re-run the real `.orc` smoke.**
 
 ```bash
 pytest -q tests/test_workflow_lisp_provider_prompt_dependencies_e2e.py
 ```
 
-- [ ] **Step 7: Freeze the documentation subject and dispatch the ordered
+Fresh Task 12 evidence: both changed routing modules collected 54 tests. The
+RED selectors failed on the missing matrix/index/gap closure and the still-open
+Task 12 status as intended. After the functional contract updates, the
+documentation/genericity selector passed 2 tests with 62 deselected and the
+real `.orc` end-to-end module passed 11 tests. The final complete routing result
+after the checklist transition was 54 passed in 0.58 seconds; the routing guard
+itself requires Steps 1-7 checked in the immutable review subject.
+
+- [x] **Step 7: Freeze the documentation subject and dispatch the ordered
   reviews.**
 
 Apply the digest-stable protocol. Reviewers must check consistency among specs,
 design, matrix, gap list, drafting guide, indexes, and actual test evidence.
-Dispatch quality review only after specification PASS.
+Review only the retained functional contract. Dispatch quality review only after
+specification PASS.
 
 **Post-review commit:** After both reviewers approve the unchanged tree, verify
 the patch/tree pair again and commit without editing tracked bytes.

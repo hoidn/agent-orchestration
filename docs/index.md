@@ -209,6 +209,11 @@ document owns the answer.
 **Keywords:** yaml, orc, retirement, gap-list, completed, provider-policy, parity
 **Use this when:** Designing either retained `.orc` port, checking its still-binding provider/prompt/parity gates, or reviewing why the protected holdout remains owner-gated.
 
+### [Workflow Lisp Provider Prompt Dependencies](plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md)
+**Description:** Implemented generic functional contract for typed required and optional exact relpaths on `provider-result`, deterministic bounded content injection, one immutable per-attempt snapshot, crash-durable attempt allocation, and content-free evidence. Runtime plan remains topology-only and evidence is non-authoritative. YAML content mode remains Legacy with stable-success compatibility and fresh-per-retry behavior; `verified_iteration_drain` and `generic_run_watchdog` parity and promotion remain pending.
+**Keywords:** workflow-lisp, provider, prompt-dependencies, relpath, snapshot, retry, evidence
+**Use this when:** Authoring or reviewing `.orc` provider calls that must receive workspace file contents, or implementing the still-pending survivor-family parity proofs.
+
 ### [YAML Deprecation Surface Design](plans/2026-07-17-yaml-deprecation-surface-design.md)
 **Description:** Implemented Stage-6 Task-4 design for one structured warning per fresh YAML/YML root load, explicit persisted-read suppression including `.orc` rebuild dependencies, and `.orc`-first author/template routing without YAML rejection.
 **Keywords:** yaml, deprecation, warning, fresh-load, persisted-resume, task-4

@@ -138,6 +138,42 @@ def test_generic_provider_closures_do_not_claim_family_or_yaml_completion() -> N
     assert "yaml deletion remains pending" in normalized
 
 
+def test_prompt_dependency_gap_uses_implemented_generic_mechanism_without_closing_port_parity() -> None:
+    text = GAP_LIST.read_text(encoding="utf-8")
+    rows = _table_after_heading(text, "## Gap decisions")
+    decision = next(
+        row for row in rows if row["Gap ID"] == "common.prompt-dependency-parity"
+    )
+    normalized_row = " ".join(decision["Gate or authority"].lower().split())
+    normalized = " ".join(text.lower().replace("-", " ").split())
+
+    assert decision["Classification"] == "blocking_gate"
+    assert "generic typed prompt dependency mechanism is implemented" in normalized_row
+    assert "required and optional exact relpaths" in normalized_row
+    assert "262144 byte" in normalized_row
+    assert "fresh snapshot per retry" in normalized_row
+    assert "family parity and promotion remain pending" in normalized
+    assert "yaml deletion remains pending" in normalized
+
+
+def test_prompt_dependency_status_is_discoverable_without_promoting_yaml_or_survivors() -> None:
+    capability = CAPABILITY_MATRIX.read_text(encoding="utf-8")
+    index = DOCS_INDEX.read_text(encoding="utf-8")
+
+    for surface in (capability, index):
+        normalized = " ".join(
+            surface.lower().replace("-", " ").replace("_", " ").split()
+        )
+        assert "workflow lisp provider prompt dependencies" in normalized
+        assert "implemented" in normalized
+        assert "runtime plan remains topology only" in normalized
+        assert "evidence is non authoritative" in normalized
+        assert "yaml content mode remains legacy" in normalized
+        assert "verified iteration drain" in normalized
+        assert "generic run watchdog" in normalized
+        assert "parity" in normalized and "pending" in normalized
+
+
 def test_gap_list_covers_the_observed_yaml_mechanics_without_expanding_scope() -> None:
     text = GAP_LIST.read_text(encoding="utf-8")
     rows = _table_after_heading(text, "## Gap decisions")

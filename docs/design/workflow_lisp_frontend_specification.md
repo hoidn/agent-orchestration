@@ -2103,11 +2103,11 @@ ordinary keyword section:
 ```
 
 The complete allowed-key set remains explicit: `:prompt`, `:inputs`, `:returns`,
-`:model`, `:effort`, and `:timeout-sec`. Each key occurs at most once. Model and
-effort accept exact `String` values from the effect-free inline-lowerable scalar
-and template subset; procedure edges alone do not count as runtime effects.
-Timeout accepts only a positive exact-`Int` literal. Diagnostics for type errors
-precede the inline-subset diagnostic.
+`:prompt-dependencies`, `:model`, `:effort`, and `:timeout-sec`. Each key occurs
+at most once. Model and effort accept exact `String` values from the effect-free
+inline-lowerable scalar and template subset; procedure edges alone do not count
+as runtime effects. Timeout accepts only a positive exact-`Int` literal.
+Diagnostics for type errors precede the inline-subset diagnostic.
 
 Example:
 
@@ -2143,6 +2143,59 @@ Policy participates in compiled executable identity and normal public resume
 guards. The runtime plan, semantic/runtime reports, dashboard/debug projections,
 debug YAML, and source maps remain non-authoritative views; none supplies policy
 or authorizes resume reuse.
+
+### 22.5 Typed Provider Prompt Dependencies
+
+`provider-result` may declare required and optional exact workspace files whose
+contents enter the provider prompt:
+
+```lisp
+(provider-result providers.worker
+  :prompt prompts.work
+  :inputs (request)
+  :prompt-dependencies
+    (:required (work-order-path target-design-path ledger-path)
+     :optional (prior-findings-path prior-check-log-path)
+     :position prepend
+     :instruction "Use these files as authoritative inputs:")
+  :returns WorkResult)
+```
+
+At least one required or optional row is present. Every operand has a declared
+workspace `relpath` type and refers to an existing inline-lowerable binding;
+this form does not accept `String`, globs, dynamic instruction expressions, or
+an author-facing path literal. Optional weakens existence only. Position
+defaults to `prepend`, with `append` as the only alternative. Instruction is an
+optional literal UTF-8 string; omission selects the established required or
+optional dependency instruction.
+
+The compiler preserves authored row order and roles through traversal,
+specialization, classic lowering, and WCC/schema 2, then emits ordinary
+`depends_on` data plus a separate typed
+`CompilerPromptDependencyContract` side-table entry keyed by provider-step
+identity. Core, executable, semantic, source-map, persisted, and lexical
+checkpoint surfaces retain their owned views. The typed side table, rather
+than an untyped mapping marker, carries compiler origin and exact-path meaning.
+`runtime_plan` remains topology/checkpoint-only.
+
+At runtime required and present optional paths are de-duplicated and rendered
+in deterministic canonical workspace-relative path order. One provider attempt
+owns one immutable resolve/read/normalize/render snapshot shared by ordinary or
+adjudicated prompt composition and prompt finalization. A retry creates a fresh
+snapshot.
+The exact UTF-8 injection block is bounded at `262144` bytes and truncation is
+deterministic and explicit. Completed-result reuse validates the compiled
+checkpoint contract and returns the committed structured result without
+reopening dependency files.
+
+Only an ordinary typed Workflow Lisp attempt carrying the validated compiler
+contract derives Workflow Lisp prompt-dependency records. Those records and
+their offline content-addressed index contain metadata and digests, not file
+bodies or prompt text, and are never execution or resume authority. YAML and
+adjudicated paths without that ordinary typed carrier emit no Workflow Lisp
+prompt-dependency evidence; their existing debug/state output is separate.
+They still share the per-attempt snapshot/render owner and fresh-per-retry
+behavior. YAML content injection remains a legacy authoring surface.
 
 ## 23. Command Result
 
@@ -2974,6 +3027,13 @@ SemanticWorkflowCall(
 
 Semantic IR is the authoritative compiler output.
 
+For a provider result with typed prompt dependencies,
+`SemanticPromptSurface` carries the validated
+`CompilerPromptDependencyContract`. The adjacent source map carries lineage for
+the clause and each required/optional operand. Semantic IR describes the
+compiled prompt contract; it does not own runtime file bytes or evidence
+acceptance.
+
 ## 48. Executable IR
 
 Runtime-ready form.
@@ -2989,6 +3049,13 @@ Contains:
 - runtime guards
 - state projections
 - observability hooks
+
+Provider executable configuration carries the optional typed
+`CompilerPromptDependencyContract` beside ordinary `depends_on` configuration.
+Executable validation requires the side table and provider-step set to
+reconcile exactly. The public `runtime_plan` deliberately omits dependency
+operands, injection policy, compiler-contract data, content digests, and
+evidence metadata; it remains topology/checkpoint planning only.
 
 Executable IR no longer contains macros, procedures, or unresolved type forms.
 
@@ -3010,6 +3077,11 @@ Final runtime plan includes:
 - error handling plan
 - observability spans
 - resume checkpoints
+
+It does not include provider prompt-dependency paths, injection policy,
+compiler-contract metadata, snapshot bytes/digests, or evidence locations.
+Those belong to validated executable/semantic ownership and per-attempt state
+or evidence, not topology.
 
 ## Part IX. Elaboration And WCC Projection Rules
 
@@ -3182,6 +3254,10 @@ Source:
   :model inputs.model
   :effort inputs.effort
   :timeout-sec 7200
+  :prompt-dependencies
+    (:required (inputs.design inputs.plan)
+     :optional (inputs.prior-review)
+     :position prepend)
   :returns ImplementationAttempt)
 ```
 
@@ -3194,6 +3270,8 @@ perform provider call :effect provider_call
   prompt: prompts.implementation.execute
   provider_call_policy: {model: inputs.model, effort: inputs.effort}
   timeout_sec: 7200
+  depends_on: required/optional content injection from typed bindings
+  compiler_prompt_dependency_contract: typed side-table entry
   prompt_contract: generated from ImplementationAttempt
   output_bundle: generated canonical bundle
   variant_output: generated if return type is union
@@ -3205,6 +3283,7 @@ Semantic IR:
 SemanticProviderResult
   VariantContract(ImplementationAttempt)
   PromptContract(...)
+  CompilerPromptDependencyContract(...)
   AtomicBundleValidation(...)
 ```
 

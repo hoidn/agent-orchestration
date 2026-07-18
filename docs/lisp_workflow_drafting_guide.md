@@ -1064,6 +1064,43 @@ bound-input, checkpoint, and completed-boundary guards. Runtime plans, reports,
 dashboard/debug projections, debug YAML, and source maps are inspection views,
 not call-policy or resume authority.
 
+When provider prompt semantics require workspace file contents rather than only
+typed values or path text, declare exact typed prompt dependencies on the
+provider result:
+
+```lisp
+(provider-result providers.execute
+  :prompt prompts.implementation.execute
+  :inputs (request)
+  :prompt-dependencies
+    (:required (inputs.work-order inputs.target-design)
+     :optional (inputs.prior-findings)
+     :position prepend
+     :instruction "Use these files as authoritative inputs:")
+  :returns ImplementationAttempt)
+```
+
+Each operand must already have a declared workspace `relpath` type. Required
+paths must exist; optional paths may be absent. Optional does not mean
+`Optional[Path]`. `:position` defaults to `prepend`; use `append` only when the
+provider contract needs the dependency block after the base prompt. An omitted
+instruction uses the standard required/optional label; an authored instruction
+must be literal text.
+
+Do not substitute strings, globs, broad ambient documentation sets, dynamic
+instructions, or commands that copy file contents into an intermediate bundle.
+The runtime resolves and de-duplicates present targets, renders them in
+deterministic canonical path order, and bounds the exact UTF-8 dependency block
+to `262144` bytes with explicit truncation. One attempt uses one immutable
+snapshot; a retry reads a fresh snapshot. A compatible completed provider
+result is reused without reopening the files.
+
+The compiler-owned typed contract and per-attempt content-free evidence are not
+authoring surfaces. `runtime_plan` remains topology-only, and evidence or its
+offline index never controls execution or resume. YAML content injection has
+compatible successful rendering and fresh-per-retry behavior, but it remains a
+legacy surface for migration rather than the model for new `.orc` syntax.
+
 The provider must produce structured output matching the return type. The
 result travels through one channel: a validated bundle written at the
 runtime-bound output location the provider receives with its injected
