@@ -56,6 +56,7 @@ INITIAL_REQUIRED_PATHS = {
     "workflows/library/lisp_frontend_design_delta/selector.orc",
     "workflows/library/lisp_frontend_design_delta/types.orc",
     "workflows/library/lisp_frontend_design_delta/work_item.orc",
+    "workflows/library/verified_iteration_drain/drain.orc",
     "tests/fixtures/workflow_lisp/characterization/sources/design_delta_union_match_projection.orc",
     "tests/fixtures/workflow_lisp/characterization/sources/wcc_ifexpr_loop_body.orc",
     "tests/fixtures/workflow_lisp/characterization/sources/wcc_ifexpr_non_tail_binding.orc",
@@ -796,6 +797,24 @@ def test_current_parity_targets_and_checked_in_registry_agree() -> None:
 
     assert issues == []
     assert validate_parity_targets_against_route_readiness(targets, registry, REPO_ROOT) == []
+
+
+def test_verified_iteration_drain_candidate_route_is_runtime_only_and_parity_constrained() -> None:
+    registry = load_route_readiness_registry(REGISTRY_PATH)
+    entry = registry_entry_for_path(
+        registry,
+        "workflows/library/verified_iteration_drain/drain.orc",
+    )
+
+    assert entry is not None
+    assert entry.surface_kind == "migration_target"
+    assert entry.entry_workflow == "verified_iteration_drain/drain::drain"
+    assert entry.route_label == "migration_candidate"
+    assert entry.readiness_label == "leaf_runtime_candidate"
+    assert entry.lowering_route == "wcc_m4"
+    assert entry.lowering_schema_version == 2
+    assert entry.copy_safety == "migration_evidence_only"
+    assert entry.parity_constrained is True
 
 
 def test_design_delta_parent_drain_historical_promotion_matches_registry() -> None:

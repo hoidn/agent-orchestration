@@ -1,15 +1,26 @@
 import hashlib
 import json
+import re
+import shutil
+import subprocess
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import yaml
 
+from orchestrator.providers.executor import ProviderExecutor
+from orchestrator.state import StateManager
+from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
     workflow_output_contracts,
     workflow_public_input_contracts,
+    workflow_runtime_input_contracts,
 )
+from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +85,353 @@ def _walk_steps(steps):
             branch = step.get(branch_name)
             if isinstance(branch, dict):
                 yield from _walk_steps(branch.get("steps", []))
+
+
+def _prepare_verified_runtime_workspace(workspace: Path):
+    copy_paths = [
+        "workflows/library/verified_iteration_drain/drain.orc",
+        "workflows/library/scripts/prepare_verified_iteration.py",
+        "workflows/library/scripts/run_verified_iteration_checks.py",
+        "workflows/library/scripts/record_verified_iteration.py",
+        "workflows/library/prompts/verified_iteration_drain/work.md",
+        "workflows/library/prompts/verified_iteration_drain/review_iteration.md",
+        "workflows/library/prompts/verified_iteration_drain/review_done.md",
+    ]
+    for relpath in copy_paths:
+        destination = workspace / relpath
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relpath, destination)
+    target_design = workspace / "docs/design/verified-target.md"
+    target_design.parent.mkdir(parents=True, exist_ok=True)
+    target_design.write_text("DEPENDENCY_BEFORE_INTERRUPTION\n", encoding="utf-8")
+    check_commands = workspace / "workflows/checks.json"
+    check_commands.parent.mkdir(parents=True, exist_ok=True)
+    check_commands.write_text(
+        json.dumps(["python -c 'raise SystemExit(0)'"]) + "\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
+    subprocess.run(["git", "config", "user.name", "Parity Fixture"], cwd=workspace, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "parity-fixture@example.invalid"],
+        cwd=workspace,
+        check=True,
+    )
+    subprocess.run(["git", "add", "--", "workflows", "docs"], cwd=workspace, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "Initialize verified parity fixture"],
+        cwd=workspace,
+        check=True,
+    )
+
+    command_manifest_path = MIGRATION_INPUTS / "verified_iteration_drain.commands.json"
+    compile_result = compile_stage3_entrypoint(
+        workspace / "workflows/library/verified_iteration_drain/drain.orc",
+        source_roots=(workspace / "workflows/library",),
+        entry_workflow=ENTRY_WORKFLOW,
+        provider_externs=json.loads(
+            (MIGRATION_INPUTS / "verified_iteration_drain.providers.json").read_text()
+        ),
+        prompt_externs=json.loads(
+            (MIGRATION_INPUTS / "verified_iteration_drain.prompts.json").read_text()
+        ),
+        command_boundaries=_parse_command_boundaries_manifest(
+            json.loads(command_manifest_path.read_text()),
+            manifest_path=command_manifest_path,
+        ),
+        workspace_root=workspace,
+        lowering_route="wcc_m4",
+    )
+    bundle = compile_result.validated_bundles_by_name[ENTRY_WORKFLOW]
+    contracts = {
+        name: contract
+        for name, contract in workflow_runtime_input_contracts(bundle).items()
+        if not name.startswith("__write_root__")
+    }
+    return bundle, bind_workflow_inputs(
+        contracts,
+        {
+            "target_design_path": "docs/design/verified-target.md",
+            "check_commands_path": "workflows/checks.json",
+            "drain_state_root": "state/verified",
+            "artifact_work_root": "artifacts/work/verified",
+        },
+        workspace,
+    )
+
+
+def _provider_success():
+    return SimpleNamespace(
+        exit_code=0,
+        stdout=b"mock-provider-observability",
+        stderr=b"",
+        duration_ms=1,
+        error=None,
+        missing_placeholders=None,
+        invalid_prompt_placeholder=False,
+        raw_stdout=None,
+        normalized_stdout=None,
+        provider_session=None,
+    )
+
+
+def _provider_retryable_failure():
+    result = _provider_success()
+    result.exit_code = 1
+    result.error = "fixture retryable provider failure"
+    return result
+
+
+def _prompt_work_order(prompt: str) -> dict[str, str]:
+    match = re.search(r'\{\s*"iteration"\s*:\s*"\d+".*?\n\}', prompt, re.DOTALL)
+    assert match is not None, prompt
+    return json.loads(match.group(0))
+
+
+def _captured_prompt_sha256s(prompts: list[str]) -> list[str]:
+    return sorted(
+        "sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        for prompt in prompts
+    )
+
+
+def _evidence_prompt_sha256s(manager: StateManager) -> list[str]:
+    return sorted(
+        json.loads(path.read_text(encoding="ascii"))["final_prompt"]["sha256"]
+        for path in (manager.run_root / "workflow_lisp/prompt_dependencies").rglob(
+            "attempt-*.json"
+        )
+    )
+
+
+def _execute_verified_runtime(
+    workspace: Path,
+    *,
+    manager: StateManager,
+    bundle,
+    worker_verdicts: tuple[str, ...],
+    review_decisions: tuple[str, ...] = (),
+    done_review_decisions: tuple[str, ...] = (),
+    commit_iterations: tuple[int, ...] = (),
+    blocked_iterations: tuple[int, ...] = (),
+    resume: bool = False,
+    fail_first_execution_and_refresh: bool = False,
+    capture: dict[str, object] | None = None,
+) -> dict[str, object]:
+    capture = capture if capture is not None else {}
+    capture.setdefault("provider_roles", [])
+    capture.setdefault("prompts", [])
+    capture.setdefault("executions", 0)
+    capture.setdefault("preparations", 0)
+    worker_queue = list(worker_verdicts)
+    review_queue = list(review_decisions)
+    done_queue = list(done_review_decisions)
+
+    def _prepare(_self, provider_name=None, prompt_content=None, env=None, **_kwargs):
+        capture["preparations"] = int(capture["preparations"]) + 1
+        prompt = prompt_content or ""
+        capture["prompts"].append(prompt)
+        return SimpleNamespace(
+            provider_name=provider_name,
+            input_mode="stdin",
+            prompt=prompt,
+            env=env or {},
+        ), None
+
+    def _execute(_self, invocation, **_kwargs):
+        capture["executions"] = int(capture["executions"]) + 1
+        if fail_first_execution_and_refresh and int(capture["executions"]) == 1:
+            (workspace / "docs/design/verified-target.md").write_text(
+                "DEPENDENCY_AFTER_INTERRUPTION\n", encoding="utf-8"
+            )
+            return _provider_retryable_failure()
+        prompt = str(invocation.prompt)
+        work_order = _prompt_work_order(prompt)
+        iteration = int(work_order["iteration"])
+        output_bundle_path = invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        if "invoke_worker" in output_bundle_path:
+            role = "worker"
+            assert worker_queue, "worker fixture exhausted"
+            decision = worker_queue.pop(0)
+            (workspace / work_order["worker_verdict_path"]).write_text(
+                decision + "\n", encoding="utf-8"
+            )
+            (workspace / work_order["worker_note_path"]).write_text(
+                f"worker iteration {iteration}\n", encoding="utf-8"
+            )
+            if iteration in blocked_iterations:
+                blocked = workspace / work_order["blocked_notes_dir"] / f"BLOCKED-{iteration}.md"
+                blocked.parent.mkdir(parents=True, exist_ok=True)
+                blocked.write_text("owner input required\n", encoding="utf-8")
+            if iteration in commit_iterations:
+                progress = workspace / "docs/design" / f"progress-{iteration}.txt"
+                progress.write_text(f"progress {iteration}\n", encoding="utf-8")
+                subprocess.run(
+                    ["git", "add", "--", progress.relative_to(workspace).as_posix()],
+                    cwd=workspace,
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "commit", "-q", "-m", f"Fixture iteration {iteration}"],
+                    cwd=workspace,
+                    check=True,
+                )
+        elif "invoke_iteration_review_provider" in output_bundle_path:
+            role = "iteration_review"
+            assert review_queue, "iteration review fixture exhausted"
+            decision = review_queue.pop(0)
+            (workspace / work_order["review_decision_path"]).write_text(
+                decision + "\n", encoding="utf-8"
+            )
+            if decision == "FINDINGS":
+                (workspace / work_order["review_findings_path"]).write_text(
+                    "fixture findings\n", encoding="utf-8"
+                )
+        elif "invoke_done_review_provider" in output_bundle_path:
+            role = "done_review"
+            assert done_queue, "done review fixture exhausted"
+            decision = done_queue.pop(0)
+            (workspace / work_order["done_review_decision_path"]).write_text(
+                decision + "\n", encoding="utf-8"
+            )
+        else:
+            raise AssertionError(
+                f"unrecognized provider output bundle path: {output_bundle_path}"
+            )
+        capture["provider_roles"].append(role)
+        output = workspace / invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(decision) + "\n", encoding="utf-8")
+        return _provider_success()
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        return WorkflowExecutor(
+            bundle,
+            workspace,
+            manager,
+            max_retries=1,
+            retry_delay_ms=0,
+        ).execute(
+            resume=resume,
+            on_error="stop",
+        )
+
+
+def _run_verified_runtime_scenario(
+    workspace: Path,
+    *,
+    worker_verdicts: tuple[str, ...],
+    review_decisions: tuple[str, ...] = (),
+    done_review_decisions: tuple[str, ...] = (),
+    commit_iterations: tuple[int, ...] = (),
+    blocked_iterations: tuple[int, ...] = (),
+    stall_limit: int = 3,
+) -> dict[str, object]:
+    workspace.mkdir(parents=True, exist_ok=True)
+    bundle, bound_inputs = _prepare_verified_runtime_workspace(workspace)
+    bound_inputs["stall_limit"] = str(stall_limit)
+    manager = StateManager(workspace, run_id="verified-candidate")
+    manager.initialize(
+        "workflows/library/verified_iteration_drain/drain.orc",
+        context=bundle_context_dict(bundle),
+        bound_inputs=bound_inputs,
+    )
+    capture: dict[str, object] = {}
+    state = _execute_verified_runtime(
+        workspace,
+        manager=manager,
+        bundle=bundle,
+        worker_verdicts=worker_verdicts,
+        review_decisions=review_decisions,
+        done_review_decisions=done_review_decisions,
+        commit_iterations=commit_iterations,
+        blocked_iterations=blocked_iterations,
+        capture=capture,
+    )
+    summary_path = workspace / "artifacts/work/verified/drain-summary.json"
+    ledger_path = workspace / "artifacts/work/verified/ledger.md"
+    ledger_lines = [
+        line for line in ledger_path.read_text(encoding="utf-8").splitlines() if line.startswith("iter ")
+    ]
+    lineage_roots = (workspace / "state/verified", workspace / "artifacts/work/verified")
+    return {
+        "state": state,
+        "summary": json.loads(summary_path.read_text(encoding="utf-8")),
+        "ledger_iterations": [int(line.split()[1]) for line in ledger_lines],
+        "provider_roles": capture["provider_roles"],
+        "prompt_iterations": [int(_prompt_work_order(prompt)["iteration"]) for prompt in capture["prompts"]],
+        "captured_prompt_sha256s": _captured_prompt_sha256s(capture["prompts"]),
+        "evidence_prompt_sha256s": _evidence_prompt_sha256s(manager),
+        "lineage_paths": sorted(
+            path.relative_to(workspace).as_posix()
+            for root in lineage_roots
+            for path in root.rglob("*")
+            if path.is_file() and ".orchestrate" not in path.parts
+        ),
+    }
+
+
+def _run_verified_retry_resume_scenario(workspace: Path) -> dict[str, object]:
+    workspace.mkdir(parents=True, exist_ok=True)
+    bundle, bound_inputs = _prepare_verified_runtime_workspace(workspace)
+    manager = StateManager(workspace, run_id="verified-retry-resume")
+    manager.initialize(
+        "workflows/library/verified_iteration_drain/drain.orc",
+        context=bundle_context_dict(bundle),
+        bound_inputs=bound_inputs,
+    )
+    capture: dict[str, object] = {}
+    state = _execute_verified_runtime(
+        workspace,
+        manager=manager,
+        bundle=bundle,
+        worker_verdicts=("DONE",),
+        done_review_decisions=("APPROVE",),
+        fail_first_execution_and_refresh=True,
+        capture=capture,
+    )
+    first_snapshot = str(capture["prompts"][0])
+    resumed_snapshot = str(capture["prompts"][1])
+    ledger_path = workspace / "artifacts/work/verified/ledger.md"
+    summary_path = workspace / "artifacts/work/verified/drain-summary.json"
+    ledger_before = ledger_path.read_bytes()
+    summary_before = summary_path.read_bytes()
+    completed_resume = StateManager(workspace, run_id=manager.run_id)
+    completed_resume.load()
+    executions_before = int(capture["executions"])
+    _execute_verified_runtime(
+        workspace,
+        manager=completed_resume,
+        bundle=bundle,
+        worker_verdicts=(),
+        resume=True,
+        capture=capture,
+    )
+    allocations = json.loads(completed_resume.state_file.read_text(encoding="utf-8"))[
+        "provider_attempt_allocations"
+    ]
+    return {
+        "state": state,
+        "run_id_before_resume": manager.run_id,
+        "run_id_after_resume": completed_resume.run_id,
+        "attempt_ordinals": next(
+            [event["ordinal"] for event in allocation["events"] if event["event"] == "allocated"]
+            for allocation in allocations.values()
+            if sum(event["event"] == "allocated" for event in allocation["events"]) == 2
+        ),
+        "first_snapshot": first_snapshot,
+        "resumed_snapshot": resumed_snapshot,
+        "captured_prompt_sha256s": _captured_prompt_sha256s(capture["prompts"]),
+        "evidence_prompt_sha256s": _evidence_prompt_sha256s(completed_resume),
+        "provider_executions_after_resume": executions_before,
+        "provider_executions_after_completed_resume": int(capture["executions"]),
+        "ledger_before_completed_resume": ledger_before,
+        "ledger_after_completed_resume": ledger_path.read_bytes(),
+        "summary_before_completed_resume": summary_before,
+        "summary_after_completed_resume": summary_path.read_bytes(),
+    }
 
 
 def test_verified_yaml_baseline_contract_is_frozen() -> None:
@@ -515,3 +873,97 @@ def test_verified_extern_manifests_bind_existing_assets() -> None:
     for row in [*prompts.values(), *commands.values()]:
         relpath = row.get("input_file") or row["stable_command"][1]
         assert (ROOT / relpath).is_file()
+
+
+def test_verified_orc_one_continue_then_done_preserves_artifact_lineage(
+    tmp_path: Path,
+) -> None:
+    result = _run_verified_runtime_scenario(
+        tmp_path,
+        worker_verdicts=("CONTINUE", "DONE"),
+        review_decisions=("APPROVE",),
+        done_review_decisions=("APPROVE",),
+        commit_iterations=(0,),
+    )
+
+    assert result["state"]["status"] == "completed"
+    assert result["state"]["workflow_outputs"]["return__drain_status"] == "DONE"
+    assert result["summary"] == {
+        "schema": "verified_iteration_drain_summary/v1",
+        "drain_status": "DONE",
+        "iterations": 2,
+        "statuses": ["ACCEPTED", "DONE"],
+        "accepted_count": 2,
+        "blocked_notes": [],
+        "last_note": "worker iteration 1",
+    }
+    assert result["ledger_iterations"] == [0, 1]
+    assert result["provider_roles"] == ["worker", "iteration_review", "worker", "done_review"]
+    assert result["prompt_iterations"] == [0, 0, 1, 1]
+    assert result["captured_prompt_sha256s"] == result["evidence_prompt_sha256s"]
+    assert len(result["evidence_prompt_sha256s"]) == 4
+    assert set(result["lineage_paths"]) == {
+        "state/verified/iterations/0/work-order.json",
+        "state/verified/iterations/0/checks-result.json",
+        "state/verified/iterations/0/checks-log.txt",
+        "state/verified/iterations/0/review-package.md",
+        "state/verified/iterations/0/worker-verdict.txt",
+        "state/verified/iterations/0/worker-note.txt",
+        "state/verified/iterations/0/review-decision.txt",
+        "state/verified/iterations/0/drain-status.txt",
+        "state/verified/iterations/1/work-order.json",
+        "state/verified/iterations/1/checks-result.json",
+        "state/verified/iterations/1/checks-log.txt",
+        "state/verified/iterations/1/review-package.md",
+        "state/verified/iterations/1/worker-verdict.txt",
+        "state/verified/iterations/1/worker-note.txt",
+        "state/verified/iterations/1/done-review-decision.txt",
+        "state/verified/iterations/1/drain-status.txt",
+        "state/verified/statuses.txt",
+        "artifacts/work/verified/ledger.md",
+        "artifacts/work/verified/drain-summary.json",
+    }
+
+
+def test_verified_orc_blocked_stalled_and_exhausted_paths(tmp_path: Path) -> None:
+    blocked = _run_verified_runtime_scenario(
+        tmp_path / "blocked",
+        worker_verdicts=("BLOCKED_ON_USER",),
+        blocked_iterations=(0,),
+    )
+    stalled = _run_verified_runtime_scenario(
+        tmp_path / "stalled",
+        worker_verdicts=("CONTINUE", "CONTINUE"),
+        stall_limit=2,
+    )
+    exhausted = _run_verified_runtime_scenario(
+        tmp_path / "exhausted",
+        worker_verdicts=("CONTINUE",) * 40,
+        stall_limit=41,
+    )
+
+    assert blocked["state"]["workflow_outputs"]["return__drain_status"] == "BLOCKED_ON_USER"
+    assert blocked["summary"]["statuses"] == ["BLOCKED_ON_USER"]
+    assert stalled["state"]["workflow_outputs"]["return__drain_status"] == "STALLED"
+    assert stalled["summary"]["statuses"] == ["NO_CHANGE", "NO_CHANGE"]
+    assert exhausted["state"]["workflow_outputs"]["return__drain_status"] == "STALLED"
+    assert exhausted["summary"]["iterations"] == 40
+    assert exhausted["ledger_iterations"] == list(range(40))
+
+
+def test_verified_orc_retry_refreshes_dependencies_and_resume_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    result = _run_verified_retry_resume_scenario(tmp_path)
+
+    assert result["run_id_before_resume"] == result["run_id_after_resume"]
+    assert result["attempt_ordinals"] == [1, 2]
+    assert "DEPENDENCY_BEFORE_INTERRUPTION" in result["first_snapshot"]
+    assert "DEPENDENCY_AFTER_INTERRUPTION" in result["resumed_snapshot"]
+    assert "DEPENDENCY_BEFORE_INTERRUPTION" not in result["resumed_snapshot"]
+    assert result["captured_prompt_sha256s"] == result["evidence_prompt_sha256s"]
+    assert len(result["evidence_prompt_sha256s"]) == 3
+    assert result["provider_executions_after_resume"] == 3
+    assert result["provider_executions_after_completed_resume"] == 3
+    assert result["ledger_before_completed_resume"] == result["ledger_after_completed_resume"]
+    assert result["summary_before_completed_resume"] == result["summary_after_completed_resume"]

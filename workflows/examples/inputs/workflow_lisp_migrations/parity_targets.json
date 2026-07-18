@@ -293,6 +293,156 @@
           "-q"
         ]
       }
+    },
+    {
+      "workflow_family": "verified_iteration_drain",
+      "candidate": "workflows/library/verified_iteration_drain/drain.orc",
+      "yaml_primary": "workflows/examples/verified_iteration_drain.yaml",
+      "entry_workflow": "verified_iteration_drain/drain::drain",
+      "provider_externs_file": "workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.providers.json",
+      "prompt_externs_file": "workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.prompts.json",
+      "command_boundaries_file": "workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.commands.json",
+      "readiness_label": "leaf_runtime_candidate",
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "baseline_characterization": {
+        "inputs": [
+          "target_design_path",
+          "check_commands_path",
+          "drain_state_root",
+          "artifact_work_root",
+          "stall_limit",
+          "worker_provider",
+          "worker_model",
+          "worker_effort",
+          "reviewer_provider",
+          "reviewer_model",
+          "reviewer_effort"
+        ],
+        "outputs": [
+          "drain_status",
+          "drain_summary_path"
+        ],
+        "terminal_states": [
+          "DONE",
+          "BLOCKED_ON_USER",
+          "STALLED after consecutive non-progress",
+          "STALLED after max-40 exhaustion"
+        ],
+        "artifacts": [
+          "per-iteration work order",
+          "typed provider result bundles and compatibility verdict files",
+          "checks result, checks log, and review package",
+          "review and done-review decision files",
+          "append-only ledger and statuses",
+          "drain status and summary"
+        ],
+        "resume_behavior": [
+          "same-ID retry refreshes exact prompt-dependency snapshots while completed provider and Record boundaries remain reusable and append-only outputs stay idempotent"
+        ]
+      },
+      "accepted_differences": [
+        {
+          "id": "typed-runtime-results-with-compatibility-mirrors",
+          "description": "Typed provider and command results are authoritative while the YAML token, note, findings, checks, ledger, status, and summary artifacts remain compatibility mirrors."
+        }
+      ],
+      "deprecated_yaml_mechanics": [
+        {
+          "mechanic": "YAML repeat-until body with provider-selection and review-guard conditionals",
+          "replacement": "typed Workflow Lisp loop, closed provider branches, and typed review guards"
+        },
+        {
+          "mechanic": "compatibility token files parsed as orchestration control state",
+          "replacement": "validated typed provider and command return values passed directly to Record"
+        }
+      ],
+      "promotion_eligibility": {
+        "eligible_for_primary_surface": false,
+        "blocked_reason": "candidate evidence only until the promotion task passes"
+      },
+      "compile_artifacts": {
+        "required": [
+          "core_workflow_ast",
+          "semantic_ir",
+          "source_map"
+        ],
+        "optional": [
+          "expanded_debug_yaml"
+        ]
+      },
+      "evidence_commands": {
+        "compile": [
+          "python",
+          "-m",
+          "orchestrator",
+          "compile",
+          "workflows/library/verified_iteration_drain/drain.orc",
+          "--entry-workflow",
+          "verified_iteration_drain/drain::drain",
+          "--provider-externs-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.providers.json",
+          "--prompt-externs-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.prompts.json",
+          "--command-boundaries-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.commands.json"
+        ],
+        "dry_run": [
+          "python",
+          "-m",
+          "orchestrator",
+          "run",
+          "workflows/library/verified_iteration_drain/drain.orc",
+          "--entry-workflow",
+          "verified_iteration_drain/drain::drain",
+          "--provider-externs-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.providers.json",
+          "--prompt-externs-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.prompts.json",
+          "--command-boundaries-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/verified_iteration_drain.commands.json",
+          "--input",
+          "target_design_path=docs/design/workflow_lisp_frontend_specification.md",
+          "--input",
+          "check_commands_path=workflows/examples/inputs/verified_iteration_drain/workflow_lisp_runtime_native_drain_authoring.checks.json",
+          "--dry-run"
+        ],
+        "smoke_or_integration": [
+          "python",
+          "-m",
+          "pytest",
+          "tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_one_continue_then_done_preserves_artifact_lineage",
+          "-q"
+        ],
+        "output_contract_parity": [
+          "python",
+          "-m",
+          "pytest",
+          "tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_compiles_with_exact_public_contract",
+          "-q"
+        ],
+        "terminal_state_parity": [
+          "python",
+          "-m",
+          "pytest",
+          "tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_blocked_stalled_and_exhausted_paths",
+          "-q"
+        ],
+        "artifact_parity": [
+          "python",
+          "-m",
+          "pytest",
+          "tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_one_continue_then_done_preserves_artifact_lineage",
+          "-q"
+        ],
+        "resume_parity": [
+          "python",
+          "-m",
+          "pytest",
+          "tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_retry_refreshes_dependencies_and_resume_is_idempotent",
+          "-q"
+        ]
+      }
     }
   ]
 }

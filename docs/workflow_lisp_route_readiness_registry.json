@@ -715,6 +715,24 @@
       "surface_kind": "library_workflow"
     },
     {
+      "copy_safety": "migration_evidence_only",
+      "entry_workflow": "verified_iteration_drain/drain::drain",
+      "evidence": [
+        "tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_compiles_with_exact_public_contract",
+        "tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_one_continue_then_done_preserves_artifact_lineage",
+        "tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_blocked_stalled_and_exhausted_paths",
+        "tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_retry_refreshes_dependencies_and_resume_is_idempotent"
+      ],
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "parity_constrained": true,
+      "path": "workflows/library/verified_iteration_drain/drain.orc",
+      "readiness_label": "leaf_runtime_candidate",
+      "route_label": "migration_candidate",
+      "surface_id": "workflows.library.verified_iteration_drain.drain",
+      "surface_kind": "migration_target"
+    },
+    {
       "copy_safety": "test_evidence_only",
       "evidence": [
         "tests/test_workflow_lisp_design_delta_smoke.py::test_registered_design_delta_fixture_compiles_directly[item-ctx-proc]"
@@ -741,5 +759,5 @@
       "surface_kind": "test_fixture"
     }
   ],
-  "updated": "2026-07-15"
+  "updated": "2026-07-18"
 }

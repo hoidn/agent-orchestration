@@ -2761,6 +2761,63 @@ def test_design_plan_impl_stack_manifest_uses_defaulted_dry_run_and_procedure_fi
     assert "resume-or-start reusable phase-state validation" not in json.dumps(target)
 
 
+def test_checked_in_verified_parity_target_has_complete_candidate_contract() -> None:
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
+        ).read_text(encoding="utf-8")
+    )
+    target = next(
+        entry
+        for entry in payload["targets"]
+        if entry["workflow_family"] == "verified_iteration_drain"
+    )
+
+    assert target["candidate"] == "workflows/library/verified_iteration_drain/drain.orc"
+    assert target["yaml_primary"] == "workflows/examples/verified_iteration_drain.yaml"
+    assert target["entry_workflow"] == "verified_iteration_drain/drain::drain"
+    assert target["promotion_eligibility"] == {
+        "eligible_for_primary_surface": False,
+        "blocked_reason": "candidate evidence only until the promotion task passes",
+    }
+    assert target["readiness_label"] == "leaf_runtime_candidate"
+    assert target["lowering_route"] == "wcc_m4"
+    assert target["lowering_schema_version"] == 2
+    assert "required_family_evidence_roles" not in target
+    executable_roles = {
+        "compile",
+        "dry_run",
+        "smoke_or_integration",
+        "output_contract_parity",
+        "terminal_state_parity",
+        "artifact_parity",
+        "resume_parity",
+    }
+    assert set(target["evidence_commands"]) == executable_roles
+    assert len(executable_roles | {"shared_validation", "baseline_characterization"}) == 9
+    assert target["baseline_characterization"]["inputs"] == [
+        "target_design_path",
+        "check_commands_path",
+        "drain_state_root",
+        "artifact_work_root",
+        "stall_limit",
+        "worker_provider",
+        "worker_model",
+        "worker_effort",
+        "reviewer_provider",
+        "reviewer_model",
+        "reviewer_effort",
+    ]
+    assert target["baseline_characterization"]["outputs"] == [
+        "drain_status",
+        "drain_summary_path",
+    ]
+    assert target["provider_externs_file"].endswith("verified_iteration_drain.providers.json")
+    assert target["prompt_externs_file"].endswith("verified_iteration_drain.prompts.json")
+    assert target["command_boundaries_file"].endswith("verified_iteration_drain.commands.json")
+
+
 def test_promoted_design_delta_target_is_retired_but_historical_report_is_preserved() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     manifest_path = (
@@ -2772,6 +2829,7 @@ def test_promoted_design_delta_target_is_retired_but_historical_report_is_preser
     assert [entry["workflow_family"] for entry in payload["targets"]] == [
         "cycle_guard_demo",
         "design_plan_impl_stack",
+        "verified_iteration_drain",
     ]
 
     historical_report_root = repo_root / "artifacts/work/review-parity-check"
