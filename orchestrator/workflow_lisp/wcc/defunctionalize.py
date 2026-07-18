@@ -32,6 +32,7 @@ from ..expressions import (
     NameExpr,
     PureOpExpr,
     ProcedureCallExpr,
+    PromptDependencySpec,
     ProviderResultExpr,
     FinalizeSelectedItemExpr,
     RecordUpdateExpr,
@@ -99,7 +100,11 @@ from ..lowering.procedures import (
 from ..lowering.workflow_calls import LowerableWorkflowCall, _lower_workflow_call
 from orchestrator.workflow.state_layout import GeneratedPathPrivacy, GeneratedPathSemanticRole, derive_entrypoint_managed_write_root_allocations
 from .anf import normalize_wcc_body_to_anf
-from .elaborate import elaborate_typed_workflow, elaborate_typed_workflow_body
+from .elaborate import (
+    WccPromptDependencyPayload,
+    elaborate_typed_workflow,
+    elaborate_typed_workflow_body,
+)
 from .model import (
     WCC_M2_ROUTE_SCHEMA_VERSION,
     WCC_M3_ROUTE_SCHEMA_VERSION,
@@ -575,6 +580,8 @@ def _lower_one_wcc_workflow(
         generated_path_spans={},
         generated_path_allocations=[],
         generated_semantic_effects=[],
+        compiler_prompt_dependency_contracts={},
+        prompt_dependency_lineages=[],
         output_projection_metadata={},
         top_level_artifacts={},
         inline_call_counters={},
@@ -842,6 +849,7 @@ def _lower_one_wcc_workflow(
             extra_bindings=context.generated_contract_field_bindings,
         ),
         generated_semantic_effects=generated_semantic_effects,
+        prompt_dependency_lineages=tuple(context.prompt_dependency_lineages),
     )
     emitted_step_ids = {
         step_id
@@ -859,6 +867,9 @@ def _lower_one_wcc_workflow(
         authored_mapping=authored_mapping,
         origin_map=origin_map,
         boundary_projection=finalized_projection,
+        compiler_prompt_dependency_contracts=MappingProxyType(
+            dict(context.compiler_prompt_dependency_contracts)
+        ),
         is_generated_private_workflow=is_generated_private_workflow,
         private_exec_context_bindings=tuple(context.private_exec_context_bindings),
         compatibility_bridge_inputs=tuple(
@@ -3144,6 +3155,9 @@ def _lower_effectful_binding(
                         if operation_payload.get("timeout_sec") is not None
                         else None
                     ),
+                    prompt_dependencies=_prompt_dependency_spec_from_wcc_payload(
+                        operation_payload.get("prompt_dependencies")
+                    ),
                 ),
                 result_type=binding_type,
                 context=context,
@@ -3362,6 +3376,7 @@ def _lower_wcc_effect_expr(
                 model=expr.model,
                 effort=expr.effort,
                 timeout_sec=expr.timeout_sec,
+                prompt_dependencies=expr.prompt_dependencies,
             ),
             result_type=typed_expr.type_ref,
             context=context,
@@ -3832,6 +3847,48 @@ def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, ob
     return _frontend_expr_from_wcc_value(value)
 
 
+def _prompt_dependency_spec_from_wcc_payload(
+    payload: object,
+) -> PromptDependencySpec | None:
+    """Reconstruct the frontend owner payload retained by WCC."""
+
+    if payload is None:
+        return None
+    if not isinstance(payload, WccPromptDependencyPayload):
+        raise TypeError("WCC provider prompt dependencies require a typed payload")
+    required = []
+    optional = []
+    expected_indices = {"required": 0, "optional": 0}
+    for row in payload.rows:
+        if row.role not in expected_indices:
+            raise TypeError(f"unsupported WCC prompt dependency role {row.role!r}")
+        if row.authored_index != expected_indices[row.role]:
+            raise TypeError(
+                f"non-contiguous WCC prompt dependency index for {row.role!r}"
+            )
+        expected_indices[row.role] += 1
+        reconstructed = _frontend_expr_from_wcc_value(row.value)
+        if row.role == "required":
+            required.append(reconstructed)
+        else:
+            optional.append(reconstructed)
+    if not required and not optional:
+        raise TypeError("WCC prompt dependency payload must contain at least one row")
+    if payload.position not in {"prepend", "append"}:
+        raise TypeError("WCC prompt dependency position must be prepend or append")
+    if payload.instruction is not None and not isinstance(payload.instruction, str):
+        raise TypeError("WCC prompt dependency instruction must be a string or None")
+    return PromptDependencySpec(
+        required=tuple(required),
+        optional=tuple(optional),
+        position=payload.position,
+        instruction=payload.instruction,
+        span=payload.source_span,
+        form_path=payload.form_path,
+        expansion_stack=payload.expansion_stack,
+    )
+
+
 def _frontend_expr_from_wcc_loop_binding_value(value):
     if isinstance(value, WccPerform):
         if value.perform_kind == "provider_result":
@@ -3869,6 +3926,9 @@ def _frontend_expr_from_wcc_loop_binding_value(value):
                     _frontend_expr_from_wcc_value(operation_payload["timeout_sec"])
                     if operation_payload.get("timeout_sec") is not None
                     else None
+                ),
+                prompt_dependencies=_prompt_dependency_spec_from_wcc_payload(
+                    operation_payload.get("prompt_dependencies")
                 ),
             )
         if value.perform_kind == "command_result":

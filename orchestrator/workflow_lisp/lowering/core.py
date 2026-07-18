@@ -37,6 +37,7 @@ from types import MappingProxyType
 from typing import Any
 
 from orchestrator.exceptions import ValidationSubjectRef
+from orchestrator.workflow.prompt_dependency_contract import CompilerPromptDependencyContract
 from orchestrator.workflow.validation import (
     WorkflowBoundaryValidationPolicy,
     WorkflowMappingBuildRequest,
@@ -336,6 +337,9 @@ class LoweredWorkflow:
     authored_mapping: Mapping[str, object]
     origin_map: LoweringOriginMap
     boundary_projection: WorkflowBoundaryProjection
+    compiler_prompt_dependency_contracts: Mapping[
+        str, CompilerPromptDependencyContract
+    ] = field(default_factory=dict)
     is_generated_private_workflow: bool = False
     private_exec_context_bindings: tuple[PrivateExecContextBinding, ...] = ()
     compatibility_bridge_inputs: tuple[str, ...] = ()
@@ -1072,6 +1076,8 @@ def _lower_one_workflow(
         generated_path_spans={},
         generated_path_allocations=[],
         generated_semantic_effects=[],
+        compiler_prompt_dependency_contracts={},
+        prompt_dependency_lineages=[],
         generated_contract_field_bindings=[],
         output_projection_metadata={},
         top_level_artifacts={},
@@ -1327,8 +1333,12 @@ def _lower_one_workflow(
                 extra_bindings=context.generated_contract_field_bindings,
             ),
             generated_semantic_effects=generated_semantic_effects,
+            prompt_dependency_lineages=tuple(context.prompt_dependency_lineages),
         ),
         boundary_projection=finalized_projection,
+        compiler_prompt_dependency_contracts=MappingProxyType(
+            dict(context.compiler_prompt_dependency_contracts)
+        ),
         is_generated_private_workflow=is_generated_private_workflow,
         private_exec_context_bindings=tuple(context.private_exec_context_bindings),
         compatibility_bridge_inputs=tuple(

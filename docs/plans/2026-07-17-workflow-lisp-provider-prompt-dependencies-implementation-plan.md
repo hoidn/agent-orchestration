@@ -36,11 +36,17 @@ at commit `267925f4`, exact SHA-256
 
 **Execution status:** Task 1's immutable preimplementation baseline and launch
 subject passed ordered review and were committed at
-`a2a755ba3c3de53a64f14cc2bfad8fcb85d27e99`. Task 2's first typed frontend
-candidate was rejected by specification review; the replacement adds an actual
-imported procedure call, relpath-bound specialization, specialized-owner generic
-dependency traversal, and explicit non-relpath union-field precedence coverage.
-Its restarted ordered specification and quality reviews are pending.
+`a2a755ba3c3de53a64f14cc2bfad8fcb85d27e99`. Task 2's replacement typed
+frontend candidate, including the imported-procedure and specialization repair,
+passed ordered review and was committed at
+`dec0357e85aba4977c24caabe10b103be7d737ce`. Task 3's typed WCC payload,
+owner-side-table projection, canonical compiler contract, and source-map lineage
+candidate has completed RED/GREEN development verification. Its first immutable
+candidate was rejected by specification review
+`TASK3-SPEC-REJECT-20260717-1D2E4F77-01` solely because Step 8 remained unchecked
+when the review subject was built; no functional finding was reported. The
+replacement plan-only sequencing correction is complete, and the replacement
+immutable candidate subject and restarted ordered reviews are pending.
 Workflow-family port evidence and documentation status closure remain
 unauthorized.
 
@@ -1509,11 +1515,14 @@ this rejection record; it does not enter Task 3 lowering.
 - Modify `orchestrator/workflow_lisp/lowering/effects.py`
 - Modify `orchestrator/workflow_lisp/lowering/core.py`
 - Modify `orchestrator/workflow_lisp/lowering/origins.py`
+- Modify `orchestrator/workflow_lisp/lowering/procedures.py` so manually-created
+  inline-procedure child contexts share the Task-3-owned contract and lineage
+  collectors rather than dropping their results
 - Modify `orchestrator/workflow_lisp/source_map.py`
 - Create `orchestrator/workflow/prompt_dependency_contract.py`
 - Modify this plan
 
-- [ ] **Step 1: Write WCC round-trip RED tests.**
+- [x] **Step 1: Write WCC round-trip RED tests.**
 
 Assert WCC preserves each typed value, row role/index, authored ordering, position,
 instruction, clause/row spans, form paths, and expansion stacks. Exercise root,
@@ -1522,14 +1531,14 @@ loop lowering. Compare WCC and classic output at the normalized owner boundary.
 
 Expected: FAIL because WCC does not carry the spec.
 
-- [ ] **Step 2: Implement WCC payload and reconstruction.**
+- [x] **Step 2: Implement WCC payload and reconstruction.**
 
 Keep `WccPerform.operation_payload` as the operation-specific owner. Store closed
 typed row records rather than YAML strings, and reconstruct `PromptDependencySpec`
 before `LowerableProviderResult` reaches the shared emitter. Do not add a new WCC
 node or schema.
 
-- [ ] **Step 3: Write typed contract and digest RED tests.**
+- [x] **Step 3: Write typed contract and digest RED tests.**
 
 Specify enums with no public string coercion and a frozen
 `CompilerPromptDependencyContract`. Assert canonical digest over exactly
@@ -1538,14 +1547,14 @@ instruction_utf8_sha256_or_null}` with authored array order. Reject empty refs,
 unknown enum strings, mappings passed where a dataclass is required, source digest
 syntax errors, empty origin, extra keys, and digest mismatch.
 
-- [ ] **Step 4: Implement the typed contract module.**
+- [x] **Step 4: Implement the typed contract module.**
 
 Provide canonical JSON with `sort_keys=True`, compact separators,
 `ensure_ascii=True`, no newline, and `sha256:<lowercase-hex>`. Keep construction
 private to the lowering/shared-validation route; expose validation/serialization,
 not a permissive `from_mapping` public API.
 
-- [ ] **Step 5: Write owner-emitter and side-table RED tests.**
+- [x] **Step 5: Write owner-emitter and side-table RED tests.**
 
 The emitted provider mapping contains only ordinary `depends_on` with runtime
 binding templates and `inject: {mode: content, position, instruction?}`. The typed
@@ -1554,21 +1563,21 @@ under the stable provider step ID. Assert source SHA-256 equals the exact accept
 `.orc` bytes and `source_origin_key` resolves to the provider step/operand source
 map. Assert classic and WCC produce identical mappings/contracts/digests.
 
-- [ ] **Step 6: Implement one owner projection.**
+- [x] **Step 6: Implement one owner projection.**
 
 Extend `LowerableProviderResult`. Resolve each operand through existing inline
 value/reference rendering; fail if it cannot become one existing binding ref.
 Build exact `depends_on` and the typed side-table entry in
 `_lower_provider_result_operation`. Have both lowering routes call only this owner.
 
-- [ ] **Step 7: Add source-map clause/row/policy lineage.**
+- [x] **Step 7: Add source-map clause/row/policy lineage.**
 
 Add a closed prompt-dependency lineage section under each workflow source map.
 Bind the clause, each authored row/ref/role/index, position, and instruction to
 source origins. Validate duplicate/missing origin keys and ensure the typed
 contract's origin exists.
 
-- [ ] **Step 8: Run focused verification, freeze the review subject, and dispatch
+- [x] **Step 8: Run focused verification, freeze the review subject, and dispatch
   the ordered reviews.**
 
 ```bash

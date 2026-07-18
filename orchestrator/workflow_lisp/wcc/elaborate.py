@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from ..conditionals import classify_condition_expr
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -87,6 +87,30 @@ from .model import (
     WccRunProviderPhasePayload,
     WccValue,
 )
+
+
+@dataclass(frozen=True)
+class WccPromptDependencyRow:
+    """One typed authored dependency row retained in a provider payload."""
+
+    role: str
+    authored_index: int
+    value: WccValue
+    source_span: object
+    form_path: tuple[str, ...]
+    expansion_stack: tuple[object, ...]
+
+
+@dataclass(frozen=True)
+class WccPromptDependencyPayload:
+    """Closed prompt-dependency payload owned by ``WccPerform``."""
+
+    rows: tuple[WccPromptDependencyRow, ...]
+    position: str
+    instruction: str | None
+    source_span: object
+    form_path: tuple[str, ...]
+    expansion_stack: tuple[object, ...]
 
 
 def elaborate_typed_workflow_body(
@@ -1858,6 +1882,19 @@ def _prebind_effect_argument_matches(
         )
 
     if isinstance(expr, ProviderResultExpr):
+        prompt_dependencies = expr.prompt_dependencies
+        if prompt_dependencies is not None:
+            prompt_dependencies = replace(
+                prompt_dependencies,
+                required=tuple(
+                    replace_arg(item, role=f"prompt-dependency:required:{index}")
+                    for index, item in enumerate(prompt_dependencies.required)
+                ),
+                optional=tuple(
+                    replace_arg(item, role=f"prompt-dependency:optional:{index}")
+                    for index, item in enumerate(prompt_dependencies.optional)
+                ),
+            )
         return (
             replace(
                 expr,
@@ -1865,6 +1902,7 @@ def _prebind_effect_argument_matches(
                     replace_arg(input_expr, role=f"provider-input:{index}")
                     for index, input_expr in enumerate(expr.inputs)
                 ),
+                prompt_dependencies=prompt_dependencies,
             ),
             tuple(match_bindings),
         )
@@ -2005,6 +2043,47 @@ def _elaborate_effect_expr_to_binding_value(
                 procedure_edges_by_site=procedure_edges_by_site,
                 compile_time_bindings=compile_time_bindings,
                 active_phase_scope=active_phase_scope,
+            )
+        if expr.prompt_dependencies is not None:
+            dependency_rows: list[WccPromptDependencyRow] = []
+            for role, operands in (
+                ("required", expr.prompt_dependencies.required),
+                ("optional", expr.prompt_dependencies.optional),
+            ):
+                for index, operand in enumerate(operands):
+                    value = _elaborate_atomic_value(
+                        operand,
+                        scope=scope.child_scope(
+                            f"prompt-dependency:{role}",
+                            authored_binding_name=str(index),
+                        ),
+                        type_env=type_env,
+                        value_env=value_env,
+                        workflow_return_types=workflow_return_types,
+                        procedure_return_types=procedure_return_types,
+                        effect_summary=effect_summary,
+                        procedure_edges_by_site=procedure_edges_by_site,
+                        compile_time_bindings=compile_time_bindings,
+                        active_phase_scope=active_phase_scope,
+                    )
+                    dependency_rows.append(
+                        WccPromptDependencyRow(
+                            role=role,
+                            authored_index=index,
+                            value=value,
+                            source_span=operand.span,
+                            form_path=operand.form_path,
+                            expansion_stack=operand.expansion_stack,
+                        )
+                    )
+            spec = expr.prompt_dependencies
+            operation_payload["prompt_dependencies"] = WccPromptDependencyPayload(
+                rows=tuple(dependency_rows),
+                position=spec.position,
+                instruction=spec.instruction,
+                source_span=spec.span,
+                form_path=spec.form_path,
+                expansion_stack=spec.expansion_stack,
             )
         return WccPerform(
             metadata=scope.value_metadata(role="perform:provider_result", **metadata_kwargs),

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+from orchestrator.workflow.prompt_dependency_contract import CompilerPromptDependencyContract
 from orchestrator.workflow.state_layout import GeneratedPathAllocation
 from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 
@@ -26,6 +27,7 @@ from ..workflows import (
 from .origins import (
     GeneratedSemanticEffectBinding,
     LoweringOrigin,
+    PromptDependencyLineage,
     ValidationSubjectBinding,
 )
 
@@ -83,6 +85,8 @@ class _LoweringContext:
     generated_path_spans: dict[str, LoweringOrigin]
     generated_path_allocations: list[GeneratedPathAllocation]
     generated_semantic_effects: list[GeneratedSemanticEffectBinding]
+    compiler_prompt_dependency_contracts: dict[str, CompilerPromptDependencyContract]
+    prompt_dependency_lineages: list[PromptDependencyLineage]
     output_projection_metadata: dict[str, Mapping[str, Any]]
     top_level_artifacts: dict[str, Any]
     inline_call_counters: dict[str, int]

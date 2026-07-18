@@ -84,6 +84,36 @@ class GeneratedSemanticEffectBinding:
 
 
 @dataclass(frozen=True)
+class PromptDependencyRowOrigin:
+    """Authored row provenance retained beside one lowered provider step."""
+
+    role: str
+    authored_index: int
+    binding_ref: str
+    origin: LoweringOrigin
+
+
+@dataclass(frozen=True)
+class PromptDependencyPolicyOrigin:
+    """Authored injection-policy provenance retained by lowering."""
+
+    value: str
+    origin: LoweringOrigin
+
+
+@dataclass(frozen=True)
+class PromptDependencyLineage:
+    """Closed clause/row/policy lineage for one provider dependency contract."""
+
+    step_id: str
+    source_origin_key: str
+    clause_origin: LoweringOrigin
+    rows: tuple[PromptDependencyRowOrigin, ...]
+    position: PromptDependencyPolicyOrigin
+    instruction: PromptDependencyPolicyOrigin | None
+
+
+@dataclass(frozen=True)
 class LoweringOriginMap:
     """Complete source-map index for one lowered workflow."""
 
@@ -96,6 +126,7 @@ class LoweringOriginMap:
     generated_path_spans: Mapping[str, LoweringOrigin]
     validation_subject_bindings: tuple[ValidationSubjectBinding, ...] = ()
     generated_semantic_effects: tuple[GeneratedSemanticEffectBinding, ...] = ()
+    prompt_dependency_lineages: tuple[PromptDependencyLineage, ...] = ()
 
     @property
     def workflow_span(self) -> SourceSpan:
@@ -563,6 +594,57 @@ def _rekey_origin_map(origin_map: LoweringOriginMap, *, workflow_name: str) -> L
         )
         for effect in origin_map.generated_semantic_effects
     )
+    prompt_dependency_lineages = tuple(
+        PromptDependencyLineage(
+            step_id=lineage.step_id,
+            source_origin_key=_lowering_origin_key(
+                workflow_name=workflow_name,
+                entity_kind="prompt_dependency_clause",
+                subject_name=lineage.step_id,
+            ),
+            clause_origin=_with_origin_key(
+                lineage.clause_origin,
+                workflow_name=workflow_name,
+                entity_kind="prompt_dependency_clause",
+                subject_name=lineage.step_id,
+            ),
+            rows=tuple(
+                replace(
+                    row,
+                    origin=_with_origin_key(
+                        row.origin,
+                        workflow_name=workflow_name,
+                        entity_kind="prompt_dependency_row",
+                        subject_name=f"{lineage.step_id}:{row.role}:{row.authored_index}",
+                    ),
+                )
+                for row in lineage.rows
+            ),
+            position=replace(
+                lineage.position,
+                origin=_with_origin_key(
+                    lineage.position.origin,
+                    workflow_name=workflow_name,
+                    entity_kind="prompt_dependency_position",
+                    subject_name=lineage.step_id,
+                ),
+            ),
+            instruction=(
+                replace(
+                    lineage.instruction,
+                    origin=_with_origin_key(
+                        lineage.instruction.origin,
+                        workflow_name=workflow_name,
+                        entity_kind="prompt_dependency_instruction",
+                        subject_name=lineage.step_id,
+                    ),
+                )
+                if lineage.instruction is not None
+                else None
+            ),
+        )
+        for lineage in origin_map.prompt_dependency_lineages
+    )
     contract_field_bindings = tuple(
         replace(
             binding,
@@ -599,6 +681,7 @@ def _rekey_origin_map(origin_map: LoweringOriginMap, *, workflow_name: str) -> L
             extra_bindings=contract_field_bindings,
         ),
         generated_semantic_effects=generated_semantic_effects,
+        prompt_dependency_lineages=prompt_dependency_lineages,
     )
 
 

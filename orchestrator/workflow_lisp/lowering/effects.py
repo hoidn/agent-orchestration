@@ -8,8 +8,17 @@ from dataclasses import dataclass
 from typing import Any
 
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
+from orchestrator.workflow.prompt_dependency_contract import (
+    PromptDependencyPosition,
+    _build_compiler_prompt_dependency_contract,
+)
 
-from ..expressions import CommandResultExpr, LiteralExpr, ProviderResultExpr
+from ..expressions import (
+    CommandResultExpr,
+    LiteralExpr,
+    PromptDependencySpec,
+    ProviderResultExpr,
+)
 from ..phase import IMPLEMENTATION_ATTEMPT_ARTIFACT_ROOT
 from ..result_guidance import ResultGuidance
 from ..type_env import TypeRef
@@ -17,9 +26,14 @@ from ..workflows import PromptExtern, ProviderExtern
 from .context import _compile_error, _TerminalResult
 from .generated_paths import allocate_generated_result_bundle
 from .origins import (
+    PromptDependencyLineage,
+    PromptDependencyPolicyOrigin,
+    PromptDependencyRowOrigin,
+    _lowering_origin_key,
     _origin_from_context_source,
     _record_step_origin,
     _register_generated_contract_field_bindings,
+    _with_origin_key,
 )
 from .phase_scope import (
     _build_phase_prompt_input_prelude,
@@ -29,7 +43,7 @@ from .phase_scope import (
     _typed_prompt_input_row_metadata,
     _uses_legacy_phase_prompt_input_prelude,
 )
-from .values import _record_output_refs, _resolve_inline_expr_value
+from .values import ProjectedPathRef, _record_output_refs, _resolve_inline_expr_value
 from .workflow_calls import _render_argv_tail
 
 
@@ -70,6 +84,7 @@ class LowerableProviderResult:
     model: Any | None = None
     effort: Any | None = None
     timeout_sec: Any | None = None
+    prompt_dependencies: PromptDependencySpec | None = None
 
 
 def _lower_command_result(
@@ -281,6 +296,7 @@ def _lower_provider_result(
             model=expr.model,
             effort=expr.effort,
             timeout_sec=expr.timeout_sec,
+            prompt_dependencies=expr.prompt_dependencies,
         ),
         result_type=result_type,
         context=context,
@@ -364,6 +380,14 @@ def _lower_provider_result_operation(
             )
         provider_step["timeout_sec"] = int(timeout_value.value)
     provider_step.update(_prompt_source_step_fields(prompt_binding))
+    if provider_result.prompt_dependencies is not None:
+        _lower_prompt_dependencies(
+            provider_result.prompt_dependencies,
+            provider_step=provider_step,
+            provider_step_id=provider_step_id,
+            context=context,
+            local_values=local_values,
+        )
     if context.phase_scope is not None:
         use_active_phase_bundle = False
         if not context.is_generated_private_workflow:
@@ -512,4 +536,155 @@ def _lower_provider_result_operation(
             "negative_validation_cases": _PROVIDER_BUNDLE_NEGATIVE_VALIDATION_CASES,
             **provider_bundle_contract_metadata,
         },
+    )
+
+
+def _lower_prompt_dependency_binding_ref(
+    operand: Any,
+    *,
+    context: Any,
+    local_values: Mapping[str, Any],
+) -> str:
+    resolved = _resolve_inline_expr_value(operand, local_values=local_values)
+    if isinstance(resolved, ProjectedPathRef):
+        resolved = resolved.ref
+    if not isinstance(resolved, str) or not resolved or resolved.startswith("${"):
+        raise _compile_error(
+            code="prompt_dependency_operand_not_binding_ref",
+            message=(
+                "provider prompt dependency operands must lower to one existing binding ref"
+            ),
+            span=operand.span,
+            form_path=operand.form_path,
+        )
+    return resolved
+
+
+def _lower_prompt_dependencies(
+    spec: PromptDependencySpec,
+    *,
+    provider_step: dict[str, Any],
+    provider_step_id: str,
+    context: Any,
+    local_values: Mapping[str, Any],
+) -> None:
+    """Project one typed prompt-dependency spec into mapping and side-table owners."""
+
+    from .core import _template_for_ref
+
+    classified: list[tuple[str, int, str, Any]] = []
+    refs_by_role: dict[str, list[str]] = {"required": [], "optional": []}
+    for role, operands in (("required", spec.required), ("optional", spec.optional)):
+        for index, operand in enumerate(operands):
+            binding_ref = _lower_prompt_dependency_binding_ref(
+                operand,
+                context=context,
+                local_values=local_values,
+            )
+            refs_by_role[role].append(binding_ref)
+            classified.append((role, index, binding_ref, operand))
+
+    inject: dict[str, Any] = {
+        "mode": "content",
+        "position": spec.position,
+    }
+    if spec.instruction is not None:
+        inject["instruction"] = spec.instruction
+    provider_step["depends_on"] = {
+        "required": [_template_for_ref(ref) for ref in refs_by_role["required"]],
+        "optional": [_template_for_ref(ref) for ref in refs_by_role["optional"]],
+        "inject": inject,
+    }
+
+    clause_origin = _with_origin_key(
+        _origin_from_context_source(context, spec),
+        workflow_name=context.workflow_name,
+        entity_kind="prompt_dependency_clause",
+        subject_name=provider_step_id,
+    )
+    source_origin_key = _lowering_origin_key(
+        workflow_name=context.workflow_name,
+        entity_kind="prompt_dependency_clause",
+        subject_name=provider_step_id,
+    )
+    position = {
+        "prepend": PromptDependencyPosition.PREPEND,
+        "append": PromptDependencyPosition.APPEND,
+    }.get(spec.position)
+    if position is None:
+        raise _compile_error(
+            code="prompt_dependency_position_invalid",
+            message="prompt dependency position must be prepend or append",
+            span=spec.span,
+            form_path=spec.form_path,
+        )
+    try:
+        source_bytes = context.workflow_path.read_bytes()
+    except OSError as exc:
+        raise _compile_error(
+            code="prompt_dependency_source_unreadable",
+            message="provider prompt dependency source bytes could not be read",
+            span=spec.span,
+            form_path=spec.form_path,
+        ) from exc
+    contract = _build_compiler_prompt_dependency_contract(
+        required_binding_refs=tuple(refs_by_role["required"]),
+        optional_binding_refs=tuple(refs_by_role["optional"]),
+        position=position,
+        instruction=spec.instruction,
+        source_origin_key=source_origin_key,
+        source_workflow_bytes=source_bytes,
+    )
+    if provider_step_id in context.compiler_prompt_dependency_contracts:
+        raise _compile_error(
+            code="prompt_dependency_contract_duplicate",
+            message=f"provider step `{provider_step_id}` has duplicate prompt dependency contracts",
+            span=spec.span,
+            form_path=spec.form_path,
+        )
+    context.compiler_prompt_dependency_contracts[provider_step_id] = contract
+    row_origins = tuple(
+        PromptDependencyRowOrigin(
+            role=role,
+            authored_index=index,
+            binding_ref=binding_ref,
+            origin=_with_origin_key(
+                _origin_from_context_source(context, operand),
+                workflow_name=context.workflow_name,
+                entity_kind="prompt_dependency_row",
+                subject_name=f"{provider_step_id}:{role}:{index}",
+            ),
+        )
+        for role, index, binding_ref, operand in classified
+    )
+    policy_origin = _origin_from_context_source(context, spec)
+    context.prompt_dependency_lineages.append(
+        PromptDependencyLineage(
+            step_id=provider_step_id,
+            source_origin_key=source_origin_key,
+            clause_origin=clause_origin,
+            rows=row_origins,
+            position=PromptDependencyPolicyOrigin(
+                value=spec.position,
+                origin=_with_origin_key(
+                    policy_origin,
+                    workflow_name=context.workflow_name,
+                    entity_kind="prompt_dependency_position",
+                    subject_name=provider_step_id,
+                ),
+            ),
+            instruction=(
+                PromptDependencyPolicyOrigin(
+                    value=spec.instruction,
+                    origin=_with_origin_key(
+                        policy_origin,
+                        workflow_name=context.workflow_name,
+                        entity_kind="prompt_dependency_instruction",
+                        subject_name=provider_step_id,
+                    ),
+                )
+                if spec.instruction is not None
+                else None
+            ),
+        )
     )

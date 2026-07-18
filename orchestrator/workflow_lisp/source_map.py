@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from orchestrator.exceptions import ValidationSubjectRef
@@ -122,6 +122,36 @@ class GeneratedPathAllocationLineage:
 
 
 @dataclass(frozen=True)
+class PromptDependencyRowLineage:
+    """One authored dependency row and its exact lowered binding ref."""
+
+    role: str
+    authored_index: int
+    binding_ref: str
+    origin: SourceMapEntry
+
+
+@dataclass(frozen=True)
+class PromptDependencyPolicyLineage:
+    """One normalized injection-policy value and its authored origin."""
+
+    value: str
+    origin: SourceMapEntry
+
+
+@dataclass(frozen=True)
+class PromptDependencyContractLineage:
+    """Clause, row, and policy lineage for one provider step."""
+
+    step_id: str
+    source_origin_key: str
+    clause: SourceMapEntry
+    rows: tuple[PromptDependencyRowLineage, ...]
+    position: PromptDependencyPolicyLineage
+    instruction: PromptDependencyPolicyLineage | None
+
+
+@dataclass(frozen=True)
 class WorkflowSourceMap:
     """Per-workflow lineage sections nested under the top-level document."""
 
@@ -141,6 +171,10 @@ class WorkflowSourceMap:
     command_boundaries: tuple[CommandBoundaryLineage, ...]
     validation_subjects: tuple[ValidationSubjectBinding, ...]
     executable_nodes: tuple[ExecutableNodeLineage, ...]
+    prompt_dependencies: tuple[PromptDependencyContractLineage, ...] | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -238,6 +272,10 @@ def build_source_map_document(
                 step_ids=step_ids,
                 validated_bundle=validated_bundle,
             )
+            prompt_dependencies = _prompt_dependency_lineages_for_workflow(
+                lowered=lowered,
+                workflow_name=workflow_name,
+            )
             workflows[workflow_name] = WorkflowSourceMap(
                 display_name=display_name_resolver(workflow_name),
                 selected_entry_workflow=workflow_name == selected_name,
@@ -255,6 +293,7 @@ def build_source_map_document(
                 command_boundaries=command_boundaries,
                 validation_subjects=validation_subjects,
                 executable_nodes=executable_nodes,
+                prompt_dependencies=prompt_dependencies or None,
             )
 
     document = WorkflowLispSourceMap(
@@ -427,6 +466,68 @@ def validate_source_map_document(document: WorkflowLispSourceMap) -> None:
                         message=(
                             f"generated semantic effect `{effect.effect_key}` "
                             f"references unknown step `{effect.step_id}`"
+                        ),
+                    )
+                )
+        seen_prompt_dependency_steps: set[str] = set()
+        for lineage in workflow.prompt_dependencies or ():
+            if lineage.step_id in seen_prompt_dependency_steps:
+                diagnostics.append(
+                    _diagnostic_for_entry(
+                        workflow_origin,
+                        code="source_map_prompt_dependency_invalid",
+                        message=(
+                            f"prompt dependency lineage for step `{lineage.step_id}` is duplicated"
+                        ),
+                    )
+                )
+                continue
+            seen_prompt_dependency_steps.add(lineage.step_id)
+            if lineage.step_id not in workflow.step_ids:
+                diagnostics.append(
+                    _diagnostic_for_entry(
+                        workflow_origin,
+                        code="source_map_prompt_dependency_invalid",
+                        message=(
+                            f"prompt dependency lineage references unknown step `{lineage.step_id}`"
+                        ),
+                    )
+                )
+            if lineage.source_origin_key != lineage.clause.origin_key:
+                diagnostics.append(
+                    _diagnostic_for_entry(
+                        workflow_origin,
+                        code="source_map_prompt_dependency_invalid",
+                        message="prompt dependency contract origin does not resolve to its clause",
+                    )
+                )
+            expected_indices = {"required": 0, "optional": 0}
+            for row in lineage.rows:
+                if (
+                    row.role not in expected_indices
+                    or row.authored_index != expected_indices.get(row.role)
+                    or not row.binding_ref
+                ):
+                    diagnostics.append(
+                        _diagnostic_for_entry(
+                            workflow_origin,
+                            code="source_map_prompt_dependency_invalid",
+                            message=(
+                                f"prompt dependency row lineage for step `{lineage.step_id}` "
+                                "has an invalid role, index, or binding ref"
+                            ),
+                        )
+                    )
+                    break
+                expected_indices[row.role] += 1
+            if not lineage.rows or lineage.position.value not in {"prepend", "append"}:
+                diagnostics.append(
+                    _diagnostic_for_entry(
+                        workflow_origin,
+                        code="source_map_prompt_dependency_invalid",
+                        message=(
+                            f"prompt dependency lineage for step `{lineage.step_id}` "
+                            "has no rows or invalid policy"
                         ),
                     )
                 )
@@ -666,6 +767,102 @@ def _iter_origin_entries(workflow: WorkflowSourceMap) -> Iterable[SourceMapEntry
     yield from workflow.contract_fields.values()
     yield from workflow.generated_paths.values()
     yield from workflow.generated_internal_inputs.values()
+    for lineage in workflow.prompt_dependencies or ():
+        yield lineage.clause
+        for row in lineage.rows:
+            yield row.origin
+        yield lineage.position.origin
+        if lineage.instruction is not None:
+            yield lineage.instruction.origin
+
+
+def _prompt_dependency_lineages_for_workflow(
+    *,
+    lowered: "LoweredWorkflow",
+    workflow_name: str,
+) -> tuple[PromptDependencyContractLineage, ...]:
+    lineages: list[PromptDependencyContractLineage] = []
+    contracts = lowered.compiler_prompt_dependency_contracts
+    for lineage in lowered.origin_map.prompt_dependency_lineages:
+        contract = contracts.get(lineage.step_id)
+        if contract is None or contract.source_origin_key != lineage.source_origin_key:
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="source_map_prompt_dependency_invalid",
+                        message=(
+                            f"prompt dependency lineage for step `{lineage.step_id}` "
+                            "has no matching typed compiler contract"
+                        ),
+                        span=lineage.clause_origin.span,
+                        form_path=lineage.clause_origin.form_path,
+                        expansion_stack=lineage.clause_origin.expansion_stack,
+                    ),
+                )
+            )
+        lineages.append(
+            PromptDependencyContractLineage(
+                step_id=lineage.step_id,
+                source_origin_key=lineage.source_origin_key,
+                clause=_entry_from_origin(
+                    lineage.clause_origin,
+                    workflow_name=workflow_name,
+                    entity_kind="prompt_dependency_clause",
+                    subject_name=lineage.step_id,
+                ),
+                rows=tuple(
+                    PromptDependencyRowLineage(
+                        role=row.role,
+                        authored_index=row.authored_index,
+                        binding_ref=row.binding_ref,
+                        origin=_entry_from_origin(
+                            row.origin,
+                            workflow_name=workflow_name,
+                            entity_kind="prompt_dependency_row",
+                            subject_name=(
+                                f"{lineage.step_id}:{row.role}:{row.authored_index}"
+                            ),
+                        ),
+                    )
+                    for row in lineage.rows
+                ),
+                position=PromptDependencyPolicyLineage(
+                    value=lineage.position.value,
+                    origin=_entry_from_origin(
+                        lineage.position.origin,
+                        workflow_name=workflow_name,
+                        entity_kind="prompt_dependency_position",
+                        subject_name=lineage.step_id,
+                    ),
+                ),
+                instruction=(
+                    PromptDependencyPolicyLineage(
+                        value=lineage.instruction.value,
+                        origin=_entry_from_origin(
+                            lineage.instruction.origin,
+                            workflow_name=workflow_name,
+                            entity_kind="prompt_dependency_instruction",
+                            subject_name=lineage.step_id,
+                        ),
+                    )
+                    if lineage.instruction is not None
+                    else None
+                ),
+            )
+        )
+    extra_contracts = set(contracts) - {lineage.step_id for lineage in lineages}
+    if extra_contracts:
+        first = sorted(extra_contracts)[0]
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="source_map_prompt_dependency_invalid",
+                    message=f"typed compiler prompt dependency contract `{first}` has no lineage",
+                    span=lowered.origin_map.workflow_span,
+                ),
+            )
+        )
+    return tuple(lineages)
 
 
 def _command_boundaries_for_workflow(

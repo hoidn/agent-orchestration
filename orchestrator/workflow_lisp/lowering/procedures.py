@@ -895,9 +895,13 @@ def _lower_procedure_call(
         private_exec_context_bindings=context.private_exec_context_bindings,
         generated_output_spans=context.generated_output_spans,
         generated_path_spans=context.generated_path_spans,
-        generated_path_allocations=context.generated_path_allocations,
-        generated_semantic_effects=context.generated_semantic_effects,
-        generated_contract_field_bindings=context.generated_contract_field_bindings,
+            generated_path_allocations=context.generated_path_allocations,
+            generated_semantic_effects=context.generated_semantic_effects,
+            compiler_prompt_dependency_contracts=(
+                context.compiler_prompt_dependency_contracts
+            ),
+            prompt_dependency_lineages=context.prompt_dependency_lineages,
+            generated_contract_field_bindings=context.generated_contract_field_bindings,
         output_projection_metadata=context.output_projection_metadata,
         top_level_artifacts=context.top_level_artifacts,
         inline_call_counters=context.inline_call_counters,
