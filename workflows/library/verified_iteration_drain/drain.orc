@@ -17,11 +17,13 @@
   (defpath StatePath :kind relpath :under "state" :must-exist false)
   (defpath ProducedStatePath :kind relpath :under "state" :must-exist true)
   (defpath ArtifactWorkPath :kind relpath :under "artifacts/work" :must-exist false)
+  (defpath LedgerPath :kind relpath :under "artifacts/work" :must-exist true)
   (defpath DrainSummaryPath :kind relpath :under "artifacts/work" :must-exist true)
 
   (defrecord PrepareResult
     (base_sha String)
-    (work_order_path ProducedStatePath))
+    (work_order_path ProducedStatePath)
+    (ledger_path LedgerPath))
   (defrecord ChecksResult
     (verify_status VerifyStatus)
     (commits_landed Bool)
@@ -33,8 +35,7 @@
   (defrecord DrainLoopState
     (iteration Int)
     (drain_status DrainStatus)
-    (drain_summary_path DrainSummaryPath)
-    (ledger_path ArtifactWorkPath))
+    (drain_summary_path DrainSummaryPath))
   (defrecord DrainOutput
     (drain_status DrainStatus)
     (drain_summary_path DrainSummaryPath))
@@ -53,7 +54,7 @@
      (effort String)
      (work_order_path ProducedStatePath)
      (target_design_path TargetDesignPath)
-     (ledger_path ArtifactWorkPath))
+     (ledger_path LedgerPath))
     -> WorkerVerdict
     (let* ((use-codex
              (= provider_choice ProviderChoice.codex)))
@@ -86,7 +87,7 @@
      (work_order_path ProducedStatePath)
      (review_package_path ProducedStatePath)
      (target_design_path TargetDesignPath)
-     (ledger_path ArtifactWorkPath))
+     (ledger_path LedgerPath))
     -> ProviderReviewDecision
     (let* ((use-codex
              (= provider_choice ProviderChoice.codex)))
@@ -128,7 +129,7 @@
      (work_order_path ProducedStatePath)
      (review_package_path ProducedStatePath)
      (target_design_path TargetDesignPath)
-     (ledger_path ArtifactWorkPath))
+     (ledger_path LedgerPath))
     -> ReviewDecision
     (let* ((provider-decision
              (call invoke-iteration-review-provider
@@ -151,7 +152,7 @@
      (work_order_path ProducedStatePath)
      (review_package_path ProducedStatePath)
      (target_design_path TargetDesignPath)
-     (ledger_path ArtifactWorkPath))
+     (ledger_path LedgerPath))
     -> ReviewDecision
     (let* ((ready
              (and (= verify_status VerifyStatus.GREEN)
@@ -248,13 +249,8 @@
                         :drain_summary_path
                           (__generated-relpath-seed__
                             DrainSummaryPath
-                            "${inputs.artifact_work_root}/drain-summary.json"
-                            "verified_iteration_drain_summary_seed")
-                        :ledger_path
-                          (__generated-relpath-seed__
-                            ArtifactWorkPath
-                            "${inputs.artifact_work_root}/ledger.md"
-                            "verified_iteration_ledger_seed"))
+                            "artifacts/work/drain-summary.json"
+                            "verified_iteration_drain_summary_seed"))
                :on-exhausted (variant DrainLoopOutput EXHAUSTED
                                :drain_status DrainStatus.STALLED
                                :drain_summary_path state.drain_summary_path
@@ -278,7 +274,7 @@
                             :effort worker_effort
                             :work_order_path prepared.work_order_path
                             :target_design_path target_design_path
-                            :ledger_path state.ledger_path))
+                            :ledger_path prepared.ledger_path))
                         (checks
                           (command-result run_verified_iteration_checks
                             :argv ("python"
@@ -298,7 +294,7 @@
                             :work_order_path prepared.work_order_path
                             :review_package_path checks.review_package_path
                             :target_design_path target_design_path
-                            :ledger_path state.ledger_path))
+                            :ledger_path prepared.ledger_path))
                         (done-review-decision
                           (call invoke-done-review
                             :provider_choice reviewer_provider
@@ -323,7 +319,7 @@
                                    "--worker-verdict-path" "${inputs.drain_state_root}/iterations/${loop.index}/worker-verdict.txt"
                                    "--worker-note-path" "${inputs.drain_state_root}/iterations/${loop.index}/worker-note.txt"
                                    "--blocked-notes-dir" "${inputs.artifact_work_root}/blocked"
-                                   "--ledger-path" state.ledger_path
+                                   "--ledger-path" prepared.ledger_path
                                    "--statuses-path" "${inputs.drain_state_root}/statuses.txt"
                                    "--stall-limit" stall_limit
                                    "--summary-path" "${inputs.artifact_work_root}/drain-summary.json"
@@ -339,8 +335,7 @@
                      (continue (record DrainLoopState
                                  :iteration (+ state.iteration 1)
                                  :drain_status recorded.drain_status
-                                 :drain_summary_path recorded.drain_summary_path
-                                 :ledger_path state.ledger_path))))))))
+                                 :drain_summary_path recorded.drain_summary_path))))))))
       (match loop-result
         ((TERMINAL terminal)
          (record DrainOutput

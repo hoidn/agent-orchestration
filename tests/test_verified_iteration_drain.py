@@ -390,6 +390,7 @@ def test_verified_command_adapters_write_runtime_and_compatibility_outputs(tmp_p
     ] == []
     assert json.loads((workspace / prepare_bundle).read_text(encoding="utf-8")) == {
         "base_sha": order["base_sha"],
+        "ledger_path": order["ledger_path"],
         "work_order_path": order["work_order_path"],
     }
     assert json.loads((workspace / checks_bundle).read_text(encoding="utf-8")) == {

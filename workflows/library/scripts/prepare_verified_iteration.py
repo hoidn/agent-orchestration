@@ -81,6 +81,7 @@ def main() -> int:
             json.dumps(
                 {
                     "base_sha": order["base_sha"],
+                    "ledger_path": order["ledger_path"],
                     "work_order_path": order["work_order_path"],
                 },
                 indent=2,

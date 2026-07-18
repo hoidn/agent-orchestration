@@ -360,7 +360,7 @@ def test_verified_orc_lowers_prepare_check_record_and_direct_summary_return() ->
         "workflows/library/scripts/record_verified_iteration.py",
     ]
     assert [sorted(field["name"] for field in step["output_bundle"]["fields"]) for step in commands] == [
-        ["base_sha", "work_order_path"],
+        ["base_sha", "ledger_path", "work_order_path"],
         ["checks_log_path", "commits_landed", "review_package_path", "verify_status"],
         ["drain_status", "drain_summary_path"],
     ]
@@ -373,6 +373,9 @@ def test_verified_orc_lowers_prepare_check_record_and_direct_summary_return() ->
     }
     assert fields["workflows/library/scripts/prepare_verified_iteration.py"][
         "work_order_path"
+    ]["must_exist_target"] is True
+    assert fields["workflows/library/scripts/prepare_verified_iteration.py"][
+        "ledger_path"
     ]["must_exist_target"] is True
     assert fields["workflows/library/scripts/run_verified_iteration_checks.py"][
         "commits_landed"
