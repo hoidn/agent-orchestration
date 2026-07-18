@@ -313,3 +313,58 @@ class TestDependencyResolution:
             assert sorted(result.patterns_used['*.md']) == ['file1.md', 'file2.md']
             assert '*.json' in result.patterns_used
             assert result.patterns_used['*.json'] == ['data.json']
+
+    def test_legacy_resolution_exposes_classified_rows(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            Path(workspace, "b.txt").write_text("b")
+            Path(workspace, "a.txt").write_text("a")
+            resolver = DependencyResolver(workspace)
+
+            result = resolver.resolve(
+                {"required": ["*.txt"], "optional": ["missing.txt"]}
+            )
+
+            assert [row.role for row in result.classified_rows] == [
+                "required",
+                "required",
+                "optional",
+            ]
+            assert [row.authored_index for row in result.classified_rows] == [0, 1, 0]
+            assert [row.evaluated_relpath for row in result.classified_rows] == [
+                "a.txt",
+                "b.txt",
+                "missing.txt",
+            ]
+            assert result.classified_rows[-1].canonical_target is None
+
+    def test_exact_resolution_rejects_glob_without_calling_glob(self, monkeypatch):
+        with tempfile.TemporaryDirectory() as workspace:
+            resolver = DependencyResolver(workspace)
+            called = False
+
+            def forbidden(*args, **kwargs):
+                nonlocal called
+                called = True
+                raise AssertionError("glob must not be called")
+
+            monkeypatch.setattr("orchestrator.deps.resolver.glob.glob", forbidden)
+            with pytest.raises(ValueError, match="glob magic"):
+                resolver.resolve_exact(required=[("binding", "*.txt")])
+            assert called is False
+
+    def test_exact_resolution_classifies_present_and_absent_rows(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            Path(workspace, "present.txt").write_text("present")
+            resolver = DependencyResolver(workspace)
+
+            result = resolver.resolve_exact(
+                required=[("required_binding", "present.txt")],
+                optional=[("optional_binding", "missing.txt")],
+            )
+
+            assert result.required_files == ["present.txt"]
+            assert result.optional_files == []
+            assert [(row.binding_ref, row.canonical_target) for row in result.classified_rows] == [
+                ("required_binding", "present.txt"),
+                ("optional_binding", None),
+            ]

@@ -5,6 +5,11 @@ import pytest
 from pathlib import Path
 
 from orchestrator.deps.injector import DependencyInjector, InjectionResult
+from orchestrator.deps.content_snapshot import (
+    AuthoredDependencyRow,
+    DependencyContent,
+    build_content_snapshot,
+)
 
 
 class TestDependencyInjection:
@@ -220,3 +225,105 @@ class TestDependencyInjection:
             # Should just have the injection content
             assert "The following required files are available:" in result.modified_prompt
             assert "- file.txt" in result.modified_prompt
+
+    def test_content_mode_can_consume_an_immutable_snapshot(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            injector = DependencyInjector(workspace)
+            snapshot = build_content_snapshot(
+                (
+                    AuthoredDependencyRow(
+                        role="required",
+                        authored_index=0,
+                        binding_ref="ref",
+                        evaluated_relpath="alias.txt",
+                        canonical_target="canonical.txt",
+                    ),
+                ),
+                (DependencyContent("canonical.txt", b"snapshot bytes"),),
+            )
+
+            result = injector.inject(
+                "prompt",
+                [],
+                {"mode": "content"},
+                content_snapshot=snapshot,
+            )
+
+            assert "=== File: canonical.txt" in result.modified_prompt
+            assert "snapshot bytes" in result.modified_prompt
+
+    def test_content_snapshot_optional_default_uses_snapshot_classification(self, monkeypatch):
+        with tempfile.TemporaryDirectory() as workspace:
+            injector = DependencyInjector(workspace)
+            snapshot = build_content_snapshot(
+                (
+                    AuthoredDependencyRow(
+                        role="optional",
+                        authored_index=0,
+                        binding_ref="optional-ref",
+                        evaluated_relpath="optional.txt",
+                        canonical_target="optional.txt",
+                    ),
+                ),
+                (DependencyContent("optional.txt", b"optional"),),
+            )
+            calls = []
+            monkeypatch.setattr(
+                injector,
+                "_get_default_instruction",
+                lambda mode, required: calls.append((mode, required)) or "sentinel",
+            )
+
+            result = injector.inject(
+                "",
+                [],
+                {"mode": "content"},
+                content_snapshot=snapshot,
+            )
+
+            assert result.modified_prompt.startswith("sentinel")
+            assert calls == [("content", False)]
+
+    def test_content_snapshot_required_default_ignores_legacy_optional_flag(self, monkeypatch):
+        with tempfile.TemporaryDirectory() as workspace:
+            injector = DependencyInjector(workspace)
+            snapshot = build_content_snapshot(
+                (
+                    AuthoredDependencyRow(
+                        role="required",
+                        authored_index=0,
+                        binding_ref="required-ref",
+                        evaluated_relpath="required.txt",
+                        canonical_target="required.txt",
+                    ),
+                ),
+                (DependencyContent("required.txt", b"required"),),
+            )
+            calls = []
+            monkeypatch.setattr(
+                injector,
+                "_get_default_instruction",
+                lambda mode, required: calls.append((mode, required)) or "sentinel",
+            )
+
+            result = injector.inject(
+                "",
+                [],
+                {"mode": "content"},
+                is_required=False,
+                content_snapshot=snapshot,
+            )
+
+            assert result.modified_prompt.startswith("sentinel")
+            assert calls == [("content", True)]
+
+    @pytest.mark.parametrize("newline_bytes", [b"one\r\ntwo\r\n", b"one\rtwo\r"])
+    def test_content_mode_keeps_legacy_universal_newline_output(self, newline_bytes):
+        with tempfile.TemporaryDirectory() as workspace:
+            Path(workspace, "newlines.txt").write_bytes(newline_bytes)
+            injector = DependencyInjector(workspace)
+
+            result = injector.inject("", ["newlines.txt"], {"mode": "content"})
+
+            assert "one\ntwo\n" in result.modified_prompt
+            assert "\r" not in result.modified_prompt

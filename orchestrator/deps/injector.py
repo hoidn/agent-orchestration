@@ -4,8 +4,17 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 
+from orchestrator.deps.content_snapshot import (
+    MAX_INJECTION_BYTES,
+    AuthoredDependencyRow,
+    DependencyContent,
+    DependencyContentSnapshot,
+    build_content_snapshot,
+    render_content_snapshot,
+)
+
 # Size limits per spec
-MAX_INJECTION_SIZE = 256 * 1024  # ~256 KiB
+MAX_INJECTION_SIZE = MAX_INJECTION_BYTES
 
 
 @dataclass 
@@ -32,7 +41,9 @@ class DependencyInjector:
         prompt: str,
         files: List[str],
         inject_config: Any,
-        is_required: bool = True
+        is_required: bool = True,
+        *,
+        content_snapshot: DependencyContentSnapshot | None = None,
     ) -> InjectionResult:
         """Inject files into prompt based on config.
         
@@ -61,9 +72,14 @@ class DependencyInjector:
         else:
             mode = inject_config.get('mode', 'list')
             position = inject_config.get('position', 'prepend')
+            default_is_required = is_required
+            if mode == 'content' and content_snapshot is not None:
+                default_is_required = any(
+                    row.role == "required" for row in content_snapshot.authored_rows
+                )
             instruction = inject_config.get(
-                'instruction', 
-                self._get_default_instruction(mode, is_required)
+                'instruction',
+                self._get_default_instruction(mode, default_is_required)
             )
             
         # Generate injection content based on mode
@@ -73,7 +89,10 @@ class DependencyInjector:
             )
         elif mode == 'content':
             injection_content, was_truncated, truncation_details = self._generate_content_injection(
-                files, instruction  
+                files,
+                instruction,
+                content_snapshot=content_snapshot,
+                is_required=is_required,
             )
         elif mode == 'none':
             return InjectionResult(
@@ -172,7 +191,10 @@ class DependencyInjector:
     def _generate_content_injection(
         self,
         files: List[str],
-        instruction: str
+        instruction: str,
+        *,
+        content_snapshot: DependencyContentSnapshot | None = None,
+        is_required: bool = True,
     ) -> Tuple[str, bool, Optional[Dict]]:
         """Generate content mode injection.
         
@@ -183,89 +205,57 @@ class DependencyInjector:
         Returns:
             Tuple of (injection_content, was_truncated, truncation_details)
         """
-        sections = [instruction]
-        total_size = len(instruction.encode('utf-8'))
-        was_truncated = False
-        files_shown = 0
-        files_truncated = 0
-        files_omitted = 0
-        shown_size = 0
-        original_total_size = 0
-        
-        for file_path in files:
-            full_path = self.workspace / file_path
-            
-            # Skip if file doesn't exist (for optional dependencies)
-            if not full_path.exists():
-                continue
-                
-            try:
-                # Read file content
-                content = full_path.read_text(encoding='utf-8')
-                file_size = len(content.encode('utf-8'))
-                original_total_size += file_size
-                
-                # Create header
-                header = f"\n=== File: {file_path} "
-                
-                # Check if we can fit the whole file
-                header_size = len(header.encode('utf-8')) + 20  # Reserve space for size info
-                
-                if total_size + header_size + file_size > MAX_INJECTION_SIZE:
-                    # Need to truncate or omit
-                    remaining = MAX_INJECTION_SIZE - total_size - header_size
-                    
-                    if remaining < 100:  # Too small to be useful
-                        files_omitted += 1
-                        was_truncated = True
-                        continue
-                        
-                    # Truncate file content
-                    truncated_content = content.encode('utf-8')[:remaining].decode('utf-8', errors='ignore')
-                    header += f"({len(truncated_content.encode('utf-8'))}/{file_size} bytes) ==="
-                    sections.append(header)
-                    sections.append(truncated_content)
-                    sections.append("... (truncated)")
-                    
-                    files_shown += 1
-                    files_truncated += 1
-                    shown_size += len(truncated_content.encode('utf-8'))
-                    total_size += header_size + len(truncated_content.encode('utf-8'))
-                    was_truncated = True
-                    break  # Hit size limit
-                else:
-                    # Include full file
-                    header += f"({file_size}/{file_size} bytes) ==="
-                    sections.append(header)
-                    sections.append(content)
-                    
-                    files_shown += 1
-                    shown_size += file_size
-                    total_size += header_size + file_size
-                    
-            except Exception:
-                # Skip files that can't be read
-                continue
-                
-        # Add summary if truncated
-        if was_truncated:
-            sections.append(
-                f"\n... Injection truncated at {MAX_INJECTION_SIZE} bytes. "
-                f"Files: {files_shown} shown, {files_truncated} truncated, "
-                f"{files_omitted} omitted."
-            )
-            
+        snapshot = content_snapshot or self._snapshot_legacy_files(files, is_required=is_required)
+        rendered = render_content_snapshot(snapshot, instruction=instruction)
         truncation_details = None
-        if was_truncated:
+        if rendered.was_truncated:
+            files_shown = sum(row.status != "omitted" for row in rendered.group_truncations)
+            files_truncated = sum(row.status == "truncated" for row in rendered.group_truncations)
+            files_omitted = sum(row.status == "omitted" for row in rendered.group_truncations)
             truncation_details = {
                 "injection_truncated": True,
                 "truncation_details": {
-                    "total_size": original_total_size,
-                    "shown_size": shown_size,
+                    "total_size": sum(row.total_bytes for row in rendered.group_truncations),
+                    "shown_size": sum(row.shown_bytes for row in rendered.group_truncations),
                     "files_shown": files_shown,
                     "files_truncated": files_truncated,
-                    "files_omitted": files_omitted
-                }
+                    "files_omitted": files_omitted,
+                },
             }
-            
-        return "\n".join(sections), was_truncated, truncation_details
+        return rendered.block.decode("utf-8"), rendered.was_truncated, truncation_details
+
+    def _snapshot_legacy_files(
+        self,
+        files: List[str],
+        *,
+        is_required: bool,
+    ) -> DependencyContentSnapshot:
+        role = "required" if is_required else "optional"
+        rows: list[AuthoredDependencyRow] = []
+        payload_by_target: dict[str, DependencyContent] = {}
+
+        for authored_index, file_path in enumerate(files):
+            full_path = self.workspace / file_path
+            canonical_target: str | None = None
+            try:
+                if full_path.exists():
+                    normalized = full_path.read_text(encoding="utf-8").encode("utf-8")
+                    canonical_target = full_path.resolve().relative_to(self.workspace).as_posix()
+                    payload_by_target.setdefault(
+                        canonical_target,
+                        DependencyContent(canonical_target, normalized),
+                    )
+            except Exception:
+                canonical_target = None
+
+            rows.append(
+                AuthoredDependencyRow(
+                    role=role,
+                    authored_index=authored_index,
+                    binding_ref=file_path,
+                    evaluated_relpath=file_path,
+                    canonical_target=canonical_target,
+                )
+            )
+
+        return build_content_snapshot(tuple(rows), tuple(payload_by_target.values()))

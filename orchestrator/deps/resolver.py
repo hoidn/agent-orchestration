@@ -3,9 +3,10 @@
 import glob
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple, Any, Iterable
+from dataclasses import dataclass, field
 
+from orchestrator.deps.content_snapshot import AuthoredDependencyRow
 from orchestrator.variables.substitution import VariableSubstitutor
 
 
@@ -16,6 +17,7 @@ class DependencyResolution:
     optional_files: List[str]
     missing_required: List[str]
     patterns_used: Dict[str, List[str]]  # pattern -> matched files
+    classified_rows: tuple[AuthoredDependencyRow, ...] = field(default_factory=tuple)
 
     @property
     def is_valid(self) -> bool:
@@ -62,14 +64,15 @@ class DependencyResolver:
                 required_files=[],
                 optional_files=[],
                 missing_required=[],
-                patterns_used={}
+                patterns_used={},
+                classified_rows=(),
             )
             
         variables = variables or {}
         
         # Process required dependencies
         required_patterns = depends_on.get('required', [])
-        required_files, required_patterns_used, missing_required = self._resolve_patterns(
+        required_files, required_patterns_used, missing_required, required_rows = self._resolve_patterns(
             required_patterns, 
             variables, 
             required=True
@@ -77,7 +80,7 @@ class DependencyResolver:
         
         # Process optional dependencies  
         optional_patterns = depends_on.get('optional', [])
-        optional_files, optional_patterns_used, _ = self._resolve_patterns(
+        optional_files, optional_patterns_used, _, optional_rows = self._resolve_patterns(
             optional_patterns,
             variables,
             required=False
@@ -92,15 +95,78 @@ class DependencyResolver:
             required_files=required_files,
             optional_files=optional_files,
             missing_required=missing_required,
-            patterns_used=patterns_used
+            patterns_used=patterns_used,
+            classified_rows=tuple(required_rows + optional_rows),
         )
+
+    def resolve_exact(
+        self,
+        *,
+        required: Iterable[tuple[str, str]] = (),
+        optional: Iterable[tuple[str, str]] = (),
+    ) -> DependencyResolution:
+        """Resolve evaluated exact-path rows without invoking glob expansion."""
+
+        required_files, missing_required, required_rows = self._resolve_exact_rows(
+            required, role="required"
+        )
+        optional_files, _, optional_rows = self._resolve_exact_rows(
+            optional, role="optional"
+        )
+        return DependencyResolution(
+            required_files=required_files,
+            optional_files=optional_files,
+            missing_required=missing_required,
+            patterns_used={},
+            classified_rows=tuple(required_rows + optional_rows),
+        )
+
+    def _resolve_exact_rows(
+        self,
+        rows: Iterable[tuple[str, str]],
+        *,
+        role: str,
+    ) -> tuple[List[str], List[str], List[AuthoredDependencyRow]]:
+        resolved_files: List[str] = []
+        missing: List[str] = []
+        classified: List[AuthoredDependencyRow] = []
+
+        for authored_index, row in enumerate(rows):
+            if not isinstance(row, tuple) or len(row) != 2:
+                raise ValueError("exact dependency rows must be (binding_ref, relpath) tuples")
+            binding_ref, evaluated_relpath = row
+            if not isinstance(binding_ref, str) or not isinstance(evaluated_relpath, str):
+                raise ValueError("exact dependency row values must be strings")
+            if glob.has_magic(evaluated_relpath):
+                raise ValueError(f"exact dependency path contains glob magic: {evaluated_relpath}")
+
+            full_path = self.workspace / evaluated_relpath
+            canonical_target: str | None = None
+            if full_path.exists():
+                canonical_target = full_path.resolve().relative_to(self.workspace).as_posix()
+                if canonical_target not in resolved_files:
+                    resolved_files.append(canonical_target)
+            elif role == "required":
+                missing.append(evaluated_relpath)
+
+            classified.append(
+                AuthoredDependencyRow(
+                    role=role,
+                    authored_index=authored_index,
+                    binding_ref=binding_ref,
+                    evaluated_relpath=evaluated_relpath,
+                    canonical_target=canonical_target,
+                )
+            )
+
+        return resolved_files, missing, classified
         
     def _resolve_patterns(
         self, 
         patterns: List[str], 
         variables: Dict[str, str],
         required: bool
-    ) -> Tuple[List[str], Dict[str, List[str]], List[str]]:
+    ) -> Tuple[List[str], Dict[str, List[str]], List[str], List[AuthoredDependencyRow]]:
         """Resolve glob patterns to file paths.
         
         Args:
@@ -109,11 +175,13 @@ class DependencyResolver:
             required: Whether these are required dependencies
             
         Returns:
-            Tuple of (matched_files, patterns_used_dict, missing_patterns)
+            Tuple of (matched_files, patterns_used_dict, missing_patterns, classified_rows)
         """
         all_files = []
         patterns_used = {}
         missing_patterns = []
+        classified_rows: List[AuthoredDependencyRow] = []
+        role = "required" if required else "optional"
         
         for pattern in patterns:
             # Substitute variables in pattern
@@ -131,6 +199,7 @@ class DependencyResolver:
             
             # Convert back to relative paths and sort for deterministic ordering
             relative_matches = []
+            classified_matches: List[tuple[str, str]] = []
             for match in matches:
                 match_path = Path(match).resolve()
                 
@@ -143,7 +212,10 @@ class DependencyResolver:
                 # Store as relative path
                 try:
                     rel_path = match_path.relative_to(self.workspace)
-                    relative_matches.append(str(rel_path))
+                    canonical_target = rel_path.as_posix()
+                    lexical_relpath = Path(match).relative_to(self.workspace).as_posix()
+                    relative_matches.append(canonical_target)
+                    classified_matches.append((lexical_relpath, canonical_target))
                 except ValueError:
                     # Path is outside workspace - shouldn't happen due to check above
                     raise ValueError(
@@ -152,12 +224,34 @@ class DependencyResolver:
             
             # Sort for deterministic lexicographic ordering
             relative_matches.sort()
+            classified_matches.sort()
+
+            for lexical_relpath, canonical_target in classified_matches:
+                classified_rows.append(
+                    AuthoredDependencyRow(
+                        role=role,
+                        authored_index=len(classified_rows),
+                        binding_ref=pattern,
+                        evaluated_relpath=lexical_relpath,
+                        canonical_target=canonical_target,
+                    )
+                )
             
             if relative_matches:
                 all_files.extend(relative_matches)
                 patterns_used[expanded_pattern] = relative_matches
             elif required:
                 missing_patterns.append(expanded_pattern)
+            if not relative_matches:
+                classified_rows.append(
+                    AuthoredDependencyRow(
+                        role=role,
+                        authored_index=len(classified_rows),
+                        binding_ref=pattern,
+                        evaluated_relpath=expanded_pattern,
+                        canonical_target=None,
+                    )
+                )
                 
         # Remove duplicates while preserving order
         seen = set()
@@ -167,7 +261,7 @@ class DependencyResolver:
                 seen.add(f)
                 unique_files.append(f)
                 
-        return unique_files, patterns_used, missing_patterns
+        return unique_files, patterns_used, missing_patterns, classified_rows
         
     def _substitute_variables(self, pattern: str, variables: Dict[str, str]) -> str:
         """Substitute variables in pattern.

@@ -37,9 +37,20 @@ at commit `267925f4`, exact SHA-256
 **Execution status:** Tasks 1-3 are committed through `185268b2`: the immutable
 preimplementation baseline, typed frontend, classic/WCC owner-side-table
 projection, canonical compiler contract, and source-map lineage all passed their
-ordered gates. Task 4 functional typed-IR transport has completed RED/GREEN and
-the required regression selectors under the 2026-07-17 user scope override
-recorded below; immutable candidate capture and ordered review remain pending.
+ordered gates. Task 4 functional typed-IR transport passed both ordered reviews
+and committed at `b43a2025`. Task 5 immutable snapshot rendering, exact byte
+budgeting, stable successful-YAML compatibility, and typed exact resolution have
+completed RED/GREEN and the required regression selectors. Its first candidate
+tree `1e545dcb` was rejected by specification review because it reserved the full
+summary ceiling instead of the actual summary bytes and did not enforce exact
+public snapshot membership. Both findings now have test-first corrections;
+the replacement candidate was rejected by a second specification review because
+an exact 83/84-byte summary-budget cycle raised instead of selecting its feasible
+omission render. That finding now has a test-first finite-cycle correction;
+the subsequent quality review rejected snapshot-backed default classification
+that still trusted the legacy caller flag and renderable snapshots that admitted
+absent required rows. Both quality findings now have test-first corrections;
+replacement immutable candidate recapture and ordered review are in progress.
 Workflow-family port evidence and documentation status closure remain
 unauthorized.
 
@@ -1725,7 +1736,7 @@ Suggested commit: `feat: carry prompt dependency IR`
 - Modify `orchestrator/deps/__init__.py`
 - Modify this plan
 
-- [ ] **Step 1: Write immutable classified-row and alias-group RED tests.**
+- [x] **Step 1: Write immutable classified-row and alias-group RED tests.**
 
 Define authored rows with role/index/binding/evaluated relpath and snapshots with
 absent rows plus canonical groups. Prove required-before-optional evidence order,
@@ -1738,13 +1749,13 @@ never exceed the single attempt-wide budget. Metadata may remain one bounded row
 group record per authored input; independent cap-sized content buffers per group
 are forbidden.
 
-- [ ] **Step 2: Implement pure snapshot grouping models.**
+- [x] **Step 2: Implement pure snapshot grouping models.**
 
 Use frozen dataclasses/tuples. Validate roles, contiguous indices, safe canonical
 POSIX targets, group membership, and uniqueness. Never collapse authored aliases
 before evidence metadata exists.
 
-- [ ] **Step 3: Write exact cap RED tests.**
+- [x] **Step 3: Write exact cap RED tests.**
 
 Cover instruction byte lengths 261629/261630/261631; multibyte boundaries;
 pre-truncation sizes 262143/262144/262145; first partial group; no-positive-prefix
@@ -1753,7 +1764,7 @@ canonical groups before and after budget exhaustion; exact 512-byte summary;
 rejected 513-byte summary; exact headers, markers, separators, and final block
 assertion.
 
-- [ ] **Step 4: Implement the pure renderer.**
+- [x] **Step 4: Implement the pure renderer.**
 
 Define `MAX_INJECTION_BYTES=262144`,
 `TRUNCATION_SUMMARY_RESERVE_BYTES=512`, and
@@ -1762,7 +1773,7 @@ UTF-8 prefixes, and return immutable block bytes plus full per-group truncation
 metadata. `DependencyInjector` content mode consumes this result; list mode stays
 unchanged.
 
-- [ ] **Step 5: Write stable-YAML differential RED tests.**
+- [x] **Step 5: Write stable-YAML differential RED tests.**
 
 Against a local characterization copy of the prior successful renderer, compare
 exact prompt bytes below the new cap for required-only, optional-only, mixed
@@ -1770,13 +1781,13 @@ required/optional, lexicographic order, custom instruction, prepend/append,
 optional no-match, CRLF, and lone CR. Spy on default-instruction selection rather
 than asserting production text. Boundary tightenings are asserted separately.
 
-- [ ] **Step 6: Implement classified legacy resolution without exact-mode glob
+- [x] **Step 6: Implement classified legacy resolution without exact-mode glob
   reuse.**
 
 Legacy YAML still expands globs and produces classified resolved rows. Typed exact
 rows reject glob magic and never call `glob.glob`. Both feed the same renderer.
 
-- [ ] **Step 7: Run focused verification, freeze the review subject, and dispatch
+- [x] **Step 7: Run focused verification, freeze the review subject, and dispatch
   the ordered reviews.**
 
 ```bash
