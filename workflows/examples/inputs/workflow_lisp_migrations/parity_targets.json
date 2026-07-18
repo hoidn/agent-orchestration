@@ -442,6 +442,146 @@
           "-q"
         ]
       }
+    },
+    {
+      "workflow_family": "generic_run_watchdog",
+      "candidate": "workflows/library/generic_run_watchdog/watchdog.orc",
+      "yaml_primary": "workflows/examples/generic_run_watchdog.yaml",
+      "entry_workflow": "generic_run_watchdog/watchdog::watchdog",
+      "provider_externs_file": "workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.providers.json",
+      "prompt_externs_file": "workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.prompts.json",
+      "command_boundaries_file": "workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.commands.json",
+      "readiness_label": "leaf_runtime_candidate",
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "baseline_characterization": {
+        "inputs": [
+          "target_run_id",
+          "state_root",
+          "evidence_root",
+          "repair_result_target_path",
+          "max_stale_minutes",
+          "repair_provider"
+        ],
+        "outputs": [
+          "watch_status",
+          "repair_status",
+          "recovery_action",
+          "watchdog_result_path"
+        ],
+        "terminal_states": [
+          "RUNNING_OK or COMPLETED with NO_ACTION",
+          "FAILED, CRASHED, STALLED, or UNKNOWN with a typed repair outcome"
+        ],
+        "artifacts": [
+          "watch bundle and target-run evidence bundle",
+          "typed provider result bundle plus repair result and report compatibility artifacts",
+          "typed watchdog result bundle plus watchdog-result compatibility artifact"
+        ],
+        "resume_behavior": [
+          "same-ID retry refreshes the exact watch-bundle prompt dependency; resume after a committed provider boundary reuses the typed provider result and publishes once"
+        ]
+      },
+      "accepted_differences": [
+        {
+          "id": "typed-runtime-results-with-compatibility-mirrors",
+          "description": "Typed probe, provider, and publication results are authoritative while watch, evidence, repair, report, and watchdog-result files remain operator-facing compatibility artifacts."
+        }
+      ],
+      "deprecated_yaml_mechanics": [
+        {
+          "mechanic": "dynamic YAML provider selection and report-file control flow",
+          "replacement": "closed Workflow Lisp provider branches with a native typed ProviderRepairResult"
+        },
+        {
+          "mechanic": "publisher parses watch or repair compatibility files for orchestration decisions",
+          "replacement": "an exhaustive typed RepairOutcome match passes validated fields directly to the certified publisher"
+        }
+      ],
+      "promotion_eligibility": {
+        "eligible_for_primary_surface": false,
+        "blocked_reason": "candidate evidence only until the promotion task passes"
+      },
+      "compile_artifacts": {
+        "required": [
+          "core_workflow_ast",
+          "semantic_ir",
+          "source_map"
+        ],
+        "optional": [
+          "expanded_debug_yaml"
+        ]
+      },
+      "evidence_commands": {
+        "compile": [
+          "python",
+          "-m",
+          "orchestrator",
+          "compile",
+          "workflows/library/generic_run_watchdog/watchdog.orc",
+          "--entry-workflow",
+          "generic_run_watchdog/watchdog::watchdog",
+          "--provider-externs-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.providers.json",
+          "--prompt-externs-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.prompts.json",
+          "--command-boundaries-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.commands.json"
+        ],
+        "dry_run": [
+          "python",
+          "-m",
+          "orchestrator",
+          "run",
+          "workflows/library/generic_run_watchdog/watchdog.orc",
+          "--entry-workflow",
+          "generic_run_watchdog/watchdog::watchdog",
+          "--provider-externs-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.providers.json",
+          "--prompt-externs-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.prompts.json",
+          "--command-boundaries-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.commands.json",
+          "--input",
+          "target_run_id=task5-watchdog-parity-dry-run",
+          "--dry-run"
+        ],
+        "smoke_or_integration": [
+          "python",
+          "-m",
+          "pytest",
+          "tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_both_branches_preserve_artifact_lineage",
+          "-q"
+        ],
+        "output_contract_parity": [
+          "python",
+          "-m",
+          "pytest",
+          "tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_compiles_with_exact_six_input_four_output_contract",
+          "-q"
+        ],
+        "terminal_state_parity": [
+          "python",
+          "-m",
+          "pytest",
+          "tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_both_branches_preserve_artifact_lineage",
+          "-q"
+        ],
+        "artifact_parity": [
+          "python",
+          "-m",
+          "pytest",
+          "tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_both_branches_preserve_artifact_lineage",
+          "-q"
+        ],
+        "resume_parity": [
+          "python",
+          "-m",
+          "pytest",
+          "tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_resume_reuses_provider_and_publishes_once",
+          "-q"
+        ]
+      }
     }
   ]
 }

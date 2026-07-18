@@ -2817,6 +2817,57 @@ def test_checked_in_verified_parity_target_has_complete_promoted_contract() -> N
     assert target["command_boundaries_file"].endswith("verified_iteration_drain.commands.json")
 
 
+def test_checked_in_watchdog_parity_target_has_complete_candidate_contract() -> None:
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
+        ).read_text(encoding="utf-8")
+    )
+    target = next(
+        entry
+        for entry in payload["targets"]
+        if entry["workflow_family"] == "generic_run_watchdog"
+    )
+
+    assert target["candidate"] == "workflows/library/generic_run_watchdog/watchdog.orc"
+    assert target["yaml_primary"] == "workflows/examples/generic_run_watchdog.yaml"
+    assert target["entry_workflow"] == "generic_run_watchdog/watchdog::watchdog"
+    assert target["promotion_eligibility"] == {
+        "eligible_for_primary_surface": False,
+        "blocked_reason": "candidate evidence only until the promotion task passes",
+    }
+    assert target["readiness_label"] == "leaf_runtime_candidate"
+    assert target["lowering_route"] == "wcc_m4"
+    assert target["lowering_schema_version"] == 2
+    assert set(target["evidence_commands"]) == {
+        "compile",
+        "dry_run",
+        "smoke_or_integration",
+        "output_contract_parity",
+        "terminal_state_parity",
+        "artifact_parity",
+        "resume_parity",
+    }
+    assert target["baseline_characterization"]["inputs"] == [
+        "target_run_id",
+        "state_root",
+        "evidence_root",
+        "repair_result_target_path",
+        "max_stale_minutes",
+        "repair_provider",
+    ]
+    assert target["baseline_characterization"]["outputs"] == [
+        "watch_status",
+        "repair_status",
+        "recovery_action",
+        "watchdog_result_path",
+    ]
+    assert target["provider_externs_file"].endswith("generic_run_watchdog.providers.json")
+    assert target["prompt_externs_file"].endswith("generic_run_watchdog.prompts.json")
+    assert target["command_boundaries_file"].endswith("generic_run_watchdog.commands.json")
+
+
 def test_promoted_design_delta_target_is_retired_but_historical_report_is_preserved() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     manifest_path = (
@@ -2829,6 +2880,7 @@ def test_promoted_design_delta_target_is_retired_but_historical_report_is_preser
         "cycle_guard_demo",
         "design_plan_impl_stack",
         "verified_iteration_drain",
+        "generic_run_watchdog",
     ]
 
     historical_report_root = repo_root / "artifacts/work/review-parity-check"

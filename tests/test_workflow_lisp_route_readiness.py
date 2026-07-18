@@ -56,6 +56,7 @@ INITIAL_REQUIRED_PATHS = {
     "workflows/library/lisp_frontend_design_delta/selector.orc",
     "workflows/library/lisp_frontend_design_delta/types.orc",
     "workflows/library/lisp_frontend_design_delta/work_item.orc",
+    "workflows/library/generic_run_watchdog/watchdog.orc",
     "workflows/library/verified_iteration_drain/drain.orc",
     "tests/fixtures/workflow_lisp/characterization/sources/design_delta_union_match_projection.orc",
     "tests/fixtures/workflow_lisp/characterization/sources/wcc_ifexpr_loop_body.orc",
@@ -814,6 +815,24 @@ def test_verified_route_is_promotion_eligible_and_parity_constrained() -> None:
     assert entry.lowering_route == "wcc_m4"
     assert entry.lowering_schema_version == 2
     assert entry.copy_safety == "preferred_current_guidance"
+    assert entry.parity_constrained is True
+
+
+def test_generic_run_watchdog_route_is_registered_as_parity_constrained_candidate() -> None:
+    registry = load_route_readiness_registry(REGISTRY_PATH)
+    entry = registry_entry_for_path(
+        registry,
+        "workflows/library/generic_run_watchdog/watchdog.orc",
+    )
+
+    assert entry is not None
+    assert entry.surface_kind == "migration_target"
+    assert entry.entry_workflow == "generic_run_watchdog/watchdog::watchdog"
+    assert entry.route_label == "migration_candidate"
+    assert entry.readiness_label == "leaf_runtime_candidate"
+    assert entry.lowering_route == "wcc_m4"
+    assert entry.lowering_schema_version == 2
+    assert entry.copy_safety == "migration_evidence_only"
     assert entry.parity_constrained is True
 
 

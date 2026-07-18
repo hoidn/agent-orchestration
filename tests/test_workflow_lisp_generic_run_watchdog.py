@@ -3,16 +3,28 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
+from contextlib import ExitStack
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
+import pytest
 import yaml
 
+from orchestrator.providers.executor import ProviderExecutor
+from orchestrator.state import StateManager
+from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
     workflow_output_contracts,
     workflow_public_input_contracts,
+    workflow_runtime_input_contracts,
 )
+from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +33,10 @@ ORC_WORKFLOW = ROOT / "workflows/library/generic_run_watchdog/watchdog.orc"
 PORT_DESIGN = ROOT / "docs/plans/2026-07-18-generic-run-watchdog-orc-port-design.md"
 MIGRATION_INPUTS = ROOT / "workflows/examples/inputs/workflow_lisp_migrations"
 ENTRY_WORKFLOW = "generic_run_watchdog/watchdog::watchdog"
+
+
+class _WatchdogProviderBoundaryInterruption(BaseException):
+    pass
 
 
 def _compile_watchdog_orc():
@@ -88,6 +104,368 @@ def _table_after_heading(text: str, heading: str) -> list[dict[str, str]]:
         assert len(cells) == len(headers), line
         rows.append(dict(zip(headers, cells, strict=True)))
     return rows
+
+
+def _provider_success():
+    return SimpleNamespace(
+        exit_code=0,
+        stdout=b"mock-provider-observability",
+        stderr=b"",
+        duration_ms=1,
+        error=None,
+        missing_placeholders=None,
+        invalid_prompt_placeholder=False,
+        raw_stdout=None,
+        normalized_stdout=None,
+        provider_session=None,
+    )
+
+
+def _provider_retryable_failure():
+    result = _provider_success()
+    result.exit_code = 1
+    result.error = "fixture retryable provider failure"
+    return result
+
+
+def _prepare_watchdog_runtime_workspace(
+    workspace: Path,
+    *,
+    target_status: str,
+    repair_provider: str,
+):
+    workspace.mkdir(parents=True, exist_ok=True)
+    copy_paths = [
+        "workflows/library/generic_run_watchdog/watchdog.orc",
+        "workflows/library/scripts/probe_orchestrator_run.py",
+        "workflows/library/scripts/publish_run_watchdog_result.py",
+        "workflows/library/prompts/generic_run_watchdog/repair_run_failure.md",
+    ]
+    for relpath in copy_paths:
+        destination = workspace / relpath
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relpath, destination)
+
+    target_state = workspace / ".orchestrate/runs/target-run/state.json"
+    target_state.parent.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(UTC).isoformat()
+    target_state.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.1",
+                "run_id": "target-run",
+                "workflow_file": "workflows/examples/fixture.yaml",
+                "started_at": now,
+                "updated_at": now,
+                "status": target_status,
+                "steps": {},
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    commands_path = MIGRATION_INPUTS / "generic_run_watchdog.commands.json"
+    compile_result = compile_stage3_entrypoint(
+        workspace / "workflows/library/generic_run_watchdog/watchdog.orc",
+        source_roots=(workspace / "workflows/library",),
+        entry_workflow=ENTRY_WORKFLOW,
+        provider_externs=json.loads(
+            (MIGRATION_INPUTS / "generic_run_watchdog.providers.json").read_text()
+        ),
+        prompt_externs=json.loads(
+            (MIGRATION_INPUTS / "generic_run_watchdog.prompts.json").read_text()
+        ),
+        command_boundaries=_parse_command_boundaries_manifest(
+            json.loads(commands_path.read_text()),
+            manifest_path=commands_path,
+        ),
+        workspace_root=workspace,
+        lowering_route="wcc_m4",
+    )
+    bundle = compile_result.validated_bundles_by_name[ENTRY_WORKFLOW]
+    contracts = {
+        name: contract
+        for name, contract in workflow_runtime_input_contracts(bundle).items()
+        if not name.startswith("__write_root__")
+    }
+    bound_inputs = bind_workflow_inputs(
+        contracts,
+        {
+            "target_run_id": "target-run",
+            "state_root": "state/watchdog",
+            "evidence_root": "artifacts/work/watchdog",
+            "repair_result_target_path": "artifacts/work/watchdog/repair-result.json",
+            "repair_provider": repair_provider,
+        },
+        workspace,
+    )
+    return bundle, bound_inputs
+
+
+def _provider_role_from_profile(provider_name: str) -> str:
+    if provider_name == "codex_unrestricted_workspace":
+        return "codex"
+    if provider_name == "claude_unrestricted_workspace":
+        return "claude_opus"
+    raise AssertionError(f"unrecognized watchdog provider profile: {provider_name}")
+
+
+def _prompt_evidence_sha256s(manager: StateManager) -> list[str]:
+    return sorted(
+        json.loads(path.read_text(encoding="ascii"))["final_prompt"]["sha256"]
+        for path in (manager.run_root / "workflow_lisp/prompt_dependencies").rglob(
+            "attempt-*.json"
+        )
+    )
+
+
+def _publisher_command_instrumentation(capture: dict[str, object]):
+    original_execute_command = WorkflowExecutor._execute_command
+
+    def _execute_command(self, step, state):
+        command = step.get("command")
+        if isinstance(command, list) and command[:2] == [
+            "python",
+            "workflows/library/scripts/publish_run_watchdog_result.py",
+        ]:
+            capture["publisher_executions"] = int(
+                capture.get("publisher_executions", 0)
+            ) + 1
+        return original_execute_command(self, step, state)
+
+    return patch.object(WorkflowExecutor, "_execute_command", _execute_command)
+
+
+def _execute_watchdog_runtime(
+    workspace: Path,
+    *,
+    manager: StateManager,
+    bundle,
+    capture: dict[str, object],
+    resume: bool = False,
+    fail_first_provider_attempt: bool = False,
+    interrupt_after_provider_commit: bool = False,
+) -> dict[str, object]:
+    capture.setdefault("provider_roles", [])
+    capture.setdefault("prompts", [])
+    capture.setdefault("provider_executions", 0)
+    capture.setdefault("publisher_executions", 0)
+
+    def _prepare(_self, provider_name=None, prompt_content=None, env=None, **_kwargs):
+        prompt = str(prompt_content or "")
+        capture["prompts"].append(prompt)
+        return SimpleNamespace(
+            provider_name=provider_name,
+            input_mode="stdin",
+            prompt=prompt,
+            env=env or {},
+        ), None
+
+    def _execute(_self, invocation, **_kwargs):
+        capture["provider_executions"] = int(capture["provider_executions"]) + 1
+        bundle_path = str(invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
+        capture["provider_roles"].append(
+            _provider_role_from_profile(str(invocation.provider_name))
+        )
+        if fail_first_provider_attempt and int(capture["provider_executions"]) == 1:
+            watch_path = workspace / "state/watchdog/watch.json"
+            watch = json.loads(watch_path.read_text(encoding="utf-8"))
+            watch["fixture_dependency_version"] = "after-first-attempt"
+            watch_path.write_text(json.dumps(watch, indent=2) + "\n", encoding="utf-8")
+            return _provider_retryable_failure()
+
+        report_path = workspace / "artifacts/work/watchdog/repair-report.md"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text("# Fixture repair report\n", encoding="utf-8")
+        provider_result = {
+            "repair_status": "FIXED_AND_RESUMED",
+            "fix_complexity": "TRIVIAL",
+            "recovery_action": "RESUME",
+            "repair_report_path": "artifacts/work/watchdog/repair-report.md",
+            "plan_path": "",
+            "new_run_id": "",
+        }
+        compatibility_path = workspace / "artifacts/work/watchdog/repair-result.json"
+        compatibility_path.write_text(
+            json.dumps(provider_result, indent=2) + "\n", encoding="utf-8"
+        )
+        output = workspace / bundle_path
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(provider_result) + "\n", encoding="utf-8")
+        return _provider_success()
+
+    original_emit = WorkflowExecutor._emit_lexical_checkpoint_shadow_after_step_commit
+
+    def _emit_then_interrupt(self, state, step_name, step, finalized):
+        original_emit(self, state, step_name, step, finalized)
+        output_bundle = step.get("output_bundle")
+        fields = output_bundle.get("fields", []) if isinstance(output_bundle, dict) else []
+        field_names = {
+            field.get("name") for field in fields if isinstance(field, dict)
+        }
+        if "provider" in step and {
+            "repair_status",
+            "fix_complexity",
+            "recovery_action",
+            "repair_report_path",
+        }.issubset(field_names):
+            raise _WatchdogProviderBoundaryInterruption
+
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(ProviderExecutor, "prepare_invocation", _prepare))
+        stack.enter_context(patch.object(ProviderExecutor, "execute", _execute))
+        stack.enter_context(_publisher_command_instrumentation(capture))
+        if interrupt_after_provider_commit:
+            stack.enter_context(
+                patch.object(
+                    WorkflowExecutor,
+                    "_emit_lexical_checkpoint_shadow_after_step_commit",
+                    _emit_then_interrupt,
+                )
+            )
+        return WorkflowExecutor(
+            bundle,
+            workspace,
+            manager,
+            max_retries=1,
+            retry_delay_ms=0,
+        ).execute(resume=resume, on_error="stop")
+
+
+def _run_watchdog_runtime_scenario(
+    workspace: Path,
+    *,
+    target_status: str,
+    repair_provider: str = "codex",
+) -> dict[str, object]:
+    bundle, bound_inputs = _prepare_watchdog_runtime_workspace(
+        workspace,
+        target_status=target_status,
+        repair_provider=repair_provider,
+    )
+    manager = StateManager(workspace, run_id="watchdog-candidate")
+    manager.initialize(
+        "workflows/library/generic_run_watchdog/watchdog.orc",
+        context=bundle_context_dict(bundle),
+        bound_inputs=bound_inputs,
+    )
+    capture: dict[str, object] = {}
+    state = _execute_watchdog_runtime(
+        workspace,
+        manager=manager,
+        bundle=bundle,
+        capture=capture,
+    )
+    semantic_result = json.loads(
+        (workspace / "state/watchdog/watchdog-result.json").read_text(encoding="utf-8")
+    )
+    lineage_roots = (workspace / "state/watchdog", workspace / "artifacts/work/watchdog")
+    return {
+        "outputs": state["workflow_outputs"],
+        "provider_roles": capture["provider_roles"],
+        "semantic_result": semantic_result,
+        "lineage_paths": sorted(
+            path.relative_to(workspace).as_posix()
+            for root in lineage_roots
+            for path in root.rglob("*")
+            if path.is_file()
+        ),
+    }
+
+
+def _run_watchdog_retry_resume_scenario(workspace: Path) -> dict[str, object]:
+    bundle, bound_inputs = _prepare_watchdog_runtime_workspace(
+        workspace,
+        target_status="failed",
+        repair_provider="codex",
+    )
+    manager = StateManager(workspace, run_id="watchdog-retry-resume")
+    manager.initialize(
+        "workflows/library/generic_run_watchdog/watchdog.orc",
+        context=bundle_context_dict(bundle),
+        bound_inputs=bound_inputs,
+    )
+    capture: dict[str, object] = {}
+    with pytest.raises(_WatchdogProviderBoundaryInterruption):
+        _execute_watchdog_runtime(
+            workspace,
+            manager=manager,
+            bundle=bundle,
+            capture=capture,
+            fail_first_provider_attempt=True,
+            interrupt_after_provider_commit=True,
+        )
+
+    prompts = list(capture["prompts"])
+    prompt_sha256s = sorted(
+        "sha256:" + hashlib.sha256(str(prompt).encode("utf-8")).hexdigest()
+        for prompt in prompts
+    )
+    persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
+    attempt_ordinals = next(
+        [event["ordinal"] for event in allocation["events"] if event["event"] == "allocated"]
+        for allocation in persisted["provider_attempt_allocations"].values()
+        if sum(event["event"] == "allocated" for event in allocation["events"]) == 2
+    )
+    provider_executions_before_resume = int(capture["provider_executions"])
+    publication_count_before_resume = int(capture["publisher_executions"])
+
+    resume_manager = StateManager(workspace, run_id=manager.run_id)
+    resume_manager.load()
+    with patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        side_effect=AssertionError("completed provider boundary must not prepare on resume"),
+    ), patch.object(
+        ProviderExecutor,
+        "execute",
+        side_effect=AssertionError("completed provider boundary must not execute on resume"),
+    ), _publisher_command_instrumentation(capture):
+        resumed = WorkflowExecutor(
+            bundle, workspace, resume_manager, retry_delay_ms=0
+        ).execute(resume=True, on_error="stop")
+    semantic_result_after_resume = json.loads(
+        (workspace / "state/watchdog/watchdog-result.json").read_text(encoding="utf-8")
+    )
+    publication_count_after_resume = int(capture["publisher_executions"])
+
+    replay_manager = StateManager(workspace, run_id=manager.run_id)
+    replay_manager.load()
+    with patch.object(
+        ProviderExecutor,
+        "prepare_invocation",
+        side_effect=AssertionError("completed replay must not prepare provider"),
+    ), patch.object(
+        ProviderExecutor,
+        "execute",
+        side_effect=AssertionError("completed replay must not execute provider"),
+    ), _publisher_command_instrumentation(capture):
+        replayed = WorkflowExecutor(
+            bundle, workspace, replay_manager, retry_delay_ms=0
+        ).execute(resume=True, on_error="stop")
+    semantic_result_after_replay = json.loads(
+        (workspace / "state/watchdog/watchdog-result.json").read_text(encoding="utf-8")
+    )
+    publication_count_after_replay = int(capture["publisher_executions"])
+
+    return {
+        "status": resumed["status"],
+        "provider_roles": capture["provider_roles"],
+        "attempt_ordinals": attempt_ordinals,
+        "first_dependency_sha256": prompt_sha256s[0],
+        "retry_dependency_sha256": prompt_sha256s[1],
+        "captured_prompt_sha256s": prompt_sha256s,
+        "evidence_prompt_sha256s": _prompt_evidence_sha256s(resume_manager),
+        "provider_executions_before_resume": provider_executions_before_resume,
+        "provider_executions_after_resume": int(capture["provider_executions"]),
+        "publication_count_before_resume": publication_count_before_resume,
+        "publication_count_after_resume": publication_count_after_resume,
+        "publication_count_after_replay": publication_count_after_replay,
+        "semantic_result_after_resume": semantic_result_after_resume,
+        "semantic_result_after_replay": semantic_result_after_replay,
+    }
 
 
 def test_watchdog_yaml_baseline_contract_is_frozen() -> None:
@@ -544,3 +922,74 @@ def test_watchdog_extern_manifests_bind_existing_assets() -> None:
     for row in [*prompts.values(), *commands.values()]:
         relpath = row.get("input_file") or row["stable_command"][1]
         assert (ROOT / relpath).is_file()
+
+
+def test_watchdog_orc_both_branches_preserve_artifact_lineage(tmp_path: Path) -> None:
+    no_action = _run_watchdog_runtime_scenario(
+        tmp_path / "no-action",
+        target_status="running",
+    )
+    codex_repair = _run_watchdog_runtime_scenario(
+        tmp_path / "codex-repair",
+        target_status="failed",
+        repair_provider="codex",
+    )
+    claude_repair = _run_watchdog_runtime_scenario(
+        tmp_path / "claude-repair",
+        target_status="failed",
+        repair_provider="claude_opus",
+    )
+
+    assert no_action["outputs"] == {
+        "return__watch_status": "RUNNING_OK",
+        "return__repair_status": "NO_ACTION",
+        "return__recovery_action": "NONE",
+        "return__watchdog_result_path": "state/watchdog/watchdog-result.json",
+    }
+    assert no_action["provider_roles"] == []
+    no_action_lineage = set(no_action["lineage_paths"])
+    assert {
+        "state/watchdog/watch.json",
+        "state/watchdog/watchdog-result.json",
+        "artifacts/work/watchdog/target-run-evidence.json",
+    }.issubset(no_action_lineage)
+    assert {
+        "artifacts/work/watchdog/repair-result.json",
+        "artifacts/work/watchdog/repair-report.md",
+    }.isdisjoint(no_action_lineage)
+    assert codex_repair["provider_roles"] == ["codex"]
+    assert claude_repair["provider_roles"] == ["claude_opus"]
+    assert codex_repair["outputs"] == claude_repair["outputs"] == {
+        "return__watch_status": "FAILED",
+        "return__repair_status": "FIXED_AND_RESUMED",
+        "return__recovery_action": "RESUME",
+        "return__watchdog_result_path": "state/watchdog/watchdog-result.json",
+    }
+    assert no_action["semantic_result"]["repair_result_path"] == ""
+    assert codex_repair["semantic_result"]["repair_result_path"] == (
+        "artifacts/work/watchdog/repair-result.json"
+    )
+    assert codex_repair["lineage_paths"] == claude_repair["lineage_paths"]
+    assert {
+        "state/watchdog/watch.json",
+        "state/watchdog/watchdog-result.json",
+        "artifacts/work/watchdog/target-run-evidence.json",
+        "artifacts/work/watchdog/repair-result.json",
+        "artifacts/work/watchdog/repair-report.md",
+    }.issubset(set(codex_repair["lineage_paths"]))
+
+
+def test_watchdog_orc_resume_reuses_provider_and_publishes_once(tmp_path: Path) -> None:
+    result = _run_watchdog_retry_resume_scenario(tmp_path / "retry-resume")
+
+    assert result["status"] == "completed"
+    assert result["provider_roles"] == ["codex", "codex"]
+    assert result["attempt_ordinals"] == [1, 2]
+    assert result["first_dependency_sha256"] != result["retry_dependency_sha256"]
+    assert result["captured_prompt_sha256s"] == result["evidence_prompt_sha256s"]
+    assert result["provider_executions_before_resume"] == 2
+    assert result["provider_executions_after_resume"] == 2
+    assert result["publication_count_before_resume"] == 0
+    assert result["publication_count_after_resume"] == 1
+    assert result["publication_count_after_replay"] == 1
+    assert result["semantic_result_after_resume"] == result["semantic_result_after_replay"]
