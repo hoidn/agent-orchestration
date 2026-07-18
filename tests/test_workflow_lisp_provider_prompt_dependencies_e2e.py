@@ -295,8 +295,10 @@ def _bind_inputs(bundle, workspace: Path) -> dict[str, object]:
     )
 
 
+@pytest.mark.parametrize("relative_workflow_file", [False, True])
 def test_real_orc_two_level_call_publishes_root_owned_attempt_scope(
     tmp_path: Path,
+    relative_workflow_file: bool,
 ) -> None:
     module_path, bundle = _compile_call_frame_e2e(tmp_path)
     (module_path.parent / "prompt.md").write_text(
@@ -323,8 +325,13 @@ def test_real_orc_two_level_call_publishes_root_owned_attempt_scope(
         tmp_path,
     )
     manager = StateManager(tmp_path, run_id="two-level-call-scope")
+    workflow_file = (
+        module_path.relative_to(tmp_path).as_posix()
+        if relative_workflow_file
+        else module_path.as_posix()
+    )
     manager.initialize(
-        module_path.as_posix(),
+        workflow_file,
         context=bundle_context_dict(bundle),
         bound_inputs=bound_inputs,
     )

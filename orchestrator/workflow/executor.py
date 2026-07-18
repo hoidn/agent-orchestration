@@ -419,6 +419,10 @@ class WorkflowExecutor:
         )
         if isinstance(manager_scope_path, ResumeScopePath):
             return manager_scope_path
+        manager_state = getattr(self.state_manager, "state", None)
+        workflow_file = getattr(manager_state, "workflow_file", None)
+        if isinstance(workflow_file, str) and workflow_file:
+            return ResumeScopePath.root(workflow_file)
         provenance = workflow_provenance(self.loaded_bundle)
         workflow_path = provenance.workflow_path if provenance is not None else None
         return ResumeScopePath.root(str(workflow_path))
