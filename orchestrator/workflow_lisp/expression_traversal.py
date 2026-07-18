@@ -141,6 +141,9 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return (expr.binding.local_body, expr.body)
     if isinstance(expr, ProviderResultExpr):
         children = [expr.provider, expr.prompt, *expr.inputs]
+        if expr.prompt_dependencies is not None:
+            children.extend(expr.prompt_dependencies.required)
+            children.extend(expr.prompt_dependencies.optional)
         if expr.model is not None:
             children.append(expr.model)
         if expr.effort is not None:

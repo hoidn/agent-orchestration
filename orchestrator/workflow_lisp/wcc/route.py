@@ -374,6 +374,17 @@ def _validate_wcc_m2_expr_supported(
                 local_workflow_signatures=local_workflow_signatures,
                 workflow_ref_value_names=workflow_ref_value_names,
             )
+        if expr.prompt_dependencies is not None:
+            for dependency_expr in (
+                *expr.prompt_dependencies.required,
+                *expr.prompt_dependencies.optional,
+            ):
+                _validate_wcc_m2_expr_supported(
+                    dependency_expr,
+                    workflow_name=workflow_name,
+                    local_workflow_signatures=local_workflow_signatures,
+                    workflow_ref_value_names=workflow_ref_value_names,
+                )
         for policy_expr in (expr.model, expr.effort, expr.timeout_sec):
             if policy_expr is not None:
                 _validate_wcc_m2_expr_supported(
@@ -570,6 +581,17 @@ def _validate_wcc_m3_expr_supported(
                 local_workflow_signatures=local_workflow_signatures,
                 workflow_ref_value_names=workflow_ref_value_names,
             )
+        if expr.prompt_dependencies is not None:
+            for dependency_expr in (
+                *expr.prompt_dependencies.required,
+                *expr.prompt_dependencies.optional,
+            ):
+                _validate_wcc_m3_expr_supported(
+                    dependency_expr,
+                    workflow_name=workflow_name,
+                    local_workflow_signatures=local_workflow_signatures,
+                    workflow_ref_value_names=workflow_ref_value_names,
+                )
         for policy_expr in (expr.model, expr.effort, expr.timeout_sec):
             if policy_expr is not None:
                 _validate_wcc_m3_expr_supported(
@@ -877,6 +899,17 @@ def _validate_wcc_m4_expr_supported(
                 local_workflow_signatures=local_workflow_signatures,
                 workflow_ref_value_names=workflow_ref_value_names,
             )
+        if expr.prompt_dependencies is not None:
+            for dependency_expr in (
+                *expr.prompt_dependencies.required,
+                *expr.prompt_dependencies.optional,
+            ):
+                _validate_wcc_m4_expr_supported(
+                    dependency_expr,
+                    workflow_name=workflow_name,
+                    local_workflow_signatures=local_workflow_signatures,
+                    workflow_ref_value_names=workflow_ref_value_names,
+                )
         for policy_expr in (expr.model, expr.effort, expr.timeout_sec):
             if policy_expr is not None:
                 _validate_wcc_m4_expr_supported(

@@ -34,12 +34,15 @@ and tmux.
 at commit `267925f4`, exact SHA-256
 `293f366020b57d87dfb7eab988247826179f15826c9f61b94cf4f8faf07a7921`.
 
-**Execution status:** Task 1 conditional reviewed candidate prepared at exact
-implementation base `451765a2ebd374111d2cbeab0969cec4830717fb`. The immutable
-preimplementation baseline and its launch subject are complete, but ordered
-specification and quality review verdicts have not yet passed and no Task 1
-commit exists. Task 2 production work, workflow-family port evidence, and
-documentation status closure remain unauthorized.
+**Execution status:** Task 1's immutable preimplementation baseline and launch
+subject passed ordered review and were committed at
+`a2a755ba3c3de53a64f14cc2bfad8fcb85d27e99`. Task 2's first typed frontend
+candidate was rejected by specification review; the replacement adds an actual
+imported procedure call, relpath-bound specialization, specialized-owner generic
+dependency traversal, and explicit non-relpath union-field precedence coverage.
+Its restarted ordered specification and quality reviews are pending.
+Workflow-family port evidence and documentation status closure remain
+unauthorized.
 
 ---
 
@@ -1395,7 +1398,7 @@ is claimed here, and the implementing agent does not stage or commit them.
 - Modify `orchestrator/workflow_lisp/wcc/route.py`
 - Modify this plan
 
-- [ ] **Step 1: Write parser and closed-shape RED tests.**
+- [x] **Step 1: Write parser and closed-shape RED tests.**
 
 Cover required-only, optional-only, mixed, default prepend, authored instruction,
 duplicate/unknown nested keys, empty lists/clause, invalid position, dynamic
@@ -1410,7 +1413,7 @@ pytest -q tests/test_workflow_lisp_provider_prompt_dependencies.py -k 'parser or
 
 Expected: FAIL because `:prompt-dependencies` is rejected.
 
-- [ ] **Step 2: Implement immutable syntax and parsing.**
+- [x] **Step 2: Implement immutable syntax and parsing.**
 
 Add `PromptDependencySpec(required, optional, position, instruction, span,
 form_path, expansion_stack)` and an omit-if-none field on `ProviderResultExpr`.
@@ -1418,7 +1421,7 @@ Parse the nested list as a closed keyword form, preserve authored indices and
 operand spans, reject the private generated-relpath literal as an authoring route,
 and enforce instruction bytes with strict UTF-8.
 
-- [ ] **Step 3: Write type/effect/inline-lowerability RED tests.**
+- [x] **Step 3: Write type/effect/inline-lowerability RED tests.**
 
 Accept only `PathTypeRef` whose definition has `kind == "relpath"`. Reject String,
 path-looking String, primitive, Optional, List, Map, Record, union field not
@@ -1430,13 +1433,13 @@ metadata alone is not an effect.
 
 Run the focused selector and expect failures for missing type rules.
 
-- [ ] **Step 4: Implement typechecking and effect aggregation.**
+- [x] **Step 4: Implement typechecking and effect aggregation.**
 
 Recurse over every row, use a distinct `prompt_dependency_operand_type_invalid`
 diagnostic before the inline-lowerability diagnostic, preserve each typed summary,
 and merge them into the provider effect summary without creating a new effect.
 
-- [ ] **Step 5: Write and satisfy traversal/normalization/specialization/WCC-route
+- [x] **Step 5: Write and satisfy traversal/normalization/specialization/WCC-route
   RED tests.**
 
 Prove `iter_child_exprs`, pure-function normalization, imported inline-procedure
@@ -1451,7 +1454,7 @@ with a synthetic patch containing both an exact `+++ b/path` header and an added
 source line whose content begins `+codex`; require only the header to be excluded
 and the source line to fail the identity scan.
 
-- [ ] **Step 6: Run collection and focused regression.**
+- [x] **Step 6: Run collection and focused regression.**
 
 ```bash
 pytest --collect-only -q tests/test_workflow_lisp_provider_prompt_dependencies.py
@@ -1463,12 +1466,35 @@ pytest -q tests/test_workflow_lisp_provider_call_policy.py tests/test_workflow_l
 
 Expected: collection succeeds; all selected tests pass.
 
-- [ ] **Step 7: Freeze the review subject and dispatch the ordered reviews.**
+- [x] **Step 7: Freeze the review subject and dispatch the ordered reviews.**
 
 Apply the digest-stable protocol above. Commit only after both reviewers PASS the
 unchanged `REVIEW_TREE`.
 
 Suggested commit: `feat: add typed prompt dependency syntax`
+
+The first Task 2 candidate at review tree `97bf1df6` / patch `fb92e6fa` was
+rejected under `TASK2-SPEC-REJECT-20260717-97BF1DF6-01`. Its fixture only
+inspected an original same-file procedure body and therefore did not prove that
+an imported call's relpath binding, specialization metadata, typed effect
+summary, both dependency partitions, policy, and generic child traversal survive
+on the specialized owner. It also lacked an explicit resolved union-field
+non-relpath precedence case. That launch subject is invalid. The replacement
+uses the supported imported-call route plus the public specialization and generic
+expression-traversal owners; no prompt-dependency production drop was exposed,
+so `procedure_specialization.py` and `workflow_refs.py` remain unchanged.
+
+The replacement Task 2 candidate at review tree `cc40751d` / patch `3a75e971`
+was rejected under `TASK2-SPEC-REJECT-20260717-CC40751D-02`. It proved the
+negative synthetic nested-loop rejection but did not prove the required positive
+supported loop-carried relpath case. That launch subject is invalid. The next
+replacement adds an ordinary `loop/recur` whose carried record exposes required
+and optional relpath fields directly to a provider prompt dependency. Behavioral
+coverage proves both fields resolve to `PathTypeRef(kind=relpath)`, the two
+partitions and authored policy survive, the typed provider summary remains, and
+the complete loop passes the Task 2-owned WCC M4 support validator. No production
+drop was exposed, so the repair changes only the fixture and test in addition to
+this rejection record; it does not enter Task 3 lowering.
 
 ## Task 3: Preserve WCC And Lower Through One Typed Owner Side Table
 

@@ -349,6 +349,19 @@ class LetProcExpr:
 
 
 @dataclass(frozen=True)
+class PromptDependencySpec:
+    """Typed authored exact-path inputs for one provider prompt."""
+
+    required: tuple["ExprNode", ...]
+    optional: tuple["ExprNode", ...]
+    position: str
+    instruction: str | None
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class ProviderResultExpr:
     """One provider result with a typed structured return contract."""
 
@@ -367,6 +380,10 @@ class ProviderResultExpr:
         metadata={"json_omit_if_none": True},
     )
     timeout_sec: "ExprNode | None" = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    prompt_dependencies: PromptDependencySpec | None = field(
         default=None,
         metadata={"json_omit_if_none": True},
     )
@@ -2475,6 +2492,7 @@ def _elaborate_provider_result(
         ":model",
         ":effort",
         ":timeout-sec",
+        ":prompt-dependencies",
     }
     invalid_section = next((name for name in sections if name not in allowed_sections), None)
     if invalid_section is not None:
@@ -2571,7 +2589,163 @@ def _elaborate_provider_result(
             if ":timeout-sec" in sections
             else None
         ),
+        prompt_dependencies=(
+            _elaborate_prompt_dependencies(
+                sections[":prompt-dependencies"],
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            )
+            if ":prompt-dependencies" in sections
+            else None
+        ),
         return_spec=return_spec,
+    )
+
+
+def _elaborate_prompt_dependencies(
+    datum: object,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> PromptDependencySpec:
+    if not isinstance(datum, SyntaxList) or not datum.items:
+        _raise_error(
+            "`provider-result :prompt-dependencies` requires a non-empty keyword list",
+            code="prompt_dependencies_clause_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    if len(datum.items) % 2:
+        _raise_error(
+            "`provider-result :prompt-dependencies` requires keyword/value pairs",
+            code="prompt_dependencies_clause_invalid",
+            span=datum.items[-1].span,
+            form_path=form_path,
+            expansion_stack=datum.items[-1].expansion_stack,
+        )
+
+    sections: dict[str, object] = {}
+    for index in range(0, len(datum.items), 2):
+        keyword = datum.items[index]
+        value = datum.items[index + 1]
+        if not isinstance(keyword, SyntaxKeyword):
+            _raise_error(
+                "`provider-result :prompt-dependencies` entries must start with keywords",
+                code="prompt_dependencies_clause_invalid",
+                span=keyword.span,
+                form_path=form_path,
+                expansion_stack=keyword.expansion_stack,
+            )
+        if keyword.value in sections:
+            _raise_error(
+                f"`provider-result :prompt-dependencies` duplicated keyword `{keyword.value}`",
+                code="prompt_dependencies_keyword_duplicate",
+                span=keyword.span,
+                form_path=form_path,
+                expansion_stack=keyword.expansion_stack,
+            )
+        if keyword.value not in {":required", ":optional", ":position", ":instruction"}:
+            _raise_error(
+                f"`provider-result :prompt-dependencies` does not accept `{keyword.value}`",
+                code="prompt_dependencies_keyword_invalid",
+                span=keyword.span,
+                form_path=form_path,
+                expansion_stack=keyword.expansion_stack,
+            )
+        sections[keyword.value] = value
+
+    def operands(section: str) -> tuple[ExprNode, ...]:
+        value = sections.get(section)
+        if value is None:
+            return ()
+        if not isinstance(value, SyntaxList) or not value.items:
+            _raise_error(
+                f"`provider-result :prompt-dependencies {section}` requires a non-empty list",
+                code="prompt_dependencies_clause_invalid",
+                span=value.span,
+                form_path=form_path,
+                expansion_stack=value.expansion_stack,
+            )
+        elaborated = tuple(
+            _elaborate(
+                item,
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            )
+            for item in value.items
+        )
+        generated = next(
+            (item for item in elaborated if isinstance(item, GeneratedRelpathSeedExpr)),
+            None,
+        )
+        if generated is not None:
+            _raise_error(
+                "compiler-generated relpath seeds are not prompt-dependency operands",
+                code="prompt_dependency_generated_relpath_invalid",
+                span=generated.span,
+                form_path=generated.form_path,
+                expansion_stack=generated.expansion_stack,
+            )
+        return elaborated
+
+    required = operands(":required")
+    optional = operands(":optional")
+    if not required and not optional:
+        _raise_error(
+            "`provider-result :prompt-dependencies` requires required or optional operands",
+            code="prompt_dependencies_clause_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+
+    position = "prepend"
+    position_node = sections.get(":position")
+    if position_node is not None:
+        identifier = syntax_identifier(position_node)
+        if identifier is None or identifier.resolved_name not in {"prepend", "append"}:
+            _raise_error(
+                "prompt dependency position must be `prepend` or `append`",
+                code="prompt_dependency_position_invalid",
+                span=position_node.span,
+                form_path=form_path,
+                expansion_stack=position_node.expansion_stack,
+            )
+        position = identifier.resolved_name
+
+    instruction = None
+    instruction_node = sections.get(":instruction")
+    if instruction_node is not None:
+        if not isinstance(instruction_node, SyntaxString):
+            _raise_error(
+                "prompt dependency instruction must be a literal string",
+                code="prompt_dependency_instruction_literal_required",
+                span=instruction_node.span,
+                form_path=form_path,
+                expansion_stack=instruction_node.expansion_stack,
+            )
+        instruction = instruction_node.value
+        if len(instruction.encode("utf-8", errors="strict")) > 261630:
+            _raise_error(
+                "prompt dependency instruction exceeds its UTF-8 byte limit",
+                code="prompt_dependency_instruction_exceeds_byte_limit",
+                span=instruction_node.span,
+                form_path=form_path,
+                expansion_stack=instruction_node.expansion_stack,
+            )
+
+    return PromptDependencySpec(
+        required=required,
+        optional=optional,
+        position=position,
+        instruction=instruction,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
     )
 
 

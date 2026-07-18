@@ -535,6 +535,21 @@ def _normalize_expr(
                 if expr.effort is not None
                 else None
             ),
+            prompt_dependencies=(
+                replace(
+                    expr.prompt_dependencies,
+                    required=tuple(
+                        _normalize_expr(item, typed_functions_by_name=typed_functions_by_name)
+                        for item in expr.prompt_dependencies.required
+                    ),
+                    optional=tuple(
+                        _normalize_expr(item, typed_functions_by_name=typed_functions_by_name)
+                        for item in expr.prompt_dependencies.optional
+                    ),
+                )
+                if expr.prompt_dependencies is not None
+                else None
+            ),
         )
     if isinstance(expr, WithPhaseExpr):
         return replace(

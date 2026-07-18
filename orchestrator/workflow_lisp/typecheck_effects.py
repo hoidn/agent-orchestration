@@ -369,6 +369,56 @@ def typecheck_provider_result_expr(
                 expansion_stack=expr.timeout_sec.expansion_stack,
             )
         policy_summaries.append(typed_timeout.effect_summary)
+    prompt_dependency_summaries = []
+    if expr.prompt_dependencies is not None:
+        for dependency_expr in (
+            *expr.prompt_dependencies.required,
+            *expr.prompt_dependencies.optional,
+        ):
+            dependency_extern_name = _extern_operand_name(dependency_expr)
+            dependency_extern = (
+                context.extern_environment.bindings_by_name.get(dependency_extern_name)
+                if dependency_extern_name is not None and context.extern_environment is not None
+                else None
+            )
+            if isinstance(dependency_extern, ProviderExtern):
+                typed_dependency = typed_factory(
+                    expr=dependency_expr,
+                    type_ref=PrimitiveTypeRef(name="Provider"),
+                    effect=EMPTY_EFFECT_SUMMARY,
+                )
+            elif isinstance(dependency_extern, PromptExtern):
+                typed_dependency = typed_factory(
+                    expr=dependency_expr,
+                    type_ref=PrimitiveTypeRef(name="Prompt"),
+                    effect=EMPTY_EFFECT_SUMMARY,
+                )
+            else:
+                typed_dependency = recurse(dependency_expr)
+            if (
+                not isinstance(typed_dependency.type_ref, PathTypeRef)
+                or typed_dependency.type_ref.definition.kind != "relpath"
+            ):
+                raise_error(
+                    "prompt dependency operands must resolve to a relpath type",
+                    code="prompt_dependency_operand_type_invalid",
+                    span=dependency_expr.span,
+                    form_path=dependency_expr.form_path,
+                    expansion_stack=dependency_expr.expansion_stack,
+                )
+            if (
+                not isinstance(dependency_expr, (NameExpr, FieldAccessExpr))
+                or typed_dependency.effect_summary.direct_effects
+                or typed_dependency.effect_summary.transitive_effects
+            ):
+                raise_error(
+                    "prompt dependency operands must be inline-lowerable references",
+                    code="prompt_dependency_operand_not_inline_lowerable",
+                    span=dependency_expr.span,
+                    form_path=dependency_expr.form_path,
+                    expansion_stack=dependency_expr.expansion_stack,
+                )
+            prompt_dependency_summaries.append(typed_dependency.effect_summary)
     input_summaries = []
     for input_expr in expr.inputs:
         typed_input = recurse(input_expr)
@@ -384,6 +434,7 @@ def typecheck_provider_result_expr(
             typed_provider.effect_summary,
             typed_prompt.effect_summary,
             *policy_summaries,
+            *prompt_dependency_summaries,
             *input_summaries,
             provider_summary,
         ),
