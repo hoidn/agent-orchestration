@@ -46,44 +46,20 @@ Task 6 is wholly skipped under the 2026-07-18 user scope override and makes no
 platform-preflight or descriptor-read claim. Task 7's functional durability,
 aggregate-owner, closed-scope, allocator, event, and concurrency implementation
 passed both ordered reviews and committed at `dd23f224`. Task 8's functional
-record, publication, allocator-projection, terminal-index, CLI, and concurrency
-implementation passed both ordered reviews and committed at `42e0ebc3`. Its prior exact tree
-`ea1dd5c1aecf79452c5ed0e7fbf5b566ec502036` / patch
-`df50e604e5abbd05147f5f7293cc83b935e72184fee880b0b3066afed38849b2`
-passed specification review as `TASK8-SPEC-PASS-20260718-EA1DD5C1-01` but was
-rejected by functional implementation-quality review as
-`TASK8-QUALITY-REJECT-20260718-EA1DD5C1-01`: the success validator admitted
-impossible render-status ordering and multiple truncated groups. Focused
-test-first metadata-order corrections are in progress; both ordered reviews must
-restart on a new exact tree and patch before Task 8 can pass. The corrected
-replacement tree `638b67f030c1bada99b24cb766e7b929151c252e` / patch
-`f6f986d1140c4aa77ba61e006fefb4001fd819cafdee5c93067fea7d8a5313a5`
-was then rejected by functional implementation-quality review as
-`TASK8-QUALITY-REJECT-20260718-638B67F0-02`: the production state machine was
-correct, but tests lacked a genuine shared-renderer positive boundary proving
-legal complete/truncated/omitted sequences. Renderer-derived positive regressions
-now cover both `complete* -> truncated -> omitted*` and
-`complete* -> omitted*`. The final replacement tree
-`14296ca07657624a19e463d9a8bf08bd8caa6b1d` / patch
-`1065e07edda7c73f82eec3dd3b1b506668d18f3fc26d2421160f8a1755ea5fb4`
-passed the restarted functional specification review as
-`TASK8-SPEC-PASS-20260718-14296CA0-03` and the ordered implementation-quality
-review as `TASK8-QUALITY-APPROVED-20260718-14296CA0-01`. A later retrospective
-review of committed Task 8 subject commit
-`42e0ebc3445f63e05c094b71f069369d763b1985`, tree
-`12cd555c497cca195b18c09c8c8269f2df05d7f1`, and patch
-`526ca8a5038eb73d8bf027f21ec78f3958ba26ba13b918edaf47b0e83572a574`
-passed specification review as
-`TASK8-RETRO-SPEC-PASS-20260718-12CD555C-01` but was rejected by functional
-quality review as `TASK8-RETRO-QUALITY-REJECT-20260718-12CD555C-01`:
-first-time publication created a nested directory chain but fsynced only the
-leaf, so ancestor directory entries could be lost across power loss despite a
-reported successful publication. The focused durability repair and both ordered
-replacement reviews are required before Task 8 is closed again. Task 9 functional
-per-attempt composition and typed ordinary-provider evidence integration are now
-in progress.
-Workflow-family port evidence and documentation status closure remain
-unauthorized.
+evidence implementation committed at `42e0ebc3`; retrospective review exposed
+an ancestor-directory durability defect, which the generic repair committed at
+`12899009` closed under fresh ordered reviews. Task 9's per-attempt composition
+committed at `42839223`; retrospective review exposed a completion-failure-domain
+defect, which the generic repair committed at `21de86ce` closed under fresh
+ordered reviews. Task 10's functional crash/resume and real `.orc` coverage
+committed at `be8247ea` and passed retrospective exact-object reviews. The Task 11
+CLI regression repair committed at `4d0067bb`; the Task 8 and Task 9 retrospective
+repairs followed, and the strict long-duration broad-summary parser repair passed
+both ordered reviews and committed at `fa54148b`. Fresh Task 11 focused,
+genericity, broad, isolated-row, and exact-baseline comparison evidence passed,
+but holistic quality review reopened Task 11 for allocator-repair correctness and
+Git-native trailer reconstruction. Documentation closure and workflow-family
+port claims remain unauthorized until Tasks 11-13 complete.
 
 ---
 
@@ -661,7 +637,22 @@ on both sides, proving that authorities, subject, capture, environment, totals,
 and all failure rows are byte-semantically unchanged. No raw evidence or outcome
 is regenerated or used to rewrite the baseline. After this one reviewed
 migration lands, the baseline is immutable again; later work never rewrites it
-to match an outcome. The capture may record the protected dirty paths and the
+to match an outcome, except for one second correctness-driven metadata-only
+migration after holistic quality review proved that the helper accepted
+blank-separated pseudo-trailers. That correction changes only
+`normalization.helper_sha256` from
+`b60c395e78dd757bd7bf1cb1eeac70428ba84195f3991443b91ec16e537a538c` to
+`9e89808fe8def74d3fb852e5f98f90185e8ade23af9ed45af9ffdafc21dbf43d`
+and the canonically derived `record_sha256` from
+`ead6d7f11ad9b2222a376135ac5c03336b1685c107a39d4c117e89892a063058`
+to `ffdf483a20ba4b0bb5a12b9bd0eef4ca50626c9a138bb1e43cc51ec4fafc7d34`.
+The target baseline file SHA-256 is
+`183b62705ced7cd67aaa8200b3ec71b30a93dd0960ef1595077146c67d5bbad2`;
+the canonical helper-sentinel invariant remains
+`eba9b11a15ef5c42a10b05055a3835c342d9d71d6b7ab6662b6dcb75f3a71be4`,
+so no authority, subject, captured evidence, environment, totals, or failure row
+changes. After this second reviewed migration, the baseline is immutable again.
+The capture may record the protected dirty paths and the
 separately owned YAML-deletion plan listed above, but every other dirty path must
 be absent or explicitly part of Task 1's reviewed subject.
 
@@ -2291,7 +2282,18 @@ directory sync could leave created residue, after which a successful retry
 skipped the potentially incomplete ancestor sync. That candidate is superseded
 by a bounded durable-anchor repair that resyncs every chain component and its
 parent on every successful invocation, including failed-then-retried current and
-index publication. No replacement approval is claimed here.
+index publication. That superseded candidate claimed no replacement approval.
+
+The replacement repair committed as
+`128990096b87d3cb70218278aea3e982586faebc`, exact tree
+`06cf3f8f1df39e593ba9bfe7b704e0415063b6c3`, and binary patch SHA-256
+`d52e45a17371bd4f96eb2cbc25d286c7ee78f299d667ac454587ad95098ab388`.
+It passed specification review
+`TASK8-DURABILITY-REPAIR-SPEC-PASS-20260718-06CF3F8F-02` and functional-quality
+review `TASK8-DURABILITY-REPAIR-QUALITY-APPROVED-20260718-06CF3F8F-01`, both
+recorded in that commit's trailers. The repair resyncs every bounded directory
+component and its parent on every invocation, including retry residue, closing
+the retrospective blocker without changing the content-free evidence contract.
 
 Suggested commit: `feat: publish prompt dependency evidence`
 
@@ -2527,6 +2529,17 @@ of the replacement records `177` collected five-module integration tests, `148`
 passes across both modified modules, and `307` adjacent
 prompting/resume/evidence/provider regressions; the adjudicated runtime/resume
 tranche is now `84`. Both ordered reviews must restart on the new exact subject.
+
+The replacement repair committed as
+`21de86ceffd9a31262e86741871d75d279215e21`, exact tree
+`03e58c65352e4d3ed621e43fc96113f3078e5d5e`, and binary patch SHA-256
+`919364f2a43cb5cc76fecdacfae0cbf9dbfdcf63dbb1b4b557e85c337b9969b3`.
+It passed specification review
+`TASK9-FAILURE-REPAIR-SPEC-PASS-20260718-03E58C65-02` and functional-quality
+review `TASK9-FAILURE-REPAIR-QUALITY-APPROVED-20260718-03E58C65-01`, both
+recorded in that commit's trailers. Primary and shared/adjudicated consumers now
+separate typed prompt completion failures from genuine dependency-render failures,
+closing the retrospective blocker without family-specific behavior.
 
 ```bash
 pytest --collect-only -q tests/test_prompt_contract_injection.py tests/test_injection_integration.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_resume.py tests/test_at72_provider_state_persistence.py
@@ -2819,6 +2832,15 @@ corrections above supersede the rejected candidate only after a fresh immutable
 subject and restarted ordered specification-then-quality reviews; no earlier
 approval token applies to the corrected tree.
 
+Retrospective exact-object review bound the committed Task 10 subject as commit
+`be8247ead9f1b3fc73997f50b9bdbd40a4a37784`, tree
+`ac9f4728eb3e40579553d3531e57eded5d6c5c23`, and binary patch SHA-256
+`d62628d10f85a11bb25e103630b55c1fe0ac41872893960441e6bd5f743f9678`.
+Specification verdict `TASK10-RETRO-SPEC-PASS-20260718-AC9F4728-01` and
+functional-quality verdict
+`TASK10-RETRO-QUALITY-APPROVED-20260718-AC9F4728-01` both passed with no
+findings.
+
 Suggested commit: `test: prove prompt dependency runtime semantics`
 
 ## Task 11: Close Implementation Verification Before Documentation
@@ -2845,7 +2867,8 @@ a real defect, in which case return to the owning task/review loop.
 recorded below predate retrospective production blockers. They are not completion
 evidence. After every repair lands with its ordered reviews, delete the current
 temporary capture, create a fresh subject from the new HEAD, and rerun Task 11
-from Step 1. The checkboxes are therefore reopened.
+from Step 1. The checkboxes were therefore reopened until the fresh execution
+recorded below.
 
 The subsequent Task 11 capture at HEAD
 `21de86ceffd9a31262e86741871d75d279215e21` is also diagnostic evidence only.
@@ -2861,9 +2884,9 @@ duration at end of line. The generic parser repair accepts pytest's optional
 tightly formed parenthesized `H:MM:SS` suffix, normalizes the complete variable
 duration, and continues to reject malformed suffixes and trailing junk. Because
 the helper, its tests, and this plan changed after subject capture, the entire
-capture is invalidated. After this repair passes its ordered reviews and lands,
-Task 11 must delete the temporary capture, create a fresh subject from the new
-HEAD, and rerun Steps 1-4; every Task 11 checkbox remains reopened. Specification
+capture was invalidated. The repair therefore required deletion of the temporary
+capture and a fresh Task 11 subject and Steps 1-4 execution from its landed HEAD.
+Specification
 review `TASK11-DURATION-SPEC-FAIL-20260718-D73C9C0A-01` rejected the first repair
 candidate because it recorded the wrong full capture HEAD, allowed out-of-range
 minute/second fields and trailing whitespace, consumed LF/CRLF during
@@ -2879,6 +2902,65 @@ machine-specific interpreter path from captured evidence. The replacement test
 calls the loaded validator directly and supplies the captured interpreter string
 only as contract data, so no executable at that historical path is required;
 the captured baseline remains byte-unchanged.
+
+The final parser candidate passed restarted specification review
+`TASK11-DURATION-SPEC-PASS-20260718-B29957B9-01` and functional-quality review
+`TASK11-DURATION-QUALITY-APPROVED-20260718-B29957B9-01`, then committed as
+`fa54148be469f4d58755079bf8b02766738328d5`, exact tree
+`b29957b9cab299462ddde2b0e6f4d2dc51dac603`.
+
+**Enumerated trailer-provenance closure:** the original Task 8, Task 9, and
+Task 10 commits predate the required review trailers. This Task 11 plan-only
+commit is the sole permitted closure record for those three exact objects; it is
+not a generic missing-trailer waiver. It binds Task 8 commit `42e0ebc3`, tree
+`12cd555c497cca195b18c09c8c8269f2df05d7f1`, patch
+`526ca8a5038eb73d8bf027f21ec78f3958ba26ba13b918edaf47b0e83572a574`,
+retrospective specification PASS `TASK8-RETRO-SPEC-PASS-20260718-12CD555C-01`,
+retrospective quality REJECT `TASK8-RETRO-QUALITY-REJECT-20260718-12CD555C-01`,
+and its closing reviewed repair `12899009` with the exact review tokens recorded
+above. It binds Task 9 commit `42839223`, tree
+`61c39268e7855823cd927e33eb496172ebe97ea5`, patch
+`70e8427b7d90879f5d366a317d1bc9c305758ad176786464a926ab88c4ba25d5`,
+retrospective specification PASS `TASK9-RETRO-SPEC-PASS-20260718-61C39268-01`,
+retrospective quality REJECT `TASK9-RETRO-QUALITY-REJECT-20260718-61C39268-01`,
+and its closing reviewed repair `21de86ce` with the exact review tokens recorded
+above. It binds Task 10 commit `be8247ea`, tree
+`ac9f4728eb3e40579553d3531e57eded5d6c5c23`, patch
+`d62628d10f85a11bb25e103630b55c1fe0ac41872893960441e6bd5f743f9678`,
+retrospective specification PASS `TASK10-RETRO-SPEC-PASS-20260718-AC9F4728-01`,
+and retrospective quality APPROVED
+`TASK10-RETRO-QUALITY-APPROVED-20260718-AC9F4728-01`. Task 13 may accept missing
+original trailers only for these three exact objects and only when this Task 11
+closure commit itself has a matching immutable review tree, patch digest, and
+ordered PASS/APPROVED trailers. Every other task commit must satisfy the original
+trailer rule directly.
+
+Holistic specification review
+`TASK11-HOLISTIC-SPEC-FAIL-20260718-13196795-01` rejected the first Task 11
+freeze because the parser-repair commit used noncanonical review-trailer names
+and omitted its review tree and patch binding. The commit was amended
+metadata-only to the exact direct trailer form above, preserving tree
+`b29957b9cab299462ddde2b0e6f4d2dc51dac603`; because its commit identity changed,
+all Task 11 capture and review evidence was invalidated and Steps 1-4 reopened.
+
+The replacement freeze passed holistic specification review as
+`TASK11-HOLISTIC-SPEC-PASS-20260718-FE11C070-02` but functional-quality review
+`TASK11-HOLISTIC-QUALITY-REJECT-20260718-FE11C070-01` found three blockers. First,
+a pre-step backup could restore state from before a durably committed provider
+attempt allocation and reuse its ordinal. The generic correction must durably
+establish a run-root allocation-started repair barrier before committing an
+ordinal and make backup repair fail closed, without replacing the primary, when
+that barrier, the legacy aggregate-lock migration signal, or an allocator-bearing
+backup exists. Second, the broad-gate helper must obtain review metadata from
+Git's parsed terminal trailer block and reject blank-separated pseudo-trailers.
+Third, the linear Task 1-11 commit chain must be reconstructed metadata-only with
+identical trees, parent-relative patches, subjects, identities, and timestamps so
+all ten directly reviewed commits have contiguous canonical trailers. The three
+original Task 8/9/10 commits remain the only exact-object exceptions; the final
+closure records their old reviewed full IDs and reconstructed full IDs and proves
+subject/tree/patch equality. The helper and allocator corrections each require
+TDD plus restarted ordered reviews before reconstruction, and the complete Task 11
+capture is invalidated again after every resulting commit-identity change.
 
 - [ ] **Step 1: Run the complete focused tranche.**
 
@@ -2934,12 +3016,12 @@ python scripts/provider_prompt_dependency_broad_gate.py verify-subject \
 Expected: all pass with only already-reviewed platform skips.
 
 Fresh evidence at implementation HEAD
-`4d0067bb426e4b4473ca7947540b93edf317f887`: the launch-phase subject
+`fa54148be469f4d58755079bf8b02766738328d5`: the launch-phase subject
 verification passed before and after the focused tranche, and the focused
-tranche passed `700` tests in `24.70s`. The fresh subject manifest has file
-SHA-256 `3a070c6515c6dd786eeb7915f6bf1fb551ab32086cf29640b0f1e56d38e842d9`,
-record SHA-256 `6891be961bc37f3a47d7e058f8744451e5bbf4d0ec29002feaf24866b46c1ccd`,
-and index tree `a434d1c4472e49ecf559bc3bae5c221c66d8c298`.
+tranche passed `724` tests in `25.47s`. The fresh subject manifest has file
+SHA-256 `e042908703009b474038b166c843cfad9737ca74951209f23604193b5266c394`,
+record SHA-256 `acdfaba6e460663254a307e26d0e2e5d8727808a4b9e45e7aaaa2085198bf276`,
+and index tree `b29957b9cab299462ddde2b0e6f4d2dc51dac603`.
 
 - [ ] **Step 2: Run genericity, absence, and source guards.**
 
@@ -3080,11 +3162,11 @@ from ordinary generic provider or module terminology.
 
 Fresh evidence: the implementation base
 `451765a2ebd374111d2cbeab0969cec4830717fb` is an ancestor of the implementation
-HEAD; the genericity subject contains `7106` added lines and zero forbidden
+HEAD; the genericity subject contains `7155` added lines and zero forbidden
 identity matches. The genericity diff SHA-256 is
-`7e34345d4b660e53096ffded6ac7cafa4df4a470d7b0d308d7a7b0ca27e74164`,
+`efecb44ad7cdeff541c38ce4ddaf43f19a33f1a040160bd0cf593dd5a2c55756`,
 the extracted-added-lines SHA-256 is
-`482be25be21b80abd0afdcbebf05cf61de4e0f9665e28b904306d749e8b56b32`,
+`2c4818e1908378ce0696853556e8472232930980ddc8be9fd6b185e51e110e1a`,
 and all five functional guards passed.
 
 - [ ] **Step 3: Run the broad suite in persistent tmux.**
@@ -3266,18 +3348,19 @@ A raw pytest exit `1` is acceptable only when its complete observed set equals
 the reviewed baseline minus reviewed remediations. Do not infer acceptance from
 pane death, pytest's exit alone, or a human reading of the failure summary.
 
-Fresh evidence: collection exited `0` with `5774` collected tests. The broad
-suite exited `1` with exactly `6` failed, `5751` passed, `17` skipped, and
-`5774` total; every one of the six baseline rows also exited `1` in isolation.
+Fresh evidence: collection exited `0` with `5798` collected tests. The broad
+suite exited `1` with exactly `6` failed, `5775` passed, `17` skipped, `33`
+warnings, and `5798` total in `57.03s`; every one of the six baseline rows also
+exited `1` in isolation.
 The comparator accepted the exact-baseline branch. The baseline file SHA-256 is
-`3d71df6eb7777db7af96ec9271a259078aa307cfbd5da71d7c4a6bc96f6426d0`
+`c382f8f70264f1cdc9a31d2100009463b8e8b56a51fb41cd67a4cb5c6e1b82c6`
 and its record SHA-256 is
-`d6677f99da9ba471696cd2b47d38397881ec9a50eea69a56807d38a592df3b90`.
+`ead6d7f11ad9b2222a376135ac5c03336b1685c107a39d4c117e89892a063058`.
 The remediation directory was absent, so no remediation record was selected.
 The outcome file SHA-256 is
-`d7b4d4e941468d6dc0a3d7dac1be573faf5ffe56aeefaede8e7b9c11ee5a12b4`
+`ea7340471e531903349042f8dab8997e2ef63cb8460674431d2c731d0c2167eb`
 and its record SHA-256 is
-`cc6dc531e0f628eb37e581bf05d8fed08b2ecda15f97093b7291c536111fcc5f`.
+`934c133b7c1d7fa7b4bc847dadfc40d96b4ac5102737be0e4b5d1657a3b4ffaf`.
 The allowed untracked YAML plan remained byte-identical at SHA-256
 `2de3c7aafd13e7518f9030621fcc1a13a70daa8ae1418c6bf81be1d3f8918d2d`.
 

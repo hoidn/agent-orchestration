@@ -830,7 +830,119 @@ def test_repair_skips_semantically_invalid_newest_backup_for_older_valid_backup(
     )
 
 
-def test_allocator_bearing_repair_enables_durable_writes_for_subsequent_mutation(
+def test_repair_refuses_pre_allocation_backup_after_committed_provider_ordinal(
+    tmp_path: Path,
+) -> None:
+    root = _prepare_direct_scope_root(tmp_path, run_id="pre-allocation-repair")
+    root.backup_enabled = True
+    root.update_control_flow_counters(1, {"Provider": 1})
+    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
+    root.backup_state("Provider")
+    backup = root.run_root / "state.json.step_Provider.bak"
+    backup_bytes = backup.read_bytes()
+    scope = _attempt_module().ProviderAttemptScope.from_dict(
+        _direct_scope_payload(root)
+    )
+
+    assert root.allocate_provider_attempt(scope) == 1
+    assert (
+        root.run_root / ".provider-attempt-allocation-started"
+    ).read_bytes() == b'{"schema_version":"provider_attempt_repair_barrier.v1"}\n'
+    corrupt_primary = b"invalid json {"
+    root.state_file.write_bytes(corrupt_primary)
+    repairing = StateManager(tmp_path, run_id=root.run_id)
+
+    assert repairing.attempt_repair() is False
+    assert repairing.state_file.read_bytes() == corrupt_primary
+    assert backup.read_bytes() == backup_bytes
+
+
+def test_provider_attempt_barrier_failure_prevents_allocator_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestrator.state as state_module
+
+    root = _prepare_direct_scope_root(tmp_path, run_id="barrier-write-failure")
+    root.update_control_flow_counters(1, {"Provider": 1})
+    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
+    scope = _attempt_module().ProviderAttemptScope.from_dict(
+        _direct_scope_payload(root)
+    )
+    primary_before = root.state_file.read_bytes()
+    real_writer = state_module.durable_atomic_write
+
+    def fail_barrier(path: Path, payload: bytes) -> None:
+        if path.name == ".provider-attempt-allocation-started":
+            raise OSError("barrier write failed")
+        real_writer(path, payload)
+
+    monkeypatch.setattr(state_module, "durable_atomic_write", fail_barrier)
+
+    with pytest.raises(OSError, match="barrier write failed"):
+        root.allocate_provider_attempt(scope)
+
+    assert root.state_file.read_bytes() == primary_before
+    assert not (root.run_root / ".provider-attempt-allocation-started").exists()
+    assert root.state is not None
+    assert root.state.provider_attempt_allocations == {}
+
+
+def test_repair_refuses_legacy_aggregate_lock_without_new_barrier(
+    tmp_path: Path,
+) -> None:
+    manager = StateManager(tmp_path, run_id="legacy-aggregate-repair", backup_enabled=True)
+    manager.initialize(_workflow(tmp_path))
+    manager.backup_state("Provider")
+    backup = manager.run_root / "state.json.step_Provider.bak"
+    backup_bytes = backup.read_bytes()
+    legacy_lock = (
+        manager.run_root
+        / "workflow_lisp"
+        / "prompt_dependencies"
+        / ".aggregate.lock"
+    )
+    legacy_lock.parent.mkdir(parents=True, exist_ok=True)
+    legacy_lock.touch()
+    corrupt_primary = b"invalid json {"
+    manager.state_file.write_bytes(corrupt_primary)
+    repairing = StateManager(tmp_path, run_id=manager.run_id)
+
+    assert repairing.attempt_repair() is False
+    assert repairing.state_file.read_bytes() == corrupt_primary
+    assert backup.read_bytes() == backup_bytes
+
+
+def test_repair_refuses_allocator_bearing_backup_without_legacy_signal(
+    tmp_path: Path,
+) -> None:
+    root = _prepare_direct_scope_root(tmp_path, run_id="allocator-backup-repair")
+    root.update_control_flow_counters(1, {"Provider": 1})
+    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
+    scope = _attempt_module().ProviderAttemptScope.from_dict(
+        _direct_scope_payload(root)
+    )
+    backup_payload = json.loads(root.state_file.read_bytes())
+    backup_payload["provider_attempt_allocations"] = {
+        scope.key: {
+            "scope": scope.to_dict(),
+            "last_allocated_ordinal": 1,
+            "events": [{"ordinal": 1, "event": "allocated"}],
+        }
+    }
+    backup = root.run_root / "state.json.step_Provider.bak"
+    backup.write_text(json.dumps(backup_payload, indent=2), encoding="utf-8")
+    backup_bytes = backup.read_bytes()
+    corrupt_primary = b"invalid json {"
+    root.state_file.write_bytes(corrupt_primary)
+    repairing = StateManager(tmp_path, run_id=root.run_id)
+
+    assert repairing.attempt_repair() is False
+    assert repairing.state_file.read_bytes() == corrupt_primary
+    assert backup.read_bytes() == backup_bytes
+
+
+def test_allocator_bearing_repair_fails_closed_without_mutating_files(
     tmp_path: Path,
 ) -> None:
     root = _prepare_direct_scope_root(tmp_path, run_id="allocator-repair-enablement")
@@ -840,21 +952,20 @@ def test_allocator_bearing_repair_enables_durable_writes_for_subsequent_mutation
     assert root.allocate_provider_attempt(scope) == 1
     backup = root.run_root / "state.json.step_allocator.bak"
     backup.write_bytes(root.state_file.read_bytes())
-    root.state_file.write_text("invalid json {")
+    backup_bytes = backup.read_bytes()
+    corrupt_primary = b"invalid json {"
+    root.state_file.write_bytes(corrupt_primary)
     repairing = StateManager(tmp_path, run_id=root.run_id)
 
     assert repairing._durable_state_writes is False
-    assert repairing.attempt_repair() is True
-    assert repairing._durable_state_writes is True
-    repairing.update_status("completed")
-    persisted = json.loads(repairing.state_file.read_bytes())
-    assert persisted["status"] == "completed"
-    assert persisted["provider_attempt_allocations"][scope.key][
-        "last_allocated_ordinal"
-    ] == 1
+    assert repairing.attempt_repair() is False
+    assert repairing._durable_state_writes is False
+    assert repairing.state is None
+    assert repairing.state_file.read_bytes() == corrupt_primary
+    assert backup.read_bytes() == backup_bytes
 
 
-def test_allocator_bearing_repair_uses_durable_writer_for_restoration(
+def test_allocator_bearing_repair_never_invokes_state_writer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -865,10 +976,11 @@ def test_allocator_bearing_repair_uses_durable_writer_for_restoration(
     root.start_step("Provider", 0, "provider", "ProviderStep", 1)
     scope = _attempt_module().ProviderAttemptScope.from_dict(_direct_scope_payload(root))
     assert root.allocate_provider_attempt(scope) == 1
-    expected = root.state_file.read_bytes()
     backup = root.run_root / "state.json.step_allocator.bak"
-    backup.write_bytes(expected)
-    root.state_file.write_text("invalid json {")
+    backup.write_bytes(root.state_file.read_bytes())
+    backup_bytes = backup.read_bytes()
+    corrupt_primary = b"invalid json {"
+    root.state_file.write_bytes(corrupt_primary)
     repairing = StateManager(tmp_path, run_id=root.run_id)
     calls: list[tuple[Path, bytes]] = []
     real_writer = state_module.durable_atomic_write
@@ -879,13 +991,14 @@ def test_allocator_bearing_repair_uses_durable_writer_for_restoration(
 
     monkeypatch.setattr(state_module, "durable_atomic_write", tracking_writer)
 
-    assert repairing.attempt_repair() is True
-    assert calls == [(repairing.state_file, expected)]
-    assert repairing.state_file.read_bytes() == expected
-    assert repairing._durable_state_writes is True
+    assert repairing.attempt_repair() is False
+    assert calls == []
+    assert repairing.state_file.read_bytes() == corrupt_primary
+    assert backup.read_bytes() == backup_bytes
+    assert repairing._durable_state_writes is False
 
 
-def test_unaffected_repair_retains_legacy_copy_without_lock_or_durable_writer(
+def test_unaffected_repair_retains_legacy_copy_without_durable_writer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -909,7 +1022,7 @@ def test_unaffected_repair_retains_legacy_copy_without_lock_or_durable_writer(
     assert calls == []
     assert repairing.state_file.read_bytes() == expected
     assert repairing._durable_state_writes is False
-    assert not (repairing.run_root / ".state-mutation.lock").exists()
+    assert (repairing.run_root / ".state-mutation.lock").is_file()
 
 
 def test_resolve_aggregate_owner_returns_root_scope_and_leaf(tmp_path: Path) -> None:

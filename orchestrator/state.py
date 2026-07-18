@@ -228,6 +228,10 @@ class StateManager:
     """Manages run state with atomic writes and recovery."""
 
     SCHEMA_VERSION = "2.1"
+    PROVIDER_ATTEMPT_REPAIR_BARRIER_NAME = ".provider-attempt-allocation-started"
+    PROVIDER_ATTEMPT_REPAIR_BARRIER_BYTES = (
+        b'{"schema_version":"provider_attempt_repair_barrier.v1"}\n'
+    )
 
     def __init__(
         self,
@@ -282,7 +286,12 @@ class StateManager:
         self._durable_state_writes = True
 
     @contextmanager
-    def _state_mutation(self, *, reload_from_disk: bool = True):
+    def _state_mutation(
+        self,
+        *,
+        reload_from_disk: bool = True,
+        force_process_lock: bool = False,
+    ):
         """Acquire process coordination before the root in-process lock.
 
         Public read-modify-write methods use the default authoritative reload
@@ -302,7 +311,7 @@ class StateManager:
             return
         process_lock = (
             exclusive_file_lock(self.run_root / ".state-mutation.lock")
-            if self._durable_state_writes
+            if self._durable_state_writes or force_process_lock
             else nullcontext()
         )
         with process_lock:
@@ -355,6 +364,19 @@ class StateManager:
         payload = json.dumps(self.state.to_dict(), indent=2).encode("utf-8")
         durable_atomic_write(self.state_file, payload)
 
+    def _ensure_provider_attempt_repair_barrier(self) -> None:
+        """Durably record that backup repair can no longer prove allocator freshness."""
+
+        barrier = self.run_root / self.PROVIDER_ATTEMPT_REPAIR_BARRIER_NAME
+        if barrier.exists():
+            if barrier.read_bytes() != self.PROVIDER_ATTEMPT_REPAIR_BARRIER_BYTES:
+                raise ValueError("provider attempt repair barrier is invalid")
+            return
+        durable_atomic_write(
+            barrier,
+            self.PROVIDER_ATTEMPT_REPAIR_BARRIER_BYTES,
+        )
+
     def allocate_provider_attempt(self, scope: Any) -> int:
         """Allocate and durably persist one root-owned provider attempt ordinal."""
 
@@ -383,6 +405,7 @@ class StateManager:
                 allocations = validate_provider_attempt_allocations(
                     self.state.provider_attempt_allocations
                 )
+                self._ensure_provider_attempt_repair_barrier()
                 entry = allocations.get(scope.key)
                 if entry is None:
                     ordinal = 1
@@ -1259,27 +1282,43 @@ class StateManager:
         Returns:
             True if repair successful, False otherwise
         """
-        with self._state_mutation(reload_from_disk=False):
+        with self._state_mutation(
+            reload_from_disk=False,
+            force_process_lock=True,
+        ):
+            repair_barrier = (
+                self.run_root / self.PROVIDER_ATTEMPT_REPAIR_BARRIER_NAME
+            )
+            legacy_aggregate_lock = (
+                self.run_root
+                / "workflow_lisp"
+                / "prompt_dependencies"
+                / ".aggregate.lock"
+            )
+            if repair_barrier.exists() or legacy_aggregate_lock.exists():
+                return False
+
             backup_pattern = "state.json.step_*.bak"
             backups = sorted(self.state_file.parent.glob(backup_pattern), reverse=True)
-
+            valid_backups: list[tuple[Path, RunState]] = []
             for backup in backups:
                 try:
                     with open(backup, 'r') as f:
                         data = json.load(f)
                     state = RunState.from_dict(data)
-                    repair_requires_durability = (
-                        self._durable_state_writes
-                        or bool(state.provider_attempt_allocations)
-                    )
-                    if repair_requires_durability:
-                        self.enable_durable_state_writes()
-                        durable_atomic_write(self.state_file, backup.read_bytes())
-                    else:
-                        shutil.copy2(backup, self.state_file)
-                    self.state = state
-                    return True
                 except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                     continue
+                if state.provider_attempt_allocations:
+                    return False
+                valid_backups.append((backup, state))
+
+            if valid_backups:
+                backup, state = valid_backups[0]
+                if self._durable_state_writes:
+                    durable_atomic_write(self.state_file, backup.read_bytes())
+                else:
+                    shutil.copy2(backup, self.state_file)
+                self.state = state
+                return True
 
         return False
