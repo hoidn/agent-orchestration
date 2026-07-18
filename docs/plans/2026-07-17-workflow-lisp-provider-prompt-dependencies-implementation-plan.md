@@ -34,28 +34,34 @@ and tmux.
 at commit `267925f4`, exact SHA-256
 `293f366020b57d87dfb7eab988247826179f15826c9f61b94cf4f8faf07a7921`.
 
-**Execution status:** Tasks 1-3 are committed through `185268b2`: the immutable
+**Execution status:** Tasks 1-3 are committed through reconstructed `044b3278`:
+the immutable
 preimplementation baseline, typed frontend, classic/WCC owner-side-table
 projection, canonical compiler contract, and source-map lineage all passed their
 ordered gates. Task 4 functional typed-IR transport passed both ordered reviews
-and committed at `b43a2025`. Task 5 immutable snapshot rendering, exact byte
+and committed at reconstructed `6fa32d0d`. Task 5 immutable snapshot rendering, exact byte
 budgeting, stable successful-YAML compatibility, and typed exact resolution passed
 its replacement specification-compliance and implementation-quality reviews and
-committed at `cd2f4c1f`.
+committed at reconstructed `a1fe6cde`.
 Task 6 is wholly skipped under the 2026-07-18 user scope override and makes no
 platform-preflight or descriptor-read claim. Task 7's functional durability,
 aggregate-owner, closed-scope, allocator, event, and concurrency implementation
-passed both ordered reviews and committed at `dd23f224`. Task 8's functional
-evidence implementation committed at `42e0ebc3`; retrospective review exposed
+passed both ordered reviews and committed at reconstructed `8e4645e5`. Task 8's functional
+evidence implementation is reconstructed at `fff1b1fc`; retrospective review of
+its pre-rewrite object `42e0ebc3` exposed
 an ancestor-directory durability defect, which the generic repair committed at
-`12899009` closed under fresh ordered reviews. Task 9's per-attempt composition
-committed at `42839223`; retrospective review exposed a completion-failure-domain
-defect, which the generic repair committed at `21de86ce` closed under fresh
+reconstructed `1f424cc9` closed under fresh ordered reviews. Task 9's per-attempt composition
+is reconstructed at `d9fc6b9f`; retrospective review of pre-rewrite `42839223`
+exposed a completion-failure-domain
+defect, which the generic repair reconstructed at `a1385290` closed under fresh
 ordered reviews. Task 10's functional crash/resume and real `.orc` coverage
-committed at `be8247ea` and passed retrospective exact-object reviews. The Task 11
-CLI regression repair committed at `4d0067bb`; the Task 8 and Task 9 retrospective
+is reconstructed at `6fa662fd` and its pre-rewrite object `be8247ea` passed
+retrospective exact-object reviews. The Task 11 CLI regression repair is
+reconstructed at `95dd3f75`; the Task 8 and Task 9 retrospective
 repairs followed, and the strict long-duration broad-summary parser repair passed
-both ordered reviews and committed at `fa54148b`. Fresh Task 11 focused,
+both ordered reviews and is reconstructed at `cb8e2d89`. The allocator-repair and
+Git-native trailer-validator corrections are reconstructed at `bb9f34ad` and
+`70e2ea3c`. Fresh Task 11 focused,
 genericity, broad, isolated-row, and exact-baseline comparison evidence passed,
 but holistic quality review reopened Task 11 for allocator-repair correctness and
 Git-native trailer reconstruction. Documentation closure and workflow-family
@@ -2284,14 +2290,15 @@ by a bounded durable-anchor repair that resyncs every chain component and its
 parent on every successful invocation, including failed-then-retried current and
 index publication. That superseded candidate claimed no replacement approval.
 
-The replacement repair committed as
-`128990096b87d3cb70218278aea3e982586faebc`, exact tree
+The replacement repair's pre-rewrite commit was
+`128990096b87d3cb70218278aea3e982586faebc`; its reconstructed commit is
+`1f424cc9ae2f18a4a33c4c4732692ef642430c76`, exact tree
 `06cf3f8f1df39e593ba9bfe7b704e0415063b6c3`, and binary patch SHA-256
 `d52e45a17371bd4f96eb2cbc25d286c7ee78f299d667ac454587ad95098ab388`.
 It passed specification review
 `TASK8-DURABILITY-REPAIR-SPEC-PASS-20260718-06CF3F8F-02` and functional-quality
 review `TASK8-DURABILITY-REPAIR-QUALITY-APPROVED-20260718-06CF3F8F-01`, both
-recorded in that commit's trailers. The repair resyncs every bounded directory
+recorded as Git-native trailers on the reconstructed commit. The repair resyncs every bounded directory
 component and its parent on every invocation, including retry residue, closing
 the retrospective blocker without changing the content-free evidence contract.
 
@@ -2530,14 +2537,15 @@ passes across both modified modules, and `307` adjacent
 prompting/resume/evidence/provider regressions; the adjudicated runtime/resume
 tranche is now `84`. Both ordered reviews must restart on the new exact subject.
 
-The replacement repair committed as
-`21de86ceffd9a31262e86741871d75d279215e21`, exact tree
+The replacement repair's pre-rewrite commit was
+`21de86ceffd9a31262e86741871d75d279215e21`; its reconstructed commit is
+`a13852900c6ce212776a061c2ccdbb1e1e75e002`, exact tree
 `03e58c65352e4d3ed621e43fc96113f3078e5d5e`, and binary patch SHA-256
 `919364f2a43cb5cc76fecdacfae0cbf9dbfdcf63dbb1b4b557e85c337b9969b3`.
 It passed specification review
 `TASK9-FAILURE-REPAIR-SPEC-PASS-20260718-03E58C65-02` and functional-quality
 review `TASK9-FAILURE-REPAIR-QUALITY-APPROVED-20260718-03E58C65-01`, both
-recorded in that commit's trailers. Primary and shared/adjudicated consumers now
+recorded as Git-native trailers on the reconstructed commit. Primary and shared/adjudicated consumers now
 separate typed prompt completion failures from genuine dependency-render failures,
 closing the retrospective blocker without family-specific behavior.
 
@@ -2906,34 +2914,49 @@ the captured baseline remains byte-unchanged.
 The final parser candidate passed restarted specification review
 `TASK11-DURATION-SPEC-PASS-20260718-B29957B9-01` and functional-quality review
 `TASK11-DURATION-QUALITY-APPROVED-20260718-B29957B9-01`, then committed as
-`fa54148be469f4d58755079bf8b02766738328d5`, exact tree
-`b29957b9cab299462ddde2b0e6f4d2dc51dac603`.
+pre-rewrite object `fa54148be469f4d58755079bf8b02766738328d5`, exact tree
+`b29957b9cab299462ddde2b0e6f4d2dc51dac603`; its canonical-trailer
+reconstruction is `cb8e2d892b82fc825bcbc0759c3f447104c50a0d` with the same
+subject, tree, parent-relative patch, identities, and timestamps.
 
-**Enumerated trailer-provenance closure:** the original Task 8, Task 9, and
-Task 10 commits predate the required review trailers. This Task 11 plan-only
-commit is the sole permitted closure record for those three exact objects; it is
-not a generic missing-trailer waiver. It binds Task 8 commit `42e0ebc3`, tree
+**Planned enumerated trailer-provenance closure:** the original Task 8, Task 9,
+and Task 10 commits predate the required review trailers. The final reviewed
+Task 11 plan-only commit, not the earlier mixed-file corrective commits, is the
+sole permitted closure record for those three exact mappings; it is not a generic
+missing-trailer waiver. It binds reviewed Task 8 pre-rewrite commit
+`42e0ebc3445f63e05c094b71f069369d763b1985` to reconstructed commit
+`fff1b1fcb1d6af9f9582a55ed9120f28915a6c90`, tree
 `12cd555c497cca195b18c09c8c8269f2df05d7f1`, patch
 `526ca8a5038eb73d8bf027f21ec78f3958ba26ba13b918edaf47b0e83572a574`,
 retrospective specification PASS `TASK8-RETRO-SPEC-PASS-20260718-12CD555C-01`,
 retrospective quality REJECT `TASK8-RETRO-QUALITY-REJECT-20260718-12CD555C-01`,
-and its closing reviewed repair `12899009` with the exact review tokens recorded
-above. It binds Task 9 commit `42839223`, tree
+and its closing reviewed repair mapping
+`128990096b87d3cb70218278aea3e982586faebc` to
+`1f424cc9ae2f18a4a33c4c4732692ef642430c76` with the exact review tokens
+recorded above. It binds reviewed Task 9 pre-rewrite commit
+`42839223d126b0070f2978c0f6da5696c6bda65e` to reconstructed commit
+`d9fc6b9f43621f7995ffc416d9896bc1e691b46f`, tree
 `61c39268e7855823cd927e33eb496172ebe97ea5`, patch
 `70e8427b7d90879f5d366a317d1bc9c305758ad176786464a926ab88c4ba25d5`,
 retrospective specification PASS `TASK9-RETRO-SPEC-PASS-20260718-61C39268-01`,
 retrospective quality REJECT `TASK9-RETRO-QUALITY-REJECT-20260718-61C39268-01`,
-and its closing reviewed repair `21de86ce` with the exact review tokens recorded
-above. It binds Task 10 commit `be8247ea`, tree
+and its closing reviewed repair mapping
+`21de86ceffd9a31262e86741871d75d279215e21` to
+`a13852900c6ce212776a061c2ccdbb1e1e75e002` with the exact review tokens
+recorded above. It binds reviewed Task 10 pre-rewrite commit
+`be8247ead9f1b3fc73997f50b9bdbd40a4a37784` to reconstructed commit
+`6fa662fd032ac9ae4b58e0503665afd07343af26`, tree
 `ac9f4728eb3e40579553d3531e57eded5d6c5c23`, patch
 `d62628d10f85a11bb25e103630b55c1fe0ac41872893960441e6bd5f743f9678`,
 retrospective specification PASS `TASK10-RETRO-SPEC-PASS-20260718-AC9F4728-01`,
 and retrospective quality APPROVED
-`TASK10-RETRO-QUALITY-APPROVED-20260718-AC9F4728-01`. Task 13 may accept missing
-original trailers only for these three exact objects and only when this Task 11
-closure commit itself has a matching immutable review tree, patch digest, and
-ordered PASS/APPROVED trailers. Every other task commit must satisfy the original
-trailer rule directly.
+`TASK10-RETRO-QUALITY-APPROVED-20260718-AC9F4728-01`. Each mapping has identical
+subject, tree, and parent-relative patch; the pre-rewrite history remains reachable
+at `refs/archive/provider-prompt-pre-trailer-rewrite`. Task 13 may accept missing
+trailers only for these three exact reconstructed objects and only after the final
+Task 11 closure commit itself has a matching immutable review tree, patch digest,
+and ordered PASS/APPROVED trailers. Every other reconstructed task commit must
+satisfy Git-native direct trailer parsing.
 
 Holistic specification review
 `TASK11-HOLISTIC-SPEC-FAIL-20260718-13196795-01` rejected the first Task 11
@@ -2961,6 +2984,60 @@ closure records their old reviewed full IDs and reconstructed full IDs and prove
 subject/tree/patch equality. The helper and allocator corrections each require
 TDD plus restarted ordered reviews before reconstruction, and the complete Task 11
 capture is invalidated again after every resulting commit-identity change.
+
+The allocator repair passed `ALLOCATOR-REPAIR-SPEC-PASS-20260718-5DA58189-01`
+and `ALLOCATOR-REPAIR-QUALITY-APPROVED-20260718-5DA58189-01`; its reconstructed
+commit is `bb9f34adf666dab6acbd83bdd13f93379f178e4b`, exact tree
+`5da58189921a09b6c8d6089761d2617563d855dd`, patch
+`b4d97238c6b58ace40a5dd5d25f6ae812e52d52d4d12edac821eed5ce7920a12`.
+Trailer-validator specification review
+`TRAILER-VALIDATOR-SPEC-FAIL-20260718-E7832E2E-01` rejected a case-insensitive
+relevant-key hole; the corrected tree then passed
+`TRAILER-VALIDATOR-SPEC-PASS-20260718-156045E6-02` and
+`TRAILER-VALIDATOR-QUALITY-APPROVED-20260718-156045E6-01`. Its reconstructed
+commit is `70e2ea3c3df9e6b820166b0b182fd1b34c6516cb`, exact tree
+`156045e6ac6f9ceb6a79bdc6f70ce3d32a1782c7`, patch
+`c47aa98f198e317562dab05dcfb2ad85a44b3b373c78704a0914d4596ca4f8db`.
+The linear metadata reconstruction then completed atomically with zero content diff.
+The exact old-to-new mapping is:
+
+- `a2a755ba3c3de53a64f14cc2bfad8fcb85d27e99` ->
+  `8cafe882a9fcce28fb9d533f32ffd26a6456fe95`
+- `dec0357e85aba4977c24caabe10b103be7d737ce` ->
+  `43345c37e17a23130d1c35af6e46c792fb3a5d4e`
+- `185268b2c222a9ffb42d0774e5d400c71b8241af` ->
+  `044b32781d7468a8ea78d64c19f13d426eef9d14`
+- `b43a20252633250bc9ac152edfffb26b35966930` ->
+  `6fa32d0deaa65d583f758a08f51958c5d04e6189`
+- `cd2f4c1f9aebb0a735bbdba3566726fa14e12dda` ->
+  `a1fe6cdec6d10afa3513cabab39e932e33a630cf`
+- `dd23f224684fdd104e3c8181a21f90ae997702a1` ->
+  `8e4645e56e8ce29ab23c7fb6d23f87beee9b74f2`
+- `42e0ebc3445f63e05c094b71f069369d763b1985` ->
+  `fff1b1fcb1d6af9f9582a55ed9120f28915a6c90`
+- `42839223d126b0070f2978c0f6da5696c6bda65e` ->
+  `d9fc6b9f43621f7995ffc416d9896bc1e691b46f`
+- `be8247ead9f1b3fc73997f50b9bdbd40a4a37784` ->
+  `6fa662fd032ac9ae4b58e0503665afd07343af26`
+- `4d0067bb426e4b4473ca7947540b93edf317f887` ->
+  `95dd3f75097a63a62489252058d9c6d1fdc1e729`
+- `128990096b87d3cb70218278aea3e982586faebc` ->
+  `1f424cc9ae2f18a4a33c4c4732692ef642430c76`
+- `21de86ceffd9a31262e86741871d75d279215e21` ->
+  `a13852900c6ce212776a061c2ccdbb1e1e75e002`
+- `fa54148be469f4d58755079bf8b02766738328d5` ->
+  `cb8e2d892b82fc825bcbc0759c3f447104c50a0d`
+- `540fa4807818399c915f9600090803237231539c` ->
+  `bb9f34adf666dab6acbd83bdd13f93379f178e4b`
+- `fec82759b8db94f125e9e9f27ea9d0b0fb795b0f` ->
+  `70e2ea3c3df9e6b820166b0b182fd1b34c6516cb`
+
+All 15 pairs have identical subjects, trees, author/committer identities and
+timestamps, and corresponding-parent binary patch digests. The 12 directly
+reviewed reconstructed commits expose all four canonical fields through
+`git interpret-trailers --parse`; the three exact exemptions expose none.
+The Task 3 genericity test's abandoned Task 2 history literal is updated to the
+reconstructed full ID before Task 11 recapture.
 
 - [ ] **Step 1: Run the complete focused tranche.**
 

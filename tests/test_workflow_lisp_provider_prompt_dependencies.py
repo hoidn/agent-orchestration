@@ -906,7 +906,14 @@ def test_prompt_dependency_genericity_added_line_extractor_rejects_leading_plus_
 
 def test_prompt_dependency_task3_mechanism_has_no_concrete_identity_branch() -> None:
     patch = subprocess.run(
-        ["git", "diff", "--unified=0", "dec0357e", "--", *TASK3_PRODUCTION_PATHS],
+        [
+            "git",
+            "diff",
+            "--unified=0",
+            "43345c37e17a23130d1c35af6e46c792fb3a5d4e",
+            "--",
+            *TASK3_PRODUCTION_PATHS,
+        ],
         cwd=REPO_ROOT,
         check=True,
         text=True,
