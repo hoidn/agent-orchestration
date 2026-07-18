@@ -8,6 +8,7 @@ not weaken verification: deleted or loosened checks and tests require
 justification visible in the diff itself. Judge the outcome, not the
 process; how the work was planned is not review scope.
 
-Write `APPROVE` or `FINDINGS` to the file named by `review_decision_path` in
-the consumed work order. When returning `FINDINGS`, write the concrete
+Return `APPROVE` or `FINDINGS` as the typed provider result, and write the same
+value to the compatibility file named by `review_decision_path` in the consumed
+work order. When returning `FINDINGS`, write the concrete
 findings to the file named by `review_findings_path`.

@@ -52,13 +52,19 @@ def _derive_status(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.add_argument("--iteration", required=True)
     parser.add_argument("--base-sha", required=True)
     parser.add_argument("--checks-result-path", required=True)
     parser.add_argument("--review-decision-path", required=True)
     parser.add_argument("--done-review-decision-path", required=True)
     parser.add_argument("--worker-verdict-path", required=True)
+    parser.add_argument(
+        "--worker-verdict",
+        choices=("CONTINUE", "DONE", "BLOCKED_ON_USER"),
+    )
+    parser.add_argument("--review-decision", choices=("APPROVE", "FINDINGS", "SKIPPED"))
+    parser.add_argument("--done-review-decision", choices=("APPROVE", "REJECT"))
     parser.add_argument("--worker-note-path", required=True)
     parser.add_argument("--blocked-notes-dir", required=True)
     parser.add_argument("--ledger-path", required=True)
@@ -69,7 +75,7 @@ def main() -> int:
     args = parser.parse_args()
 
     checks = json.loads((REPO_ROOT / args.checks_result_path).read_text(encoding="utf-8"))
-    verdict = _read_token(args.worker_verdict_path, default="")
+    verdict = args.worker_verdict or _read_token(args.worker_verdict_path, default="")
     if verdict not in {"CONTINUE", "DONE", "BLOCKED_ON_USER"}:
         raise SystemExit(f"Invalid or missing worker verdict: {verdict!r}")
     try:
@@ -86,8 +92,8 @@ def main() -> int:
         verify=str(checks.get("verify_status") or ""),
         commits=str(checks.get("commits_landed") or ""),
         verdict=verdict,
-        review=_read_token(args.review_decision_path),
-        done_review=_read_token(args.done_review_decision_path),
+        review=args.review_decision or _read_token(args.review_decision_path),
+        done_review=args.done_review_decision or _read_token(args.done_review_decision_path),
         has_blocked_notes=has_blocked_notes,
     )
 

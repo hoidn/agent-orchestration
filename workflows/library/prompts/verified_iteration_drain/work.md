@@ -19,8 +19,10 @@ If something genuinely requires the user — credentials, environment, or an
 intention only they can resolve — write a short `BLOCKED-<topic>.md` note in
 the blocked-notes directory and continue with other actionable work.
 
-Before finishing, write:
-- the verdict file named by `worker_verdict_path`: `CONTINUE` (more work
+Before finishing, return `CONTINUE`, `DONE`, or `BLOCKED_ON_USER` as the typed
+provider result. Also write:
+- the compatibility verdict file named by `worker_verdict_path` with the same
+  value: `CONTINUE` (more work
   remains), `DONE` (the target design's acceptance criteria hold in the
   current checkout), or `BLOCKED_ON_USER` (nothing actionable remains
   without user input);

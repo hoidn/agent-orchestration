@@ -73,20 +73,22 @@ def main() -> int:
     runtime_bundle_path = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH")
     if runtime_bundle_path:
         runtime_bundle = REPO_ROOT / runtime_bundle_path
-        runtime_bundle.parent.mkdir(parents=True, exist_ok=True)
-        runtime_bundle.write_text(
-            json.dumps(
-                {
-                    "verify_status": payload["verify_status"],
-                    "commits_landed": payload["commits_landed"],
-                    "checks_log_path": payload["checks_log_path"],
-                    "review_package_path": payload["review_package_path"],
-                },
-                indent=2,
+        compatibility_bundle = REPO_ROOT / args.output
+        if runtime_bundle != compatibility_bundle:
+            runtime_bundle.parent.mkdir(parents=True, exist_ok=True)
+            runtime_bundle.write_text(
+                json.dumps(
+                    {
+                        "verify_status": payload["verify_status"],
+                        "commits_landed": payload["commits_landed"] == "true",
+                        "checks_log_path": payload["checks_log_path"],
+                        "review_package_path": payload["review_package_path"],
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
             )
-            + "\n",
-            encoding="utf-8",
-        )
     return 0
 
 

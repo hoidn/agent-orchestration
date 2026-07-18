@@ -191,6 +191,9 @@ def _record(
     verdict: str = "CONTINUE",
     review: str | None = None,
     done_review: str | None = None,
+    typed_verdict: str | None = None,
+    typed_review: str | None = None,
+    typed_done_review: str | None = None,
     blocked_note: bool = False,
     stall_limit: str = "3",
     seed_statuses: list[str] | None = None,
@@ -226,9 +229,7 @@ def _record(
     statuses = workspace / STATE_ROOT / "statuses.txt"
     if seed_statuses:
         statuses.write_text("".join(token + "\n" for token in seed_statuses), encoding="utf-8")
-    proc = _run_script(
-        workspace,
-        str(ROOT / RECORD),
+    record_args = [
         "--iteration", str(iteration),
         "--base-sha", "b" * 40,
         "--checks-result-path", f"{STATE_ROOT}/iterations/{iteration}/checks-result.json",
@@ -242,6 +243,18 @@ def _record(
         "--stall-limit", stall_limit,
         "--summary-path", f"{WORK_ROOT}/drain-summary.json",
         "--drain-status-path", f"{STATE_ROOT}/iterations/{iteration}/drain-status.txt",
+    ]
+    for flag, value in (
+        ("--worker-verdict", typed_verdict),
+        ("--review-decision", typed_review),
+        ("--done-review-decision", typed_done_review),
+    ):
+        if value is not None:
+            record_args.extend((flag, value))
+    proc = _run_script(
+        workspace,
+        str(ROOT / RECORD),
+        *record_args,
         check=check,
         env=env,
     )
@@ -278,6 +291,36 @@ def test_record_done_requires_done_review_approval(tmp_path):
     assert (status, drain) == ("DONE", "DONE")
     status, drain = _record(workspace, iteration=1, verdict="DONE", done_review="REJECT")
     assert (status, drain) == ("FINDINGS", "CONTINUE")
+
+
+def test_record_typed_provider_values_are_authoritative_over_compatibility_files(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    status, drain = _record(
+        workspace,
+        commits="true",
+        verdict="CONTINUE",
+        review="FINDINGS",
+        done_review="REJECT",
+        typed_verdict="DONE",
+        typed_review="APPROVE",
+        typed_done_review="APPROVE",
+    )
+
+    assert (status, drain) == ("DONE", "DONE")
+
+
+def test_record_typed_skipped_review_preserves_no_change(tmp_path):
+    workspace = _init_workspace(tmp_path)
+    status, drain = _record(
+        workspace,
+        commits="false",
+        review="FINDINGS",
+        typed_verdict="CONTINUE",
+        typed_review="SKIPPED",
+        typed_done_review="REJECT",
+    )
+
+    assert (status, drain) == ("NO_CHANGE", "CONTINUE")
 
 
 def test_record_done_claim_without_done_review_is_findings(tmp_path):
@@ -351,7 +394,7 @@ def test_verified_command_adapters_write_runtime_and_compatibility_outputs(tmp_p
     }
     assert json.loads((workspace / checks_bundle).read_text(encoding="utf-8")) == {
         "verify_status": checks["verify_status"],
-        "commits_landed": checks["commits_landed"],
+        "commits_landed": checks["commits_landed"] == "true",
         "checks_log_path": checks["checks_log_path"],
         "review_package_path": checks["review_package_path"],
     }
