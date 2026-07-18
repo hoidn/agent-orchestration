@@ -14,6 +14,16 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 
 
+def _state_manager_mock(workspace: Path) -> MagicMock:
+    prototype = StateManager(workspace=workspace)
+    manager = MagicMock(spec=prototype)
+    manager.run_root = prototype.run_root
+    manager.logs_dir = prototype.logs_dir
+    manager.state = MagicMock()
+    assert isinstance(manager, StateManager)
+    return manager
+
+
 def _write_minimal_resume_bundle(workflow_path: Path, *, version: str = "1.3"):
     workflow_content = "\n".join(
         [
@@ -262,7 +272,7 @@ def test_run_workflow_persists_observability_runtime_config(mock_loader, mock_st
 
     mock_loader.return_value.load_bundle.return_value = WorkflowLoader(tmp_path).load_bundle(workflow_file)
 
-    state_inst = MagicMock()
+    state_inst = _state_manager_mock(tmp_path)
     state_inst.logs_dir = tmp_path / '.orchestrate' / 'runs' / 'test-run' / 'logs'
     state_inst.initialize.return_value = MagicMock(run_id='test-run')
     mock_state.return_value = state_inst
@@ -543,11 +553,11 @@ steps:
         steps={},
         bound_inputs={},
     )
-    existing_manager = MagicMock()
+    existing_manager = _state_manager_mock(tmp_path)
     existing_manager.load.return_value = loaded_state
     existing_manager.state = existing_state
 
-    restarted_manager = MagicMock()
+    restarted_manager = _state_manager_mock(tmp_path)
     restarted_manager.initialize.return_value = MagicMock(run_id='new-run-id')
     mock_state.side_effect = [existing_manager, restarted_manager]
 

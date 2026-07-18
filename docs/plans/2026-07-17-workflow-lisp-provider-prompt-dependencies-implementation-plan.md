@@ -1949,6 +1949,9 @@ presence. Suggested commit: `feat: harden prompt dependency reads`
 - Modify `orchestrator/workflow/executor.py`
 - Modify `orchestrator/cli/commands/run.py`
 - Modify `orchestrator/cli/commands/resume.py`
+- Modify `tests/test_cli_safety.py` (Task 11 broad-regression repair)
+- Modify `tests/test_cli_observability_config.py` (Task 11 broad-regression
+  repair)
 - Modify this plan
 
 - [x] **Step 1: Write omitted-state and durable-write RED tests.**
@@ -2077,6 +2080,29 @@ module. The implementer performed no staging or commit. The parent must capture
 the immutable candidate only after verifying the allowed path set, then restart
 the specification-compliance review before the implementation-quality review;
 neither replacement review is claimed by this functional checkpoint.
+
+Task 11 broad-regression repair evidence: the broad capture against
+`be8247ea` collected 5,774 nodes and finished with 5,743 passed, 17 skipped, and
+14 failed. Six failures are the frozen known-failure baseline; the other eight
+were six `tests/test_cli_safety.py` run-command tests plus
+`test_run_workflow_persists_observability_runtime_config` and
+`test_resume_force_restart_uses_typed_bundle_context_when_legacy_adapter_drifts`
+in `tests/test_cli_observability_config.py`. All eight failed at the new
+`enable_provider_attempt_coordination_for_bundle` boundary because their plain
+instance mocks were not real-`StateManager`-spec-compatible; production's strict
+`isinstance` guard remains unchanged. The exact eight-selector RED was 0 passed /
+8 failed. The minimal test-only repair derives each affected mock's spec from an
+initialized real `StateManager`, explicitly proves `isinstance` compatibility,
+and preserves the tests' mocked execution and existing assertions; the exact
+selectors then passed 8/8 and both complete modified modules passed 40/40.
+The two modified modules still collect exactly 40 nodes, and the adjacent
+provider-attempt-allocation plus resume-command selector passed 167/167. This
+candidate was captured before staging or commit, with ordered reviews pending.
+The current Task 11 subject and broad artifacts predate these test bytes and are
+invalid for completion evidence: after the repair receives ordered review and
+lands in its own Task 7 repair commit, Task 11 must discard the old capture,
+recapture a fresh subject against the new HEAD, and restart its focused and
+broad verification sequence.
 
 Suggested commit: `feat: allocate durable provider attempt identities`
 

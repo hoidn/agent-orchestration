@@ -18,6 +18,17 @@ from orchestrator.cli.commands.run import (
     run_workflow
 )
 from orchestrator.loader import WorkflowLoader
+from orchestrator.state import StateManager
+
+
+def _state_manager_mock(workspace: Path) -> MagicMock:
+    prototype = StateManager(workspace=workspace)
+    manager = MagicMock(spec=prototype)
+    manager.run_root = prototype.run_root
+    manager.logs_dir = prototype.logs_dir
+    manager.state = MagicMock()
+    assert isinstance(manager, StateManager)
+    return manager
 
 class TestCLISafety(TestCase):
     """Test CLI safety features."""
@@ -259,7 +270,7 @@ steps:
             self.workflow_file
         )
 
-        mock_state_inst = MagicMock()
+        mock_state_inst = _state_manager_mock(self.workspace)
         mock_state_inst.logs_dir = Path('/tmp/custom-runs') / 'test-run-123' / 'logs'
         mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
         mock_state.return_value = mock_state_inst
@@ -314,7 +325,7 @@ steps:
             self.workflow_file
         )
 
-        mock_state_inst = MagicMock()
+        mock_state_inst = _state_manager_mock(self.workspace)
         mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
         mock_state.return_value = mock_state_inst
 
@@ -372,7 +383,7 @@ steps:
             self.workflow_file
         )
 
-        mock_state_inst = MagicMock()
+        mock_state_inst = _state_manager_mock(self.workspace)
         mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
         mock_state.return_value = mock_state_inst
 
@@ -439,7 +450,7 @@ steps:
         bundle = WorkflowLoader(self.workspace).load_bundle(self.workflow_file)
         mock_loader.return_value.load_bundle.return_value = bundle
 
-        mock_state_inst = MagicMock()
+        mock_state_inst = _state_manager_mock(self.workspace)
         mock_state_inst.logs_dir = self.workspace / '.orchestrate' / 'runs' / 'test-run-123' / 'logs'
         mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
         mock_state.return_value = mock_state_inst
@@ -619,7 +630,7 @@ steps:
             self.workflow_file
         )
 
-        mock_state_inst = MagicMock()
+        mock_state_inst = _state_manager_mock(self.workspace)
         mock_state_inst.logs_dir = self.workspace / '.orchestrate' / 'runs' / 'test-run-123' / 'logs'
         mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
         mock_state.return_value = mock_state_inst
@@ -662,11 +673,8 @@ steps:
             self.workflow_file
         )
 
-        mock_state_inst = MagicMock()
-        mock_state_inst.create_run.return_value = {
-            'run_id': 'test-run-123',
-            'status': 'running'
-        }
+        mock_state_inst = _state_manager_mock(self.workspace)
+        mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
         mock_state.return_value = mock_state_inst
 
         mock_executor_inst = MagicMock()
