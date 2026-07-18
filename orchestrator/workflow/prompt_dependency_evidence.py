@@ -621,8 +621,35 @@ def _fsync_directory(path: Path) -> None:
         os.close(fd)
 
 
-def _write_current_no_replace(destination: Path, payload: bytes) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
+def _ensure_durable_directory_chain(path: Path, durable_anchor: Path) -> None:
+    anchor = Path(os.path.abspath(durable_anchor))
+    target = Path(os.path.abspath(path))
+    if not anchor.is_dir():
+        raise NotADirectoryError(anchor)
+    try:
+        relative = target.relative_to(anchor)
+    except ValueError as exc:
+        raise ValueError("directory chain must be below durable anchor") from exc
+    current = anchor
+    for component in relative.parts:
+        current = current / component
+        if current.exists():
+            if not current.is_dir():
+                raise NotADirectoryError(current)
+        else:
+            try:
+                current.mkdir()
+            except FileExistsError:
+                if not current.is_dir():
+                    raise
+        _fsync_directory(current)
+        _fsync_directory(current.parent)
+
+
+def _write_current_no_replace(
+    destination: Path, payload: bytes, durable_anchor: Path
+) -> None:
+    _ensure_durable_directory_chain(destination.parent, durable_anchor)
     temporary = destination.with_name(f".{destination.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp")
     fd: int | None = None
     try:
@@ -676,7 +703,7 @@ def publish_evidence_file(
                 manager, scope, ordinal
             )
             destination = root.run_root / relative
-            _write_current_no_replace(destination, payload)
+            _write_current_no_replace(destination, payload, root.run_root)
             root._record_provider_attempt_publication_already_process_locked(
                 manager,
                 scope,
@@ -940,8 +967,10 @@ def _build_terminal_index(state: RunState, projection: Mapping[str, Any], root: 
     return validate_index(_seal_index(index))
 
 
-def _write_index_no_replace(destination: Path, payload: bytes) -> bool:
-    destination.parent.mkdir(parents=True, exist_ok=True)
+def _write_index_no_replace(
+    destination: Path, payload: bytes, durable_anchor: Path
+) -> bool:
+    _ensure_durable_directory_chain(destination.parent, durable_anchor)
     temporary = destination.with_name(f".{destination.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp")
     fd: int | None = None
     created = False
@@ -1024,7 +1053,7 @@ def validate_terminal_evidence(
             raise ValueError("terminal state changed during evidence validation")
         projection_digest = allocator_projection_sha256(projection)
         destination = root / "workflow_lisp" / "prompt_dependencies" / "validated-indexes" / f"{projection_digest[7:]}.json"
-        created = _write_index_no_replace(destination, payload)
+        created = _write_index_no_replace(destination, payload, root)
         if _after_index_publish is not None:
             _after_index_publish()
         final_bytes, final_state = _read_terminal_state(state_path)

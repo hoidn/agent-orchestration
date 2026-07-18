@@ -68,7 +68,18 @@ now cover both `complete* -> truncated -> omitted*` and
 `1065e07edda7c73f82eec3dd3b1b506668d18f3fc26d2421160f8a1755ea5fb4`
 passed the restarted functional specification review as
 `TASK8-SPEC-PASS-20260718-14296CA0-03` and the ordered implementation-quality
-review as `TASK8-QUALITY-APPROVED-20260718-14296CA0-01`. Task 9 functional
+review as `TASK8-QUALITY-APPROVED-20260718-14296CA0-01`. A later retrospective
+review of committed Task 8 subject commit
+`42e0ebc3445f63e05c094b71f069369d763b1985`, tree
+`12cd555c497cca195b18c09c8c8269f2df05d7f1`, and patch
+`526ca8a5038eb73d8bf027f21ec78f3958ba26ba13b918edaf47b0e83572a574`
+passed specification review as
+`TASK8-RETRO-SPEC-PASS-20260718-12CD555C-01` but was rejected by functional
+quality review as `TASK8-RETRO-QUALITY-REJECT-20260718-12CD555C-01`:
+first-time publication created a nested directory chain but fsynced only the
+leaf, so ancestor directory entries could be lost across power loss despite a
+reported successful publication. The focused durability repair and both ordered
+replacement reviews are required before Task 8 is closed again. Task 9 functional
 per-attempt composition and typed ordinary-provider evidence integration are now
 in progress.
 Workflow-family port evidence and documentation status closure remain
@@ -2236,6 +2247,29 @@ specification token `TASK8-SPEC-PASS-20260718-14296CA0-03`, and quality token
 recorded 268 broader regression passes. Security-only criteria were excluded by
 the binding execution override.
 
+Retrospective provenance review later bound the committed Task 8 subject as
+commit `42e0ebc3445f63e05c094b71f069369d763b1985`, tree
+`12cd555c497cca195b18c09c8c8269f2df05d7f1`, and patch SHA-256
+`526ca8a5038eb73d8bf027f21ec78f3958ba26ba13b918edaf47b0e83572a574`.
+Specification verdict `TASK8-RETRO-SPEC-PASS-20260718-12CD555C-01` found no
+functional specification issue. Functional-quality verdict
+`TASK8-RETRO-QUALITY-REJECT-20260718-12CD555C-01` found that first publication
+created nested directories but synced only the leaf directory, leaving ancestor
+directory entries outside the crash-durability claim. The repair is test-first,
+shared by current-record and index publication, and must receive fresh ordered
+reviews. Its first frozen candidate, prospective tree
+`c77d4f339675133c90091ad90cb39e5aeccd15b8` and patch SHA-256
+`d38e5a6bc25df1cbbc8d21c30afee43bda9c620e40c988006ad3446689460c14`,
+passed specification review as
+`TASK8-DURABILITY-REPAIR-SPEC-PASS-20260718-C77D4F33-01` but was rejected by
+functional-quality review as
+`TASK8-DURABILITY-REPAIR-QUALITY-REJECT-20260718-C77D4F33-01`: a failed parent
+directory sync could leave created residue, after which a successful retry
+skipped the potentially incomplete ancestor sync. That candidate is superseded
+by a bounded durable-anchor repair that resyncs every chain component and its
+parent on every successful invocation, including failed-then-retried current and
+index publication. No replacement approval is claimed here.
+
 Suggested commit: `feat: publish prompt dependency evidence`
 
 ## Task 9: Consolidate Ordinary And Adjudicated Per-Attempt Composition
@@ -2731,6 +2765,12 @@ a real defect, in which case return to the owning task/review loop.
   filename and remains byte-identical to its unique tracked addition commit
 - Create no documentation status claims yet
 
+**Invalidated evidence:** the completed Steps 1-4 capture and review subject
+recorded below predate retrospective production blockers. They are not completion
+evidence. After every repair lands with its ordered reviews, delete the current
+temporary capture, create a fresh subject from the new HEAD, and rerun Task 11
+from Step 1. The checkboxes are therefore reopened.
+
 - [ ] **Step 1: Run the complete focused tranche.**
 
 ```bash
@@ -2783,6 +2823,14 @@ python scripts/provider_prompt_dependency_broad_gate.py verify-subject \
 ```
 
 Expected: all pass with only already-reviewed platform skips.
+
+Fresh evidence at implementation HEAD
+`4d0067bb426e4b4473ca7947540b93edf317f887`: the launch-phase subject
+verification passed before and after the focused tranche, and the focused
+tranche passed `700` tests in `24.70s`. The fresh subject manifest has file
+SHA-256 `3a070c6515c6dd786eeb7915f6bf1fb551ab32086cf29640b0f1e56d38e842d9`,
+record SHA-256 `6891be961bc37f3a47d7e058f8744451e5bbf4d0ec29002feaf24866b46c1ccd`,
+and index tree `a434d1c4472e49ecf559bc3bae5c221c66d8c298`.
 
 - [ ] **Step 2: Run genericity, absence, and source guards.**
 
@@ -2909,17 +2957,26 @@ pytest -q tests/test_workflow_lisp_provider_prompt_dependencies.py::test_prompt_
 pytest -q tests/test_workflow_lisp_provider_prompt_dependencies.py::test_prompt_dependency_genericity_added_line_extractor_rejects_leading_plus_identity
 pytest -q tests/test_workflow_lisp_provider_prompt_dependencies.py::test_prompt_dependency_absence_keeps_runtime_plan_bytes_exact
 pytest -q tests/test_workflow_lisp_provider_prompt_dependencies.py -k keyword_free
-pytest -q tests/test_prompt_dependency_content_snapshot.py::test_content_snapshot_owner_has_no_pathname_content_reader
 pytest -q tests/test_prompt_dependency_evidence.py::test_runtime_modules_do_not_import_or_call_offline_prompt_dependency_validator
 ```
 
 Expected: the base is an ancestor, the added-line identity scan prints nothing,
-the leading-plus bypass regression passes, and all six behavioral/source guards
-pass. The pathname-reader guard is
-AST-aware and scoped to content acquisition; the offline-validator guard rejects
-only terminal validator/index APIs in runtime modules, not the current-attempt
-record publisher. This avoids false positives from ordinary generic provider or
-module terminology.
+the leading-plus bypass regression passes, and all five functional
+behavioral/source guards pass. The pathname-content-reader selector is
+deliberately excluded because the user excluded all security-related work; this
+is a scope exclusion, not a failing or missing functional result. The
+offline-validator guard rejects only terminal validator/index APIs in runtime
+modules, not the current-attempt record publisher. This avoids false positives
+from ordinary generic provider or module terminology.
+
+Fresh evidence: the implementation base
+`451765a2ebd374111d2cbeab0969cec4830717fb` is an ancestor of the implementation
+HEAD; the genericity subject contains `7106` added lines and zero forbidden
+identity matches. The genericity diff SHA-256 is
+`7e34345d4b660e53096ffded6ac7cafa4df4a470d7b0d308d7a7b0ca27e74164`,
+the extracted-added-lines SHA-256 is
+`482be25be21b80abd0afdcbebf05cf61de4e0f9665e28b904306d749e8b56b32`,
+and all five functional guards passed.
 
 - [ ] **Step 3: Run the broad suite in persistent tmux.**
 
@@ -3082,6 +3139,13 @@ python scripts/provider_prompt_dependency_broad_gate.py compare \
   --baseline "$BASELINE" \
   --outcome "$CAPTURE_ROOT/outcome.json" \
   --remediation-dir "$REMEDIATIONS"
+```
+
+After recording the permitted Task 11 Steps 1-3 evidence update in this plan,
+and before computing or staging the review freeze, verify the generated evidence
+against that allowed post-launch transition:
+
+```bash
 python scripts/provider_prompt_dependency_broad_gate.py verify-subject \
   --manifest "$CAPTURE_ROOT/subject.json" \
   --phase launch \
@@ -3093,17 +3157,33 @@ A raw pytest exit `1` is acceptable only when its complete observed set equals
 the reviewed baseline minus reviewed remediations. Do not infer acceptance from
 pane death, pytest's exit alone, or a human reading of the failure summary.
 
+Fresh evidence: collection exited `0` with `5774` collected tests. The broad
+suite exited `1` with exactly `6` failed, `5751` passed, `17` skipped, and
+`5774` total; every one of the six baseline rows also exited `1` in isolation.
+The comparator accepted the exact-baseline branch. The baseline file SHA-256 is
+`3d71df6eb7777db7af96ec9271a259078aa307cfbd5da71d7c4a6bc96f6426d0`
+and its record SHA-256 is
+`d6677f99da9ba471696cd2b47d38397881ec9a50eea69a56807d38a592df3b90`.
+The remediation directory was absent, so no remediation record was selected.
+The outcome file SHA-256 is
+`d7b4d4e941468d6dc0a3d7dac1be573faf5ffe56aeefaede8e7b9c11ee5a12b4`
+and its record SHA-256 is
+`cc6dc531e0f628eb37e581bf05d8fed08b2ecda15f97093b7291c536111fcc5f`.
+The allowed untracked YAML plan remained byte-identical at SHA-256
+`2de3c7aafd13e7518f9030621fcc1a13a70daa8ae1418c6bf81be1d3f8918d2d`.
+
 - [ ] **Step 4: Freeze the implementation-gate subject and dispatch holistic
   reviews.**
 
-Dispatch one independent specification reviewer and one independent quality/
-security reviewer against the exact implementation tree and all fresh command
-evidence. Both must approve before any durable document says “Implemented.”
+Dispatch one independent specification reviewer and one independent functional-
+quality reviewer against the exact implementation tree and all fresh command
+evidence. Security review is explicitly excluded by the user's scope. Both
+functional reviews must approve before any durable document says “Implemented.”
 Apply the digest-stable protocol, including setting this checkbox and the intended
 Task 11 execution status plus the validated outcome's `record_sha256`, collection
 exit/count, pytest exit/totals, comparison branch, baseline digest, and remediation
 digests before `REVIEW_TREE` is computed. Dispatch specification review first and
-quality/security review only after specification PASS. Set `CAPTURE_ROOT` to the
+functional-quality review only after specification PASS. Set `CAPTURE_ROOT` to the
 Task 11 root and `TASK_EVIDENCE` to its `outcome.json`; build and verify the closed
 review-subject envelope after staging the plan update. The envelope must prove
 that this plan is the only post-launch tracked-byte change and bind its exact

@@ -662,6 +662,115 @@ def test_publish_fsync_failure_propagates_without_manifest_event(
     )
 
 
+@pytest.mark.parametrize(
+    "writer_name", ("_write_current_no_replace", "_write_index_no_replace")
+)
+def test_first_publication_durably_syncs_every_new_directory_in_missing_chain(
+    tmp_path: Path, monkeypatch, writer_name: str
+) -> None:
+    from orchestrator.workflow import prompt_dependency_evidence as evidence
+
+    anchor = tmp_path / "existing-anchor"
+    anchor.mkdir()
+    first = anchor / "first"
+    leaf = first / "leaf"
+    destination = leaf / "record.json"
+    synced: list[Path] = []
+    monkeypatch.setattr(evidence, "_fsync_directory", lambda path: synced.append(path))
+
+    getattr(evidence, writer_name)(destination, b"payload", anchor)
+
+    assert destination.read_bytes() == b"payload"
+    assert synced == [first, anchor, leaf, first, leaf, leaf]
+
+
+@pytest.mark.parametrize(
+    "writer_name", ("_write_current_no_replace", "_write_index_no_replace")
+)
+def test_publication_reuses_complete_directory_chain_without_recreating_it(
+    tmp_path: Path, monkeypatch, writer_name: str
+) -> None:
+    from orchestrator.workflow import prompt_dependency_evidence as evidence
+
+    anchor = tmp_path / "anchor"
+    leaf = anchor / "existing" / "leaf"
+    leaf.mkdir(parents=True)
+    destination = leaf / "record.json"
+    mkdir_calls: list[Path] = []
+    synced: list[Path] = []
+    actual_mkdir = Path.mkdir
+
+    def observed_mkdir(path: Path, *args, **kwargs) -> None:
+        mkdir_calls.append(path)
+        actual_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", observed_mkdir)
+    monkeypatch.setattr(evidence, "_fsync_directory", lambda path: synced.append(path))
+
+    getattr(evidence, writer_name)(destination, b"payload", anchor)
+
+    assert destination.read_bytes() == b"payload"
+    assert mkdir_calls == []
+    assert synced == [leaf.parent, anchor, leaf, leaf.parent, leaf, leaf]
+
+
+@pytest.mark.parametrize(
+    "writer_name", ("_write_current_no_replace", "_write_index_no_replace")
+)
+def test_publication_retry_resyncs_chain_after_parent_fsync_left_residue(
+    tmp_path: Path, monkeypatch, writer_name: str
+) -> None:
+    from orchestrator.workflow import prompt_dependency_evidence as evidence
+
+    anchor = tmp_path / "durable-anchor"
+    anchor.mkdir()
+    first = anchor / "first"
+    leaf = first / "leaf"
+    destination = leaf / "record.json"
+    failed_syncs: list[Path] = []
+
+    def fail_first_parent_sync(path: Path) -> None:
+        failed_syncs.append(path)
+        if path == anchor:
+            raise OSError("parent fsync failed")
+
+    monkeypatch.setattr(evidence, "_fsync_directory", fail_first_parent_sync)
+    with pytest.raises(OSError, match="parent fsync failed"):
+        getattr(evidence, writer_name)(destination, b"payload", anchor)
+    assert failed_syncs == [first, anchor]
+    assert first.is_dir()
+    assert not leaf.exists()
+
+    retry_syncs: list[Path] = []
+    monkeypatch.setattr(
+        evidence, "_fsync_directory", lambda path: retry_syncs.append(path)
+    )
+    getattr(evidence, writer_name)(destination, b"payload", anchor)
+
+    assert destination.read_bytes() == b"payload"
+    assert retry_syncs == [first, anchor, leaf, first, leaf, leaf]
+
+
+def test_durable_directory_chain_rejects_non_directory_anchor(tmp_path: Path) -> None:
+    from orchestrator.workflow import prompt_dependency_evidence as evidence
+
+    anchor = tmp_path / "anchor"
+    anchor.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(NotADirectoryError):
+        evidence._ensure_durable_directory_chain(anchor / "leaf", anchor)
+
+
+def test_durable_directory_chain_rejects_target_outside_anchor(tmp_path: Path) -> None:
+    from orchestrator.workflow import prompt_dependency_evidence as evidence
+
+    anchor = tmp_path / "anchor"
+    anchor.mkdir()
+
+    with pytest.raises(ValueError, match="below durable anchor"):
+        evidence._ensure_durable_directory_chain(tmp_path / "outside", anchor)
+
+
 def test_serialized_success_evidence_recursively_excludes_body_sentinels() -> None:
     from orchestrator.workflow.prompt_dependency_evidence import canonical_record_bytes
 
