@@ -197,7 +197,7 @@ class AdjudicationHelpersMixin:
             result: dict[str, Any] = {}
             for candidate in candidates:
                 candidate_id = str(candidate.get("candidate_id"))
-                result[candidate_id] = {
+                candidate_state = {
                     "candidate_status": candidate.get("candidate_status"),
                     "score_status": candidate.get("score_status"),
                     "score": candidate.get("score"),
@@ -214,6 +214,10 @@ class AdjudicationHelpersMixin:
                     "scorer_resolution_failure_key": candidate.get("scorer_resolution_failure_key"),
                     "evaluation_packet_hash": candidate.get("evaluation_packet_hash"),
                 }
+                debug = candidate.get("debug")
+                if isinstance(debug, dict) and debug:
+                    candidate_state["debug"] = debug
+                result[candidate_id] = candidate_state
             return result
 
     def _persist_adjudication_candidates(

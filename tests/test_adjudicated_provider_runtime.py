@@ -5,6 +5,7 @@ import pytest
 import yaml
 
 import orchestrator.workflow.executor as executor_module
+import orchestrator.workflow.prompting as prompting_module
 from orchestrator.loader import WorkflowLoader
 from orchestrator.observability.report import build_status_snapshot, render_status_markdown
 from orchestrator.state import StateManager
@@ -1213,6 +1214,310 @@ def test_candidate_retry_starts_from_fresh_baseline_and_records_attempt_count(tm
     assert rows[0]["candidate_status"] == "output_valid"
     assert rows[0]["provider_exit_code"] == 0
     assert rows[0]["attempt_count"] == 2
+
+
+def test_candidate_content_retry_uses_shared_fresh_attempt_composition(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "context.txt").write_text("OLD_DEPENDENCY_SENTINEL\n", encoding="utf-8")
+    attempt_file = tmp_path / "candidate_content_attempts.txt"
+    visit = adjudication_visit_paths(
+        tmp_path / ".orchestrate/runs/run-1",
+        "root",
+        "root.draft",
+        1,
+    )
+    baseline_dependency = visit.baseline_workspace / "context.txt"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["retries"] = {"max": 1, "delay_ms": 0}
+    workflow["steps"][0]["depends_on"] = {
+        "required": ["context.txt"],
+        "inject": {
+            "mode": "content",
+            "position": "prepend",
+            "instruction": "INSTRUCTION_SENTINEL",
+        },
+    }
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({attempt_file.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text()) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt))\n"
+            "if attempt == 1:\n"
+            f"    Path({baseline_dependency.as_posix()!r}).write_text('NEW_DEPENDENCY_SENTINEL\\n')\n"
+            "    raise SystemExit(1)\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n')\n"
+            "Path('docs/plans/a.md').write_text('fresh success')\n"
+        ),
+    ]
+    prompts: list[str] = []
+    composed_prompt_hashes: list[str] = []
+    derived_variant_ids: list[str] = []
+    calls = {"snapshot": 0, "render": 0}
+    original_snapshot = executor_module.snapshot_content_dependencies
+    original_render = prompting_module.render_content_snapshot
+
+    def _snapshot(*args, **kwargs):
+        calls["snapshot"] += 1
+        return original_snapshot(*args, **kwargs)
+
+    def _render(*args, **kwargs):
+        calls["render"] += 1
+        return original_render(*args, **kwargs)
+
+    monkeypatch.setattr(executor_module, "snapshot_content_dependencies", _snapshot)
+    monkeypatch.setattr(prompting_module, "render_content_snapshot", _render)
+
+    def _capture_attempts(executor: WorkflowExecutor) -> None:
+        original = executor._compose_provider_attempt_for_step
+
+        def _compose(*args, **kwargs):
+            prompt, error, debug = original(*args, **kwargs)
+            if prompt is not None:
+                prompts.append(prompt)
+                composed_prompt_hash = executor._adjudication_runner._text_hash(prompt)
+                composed_prompt_hashes.append(composed_prompt_hash)
+                derived_variant_ids.append(
+                    executor._adjudication_runner._stable_runtime_hash(
+                        {
+                            "prompt_source_kind": "input_file",
+                            "prompt_source": "prompt.md",
+                            "composed_prompt_hash": composed_prompt_hash,
+                        }
+                    )
+                )
+            return prompt, error, debug
+
+        executor._compose_provider_attempt_for_step = _compose
+
+    state = _run(tmp_path, workflow, mutate_executor=_capture_attempts)
+
+    assert state["steps"]["Draft"]["status"] == "completed"
+    assert len(prompts) == 2
+    assert "OLD_DEPENDENCY_SENTINEL" in prompts[0]
+    assert "NEW_DEPENDENCY_SENTINEL" not in prompts[0]
+    assert "NEW_DEPENDENCY_SENTINEL" in prompts[1]
+    assert "OLD_DEPENDENCY_SENTINEL" not in prompts[1]
+    assert calls == {"snapshot": 2, "render": 2}
+    assert composed_prompt_hashes[-1] != composed_prompt_hashes[0]
+    metadata = json.loads(
+        candidate_metadata_path(
+            candidate_paths(
+                tmp_path / ".orchestrate/runs/run-1",
+                "root",
+                "root.draft",
+                1,
+                "a",
+            )
+        ).read_text(encoding="utf-8")
+    )
+    assert metadata["composed_prompt_hash"] == composed_prompt_hashes[-1]
+    assert metadata["prompt_variant_id"] == derived_variant_ids[-1]
+    assert metadata["prompt_variant_id"] != derived_variant_ids[0]
+    assert not (
+        tmp_path / ".orchestrate/runs/run-1/workflow_lisp/prompt_dependencies"
+    ).exists()
+
+
+def test_authored_candidate_prompt_variant_id_remains_stable_across_retry(tmp_path: Path) -> None:
+    attempt_file = tmp_path / "authored-variant-attempts"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["retries"] = {"max": 1, "delay_ms": 0}
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {
+            "id": "a",
+            "provider": "candidate_a",
+            "prompt_variant_id": "authored-variant",
+        },
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({attempt_file.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text()) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt))\n"
+            "if attempt == 1:\n"
+            "    raise SystemExit(1)\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n')\n"
+            "Path('docs/plans/a.md').write_text('fresh success')\n"
+        ),
+    ]
+
+    state = _run(tmp_path, workflow)
+
+    assert state["steps"]["Draft"]["status"] == "completed"
+    metadata = json.loads(
+        candidate_metadata_path(
+            candidate_paths(
+                tmp_path / ".orchestrate/runs/run-1",
+                "root",
+                "root.draft",
+                1,
+                "a",
+            )
+        ).read_text(encoding="utf-8")
+    )
+    assert metadata["attempt_count"] == 2
+    assert metadata["prompt_variant_id"] == "authored-variant"
+
+
+def test_truncated_candidate_persists_existing_injection_debug_shape(tmp_path: Path) -> None:
+    (tmp_path / "large-context.txt").write_text("x" * 300_000, encoding="utf-8")
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["depends_on"] = {
+        "required": ["large-context.txt"],
+        "inject": {
+            "mode": "content",
+            "position": "prepend",
+            "instruction": "TEST_INSTRUCTION",
+        },
+    }
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+
+    state = _run(tmp_path, workflow)
+
+    candidate = state["steps"]["Draft"]["adjudication"]["candidates"]["a"]
+    injection = candidate["debug"]["injection"]
+    assert set(injection) == {"injection_truncated", "truncation_details"}
+    assert injection["injection_truncated"] is True
+    assert set(injection["truncation_details"]) == {
+        "total_size",
+        "shown_size",
+        "files_shown",
+        "files_truncated",
+        "files_omitted",
+    }
+    assert injection["truncation_details"]["total_size"] == 300_000
+    assert injection["truncation_details"]["shown_size"] < 300_000
+    assert injection["truncation_details"]["files_shown"] == 1
+    assert injection["truncation_details"]["files_truncated"] == 1
+    assert injection["truncation_details"]["files_omitted"] == 0
+    metadata = json.loads(
+        candidate_metadata_path(
+            candidate_paths(
+                tmp_path / ".orchestrate/runs/run-1",
+                "root",
+                "root.draft",
+                1,
+                "a",
+            )
+        ).read_text(encoding="utf-8")
+    )
+    assert metadata["debug"]["injection"] == injection
+
+
+def test_nontruncated_candidate_does_not_add_debug_field(tmp_path: Path) -> None:
+    (tmp_path / "small-context.txt").write_text("small context", encoding="utf-8")
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["depends_on"] = {
+        "required": ["small-context.txt"],
+        "inject": {"mode": "content", "position": "append"},
+    }
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+
+    state = _run(tmp_path, workflow)
+
+    candidate = state["steps"]["Draft"]["adjudication"]["candidates"]["a"]
+    assert "debug" not in candidate
+
+
+def test_retry_prompt_failure_does_not_retain_prior_attempt_injection_debug(tmp_path: Path) -> None:
+    (tmp_path / "large-context.txt").write_text("x" * 300_000, encoding="utf-8")
+    attempt_file = tmp_path / "candidate-content-attempts"
+    visit = adjudication_visit_paths(
+        tmp_path / ".orchestrate/runs/run-1",
+        "root",
+        "root.draft",
+        1,
+    )
+    baseline_dependency = visit.baseline_workspace / "large-context.txt"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["retries"] = {"max": 1, "delay_ms": 0}
+    workflow["steps"][0]["depends_on"] = {
+        "required": ["large-context.txt"],
+        "inject": {"mode": "content", "instruction": "TEST_INSTRUCTION"},
+    }
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"Path({attempt_file.as_posix()!r}).touch()\n"
+            f"Path({baseline_dependency.as_posix()!r}).unlink()\n"
+            "raise SystemExit(1)\n"
+        ),
+    ]
+
+    state = _run(tmp_path, workflow)
+
+    candidate = state["steps"]["Draft"]["adjudication"]["candidates"]["a"]
+    assert candidate["candidate_status"] == "prompt_failed"
+    assert candidate["attempt_count"] == 1
+    assert "debug" not in candidate
+
+
+def test_missing_required_candidate_dependency_stops_before_provider(tmp_path: Path) -> None:
+    provider_called = tmp_path / "candidate-provider-called"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["depends_on"] = {
+        "required": ["missing-context.txt"],
+        "inject": {"mode": "content"},
+    }
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        f"from pathlib import Path; Path({provider_called.as_posix()!r}).touch()",
+    ]
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    candidate = result["adjudication"]["candidates"]["a"]
+    assert candidate["candidate_status"] == "prompt_failed"
+    assert candidate["failure_type"] == "dependency_validation"
+    assert not provider_called.exists()
+
+
+def test_missing_optional_candidate_content_dependency_still_executes(tmp_path: Path) -> None:
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["depends_on"] = {
+        "optional": ["missing-context.txt"],
+        "inject": {"mode": "content"},
+    }
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+
+    state = _run(tmp_path, workflow)
+
+    candidate = state["steps"]["Draft"]["adjudication"]["candidates"]["a"]
+    assert candidate["candidate_status"] == "output_valid"
+    assert candidate["attempt_count"] == 1
+    assert "debug" not in candidate
 
 
 def test_candidate_retry_does_not_restart_other_candidates_or_step_visit(tmp_path: Path) -> None:

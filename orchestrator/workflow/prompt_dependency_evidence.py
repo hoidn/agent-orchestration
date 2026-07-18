@@ -162,6 +162,28 @@ def _row_id(contract: Mapping[str, Any], role: str, index: int, binding_ref: str
     )
 
 
+def authored_row_id(
+    compiler_contract: CompilerPromptDependencyContract,
+    *,
+    role: str,
+    authored_index: int,
+) -> str:
+    """Return the canonical evidence identity for one compiler-authored row."""
+
+    contract = serialize_compiler_prompt_dependency_contract(compiler_contract)
+    refs_key = {"required": "required_binding_refs", "optional": "optional_binding_refs"}.get(
+        role
+    )
+    if refs_key is None:
+        raise ValueError("dependency role is invalid")
+    if isinstance(authored_index, bool) or not isinstance(authored_index, int):
+        raise TypeError("authored_index must be an integer")
+    refs = contract[refs_key]
+    if authored_index < 0 or authored_index >= len(refs):
+        raise ValueError("authored_index is outside the compiler contract")
+    return _row_id(contract, role, authored_index, refs[authored_index])
+
+
 def _instruction_source(contract: Mapping[str, Any]) -> str:
     if contract["instruction_utf8_sha256_or_null"] is not None:
         return "authored"
@@ -1023,7 +1045,7 @@ def validate_terminal_evidence(
 
 __all__ = [
     "SUCCESS_SCHEMA", "FAILURE_SCHEMA", "INDEX_SCHEMA", "ALLOCATION_PROJECTION_SCHEMA",
-    "PublicationResult", "SuccessEvidenceBuild", "build_success_evidence", "validate_success_evidence",
+    "PublicationResult", "SuccessEvidenceBuild", "authored_row_id", "build_success_evidence", "validate_success_evidence",
     "build_failure_evidence", "validate_failure_evidence", "canonical_record_bytes",
     "evidence_relative_path", "publish_evidence_file",
     "build_allocator_projection", "validate_allocator_projection",

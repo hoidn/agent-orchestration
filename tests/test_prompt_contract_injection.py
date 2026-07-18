@@ -1,9 +1,12 @@
 """Tests for deterministic output-contract prompt injection on provider steps."""
 
 import json
+import hashlib
+from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 
+import pytest
 import yaml
 
 from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block
@@ -11,6 +14,7 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.prompting import PromptComposer
+from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 
 
@@ -47,6 +51,995 @@ def _output_contract_body_as_yaml(prompt_block: str) -> object:
         if line.startswith("- path:")
     )
     return yaml.safe_load("\n".join(prompt_block.splitlines()[contract_start:]))
+
+
+def _typed_dependency_runtime(
+    tmp_path: Path,
+    run_id: str,
+    *,
+    fixture_name: str = "mixed.orc",
+    entry_workflow: str = "mixed",
+):
+    repo = Path(__file__).resolve().parents[1]
+    fixture = repo / "tests/fixtures/workflow_lisp/provider_prompt_dependencies" / fixture_name
+    compiled = compile_stage3_module(
+        fixture.relative_to(repo),
+        entry_workflow=entry_workflow,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.execute": "prompt.md"},
+        validate_shared=True,
+        workspace_root=repo,
+        lowering_route="wcc_m4",
+    )
+    bundle = compiled.validated_bundles[entry_workflow]
+    (tmp_path / "artifacts/work").mkdir(parents=True)
+    (tmp_path / "artifacts/context").mkdir(parents=True)
+    (tmp_path / "artifacts/work/required.md").write_text("R\n", encoding="utf-8")
+    (tmp_path / "artifacts/context/optional.md").write_text("O\n", encoding="utf-8")
+    manager = StateManager(tmp_path, run_id=run_id)
+    manager.initialize(
+        fixture.as_posix(),
+        bound_inputs={
+            "inputs__required": "artifacts/work/required.md",
+            "inputs__optional": "artifacts/context/optional.md",
+        },
+    )
+    return WorkflowExecutor(bundle, tmp_path, manager, retry_delay_ms=0), manager
+
+
+def _replace_typed_dependency_mapping(
+    executor: WorkflowExecutor,
+    transform,
+) -> None:
+    node_id, node = next(
+        (node_id, node)
+        for node_id, node in executor.executable_ir.nodes.items()
+        if getattr(
+            node.execution_config,
+            "compiler_prompt_dependency_contract",
+            None,
+        )
+        is not None
+    )
+    config = node.execution_config
+    depends_on = transform(
+        {
+            "required": tuple(config.depends_on["required"]),
+            "optional": tuple(config.depends_on["optional"]),
+            "inject": dict(config.depends_on["inject"]),
+        }
+    )
+    _replace_typed_depends_on_value(executor, depends_on)
+
+
+def _replace_typed_depends_on_value(
+    executor: WorkflowExecutor,
+    depends_on,
+) -> None:
+    node_id, node = next(
+        (node_id, node)
+        for node_id, node in executor.executable_ir.nodes.items()
+        if getattr(
+            node.execution_config,
+            "compiler_prompt_dependency_contract",
+            None,
+        )
+        is not None
+    )
+    config = node.execution_config
+    nodes = dict(executor.executable_ir.nodes)
+    nodes[node_id] = replace(
+        node,
+        execution_config=replace(
+            config,
+            depends_on=(
+                MappingProxyType(depends_on)
+                if isinstance(depends_on, dict)
+                else depends_on
+            ),
+        ),
+    )
+    executor.executable_ir = replace(
+        executor.executable_ir,
+        nodes=MappingProxyType(nodes),
+    )
+
+
+def _install_typed_success_provider(
+    executor: WorkflowExecutor,
+    workspace: Path,
+    calls: dict[str, int],
+) -> None:
+    captured: dict[str, str] = {}
+
+    def _prepare(*_args, **kwargs):
+        calls["preparation"] += 1
+        captured.update(kwargs.get("env") or {})
+        prompt = kwargs.get("prompt_content") or ""
+        return SimpleNamespace(input_mode="stdin", prompt=prompt), None
+
+    def _execute(_invocation, **_kwargs):
+        calls["execution"] += 1
+        output = workspace / captured["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps({"approved": True, "summary": "RESULT_SENTINEL"}) + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare
+    executor.provider_executor.execute = _execute
+
+
+def _published_typed_attempt_records(manager: StateManager) -> list[dict]:
+    allocations = json.loads(manager.state_file.read_text(encoding="utf-8"))[
+        "provider_attempt_allocations"
+    ]
+    return [
+        json.loads(
+            (manager.run_root / event["relative_path"]).read_text(encoding="ascii")
+        )
+        for allocation in allocations.values()
+        for event in allocation["events"]
+        if event["event"] == "evidence_published"
+    ]
+
+
+def _assert_typed_projection_failure(
+    executor: WorkflowExecutor,
+    manager: StateManager,
+    workspace: Path,
+) -> dict:
+    calls = {"preparation": 0, "execution": 0}
+    _install_typed_success_provider(executor, workspace, calls)
+
+    state = executor.execute(on_error="stop")
+
+    failed_steps = [
+        result
+        for result in state["steps"].values()
+        if isinstance(result, dict) and result.get("exit_code") == 2
+    ]
+    assert len(failed_steps) == 1
+    assert calls == {"preparation": 0, "execution": 0}
+    records = _published_typed_attempt_records(manager)
+    assert records and all(record["record_kind"] == "failure" for record in records)
+    return failed_steps[0]
+
+
+def test_typed_dependency_mapping_matching_canonical_contract_projection_succeeds(
+    tmp_path: Path,
+) -> None:
+    executor, manager = _typed_dependency_runtime(tmp_path, "typed-canonical-projection")
+    calls = {"preparation": 0, "execution": 0}
+    _install_typed_success_provider(executor, tmp_path, calls)
+
+    state = executor.execute(on_error="stop")
+
+    assert state["status"] == "completed"
+    assert calls == {"preparation": 1, "execution": 1}
+    assert [record["record_kind"] for record in _published_typed_attempt_records(manager)] == [
+        "prompt_snapshot"
+    ]
+
+
+def test_typed_dependency_mapping_replaced_template_fails_before_preparation(
+    tmp_path: Path,
+) -> None:
+    executor, manager = _typed_dependency_runtime(tmp_path, "typed-replaced-template")
+    _replace_typed_dependency_mapping(
+        executor,
+        lambda depends_on: {
+            **depends_on,
+            "required": (
+                "${inputs.inputs__optional}",
+                depends_on["required"][1],
+            ),
+        },
+    )
+    calls = {"preparation": 0, "execution": 0}
+    _install_typed_success_provider(executor, tmp_path, calls)
+
+    state = executor.execute(on_error="stop")
+
+    assert state["steps"]["mixed__result"]["exit_code"] == 2
+    assert calls == {"preparation": 0, "execution": 0}
+    records = _published_typed_attempt_records(manager)
+    assert records and all(record["record_kind"] != "prompt_snapshot" for record in records)
+
+
+def test_typed_dependency_mapping_swapped_required_optional_refs_fails_before_preparation(
+    tmp_path: Path,
+) -> None:
+    executor, manager = _typed_dependency_runtime(tmp_path, "typed-swapped-refs")
+    _replace_typed_dependency_mapping(
+        executor,
+        lambda depends_on: {
+            **depends_on,
+            "required": depends_on["optional"],
+            "optional": depends_on["required"],
+        },
+    )
+    calls = {"preparation": 0, "execution": 0}
+    _install_typed_success_provider(executor, tmp_path, calls)
+
+    state = executor.execute(on_error="stop")
+
+    assert state["steps"]["mixed__result"]["exit_code"] == 2
+    assert calls == {"preparation": 0, "execution": 0}
+    records = _published_typed_attempt_records(manager)
+    assert records and all(record["record_kind"] != "prompt_snapshot" for record in records)
+
+
+def test_typed_dependency_mapping_position_mismatch_fails_before_preparation(
+    tmp_path: Path,
+) -> None:
+    executor, manager = _typed_dependency_runtime(tmp_path, "typed-position-mismatch")
+
+    def _prepend_instead_of_contract(depends_on):
+        depends_on["inject"]["position"] = "prepend"
+        return depends_on
+
+    _replace_typed_dependency_mapping(executor, _prepend_instead_of_contract)
+    calls = {"preparation": 0, "execution": 0}
+    _install_typed_success_provider(executor, tmp_path, calls)
+
+    state = executor.execute(on_error="stop")
+
+    assert state["steps"]["mixed__result"]["exit_code"] == 2
+    assert calls == {"preparation": 0, "execution": 0}
+    records = _published_typed_attempt_records(manager)
+    assert records and all(record["record_kind"] != "prompt_snapshot" for record in records)
+
+
+def test_typed_dependency_mapping_mode_cannot_bypass_allocated_failure_branch(
+    tmp_path: Path,
+) -> None:
+    executor, manager = _typed_dependency_runtime(tmp_path, "typed-mode-bypass")
+
+    def _list_instead_of_content(depends_on):
+        depends_on["inject"]["mode"] = "list"
+        return depends_on
+
+    _replace_typed_dependency_mapping(executor, _list_instead_of_content)
+
+    _assert_typed_projection_failure(executor, manager, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "projection",
+    [pytest.param(["not-a-mapping"], id="list"), pytest.param(None, id="none")],
+)
+def test_typed_dependency_nonmapping_projection_enters_allocated_failure_branch(
+    tmp_path: Path,
+    projection,
+) -> None:
+    executor, manager = _typed_dependency_runtime(tmp_path, "typed-nonmapping-projection")
+    _replace_typed_depends_on_value(executor, projection)
+
+    _assert_typed_projection_failure(executor, manager, tmp_path)
+
+
+def test_typed_dependency_mapping_rejects_instruction_when_contract_has_none(
+    tmp_path: Path,
+) -> None:
+    executor, manager = _typed_dependency_runtime(
+        tmp_path,
+        "typed-mapping-only-instruction",
+        fixture_name="without_instruction.orc",
+        entry_workflow="without_instruction",
+    )
+
+    def _add_mapping_only_instruction(depends_on):
+        depends_on["inject"]["instruction"] = "MAPPING_ONLY_INSTRUCTION_SENTINEL"
+        return depends_on
+
+    _replace_typed_dependency_mapping(executor, _add_mapping_only_instruction)
+
+    _assert_typed_projection_failure(executor, manager, tmp_path)
+
+
+def test_typed_dependency_mapping_rejects_changed_authored_instruction(
+    tmp_path: Path,
+) -> None:
+    executor, manager = _typed_dependency_runtime(tmp_path, "typed-changed-instruction")
+
+    def _change_authored_instruction(depends_on):
+        depends_on["inject"]["instruction"] = "CHANGED_INSTRUCTION_SENTINEL"
+        return depends_on
+
+    _replace_typed_dependency_mapping(executor, _change_authored_instruction)
+
+    _assert_typed_projection_failure(executor, manager, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "mutate_projection",
+    [
+        pytest.param(
+            lambda depends_on: {**depends_on, "unexpected": True},
+            id="extra-top-level-member",
+        ),
+        pytest.param(
+            lambda _depends_on: {},
+            id="missing-depends-on-projection",
+        ),
+        pytest.param(
+            lambda depends_on: {
+                key: value for key, value in depends_on.items() if key != "optional"
+            },
+            id="missing-top-level-member",
+        ),
+        pytest.param(
+            lambda depends_on: {
+                **depends_on,
+                "inject": {**depends_on["inject"], "unexpected": True},
+            },
+            id="extra-inject-member",
+        ),
+        pytest.param(
+            lambda depends_on: {
+                **depends_on,
+                "inject": {
+                    key: value
+                    for key, value in depends_on["inject"].items()
+                    if key != "position"
+                },
+            },
+            id="missing-inject-member",
+        ),
+        pytest.param(
+            lambda depends_on: {
+                **depends_on,
+                "inject": {
+                    key: value
+                    for key, value in depends_on["inject"].items()
+                    if key != "mode"
+                },
+            },
+            id="missing-inject-mode",
+        ),
+        pytest.param(
+            lambda depends_on: {
+                **depends_on,
+                "inject": {
+                    key: value
+                    for key, value in depends_on["inject"].items()
+                    if key != "instruction"
+                },
+            },
+            id="missing-authored-instruction",
+        ),
+    ],
+)
+def test_typed_dependency_mapping_rejects_extra_or_missing_projection_members(
+    tmp_path: Path,
+    mutate_projection,
+) -> None:
+    executor, manager = _typed_dependency_runtime(
+        tmp_path,
+        "typed-closed-projection",
+    )
+    _replace_typed_dependency_mapping(executor, mutate_projection)
+
+    _assert_typed_projection_failure(executor, manager, tmp_path)
+
+
+@pytest.mark.parametrize("mode", ["content", "list"])
+def test_yaml_dependency_modes_remain_mapping_driven_without_typed_evidence(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "state").mkdir()
+    (tmp_path / "prompts/review.md").write_text(
+        "BASE_PROMPT_SENTINEL\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "state/context.txt").write_text(
+        "YAML_DEPENDENCY_BODY_SENTINEL\n",
+        encoding="utf-8",
+    )
+    workflow = {
+        "version": "2.7",
+        "name": f"yaml-{mode}-control",
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [
+            {
+                "name": "Review",
+                "id": "review",
+                "provider": "mock_provider",
+                "input_file": "prompts/review.md",
+                "depends_on": {
+                    "required": ["state/context.txt"],
+                    "inject": {"mode": mode, "position": "append"},
+                },
+            }
+        ],
+    }
+    loaded = WorkflowLoader(tmp_path).load(_write_workflow(tmp_path, workflow))
+    manager = StateManager(tmp_path, run_id=f"yaml-{mode}-control")
+    manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, tmp_path, manager)
+    prompts: list[str] = []
+
+    def _prepare(*_args, **kwargs):
+        prompt = kwargs.get("prompt_content") or ""
+        prompts.append(prompt)
+        return SimpleNamespace(input_mode="stdin", prompt=prompt), None
+
+    executor.provider_executor.prepare_invocation = _prepare
+    executor.provider_executor.execute = lambda *_args, **_kwargs: SimpleNamespace(
+        exit_code=0,
+        stdout=b"ok",
+        stderr=b"",
+        duration_ms=1,
+        error=None,
+        missing_placeholders=None,
+        invalid_prompt_placeholder=False,
+    )
+
+    state = executor.execute(on_error="stop")
+
+    assert state["status"] == "completed"
+    assert len(prompts) == 1
+    if mode == "content":
+        assert "YAML_DEPENDENCY_BODY_SENTINEL" in prompts[0]
+    else:
+        assert "state/context.txt" in prompts[0]
+        assert "YAML_DEPENDENCY_BODY_SENTINEL" not in prompts[0]
+    assert manager.load().provider_attempt_allocations == {}
+    assert not (manager.run_root / "workflow_lisp/prompt_dependencies").exists()
+
+
+def test_content_dependency_retry_takes_one_fresh_snapshot_and_render_per_attempt(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A content dependency is observed once inside each ordinary retry."""
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "state").mkdir()
+    (tmp_path / "prompts" / "review.md").write_text("BASE_PROMPT_SENTINEL\n", encoding="utf-8")
+    dependency = tmp_path / "state" / "context.txt"
+    dependency.write_text("old-attempt-body\n", encoding="utf-8")
+    workflow = {
+        "version": "2.7",
+        "name": "retry-content-snapshot",
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Review",
+            "id": "review",
+            "provider": "mock_provider",
+            "input_file": "prompts/review.md",
+            "depends_on": {
+                "required": ["state/context.txt"],
+                "inject": {
+                    "mode": "content",
+                    "position": "prepend",
+                    "instruction": "INSTRUCTION_SENTINEL",
+                },
+            },
+            "retries": 1,
+        }],
+    }
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    manager = StateManager(workspace=tmp_path, run_id="retry-content")
+    manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, tmp_path, manager)
+
+    import orchestrator.workflow.prompting as prompting
+
+    original_render = prompting.render_content_snapshot
+    render_count = 0
+
+    def _render_once(*args, **kwargs):
+        nonlocal render_count
+        render_count += 1
+        return original_render(*args, **kwargs)
+
+    monkeypatch.setattr(prompting, "render_content_snapshot", _render_once, raising=False)
+    prompts: list[str] = []
+
+    def _prepare_invocation(*args, **kwargs):
+        prompt = kwargs.get("prompt_content") or ""
+        prompts.append(prompt)
+        return SimpleNamespace(input_mode="stdin", prompt=prompt), None
+
+    executions = 0
+
+    def _execute(_invocation, **_kwargs):
+        nonlocal executions
+        executions += 1
+        if executions == 1:
+            dependency.write_text("new-attempt-body\n", encoding="utf-8")
+        return SimpleNamespace(
+            exit_code=1 if executions == 1 else 0,
+            stdout=b"retry" if executions == 1 else b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+
+    assert state["steps"]["Review"]["exit_code"] == 0
+    assert render_count == 2
+    assert len(prompts) == 2
+    assert "old-attempt-body" in prompts[0]
+    assert "new-attempt-body" not in prompts[0]
+    assert "new-attempt-body" in prompts[1]
+    assert "old-attempt-body" not in prompts[1]
+    assert prompts[0].index("INSTRUCTION_SENTINEL") < prompts[0].index("BASE_PROMPT_SENTINEL")
+    assert manager.load().provider_attempt_allocations == {}
+    assert not (manager.run_root / "workflow_lisp" / "prompt_dependencies").exists()
+
+
+def test_typed_content_attempt_publishes_exact_final_prompt_before_preparation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A typed ordinary attempt publishes its one-render record before launch."""
+    repo = Path(__file__).resolve().parents[1]
+    fixture = repo / "tests/fixtures/workflow_lisp/provider_prompt_dependencies/mixed.orc"
+    compiled = compile_stage3_module(
+        fixture.relative_to(repo),
+        entry_workflow="mixed",
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.execute": "prompt.md"},
+        validate_shared=True,
+        workspace_root=repo,
+        lowering_route="wcc_m4",
+    )
+    bundle = compiled.validated_bundles["mixed"]
+    (tmp_path / "artifacts/work").mkdir(parents=True)
+    (tmp_path / "artifacts/context").mkdir(parents=True)
+    (tmp_path / "artifacts/work/required.md").write_text(
+        "REQUIRED_DEPENDENCY_SENTINEL\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "artifacts/context/optional.md").write_text(
+        "OPTIONAL_DEPENDENCY_SENTINEL\n",
+        encoding="utf-8",
+    )
+    bound_inputs = {
+        "inputs__required": "artifacts/work/required.md",
+        "inputs__optional": "artifacts/context/optional.md",
+    }
+    assert set(bound_inputs) == {
+        name
+        for name in workflow_runtime_input_contracts(bundle)
+        if not name.startswith("__write_root__")
+    }
+    manager = StateManager(tmp_path, run_id="typed-content-attempt")
+    manager.initialize(fixture.as_posix(), bound_inputs=bound_inputs)
+    executor = WorkflowExecutor(bundle, tmp_path, manager, retry_delay_ms=0)
+    captured: dict[str, object] = {}
+    import orchestrator.workflow.prompt_dependency_evidence as evidence_owner
+
+    original_render = evidence_owner.render_content_snapshot
+    render_count = 0
+
+    def _render_once(*args, **kwargs):
+        nonlocal render_count
+        render_count += 1
+        return original_render(*args, **kwargs)
+
+    monkeypatch.setattr(evidence_owner, "render_content_snapshot", _render_once)
+
+    def _prepare_invocation(*args, **kwargs):
+        prompt = kwargs.get("prompt_content") or ""
+        persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))[
+            "provider_attempt_allocations"
+        ]
+        assert len(persisted) == 1
+        events = next(iter(persisted.values()))["events"]
+        assert [event["event"] for event in events] == ["allocated", "evidence_published"]
+        evidence_path = manager.run_root / events[-1]["relative_path"]
+        assert evidence_path.is_file()
+        captured.update(prompt=prompt, env=dict(kwargs.get("env") or {}), evidence=evidence_path)
+        return SimpleNamespace(input_mode="stdin", prompt=prompt), None
+
+    def _execute(_invocation, **_kwargs):
+        output = tmp_path / str(captured["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps({"approved": True, "summary": "RESULT_SENTINEL"}) + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute(on_error="stop")
+
+    assert captured, json.dumps(state, indent=2, sort_keys=True)
+    prompt = str(captured["prompt"])
+    evidence = json.loads(Path(captured["evidence"]).read_text(encoding="ascii"))
+    assert state["status"] == "completed"
+    assert render_count == 1
+    assert "REQUIRED_DEPENDENCY_SENTINEL" in prompt
+    assert "OPTIONAL_DEPENDENCY_SENTINEL" in prompt
+    assert evidence["final_prompt"] == {
+        "bytes": len(prompt.encode("utf-8")),
+        "sha256": "sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+    }
+    assert evidence["attempt"]["scope"]["runtime_step_id"] == "root.mixed__result"
+
+
+def test_typed_failure_row_ids_are_derived_by_the_evidence_owner() -> None:
+    from orchestrator.workflow.prompt_dependency_evidence import authored_row_id
+
+    repo = Path(__file__).resolve().parents[1]
+    fixture = repo / "tests/fixtures/workflow_lisp/provider_prompt_dependencies/mixed.orc"
+    compiled = compile_stage3_module(
+        fixture.relative_to(repo),
+        entry_workflow="mixed",
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.execute": "prompt.md"},
+        validate_shared=True,
+        workspace_root=repo,
+        lowering_route="wcc_m4",
+    )
+    contract = next(
+        node.execution_config.compiler_prompt_dependency_contract
+        for node in compiled.validated_bundles["mixed"].ir.nodes.values()
+    )
+
+    first = authored_row_id(contract, role="required", authored_index=0)
+    second = authored_row_id(contract, role="required", authored_index=1)
+
+    assert first.startswith("sha256:") and len(first) == 71
+    assert first != second
+
+
+def test_typed_success_publication_failure_stops_before_provider_preparation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    fixture = repo / "tests/fixtures/workflow_lisp/provider_prompt_dependencies/mixed.orc"
+    compiled = compile_stage3_module(
+        fixture.relative_to(repo),
+        entry_workflow="mixed",
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.execute": "prompt.md"},
+        validate_shared=True,
+        workspace_root=repo,
+        lowering_route="wcc_m4",
+    )
+    bundle = compiled.validated_bundles["mixed"]
+    (tmp_path / "artifacts/work").mkdir(parents=True)
+    (tmp_path / "artifacts/context").mkdir(parents=True)
+    (tmp_path / "artifacts/work/required.md").write_text("R\n", encoding="utf-8")
+    (tmp_path / "artifacts/context/optional.md").write_text("O\n", encoding="utf-8")
+    manager = StateManager(tmp_path, run_id="typed-publication-failure")
+    manager.initialize(
+        fixture.as_posix(),
+        bound_inputs={
+            "inputs__required": "artifacts/work/required.md",
+            "inputs__optional": "artifacts/context/optional.md",
+        },
+    )
+    executor = WorkflowExecutor(bundle, tmp_path, manager, retry_delay_ms=0)
+    preparation_count = 0
+    publication_count = 0
+
+    def _reject_publication(*_args, **_kwargs):
+        nonlocal publication_count
+        publication_count += 1
+        raise OSError("PUBLICATION_FAILURE_SENTINEL")
+
+    def _prepare(*_args, **_kwargs):
+        nonlocal preparation_count
+        preparation_count += 1
+        raise AssertionError("provider preparation must not be reached")
+
+    monkeypatch.setattr(
+        "orchestrator.workflow.executor.publish_evidence_file",
+        _reject_publication,
+    )
+    executor.provider_executor.prepare_invocation = _prepare
+
+    state = executor.execute(on_error="stop")
+
+    step = state["steps"]["mixed__result"]
+    assert step["exit_code"] == 2
+    assert step["error"]["context"]["reason"] == (
+        "prompt_dependency_evidence_publication_failed"
+    )
+    assert preparation_count == 0
+    assert publication_count == 1
+    persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
+    events = next(iter(persisted["provider_attempt_allocations"].values()))["events"]
+    assert [event["event"] for event in events] == ["allocated"]
+
+
+@pytest.mark.parametrize(
+    ("category", "operation"),
+    [
+        ("unreadable_dependency", "read"),
+        ("invalid_utf8_dependency", "decode"),
+    ],
+)
+def test_typed_snapshot_failure_publishes_closed_row_context_before_preparation(
+    tmp_path: Path,
+    monkeypatch,
+    category: str,
+    operation: str,
+) -> None:
+    executor, manager = _typed_dependency_runtime(
+        tmp_path,
+        f"typed-{category}",
+    )
+    dependency = tmp_path / "artifacts/work/required.md"
+    if category == "invalid_utf8_dependency":
+        dependency.write_bytes(b"\xff")
+    else:
+        original_read_text = Path.read_text
+
+        def _read_text(path: Path, *args, **kwargs):
+            if path == dependency:
+                raise PermissionError("READ_FAILURE_SENTINEL")
+            return original_read_text(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", _read_text)
+    executor.provider_executor.prepare_invocation = lambda *_args, **_kwargs: (
+        pytest.fail("provider preparation must not be reached")
+    )
+
+    state = executor.execute(on_error="stop")
+
+    assert state["steps"]["mixed__result"]["exit_code"] == 2
+    persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
+    events = next(iter(persisted["provider_attempt_allocations"].values()))["events"]
+    assert [event["event"] for event in events] == ["allocated", "evidence_published"]
+    record = json.loads(
+        (manager.run_root / events[-1]["relative_path"]).read_text(encoding="ascii")
+    )
+    assert record["record_kind"] == "failure"
+    assert record["failure"]["category"] == category
+    assert record["failure"]["operation"] == operation
+    assert record["failure"]["evaluated_relpath"] == "artifacts/work/required.md"
+    assert record["failure"]["authored_row_id"].startswith("sha256:")
+    assert record["provider_calls"] == {"preparation": False, "execution": False}
+
+
+def test_typed_missing_required_failure_publishes_closed_row_context(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    executor, manager = _typed_dependency_runtime(tmp_path, "typed-missing-required")
+    original_prologue = executor._execute_prologue
+
+    def _delete_after_prologue(state, *, resume):
+        result = original_prologue(state, resume=resume)
+        (tmp_path / "artifacts/work/required.md").unlink()
+        return result
+
+    monkeypatch.setattr(executor, "_execute_prologue", _delete_after_prologue)
+    executor.provider_executor.prepare_invocation = lambda *_args, **_kwargs: (
+        pytest.fail("provider preparation must not be reached")
+    )
+
+    state = executor.execute(on_error="stop")
+
+    assert state["steps"]["mixed__result"]["exit_code"] == 2
+    persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
+    events = next(iter(persisted["provider_attempt_allocations"].values()))["events"]
+    record = json.loads(
+        (manager.run_root / events[-1]["relative_path"]).read_text(encoding="ascii")
+    )
+    assert record["failure"] == {
+        "category": "missing_required_dependency",
+        "operation": "resolve",
+        "authored_row_id": record["failure"]["authored_row_id"],
+        "evaluated_relpath": "artifacts/work/required.md",
+    }
+    assert record["failure"]["authored_row_id"].startswith("sha256:")
+
+
+def test_typed_invalid_injection_contract_publishes_failure_before_preparation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    executor, manager = _typed_dependency_runtime(tmp_path, "typed-invalid-injection")
+
+    def _reject_composition(**_kwargs):
+        raise ValueError("INVALID_INJECTION_SENTINEL")
+
+    monkeypatch.setattr(
+        executor.prompt_composer,
+        "compose_content_dependency_attempt",
+        _reject_composition,
+    )
+    executor.provider_executor.prepare_invocation = lambda *_args, **_kwargs: (
+        pytest.fail("provider preparation must not be reached")
+    )
+
+    state = executor.execute(on_error="stop")
+
+    assert state["steps"]["mixed__result"]["exit_code"] == 2
+    persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
+    events = next(iter(persisted["provider_attempt_allocations"].values()))["events"]
+    assert [event["event"] for event in events] == ["allocated", "evidence_published"]
+    record = json.loads(
+        (manager.run_root / events[-1]["relative_path"]).read_text(encoding="ascii")
+    )
+    assert record["record_kind"] == "failure"
+    assert record["failure"] == {
+        "category": "invalid_injection_contract",
+        "operation": "render",
+        "authored_row_id": None,
+        "evaluated_relpath": None,
+    }
+    assert record["provider_calls"] == {"preparation": False, "execution": False}
+
+
+def test_typed_truncation_debug_matches_published_render_metadata(
+    tmp_path: Path,
+) -> None:
+    executor, manager = _typed_dependency_runtime(tmp_path, "typed-truncation-debug")
+    (tmp_path / "artifacts/work/required.md").write_text(
+        "R" * 262144,
+        encoding="utf-8",
+    )
+    captured: dict[str, object] = {}
+
+    def _prepare(*_args, **kwargs):
+        persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
+        events = next(iter(persisted["provider_attempt_allocations"].values()))["events"]
+        captured["record"] = json.loads(
+            (manager.run_root / events[-1]["relative_path"]).read_text(encoding="ascii")
+        )
+        captured["env"] = dict(kwargs.get("env") or {})
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content") or ""), None
+
+    def _execute(_invocation, **_kwargs):
+        output = tmp_path / str(captured["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps({"approved": True, "summary": "RESULT_SENTINEL"}) + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute(on_error="stop")
+
+    record = captured["record"]
+    injection = record["injection"]
+    debug = state["steps"]["mixed__result"]["debug"]["injection"]
+    details = debug["truncation_details"]
+    assert injection["was_truncated"] is True
+    assert debug["injection_truncated"] is True
+    assert details == {
+        "total_size": injection["normalized_total_bytes"],
+        "shown_size": injection["shown_bytes"],
+        "files_shown": injection["files_shown"],
+        "files_truncated": injection["files_truncated"],
+        "files_omitted": injection["files_omitted"],
+    }
+    assert sum(group["render_status"] == "truncated" for group in record["canonical_groups"]) == 1
+
+
+def test_typed_retry_allocates_and_publishes_one_fresh_record_per_attempt(
+    tmp_path: Path,
+) -> None:
+    executor, manager = _typed_dependency_runtime(tmp_path, "typed-retry-freshness")
+    executor.max_retries = 1
+    executor.retry_delay_ms = 0
+    dependency = tmp_path / "artifacts/work/required.md"
+    dependency.write_text("OLD_TYPED_ATTEMPT_SENTINEL\n", encoding="utf-8")
+    prompts: list[str] = []
+    environments: list[dict[str, str]] = []
+
+    def _prepare(*_args, **kwargs):
+        prompt = kwargs.get("prompt_content") or ""
+        prompts.append(prompt)
+        environments.append(dict(kwargs.get("env") or {}))
+        return SimpleNamespace(input_mode="stdin", prompt=prompt), None
+
+    executions = 0
+
+    def _execute(_invocation, **_kwargs):
+        nonlocal executions
+        executions += 1
+        if executions == 1:
+            dependency.write_text("NEW_TYPED_ATTEMPT_SENTINEL\n", encoding="utf-8")
+        else:
+            output = tmp_path / environments[-1]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(
+                json.dumps({"approved": True, "summary": "RESULT_SENTINEL"}) + "\n",
+                encoding="utf-8",
+            )
+        return SimpleNamespace(
+            exit_code=1 if executions == 1 else 0,
+            stdout=b"retry" if executions == 1 else b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute(on_error="stop")
+
+    assert state["status"] == "completed"
+    assert "OLD_TYPED_ATTEMPT_SENTINEL" in prompts[0]
+    assert "NEW_TYPED_ATTEMPT_SENTINEL" not in prompts[0]
+    assert "NEW_TYPED_ATTEMPT_SENTINEL" in prompts[1]
+    assert "OLD_TYPED_ATTEMPT_SENTINEL" not in prompts[1]
+    persisted = json.loads(manager.state_file.read_text(encoding="utf-8"))
+    events = next(iter(persisted["provider_attempt_allocations"].values()))["events"]
+    assert [(event["ordinal"], event["event"]) for event in events] == [
+        (1, "allocated"),
+        (1, "evidence_published"),
+        (2, "allocated"),
+        (2, "evidence_published"),
+    ]
+    records = [
+        json.loads((manager.run_root / event["relative_path"]).read_text(encoding="ascii"))
+        for event in events
+        if event["event"] == "evidence_published"
+    ]
+    assert [record["attempt"]["ordinal"] for record in records] == [1, 2]
+    required_digests = [
+        next(
+            group["retained_sha256"]
+            for group in record["canonical_groups"]
+            if group["canonical_target"] == "artifacts/work/required.md"
+        )
+        for record in records
+    ]
+    assert required_digests[0] != required_digests[1]
 
 
 def test_provider_prompt_injection_renders_collection_consumed_value(tmp_path: Path) -> None:

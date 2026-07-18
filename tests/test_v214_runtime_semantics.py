@@ -1756,7 +1756,7 @@ def test_adjudicated_provider_keeps_variant_output_contract_for_prompt_injection
         workspace: Path | None = None,
         output_contract_step: dict | None = None,
         runtime_step_id: str | None = None,
-    ) -> tuple[str | None, dict | None]:
+    ) -> tuple[str | None, dict | None, dict | None]:
         captured["output_contract_step"] = output_contract_step
         return None, {
             "status": "failed",
@@ -1765,9 +1765,9 @@ def test_adjudicated_provider_keeps_variant_output_contract_for_prompt_injection
                 "type": "prompt_capture_stop",
                 "message": "stop after capturing output contract step",
             },
-        }
+        }, None
 
-    executor._compose_provider_prompt_for_step = _capture_output_contract_step  # type: ignore[method-assign]
+    executor._compose_provider_attempt_for_step = _capture_output_contract_step  # type: ignore[method-assign]
 
     state = executor.execute(on_error="continue")
 

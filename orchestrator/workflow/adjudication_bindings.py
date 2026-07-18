@@ -65,7 +65,7 @@ class StepIdCallback(Protocol):
     ) -> str: ...
 
 
-class ComposeProviderPromptCallback(Protocol):
+class ComposeProviderAttemptCallback(Protocol):
     def __call__(
         self,
         step: RuntimeStepInput,
@@ -75,7 +75,7 @@ class ComposeProviderPromptCallback(Protocol):
         workspace: Optional[Path] = None,
         output_contract_step: Optional[Dict[str, Any]] = None,
         runtime_step_id: Optional[str] = None,
-    ) -> tuple[Optional[str], Optional[Result]]: ...
+    ) -> tuple[Optional[str], Optional[Result], Optional[Dict[str, Any]]]: ...
 
 
 class ContractViolationCallback(Protocol):
@@ -273,7 +273,7 @@ class AdjudicationBindings:
     private_workflow_artifacts: Callable[[], Mapping[str, Any]]
 
     step_id: StepIdCallback
-    compose_provider_prompt_for_step: ComposeProviderPromptCallback
+    compose_provider_attempt_for_step: ComposeProviderAttemptCallback
     contract_violation_result: ContractViolationCallback
     create_provider_context: CreateProviderContextCallback
     prepare_provider_invocation: PrepareProviderInvocationCallback
@@ -357,7 +357,7 @@ class AdjudicationRunnerBase:
     ) -> str:
         return self._bindings.step_id(step, fallback_index)
 
-    def _compose_provider_prompt_for_step(
+    def _compose_provider_attempt_for_step(
         self,
         step: RuntimeStepInput,
         context: Dict[str, Any],
@@ -366,8 +366,8 @@ class AdjudicationRunnerBase:
         workspace: Optional[Path] = None,
         output_contract_step: Optional[Dict[str, Any]] = None,
         runtime_step_id: Optional[str] = None,
-    ) -> tuple[Optional[str], Optional[Result]]:
-        return self._bindings.compose_provider_prompt_for_step(
+    ) -> tuple[Optional[str], Optional[Result], Optional[Dict[str, Any]]]:
+        return self._bindings.compose_provider_attempt_for_step(
             step,
             context,
             state,

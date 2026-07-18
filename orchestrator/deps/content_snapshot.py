@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+from pathlib import Path
 from typing import Literal
 
 
@@ -199,6 +200,21 @@ class RenderedContentSnapshot:
     group_truncations: tuple[DependencyGroupTruncation, ...]
 
 
+class ContentDependencySnapshotError(ValueError):
+    """Closed functional failure raised while taking one attempt snapshot."""
+
+    def __init__(
+        self,
+        category: str,
+        operation: str,
+        row: AuthoredDependencyRow | None = None,
+    ) -> None:
+        super().__init__(category)
+        self.category = category
+        self.operation = operation
+        self.row = row
+
+
 def _evidence_key(row: AuthoredDependencyRow) -> tuple[int, int]:
     return (0 if row.role == "required" else 1, row.authored_index)
 
@@ -261,6 +277,51 @@ def build_content_snapshot(
         canonical_groups=tuple(groups),
         retained_content_bytes=retained,
     )
+
+
+def snapshot_content_dependencies(
+    workspace: Path,
+    authored_rows: Iterable[AuthoredDependencyRow],
+) -> DependencyContentSnapshot:
+    """Read one immutable, newline-normalized functional snapshot."""
+
+    root = Path(workspace)
+    rows = tuple(authored_rows)
+    if not all(isinstance(row, AuthoredDependencyRow) for row in rows):
+        raise TypeError("snapshot rows must be AuthoredDependencyRow values")
+    for row in rows:
+        if row.role == "required" and row.canonical_target is None:
+            raise ContentDependencySnapshotError(
+                "missing_required_dependency",
+                "resolve",
+                row,
+            )
+
+    payloads: list[DependencyContent] = []
+    seen: set[str] = set()
+    for row in rows:
+        target = row.canonical_target
+        if target is None or target in seen:
+            continue
+        seen.add(target)
+        try:
+            # Text mode deliberately preserves the established YAML behavior:
+            # strict UTF-8 plus universal-newline normalization.
+            normalized = (root / target).read_text(encoding="utf-8").encode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ContentDependencySnapshotError(
+                "invalid_utf8_dependency",
+                "decode",
+                row,
+            ) from exc
+        except OSError as exc:
+            raise ContentDependencySnapshotError(
+                "unreadable_dependency",
+                "read",
+                row,
+            ) from exc
+        payloads.append(DependencyContent(target, normalized))
+    return build_content_snapshot(rows, payloads)
 
 
 def _render_header(target: str, shown_bytes: int, total_bytes: int) -> bytes:
@@ -529,8 +590,10 @@ __all__ = [
     "CanonicalDependencyGroup",
     "DependencyContent",
     "DependencyContentSnapshot",
+    "ContentDependencySnapshotError",
     "DependencyGroupTruncation",
     "RenderedContentSnapshot",
     "build_content_snapshot",
+    "snapshot_content_dependencies",
     "render_content_snapshot",
 ]

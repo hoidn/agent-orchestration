@@ -47,7 +47,7 @@ platform-preflight or descriptor-read claim. Task 7's functional durability,
 aggregate-owner, closed-scope, allocator, event, and concurrency implementation
 passed both ordered reviews and committed at `dd23f224`. Task 8's functional
 record, publication, allocator-projection, terminal-index, CLI, and concurrency
-implementation is the current candidate. Its prior exact tree
+implementation passed both ordered reviews and committed at `42e0ebc3`. Its prior exact tree
 `ea1dd5c1aecf79452c5ed0e7fbf5b566ec502036` / patch
 `df50e604e5abbd05147f5f7293cc83b935e72184fee880b0b3066afed38849b2`
 passed specification review as `TASK8-SPEC-PASS-20260718-EA1DD5C1-01` but was
@@ -68,8 +68,9 @@ now cover both `complete* -> truncated -> omitted*` and
 `1065e07edda7c73f82eec3dd3b1b506668d18f3fc26d2421160f8a1755ea5fb4`
 passed the restarted functional specification review as
 `TASK8-SPEC-PASS-20260718-14296CA0-03` and the ordered implementation-quality
-review as `TASK8-QUALITY-APPROVED-20260718-14296CA0-01`. Task 8 is ready for its
-scoped commit.
+review as `TASK8-QUALITY-APPROVED-20260718-14296CA0-01`. Task 9 functional
+per-attempt composition and typed ordinary-provider evidence integration are now
+in progress.
 Workflow-family port evidence and documentation status closure remain
 unauthorized.
 
@@ -2215,22 +2216,39 @@ Suggested commit: `feat: publish prompt dependency evidence`
 
 **Owner:** fresh executor-integration implementer.
 
+**Execution scope:** functional per-attempt composition, retry freshness, typed
+ordinary-provider evidence ordering, and existing debug/state compatibility only.
+Per the 2026-07-18 execution override, this task does **not** implement or claim a
+platform preflight/probe, path/symlink/traversal/non-regular/change-during-read
+protection, security diagnostics, or adversarial-security coverage. Typed
+adjudicated evidence is not expressible in the current IR because
+`AdjudicatedProviderStepConfig` has no compiler-contract carrier; this task keeps
+adjudicated execution on the shared YAML composition/debug path and records that
+typed adjudicated limitation for Task 10 instead of expanding the frontend/IR.
+
 **Files:**
 
+- Create `tests/fixtures/workflow_lisp/provider_prompt_dependencies/without_instruction.orc`
 - Modify `tests/test_prompt_contract_injection.py`
-- Modify `tests/test_injection_integration.py`
 - Modify `tests/test_adjudicated_provider_runtime.py`
-- Modify `tests/test_adjudicated_provider_resume.py`
-- Modify `tests/test_at72_provider_state_persistence.py`
+- Modify `tests/test_v214_runtime_semantics.py` for the adjudicated attempt-callback
+  behavioral interception
+- Verify without modification `tests/test_injection_integration.py`
+- Verify without modification `tests/test_adjudicated_provider_resume.py`
+- Verify without modification `tests/test_at72_provider_state_persistence.py`
 - Modify `orchestrator/workflow/prompting.py`
 - Modify `orchestrator/workflow/executor.py`
 - Modify `orchestrator/workflow/adjudication_bindings.py`
 - Modify `orchestrator/workflow/adjudication_candidates.py`
+- Modify `orchestrator/workflow/adjudication_runtime.py` for the coherent typed
+  attempt-composition callback protocol
+- Modify `orchestrator/workflow/adjudication_helpers.py` to retain only nonempty
+  candidate `debug.injection` in the existing candidate-state projection
 - Modify `orchestrator/deps/content_snapshot.py`
 - Modify `orchestrator/workflow/prompt_dependency_evidence.py`
 - Modify this plan
 
-- [ ] **Step 1: Write ordinary retry RED tests.**
+- [x] **Step 1: Write ordinary retry RED tests.**
 
 With a capturing provider, fail one retryable attempt, mutate a YAML dependency,
 then succeed. Assert two fresh snapshots, one snapshot/render per attempt, first
@@ -2241,15 +2259,15 @@ counts/status as the immutable renderer result and persists with the step result
 for a non-truncated attempt, assert no new debug member appears. A stable workspace
 must remain byte-identical to prior successful YAML behavior.
 
-- [ ] **Step 2: Move ordinary composition inside the retry boundary.**
+- [x] **Step 2: Move ordinary composition inside the retry boundary.**
 
 Keep base prompt/asset stages contractually ordered, but call one shared
-`snapshot_and_render_content_dependencies` per attempt before preparation. Pass
-the immutable block to `PromptComposer`; never sequence resolver+injector
-independently for content mode. List/none dependencies retain their existing
-non-content behavior.
+per-attempt composition owner inside the retry boundary. Content mode takes one
+fresh snapshot and exactly one render per attempt; pass that immutable block
+through `PromptComposer` and never sequence resolver+injector independently.
+List/none dependencies retain their existing non-content behavior.
 
-- [ ] **Step 3: Write adjudicated candidate RED tests.**
+- [x] **Step 3: Write adjudicated candidate RED tests.**
 
 Each candidate retry gets one candidate-workspace snapshot with
 `adjudication_subject.candidate_id`, same ordering/API, and no reopen. Cover
@@ -2259,17 +2277,17 @@ optional absence. Prove truncated candidate results preserve the existing
 or dependency bodies. YAML adjudicated steps still produce no Workflow Lisp
 evidence.
 
-- [ ] **Step 4: Switch adjudicated composition to the shared API.**
+- [x] **Step 4: Switch adjudicated composition to the shared API.**
 
 Extend the typed callback rather than importing executor internals into the
 candidate module. Preserve candidate prompt override, output-contract suffix,
 consumes, and evaluator behavior.
 
-- [ ] **Step 5: Write typed Workflow Lisp allocation/publication-order and debug
+- [x] **Step 5: Write typed Workflow Lisp allocation/publication-order and debug
   RED tests.**
 
-Assert this exact success sequence: successful preflight/cache hit; ordinal
-allocation; exactly one snapshot/render; insertion of the immutable dependency
+Assert this exact success sequence: ordinal allocation; exactly one snapshot/render;
+insertion of the immutable dependency
 block into the already composed base-prompt
 and `asset_depends_on` prefix at the declared position; typed-input,
 consumed-artifact, and output-contract composition; strict UTF-8 encoding of the
@@ -2282,8 +2300,7 @@ provider preparation/execution. Assert the success record's
 Test dependency failures as a separate branch: after allocation, a snapshot or
 render failure may construct and best-effort publish only the closed failure
 record and matching manifest event; it never constructs a success record or final
-prompt and never reaches provider preparation. Probe failure remains the
-pre-allocation exception. Probe, allocation, snapshot, success-record
+prompt and never reaches provider preparation. Allocation, snapshot, success-record
 construction/publication, or event failure must stop before preparation. Failure
 evidence never completes a checkpoint.
 
@@ -2292,35 +2309,97 @@ and the existing provider-result `debug.injection` member agree exactly. Persist
 that member through the ordinary and adjudicated result/state paths. Do not add a
 second state field; non-truncated results retain their pre-feature debug shape.
 
-- [ ] **Step 6: Integrate typed evidence.**
+- [x] **Step 6: Integrate typed evidence.**
 
 Construct `ProviderAttemptScope` from authoritative state/runtime step identity,
 not evidence or local retry index. Finalize evidence from the same snapshot and
 exact bytes passed to `prepare_invocation`. Never reopen snapshot/evidence and
 never call offline validation. The implementation order is therefore
-`preflight -> allocate -> snapshot/render -> finish composition/final-prompt
+`allocate -> snapshot/render -> finish composition/final-prompt
 digest -> publish success record -> persist evidence_published canonically ->
 prepare/execute`.
 Keep failure-record construction on the separate branch above.
 
-- [ ] **Step 7: Write all stable failure-category integration tests.**
+- [x] **Step 7: Write retained functional failure-category integration tests.**
 
-Exercise missing required, invalid/unsafe, escape/broken symlink, non-regular,
-unreadable, invalid UTF-8, changed during read, invalid injection, unsupported
-platform. Assert provider preparation/execution counts remain zero and only safe
-relative context reaches state/evidence. The unsupported-platform case is the
-mandatory preflight exception: it creates no allocator member, ordinal/event, or
-evidence file at all and reports only through the ordinary pre-execution failure
-surface.
+Exercise missing required, unreadable, invalid UTF-8, and invalid injection.
+Assert provider preparation/execution counts remain zero and only the closed
+functional failure category plus relative authored-row context reaches evidence.
+Unsafe-path, symlink, traversal, non-regular, changed-during-read, unsupported-
+platform, and other security/preflight cases are explicitly skipped.
 
-- [ ] **Step 8: Run focused integration, freeze the review subject, and dispatch
+- [x] **Step 8: Run focused integration, freeze the review subject, and dispatch
   the ordered reviews.**
 
+Implementation and focused integration are complete, and the parent owns the
+exact-tree freeze plus both ordered reviews. The first
+specification review rejected a stale adjacent behavioral interception of the old
+two-value adjudication callback; that test now intercepts the three-value attempt
+callback and remains part of the closed Task 9 subject. Fresh Task 9 verification
+on 2026-07-18 recorded 173 collected integration tests, 86 ordinary
+prompt/injection passes, 81 adjudicated runtime/resume passes, 22 provider-state
+and legacy-injection passes, 177 adjacent snapshot/allocation/evidence passes,
+120 Workflow Lisp prompt-dependency/call-policy passes, and 18 v2.14 runtime
+semantic passes. The scoped diff check passed, and the separately protected
+YAML-retirement execution plan retained SHA-256
+`2de3c7aafd13e7518f9030621fcc1a13a70daa8ae1418c6bf81be1d3f8918d2d`.
+
+The subsequent quality review found that typed execution checked only
+compatibility-row cardinality, so a replaced or swapped mapping template could
+change the resolved dependency while evidence continued to name the compiler
+binding; the mapping's injection position also controlled execution without
+being reconciled to the compiler contract. The finding was accepted. Focused
+TDD reproduced all three contradictions before provider preparation, retained a
+canonical positive control, and then made the compiler contract authoritative:
+every typed compatibility row must be exactly `${<binding_ref>}`, the explicit
+mapping position must equal `contract.position.value`, and typed composition uses
+that contract value. YAML semantics remain unchanged. The earlier quality verdict
+is superseded; this corrected delta is eligible to commit only after a fresh exact-
+tree specification review followed by a fresh implementation-quality review.
+
+Final-quality review `TASK9-QUALITY-REJECT-20260718-DD3C6114-02` then found that
+the compiler contract still did not own the complete compatibility projection:
+mapping mode could select the legacy branch before allocation, extra mapping
+members were accepted, and instruction presence/content was not validated as a
+closed projection before acquisition. The finding was accepted. A second focused
+TDD correction now makes contract presence select the typed attempt branch even
+when `depends_on` is absent or non-mapping; allocation precedes the closed
+projection check; the top mapping must contain exactly `required`, `optional`,
+and `inject`; `inject` must contain exactly `mode`/`position` plus `instruction`
+iff its compiler digest is non-null; mode must be `content`; position, canonical
+row templates, and strict UTF-8 instruction SHA-256 must match the contract.
+Failures publish failure evidence only and never prepare or execute a provider.
+A real compiler-lowered no-instruction fixture covers the null-digest direction,
+while explicit YAML list/content controls prove YAML retains its mapping-driven
+behavior with no typed allocation or evidence. This final-quality verdict is
+superseded; the corrected exact tree requires fresh ordered reviews.
+
+The final pre-freeze edge check parameterized the non-mapping projection control
+with both a list and explicit `None`. Both enter the allocated failure branch:
+the typed `RuntimeStep` mapping omits a `None` compatibility value, and the
+executor's existing `step.get('depends_on', {})` therefore normalizes both missing
+and explicit `None` to the same invalid empty projection before closed validation.
+No additional production change was necessary; both directions passed freshly.
+
+Final-quality review `TASK9-QUALITY-REJECT-20260718-AD57309E-03` then found that
+an adjudicated candidate without an authored `prompt_variant_id` derived that ID
+only after its first successful composition. When a retry refreshed changed
+dependency content, `composed_prompt_hash` advanced to the final attempt while the
+derived variant ID continued to identify the first prompt. The finding was
+accepted. Focused TDD now proves both directions: a runtime-derived variant ID is
+recomputed after every successful composition from the current prompt-source
+kind/path and current `composed_prompt_hash`, while an explicitly authored variant
+ID remains unchanged across retries. The earlier quality verdict is superseded;
+the corrected integrated Task 9 tree still requires fresh ordered reviews.
+
 ```bash
+pytest --collect-only -q tests/test_prompt_contract_injection.py tests/test_injection_integration.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_resume.py tests/test_at72_provider_state_persistence.py
 pytest -q tests/test_prompt_contract_injection.py tests/test_injection_integration.py
 pytest -q tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_resume.py
 pytest -q tests/test_at72_provider_state_persistence.py tests/test_dependency_injection.py
 pytest -q tests/test_prompt_dependency_content_snapshot.py tests/test_provider_attempt_allocation.py tests/test_prompt_dependency_evidence.py
+pytest -q tests/test_workflow_lisp_provider_prompt_dependencies.py tests/test_workflow_lisp_provider_call_policy.py
+pytest -q tests/test_v214_runtime_semantics.py
 ```
 
 Suggested commit: `refactor: snapshot dependencies per provider attempt`

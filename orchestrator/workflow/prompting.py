@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, TypeVar
+
+from ..deps.content_snapshot import (
+    DependencyContentSnapshot,
+    RenderedContentSnapshot,
+    render_content_snapshot,
+)
 
 from ..contracts.prompt_contract import (
     render_consumed_artifacts_block,
@@ -17,6 +24,19 @@ from ..contracts.prompt_contract import (
 )
 from .assets import AssetResolutionError, WorkflowAssetResolver
 from .executor_runtime import RuntimeStepInput
+
+
+_RenderOwner = TypeVar("_RenderOwner")
+
+
+@dataclass(frozen=True)
+class ContentDependencyAttemptComposition:
+    """One attempt's render, final UTF-8 prompt, debug view, and owner result."""
+
+    rendered: RenderedContentSnapshot
+    final_prompt: bytes
+    debug_injection: dict[str, Any] | None
+    render_owner_result: Any = None
 
 
 class PromptComposer:
@@ -130,6 +150,88 @@ class PromptComposer:
         if prompt.endswith("\n"):
             return f"{prompt}\n{contract_block}"
         return f"{prompt}\n\n{contract_block}"
+
+    @staticmethod
+    def apply_rendered_content_dependency(
+        prompt: str,
+        rendered: RenderedContentSnapshot,
+        *,
+        position: str,
+    ) -> str:
+        """Insert one already-rendered immutable content block."""
+
+        if not isinstance(rendered, RenderedContentSnapshot):
+            raise TypeError("RenderedContentSnapshot required")
+        try:
+            block = rendered.block.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("rendered dependency block must be UTF-8") from exc
+        if position == "prepend":
+            return f"{block}\n\n{prompt}" if prompt else block
+        if position == "append":
+            return f"{prompt}\n\n{block}" if prompt else block
+        raise ValueError("invalid_injection_contract")
+
+    @staticmethod
+    def content_dependency_debug(
+        rendered: RenderedContentSnapshot,
+    ) -> dict[str, Any] | None:
+        """Project truncation into the established provider-result debug shape."""
+
+        if not rendered.was_truncated:
+            return None
+        rows = rendered.group_truncations
+        return {
+            "injection_truncated": True,
+            "truncation_details": {
+                "total_size": sum(row.total_bytes for row in rows),
+                "shown_size": sum(row.shown_bytes for row in rows),
+                "files_shown": sum(row.status != "omitted" for row in rows),
+                "files_truncated": sum(row.status == "truncated" for row in rows),
+                "files_omitted": sum(row.status == "omitted" for row in rows),
+            },
+        }
+
+    def compose_content_dependency_attempt(
+        self,
+        *,
+        base_prompt: str,
+        snapshot: DependencyContentSnapshot,
+        instruction: str,
+        position: str,
+        finish_prompt: Callable[[str], str],
+        render_owner: Callable[[Callable[[RenderedContentSnapshot], bytes]], _RenderOwner]
+        | None = None,
+    ) -> ContentDependencyAttemptComposition:
+        """Own one render and every later prompt stage for one provider attempt."""
+
+        def compose_from_render(rendered: RenderedContentSnapshot) -> bytes:
+            injected = self.apply_rendered_content_dependency(
+                base_prompt,
+                rendered,
+                position=position,
+            )
+            final = finish_prompt(injected)
+            if not isinstance(final, str):
+                raise TypeError("finish_prompt must return a string")
+            return final.encode("utf-8", errors="strict")
+
+        owner_result: Any = None
+        if render_owner is None:
+            rendered = render_content_snapshot(snapshot, instruction=instruction)
+            final_prompt = compose_from_render(rendered)
+        else:
+            owner_result = render_owner(compose_from_render)
+            rendered = getattr(owner_result, "rendered", None)
+            final_prompt = getattr(owner_result, "final_prompt", None)
+            if not isinstance(rendered, RenderedContentSnapshot) or type(final_prompt) is not bytes:
+                raise TypeError("render owner returned an invalid composition result")
+        return ContentDependencyAttemptComposition(
+            rendered=rendered,
+            final_prompt=final_prompt,
+            debug_injection=self.content_dependency_debug(rendered),
+            render_owner_result=owner_result,
+        )
 
     def apply_consumes_prompt_injection(
         self,

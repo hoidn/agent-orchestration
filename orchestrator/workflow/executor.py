@@ -26,6 +26,10 @@ from ..managed_jobs.recovery import recover_managed_jobs
 from ..managed_jobs.runtime import ManagedProviderRuntime
 from ..deps.resolver import DependencyResolver
 from ..deps.injector import DependencyInjector
+from ..deps.content_snapshot import (
+    ContentDependencySnapshotError,
+    snapshot_content_dependencies,
+)
 from ..contracts.output_contract import (
     OutputContractError,
     validate_contract_value,
@@ -109,6 +113,16 @@ from .predicates import (
     is_numeric_predicate_value,
 )
 from .prompting import PromptComposer
+from .prompt_dependency_evidence import (
+    authored_row_id,
+    build_failure_evidence,
+    build_success_evidence,
+    publish_evidence_file,
+)
+from .provider_attempts import (
+    ProviderAttemptScope,
+    resolve_aggregate_run_owner,
+)
 from .references import (
     MaterializeViewBindingReference,
     ReferenceResolutionError,
@@ -342,8 +356,8 @@ class WorkflowExecutor:
                 workflow_artifacts=lambda: self.workflow_artifacts,
                 private_workflow_artifacts=lambda: self.private_workflow_artifacts,
                 step_id=lambda *args, **kwargs: self._step_id(*args, **kwargs),
-                compose_provider_prompt_for_step=lambda *args, **kwargs: (
-                    self._compose_provider_prompt_for_step(*args, **kwargs)
+                compose_provider_attempt_for_step=lambda *args, **kwargs: (
+                    self._compose_provider_attempt_for_step(*args, **kwargs)
                 ),
                 contract_violation_result=lambda *args, **kwargs: (
                     self._contract_violation_result(*args, **kwargs)
@@ -4991,6 +5005,172 @@ class WorkflowExecutor:
             final_result['snapshots'] = snapshots
         return final_result
 
+    @staticmethod
+    def _compiler_prompt_dependency_contract(step: RuntimeStepInput) -> Any:
+        if isinstance(step, RuntimeStep):
+            return step.compiler_prompt_dependency_contract
+        return None
+
+    def _provider_attempt_scope(
+        self,
+        *,
+        step_name: str,
+        runtime_step_id: str,
+    ) -> ProviderAttemptScope:
+        """Construct one closed attempt scope from reached authoritative state."""
+
+        owner = resolve_aggregate_run_owner(self.state_manager)
+        leaf = owner.leaf_state
+        current = leaf.current_step if isinstance(leaf.current_step, Mapping) else {}
+        enclosing_name = current.get("name", step_name)
+        enclosing_step_id = current.get("step_id", runtime_step_id)
+        visit_count = current.get("visit_count", leaf.step_visits.get(enclosing_name))
+        if (
+            not isinstance(enclosing_name, str)
+            or not isinstance(enclosing_step_id, str)
+            or isinstance(visit_count, bool)
+            or not isinstance(visit_count, int)
+            or visit_count <= 0
+        ):
+            raise ValueError("provider attempt enclosing state is incomplete")
+
+        loop_iteration: dict[str, Any] | None = None
+        if runtime_step_id != enclosing_step_id:
+            prefix = f"{enclosing_step_id}#"
+            if not runtime_step_id.startswith(prefix) or "." not in runtime_step_id[len(prefix):]:
+                raise ValueError("provider attempt loop identity is invalid")
+            raw_iteration = runtime_step_id[len(prefix):].split(".", 1)[0]
+            if not raw_iteration.isdigit():
+                raise ValueError("provider attempt loop iteration is invalid")
+            iteration = int(raw_iteration)
+            if enclosing_name in leaf.for_each:
+                kind = "for_each"
+            elif enclosing_name in leaf.repeat_until:
+                kind = "repeat_until"
+            else:
+                raise ValueError("provider attempt loop state is missing")
+            loop_iteration = {
+                "kind": kind,
+                "loop_step_id": enclosing_step_id,
+                "iteration": iteration,
+            }
+
+        return ProviderAttemptScope.from_dict(
+            {
+                "run_id": owner.root_manager.run_id,
+                "resume_scope": {
+                    "root_workflow_file": owner.resume_scope_path.root_workflow_file,
+                    "call_frame_ids": list(owner.resume_scope_path.call_frame_ids),
+                },
+                "runtime_step_id": runtime_step_id,
+                "enclosing_step": {
+                    "step_name": enclosing_name,
+                    "step_id": enclosing_step_id,
+                    "visit_count": visit_count,
+                },
+                "loop_iteration": loop_iteration,
+                "adjudication_subject": None,
+            }
+        )
+
+    def _resolve_typed_content_dependencies(
+        self,
+        *,
+        contract: Any,
+        depends_on: Mapping[str, Any],
+        variables: Mapping[str, Any],
+    ) -> Any:
+        """Validate the compatibility projection, then resolve compiler row refs."""
+
+        if set(depends_on) != {"required", "optional", "inject"}:
+            raise ValueError("typed dependency mapping contradicts compiler contract")
+        required_templates = depends_on.get("required", [])
+        optional_templates = depends_on.get("optional", [])
+        inject = depends_on.get("inject")
+        expected_inject_keys = {"mode", "position"}
+        expected_instruction_digest = contract.instruction_utf8_sha256_or_null
+        if expected_instruction_digest is not None:
+            expected_inject_keys.add("instruction")
+        if (
+            not isinstance(required_templates, list)
+            or not isinstance(optional_templates, list)
+            or len(required_templates) != len(contract.required_binding_refs)
+            or len(optional_templates) != len(contract.optional_binding_refs)
+            or not isinstance(inject, Mapping)
+            or set(inject) != expected_inject_keys
+            or inject.get("mode") != "content"
+            or inject.get("position") != contract.position.value
+        ):
+            raise ValueError("typed dependency mapping contradicts compiler contract")
+        if expected_instruction_digest is not None:
+            instruction = inject.get("instruction")
+            if not isinstance(instruction, str):
+                raise ValueError("typed dependency instruction must be a string")
+            actual_instruction_digest = (
+                "sha256:" + sha256(instruction.encode("utf-8")).hexdigest()
+            )
+            if actual_instruction_digest != expected_instruction_digest:
+                raise ValueError(
+                    "typed dependency instruction contradicts compiler contract"
+                )
+
+        def evaluated_rows(refs: tuple[str, ...], templates: list[Any]) -> tuple[tuple[str, str], ...]:
+            rows: list[tuple[str, str]] = []
+            for ref, template in zip(refs, templates):
+                if not isinstance(template, str):
+                    raise ValueError("typed dependency template must be a string")
+                if template != f"${{{ref}}}":
+                    raise ValueError(
+                        "typed dependency template contradicts compiler contract"
+                    )
+                evaluated = self.variable_substitutor.substitute(template, variables)
+                if not isinstance(evaluated, str) or not evaluated:
+                    raise ValueError("typed dependency must evaluate to a relative path")
+                rows.append((ref, evaluated))
+            return tuple(rows)
+
+        return self.dependency_resolver.resolve_exact(
+            required=evaluated_rows(contract.required_binding_refs, required_templates),
+            optional=evaluated_rows(contract.optional_binding_refs, optional_templates),
+        )
+
+    def _best_effort_publish_prompt_dependency_failure(
+        self,
+        *,
+        contract: Any,
+        scope: ProviderAttemptScope | None,
+        ordinal: int | None,
+        category: str,
+        operation: str,
+        row: Any = None,
+    ) -> None:
+        if scope is None or ordinal is None:
+            return
+        try:
+            row_id = None
+            evaluated_relpath = None
+            if row is not None:
+                row_id = authored_row_id(
+                    contract,
+                    role=row.role,
+                    authored_index=row.authored_index,
+                )
+                evaluated_relpath = row.evaluated_relpath
+            owner = resolve_aggregate_run_owner(self.state_manager)
+            record = build_failure_evidence(
+                run_state=owner.root_manager.state,
+                scope=scope,
+                ordinal=ordinal,
+                compiler_contract=contract,
+                category=category,
+                operation=operation,
+                authored_row_id=row_id,
+                evaluated_relpath=evaluated_relpath,
+            )
+            publish_evidence_file(self.state_manager, scope, ordinal, record)
+        except Exception:
+            pass
+
     def _execute_provider_with_context(
         self,
         step: RuntimeStepInput,
@@ -5103,65 +5283,50 @@ class WorkflowExecutor:
         if asset_error is not None:
             return asset_error
 
-        # Handle dependencies if specified (AT-22-27)
-        if 'depends_on' in step:
+        # Content dependencies are composed from a fresh immutable snapshot in
+        # the provider retry loop. List/none modes preserve their legacy path.
+        compiler_prompt_dependency_contract = self._compiler_prompt_dependency_contract(step)
+        content_dependencies: Dict[str, Any] | None = None
+        if compiler_prompt_dependency_contract is not None:
+            # Contract presence selects the typed branch even when the mapping
+            # is absent or malformed. Validation happens after allocation.
+            content_dependencies = step.get('depends_on', {})
+        elif 'depends_on' in step:
             depends_on = step['depends_on']
-
-            # Build variables dict for substitution
-            substitution_vars = variables
-
-            # Resolve dependencies using the correct API
-            resolution = self.dependency_resolver.resolve(
-                depends_on=depends_on,
-                variables=substitution_vars
-            )
-
-            # Check for validation errors (missing required dependencies)
-            if not resolution.is_valid:
-                # Missing required dependencies - exit code 2
-                return {
-                    'status': 'failed',
-                    'exit_code': 2,
-                    'error': {
-                        'type': 'dependency_validation',
-                        'message': 'Missing required dependencies',
-                        'context': {
-                            'missing_dependencies': resolution.errors
-                        }
-                    }
-                }
-
-            # Get all resolved files in deterministic order
-            all_files = resolution.files
-
-            # AT-73: Do NOT substitute variables in prompt text (input_file contents are literal)
-            # The spec states: "input_file: read literal contents; no substitution inside file contents"
-            # prompt = self.variable_substitutor.substitute(prompt, variables, track_undefined=False)
-
-            # Apply dependency injection if configured (AT-28-35,53)
             inject_config = depends_on.get('inject', False)
-            if inject_config:
-                # Perform injection (use whether we had required deps)
-                has_required = 'required' in depends_on and len(depends_on['required']) > 0
-                injection_result = self.dependency_injector.inject(
-                    prompt=prompt,
-                    files=all_files,
-                    inject_config=inject_config,
-                    is_required=has_required
+            if isinstance(inject_config, dict) and inject_config.get('mode', 'list') == 'content':
+                content_dependencies = depends_on
+            else:
+                resolution = self.dependency_resolver.resolve(
+                    depends_on=depends_on,
+                    variables=variables,
                 )
+                if not resolution.is_valid:
+                    return {
+                        'status': 'failed',
+                        'exit_code': 2,
+                        'error': {
+                            'type': 'dependency_validation',
+                            'message': 'Missing required dependencies',
+                            'context': {'missing_dependencies': resolution.errors},
+                        },
+                    }
+                if inject_config:
+                    injection_result = self.dependency_injector.inject(
+                        prompt=prompt,
+                        files=resolution.files,
+                        inject_config=inject_config,
+                        is_required=bool(depends_on.get('required')),
+                    )
+                    prompt = injection_result.modified_prompt
+                    if injection_result.was_truncated and injection_result.truncation_details:
+                        debug_info['injection'] = injection_result.truncation_details
 
-                # Use the modified prompt
-                prompt = injection_result.modified_prompt
-
-                # Record truncation details if present (AT-35)
-                if injection_result.was_truncated and injection_result.truncation_details:
-                    debug_info['injection'] = injection_result.truncation_details
-
-        # Inject resolved consumes into provider prompt when requested.
-        typed_prompt_input_evidence: list[dict[str, Any]] = []
+        # Resolve typed prompt values once; insertion remains a deterministic
+        # later stage that can be applied to each fresh content attempt.
         typed_prompt_inputs = step.get("typed_prompt_inputs")
+        resolved_typed_values: dict[str, Any] = {}
         if isinstance(typed_prompt_inputs, list) and typed_prompt_inputs:
-            resolved_typed_values: dict[str, Any] = {}
             for typed_prompt_input in typed_prompt_inputs:
                 if not isinstance(typed_prompt_input, dict):
                     return self._contract_violation_result(
@@ -5197,35 +5362,42 @@ class WorkflowExecutor:
                         {"reason": "typed_prompt_input_invalid"},
                     )
                 resolved_typed_values[binding_name] = resolved_value
-            prompt, typed_prompt_input_evidence = self.prompt_composer.apply_typed_prompt_input_injection(
-                step,
-                prompt,
-                typed_prompt_inputs=typed_prompt_inputs,
-                resolved_typed_values=resolved_typed_values,
-                workflow_name=self.workflow_name or "",
-                step_id=runtime_step_id or self._step_id(step),
-            )
-            self._write_typed_prompt_input_evidence(
-                step_id=runtime_step_id or self._step_id(step),
-                evidence=typed_prompt_input_evidence,
-            )
-
         resolved_consumes = state.get('_resolved_consumes', {})
-        prompt = self.prompt_composer.apply_consumes_prompt_injection(
-            step,
-            prompt,
-            resolved_consumes=resolved_consumes if isinstance(resolved_consumes, dict) else {},
-            step_name=step.get('name', f'step_{self.current_step}'),
-            consume_identity=runtime_step_id or self._step_id(step),
-            uses_qualified_identities=self._uses_qualified_identities(),
-        )
 
-        # Deterministic output contract prompt suffix (provider steps only).
-        prompt = self.prompt_composer.apply_output_contract_prompt_suffix(prompt_contract_step, prompt)
+        def finish_prompt_composition(candidate_prompt: str) -> str:
+            typed_prompt_input_evidence: list[dict[str, Any]] = []
+            if isinstance(typed_prompt_inputs, list) and typed_prompt_inputs:
+                candidate_prompt, typed_prompt_input_evidence = (
+                    self.prompt_composer.apply_typed_prompt_input_injection(
+                        step,
+                        candidate_prompt,
+                        typed_prompt_inputs=typed_prompt_inputs,
+                        resolved_typed_values=resolved_typed_values,
+                        workflow_name=self.workflow_name or "",
+                        step_id=runtime_step_id or self._step_id(step),
+                    )
+                )
+                self._write_typed_prompt_input_evidence(
+                    step_id=runtime_step_id or self._step_id(step),
+                    evidence=typed_prompt_input_evidence,
+                )
+            candidate_prompt = self.prompt_composer.apply_consumes_prompt_injection(
+                step,
+                candidate_prompt,
+                resolved_consumes=(
+                    resolved_consumes if isinstance(resolved_consumes, dict) else {}
+                ),
+                step_name=step.get('name', f'step_{self.current_step}'),
+                consume_identity=runtime_step_id or self._step_id(step),
+                uses_qualified_identities=self._uses_qualified_identities(),
+            )
+            return self.prompt_composer.apply_output_contract_prompt_suffix(
+                prompt_contract_step,
+                candidate_prompt,
+            )
 
-        # AT-70: Prompt audit with debug mode (when no dependencies)
-        if self.debug and prompt:
-            self._write_prompt_audit(step.get('name', 'provider'), prompt, step.get('secrets'), step.get('env'))
+        if content_dependencies is None:
+            prompt = finish_prompt_composition(prompt)
 
         session_request, session_error = self._build_provider_session_request(
             step,
@@ -5279,6 +5451,187 @@ class WorkflowExecutor:
         from ..exec.output_capture import OutputCapture
 
         while True:
+            attempt_prompt = prompt
+            if content_dependencies is not None:
+                scope: ProviderAttemptScope | None = None
+                ordinal: int | None = None
+                if compiler_prompt_dependency_contract is not None:
+                    try:
+                        scope = self._provider_attempt_scope(
+                            step_name=step_name,
+                            runtime_step_id=runtime_step_id or self._step_id(step),
+                        )
+                        ordinal = self.state_manager.allocate_provider_attempt(scope)
+                    except (TypeError, ValueError, OSError) as exc:
+                        return self._contract_violation_result(
+                            "Provider prompt composition failed",
+                            {"reason": "provider_attempt_allocation_failed", "error": str(exc)},
+                        )
+                try:
+                    if compiler_prompt_dependency_contract is None:
+                        resolution = self.dependency_resolver.resolve(
+                            depends_on=content_dependencies,
+                            variables=variables,
+                        )
+                    else:
+                        resolution = self._resolve_typed_content_dependencies(
+                            contract=compiler_prompt_dependency_contract,
+                            depends_on=content_dependencies,
+                            variables=variables,
+                        )
+                except (TypeError, ValueError) as exc:
+                    self._best_effort_publish_prompt_dependency_failure(
+                        contract=compiler_prompt_dependency_contract,
+                        scope=scope,
+                        ordinal=ordinal,
+                        category="invalid_injection_contract",
+                        operation="render",
+                    )
+                    return self._contract_violation_result(
+                        "Provider prompt composition failed",
+                        {"reason": "invalid_injection_contract", "error": str(exc)},
+                    )
+                if not resolution.is_valid:
+                    missing_row = next(
+                        (
+                            row
+                            for row in resolution.classified_rows
+                            if row.role == "required" and row.canonical_target is None
+                        ),
+                        None,
+                    )
+                    self._best_effort_publish_prompt_dependency_failure(
+                        contract=compiler_prompt_dependency_contract,
+                        scope=scope,
+                        ordinal=ordinal,
+                        category="missing_required_dependency",
+                        operation="resolve",
+                        row=missing_row,
+                    )
+                    return {
+                        'status': 'failed',
+                        'exit_code': 2,
+                        'error': {
+                            'type': 'dependency_validation',
+                            'message': 'Missing required dependencies',
+                            'context': {'missing_dependencies': resolution.errors},
+                        },
+                    }
+                try:
+                    snapshot = snapshot_content_dependencies(
+                        self.workspace,
+                        resolution.classified_rows,
+                    )
+                    inject_config = content_dependencies['inject']
+                    has_required = bool(content_dependencies.get('required'))
+                    instruction = inject_config.get(
+                        'instruction',
+                        self.dependency_injector._get_default_instruction(
+                            'content',
+                            has_required,
+                        ),
+                    )
+                    render_owner = None
+                    if scope is not None and ordinal is not None:
+                        instruction_source = (
+                            "authored"
+                            if compiler_prompt_dependency_contract.instruction_utf8_sha256_or_null
+                            is not None
+                            else (
+                                "default_required"
+                                if compiler_prompt_dependency_contract.required_binding_refs
+                                else "default_optional"
+                            )
+                        )
+
+                        def render_owner(compose_final_prompt):
+                            owner = resolve_aggregate_run_owner(self.state_manager)
+                            return build_success_evidence(
+                                run_state=owner.root_manager.state,
+                                scope=scope,
+                                ordinal=ordinal,
+                                compiler_contract=compiler_prompt_dependency_contract,
+                                snapshot=snapshot,
+                                instruction=instruction,
+                                instruction_source=instruction_source,
+                                compose_final_prompt=compose_final_prompt,
+                            )
+
+                    composition = self.prompt_composer.compose_content_dependency_attempt(
+                        base_prompt=prompt,
+                        snapshot=snapshot,
+                        instruction=instruction,
+                        position=(
+                            compiler_prompt_dependency_contract.position.value
+                            if compiler_prompt_dependency_contract is not None
+                            else inject_config.get('position', 'prepend')
+                        ),
+                        finish_prompt=finish_prompt_composition,
+                        render_owner=render_owner,
+                    )
+                    attempt_prompt = composition.final_prompt.decode('utf-8')
+                except ContentDependencySnapshotError as exc:
+                    self._best_effort_publish_prompt_dependency_failure(
+                        contract=compiler_prompt_dependency_contract,
+                        scope=scope,
+                        ordinal=ordinal,
+                        category=exc.category,
+                        operation=exc.operation,
+                        row=exc.row,
+                    )
+                    return self._contract_violation_result(
+                        "Provider prompt composition failed",
+                        {
+                            "reason": exc.category,
+                            "path": (
+                                exc.row.evaluated_relpath
+                                if exc.row is not None
+                                else None
+                            ),
+                        },
+                    )
+                except (TypeError, ValueError, OSError) as exc:
+                    self._best_effort_publish_prompt_dependency_failure(
+                        contract=compiler_prompt_dependency_contract,
+                        scope=scope,
+                        ordinal=ordinal,
+                        category="invalid_injection_contract",
+                        operation="render",
+                    )
+                    return self._contract_violation_result(
+                        "Provider prompt composition failed",
+                        {"reason": "invalid_injection_contract", "error": str(exc)},
+                    )
+                if scope is not None and ordinal is not None:
+                    success_build = composition.render_owner_result
+                    try:
+                        publish_evidence_file(
+                            self.state_manager,
+                            scope,
+                            ordinal,
+                            success_build.evidence,
+                        )
+                    except (TypeError, ValueError, OSError) as exc:
+                        return self._contract_violation_result(
+                            "Provider prompt composition failed",
+                            {
+                                "reason": "prompt_dependency_evidence_publication_failed",
+                                "error": str(exc),
+                            },
+                        )
+                if composition.debug_injection is None:
+                    debug_info.pop('injection', None)
+                else:
+                    debug_info['injection'] = composition.debug_injection
+
+            if self.debug and attempt_prompt:
+                self._write_prompt_audit(
+                    step.get('name', 'provider'),
+                    attempt_prompt,
+                    step.get('secrets'),
+                    step.get('env'),
+                )
+
             # Prepare provider invocation
             params = ProviderParams(
                 params=step.get('provider_params', {}),
@@ -5290,7 +5643,7 @@ class WorkflowExecutor:
                 provider_name=resolved_provider_name,
                 params=params,
                 context=provider_context,
-                prompt_content=prompt,
+                prompt_content=attempt_prompt,
                 session_request=session_request,
                 env=self._provider_env_with_runtime_output_bundle_path(step, resolved_output_bundle),
                 secrets=step.get('secrets'),
@@ -5539,7 +5892,7 @@ class WorkflowExecutor:
 
         return resolved.strip(), None
 
-    def _compose_provider_prompt_for_step(
+    def _compose_provider_attempt_for_step(
         self,
         step: RuntimeStepInput,
         context: Dict[str, Any],
@@ -5548,8 +5901,8 @@ class WorkflowExecutor:
         workspace: Optional[Path] = None,
         output_contract_step: Optional[Dict[str, Any]] = None,
         runtime_step_id: Optional[str] = None,
-    ) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """Compose a provider prompt without invoking the provider."""
+    ) -> tuple[Optional[str], Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """Compose one provider attempt and return its optional injection debug."""
         step_name = step.get('name', f'step_{self.current_step}')
         workspace = self.workspace if workspace is None else workspace
         composer = self.prompt_composer if workspace == self.workspace else PromptComposer(
@@ -5562,7 +5915,7 @@ class WorkflowExecutor:
             contract_violation_result=self._contract_violation_result,
         )
         if prompt_error is not None:
-            return None, prompt_error
+            return None, prompt_error, None
 
         prompt, asset_error = composer.apply_asset_depends_on_prompt_injection(
             step,
@@ -5571,8 +5924,10 @@ class WorkflowExecutor:
             contract_violation_result=self._contract_violation_result,
         )
         if asset_error is not None:
-            return None, asset_error
+            return None, asset_error, None
 
+        debug_injection: Dict[str, Any] | None = None
+        content_attempt: tuple[Any, Dict[str, Any]] | None = None
         if 'depends_on' in step:
             depends_on = step['depends_on']
             substitution_vars = self._build_substitution_variables(context, state)
@@ -5592,9 +5947,35 @@ class WorkflowExecutor:
                             'missing_dependencies': resolution.errors
                         }
                     }
-                }
+                }, None
             inject_config = depends_on.get('inject', False)
-            if inject_config:
+            if isinstance(inject_config, dict) and inject_config.get('mode', 'list') == 'content':
+                try:
+                    snapshot = snapshot_content_dependencies(
+                        workspace,
+                        resolution.classified_rows,
+                    )
+                    instruction = inject_config.get(
+                        'instruction',
+                        (
+                            self.dependency_injector
+                            if workspace == self.workspace
+                            else DependencyInjector(str(workspace))
+                        )._get_default_instruction(
+                            'content',
+                            bool(depends_on.get('required')),
+                        ),
+                    )
+                    content_attempt = (snapshot, inject_config)
+                except ContentDependencySnapshotError as exc:
+                    return None, self._contract_violation_result(
+                        "Provider prompt composition failed",
+                        {
+                            "reason": exc.category,
+                            "path": exc.row.evaluated_relpath if exc.row is not None else None,
+                        },
+                    ), None
+            elif inject_config:
                 injector = self.dependency_injector if workspace == self.workspace else DependencyInjector(str(workspace))
                 injection_result = injector.inject(
                     prompt=prompt,
@@ -5605,16 +5986,65 @@ class WorkflowExecutor:
                 prompt = injection_result.modified_prompt
 
         resolved_consumes = state.get('_resolved_consumes', {})
-        prompt = composer.apply_consumes_prompt_injection(
+
+        def finish(candidate_prompt: str) -> str:
+            candidate_prompt = composer.apply_consumes_prompt_injection(
+                step,
+                candidate_prompt,
+                resolved_consumes=(
+                    resolved_consumes if isinstance(resolved_consumes, dict) else {}
+                ),
+                step_name=step_name,
+                consume_identity=runtime_step_id or self._step_id(step),
+                uses_qualified_identities=self._uses_qualified_identities(),
+            )
+            return composer.apply_output_contract_prompt_suffix(
+                output_contract_step or step,
+                candidate_prompt,
+            )
+
+        if content_attempt is not None:
+            snapshot, inject_config = content_attempt
+            try:
+                composition = composer.compose_content_dependency_attempt(
+                    base_prompt=prompt,
+                    snapshot=snapshot,
+                    instruction=instruction,
+                    position=inject_config.get('position', 'prepend'),
+                    finish_prompt=finish,
+                )
+            except (TypeError, ValueError) as exc:
+                return None, self._contract_violation_result(
+                    "Provider prompt composition failed",
+                    {"reason": "invalid_injection_contract", "error": str(exc)},
+                ), None
+            prompt = composition.final_prompt.decode('utf-8')
+            debug_injection = composition.debug_injection
+        else:
+            prompt = finish(prompt)
+        return prompt, None, debug_injection
+
+    def _compose_provider_prompt_for_step(
+        self,
+        step: RuntimeStepInput,
+        context: Dict[str, Any],
+        state: Dict[str, Any],
+        *,
+        workspace: Optional[Path] = None,
+        output_contract_step: Optional[Dict[str, Any]] = None,
+        runtime_step_id: Optional[str] = None,
+    ) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Compatibility wrapper for non-attempt prompt consumers."""
+
+        prompt, error, _debug = self._compose_provider_attempt_for_step(
             step,
-            prompt,
-            resolved_consumes=resolved_consumes if isinstance(resolved_consumes, dict) else {},
-            step_name=step_name,
-            consume_identity=runtime_step_id or self._step_id(step),
-            uses_qualified_identities=self._uses_qualified_identities(),
+            context,
+            state,
+            workspace=workspace,
+            output_contract_step=output_contract_step,
+            runtime_step_id=runtime_step_id,
         )
-        prompt = composer.apply_output_contract_prompt_suffix(output_contract_step or step, prompt)
-        return prompt, None
+        return prompt, error
 
     def _execute_adjudicated_provider_with_context(
         self,

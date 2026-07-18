@@ -76,7 +76,7 @@ class AdjudicationRuntime(Protocol):
         fallback_index: Optional[int] = None,
     ) -> str: ...
 
-    def _compose_provider_prompt_for_step(
+    def _compose_provider_attempt_for_step(
         self,
         step: RuntimeStepInput,
         context: Dict[str, Any],
@@ -85,7 +85,7 @@ class AdjudicationRuntime(Protocol):
         workspace: Optional[Path] = None,
         output_contract_step: Optional[Dict[str, Any]] = None,
         runtime_step_id: Optional[str] = None,
-    ) -> tuple[Optional[str], Optional[Result]]: ...
+    ) -> tuple[Optional[str], Optional[Result], Optional[Dict[str, Any]]]: ...
 
     def _contract_violation_result(
         self,

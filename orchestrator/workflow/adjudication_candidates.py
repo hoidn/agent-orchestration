@@ -57,6 +57,8 @@ class AdjudicationCandidatePhaseMixin:
         deadline = execution.deadline
         candidate_id = str(candidate_config.get("id"))
         candidate_provider = str(candidate_config.get("provider"))
+        authored_prompt_variant_id = candidate_config.get("prompt_variant_id")
+        has_authored_prompt_variant_id = bool(authored_prompt_variant_id)
         paths = candidate_paths(run_root, frame_scope, step_id, int(visit_count or 1), candidate_id)
         candidate_step = self._candidate_step_from_adjudicated_step(step, candidate_config)
         candidate_params, _candidate_param_errors = self._resolve_provider_params_for_adjudication(
@@ -73,7 +75,7 @@ class AdjudicationCandidatePhaseMixin:
             "candidate_model": self._provider_model(candidate_params),
             "candidate_params_hash": self._stable_runtime_hash(candidate_params),
             "candidate_config_hash": self._stable_runtime_hash(candidate_config),
-            "prompt_variant_id": candidate_config.get("prompt_variant_id"),
+            "prompt_variant_id": authored_prompt_variant_id,
             "prompt_source_kind": prompt_source_kind,
             "prompt_source": prompt_source,
             "candidate_root": paths.candidate_root.relative_to(self.workspace).as_posix()
@@ -95,7 +97,8 @@ class AdjudicationCandidatePhaseMixin:
                     candidate_workspace=paths.workspace,
                 )
                 deadline.require_time_remaining(f"candidate {candidate_id} workspace copy")
-                prompt, prompt_error = self._compose_provider_prompt_for_step(
+                candidate_record.pop("debug", None)
+                prompt, prompt_error, debug_injection = self._compose_provider_attempt_for_step(
                     candidate_step,
                     context,
                     state,
@@ -114,10 +117,12 @@ class AdjudicationCandidatePhaseMixin:
                         }
                     )
                     break
+                if debug_injection is not None:
+                    candidate_record["debug"] = {"injection": debug_injection}
                 paths.prompt_path.parent.mkdir(parents=True, exist_ok=True)
                 paths.prompt_path.write_text(prompt or "", encoding="utf-8")
                 candidate_record["composed_prompt_hash"] = self._text_hash(prompt or "")
-                if not candidate_record.get("prompt_variant_id"):
+                if not has_authored_prompt_variant_id:
                     candidate_record["prompt_variant_id"] = self._stable_runtime_hash(
                         {
                             "prompt_source_kind": prompt_source_kind,
