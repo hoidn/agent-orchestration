@@ -43,6 +43,21 @@ python -m orchestrator run workflows/library/verified_iteration_drain/drain.orc 
   --input check_commands_path=<check-commands-relpath>
 ```
 
+## Generic Run Watchdog Launch
+
+New watchdog launches use the promoted Workflow Lisp primary. Supply the
+target run id and any desired provider or path overrides; the retained YAML
+twin is compatibility evidence, not the launch route for new runs.
+
+```bash
+python -m orchestrator run workflows/library/generic_run_watchdog/watchdog.orc \
+  --entry-workflow generic_run_watchdog/watchdog::watchdog \
+  --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.providers.json \
+  --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.prompts.json \
+  --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.commands.json \
+  --input target_run_id=<run-id>
+```
+
 Some workflows declare required typed inputs. For those, pass fixture inputs explicitly:
 
 ```bash
@@ -167,7 +182,8 @@ The prompt map reports missing paths; a missing path may indicate a stale exampl
 | `workflows/examples/major_project_tranche_continue_from_approved_design_v2_call.yaml` | Reusable call-based; input-required | `2.12` | `major-project-tranche-continue-from-approved-design-v2-call` | One-tranche major-project continuation driver: selects the next ready tranche from an existing manifest, starts from an already-approved design at the plan phase, and still routes plan-level redesign escalation through the full big-design/plan/implementation stack before updating or blocking the manifest. |
 | `workflows/examples/major_project_tranche_drain_stack_v2_call.yaml` | Reusable call-based | `2.7` | `major-project-tranche-drain-stack-v2-call` | Full major-project drain driver: calls the roadmap phase once, then loops by calling the reusable drain-iteration workflow until all tranches are complete or the queue is blocked. |
 | `workflows/examples/major_project_tranche_drain_from_manifest_v2_call.yaml` | Reusable call-based; input-required | `2.7` | `major-project-tranche-drain-from-manifest-v2-call` | Continuation driver for an already-approved roadmap: consumes an existing project brief, project roadmap, and tranche manifest, then starts directly at the reusable manifest-drain iteration loop. |
-| `workflows/examples/generic_run_watchdog.yaml` | Current structured; input-required | `2.14` | `generic-run-watchdog-v214` | Generic one-pass watchdog for any orchestrator run id: probes persisted run state, writes an evidence bundle, skips provider work for healthy or completed runs, and calls a repair provider for failed/stalled/unknown runs with a required final resume/relaunch/restart/decline action. Intended to be invoked by cron, systemd timer, tmux loop, or another scheduler every N minutes. |
+| `workflows/library/generic_run_watchdog/watchdog.orc` | Workflow Lisp production primary; input-required | `2.15` | `generic_run_watchdog/watchdog::watchdog` | Promoted generic watchdog primary with exact clean, repair, retry/resume, artifact-lineage, and typed parity evidence. New launches use this `.orc` route; the final report is `artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/generic_run_watchdog.json`. |
+| `workflows/examples/generic_run_watchdog.yaml` | Compatibility/reference twin; retained until Task 6 deletion gate | `2.14` | `generic-run-watchdog-v214` | Retained executable YAML compatibility watchdog. Do not use it for new launches; Task 6 owns its reference and supported-run deletion gates. |
 | `workflows/examples/lisp_frontend_autonomous_drain.yaml` | Current structured; reusable call-based; input-required | `2.14` | `lisp-frontend-autonomous-drain-v214` | Local Lisp frontend drain without roadmap phase gating: each loop builds a backlog manifest, lets the selector choose an active backlog item or an unimplemented design gap, drafts a design-gap implementation architecture when needed, normalizes both sources into one work item, and calls the Lisp plan/implementation stack. |
 | `workflows/library/lisp_frontend_design_delta/drain.orc` | Workflow Lisp production primary; reusable library; input-required | `2.14` | `lisp_frontend_design_delta/drain::drain` | Primary Design Delta target/baseline drain. Its route-readiness entry is `wcc_default` / `promotion_eligible` with preferred-current-guidance copy safety. The retained strict migration-parity report records the historical promotion decision; it is not a live parity target. Fresh promotion compile, dry-run, smoke, and parity evidence is recorded; Phase 3 Tasks 3.1–3.4 are complete, and Gates P3 and P4 are independently reviewed and satisfied while retaining the historical report. Task 4.1 stripped the Design-Delta-only parity lanes, and Task 4.2 retired the temporary G8 build serializer. Task 4.1 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The semantic-migration freeze is lifted. Current work selection and later-stage order are governed by `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`. |
 | `workflows/library/verified_iteration_drain/drain.orc` | Workflow Lisp production primary; input-required | `2.15` | `verified_iteration_drain/drain::drain` | Promoted verified-iteration primary with exact compile/runtime/parity evidence. New launches use this `.orc` route; the final typed parity report is `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`. |

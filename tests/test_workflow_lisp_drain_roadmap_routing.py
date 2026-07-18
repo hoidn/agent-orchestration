@@ -1065,8 +1065,12 @@ def test_yaml_retirement_program_uses_exact_handoff_queues_and_two_ports() -> No
         "verified_iteration_drain.json"
     ) in task_5_rows[0]
     assert "YAML remains present and executable until Task 6" in task_5_rows[0]
-    assert "**Pending.**" in task_5_rows[1]
-    assert "No watchdog promotion or deletion gate is closed" in task_5_rows[1]
+    assert "Promotion gates closed" in task_5_rows[1]
+    assert (
+        "artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/"
+        "generic_run_watchdog.json"
+    ) in task_5_rows[1]
+    assert "YAML remains present and executable until Task 6" in task_5_rows[1]
     for retired_family in (
         "lisp_frontend_autonomous_drain",
         "neurips_steered_backlog_drain",
@@ -1678,8 +1682,7 @@ def test_provider_call_policy_is_a_separate_generic_implemented_capability() -> 
     assert "positive literal timeout" in normalized_row
     assert "public compile run resume" in normalized_row
     assert "generic implementation closure" in normalized_gap_list
-    assert "verified iteration family parity and promotion are closed" in normalized_gap_list
-    assert "watchdog family parity and promotion" in normalized_gap_list
+    assert "both survivor families have closed parity and promotion" in normalized_gap_list
     assert "yaml deletion remains pending" in normalized_gap_list
 
 
@@ -1732,9 +1735,10 @@ def test_prompt_dependency_contract_is_routed_as_generic_implemented_capability(
     assert "evidence is non authoritative" in normalized_row
     assert "yaml content mode remains legacy" in normalized_row
     assert "verified_iteration_drain" in matrix_row
-    assert "closed its family parity and promotion gate" in normalized_row
+    assert "closed their family parity and promotion gates" in normalized_row
     assert "generic_run_watchdog" in matrix_row
-    assert "parity and promotion" in normalized_row and "pending" in normalized_row
+    assert "both" in normalized_row and "parity and promotion" in normalized_row
+    assert "all yaml deletion remains pending" in normalized_row
     assert "workflow lisp provider prompt dependencies" in docs_index
     assert "workflow lisp provider prompt dependencies" in design_index
 

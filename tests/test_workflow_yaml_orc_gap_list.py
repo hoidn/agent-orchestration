@@ -36,7 +36,7 @@ EXPECTED_GAPS = {
     "common.provider-call-policy": "implemented",
     "common.provider-invocation-profile": "implemented",
     "common.structured-results": "implemented",
-    "common.prompt-dependency-parity": "blocking_gate",
+    "common.prompt-dependency-parity": "implemented",
     "common.command-boundary": "implemented",
     "verified.bounded-loop": "implemented",
     "verified.iteration-artifact-lineage": "implemented",
@@ -44,7 +44,7 @@ EXPECTED_GAPS = {
     "verified.task-15-input-drift": "implemented",
     "watchdog.probe-and-publication": "implemented",
     "watchdog.conditional-repair": "implemented",
-    "watchdog.port-plan-and-parity": "blocking_gate",
+    "watchdog.port-plan-and-parity": "implemented",
     "step-back.typed-routing": "implemented",
     "step-back.owner-disposition": "blocking_gate",
 }
@@ -118,7 +118,7 @@ def test_every_scoped_gap_has_a_closed_classification_and_binding() -> None:
     assert "TBD" not in text.upper()
 
 
-def test_generic_provider_closures_keep_watchdog_and_yaml_pending() -> None:
+def test_generic_provider_closures_cover_both_ports_and_keep_yaml_pending() -> None:
     text = GAP_LIST.read_text(encoding="utf-8")
     rows = _table_after_heading(text, "## Gap decisions")
     decisions = {row["Gap ID"]: row for row in rows}
@@ -134,12 +134,11 @@ def test_generic_provider_closures_keep_watchdog_and_yaml_pending() -> None:
     assert "no-default unrestricted" in profile["Observed YAML mechanics"].lower()
     assert "exact argv profile evidence" in profile["Gate or authority"].lower()
     assert "not family-specific compiler routes" in profile["Gate or authority"].lower()
-    assert "verified iteration family parity and promotion are closed" in normalized
-    assert "watchdog family parity and promotion" in normalized
+    assert "both survivor families have closed parity and promotion" in normalized
     assert "yaml deletion remains pending" in normalized
 
 
-def test_prompt_dependency_gap_closes_verified_only_and_keeps_watchdog_blocked() -> None:
+def test_prompt_dependency_gap_closes_both_survivor_family_applications() -> None:
     text = GAP_LIST.read_text(encoding="utf-8")
     rows = _table_after_heading(text, "## Gap decisions")
     decision = next(
@@ -148,14 +147,13 @@ def test_prompt_dependency_gap_closes_verified_only_and_keeps_watchdog_blocked()
     normalized_row = " ".join(decision["Gate or authority"].lower().split())
     normalized = " ".join(text.lower().replace("-", " ").split())
 
-    assert decision["Classification"] == "blocking_gate"
+    assert decision["Classification"] == "implemented"
     assert "generic typed prompt dependency mechanism is implemented" in normalized_row
     assert "required and optional exact relpaths" in normalized_row
     assert "262144 byte" in normalized_row
     assert "fresh snapshot per retry" in normalized_row
-    assert "verified iteration proved its exact dependencies" in normalized_row
-    assert "remains blocking only for the watchdog port" in normalized_row
-    assert "watchdog family proof and promotion remain pending" in normalized
+    assert "both ports proved their exact dependency sets" in normalized_row
+    assert "both survivor families passed this proof" in normalized
     assert "yaml deletion remains pending" in normalized
 
 
@@ -174,22 +172,27 @@ def test_prompt_dependency_status_is_discoverable_without_promoting_yaml_or_surv
         assert "yaml content mode remains legacy" in normalized
         assert "verified iteration drain" in normalized
         assert "generic run watchdog" in normalized
-        assert "parity" in normalized and "pending" in normalized
+        assert "both" in normalized and "parity" in normalized
+        assert "yaml deletion" in normalized and "pending" in normalized
 
 
-def test_verified_family_gate_is_closed_without_closing_watchdog_or_yaml_deletion() -> None:
+def test_both_survivor_family_gates_close_without_closing_yaml_deletion() -> None:
     text = GAP_LIST.read_text(encoding="utf-8")
     rows = _table_after_heading(text, "## Gap decisions")
     decisions = {row["Gap ID"]: row for row in rows}
 
     assert decisions["verified.iteration-artifact-lineage"]["Classification"] == "implemented"
-    assert decisions["watchdog.port-plan-and-parity"]["Classification"] == "blocking_gate"
+    assert decisions["watchdog.port-plan-and-parity"]["Classification"] == "implemented"
     assert (
         "artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/"
         "verified_iteration_drain.json"
     ) in text
+    assert (
+        "artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/"
+        "generic_run_watchdog.json"
+    ) in text
     normalized = " ".join(text.lower().replace("-", " ").split())
-    assert "verified iteration has closed its family proof and promotion gates" in normalized
+    assert "both survivor families have closed their family proof and promotion gates" in normalized
     assert "yaml deletion remains pending for both families" in normalized
 
 

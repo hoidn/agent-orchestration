@@ -451,7 +451,7 @@
       "provider_externs_file": "workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.providers.json",
       "prompt_externs_file": "workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.prompts.json",
       "command_boundaries_file": "workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.commands.json",
-      "readiness_label": "leaf_runtime_candidate",
+      "readiness_label": "promotion_eligible",
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
       "baseline_characterization": {
@@ -499,8 +499,7 @@
         }
       ],
       "promotion_eligibility": {
-        "eligible_for_primary_surface": false,
-        "blocked_reason": "candidate evidence only until the promotion task passes"
+        "eligible_for_primary_surface": true
       },
       "compile_artifacts": {
         "required": [

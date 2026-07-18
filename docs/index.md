@@ -200,7 +200,7 @@ document owns the answer.
 **Use this when:** Reviewing the completed family-wave classifications, retention decisions, exact evidence, or Stage-6 handoff; do not re-execute it as the live selector.
 
 ### [User-Facing YAML Retirement Program](plans/2026-07-07-yaml-retirement-program.md)
-**Description:** Current Stage-6 selector at Task 5, building and promoting exactly two `.orc` ports. Tasks 1-4 are complete: the gap contract is reviewed, dashboards read digest-bound persisted typed surfaces without reopening source, YAML plus Workflow Lisp converge on one shared in-memory validation authority, and fresh YAML roots emit the reviewed deprecation advisory while new authors route to `.orc`. YAML remains `Legacy`; Task 7 fresh-YAML rejection and parser removal are incomplete. Deletion-first retirement keeps exactly two `.orc` ports, one protected holdout queue, one Design Delta history-backed archive queue, and one early independent deletion queue whose reference and supported-root scans remain pending.
+**Description:** Current Stage-6 selector at Task 5. Both dedicated `.orc` ports have closed their family parity and promotion gates and now route new launches to Workflow Lisp; Task 5 remains current until its reviewed two-port handoff closes. Tasks 1-4 are complete, YAML remains `Legacy`, and Task 7 fresh-YAML rejection and parser removal are incomplete. Deletion-first retirement keeps exactly two promoted `.orc` ports, one protected holdout queue, one Design Delta history-backed archive queue, and one early independent deletion queue whose reference and supported-root scans remain pending.
 **Keywords:** yaml, yml, retirement, current-selector, deletion-first, orc
 **Use this when:** Executing Stage 6 from YAML retirement Task 5 or checking the fixed per-row promotion and scan gates before any deletion.
 
@@ -210,9 +210,9 @@ document owns the answer.
 **Use this when:** Designing either retained `.orc` port, checking its still-binding provider/prompt/parity gates, or reviewing why the protected holdout remains owner-gated.
 
 ### [Workflow Lisp Provider Prompt Dependencies](plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md)
-**Description:** Implemented generic functional contract for typed required and optional exact relpaths on `provider-result`, deterministic bounded content injection, one immutable per-attempt snapshot, crash-durable attempt allocation, and content-free evidence. Runtime plan remains topology-only and evidence is non-authoritative. YAML content mode remains Legacy with stable-success compatibility and fresh-per-retry behavior. `verified_iteration_drain` has closed its family parity and promotion gate with final report `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`; `generic_run_watchdog` parity and promotion remain pending, as does YAML deletion.
+**Description:** Implemented generic functional contract for typed required and optional exact relpaths on `provider-result`, deterministic bounded content injection, one immutable per-attempt snapshot, crash-durable attempt allocation, and content-free evidence. Runtime plan remains topology-only and evidence is non-authoritative. YAML content mode remains Legacy with stable-success compatibility and fresh-per-retry behavior. `verified_iteration_drain` and `generic_run_watchdog` have both closed their family parity and promotion gates, with final reports under `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/` and `artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/`; YAML deletion remains pending.
 **Keywords:** workflow-lisp, provider, prompt-dependencies, relpath, snapshot, retry, evidence
-**Use this when:** Authoring or reviewing `.orc` provider calls that must receive workspace file contents, or implementing the still-pending survivor-family parity proofs.
+**Use this when:** Authoring or reviewing `.orc` provider calls that must receive workspace file contents, or auditing the completed survivor-family prompt-dependency parity proofs.
 
 ### [YAML Deprecation Surface Design](plans/2026-07-17-yaml-deprecation-surface-design.md)
 **Description:** Implemented Stage-6 Task-4 design for one structured warning per fresh YAML/YML root load, explicit persisted-read suppression including `.orc` rebuild dependencies, and `.orc`-first author/template routing without YAML rejection.
@@ -687,13 +687,20 @@ before adding or preserving the command boundary.
 **Keywords:** workflows, catalog, index, examples, runbooks, managed-jobs
 **Use this when:** You need to find the right workflow file before reading or running it.
 
-### [Generic Run Watchdog](../workflows/examples/generic_run_watchdog.yaml)
+### [Generic Run Watchdog Workflow Lisp Primary](../workflows/library/generic_run_watchdog/watchdog.orc)
+**Route scope:** `new_launch_primary`
+**Copy role:** `preferred_current_guidance`
+**Description:** Promoted v2.15 Workflow Lisp watchdog that probes an existing orchestrator run, publishes typed evidence, skips provider work for healthy or completed runs, and invokes a selected repair provider only when recovery is needed.
+**Keywords:** workflows, watchdog, run-monitoring, repair, resume, v2.15, workflow-lisp
+**Use this when:** Starting a new generic watchdog launch; supply the required extern manifests and typed inputs documented in the workflow index.
+
+### [Generic Run Watchdog YAML Compatibility Twin](../workflows/examples/generic_run_watchdog.yaml)
 **Route scope:** `existing_yaml_compatibility`
 **Copy role:** `not_new_author_template`
 **New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
 **Description:** Retained v2.14 YAML compatibility watchdog that probes an existing orchestrator run by `run_id`, emits evidence for running/completed/failed/stalled states, and invokes a repair provider only when recovery is needed.
 **Keywords:** workflows, watchdog, run-monitoring, repair, resume, v2.14, yaml-compatibility
-**Use this when:** Operating or auditing the existing YAML watchdog while its migration queue remains open; do not copy it to start another workflow family.
+**Use this when:** Operating or auditing the retained YAML watchdog before its Task 6 deletion gate; do not use it for new launches.
 
 ### [Lisp Frontend Autonomous Drain](../workflows/examples/lisp_frontend_autonomous_drain.yaml)
 **Description:** v2.14 local drain for Lisp frontend MVP/full-design work. The selector can choose an active backlog item or identify an unimplemented design gap, draft an implementation architecture, and route the normalized work item through the plan/implementation stack without roadmap phase gating.

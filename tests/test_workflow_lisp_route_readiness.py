@@ -818,7 +818,7 @@ def test_verified_route_is_promotion_eligible_and_parity_constrained() -> None:
     assert entry.parity_constrained is True
 
 
-def test_generic_run_watchdog_route_is_registered_as_parity_constrained_candidate() -> None:
+def test_watchdog_route_is_promotion_eligible_and_parity_constrained() -> None:
     registry = load_route_readiness_registry(REGISTRY_PATH)
     entry = registry_entry_for_path(
         registry,
@@ -828,11 +828,11 @@ def test_generic_run_watchdog_route_is_registered_as_parity_constrained_candidat
     assert entry is not None
     assert entry.surface_kind == "migration_target"
     assert entry.entry_workflow == "generic_run_watchdog/watchdog::watchdog"
-    assert entry.route_label == "migration_candidate"
-    assert entry.readiness_label == "leaf_runtime_candidate"
+    assert entry.route_label == "wcc_default"
+    assert entry.readiness_label == "promotion_eligible"
     assert entry.lowering_route == "wcc_m4"
     assert entry.lowering_schema_version == 2
-    assert entry.copy_safety == "migration_evidence_only"
+    assert entry.copy_safety == "preferred_current_guidance"
     assert entry.parity_constrained is True
 
 

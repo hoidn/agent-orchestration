@@ -509,7 +509,7 @@ def test_author_routing_deep_yaml_guide_sections_are_compatibility_scoped(
     ("heading", "route_scope"),
     (
         (
-            "### [Generic Run Watchdog]"
+            "### [Generic Run Watchdog YAML Compatibility Twin]"
             "(../workflows/examples/generic_run_watchdog.yaml)",
             "`existing_yaml_compatibility`",
         ),
@@ -579,6 +579,29 @@ def test_verified_catalog_routes_new_launches_to_orc_and_retains_yaml_compatibil
     assert "verified_iteration_drain.prompts.json" in launch
     assert "verified_iteration_drain.commands.json" in launch
     assert "python -m orchestrator run workflows/examples/verified_iteration_drain.yaml" not in launch
+
+
+def test_watchdog_catalog_routes_new_launches_to_orc_and_retains_yaml_compatibility() -> None:
+    document = _read_repository_text("workflows/README.md")
+    rows = _markdown_table_rows(_markdown_section(document, "## Workflow Catalog"))
+    rows_by_path = {row[0].strip("`"): row for row in rows[1:]}
+    orc_path = "workflows/library/generic_run_watchdog/watchdog.orc"
+    yaml_path = "workflows/examples/generic_run_watchdog.yaml"
+
+    assert rows_by_path[orc_path][1] == "Workflow Lisp production primary; input-required"
+    assert rows_by_path[yaml_path][1] == (
+        "Compatibility/reference twin; retained until Task 6 deletion gate"
+    )
+    _assert_registry_approved_orc(orc_path)
+    assert (_REPOSITORY_ROOT / yaml_path).is_file()
+
+    launch = _markdown_section(document, "## Generic Run Watchdog Launch")
+    assert "python -m orchestrator run workflows/library/generic_run_watchdog/watchdog.orc" in launch
+    assert "--entry-workflow generic_run_watchdog/watchdog::watchdog" in launch
+    assert "generic_run_watchdog.providers.json" in launch
+    assert "generic_run_watchdog.prompts.json" in launch
+    assert "generic_run_watchdog.commands.json" in launch
+    assert "python -m orchestrator run workflows/examples/generic_run_watchdog.yaml" not in launch
 
 
 def test_author_routing_templates_default_to_orc_and_inventory_yaml_only() -> None:

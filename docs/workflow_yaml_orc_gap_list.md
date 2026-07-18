@@ -39,7 +39,7 @@ No owner waiver is recorded by this audit.
 | Queue ID | Disposition | YAML path | Decision gate |
 |---|---|---|---|
 | `port_verified_iteration` | `port` | `workflows/examples/verified_iteration_drain.yaml` | Family prompt-dependency parity, artifact lineage, typed parity, fresh `.orc` smoke, and promoted launch routing are closed. Retain YAML compatibility until the Stage 6 Task 6 reference and supported-run deletion gates pass. |
-| `port_generic_run_watchdog` | `port` | `workflows/examples/generic_run_watchdog.yaml` | Apply the implemented generic provider-policy/profile capabilities; close `prompt-dependency-parity` and `generic-run-watchdog-port-plan-and-parity`; then execute the Stage 6 per-family promotion gate. |
+| `port_generic_run_watchdog` | `port` | `workflows/examples/generic_run_watchdog.yaml` | Family prompt-dependency parity, clean and repair branch behavior, artifact lineage, retry/resume reuse, typed parity, fresh `.orc` smoke, and promoted launch routing are closed. Retain YAML compatibility until the Stage 6 Task 6 reference and supported-run deletion gates pass. |
 | `hold_non_progress_step_back` | `hold` | `workflows/examples/non_progress_step_back_demo.yaml` | `step-back-owner-disposition`; no port or deletion is inferred while the protected queue remains held. |
 
 ## Gap decisions
@@ -48,10 +48,10 @@ No owner waiver is recorded by this audit.
 |---|---|---|---|---|
 | `common.public-boundary-defaults` | `port_verified_iteration`, `port_generic_run_watchdog` | `default` on scalar, enum, integer, and relpath inputs | `implemented` | Bounded `defworkflow` scalar, enum, integer, and path defaults are implemented in the Workflow Lisp frontend specification and boundary-default tests. |
 | `common.runtime-provider-selection` | `port_verified_iteration`, `port_generic_run_watchdog` | runtime `provider` input choosing one of a closed provider set | `implemented` | Keep each provider as a compiler-known extern and route the typed provider enum through effectful `if`; provider refs do not become runtime values. |
-| `common.provider-call-policy` | `port_verified_iteration`, `port_generic_run_watchdog` | `provider_params` model/effort counterpart and `timeout_sec`: typed model and effort plus positive literal timeout with public compile-run-resume | `implemented` | Generic implementation closure: typed model and effort plus positive literal timeout are implemented through lowering, executable identity, runtime, and public compile-run-resume evidence. Verified-iteration family parity and promotion are closed; watchdog family parity and promotion and YAML deletion remain pending. |
+| `common.provider-call-policy` | `port_verified_iteration`, `port_generic_run_watchdog` | `provider_params` model/effort counterpart and `timeout_sec`: typed model and effort plus positive literal timeout with public compile-run-resume | `implemented` | Generic implementation closure: typed model and effort plus positive literal timeout are implemented through lowering, executable identity, runtime, and public compile-run-resume evidence. Both survivor families have closed parity and promotion; YAML deletion remains pending. |
 | `common.provider-invocation-profile` | `port_verified_iteration`, `port_generic_run_watchdog` | shared no-default unrestricted Codex Claude profiles | `implemented` | Exact argv profile evidence: `codex_unrestricted_workspace` uses `defaults={}`, `input_mode=stdin`, and `["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${reasoning_effort}"]`; `claude_unrestricted_workspace` uses `defaults={}`, `input_mode=stdin`, and `["claude", "-p", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]`. Both are shared provider data, not family-specific compiler routes. |
 | `common.structured-results` | `port_verified_iteration`, `port_generic_run_watchdog` | provider `expected_outputs` sidecars and command `output_bundle` records | `implemented` | `provider-result`, `command-result`, native transportable returns, records, unions, enums, optionals, and runtime-owned bundle paths replace scalar sidecar parsing. Port scripts must honor the runtime bundle target and keep semantic files separate. |
-| `common.prompt-dependency-parity` | `port_verified_iteration`, `port_generic_run_watchdog` | `depends_on` required files with `inject` content, ordering, and an optional instruction | `blocking_gate` | The generic typed prompt dependency mechanism is implemented: required and optional exact relpaths, literal prepend/append policy, deterministic canonical order, a 262144 byte cap, one immutable snapshot per attempt, and a fresh snapshot per retry. Verified iteration proved its exact dependencies and closed its family application; the shared row remains blocking only for the watchdog port's exact dependency set, instruction meaning, ordering, and non-truncation proof. |
+| `common.prompt-dependency-parity` | `port_verified_iteration`, `port_generic_run_watchdog` | `depends_on` required files with `inject` content, ordering, and an optional instruction | `implemented` | The generic typed prompt dependency mechanism is implemented: required and optional exact relpaths, literal prepend/append policy, deterministic canonical order, a 262144 byte cap, one immutable snapshot per attempt, and a fresh snapshot per retry. Both ports proved their exact dependency sets, instruction meaning, ordering, non-truncation, retry refresh, and resume reuse. |
 | `common.command-boundary` | `port_verified_iteration`, `port_generic_run_watchdog` | stable Python command steps that read workspace or run state and write structured artifacts | `implemented` | `command-result` plus external-tool or fully certified adapter bindings is the current route. Hidden stdout parsing and inline shell remain forbidden. |
 | `verified.bounded-loop` | `port_verified_iteration` | `repeat_until`, maximum 40, typed terminal condition, and `on_exhausted` to `STALLED` | `implemented` | `loop/recur` supports runtime maximums, typed carried state, effectful bodies, typed `continue` and `done`, and scalar exhaustion projection through shared `repeat_until`. |
 | `verified.iteration-artifact-lineage` | `port_verified_iteration` | `loop.index`-scoped work orders, verdicts, checks, reviews, ledger, status tokens, and resume-visible outputs | `implemented` | Closed by the compiled `.orc` contract, one-continue plus terminal runtime evidence, resume/idempotence coverage, and the passing typed report at `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`. Per-iteration uniqueness, exact dependencies, and generated-path classification are bound by that evidence. |
@@ -59,7 +59,7 @@ No owner waiver is recorded by this audit.
 | `verified.task-15-input-drift` | `port_verified_iteration` | Task 15 describes two prompt files and three commands, while the YAML has three provider prompt assets and a fourth pointer-only command | `implemented` | The port binds `work.md`, `review_iteration.md`, and `review_done.md`; it retains the prepare, check, and record command semantics and applies the preceding `drop` decision to the pointer helper. This gap list is the corrected Task 15 translation input. |
 | `watchdog.probe-and-publication` | `port_generic_run_watchdog` | probe `output_bundle`, optional repair bundle consumption, and final watchdog `output_bundle` | `implemented` | Keep the run probe and final durable publication as explicit external command boundaries with typed record contracts and path-safe results. The probe's clock and run-store reads remain visible effects. |
 | `watchdog.conditional-repair` | `port_generic_run_watchdog` | `when` over repair-required, provider repair, and deterministic no-action defaults | `implemented` | Use a typed repair/no-action union, effectful `if`, and a final typed projection. The provider result owns the repair decision; no report parsing controls routing. |
-| `watchdog.port-plan-and-parity` | `port_generic_run_watchdog` | no existing `.orc` source or dedicated translation plan | `blocking_gate` | `generic-run-watchdog-port-plan-and-parity`: write the bounded port plan, name `workflows/library/generic_run_watchdog/watchdog.orc`, register parity/readiness, and prove clean plus repair-required paths before promotion. |
+| `watchdog.port-plan-and-parity` | `port_generic_run_watchdog` | dedicated `.orc` source and bounded translation plan | `implemented` | Closed by `workflows/library/generic_run_watchdog/watchdog.orc`, its `wcc_default` / `promotion_eligible` registry route, clean and repair branch runtime evidence, retry/resume reuse, and the promotable report at `artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/generic_run_watchdog.json`. |
 | `step-back.typed-routing` | `hold_non_progress_step_back` | command `output_bundle`, enum `match`, branch-local commands, and `set_scalar` | `implemented` | If the owner later selects port, `command-result`, typed enum routing, pure values, and typed workflow returns cover the observed language mechanics. This is capability evidence, not a port decision. |
 | `step-back.owner-disposition` | `hold_non_progress_step_back` | protected recovery workflow has no authorized replacement disposition | `blocking_gate` | `step-back-owner-disposition`: the recovery owner must record an explicit delete-or-port decision and a reviewed handoff update before Stage 6 mutates or requeues the protected path. |
 
@@ -80,10 +80,10 @@ The characterized YAML inputs remain the family proof targets:
   second repair timeout.
 
 This generic implementation closure alone does not prove a survivor family.
-Verified iteration has now bound its exact inputs and deadlines, provider
-selection/argv, prompt and artifact behavior, run/resume behavior, and promotion
-report. The watchdog family proof and promotion remain pending. YAML deletion
-remains pending the reference, supported-root-consumer, and Task-7 parser gates.
+Both survivor families have now bound their exact inputs and deadlines,
+provider selection/argv, prompt and artifact behavior, run/resume behavior, and
+promotion reports. YAML deletion remains pending the reference,
+supported-root-consumer, and Task-7 parser gates.
 Dynamic provider selection remains separate and is already expressible by
 branching over a closed typed enum while each branch names a compiler-known
 extern.
@@ -104,8 +104,8 @@ evidence must show that the request preserves all required semantic inputs from
 the YAML dependency injection. The watchdog proof also binds the prepend
 instruction's meaning, not its literal wording. Missing content, wrong order,
 unexpected truncation, or reliance on an undeclared ambient file keeps a family
-gate closed. Verified iteration passed this proof; the watchdog family proof
-and promotion remain pending. YAML deletion remains pending.
+gate closed. Both survivor families passed this proof. YAML deletion remains
+pending.
 
 ### `verified-iteration-artifact-lineage`
 
@@ -117,10 +117,10 @@ without adding a family-name compiler branch.
 
 ### `generic-run-watchdog-port-plan-and-parity`
 
-The plan must cover both `repair_required=NO` and `repair_required=YES`, retain
-the probe's run-store and clock effects, preserve repair result validation, and
-prove the final published result. It must not infer successful repair from
-provider prose or process exit alone.
+The bounded plan and promoted `.orc` cover both `repair_required=NO` and
+`repair_required=YES`, retain the probe's run-store and clock effects, preserve
+repair result validation, and prove the final published result. Typed provider
+results, not provider prose or process exit alone, control successful repair.
 
 ### `step-back-owner-disposition`
 
@@ -158,9 +158,8 @@ plan, and related working-tree files remain byte-for-byte outside Stage 6.
 ## Port-entry decision
 
 The generic provider-policy, invocation-profile, and typed prompt-dependency
-prerequisites are available. Verified iteration has closed its family proof and
-promotion gates and now routes new launches to its `.orc` primary. The watchdog
-port remains fail-closed on its family proof and promotion gates. YAML deletion
-remains pending for both families. The protected holdout remains excluded until
-`step-back-owner-disposition` closes. No other unclassified gap remains in this
-three-queue scope.
+prerequisites are available. Both survivor families have closed their family
+proof and promotion gates and now route new launches to their `.orc` primaries.
+YAML deletion remains pending for both families. The protected holdout remains
+excluded until `step-back-owner-disposition` closes. No other unclassified gap
+remains in this three-queue scope.

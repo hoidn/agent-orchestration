@@ -108,7 +108,7 @@ unclassified authored YAML/YML path are permitted.
 | `delete_non_survivor_estate` | 100 | 53 | `pending` | none | Early independent deletion in dependency-ordered batches of at most 15 after zero unclassified active references and zero supported matching nonterminal top-level or nested consumers. |
 | `archive_design_delta_yaml_twin` | 7 | 10 | `pending` | `delete_non_survivor_estate` | Record each pre-delete blob identity in git history, verify the structured `.orc`, registry, parity, and drain-plan evidence, then delete; do not create a live archive copy. |
 | `port_verified_iteration` | 1 | 0 | `pending` | none | The dedicated `.orc` is promoted and new launches route to it; the queue remains pending only for Task 6 reference and supported-run deletion gates over the retained YAML twin. |
-| `port_generic_run_watchdog` | 1 | 0 | `pending` | none | Create and promote one dedicated `.orc` port through the parity contract, then apply the deletion gates to its YAML source. |
+| `port_generic_run_watchdog` | 1 | 0 | `pending` | none | The dedicated `.orc` is promoted and new launches route to it; the queue remains pending only for Task 6 reference and supported-run deletion gates over the retained YAML twin. |
 | `hold_non_progress_step_back` | 1 | 0 | `pending` | none | No mutation until the step-back recovery owner records an explicit delete-or-port disposition; then requeue through a reviewed handoff update. |
 
 ### Task 1: Close the `.orc` language-gap list — ENABLING
@@ -209,25 +209,25 @@ incomplete. The Task 5 table below records subsequent family progress.
 | Family | Required promotion evidence | Family status |
 |---|---|---|
 | `verified_iteration_drain` | Dedicated `.orc` source; parity-target registration; passing typed parity report; promoted launch routing; fresh `.orc` workflow smoke; then reference and supported-run deletion gates. | **Promotion gates closed.** `.orc` is the primary launch route; final report: `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`. YAML remains present and executable until Task 6. |
-| `generic_run_watchdog` | Dedicated `.orc` source; parity-target registration; passing typed parity report; promoted launch routing; fresh `.orc` workflow smoke; then reference and supported-run deletion gates. | **Pending.** No watchdog promotion or deletion gate is closed by verified-iteration evidence. |
+| `generic_run_watchdog` | Dedicated `.orc` source; parity-target registration; passing typed parity report; promoted launch routing; fresh `.orc` workflow smoke; then reference and supported-run deletion gates. | **Promotion gates closed.** `.orc` is the primary launch route; final report: `artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/generic_run_watchdog.json`. YAML remains present and executable until Task 6. |
 
 For each row, use one reviewable promotion sequence:
 
-- [ ] Author the `.orc` workflow without changing family behavior.
-- [ ] Register it in the existing parity target and readiness machinery.
-- [ ] Produce a passing parity report with all required roles and artifact
+- [x] Author the `.orc` workflow without changing family behavior.
+- [x] Register it in the existing parity target and readiness machinery.
+- [x] Produce a passing parity report with all required roles and artifact
   lineage present.
-- [ ] Promote `.orc` launch routing while retaining the YAML source for one
+- [x] Promote `.orc` launch routing while retaining the YAML source for one
   verification cycle.
-- [ ] Run a fresh `.orc` smoke or real launch and obtain both independent
+- [x] Run a fresh `.orc` smoke or real launch and obtain both independent
   reviews.
 - [ ] Re-run the reference and supported-run scans before queuing the old YAML
   source for deletion.
 
-The first row has completed the source, registration, typed parity, promoted
-launch, and fresh mocked-provider `.orc` smoke steps. Its YAML verification
-cycle remains deliberately open for Task 6 scans and deletion. The second row
-retains every Task 5 gate.
+Both rows have completed the source, registration, typed parity, promoted
+launch, and fresh mocked-provider `.orc` smoke steps. Their YAML verification
+cycles remain deliberately open for Task 6 scans and deletion. Task 5 remains
+the current selector until its reviewed two-port handoff closes in order.
 
 ### Task 6: Execute the gated archive and deletion queues
 

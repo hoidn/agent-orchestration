@@ -993,3 +993,30 @@ def test_watchdog_orc_resume_reuses_provider_and_publishes_once(tmp_path: Path) 
     assert result["publication_count_after_resume"] == 1
     assert result["publication_count_after_replay"] == 1
     assert result["semantic_result_after_resume"] == result["semantic_result_after_replay"]
+
+
+def test_watchdog_post_promotion_both_branch_smoke_is_fresh(tmp_path: Path) -> None:
+    targets = json.loads((MIGRATION_INPUTS / "parity_targets.json").read_text())
+    target = next(
+        row
+        for row in targets["targets"]
+        if row["workflow_family"] == "generic_run_watchdog"
+    )
+    assert target["promotion_eligibility"] == {
+        "eligible_for_primary_surface": True,
+    }
+
+    no_action = _run_watchdog_runtime_scenario(
+        tmp_path / "no-action",
+        target_status="running",
+    )
+    repaired = _run_watchdog_runtime_scenario(
+        tmp_path / "repair",
+        target_status="failed",
+        repair_provider="codex",
+    )
+
+    assert no_action["outputs"]["return__repair_status"] == "NO_ACTION"
+    assert no_action["provider_roles"] == []
+    assert repaired["outputs"]["return__repair_status"] == "FIXED_AND_RESUMED"
+    assert repaired["provider_roles"] == ["codex"]

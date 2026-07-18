@@ -2817,7 +2817,7 @@ def test_checked_in_verified_parity_target_has_complete_promoted_contract() -> N
     assert target["command_boundaries_file"].endswith("verified_iteration_drain.commands.json")
 
 
-def test_checked_in_watchdog_parity_target_has_complete_candidate_contract() -> None:
+def test_checked_in_watchdog_parity_target_has_complete_promoted_contract() -> None:
     payload = json.loads(
         (
             Path(__file__).resolve().parents[1]
@@ -2834,10 +2834,9 @@ def test_checked_in_watchdog_parity_target_has_complete_candidate_contract() -> 
     assert target["yaml_primary"] == "workflows/examples/generic_run_watchdog.yaml"
     assert target["entry_workflow"] == "generic_run_watchdog/watchdog::watchdog"
     assert target["promotion_eligibility"] == {
-        "eligible_for_primary_surface": False,
-        "blocked_reason": "candidate evidence only until the promotion task passes",
+        "eligible_for_primary_surface": True,
     }
-    assert target["readiness_label"] == "leaf_runtime_candidate"
+    assert target["readiness_label"] == "promotion_eligible"
     assert target["lowering_route"] == "wcc_m4"
     assert target["lowering_schema_version"] == 2
     assert set(target["evidence_commands"]) == {
