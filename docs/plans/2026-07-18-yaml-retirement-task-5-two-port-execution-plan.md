@@ -557,6 +557,7 @@ pytest -q tests/test_generic_run_watchdog.py
 - Modify: `tests/test_workflow_lisp_generic_run_watchdog.py`
 - Modify: `tests/test_generic_run_watchdog.py`
 - Modify: `workflows/library/prompts/generic_run_watchdog/repair_run_failure.md`
+- Modify: `docs/plans/2026-07-18-generic-run-watchdog-orc-port-design.md`
 
 **Owned tests:**
 
@@ -579,6 +580,11 @@ pytest -q tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_co
   `gpt-5.4/high` and Claude `opus/high` branch-local with timeout 7200.
 - [ ] Use typed probe, no-action/repair union, provider return, publisher input,
   and final result. Preserve the repair-result target as compatibility mirror.
+- [ ] Apply the compiler-feasibility correction recorded in the bounded design:
+  because paths cannot coerce to `String`, exhaustively match the repair union
+  and invoke the same certified publisher in both branches. Preserve native
+  produced-path types in the repair branch; do not weaken them to strings or
+  add generic machinery.
 - [ ] Update prompt output instructions to the typed runtime return without
   literal-prose assertions.
 - [ ] Run and require GREEN:
@@ -589,7 +595,7 @@ python -m orchestrator compile workflows/library/generic_run_watchdog/watchdog.o
 python -m orchestrator run workflows/library/generic_run_watchdog/watchdog.orc --entry-workflow generic_run_watchdog/watchdog::watchdog --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.commands.json --input target_run_id=task5-watchdog-dry-run --dry-run
 ```
 
-- [ ] Complete ordered reviews and commit only the four listed paths.
+- [ ] Complete ordered reviews and commit only the five listed paths.
 
 ## Task 8: Register And Prove The Watchdog Candidate
 

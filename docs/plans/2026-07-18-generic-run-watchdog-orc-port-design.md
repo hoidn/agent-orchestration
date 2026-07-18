@@ -96,16 +96,6 @@ RepairOutcome =
   NO_ACTION
   | REPAIR { result: ProviderRepairResult }
 
-RepairPublication = {
-  repair_status: RepairStatus,
-  fix_complexity: FixComplexity,
-  recovery_action: RecoveryAction,
-  repair_result_path: String,
-  repair_report_path: String,
-  plan_path: String,
-  new_run_id: String
-}
-
 WatchdogOutput = {
   watch_status: WatchStatus,
   repair_status: RepairStatus,
@@ -116,13 +106,20 @@ WatchdogOutput = {
 
 The three provider-only enums make the closed repair contract nominal: a
 provider cannot return public `NO_ACTION`, `NOT_APPLICABLE`, or `NONE` because
-none of those values inhabits its declared result types. A pure exhaustive
-match maps `RepairOutcome.NO_ACTION`
-to deterministic `NO_ACTION`, `NOT_APPLICABLE`, `NONE`, and empty
-compatibility strings. For `REPAIR`, pure normalization exhaustively widens
-all three provider-only enums into their corresponding public `RepairStatus`,
-`FixComplexity`, and `RecoveryAction` members, then carries the remaining typed
-provider fields without reopening `repair-result.json`.
+none of those values inhabits its declared result types. Publication
+exhaustively matches `RepairOutcome`. The `NO_ACTION` branch supplies
+deterministic `NO_ACTION`, `NOT_APPLICABLE`, `NONE`, and empty compatibility
+strings. The `REPAIR` branch exhaustively widens all three provider-only enums
+into their corresponding public `RepairStatus`, `FixComplexity`, and
+`RecoveryAction` members and passes the native typed artifact paths directly
+to the publisher without reopening `repair-result.json`.
+
+**Compiler-feasibility correction:** Workflow Lisp intentionally has no
+path-to-`String` coercion. A common normalized record could not represent both
+an empty no-action string and a `ProducedArtifactPath` without weakening the
+repair provider contract. The exhaustive match therefore owns two
+branch-local invocations of the same certified publisher command. This small
+duplication preserves the nominal path proof and adds no compiler mechanism.
 
 ## Branch-Local Provider Policy
 
@@ -144,7 +141,7 @@ provider reference and no family-specific compiler branch.
 | `probe` | Certified command boundary `probe_orchestrator_run` | `WatchProbe` | Read the target run store and clock, classify it, write operator evidence plus the `watch.json` compatibility mirror, and return the same validated control fields through the runtime-owned bundle. |
 | `no_action` | Pure Workflow Lisp branch | `RepairOutcome.NO_ACTION` | Selected only when `WatchProbe.repair_required == NO`; the provider is skipped and deterministic no-action values are constructed without reading a repair file. |
 | `repair` | Effectful closed provider branch | `RepairOutcome.REPAIR` | Selected only when `WatchProbe.repair_required == YES`; choose one compiler-known extern, return `ProviderRepairResult`, and wrap it without parsing provider prose or compatibility JSON. |
-| `publish` | Certified command boundary `publish_run_watchdog_result` | `WatchdogOutput` | Accept probe and normalized repair typed fields as arguments, validate them, write the final compatibility result, and return the four typed fields through the runtime-owned bundle. |
+| `publish` | Exhaustive `RepairOutcome` match plus certified command boundary `publish_run_watchdog_result` | `WatchdogOutput` | Invoke the same publisher in both branches: literals and empty strings for `NO_ACTION`, or widened enums plus native typed paths for `REPAIR`; validate fields, write the final compatibility result, and return the four typed fields through the runtime-owned bundle. |
 
 The entry workflow therefore has this fixed sequence:
 
@@ -152,9 +149,11 @@ The entry workflow therefore has this fixed sequence:
 2. Invoke `command-result probe_orchestrator_run` and obtain `WatchProbe`.
 3. Use typed equality on `repair_required` to choose the no-action value or the
    two-extern repair helper.
-4. Exhaustively match `RepairOutcome` into `RepairPublication`.
-5. Invoke `command-result publish_run_watchdog_result` with typed probe and
-   repair fields, then return `WatchdogOutput` directly.
+4. Exhaustively match `RepairOutcome` and invoke the same
+   `command-result publish_run_watchdog_result` boundary in each branch. The
+   no-action branch supplies deterministic sentinels; the repair branch widens
+   its nominal enums and preserves native path values.
+5. Return the selected branch's `WatchdogOutput` directly.
 
 The publisher must not read `repair-result.json` or provider prose to decide
 repair status or recovery action. It may validate and write semantic files, but
