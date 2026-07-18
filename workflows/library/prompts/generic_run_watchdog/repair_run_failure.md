@@ -37,7 +37,18 @@ alive, the heartbeat advanced, no top-level step is failed, and no
 `call_frames[*].state.steps` entry is failed. If any check fails, report
 `BLOCKED`; keep the actual recovery action taken, such as `RESUME`.
 
-Write `${inputs.repair_result_target_path}` as JSON with this shape:
+Return a native typed `ProviderRepairResult` record with these fields:
+
+- `repair_status`: `FIXED_AND_RESUMED`, `FIXED_AND_RELAUNCHED`, `PLAN_WRITTEN`, or `BLOCKED`;
+- `fix_complexity`: `TRIVIAL` or `NONTRIVIAL`;
+- `recovery_action`: `RESUME`, `RELAUNCH`, `RESTART`, or `DECLINED`;
+- `repair_report_path`: the produced repair report relpath under `artifacts/work`;
+- `plan_path`: the optional plan relpath, or an empty string; and
+- `new_run_id`: the replacement run id, or an empty string.
+
+Also retain the operator-facing compatibility contract: write the repair report
+and write the repair-result JSON to the exact `repair_result_target_path`
+recorded in the injected authoritative watch bundle, with this shape:
 
 ```json
 {

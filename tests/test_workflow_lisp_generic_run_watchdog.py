@@ -7,12 +7,68 @@ from pathlib import Path
 
 import yaml
 
+from orchestrator.workflow.loaded_bundle import (
+    workflow_output_contracts,
+    workflow_public_input_contracts,
+)
+from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+
 
 ROOT = Path(__file__).resolve().parents[1]
 YAML_WORKFLOW = ROOT / "workflows/examples/generic_run_watchdog.yaml"
 ORC_WORKFLOW = ROOT / "workflows/library/generic_run_watchdog/watchdog.orc"
 PORT_DESIGN = ROOT / "docs/plans/2026-07-18-generic-run-watchdog-orc-port-design.md"
 MIGRATION_INPUTS = ROOT / "workflows/examples/inputs/workflow_lisp_migrations"
+ENTRY_WORKFLOW = "generic_run_watchdog/watchdog::watchdog"
+
+
+def _compile_watchdog_orc():
+    assert ORC_WORKFLOW.is_file(), f"watchdog Workflow Lisp candidate is absent: {ORC_WORKFLOW}"
+    commands_path = MIGRATION_INPUTS / "generic_run_watchdog.commands.json"
+    return compile_stage3_entrypoint(
+        ORC_WORKFLOW,
+        source_roots=(ROOT / "workflows/library",),
+        entry_workflow=ENTRY_WORKFLOW,
+        provider_externs=json.loads(
+            (MIGRATION_INPUTS / "generic_run_watchdog.providers.json").read_text()
+        ),
+        prompt_externs=json.loads(
+            (MIGRATION_INPUTS / "generic_run_watchdog.prompts.json").read_text()
+        ),
+        command_boundaries=_parse_command_boundaries_manifest(
+            json.loads(commands_path.read_text()),
+            manifest_path=commands_path,
+        ),
+        workspace_root=ROOT,
+        lowering_route="wcc_m4",
+    )
+
+
+def _watchdog_authored_mappings() -> dict[str, dict]:
+    result = _compile_watchdog_orc()
+    return {
+        lowered.typed_workflow.definition.name: lowered.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for lowered in compiled.lowered_workflows
+    }
+
+
+def _walk_steps(steps):
+    for step in steps:
+        yield step
+        for branch_name in ("then", "else"):
+            branch = step.get(branch_name)
+            if isinstance(branch, dict):
+                yield from _walk_steps(branch.get("steps", []))
+        match = step.get("match")
+        if isinstance(match, dict):
+            for case in match.get("cases", {}).values():
+                yield from _walk_steps(case.get("steps", []))
+
+
+def _argv_value(argv: list[str], option: str) -> str:
+    return argv[argv.index(option) + 1]
 
 
 def _table_after_heading(text: str, heading: str) -> list[dict[str, str]]:
@@ -130,10 +186,196 @@ def test_watchdog_yaml_baseline_contract_is_frozen() -> None:
     ]
 
 
-def test_watchdog_port_source_is_absent_at_design_boundary() -> None:
-    assert not ORC_WORKFLOW.exists(), (
-        "the watchdog candidate must remain absent until the reviewed design gate closes"
+def test_watchdog_orc_compiles_with_exact_six_input_four_output_contract() -> None:
+    result = _compile_watchdog_orc()
+    bundle = result.validated_bundles_by_name[ENTRY_WORKFLOW]
+
+    assert result.entry_result.module.target_dsl_version == "2.15"
+    assert bundle.surface.name == ENTRY_WORKFLOW
+    assert workflow_public_input_contracts(bundle) == {
+        "target_run_id": {"kind": "scalar", "type": "string"},
+        "state_root": {
+            "kind": "relpath",
+            "type": "relpath",
+            "under": "state",
+            "must_exist_target": False,
+            "default": "state/GENERIC-RUN-WATCHDOG",
+        },
+        "evidence_root": {
+            "kind": "relpath",
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": False,
+            "default": "artifacts/work/generic-run-watchdog",
+        },
+        "repair_result_target_path": {
+            "kind": "relpath",
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": False,
+            "default": "artifacts/work/generic-run-watchdog/repair-result.json",
+        },
+        "max_stale_minutes": {"kind": "scalar", "type": "integer", "default": 60},
+        "repair_provider": {
+            "kind": "scalar",
+            "type": "enum",
+            "allowed": ["codex", "claude_opus"],
+            "default": "codex",
+        },
+    }
+    assert list(workflow_output_contracts(bundle)) == [
+        "return__watch_status",
+        "return__repair_status",
+        "return__recovery_action",
+        "return__watchdog_result_path",
+    ]
+    assert [
+        contract["allowed"]
+        for contract in workflow_output_contracts(bundle).values()
+        if contract["type"] == "enum"
+    ] == [
+        ["RUNNING_OK", "COMPLETED", "FAILED", "CRASHED", "STALLED", "UNKNOWN"],
+        ["NO_ACTION", "FIXED_AND_RESUMED", "FIXED_AND_RELAUNCHED", "PLAN_WRITTEN", "BLOCKED"],
+        ["NONE", "RESUME", "RELAUNCH", "RESTART", "DECLINED"],
+    ]
+
+
+def test_watchdog_orc_clean_path_skips_provider_and_publishes_no_action() -> None:
+    mappings = _watchdog_authored_mappings()
+    entry = mappings[ENTRY_WORKFLOW]
+    entry_steps = list(_walk_steps(entry["steps"]))
+
+    assert not any("provider" in step for step in entry_steps)
+    assert any(
+        step.get("command", [])[:2]
+        == ["python", "workflows/library/scripts/probe_orchestrator_run.py"]
+        for step in entry_steps
     )
+    outcome_branch = next(step for step in entry["steps"] if step.get("if"))
+    assert any("call" in step for step in outcome_branch["then"]["steps"])
+    assert not any("call" in step or "provider" in step for step in outcome_branch["else"]["steps"])
+
+    publishers = [
+        step["command"]
+        for step in entry_steps
+        if step.get("command", [])[:2]
+        == ["python", "workflows/library/scripts/publish_run_watchdog_result.py"]
+    ]
+    assert len(publishers) == 2
+    no_action = next(
+        argv for argv in publishers if _argv_value(argv, "--repair-status") == "NO_ACTION"
+    )
+    assert {
+        option: _argv_value(no_action, option)
+        for option in (
+            "--repair-result-path",
+            "--repair-status",
+            "--fix-complexity",
+            "--recovery-action",
+            "--repair-report-path",
+            "--plan-path",
+            "--new-run-id",
+        )
+    } == {
+        "--repair-result-path": "",
+        "--repair-status": "NO_ACTION",
+        "--fix-complexity": "NOT_APPLICABLE",
+        "--recovery-action": "NONE",
+        "--repair-report-path": "",
+        "--plan-path": "",
+        "--new-run-id": "",
+    }
+
+
+def test_watchdog_orc_repair_path_selects_exact_provider_policy() -> None:
+    mappings = _watchdog_authored_mappings()
+    providers = [
+        step
+        for mapping in mappings.values()
+        for step in _walk_steps(mapping["steps"])
+        if "provider" in step
+    ]
+
+    assert [(step["provider"], step["timeout_sec"]) for step in providers] == [
+        ("codex_unrestricted_workspace", 7200),
+        ("claude_unrestricted_workspace", 7200),
+    ]
+    assert [step["provider_call_policy"] for step in providers] == [
+        {"model": "gpt-5.4", "effort": "high"},
+        {"model": "opus", "effort": "high"},
+    ]
+    assert all(
+        [field["name"] for field in step["output_bundle"]["fields"]]
+        == [
+            "repair_status",
+            "fix_complexity",
+            "recovery_action",
+            "repair_report_path",
+            "plan_path",
+            "new_run_id",
+        ]
+        for step in providers
+    )
+    assert all(
+        next(
+            field
+            for field in step["output_bundle"]["fields"]
+            if field["name"] == "repair_report_path"
+        )
+        == {
+            "name": "repair_report_path",
+            "json_pointer": "/repair_report_path",
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": True,
+        }
+        for step in providers
+    )
+
+
+def test_watchdog_orc_prompt_dependency_retry_and_resume_contract() -> None:
+    mappings = _watchdog_authored_mappings()
+    providers = [
+        step
+        for mapping in mappings.values()
+        for step in _walk_steps(mapping["steps"])
+        if "provider" in step
+    ]
+
+    assert len(providers) == 2
+    assert all(
+        step["depends_on"]
+        == {
+            "required": ["${inputs.watch_bundle_path}"],
+            "optional": [],
+            "inject": {"mode": "content", "position": "prepend"},
+        }
+        and step["inject_output_contract"] is True
+        for step in providers
+    )
+
+    entry_steps = list(_walk_steps(mappings[ENTRY_WORKFLOW]["steps"]))
+    probe = next(
+        step
+        for step in entry_steps
+        if step.get("command", [])[:2]
+        == ["python", "workflows/library/scripts/probe_orchestrator_run.py"]
+    )
+    assert [field["name"] for field in probe["output_bundle"]["fields"]] == [
+        "watch_bundle_path",
+        "watch_status",
+        "repair_required",
+        "recommended_recovery",
+        "evidence_bundle_path",
+        "repair_result_target_path",
+    ]
+    prompt_manifest = json.loads(
+        (MIGRATION_INPUTS / "generic_run_watchdog.prompts.json").read_text()
+    )
+    prompt_relpath = prompt_manifest[
+        "prompts.generic-run-watchdog.repair-run-failure"
+    ]["input_file"]
+    assert "${inputs." not in (ROOT / prompt_relpath).read_text()
 
 
 def test_watchdog_port_design_closes_both_typed_branches() -> None:
@@ -218,12 +460,15 @@ def test_watchdog_port_design_closes_both_typed_branches() -> None:
     assert "repair_status: ProviderRepairStatus" in text
     assert "recovery_action: ProviderRecoveryAction" in text
     assert "fix_complexity: ProviderFixComplexity" in text
-    assert "fix_complexity: FixComplexity" in text
+    assert "RepairPublication" not in text
     assert "exhaustively widens all three provider-only enums" in " ".join(
         text.split()
     )
     assert "the three provider-only enums" in " ".join(text.lower().split())
     assert "cannot return public `no_action`, `not_applicable`, or `none`" in text.lower()
+    normalized_text = " ".join(text.split())
+    assert "no path-to-`String` coercion" in normalized_text
+    assert "two branch-local invocations of the same certified publisher command" in normalized_text
 
     dependencies = _table_after_heading(text, "## Prompt Dependency Contract")
     assert dependencies == [
