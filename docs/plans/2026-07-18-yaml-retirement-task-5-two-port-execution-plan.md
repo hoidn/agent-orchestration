@@ -298,6 +298,48 @@ python -m orchestrator run workflows/library/verified_iteration_drain/drain.orc 
   listed above; commit this correctness amendment separately before refreezing
   the implementation review object.
 
+## Task 2A: Preserve Root Scope Identity For Nested Provider Calls
+
+**Files:**
+
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `tests/test_workflow_lisp_provider_prompt_dependencies_e2e.py`
+
+**Owned test:**
+
+- `tests/test_workflow_lisp_provider_prompt_dependencies_e2e.py::test_real_orc_two_level_call_publishes_root_owned_attempt_scope`
+
+- [ ] Parameterize the existing real two-level call test with absolute and
+  relative root workflow-file spellings. Run it RED: the absolute case passes
+  while the normal relative case fails before provider execution with
+  `nested manager scope path prefix contradicts parent chain`.
+
+```bash
+pytest -q tests/test_workflow_lisp_provider_prompt_dependencies_e2e.py::test_real_orc_two_level_call_publishes_root_owned_attempt_scope
+```
+
+- [ ] Make a root executor's `ResumeScopePath` derive from the persisted
+  `RunState.workflow_file`, which is the identity authority validated by the
+  aggregate provider-attempt allocator. Preserve an explicit nested manager's
+  existing scope path and retain bundle provenance only as a pre-state fallback.
+- [ ] Run and require GREEN:
+
+```bash
+pytest -q tests/test_workflow_lisp_provider_prompt_dependencies_e2e.py::test_real_orc_two_level_call_publishes_root_owned_attempt_scope
+pytest -q tests/test_provider_attempt_allocation.py tests/test_workflow_lisp_provider_prompt_dependencies_e2e.py
+```
+
+- [ ] Run the candidate scenario as a diagnostic:
+
+```bash
+pytest -q tests/test_workflow_lisp_verified_iteration_drain.py::test_verified_orc_one_continue_then_done_preserves_artifact_lineage
+```
+
+  The candidate scenario may still be RED only on its Task-3 artifact assertion
+  while its workflow status and provider execution are completed; it must no
+  longer fail provider-attempt allocation.
+- [ ] Complete ordered reviews and commit only the two listed paths.
+
 ## Task 3: Register And Prove The Verified Candidate
 
 **Files:**
