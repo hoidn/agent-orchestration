@@ -96,7 +96,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-16-same-file-build-checks-identity-retirement-plan.md` | Complete by fail-closed route-eligibility stop. The containing route is live/current and therefore requires strict compatibility; the source stayed unchanged and the row moved to `effect-adapter` even though known-store scans found zero matching consumers. This was not a competing roadmap selector and authorized no run or owner gate. |
 | `2026-07-16-design-delta-exported-workflow-retention-plan.md` | Complete after specification PASS and quality APPROVED. Seven calls remain active `effect-adapter` because their five unique callees are exported CLI-selectable workflows that cannot use reviewed internal retirement; five separate public-boundary records make that negative explicit. No source/run mutation or store/owner gate occurred. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
-| `2026-07-07-yaml-retirement-program.md` | Current selector at Task 5, exactly two `.orc` ports. Tasks 1-4 are complete: the gap contract passed independent review, dashboards consume digest-bound persisted typed surfaces, both fresh frontends converge on shared in-memory validation, and the reviewed YAML deprecation surface warns on fresh roots while routing new authors to `.orc`. YAML remains `Legacy`; Task 7 parser removal is incomplete. Amended 2026-07-14 to deletion-first retirement: survivors are `verified_iteration_drain` and `generic_run_watchdog`, each getting its own `.orc` port through the parity kernel; every other YAML workflow is reclassified delete or held in its explicit fixed queue. The early independent deletion queue remains eligible only through its own pending reference and supported-root scan gates; Task 5 selection does not waive or reorder those gates. |
+| `2026-07-07-yaml-retirement-program.md` | Current selector at Task 6, execute the gated archive and deletion queues. Tasks 1-5 are complete: the gap contract passed independent review, dashboards consume digest-bound persisted typed surfaces, both fresh frontends converge on shared in-memory validation, the reviewed YAML deprecation surface warns on fresh roots while routing new authors to `.orc`, and both dedicated `.orc` ports are promoted with their unchanged YAML twins handed to Task 6. YAML remains `Legacy`; Task 7 parser removal is incomplete. Deletion-first retirement keeps `verified_iteration_drain` and `generic_run_watchdog` as the only promoted `.orc` ports; every YAML workflow remains in its explicit fixed queue. The early independent deletion queue and both port twins remain eligible only through their pending reference and supported-root scan gates; Task 6 selection does not waive or reorder those gates. |
 
 ## Concrete Execution Sequence
 
@@ -238,12 +238,14 @@ history row. Task 7 completed its exact Stage-6 handoff at `7e6adc36`, and
 Task 8 sealed the wave with 565 passed/6 skipped focused, 36 passed routing,
 and 4992 passed/17 skipped plus six established unrelated broad failures:
 four digest-exact and two logger-location-only. The final specification review
-returned PASS and quality review returned APPROVED. YAML retirement Tasks 1-4
+returned PASS and quality review returned APPROVED. YAML retirement Tasks 1-5
 then completed the reviewed gap contract, digest-bound persisted dashboard
-surface, shared mapping-validation authority, and fresh-root deprecation plus
-new-author routing surface; the current selector is
-`docs/plans/2026-07-07-yaml-retirement-program.md` Task 5. YAML remains
-`Legacy`, and Task 7 parser removal is incomplete. After YAML
+surface, shared mapping-validation authority, fresh-root deprecation plus
+new-author routing surface, and both dedicated `.orc` port promotions; the
+current selector is
+`docs/plans/2026-07-07-yaml-retirement-program.md` Task 6. YAML remains
+`Legacy`, both old port sources remain pending their Task-6 deletion gates, and
+Task 7 parser removal is incomplete. After YAML
 retirement, continue with `docs/design/workflow_lisp_provider_live_binding.md`
 and `docs/design/workflow_lisp_language_server.md`, in that order.
 
@@ -426,7 +428,7 @@ compatibility or a family migration wave.
 ### Stage 5: Implement Procedure-First Reuse In Waves
 
 The procedure-first migration wave is complete. Stage 6 YAML retirement Tasks
-1-4 are also complete; the current selector is YAML retirement Task 5.
+1-5 are also complete; the current selector is YAML retirement Task 6.
 
 Execute only accepted plans, in this order:
 
@@ -513,7 +515,7 @@ Execute only accepted plans, in this order:
    established unrelated broad failures adjudicated as four digest-exact plus
    two logger-location-only. Whole-wave specification PASS and quality APPROVED
    advanced the selector to Stage 6 Task 1 without deleting a YAML family;
-   Tasks 1-4 are now complete and Task 5 is current.
+   Tasks 1-5 are now complete and Task 6 is current.
 
 Every wave must pass:
 
@@ -525,11 +527,12 @@ Every wave must pass:
 
 ### Stage 6: Resume YAML Retirement
 
-**Current selector:** Task 5, build and promote exactly two `.orc` ports. Tasks
-1-4 are complete: the gap contract, digest-bound persisted dashboard surface,
-shared mapping-validation authority, and fresh-root deprecation plus new-author
-routing surface passed independent review. YAML remains `Legacy`; fresh YAML
-is still executable, and Task 7 still owns rejection and parser removal.
+**Current selector:** Task 6, execute the gated archive and deletion queues.
+Tasks 1-5 are complete: the gap contract, digest-bound persisted dashboard
+surface, shared mapping-validation authority, fresh-root deprecation plus
+new-author routing surface, and both dedicated `.orc` port promotions passed
+independent review. YAML remains `Legacy`; fresh YAML is still executable, and
+Task 7 still owns rejection and parser removal.
 Provider live binding and the `.orc` language server remain next, in that order.
 
 Use the procedure-first model as the target authoring architecture. The
@@ -540,7 +543,7 @@ retirement:
 The former pilot-quiescence scheduling window is closed. The early independent
 estate-deletion queue retains its deletion-first semantics, but it remains
 fail-closed on the pending repository-reference and supported-root scan gates;
-completion of Tasks 1-4 and selection of Task 5 neither waive those gates nor
+completion of Tasks 1-5 and selection of Task 6 neither waive those gates nor
 change the queue dependency order or the later stages.
 
 1. Run the estate deletion sweep as an early independent tranche — it
@@ -563,11 +566,16 @@ change the queue dependency order or the later stages.
    fresh-root deprecation plus new-author-routing surface — complete and
    independently reviewed.
 5. Port `verified_iteration_drain` and `generic_run_watchdog` to `.orc`
-   through the retained parity kernel — the only two remaining promotions and
-   the current selector.
-6. Delete the user-facing YAML frontend when zero YAML workflow files remain
-   and both ports have passed their promotion gates (gap list empty or
-   explicitly waived).
+   through the retained parity kernel — completed Task-5 history. Both
+   dedicated `.orc` primaries are promoted, while their unchanged YAML twins
+   remain bound to Task 6's deletion gates.
+6. Execute Task 6's gated archive and deletion queues in their fixed dependency
+   order — the current selector. Use the reviewed Task-6 execution plan for the
+   100-path non-survivor queue, then preserve each later archive, port-source,
+   and holdout gate rather than treating either promotion as deletion evidence.
+7. Delete the user-facing YAML frontend under Task 7, only when zero YAML
+   workflow files remain and both ports have passed their promotion gates (gap
+   list empty or explicitly waived); parser removal remains later than Task 6.
 
 Do not port a YAML family into a reusable `.orc` workflow when Stage 4
 classifies that unit as a procedure candidate.

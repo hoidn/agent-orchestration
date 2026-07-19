@@ -29,10 +29,14 @@ route-readiness v1, pytest/xdist, canonical JSON/SHA-256, Git, and tmux.
 **Governing roadmap:**
 `docs/plans/2026-07-07-yaml-retirement-program.md`, Task 5.
 
-**Execution status:** Planning and review are in progress. Task 5 begins from
-provider prompt-dependency completion commit `48d5114b280607f491d5a1f3d6acd24d98e5060d`.
-Neither family is currently registered in the parity-target manifest or route-
-readiness registry, and neither dedicated `.orc` source currently exists.
+**Execution status:** Tasks 1-10 are implemented and independently reviewed.
+The verified-drain promotion closed at `927447d4`, and watchdog promotion
+closed at `e38b14de`. Both dedicated `.orc` sources are registered,
+promotion-eligible primaries with promotable final parity reports. Task 10's
+exact ten-file closure records roadmap Task 5 complete and routes current
+execution to the separately reviewed Task-6 plan while retaining both YAML
+sources and their deletion gates. Focused, parity/readiness, broad-baseline,
+commit-trailer, retained-source digest, and final holistic review gates passed.
 
 ---
 
@@ -126,8 +130,8 @@ Do not edit, restore, stage, or commit these pre-existing user paths:
 - `workflows/examples/non_progress_step_back_demo.yaml`
 - `workflows/library/prompts/workflow_step_back/diagnose_non_progress.md`
 
-The untracked Task-6 plan is a separate concurrent artifact. Do not edit or
-stage it during Task 5:
+The separately reviewed Task-6 plan was committed before Task 5 closeout. It is
+outside Task 5's exact closure paths; do not edit or stage it during Task 5:
 
 - `docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md`
 
@@ -742,8 +746,11 @@ python -m orchestrator migration-parity --targets-file workflows/examples/inputs
 - Modify: `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`
 - Modify: `docs/workflow_yaml_estate_triage.md`
 - Modify: `docs/index.md`
+- Modify: `docs/capability_status_matrix.md`
+- Modify: `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
 - Modify: `tests/test_workflow_lisp_procedure_first_migrations.py`
 - Modify: `tests/test_workflow_lisp_drain_roadmap_routing.py`
+- Modify: `tests/test_workflow_yaml_orc_gap_list.py`
 - Modify: this plan
 - Generate, ignored: `artifacts/work/YAML-RETIREMENT-TASK5/final/collect.log`
 - Generate, ignored: `artifacts/work/YAML-RETIREMENT-TASK5/final/broad.log`
@@ -755,7 +762,7 @@ python -m orchestrator migration-parity --targets-file workflows/examples/inputs
 - `tests/test_workflow_lisp_drain_roadmap_routing.py::test_yaml_task_5_is_complete_and_routes_next_to_task_6`
 - `tests/test_workflow_lisp_procedure_first_migrations.py::test_yaml_task_5_keeps_both_old_sources_pending_their_deletion_gates`
 
-- [ ] Add the tests and run exact RED:
+- [x] Add the tests and run exact RED:
 
 ```bash
 pytest -q tests/test_workflow_lisp_procedure_first_migrations.py::test_yaml_retirement_handoff_names_both_promoted_port_replacements tests/test_workflow_lisp_drain_roadmap_routing.py::test_yaml_task_5_is_complete_and_routes_next_to_task_6 tests/test_workflow_lisp_procedure_first_migrations.py::test_yaml_task_5_keeps_both_old_sources_pending_their_deletion_gates
@@ -764,11 +771,11 @@ pytest -q tests/test_workflow_lisp_procedure_first_migrations.py::test_yaml_reti
   Expected RED: exit 1 because the handoff/program still describe Task 5 as
   current. Then update the handoff evidence/replacement fields and regenerate
   the triage projection without removing either YAML queue path.
-- [ ] Mark roadmap Task 5 complete and current selector Task 6. State that
+- [x] Mark roadmap Task 5 complete and current selector Task 6. State that
   reference/run-consumer evidence remains a Task-6 pre-deletion gate governed by
   `docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md`; Task 5 does
   not invent an ad hoc scanner or queue either source for deletion.
-- [ ] Run exact collection/focused gates:
+- [x] Run exact collection/focused gates:
 
 ```bash
 mkdir -p artifacts/work/YAML-RETIREMENT-TASK5/final
@@ -779,7 +786,7 @@ python -m orchestrator migration-parity --targets-file workflows/examples/inputs
 python -m orchestrator migration-parity --targets-file workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json --output-root artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final --target generic_run_watchdog --require-promotable
 ```
 
-- [ ] Create the final ignored directory, then run the broad suite with these
+- [x] Create the final ignored directory, then run the broad suite with these
   exact commands:
 
 ```bash
@@ -788,10 +795,21 @@ tmux new-session -d -s yaml-task5-broad "cd /home/ollie/Documents/agent-orchestr
 
   Compare exact failed IDs/signatures and skipped IDs with the Task-13 baseline;
   passing-test growth is expected, any failed/skipped delta is not.
-- [ ] Audit all ten task commits and both review trailers per commit. Verify both
+
+  Final result: `6 failed, 5827 passed, 17 skipped, 33 warnings`. The six
+  failed IDs and normalized signatures match the accepted Task-13 baseline
+  exactly, all seventeen baseline skipped IDs still skip with the same reasons,
+  and there are no new failed or skipped IDs.
+- [x] Audit all ten task commits and both review trailers per commit. Verify both
   retained YAML byte digests equal their Task-1/Task-5 baselines.
-- [ ] Complete final holistic specification and quality reviews, then commit
-  only the seven tracked files.
+
+  The ten numbered-task commits carry distinct tree-bound specification and
+  quality review tokens. The retained verified-iteration YAML digest is
+  `30f868c01d3ead33e958045e37a2062da9256f23f585f68ef9381358d3c4b5b0`;
+  the retained watchdog YAML digest is
+  `797f02672508f70a1b5071b216a30946f5a78a98d9413cca25ed5fa167c07b85`.
+- [x] Complete final holistic specification and quality reviews, then commit
+  only the ten tracked files.
 
 ## Completion Contract
 

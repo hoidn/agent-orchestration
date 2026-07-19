@@ -1,10 +1,10 @@
 # YAML Workflow Estate Triage
 
-Authoritative human projection of `docs/plans/2026-07-13-procedure-first-reuse-inventory.json` → `yaml_retirement_handoff`.
+Frozen human projection of `docs/plans/2026-07-13-procedure-first-reuse-inventory.json` → `yaml_retirement_handoff`. The handoff remains capture authority; Task 6's separately checked execution index and live projection will own deletion progress.
 
 Capture commit: `56a832bffc11ea4572eae3e6285690a74db7d990`.  Normalized estate-path digest: `sha256:ca994efbfba9c69836821b99239b7fb9d90656979701c3d679cdcb5b519fe2b5`.
 
-This table routes Stage-6 work only. Every queue remains pending its reference, import, run-consumer, parity/archive, or owner gate; it authorizes no deletion, port, archive, rename, workflow launch, or run mutation.
+This table routes Stage-6 work only. Task 5's two ports are promoted, and Task 6 is the current selector. Every queue remains pending its applicable reference, import, run-consumer, archive, or owner gate; this projection authorizes no deletion, archive, rename, workflow launch, or run mutation.
 
 | path | queue | disposition | replacement or rationale | legacy rows | archive | status | deletion gate |
 |---|---|---|---|---:|---|---|---|
@@ -32,7 +32,7 @@ This table routes Stage-6 work only. Every queue remains pending its reference, 
 | workflows/examples/env_literal.yaml | delete_non_survivor_estate | delete | The deletion-first steering decision retires every non-survivor YAML/YML workflow without translating its internal calls. | 0 | git_history | pending | reference + supported-run-consumer |
 | workflows/examples/finally_demo.yaml | delete_non_survivor_estate | delete | The deletion-first steering decision retires every non-survivor YAML/YML workflow without translating its internal calls. | 0 | git_history | pending | reference + supported-run-consumer |
 | workflows/examples/for_each_demo.yaml | delete_non_survivor_estate | delete | The deletion-first steering decision retires every non-survivor YAML/YML workflow without translating its internal calls. | 0 | git_history | pending | reference + supported-run-consumer |
-| workflows/examples/generic_run_watchdog.yaml | port_generic_run_watchdog | port | A dedicated bounded implementation plan must name and prove the watchdog .orc port before YAML retirement. | 0 | git_history | pending | reference + supported-run-consumer |
+| workflows/examples/generic_run_watchdog.yaml | port_generic_run_watchdog | port | workflows/library/generic_run_watchdog/watchdog.orc | 0 | git_history | pending | reference + supported-run-consumer |
 | workflows/examples/generic_task_plan_execute_review_loop.yaml | delete_non_survivor_estate | delete | The deletion-first steering decision retires every non-survivor YAML/YML workflow without translating its internal calls. | 0 | git_history | pending | reference + supported-run-consumer |
 | workflows/examples/injection_demo.yaml | delete_non_survivor_estate | delete | The deletion-first steering decision retires every non-survivor YAML/YML workflow without translating its internal calls. | 0 | git_history | pending | reference + supported-run-consumer |
 | workflows/examples/library/repeat_until_review_loop.yaml | delete_non_survivor_estate | delete | The deletion-first steering decision retires every non-survivor YAML/YML workflow without translating its internal calls. | 0 | git_history | pending | reference + supported-run-consumer |

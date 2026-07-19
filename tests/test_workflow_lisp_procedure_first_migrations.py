@@ -328,8 +328,14 @@ _YAML_RETIREMENT_QUEUE_GATES = {
         "Design Delta archive gate and Task 6",
         ["delete_non_survivor_estate"],
     ),
-    "port_verified_iteration": ("Task 5: verified-iteration port", []),
-    "port_generic_run_watchdog": ("Task 5: generic-run-watchdog port", []),
+    "port_verified_iteration": (
+        "Task 6: verified-iteration YAML deletion gate",
+        [],
+    ),
+    "port_generic_run_watchdog": (
+        "Task 6: generic-run-watchdog YAML deletion gate",
+        [],
+    ),
     "hold_non_progress_step_back": ("Step-back recovery owner handoff", []),
 }
 _YAML_RETIREMENT_REPLACEMENT_PATHS = {
@@ -340,7 +346,9 @@ _YAML_RETIREMENT_REPLACEMENT_PATHS = {
     "port_verified_iteration": [
         "workflows/library/verified_iteration_drain/drain.orc"
     ],
-    "port_generic_run_watchdog": [],
+    "port_generic_run_watchdog": [
+        "workflows/library/generic_run_watchdog/watchdog.orc"
+    ],
     "hold_non_progress_step_back": [],
 }
 _YAML_RETIREMENT_EVIDENCE = {
@@ -367,11 +375,60 @@ _YAML_RETIREMENT_EVIDENCE = {
     ],
     "port_verified_iteration": [
         {
-            "role": "translation_plan_task_15_input",
-            "path": "docs/plans/2026-07-05-post-foundation-target-completion-plan.md",
-        }
+            "role": "promoted_orc_primary",
+            "path": "workflows/library/verified_iteration_drain/drain.orc",
+        },
+        {
+            "role": "route_readiness_registry",
+            "path": "docs/workflow_lisp_route_readiness_registry.json",
+        },
+        {
+            "role": "parity_target_manifest",
+            "path": (
+                "workflows/examples/inputs/workflow_lisp_migrations/"
+                "parity_targets.json"
+            ),
+        },
+        {
+            "role": "family_contract_tests",
+            "path": "tests/test_workflow_lisp_verified_iteration_drain.py",
+        },
+        {
+            "role": "task_5_execution_plan",
+            "path": (
+                "docs/plans/"
+                "2026-07-18-yaml-retirement-task-5-two-port-execution-plan.md"
+            ),
+        },
     ],
-    "port_generic_run_watchdog": [],
+    "port_generic_run_watchdog": [
+        {
+            "role": "promoted_orc_primary",
+            "path": "workflows/library/generic_run_watchdog/watchdog.orc",
+        },
+        {
+            "role": "route_readiness_registry",
+            "path": "docs/workflow_lisp_route_readiness_registry.json",
+        },
+        {
+            "role": "parity_target_manifest",
+            "path": (
+                "workflows/examples/inputs/workflow_lisp_migrations/"
+                "parity_targets.json"
+            ),
+        },
+        {
+            "role": "family_contract_tests",
+            "path": "tests/test_workflow_lisp_generic_run_watchdog.py",
+        },
+        {
+            "role": "task_5_execution_plan",
+            "path": (
+                "docs/plans/"
+                "2026-07-18-yaml-retirement-task-5-two-port-execution-plan.md"
+            ),
+        },
+    ],
     "hold_non_progress_step_back": [],
 }
 _YAML_RETIREMENT_SINGLETONS = {
@@ -628,6 +685,68 @@ def _validate_yaml_retirement_handoff(inventory: dict[str, object]) -> None:
 
 def test_yaml_retirement_handoff_partitions_estate_records_and_boundaries() -> None:
     _validate_yaml_retirement_handoff(_load_json(REUSE_INVENTORY))
+
+
+def test_yaml_retirement_handoff_names_both_promoted_port_replacements() -> None:
+    handoff = _load_json(REUSE_INVENTORY)["yaml_retirement_handoff"]
+    queues = {queue["queue_id"]: queue for queue in handoff["queues"]}
+
+    expected_replacements = {
+        "port_verified_iteration": (
+            "workflows/library/verified_iteration_drain/drain.orc",
+            "tests/test_workflow_lisp_verified_iteration_drain.py",
+        ),
+        "port_generic_run_watchdog": (
+            "workflows/library/generic_run_watchdog/watchdog.orc",
+            "tests/test_workflow_lisp_generic_run_watchdog.py",
+        ),
+    }
+    for queue_id, (orc_path, contract_tests) in expected_replacements.items():
+        queue = queues[queue_id]
+        assert queue["replacement"]["kind"] == "new_orc_port"
+        assert queue["replacement"]["paths"] == [orc_path]
+        evidence_by_role = {
+            row["role"]: row["path"] for row in queue["evidence_paths"]
+        }
+        assert evidence_by_role == {
+            "promoted_orc_primary": orc_path,
+            "route_readiness_registry": (
+                "docs/workflow_lisp_route_readiness_registry.json"
+            ),
+            "parity_target_manifest": (
+                "workflows/examples/inputs/workflow_lisp_migrations/"
+                "parity_targets.json"
+            ),
+            "family_contract_tests": contract_tests,
+            "task_5_execution_plan": (
+                "docs/plans/"
+                "2026-07-18-yaml-retirement-task-5-two-port-execution-plan.md"
+            ),
+        }
+
+
+def test_yaml_task_5_keeps_both_old_sources_pending_their_deletion_gates() -> None:
+    handoff = _load_json(REUSE_INVENTORY)["yaml_retirement_handoff"]
+    queues = {queue["queue_id"]: queue for queue in handoff["queues"]}
+    expected_sources = {
+        "port_verified_iteration": (
+            "workflows/examples/verified_iteration_drain.yaml"
+        ),
+        "port_generic_run_watchdog": (
+            "workflows/examples/generic_run_watchdog.yaml"
+        ),
+    }
+
+    for queue_id, yaml_path in expected_sources.items():
+        queue = queues[queue_id]
+        assert queue["status"] == "pending"
+        assert queue["paths"] == [yaml_path]
+        assert (REPO_ROOT / yaml_path).is_file()
+        assert queue["reference_gate"] == "zero_unclassified_active_references"
+        assert queue["run_consumer_gate"] == (
+            "zero_supported_matching_nonterminal_consumers"
+        )
+        assert queue["stage_6_gate"].startswith("Task 6:")
 
 
 @pytest.mark.parametrize(

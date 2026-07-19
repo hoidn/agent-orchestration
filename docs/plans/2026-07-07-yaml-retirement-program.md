@@ -9,8 +9,8 @@
 becomes the only authored workflow surface. Persisted run data and internal
 debug serialization are outside this program.
 
-**Current selector:** Task 5, build and promote exactly two `.orc` ports. Tasks
-1-4 are complete; Task 4's reviewed implementation record is
+**Current selector:** Task 6, execute the gated archive and deletion queues.
+Tasks 1-5 are complete; Task 4's reviewed implementation record is
 `docs/plans/2026-07-17-yaml-deprecation-surface-implementation-plan.md`. YAML
 remains `Legacy`: fresh YAML is still executable, and Task 7 still owns
 rejection and parser removal.
@@ -204,7 +204,7 @@ executable and `Legacy`, both Task-5 port rows retained every per-row gate,
 Task 6 retained every deletion gate, and Task 7 parser removal remained
 incomplete. The Task 5 table below records subsequent family progress.
 
-### Task 5: Build and promote exactly two `.orc` ports — GATED PER ROW
+### Task 5: Build and promote exactly two `.orc` ports — COMPLETE
 
 | Family | Required promotion evidence | Family status |
 |---|---|---|
@@ -221,15 +221,25 @@ For each row, use one reviewable promotion sequence:
   verification cycle.
 - [x] Run a fresh `.orc` smoke or real launch and obtain both independent
   reviews.
-- [ ] Re-run the reference and supported-run scans before queuing the old YAML
+- [x] Hand both unchanged YAML sources to Task 6's reference and supported-run
+  pre-deletion gates without running ad hoc Task-5 scans or queuing either
   source for deletion.
 
 Both rows have completed the source, registration, typed parity, promoted
-launch, and fresh mocked-provider `.orc` smoke steps. Their YAML verification
-cycles remain deliberately open for Task 6 scans and deletion. Task 5 remains
-the current selector until its reviewed two-port handoff closes in order.
+launch, and fresh mocked-provider `.orc` smoke steps. The Task-5 implementation
+commits culminate in verified-drain promotion at `927447d4` and watchdog
+promotion at `e38b14de`. The final report paths remain recorded above, while
+the handoff binds each tracked `.orc` source, registry, parity manifest, family
+contract test, and Task-5 execution plan. Task 5 is complete. The unchanged
+YAML twins and their queue rows remain pending only for Task 6's reviewed
+reference and supported-run pre-deletion gates.
 
-### Task 6: Execute the gated archive and deletion queues
+### Task 6: Execute the gated archive and deletion queues — CURRENT
+
+Task 6 is governed by
+`docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md`. Task 5 does
+not provide, replace, or pre-run Task 6's generic scanner and does not authorize
+either retained port source for deletion.
 
 - [ ] Freeze an exact pre-edit scan over tracked repository references, working
   tree references, and the YAML import graph. Classify every reference as
@@ -248,8 +258,9 @@ the current selector until its reviewed two-port handoff closes in order.
   fixtures, and routing in the same reviewed tranche.
 - [ ] After an owner disposition, process `hold_non_progress_step_back` only
   through its newly reviewed queue assignment.
-- [ ] After each tranche, regenerate the exact inventory and triage projection,
-  run narrow behavioral tests, then run the broad suite in tmux.
+- [ ] After each tranche, preserve the frozen v1 inventory and regenerate the
+  checked Task-6 execution index and live projection, run narrow behavioral
+  tests, then run the broad suite in tmux.
 
 Historical prose may still name deleted files. Retirement does not require
 zero textual history; it requires zero unclassified active references, exact

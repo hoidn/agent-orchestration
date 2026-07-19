@@ -647,9 +647,11 @@ def _procedure_sequence_selector_surfaces() -> dict[str, str]:
     }
 
 
-def _assert_migration_wave_complete_and_yaml_task_5_current(
+def _assert_migration_wave_complete_and_yaml_task_current(
     surface: str,
     label: str,
+    *,
+    yaml_current_task: int,
 ) -> None:
     normalized = _normalized_routing_text(surface)
     canonical = _canonical_routing_paths(surface)
@@ -677,17 +679,26 @@ def _assert_migration_wave_complete_and_yaml_task_5_current(
         normalized,
     ), label
     assert re.search(
-        r"\byaml retirement\b.{0,120}\btask 5\b.{0,80}\bcurrent\b"
-        r"|\byaml retirement\b.{0,120}\bcurrent\b.{0,80}\btask 5\b"
-        r"|\bcurrent\b.{0,100}\byaml retirement\b.{0,100}\btask 5\b",
+        rf"\byaml retirement\b.{{0,120}}\btask {yaml_current_task}\b"
+        rf".{{0,80}}\bcurrent\b"
+        rf"|\byaml retirement\b.{{0,120}}\bcurrent\b.{{0,80}}"
+        rf"\btask {yaml_current_task}\b"
+        rf"|\bcurrent\b.{{0,100}}\byaml retirement\b.{{0,100}}"
+        rf"\btask {yaml_current_task}\b",
         normalized,
     ), label
     assert re.search(
-        r"\byaml retirement\b.{0,120}\btasks? 1[ -]4\b.{0,80}\bcomplete\w*\b"
-        r"|\btasks? 1[ -]4\b.{0,80}\bcomplete\w*\b.{0,120}\byaml retirement\b",
+        rf"\byaml retirement\b.{{0,120}}\btasks? 1[ -]{yaml_current_task - 1}\b"
+        rf".{{0,80}}\bcomplete\w*\b"
+        rf"|\btasks? 1[ -]{yaml_current_task - 1}\b.{{0,80}}"
+        rf"\bcomplete\w*\b.{{0,120}}\byaml retirement\b",
         normalized,
     ), label
-    for stale_task in (1, 2, 3, 4, 6, 7):
+    for stale_task in (
+        task_number
+        for task_number in range(1, 8)
+        if task_number != yaml_current_task
+    ):
         assert re.search(
             rf"\byaml retirement\b[^.;]{{0,120}}\btask {stale_task}\b"
             rf"[^.;]{{0,40}}\bcurrent\b"
@@ -747,8 +758,14 @@ def _assert_current_task_3_recovery_status(
     assert CONTRADICTORY_RECOVERY_STATUS.search(normalized) is None, label
 
 
-def test_procedure_first_status_surfaces_route_completed_wave_to_yaml_task_5() -> None:
+def test_procedure_first_status_surfaces_route_completed_wave_to_yaml_task_6() -> None:
     capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
+    sequence = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
+    ).read_text(encoding="utf-8")
     docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
         encoding="utf-8"
     ).split("**Component-plan routing:**", 1)[1].split(
@@ -772,8 +789,78 @@ def test_procedure_first_status_surfaces_route_completed_wave_to_yaml_task_5() -
         assert "migration waves remain blocked" not in normalized, label
         assert "runtime hardening remains pending" not in normalized, label
 
+    yaml_row = _markdown_table_row(capability_matrix_path, "YAML DSL v2.x")
+    normalized_yaml_row = _normalized_routing_text(yaml_row)
+    assert re.search(
+        r"\byaml retirement\b.{0,80}\btasks? 1[ -]5\b.{0,80}\bcomplete\b",
+        normalized_yaml_row,
+    )
+    assert re.search(
+        r"\bcurrent selector\b.{0,80}\byaml retirement\b.{0,80}\btask 6\b",
+        normalized_yaml_row,
+    )
+    assert "yaml remains legacy" in normalized_yaml_row
+    assert "task 7 parser removal is incomplete" in normalized_yaml_row
 
-def test_migration_wave_closeout_routes_through_completed_yaml_tasks_1_4_to_task_5() -> None:
+    stage_6 = _normalized_routing_text(
+        sequence.split("### Stage 6: Resume YAML Retirement", 1)[1].split(
+            "### Stage 7:", 1
+        )[0]
+    )
+    assert re.search(r"\bcurrent selector\b.{0,40}\btask 6\b", stage_6)
+    assert re.search(r"\btasks? 1[ -]5\b.{0,80}\bcomplete\b", stage_6)
+    assert "yaml remains legacy" in stage_6
+    assert "task 7" in stage_6 and "parser removal" in stage_6
+
+
+def test_stage_6_numbered_sequence_routes_completed_ports_through_task_6_before_task_7() -> None:
+    sequence = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
+    ).read_text(encoding="utf-8")
+    stage_6 = sequence.split("### Stage 6: Resume YAML Retirement", 1)[1].split(
+        "### Stage 7:", 1
+    )[0]
+    steps = [
+        _normalized_routing_text(body)
+        for _, body in re.findall(
+            r"(?ms)^(\d+)\. (.*?)(?=^\d+\. |\Z)",
+            stage_6,
+        )
+    ]
+
+    promotion_indexes = [
+        index
+        for index, step in enumerate(steps)
+        if "verified_iteration_drain" in step and "generic_run_watchdog" in step
+        and "port" in step and "promot" in step
+    ]
+    current_indexes = [
+        index for index, step in enumerate(steps) if "current selector" in step
+    ]
+    frontend_indexes = [
+        index
+        for index, step in enumerate(steps)
+        if "task 7" in step and "frontend" in step
+    ]
+
+    assert len(promotion_indexes) == 1
+    assert len(frontend_indexes) == 1
+    promotion_index = promotion_indexes[0]
+    frontend_index = frontend_indexes[0]
+    assert "complete" in steps[promotion_index]
+    assert "history" in steps[promotion_index]
+    assert current_indexes == [promotion_index + 1]
+    current = steps[current_indexes[0]]
+    assert "task 6" in current
+    assert "gated" in current
+    assert "archive" in current and "deletion" in current and "queue" in current
+    assert promotion_index < current_indexes[0] < frontend_index
+
+
+def test_migration_wave_closeout_preserves_history_and_routes_live_yaml_task_6() -> None:
     plan = (REPO_ROOT / CURRENT_SELECTOR_PATH).read_text(encoding="utf-8")
     current_queue = plan.split(
         "## Current queue after Task 6 closeout",
@@ -864,7 +951,11 @@ def test_migration_wave_closeout_routes_through_completed_yaml_tasks_1_4_to_task
         **_procedure_sequence_selector_surfaces(),
     }
     for label, surface in selector_surfaces.items():
-        _assert_migration_wave_complete_and_yaml_task_5_current(surface, label)
+        _assert_migration_wave_complete_and_yaml_task_current(
+            surface,
+            label,
+            yaml_current_task=6,
+        )
 
     for label in ("docs index", "roadmap current routing"):
         _assert_exact_ordered_routing_paths(selector_surfaces[label], label)
@@ -1089,6 +1180,7 @@ def test_yaml_retirement_program_uses_exact_handoff_queues_and_two_ports() -> No
         "early independent",
     ):
         assert contract_term in normalized
+
     assert "`pending_stage_6_scan`" in program
     assert re.search(r"design delta \.?orc primary satisfies", normalized)
     assert "class delete example archive ungated" not in normalized
@@ -1119,6 +1211,51 @@ def test_yaml_retirement_program_uses_exact_handoff_queues_and_two_ports() -> No
     assert "git diff --cached --name-only --" in protected
     for path in protected_paths:
         assert f"'{path}'" in protected
+
+
+def test_yaml_task_5_is_complete_and_routes_next_to_task_6() -> None:
+    program = (
+        REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md"
+    ).read_text(encoding="utf-8")
+    docs_index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    normalized_program = _normalized_routing_text(program)
+    normalized_index = _normalized_routing_text(docs_index)
+    task_5 = program.split("### Task 5:", 1)[1].split("### Task 6:", 1)[0]
+    task_6 = program.split("### Task 6:", 1)[1].split("### Task 7:", 1)[0]
+
+    assert "complete" in _normalized_routing_text(task_5[:200])
+    assert re.search(r"\bcurrent selector\b.{0,20}\btask 6\b", normalized_program)
+    assert "task 5 is complete" in normalized_program
+    assert "task 6" in normalized_index and "current" in normalized_index
+    assert "task 5" in normalized_index and "complete" in normalized_index
+    assert "reference" in _normalized_routing_text(task_6)
+    assert "supported run" in _normalized_routing_text(task_6)
+    assert "2026-07-17-yaml-retirement-task-6-execution-plan.md" in program
+    assert "task 5 remains the current selector" not in normalized_program
+
+
+def test_yaml_task_6_current_selector_governing_plan_is_tracked() -> None:
+    program = (
+        REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md"
+    ).read_text(encoding="utf-8")
+    task_6 = program.split("### Task 6:", 1)[1].split("### Task 7:", 1)[0]
+    plan_match = re.search(
+        r"docs/plans/[0-9]{4}-[0-9]{2}-[0-9]{2}-yaml-retirement-task-6-execution-plan\.md",
+        task_6,
+    )
+    assert plan_match is not None
+    governing_plan = plan_match.group(0)
+    tracked = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", governing_plan],
+        cwd=REPO_ROOT,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert tracked.returncode == 0, tracked.stderr
+    assert tracked.stdout.splitlines() == [governing_plan]
 
 
 def test_yaml_retirement_handoff_plan_stages_exact_eight_owned_paths() -> None:
@@ -1200,9 +1337,10 @@ def test_task_2_step_1_closes_on_bounded_identity_retirement_ineligibility() -> 
     assert canonical_index.count(CURRENT_SELECTOR_PATH) == 1
     assert _normalized_routing_text(index_routing).count("current selector") == 1
     assert "task 4" in _normalized_routing_text(index_routing)
-    _assert_migration_wave_complete_and_yaml_task_5_current(
+    _assert_migration_wave_complete_and_yaml_task_current(
         index_routing,
         "docs index component routing",
+        yaml_current_task=6,
     )
 
 
@@ -1322,12 +1460,12 @@ def test_task_2_step_3_closes_on_live_route_strict_compatibility() -> None:
         "Stage 6 YAML retirement Task 2 remains current.",
         "Stage 6 YAML retirement Task 3 remains current.",
         "Stage 6 YAML retirement Task 4 is current.",
-        "Stage 6 YAML retirement Task 6 is current.",
+        "Stage 6 YAML retirement Task 5 is current.",
         "Stage 6 YAML retirement Task 7 is current.",
-        "Task 5 remains open; Task 6 has not started.",
+        "Task 6 remains open; Task 7 has started.",
     ),
 )
-def test_yaml_task_5_current_selector_guard_rejects_stale_or_skipped_routing(
+def test_yaml_task_6_current_selector_guard_rejects_stale_or_skipped_routing(
     replacement: str,
 ) -> None:
     docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
@@ -1336,7 +1474,7 @@ def test_yaml_task_5_current_selector_guard_rejects_stale_or_skipped_routing(
         "**Current procedure-first substrate:**", 1
     )[0]
     mutated = re.sub(
-        r"(?:Stage 6 )?YAML retirement[^.]{0,200}Task 5[^.]{0,100}(?:current|selected)[^.]*\.",
+        r"(?:Stage 6 )?YAML retirement[^.]{0,200}Task 6[^.]{0,100}(?:current|selected)[^.]*\.",
         replacement,
         docs_index_routing,
         count=0,
@@ -1344,9 +1482,10 @@ def test_yaml_task_5_current_selector_guard_rejects_stale_or_skipped_routing(
     assert mutated != docs_index_routing
 
     with pytest.raises(AssertionError):
-        _assert_migration_wave_complete_and_yaml_task_5_current(
+        _assert_migration_wave_complete_and_yaml_task_current(
             mutated,
             "mutated docs-index routing",
+            yaml_current_task=6,
         )
 
 

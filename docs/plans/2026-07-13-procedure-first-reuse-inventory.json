@@ -403,19 +403,35 @@
           "paths": [
             "workflows/library/verified_iteration_drain/drain.orc"
           ],
-        "rationale": "Stage 6 strengthens the existing incomplete translation plan with parity, promotion, verification-cycle, and YAML retirement gates."
+        "rationale": "Task 5 closed the dedicated .orc source, typed parity, promotion, fresh-smoke, and ordered-review gates; Task 6 owns the retained YAML twin's reference and supported-run deletion gates."
       },
       "evidence_paths": [
         {
-          "role": "translation_plan_task_15_input",
-          "path": "docs/plans/2026-07-05-post-foundation-target-completion-plan.md"
+          "role": "promoted_orc_primary",
+          "path": "workflows/library/verified_iteration_drain/drain.orc"
+        },
+        {
+          "role": "route_readiness_registry",
+          "path": "docs/workflow_lisp_route_readiness_registry.json"
+        },
+        {
+          "role": "parity_target_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
+        },
+        {
+          "role": "family_contract_tests",
+          "path": "tests/test_workflow_lisp_verified_iteration_drain.py"
+        },
+        {
+          "role": "task_5_execution_plan",
+          "path": "docs/plans/2026-07-18-yaml-retirement-task-5-two-port-execution-plan.md"
         }
       ],
         "archive_destination": {
           "kind": "git_history",
           "require_predelete_blob_ids": true
         },
-        "stage_6_gate": "Task 5: verified-iteration port",
+        "stage_6_gate": "Task 6: verified-iteration YAML deletion gate",
         "prerequisite_queue_ids": [],
         "reference_gate": "zero_unclassified_active_references",
         "run_consumer_gate": "zero_supported_matching_nonterminal_consumers"
@@ -430,15 +446,38 @@
         "legacy_retire_record_ids": [],
       "replacement": {
           "kind": "new_orc_port",
-          "paths": [],
-        "rationale": "A dedicated bounded implementation plan must name and prove the watchdog .orc port before YAML retirement."
+          "paths": [
+            "workflows/library/generic_run_watchdog/watchdog.orc"
+          ],
+        "rationale": "Task 5 closed the dedicated .orc source, typed parity, promotion, fresh-smoke, and ordered-review gates; Task 6 owns the retained YAML twin's reference and supported-run deletion gates."
       },
-      "evidence_paths": [],
+      "evidence_paths": [
+        {
+          "role": "promoted_orc_primary",
+          "path": "workflows/library/generic_run_watchdog/watchdog.orc"
+        },
+        {
+          "role": "route_readiness_registry",
+          "path": "docs/workflow_lisp_route_readiness_registry.json"
+        },
+        {
+          "role": "parity_target_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
+        },
+        {
+          "role": "family_contract_tests",
+          "path": "tests/test_workflow_lisp_generic_run_watchdog.py"
+        },
+        {
+          "role": "task_5_execution_plan",
+          "path": "docs/plans/2026-07-18-yaml-retirement-task-5-two-port-execution-plan.md"
+        }
+      ],
         "archive_destination": {
           "kind": "git_history",
           "require_predelete_blob_ids": true
         },
-        "stage_6_gate": "Task 5: generic-run-watchdog port",
+        "stage_6_gate": "Task 6: generic-run-watchdog YAML deletion gate",
         "prerequisite_queue_ids": [],
         "reference_gate": "zero_unclassified_active_references",
         "run_consumer_gate": "zero_supported_matching_nonterminal_consumers"
