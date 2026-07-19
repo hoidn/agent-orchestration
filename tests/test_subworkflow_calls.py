@@ -3818,9 +3818,7 @@ def _assert_nested_projection_error_is_not_wrapped_in_call_failed(
     persisted = manager.load()
     outer_frame_id, outer_frame = next(iter(persisted.call_frames.items()))
     outer_state = outer_frame["state"]
-    scope_path = ResumeScopePath.root(
-        str(root_bundle.provenance.workflow_path)
-    ).child(outer_frame_id)
+    scope_path = ResumeScopePath.root(persisted.workflow_file).child(outer_frame_id)
     selected_frame_before = None
 
     if nesting_depth == 1:

@@ -6149,9 +6149,7 @@ def test_projection_error_survives_epilogue_and_executor_session_close(
         audit_scope(
             middle_bundle,
             child_state,
-            ResumeScopePath.root(
-                str(root_bundle.provenance.workflow_path)
-            ).child(frame_id),
+            ResumeScopePath.root(persisted.workflow_file).child(frame_id),
         )
     expected_error = json.loads(json.dumps(exc_info.value.error))
     manager._write_state()
