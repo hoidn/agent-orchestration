@@ -1635,6 +1635,8 @@ def validate_review_subject(
     repository_root: Path,
     subject_path: Path | str | None = None,
     permitted_manifest_exclusions: Sequence[str] = (),
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> list[Issue]:
     expected = REVIEW_SUBJECT_SCHEMAS.get(subject_kind)
     if expected is None:
@@ -1648,6 +1650,8 @@ def validate_review_subject(
             Path(subject_path).as_posix() if subject_path is not None else None
         ),
         permitted_manifest_exclusions=permitted_manifest_exclusions,
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
     )
 
 
@@ -2206,11 +2210,55 @@ def _bound_path(repository_root: Path, logical_path: Any) -> Path | None:
     return repository_root / logical_path
 
 
+def _head_regular_file_bytes(
+    repository_root: Path, logical_path: str
+) -> bytes | None:
+    entry = subprocess.run(
+        ["git", "ls-tree", "-z", "HEAD", "--", logical_path],
+        cwd=repository_root,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if entry.returncode != 0 or not entry.stdout:
+        return None
+    rows = entry.stdout.removesuffix(b"\0").split(b"\0")
+    if len(rows) != 1:
+        return None
+    try:
+        coordinates, raw_path = rows[0].split(b"\t", 1)
+        mode, object_type, oid = coordinates.decode("ascii").split(" ")
+        observed_path = raw_path.decode("utf-8")
+    except (ValueError, UnicodeError):
+        return None
+    if (
+        mode not in {"100644", "100755"}
+        or object_type != "blob"
+        or observed_path != logical_path
+    ):
+        return None
+    blob = subprocess.run(
+        ["git", "cat-file", "blob", oid],
+        cwd=repository_root,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return blob.stdout if blob.returncode == 0 else None
+
+
 def _read_repository_file_no_follow(
-    repository_root: Path, logical_path: Any
+    repository_root: Path,
+    logical_path: Any,
+    *,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> bytes | None:
     if not _is_relative_logical_path(logical_path):
         return None
+    if bound_file_bytes is not None and logical_path in bound_file_bytes:
+        data = bound_file_bytes[logical_path]
+        return data if isinstance(data, bytes) else None
     components = Path(logical_path).parts
     descriptor: int | None = None
     try:
@@ -2259,7 +2307,14 @@ def _read_repository_file_no_follow(
                 after.st_ctime_ns,
             ):
                 return None
-            return b"".join(chunks)
+            data = b"".join(chunks)
+            if require_committed_fallback:
+                committed = _head_regular_file_bytes(
+                    repository_root, logical_path
+                )
+                if committed is None or data != committed:
+                    return None
+            return data
         finally:
             os.close(opened)
     except OSError:
@@ -2649,12 +2704,22 @@ def _candidate_binding_live_issues(
 
 
 def _check_bound_file(
-    binding: Mapping[str, Any], repository_root: Path, path: str
+    binding: Mapping[str, Any],
+    repository_root: Path,
+    path: str,
+    *,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> tuple[list[Issue], Mapping[str, Any] | None]:
     issues: list[Issue] = []
     if not _is_file_binding(binding):
         return [Issue("nested_binding_invalid", path)], None
-    data = _read_repository_file_no_follow(repository_root, binding["path"])
+    data = _read_repository_file_no_follow(
+        repository_root,
+        binding["path"],
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
+    )
     if data is None or f"sha256:{hashlib.sha256(data).hexdigest()}" != binding["sha256"]:
         return [Issue("bound_file_unreadable", path)], None
     try:
@@ -2671,9 +2736,15 @@ def _reopen_bound_record(
     expected_schema: str,
     path: str,
     deep: bool,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> list[Issue]:
     issues, value = _check_bound_file(
-        binding if isinstance(binding, Mapping) else {}, repository_root, path
+        binding if isinstance(binding, Mapping) else {},
+        repository_root,
+        path,
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
     )
     if issues:
         return issues
@@ -2681,18 +2752,36 @@ def _reopen_bound_record(
         value is None
         or value.get("schema_version") != expected_schema
         or validate_record(value)
-        or (deep and validate_bound_record(value, repository_root))
+        or (
+            deep
+            and validate_bound_record(
+                value,
+                repository_root,
+                bound_file_bytes=bound_file_bytes,
+                require_committed_fallback=require_committed_fallback,
+            )
+        )
     ):
         return [Issue("bound_record_invalid", path)]
     return []
 
 
 def _read_bound_bytes(
-    binding: Mapping[str, Any], repository_root: Path, path: str
+    binding: Mapping[str, Any],
+    repository_root: Path,
+    path: str,
+    *,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> tuple[list[Issue], bytes | None]:
     if not (_is_file_binding(binding) or _is_file_binding(binding, sized=True)):
         return [Issue("nested_binding_invalid", path)], None
-    data = _read_repository_file_no_follow(repository_root, binding["path"])
+    data = _read_repository_file_no_follow(
+        repository_root,
+        binding["path"],
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
+    )
     if (
         data is None
         or f"sha256:{hashlib.sha256(data).hexdigest()}" != binding["sha256"]
@@ -2928,6 +3017,8 @@ def _subject_manifest_row_bytes(
     repository_root: Path,
     path: str,
     digest: str,
+    *,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
 ) -> bytes | None:
     """Read a manifest row, reopening historical mutable live bytes by snapshot."""
 
@@ -2938,7 +3029,9 @@ def _subject_manifest_row_bytes(
         and digest == ledger["byte_sha256"]
     ):
         snapshot = _read_repository_file_no_follow(
-            repository_root, ledger["snapshot_path"]
+            repository_root,
+            ledger["snapshot_path"],
+            bound_file_bytes=bound_file_bytes,
         )
         if (
             snapshot is None
@@ -2947,7 +3040,11 @@ def _subject_manifest_row_bytes(
         ):
             return None
         return snapshot
-    return _read_repository_file_no_follow(repository_root, path)
+    return _read_repository_file_no_follow(
+        repository_root,
+        path,
+        bound_file_bytes=bound_file_bytes,
+    )
 
 
 def _reopen_ledger_binding(
@@ -2956,6 +3053,8 @@ def _reopen_ledger_binding(
     path: str,
     *,
     allow_descendant: bool = True,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> list[Issue]:
     if not _is_ledger_binding(binding):
         return [Issue("nested_binding_invalid", path)]
@@ -2964,7 +3063,11 @@ def _reopen_ledger_binding(
     from .materialization import validate_generation_binding_current
 
     generation_issues = validate_generation_binding_current(
-        repository_root, binding, allow_descendant=allow_descendant
+        repository_root,
+        binding,
+        allow_descendant=allow_descendant,
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
     )
     return (
         []
@@ -2985,8 +3088,16 @@ def _reopen_json_binding(
     path: str,
     *,
     expected_schema: str | None = None,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> tuple[list[Issue], Mapping[str, Any] | None]:
-    issues, value = _check_bound_file(binding, repository_root, path)
+    issues, value = _check_bound_file(
+        binding,
+        repository_root,
+        path,
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
+    )
     if value is None:
         if not issues:
             issues.append(Issue("bound_record_invalid", path))
@@ -3000,7 +3111,11 @@ def _reopen_json_binding(
 
 
 def _validate_bound_failure_baseline_attestation(
-    record: Mapping[str, Any], repository_root: Path
+    record: Mapping[str, Any],
+    repository_root: Path,
+    *,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> list[Issue]:
     issues: list[Issue] = []
     baseline_binding = record.get("baseline_binding", {})
@@ -3014,6 +3129,8 @@ def _validate_bound_failure_baseline_attestation(
         repository_root,
         "$.baseline_binding",
         expected_schema="broad_known_failure_baseline.v1",
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
     )
     issues.extend(baseline_issues)
     if baseline is not None:
@@ -3053,6 +3170,8 @@ def _validate_bound_failure_baseline_attestation(
             }
             if isinstance(baseline_binding, Mapping)
             else None,
+            bound_file_bytes=bound_file_bytes,
+            require_committed_fallback=require_committed_fallback,
         )
     )
     return issues
@@ -3065,13 +3184,17 @@ def validate_bound_record(
     permitted_manifest_exclusions: Sequence[str] = (),
     review_subject_path: str | None = None,
     bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
     check_ledger_future_absence: bool = True,
 ) -> list[Issue]:
     """Validate nested bytes and same-candidate relationships for review subjects.
 
     ``validate_record`` closes the in-memory shape. This companion validator is
     required before review publication because subject relationships depend on
-    immutable files that cannot be proved from digests alone.
+    immutable files that cannot be proved from digests alone. When supplied,
+    ``bound_file_bytes`` authoritatively shadows only its exact logical paths;
+    unmapped files and candidate/Git state remain live unless the opt-in
+    committed fallback requires evidence bytes to equal a regular HEAD blob.
     """
 
     issues = list(validate_record(record))
@@ -3112,6 +3235,12 @@ def validate_bound_record(
         return sorted(set(issues))
     root = repository_root.resolve()
     immutable_bound_bytes = dict(bound_file_bytes or {})
+    if any(
+        not _is_relative_logical_path(path) or not isinstance(data, bytes)
+        for path, data in immutable_bound_bytes.items()
+    ):
+        issues.append(Issue("bound_file_bytes_invalid"))
+        immutable_bound_bytes = {}
     candidate_ambient_paths: list[str] = []
     if schema == "broad_evidence_bootstrap_subject.v1":
         baseline_binding = record.get("bootstrap_workspace_baseline_binding")
@@ -3124,6 +3253,8 @@ def validate_bound_record(
             else {},
             root,
             "$.bootstrap_workspace_baseline_binding",
+            bound_file_bytes=immutable_bound_bytes,
+            require_committed_fallback=require_committed_fallback,
         )
         if baseline_record is not None:
             from .source_bindings import validate_workspace_record_shape
@@ -3154,7 +3285,11 @@ def validate_bound_record(
             immutable_bound_bytes[plan_logical_path]
             if isinstance(plan_logical_path, str)
             and plan_logical_path in immutable_bound_bytes
-            else _read_repository_file_no_follow(root, plan_logical_path)
+            else _read_repository_file_no_follow(
+                root,
+                plan_logical_path,
+                require_committed_fallback=require_committed_fallback,
+            )
         )
         if (
             plan_bytes is None
@@ -3196,6 +3331,8 @@ def validate_bound_record(
                     binding,
                     root,
                     f"$.tasks[{task_index}].evidence_bindings[{binding_index}]",
+                    bound_file_bytes=immutable_bound_bytes,
+                    require_committed_fallback=require_committed_fallback,
                 )
                 issues.extend(bound_issues)
         transition = record.get("last_transition")
@@ -3205,6 +3342,8 @@ def validate_bound_record(
                     binding,
                     root,
                     f"$.last_transition.evidence_bindings[{index}]",
+                    bound_file_bytes=immutable_bound_bytes,
+                    require_committed_fallback=require_committed_fallback,
                 )
                 issues.extend(bound_issues)
             if check_ledger_future_absence and any(
@@ -3226,6 +3365,8 @@ def validate_bound_record(
                     {"path": prior[path_field], "sha256": prior[digest_field]},
                     root,
                     f"$.last_transition.prior_generation_binding.{role}",
+                    bound_file_bytes=immutable_bound_bytes,
+                    require_committed_fallback=require_committed_fallback,
                 )
                 issues.extend(bound_issues)
     elif schema == "review_binding.v1":
@@ -3259,13 +3400,25 @@ def validate_bound_record(
                 issues.append(Issue("review_binding_immutable_path_mismatch"))
             else:
                 try:
-                    directory = _open_review_directory(
-                        root, immutable.parent, create=False
-                    )
-                    try:
-                        data = _review_file_bytes(directory, immutable.name)
-                    finally:
-                        os.close(directory)
+                    logical_immutable = immutable.as_posix()
+                    if logical_immutable in immutable_bound_bytes:
+                        data = immutable_bound_bytes[logical_immutable]
+                    elif require_committed_fallback:
+                        data = _read_repository_file_no_follow(
+                            root,
+                            logical_immutable,
+                            require_committed_fallback=True,
+                        )
+                        if data is None:
+                            raise FileNotFoundError(logical_immutable)
+                    else:
+                        directory = _open_review_directory(
+                            root, immutable.parent, create=False
+                        )
+                        try:
+                            data = _review_file_bytes(directory, immutable.name)
+                        finally:
+                            os.close(directory)
                     review = _decode_review_bytes(data)
                 except (ContractError, FileNotFoundError):
                     issues.append(Issue("review_binding_immutable_unreadable"))
@@ -3282,7 +3435,14 @@ def validate_bound_record(
                     ):
                         issues.append(Issue("review_binding_immutable_unreadable"))
     elif schema == "broad_failure_baseline_attestation.v1":
-        issues.extend(_validate_bound_failure_baseline_attestation(record, root))
+        issues.extend(
+            _validate_bound_failure_baseline_attestation(
+                record,
+                root,
+                bound_file_bytes=immutable_bound_bytes,
+                require_committed_fallback=require_committed_fallback,
+            )
+        )
     elif schema == "pytest_temp_root_preflight.v1":
         for field in ("pytest_executable_binding", "tmpdir_module_binding"):
             binding = record.get(field)
@@ -3397,7 +3557,13 @@ def validate_bound_record(
             bindings.append(("exit_result.binding", exit_result.get("binding")))
         for role, binding in bindings:
             if isinstance(binding, Mapping):
-                bound_issues, data = _read_bound_bytes(binding, root, f"$.{role}")
+                bound_issues, data = _read_bound_bytes(
+                    binding,
+                    root,
+                    f"$.{role}",
+                    bound_file_bytes=immutable_bound_bytes,
+                    require_committed_fallback=require_committed_fallback,
+                )
                 issues.extend(bound_issues)
                 raw[role] = data
             else:
@@ -3408,6 +3574,8 @@ def validate_bound_record(
                 ledger,
                 root,
                 "$.execution_ledger_binding",
+                bound_file_bytes=immutable_bound_bytes,
+                require_committed_fallback=require_committed_fallback,
             )
         )
         baseline_authority = record.get("known_failure_baseline_binding")
@@ -3428,6 +3596,8 @@ def validate_bound_record(
                         expected_schema=expected_schema,
                         path=f"$.known_failure_baseline_binding.{field}",
                         deep=deep,
+                        bound_file_bytes=immutable_bound_bytes,
+                        require_committed_fallback=require_committed_fallback,
                     )
                 )
             issues.extend(
@@ -3439,6 +3609,8 @@ def validate_bound_record(
                     repository_root=root,
                     expected_subject_kind="implementation_failure_baseline",
                     expected_subject_binding=baseline_authority.get("record"),
+                    bound_file_bytes=immutable_bound_bytes,
+                    require_committed_fallback=require_committed_fallback,
                 )
             )
         for prefix_field, expected_schema in (
@@ -3455,6 +3627,8 @@ def validate_bound_record(
                         expected_schema=expected_schema,
                         path=f"$.{prefix_field}[{index}].record",
                         deep=True,
+                        bound_file_bytes=immutable_bound_bytes,
+                        require_committed_fallback=require_committed_fallback,
                     )
                 )
                 subject_kind = (
@@ -3469,6 +3643,8 @@ def validate_bound_record(
                         repository_root=root,
                         expected_subject_kind=subject_kind,
                         expected_subject_binding=reviewed.get("record"),
+                        bound_file_bytes=immutable_bound_bytes,
+                        require_committed_fallback=require_committed_fallback,
                     )
                 )
         collection_exit = raw.get("collection.exit_binding")
@@ -3524,7 +3700,12 @@ def validate_bound_record(
             except (json.JSONDecodeError, UnicodeDecodeError, ContractError):
                 issues.append(Issue("preflight_record_invalid"))
             else:
-                if validate_record(preflight) or validate_bound_record(preflight, root):
+                if validate_record(preflight) or validate_bound_record(
+                    preflight,
+                    root,
+                    bound_file_bytes=immutable_bound_bytes,
+                    require_committed_fallback=require_committed_fallback,
+                ):
                     issues.append(Issue("preflight_record_invalid"))
                 expected_preflight_environment = {
                     "PYTEST_DEBUG_TEMPROOT": record.get("environment", {}).get(
@@ -3632,6 +3813,8 @@ def validate_bound_record(
                 record.get("execution_ledger_binding"),
                 root,
                 "$.execution_ledger_binding",
+                bound_file_bytes=immutable_bound_bytes,
+                require_committed_fallback=require_committed_fallback,
             )
         )
         collection = record.get("collection_binding", {})
@@ -3639,7 +3822,11 @@ def validate_bound_record(
         if isinstance(collection, Mapping):
             for field in ("log_binding", "exit_binding", "node_ids_binding"):
                 raw_issues, data = _read_bound_bytes(
-                    collection.get(field, {}), root, f"$.collection_binding.{field}"
+                    collection.get(field, {}),
+                    root,
+                    f"$.collection_binding.{field}",
+                    bound_file_bytes=immutable_bound_bytes,
+                    require_committed_fallback=require_committed_fallback,
                 )
                 issues.extend(raw_issues)
                 collection_raw[field] = data
@@ -3678,6 +3865,8 @@ def validate_bound_record(
             root,
             "$.broad_outcome_binding",
             expected_schema="broad_outcome.v1",
+            bound_file_bytes=immutable_bound_bytes,
+            require_committed_fallback=require_committed_fallback,
         )
         issues.extend(broad_issues)
         if broad is not None:
@@ -3685,7 +3874,12 @@ def validate_bound_record(
                 issues.extend(
                     _broad_directory_issues(broad, broad_logical_path.parent)
                 )
-            if validate_bound_record(broad, root):
+            if validate_bound_record(
+                broad,
+                root,
+                bound_file_bytes=immutable_bound_bytes,
+                require_committed_fallback=require_committed_fallback,
+            ):
                 issues.append(Issue("bound_record_invalid", "$.broad_outcome_binding"))
             for field, code in (
                 ("candidate_binding", "baseline_candidate_mismatch"),
@@ -3747,6 +3941,8 @@ def validate_bound_record(
             else {},
             root,
             "$.pytest_exit.binding",
+            bound_file_bytes=immutable_bound_bytes,
+            require_committed_fallback=require_committed_fallback,
         )
         issues.extend(raw_exit_issues)
         if raw_exit is not None:
@@ -4288,6 +4484,8 @@ def validate_review_binding_pair(
     repository_root: Path,
     expected_subject_kind: str | None = None,
     expected_subject_binding: Mapping[str, Any] | None = None,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> list[Issue]:
     """Validate immutable review bytes, roles, paths, and subject coordinates."""
 
@@ -4305,7 +4503,12 @@ def validate_review_binding_pair(
         if not _is_complete_review_binding(binding):
             issues.append(Issue("review_pair_binding_invalid", path))
             continue
-        if validate_bound_record(binding, repository_root):
+        if validate_bound_record(
+            binding,
+            repository_root,
+            bound_file_bytes=bound_file_bytes,
+            require_committed_fallback=require_committed_fallback,
+        ):
             issues.append(Issue("review_pair_binding_invalid", path))
         if binding.get("review_kind") != expected_kind:
             issues.append(Issue("review_pair_kind_mismatch", path))
@@ -4373,6 +4576,8 @@ def validate_review_pair(
     repository_root: Path,
     expected_subject_kind: str | None = None,
     expected_subject_binding: Mapping[str, Any] | None = None,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> list[Issue]:
     """Validate a complete pair and reopen its shared subject contract."""
 
@@ -4382,6 +4587,8 @@ def validate_review_pair(
         repository_root=repository_root,
         expected_subject_kind=expected_subject_kind,
         expected_subject_binding=expected_subject_binding,
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
     )
     if issues:
         return issues
@@ -4392,7 +4599,11 @@ def validate_review_pair(
         "sha256": specification_subject["sha256"],
     }
     subject_issues, subject_record = _check_bound_file(
-        subject_binding, repository_root.resolve(), "$.subject"
+        subject_binding,
+        repository_root.resolve(),
+        "$.subject",
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
     )
     if subject_issues or subject_record is None:
         issues.append(Issue("review_pair_subject_unreadable", "$.subject"))
@@ -4410,6 +4621,8 @@ def validate_review_pair(
                 quality_binding["immutable_path"],
             }
         ),
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
     ):
         issues.append(Issue("review_pair_subject_invalid", "$.subject"))
     return sorted(set(issues))

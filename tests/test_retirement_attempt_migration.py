@@ -871,6 +871,95 @@ def _capture_invalidated_adopted(
     return operation(arguments["root"], **{key: arguments[key] for key in keys})
 
 
+def _apply_invalidated_adopted_archive(
+    arguments: dict[str, object],
+) -> dict[str, dict[str, object]]:
+    from orchestrator.retirement.attempt_migration import apply
+
+    root = arguments["root"]
+    incident_path = arguments["incident_path"]
+    assert isinstance(root, Path)
+    assert isinstance(incident_path, str)
+    captured = _capture_invalidated_adopted(arguments)
+    arguments.update(
+        {
+            "disposition_specification_review_path": (
+                "migration/disposition-specification-review.json"
+            ),
+            "disposition_quality_review_path": (
+                "migration/disposition-quality-review.json"
+            ),
+        }
+    )
+    _git(root, "add", "--", incident_path)
+    _commit_disposition_reviews(arguments)
+    apply(
+        root,
+        arguments["disposition_path"],
+        arguments["disposition_specification_review_path"],
+        arguments["disposition_quality_review_path"],
+    )
+    return captured
+
+
+def _rebind_archived_v2_logical_bytes(
+    arguments: dict[str, object],
+    captured: dict[str, dict[str, object]],
+    replacements: dict[str, bytes],
+) -> None:
+    root = arguments["root"]
+    incident_path = arguments["incident_path"]
+    disposition_path = arguments["disposition_path"]
+    assert isinstance(root, Path)
+    assert isinstance(incident_path, str)
+    assert isinstance(disposition_path, str)
+    incident = deepcopy(captured["incident"])
+    disposition = deepcopy(captured["disposition"])
+    incident_rows = {row["path"]: row for row in incident["attempt_rows"]}
+    disposition_rows = {
+        row["original_path"]: row for row in disposition["attempt_rows"]
+    }
+    for logical_path, data in replacements.items():
+        incident_row = incident_rows[logical_path]
+        disposition_row = disposition_rows[logical_path]
+        (root / disposition_row["archive_path"]).write_bytes(data)
+        for row in (incident_row, disposition_row):
+            row["size"] = len(data)
+            row["sha256"] = _digest(data)
+    incident["normalized_attempt_row_set_sha256"] = _digest(
+        _canonical(incident["attempt_rows"])
+    )
+    incident_data = _rewrite_incident(root, incident_path, incident)
+    disposition["normalized_row_set_sha256"] = _digest(
+        _canonical(disposition["attempt_rows"])
+    )
+    disposition["attempt_lifecycle"]["incident_binding"].update(
+        {
+            "size": len(incident_data),
+            "sha256": _digest(incident_data),
+        }
+    )
+    _rewrite_disposition(root, disposition_path, disposition)
+
+
+def _materialization_request_bytes(record: dict[str, object]) -> bytes:
+    record["normalized_request_sha256"] = _digest(
+        _canonical(
+            {
+                key: value
+                for key, value in record.items()
+                if key != "normalized_request_sha256"
+            }
+        )
+    )
+    return json.dumps(
+        record,
+        sort_keys=True,
+        indent=2,
+        ensure_ascii=False,
+    ).encode("utf-8") + b"\n"
+
+
 def _invalidated_adopted_cli_arguments(
     arguments: dict[str, object],
 ) -> list[str]:
@@ -982,6 +1071,21 @@ def _rewrite_disposition(root: Path, path: str, record: dict[str, object]) -> No
         )
     )
     (root / path).write_bytes(_canonical(record) + b"\n")
+
+
+def _rewrite_incident(root: Path, path: str, record: dict[str, object]) -> bytes:
+    record["normalized_incident_sha256"] = _digest(
+        _canonical(
+            {
+                key: value
+                for key, value in record.items()
+                if key != "normalized_incident_sha256"
+            }
+        )
+    )
+    data = _canonical(record) + b"\n"
+    (root / path).write_bytes(data)
+    return data
 
 
 def _mutate_disposition_nested_type(record: dict[str, object], mutation: str) -> None:
@@ -1205,6 +1309,21 @@ def test_capture_writes_a_closed_canonical_disposition_and_validate_reopens_it(
     assert (root / disposition_path).read_bytes() == _canonical(record) + b"\n"
     assert validate(root, disposition_path) == record
     assert stat.S_IMODE((root / disposition_path).stat().st_mode) == 0o644
+
+
+def test_validate_v1_preserves_unrelated_outside_status_compatibility(
+    migration_repository: dict[str, object],
+) -> None:
+    from orchestrator.retirement.attempt_migration import validate
+
+    record = _capture(migration_repository)
+    root = migration_repository["root"]
+    disposition_path = migration_repository["disposition_path"]
+    assert isinstance(root, Path)
+    assert isinstance(disposition_path, str)
+    _write(root, "unrelated-after-capture.txt", b"unrelated local work\n")
+
+    assert validate(root, disposition_path) == record
 
 
 def test_capture_rejects_authority_reviews_with_the_wrong_subject_kind(
@@ -3643,6 +3762,307 @@ def test_disposition_v2_completed_post_state_validates_replays_and_postvalidates
     )
     assert report["result"] == "passed"
     assert report["disposition_binding"]["path"] == arguments["disposition_path"]
+
+
+def test_disposition_v2_post_archive_rejects_new_outside_status_path(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.retirement.attempt_migration import (
+        AttemptMigrationError,
+        validate,
+    )
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    _apply_invalidated_adopted_archive(arguments)
+    assert validate(root, arguments["disposition_path"])["schema_version"] == (
+        "attempt_migration_disposition.v2"
+    )
+
+    _write(root, "rogue.py", b"unreviewed outside status\n")
+
+    with pytest.raises(
+        AttemptMigrationError, match="outside_status_projection_changed"
+    ):
+        validate(root, arguments["disposition_path"])
+
+
+@pytest.mark.parametrize(
+    "component",
+    ["request", "snapshot"],
+)
+def test_disposition_v2_post_archive_rejects_a_missing_materialization_row(
+    tmp_path: Path,
+    component: str,
+) -> None:
+    from orchestrator.retirement.attempt_migration import (
+        AttemptMigrationError,
+        validate,
+    )
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    captured = _apply_invalidated_adopted_archive(arguments)
+    logical_path = arguments[f"generation11_{component}_path"]
+    row = next(
+        item
+        for item in captured["disposition"]["attempt_rows"]
+        if item["original_path"] == logical_path
+    )
+    (root / row["archive_path"]).unlink()
+
+    with pytest.raises(AttemptMigrationError, match="attempt_row_state_invalid"):
+        validate(root, arguments["disposition_path"])
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_role"),
+    [
+        ("swapped", "generation11_request"),
+        ("duplicated", "generation11_snapshot"),
+        ("noncontiguous", "generation11_request"),
+        ("wrong_parent_request", "generation11_request"),
+        ("wrong_parent_snapshot", "generation11_request"),
+    ],
+)
+def test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift(
+    tmp_path: Path,
+    mutation: str,
+    expected_role: str,
+) -> None:
+    from orchestrator.retirement.attempt_migration import (
+        AttemptMigrationError,
+        validate,
+    )
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    captured = _apply_invalidated_adopted_archive(arguments)
+    request_path = arguments["generation11_request_path"]
+    snapshot_path = arguments["generation11_snapshot_path"]
+    rows = {
+        row["original_path"]: row for row in captured["disposition"]["attempt_rows"]
+    }
+    request_bytes = (root / rows[request_path]["archive_path"]).read_bytes()
+    snapshot_bytes = (root / rows[snapshot_path]["archive_path"]).read_bytes()
+    if mutation == "swapped":
+        replacements = {
+            request_path: snapshot_bytes,
+            snapshot_path: request_bytes,
+        }
+    elif mutation == "duplicated":
+        replacements = {snapshot_path: request_bytes}
+    else:
+        request = json.loads(request_bytes)
+        if mutation == "noncontiguous":
+            request["generation"] = request["generation"] + 1
+        elif mutation == "wrong_parent_request":
+            request["prior_generation_binding"]["request_path"] = arguments[
+                "generation5_snapshot_path"
+            ]
+        else:
+            assert mutation == "wrong_parent_snapshot"
+            request["prior_generation_binding"]["snapshot_path"] = arguments[
+                "generation5_request_path"
+            ]
+        replacements = {request_path: _materialization_request_bytes(request)}
+    _rebind_archived_v2_logical_bytes(arguments, captured, replacements)
+
+    with pytest.raises(
+        AttemptMigrationError,
+        match=f"semantic_coordinate_row_binding_mismatch:{expected_role}",
+    ):
+        validate(root, arguments["disposition_path"])
+
+
+def test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.retirement.attempt_migration import (
+        AttemptMigrationError,
+        validate,
+    )
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    _apply_invalidated_adopted_archive(arguments)
+    request_path = Path(arguments["generation11_request_path"])
+    duplicate = request_path.with_name(f"00000002-{'f' * 64}.json")
+    _write(root, duplicate.as_posix(), b"{}\n")
+    _git(root, "add", "--", duplicate.as_posix())
+    _git(root, "commit", "-qm", "add duplicate materialization slot")
+
+    with pytest.raises(
+        AttemptMigrationError,
+        match=(
+            "incident_known_failure_baseline_binding_invalid:"
+            ".*ledger_generation_invalid"
+        ),
+    ):
+        validate(root, arguments["disposition_path"])
+
+
+def test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.retirement.attempt_migration import (
+        AttemptMigrationError,
+        validate,
+    )
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    _apply_invalidated_adopted_archive(arguments)
+    _git(root, "add", "--", "source.py")
+
+    with pytest.raises(
+        AttemptMigrationError, match="outside_status_projection_changed"
+    ):
+        validate(root, arguments["disposition_path"])
+
+
+def test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.retirement.attempt_migration import (
+        AttemptMigrationError,
+        validate,
+    )
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    _apply_invalidated_adopted_archive(arguments)
+    _git(root, "add", "--", "source.py")
+    _git(root, "commit", "-qm", "commit current candidate bytes")
+
+    with pytest.raises(
+        AttemptMigrationError,
+        match=(
+            "incident_known_failure_baseline_binding_invalid:"
+            ".*candidate_path_git_state_mismatch"
+        ),
+    ):
+        validate(root, arguments["disposition_path"])
+
+
+def test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.retirement.attempt_migration import (
+        AttemptMigrationError,
+        validate,
+    )
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    _apply_invalidated_adopted_archive(arguments)
+    tree = _git(root, "rev-parse", "HEAD^{tree}").decode().strip()
+    unrelated = (
+        _git(root, "commit-tree", tree, "-m", "unrelated history")
+        .decode()
+        .strip()
+    )
+    _git(root, "update-ref", "HEAD", unrelated)
+
+    with pytest.raises(AttemptMigrationError, match="capture_head_not_ancestor"):
+        validate(root, arguments["disposition_path"])
+
+
+def test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.retirement.attempt_migration import (
+        AttemptMigrationError,
+        apply,
+        validate,
+    )
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    incident_path = arguments["incident_path"]
+    disposition_path = arguments["disposition_path"]
+    assert isinstance(root, Path)
+    assert isinstance(incident_path, str)
+    assert isinstance(disposition_path, str)
+    captured = _capture_invalidated_adopted(arguments)
+    arguments.update(
+        {
+            "disposition_specification_review_path": (
+                "migration/disposition-specification-review.json"
+            ),
+            "disposition_quality_review_path": (
+                "migration/disposition-quality-review.json"
+            ),
+        }
+    )
+    _git(root, "add", "--", incident_path)
+    _commit_disposition_reviews(arguments)
+    apply(
+        root,
+        disposition_path,
+        arguments["disposition_specification_review_path"],
+        arguments["disposition_quality_review_path"],
+    )
+
+    incident = captured["incident"]
+    disposition = captured["disposition"]
+    incident_row = next(
+        row
+        for row in incident["attempt_rows"]
+        if row["path"].endswith("implementation-baseline/outcome.json")
+    )
+    disposition_row = next(
+        row
+        for row in disposition["attempt_rows"]
+        if row["original_path"] == incident_row["path"]
+    )
+    archive_path = disposition_row["archive_path"]
+    archive_bytes = (root / archive_path).read_bytes()
+    tampered_bytes = archive_bytes + b"\n"
+    (root / archive_path).write_bytes(tampered_bytes)
+    for row in (incident_row, disposition_row):
+        row["size"] = len(tampered_bytes)
+        row["sha256"] = _digest(tampered_bytes)
+    incident["normalized_attempt_row_set_sha256"] = _digest(
+        _canonical(incident["attempt_rows"])
+    )
+    incident_data = _rewrite_incident(root, incident_path, incident)
+    disposition["normalized_row_set_sha256"] = _digest(
+        _canonical(disposition["attempt_rows"])
+    )
+    disposition["attempt_lifecycle"]["incident_binding"].update(
+        {
+            "size": len(incident_data),
+            "sha256": _digest(incident_data),
+        }
+    )
+    _rewrite_disposition(root, disposition_path, disposition)
+
+    with pytest.raises(AttemptMigrationError, match="incident_.*binding_invalid"):
+        validate(root, disposition_path)
 
 
 def test_invalidated_adopted_recovers_only_after_incident_publication(

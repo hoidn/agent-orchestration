@@ -4,7 +4,7 @@
 
 **Goal:** Preserve the exact owner-adopted but uncommitted Task 2 attempt, restore its live ledger, restart Task 2 from a commit-aligned workspace baseline, and land the controlled owner-confirmed boundary without weakening existing evidence contracts.
 
-**Architecture:** Add a read-only generic predecessor-lineage projection and two additive evidence schemas: `attempt_migration_incident.v1` and `attempt_migration_disposition.v2`. Reuse the existing reviewed archive/replay/restoration engine through strict schema dispatch, leave `attempt_migration_disposition.v1` unchanged, and execute the same three-stage authority pattern used by the prior repair: reviewed implementation authority, reviewed exact disposition, then reviewed post-move evidence.
+**Architecture:** Add a read-only generic predecessor-lineage projection and two additive evidence schemas: `attempt_migration_incident.v1` and `attempt_migration_disposition.v2`. Reuse the existing reviewed archive/replay/restoration engine through strict schema dispatch, leave `attempt_migration_disposition.v1` unchanged, and execute the same three-stage authority pattern used by the prior repair: reviewed implementation authority, reviewed exact disposition, then reviewed post-move evidence. For post-archive v2 validation, derive a transient original-logical-path byte overlay from the exact disposition rows so the full nested evidence graph is revalidated without adding a proof artifact or changing either schema.
 
 **Tech Stack:** Python 3.11, Git plumbing, canonical JSON/SHA-256 evidence, pytest 8.4.1, pytest-xdist, tmux, existing `orchestrator.retirement` source-binding/review/migration helpers.
 
@@ -49,10 +49,14 @@
   `docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/materialization-inputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000011-7661806388f7e9ee6d7fc8d783a754fb767e5df13782f5777a1c17c20fd753d9.json`
 - Failed generation-11 snapshot:
   `docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/immutable-outputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000011-56ff869dfdc207026b51938cab00c33a7bbc990eed17da6dcbf6e39778ca4fe1.json`
+- Additional ambient protected path observed before Task 5:
+  `docs/reports/2026-07-22-compelling-example-search-and-effectiveness-doubts.md`
 
-The seven protected paths named by the governing Task 2 Step 1 remain immutable
-through every task. Run all Git commands with `--no-optional-locks` where Git
-supports it. Do not create a worktree. Do not add security-only tests or work.
+The seven protected paths named by the governing Task 2 Step 1 and the exact
+additional ambient report above remain immutable through every task. Together
+they are the eight protected paths for this plan. Run all Git commands with
+`--no-optional-locks` where Git supports it. Do not create a worktree. Do not
+add security-only tests or work.
 
 ### Task 1: Freeze Detection Authority And Write RED Lineage Tests
 
@@ -67,7 +71,7 @@ Create the LF-terminated sorted manifest from the current NUL-safe porcelain
 projection beneath the failed-attempt source root. Require exactly 34 regular
 files: one modified tracked live ledger and 33 untracked files. Compare the
 result in both directions to Git status before saving it. The new plan/design
-paths and all seven protected paths are outside this manifest.
+paths and all eight protected paths are outside this manifest.
 
 - [ ] **Step 2: Write RED predecessor-lineage projection tests**
 
@@ -305,6 +309,16 @@ Cover both directions for:
   rejects;
 - changed owner attestation, incident, protected path, outside status, ledger,
   archive destination, or restoration commit rejects before mutation;
+- a completed post-state revalidates the owner attestation, pending snapshot,
+  known-failure baseline, broad outcome and raw evidence, ordered reviews, and
+  materialization ancestry through the archived logical bytes;
+- an adversarial nested broad-evidence defect still rejects after its file-row,
+  incident, and disposition bindings and normalized digests are coherently
+  rebound, proving that row integrity does not substitute for graph semantics;
+- missing, swapped, duplicated, noncontiguous, or wrong-parent
+  materialization request/snapshot slots reject through the same logical view;
+- candidate identity, repository-status, and ancestry defects remain live Git
+  failures, with only the exact existing historical candidate-drift tolerance;
 - only the one enumerated tracked ledger may be restored; and
 - postvalidation binds the consumed disposition schema and makes no Task 2
   completion claim.
@@ -317,6 +331,19 @@ engine. Retain `attempt_migration_post_report.v1` unchanged: its exact
 `disposition_binding` already content-addresses the consumed record, and
 postvalidation must reopen that binding and validate its v1 or v2 schema before
 publishing the report. Add no optional report fields.
+
+For v2, construct the logical-path overlay only after the disposition row set
+and replay state validate. Project each unique `original_path` to the exact
+resolved row bytes; mapped originals shadow live or restored bytes and never
+fall back, while an unmapped path may use a live read only when it is a regular
+file in `HEAD` and its current bytes equal that `HEAD` blob. Thread that same
+read-only overlay through bound-file reopening, recursive broad record
+validation, review subjects and immutable review bytes, ledger completion
+handoffs, and materialization generation/ancestry validation. Keep candidate
+and Git-derived checks on the real repository and preserve the existing exact
+historical-drift filter without adding new tolerated issue classes. The
+overlay is transient: do not persist a proof record, add an artifact role, or
+revise either closed schema.
 
 - [ ] **Step 3: Test the public CLI end to end**
 
@@ -385,7 +412,7 @@ Do not repair external failures.
 - [ ] **Step 3: Freeze the implementation authority subject**
 
 Build the v1 authority subject using the existing closed schema. Bind the
-governing plan, accepted design, this plan, exact 34-path manifest, all seven
+governing plan, accepted design, this plan, exact 34-path manifest, all eight
 protected bindings, changed mechanism/test files, complete candidate manifest,
 exact diff, and focused/broad evidence. Require no failed-attempt source byte to
 change from the manifest snapshot.
@@ -400,7 +427,7 @@ code, tests, evidence, manifest, or subject invalidates both reviews.
 
 Stage only the design/plan-routing, production code, tests, expected manifest,
 test evidence, subject, and both reviews. Require the cached path set to exclude
-the failed-attempt root and seven protected paths. Commit with subject:
+the failed-attempt root and eight protected paths. Commit with subject:
 
 ```text
 Add adopted-attempt lineage restart authority
@@ -426,7 +453,7 @@ manifest, every byte/mode to match, the owner-confirmed attestation SHA to equal
 
 Invoke `capture-invalidated-adopted` with the fixed coordinates above, the
 fixed `4020f31a...` / `356e03e...` generation-5 restoration commit/tree, all
-seven protected paths, and the exact review/manifest/evidence paths. The Task 5
+eight protected paths, and the exact review/manifest/evidence paths. The Task 5
 authority commit is the required current ancestor containing the reviewed
 mechanism, but it intentionally still has the generation-11 live ledger.
 Require:
@@ -522,7 +549,7 @@ committed files, and all protected bytes unchanged.
 Run the governing plan's exact `capture-workspace-baseline`,
 `validate-workspace-baseline`, `build-non-target-sources`,
 `validate-non-target-sources`, and `materialize-query` commands. Require the new
-workspace baseline's `head` to equal current HEAD, the same seven protected
+workspace baseline's `head` to equal current HEAD, the same eight protected
 rows, ten non-target sources, 100 sorted query paths, and path-list digest
 `sha256:2b4cdaf11ce8570c35cde84987ef73a0a51e985d1d8e3588443a16b8ebac2b63`.
 Run both exact handoff selectors and cached/unstaged diff checks.
@@ -582,7 +609,7 @@ by the governing closed table.
 - [ ] **Step 7: Build and validate the external commit control**
 
 Stage only the Task 2 boundary paths. Rerun `validate-non-target-sources`, the
-seven-path cached guard, and complete protected-byte comparison. Build
+eight-path cached guard, and complete protected-byte comparison. Build
 `precommit_control.v1` with the new workspace baseline, exact allowed path set,
 complete durable authority, and subject:
 
@@ -620,7 +647,7 @@ confirmation pause.
 - The original owner-adopted attempt is archived byte-for-byte and never reused
   as new adoption/completion authority.
 - The live ledger is restored to committed generation 5 before restart.
-- All seven protected paths and the intervening `README.md` commit remain
+- All eight protected paths and the intervening `README.md` commit remain
   unchanged.
 - Fresh Task 2 evidence is captured at its real HEAD, personally adopted, and
   committed through reconstructable `precommit_control.v1` authority.

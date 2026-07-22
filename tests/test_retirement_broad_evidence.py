@@ -2980,6 +2980,27 @@ def _forge_ledger_generation(
     )
 
 
+def _archive_generation_bytes(
+    repository: Path,
+    *receipts,
+    extra_paths: tuple[Path, ...] = (),
+) -> dict[str, bytes]:
+    """Capture and remove request/snapshot files for logical archive replay."""
+
+    paths = {
+        path
+        for receipt in receipts
+        for path in (receipt.request_path, receipt.snapshot_path)
+    }
+    paths.update(extra_paths)
+    bound_file_bytes = {
+        path.as_posix(): (repository / path).read_bytes() for path in paths
+    }
+    for path in paths:
+        (repository / path).unlink()
+    return bound_file_bytes
+
+
 def _invalidate_ledger_binding_history(
     repository: Path,
     binding: dict[str, object],
@@ -3286,6 +3307,224 @@ def test_task1_ledger_generations_are_contiguous_and_historical_after_future_rev
             "sha256": file_sha256(repository / subject_path),
         },
     ) == []
+
+
+def test_completed_ledger_generation_replays_review_handoff_from_bound_file_overlay(
+    tmp_path: Path,
+) -> None:
+    candidate, binding, bootstrap = _producer_task1_candidate_ledger_and_bootstrap(
+        tmp_path
+    )
+    for _ in range(2):
+        _, receipt = _advance_bound_ledger(tmp_path, binding)
+        binding = _ledger_binding(receipt)
+    _, receipt = _advance_bound_ledger(
+        tmp_path,
+        binding,
+        future_paths=[
+            "evidence/implementation-commits/task-01-bootstrap/"
+            "specification-review.json",
+            "evidence/implementation-commits/task-01-bootstrap/quality-review.json",
+        ],
+    )
+    binding = _ledger_binding(receipt)
+    subject_path, specification, quality = _producer_bootstrap_subject_and_reviews(
+        tmp_path,
+        candidate=candidate,
+        ledger=binding,
+        bootstrap=bootstrap,
+    )
+    closing_paths = sorted(
+        [
+            subject_path,
+            Path(specification["logical_path"]),
+            Path(quality["logical_path"]),
+        ]
+    )
+    _, completed = _advance_bound_ledger(
+        tmp_path,
+        binding,
+        evidence_bindings=[
+            {"path": path.as_posix(), "sha256": file_sha256(tmp_path / path)}
+            for path in closing_paths
+        ],
+    )
+    replay_paths = [
+        subject_path,
+        Path(specification["logical_path"]),
+        Path(specification["immutable_path"]),
+        Path(quality["logical_path"]),
+        Path(quality["immutable_path"]),
+    ]
+    bound_file_bytes = {
+        path.as_posix(): (tmp_path / path).read_bytes() for path in replay_paths
+    }
+    for path in replay_paths:
+        absolute = tmp_path / path
+        absolute.chmod(0o600)
+        absolute.write_bytes(b"invalid live bytes\n")
+
+    assert validate_generation(
+        tmp_path,
+        completed.request_path,
+        completed.snapshot_path,
+        bound_file_bytes=bound_file_bytes,
+    ) == []
+
+    tampered_overlay = dict(bound_file_bytes)
+    quality_immutable = Path(quality["immutable_path"]).as_posix()
+    tampered_overlay[quality_immutable] += b"\n"
+    assert "ledger_completion_review_pair_invalid" in {
+        issue.code
+        for issue in validate_generation(
+            tmp_path,
+            completed.request_path,
+            completed.snapshot_path,
+            bound_file_bytes=tampered_overlay,
+        )
+    }
+
+
+@pytest.mark.parametrize(
+    "defect",
+    ["missing_request", "missing_snapshot", "swapped_request_and_snapshot"],
+)
+def test_generation_archive_overlay_rejects_missing_or_swapped_ancestor(
+    tmp_path: Path, defect: str
+) -> None:
+    _, first_record, first = _materialize_first_ledger(tmp_path)
+    second_record, second = _materialize_next_ledger(
+        tmp_path, first_record, first
+    )
+    _, third = _materialize_next_ledger(tmp_path, second_record, second)
+    bound_file_bytes = _archive_generation_bytes(
+        tmp_path, first, second, third
+    )
+    first_request = first.request_path.as_posix()
+    first_snapshot = first.snapshot_path.as_posix()
+    if defect == "missing_request":
+        del bound_file_bytes[first_request]
+    elif defect == "missing_snapshot":
+        del bound_file_bytes[first_snapshot]
+    else:
+        bound_file_bytes[first_request], bound_file_bytes[first_snapshot] = (
+            bound_file_bytes[first_snapshot],
+            bound_file_bytes[first_request],
+        )
+
+    issues = validate_generation(
+        tmp_path,
+        third.request_path,
+        third.snapshot_path,
+        bound_file_bytes=bound_file_bytes,
+    )
+
+    assert any(
+        issue.code == "prior_generation_invalid"
+        and issue.message == "prior_generation_changed"
+        for issue in issues
+    )
+
+
+@pytest.mark.parametrize(
+    ("slot_kind", "expected_message"),
+    [
+        ("request", "generation_request_slot_extra"),
+        ("snapshot", "generation_snapshot_slot_extra"),
+    ],
+)
+def test_generation_slot_union_rejects_mapped_duplicate_alongside_live_slot(
+    tmp_path: Path, slot_kind: str, expected_message: str
+) -> None:
+    _, first_record, first = _materialize_first_ledger(tmp_path)
+    second_record, second = _materialize_next_ledger(
+        tmp_path, first_record, first
+    )
+    _, third = _materialize_next_ledger(tmp_path, second_record, second)
+    canonical = first.request_path if slot_kind == "request" else first.snapshot_path
+    duplicate = canonical.with_name(f"00000001-{'f' * 64}.json")
+    bound_file_bytes = {
+        duplicate.as_posix(): (tmp_path / canonical).read_bytes()
+    }
+
+    issues = validate_generation(
+        tmp_path,
+        third.request_path,
+        third.snapshot_path,
+        bound_file_bytes=bound_file_bytes,
+    )
+
+    assert any(
+        issue.code == "prior_generation_invalid"
+        and issue.message == expected_message
+        for issue in issues
+    )
+
+
+@pytest.mark.parametrize(
+    ("defect", "expected_message"),
+    [
+        ("noncontiguous", "request_prior_generation_invalid"),
+        ("wrong_request_parent", "request_path_mismatch"),
+        ("wrong_snapshot_parent", "snapshot_path_mismatch"),
+    ],
+)
+def test_generation_archive_overlay_rejects_invalid_ancestor_lineage(
+    tmp_path: Path, defect: str, expected_message: str
+) -> None:
+    _, first_record, first = _materialize_first_ledger(tmp_path)
+    extra_paths: tuple[Path, ...] = ()
+    if defect == "noncontiguous":
+        invalid_prior = replace(first, generation=2)
+    else:
+        source = (
+            first.request_path
+            if defect == "wrong_request_parent"
+            else first.snapshot_path
+        )
+        relocated = Path("evidence/wrong-parent") / source.name
+        relocated_absolute = tmp_path / relocated
+        relocated_absolute.parent.mkdir(parents=True, exist_ok=True)
+        relocated_absolute.write_bytes((tmp_path / source).read_bytes())
+        extra_paths = (relocated,)
+        invalid_prior = replace(
+            first,
+            **{
+                (
+                    "request_path"
+                    if defect == "wrong_request_parent"
+                    else "snapshot_path"
+                ): relocated
+            },
+        )
+    invalid_second_record = _advance_ledger(first_record, invalid_prior)
+    invalid_second = _forge_ledger_generation(
+        tmp_path, invalid_second_record, 2, invalid_prior
+    )
+    third_record = _advance_ledger(invalid_second_record, invalid_second)
+    third = _forge_ledger_generation(
+        tmp_path, third_record, 3, invalid_second
+    )
+    bound_file_bytes = _archive_generation_bytes(
+        tmp_path,
+        first,
+        invalid_second,
+        third,
+        extra_paths=extra_paths,
+    )
+
+    issues = validate_generation(
+        tmp_path,
+        third.request_path,
+        third.snapshot_path,
+        bound_file_bytes=bound_file_bytes,
+    )
+
+    assert any(
+        issue.code == "prior_generation_invalid"
+        and issue.message == expected_message
+        for issue in issues
+    )
 
 
 def test_task1_rereview_history_is_subject_bound_and_completes_ledger(
@@ -5646,6 +5885,7 @@ def test_retirement_public_surface_is_cold_lazy_and_cli_sets_are_exact() -> None
             "canonical_sha256",
             "compare_failure_sets",
             "derive_broad_baseline_comparison",
+            "derive_committed_predecessor_lineage",
             "derive_review_binding",
             "failure_signature",
             "load_json_closed",
@@ -5655,6 +5895,7 @@ def test_retirement_public_surface_is_cold_lazy_and_cli_sets_are_exact() -> None
             "parse_exit_bytes",
             "parse_junit_outcomes",
             "publish_immutable_review",
+            "validate_attempt_migration_incident",
             "validate_bound_record",
             "validate_fixture_manifest",
             "validate_generation",
@@ -8489,6 +8730,57 @@ def test_review_binding_bound_validation_reopens_and_derives_immutable_bytes(
     immutable.write_text("changed\n")
     assert "review_binding_immutable_unreadable" in {
         issue.code for issue in validate_bound_record(binding, tmp_path)
+    }
+
+
+def test_bound_file_overlay_strict_fallback_requires_head_equivalent_bytes(
+    tmp_path: Path,
+) -> None:
+    subject_path = Path("evidence/failure-remediation.json")
+    review_path = Path("evidence/remediation-specification-review.json")
+    _write_review_subject(tmp_path, subject_path)
+    _write_live_review(
+        tmp_path, subject_path=subject_path, review_path=review_path
+    )
+    binding = publish_immutable_review(
+        repository_root=tmp_path,
+        evidence_root=Path("evidence"),
+        subject_path=subject_path,
+        review_path=review_path,
+    )
+
+    assert "review_binding_immutable_unreadable" in {
+        issue.code
+        for issue in validate_bound_record(
+            binding,
+            tmp_path,
+            bound_file_bytes={},
+            require_committed_fallback=True,
+        )
+    }
+
+    immutable_path = binding["immutable_path"]
+    _git_output(tmp_path, "add", "--", immutable_path)
+    _git_output(tmp_path, "commit", "-q", "-m", "bind immutable review")
+    assert validate_bound_record(
+        binding,
+        tmp_path,
+        bound_file_bytes={},
+        require_committed_fallback=True,
+    ) == []
+
+    immutable = tmp_path / immutable_path
+    committed_bytes = immutable.read_bytes()
+    immutable.chmod(0o644)
+    immutable.write_bytes(committed_bytes + b"\n")
+    assert "review_binding_immutable_unreadable" in {
+        issue.code
+        for issue in validate_bound_record(
+            binding,
+            tmp_path,
+            bound_file_bytes={},
+            require_committed_fallback=True,
+        )
     }
 
 

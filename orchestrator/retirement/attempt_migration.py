@@ -847,6 +847,8 @@ def _validate_incident_broad_record(
     *,
     role: str,
     validate_bound: bool,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> None:
     from .broad_evidence import (
         validate_bound_record,
@@ -860,7 +862,12 @@ def _validate_incident_broad_record(
             f"incident_{role}_invalid", _broad_issue_detail(shape_issues)
         )
     if validate_bound:
-        bound_issues = validate_bound_record(record, repository_root)
+        bound_issues = validate_bound_record(
+            record,
+            repository_root,
+            bound_file_bytes=bound_file_bytes,
+            require_committed_fallback=require_committed_fallback,
+        )
         historical_subject_issues = [
             issue
             for issue in bound_issues
@@ -884,6 +891,8 @@ def _validate_incident_broad_record(
                 }
                 if isinstance(baseline, Mapping)
                 else None,
+                bound_file_bytes=bound_file_bytes,
+                require_committed_fallback=require_committed_fallback,
             )
             other_bound_issues.extend(review_issues)
         if other_bound_issues:
@@ -901,7 +910,11 @@ def _issue_coordinates(issues: Sequence[Any]) -> set[tuple[str, str]]:
 
 
 def _validate_incident_historical_baseline(
-    repository_root: Path, baseline: Mapping[str, Any]
+    repository_root: Path,
+    baseline: Mapping[str, Any],
+    *,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> None:
     """Validate a bound baseline while recognizing only its expected HEAD drift.
 
@@ -915,7 +928,11 @@ def _validate_incident_historical_baseline(
     from .broad_evidence import validate_bound_record, validate_record
 
     baseline_issues = validate_bound_record(
-        baseline, repository_root, check_ledger_future_absence=False
+        baseline,
+        repository_root,
+        check_ledger_future_absence=False,
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
     )
     if not baseline_issues:
         return
@@ -946,22 +963,40 @@ def _validate_incident_historical_baseline(
         raise AttemptMigrationError(
             "incident_known_failure_baseline_binding_invalid"
         )
-    broad_snapshot = _read_regular(repository_root, broad_binding.get("path"))
-    assert broad_snapshot is not None
+    broad_path = broad_binding.get("path")
+    broad_data = (
+        bound_file_bytes.get(broad_path)
+        if bound_file_bytes is not None and isinstance(broad_path, str)
+        else None
+    )
+    broad_snapshot = None
+    if broad_data is None:
+        broad_snapshot = (
+            _require_committed_live(repository_root, broad_path)
+            if require_committed_fallback
+            else _read_regular(repository_root, broad_path)
+        )
+    if broad_data is None:
+        assert broad_snapshot is not None
+        broad_data = broad_snapshot["data"]
     if (
-        broad_snapshot["sha256"] != broad_binding.get("sha256")
+        _bytes_digest(broad_data) != broad_binding.get("sha256")
         or (
             "size" in broad_binding
-            and broad_snapshot["size"] != broad_binding.get("size")
+            and len(broad_data) != broad_binding.get("size")
         )
     ):
         raise AttemptMigrationError(
             "incident_known_failure_baseline_binding_invalid"
         )
-    broad = _json_bytes(broad_snapshot["data"], broad_snapshot["path"])
+    broad = _json_bytes(broad_data, str(broad_path))
     broad_shape_issues = validate_record(broad)
     broad_bound_issues = validate_bound_record(
-        broad, repository_root, check_ledger_future_absence=False
+        broad,
+        repository_root,
+        check_ledger_future_absence=False,
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
     )
     broad_coordinates = _issue_coordinates(broad_bound_issues)
     required_broad_coordinates = {
@@ -1012,7 +1047,8 @@ def _validate_incident_evidence_records(
     owner_snapshot: Mapping[str, Any],
     pending_snapshot: Mapping[str, Any],
     baseline_snapshot: Mapping[str, Any],
-    validate_live_bindings: bool = True,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
     from .source_bindings import validate_workspace_record_shape
 
@@ -1033,13 +1069,17 @@ def _validate_incident_evidence_records(
         repository_root,
         owner_attestation,
         role="owner_attestation",
-        validate_bound=validate_live_bindings,
+        validate_bound=True,
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
     )
     _validate_incident_broad_record(
         repository_root,
         pending_attestation,
         role="pending_attestation",
-        validate_bound=validate_live_bindings,
+        validate_bound=True,
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
     )
     _validate_incident_broad_record(
         repository_root,
@@ -1047,8 +1087,12 @@ def _validate_incident_evidence_records(
         role="known_failure_baseline",
         validate_bound=False,
     )
-    if validate_live_bindings:
-        _validate_incident_historical_baseline(repository_root, baseline)
+    _validate_incident_historical_baseline(
+        repository_root,
+        baseline,
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
+    )
 
     if pending_attestation.get("evidence_status") != "pending_owner_confirmation":
         raise AttemptMigrationError("incident_pending_lifecycle_invalid")
@@ -3224,6 +3268,9 @@ def _validate_v2_incident_from_attempt_replay(
         resolved[incident_row["path"]] = snapshot
     if paths != sorted(resolved):
         raise AttemptMigrationError("incident_source_set_mismatch")
+    bound_file_bytes = {
+        path: snapshot["data"] for path, snapshot in resolved.items()
+    }
 
     evidence_fields = (
         "workspace_baseline_binding",
@@ -3250,7 +3297,8 @@ def _validate_v2_incident_from_attempt_replay(
             baseline_snapshot=evidence_snapshots[
                 "known_failure_baseline_binding"
             ],
-            validate_live_bindings=False,
+            bound_file_bytes=bound_file_bytes,
+            require_committed_fallback=True,
         )
     )
     if adoption_facts != incident["adoption_facts"]:
@@ -3399,8 +3447,18 @@ def validate(
     """Reopen every bound byte and validate an allowed replay state."""
 
     root = _repository_root(repository_root)
-    record, _ = _load_disposition(root, disposition_path)
+    disposition_relative = _relative_path(disposition_path)
+    record, _ = _load_disposition(root, disposition_relative)
     _validate_live_bindings(root, record)
+    if record["schema_version"] == V2_SCHEMA_VERSION:
+        _require_outside_status_projection_unchanged(
+            root,
+            record,
+            additional_ignored_paths=(
+                disposition_relative,
+                record["attempt_lifecycle"]["incident_binding"]["path"],
+            ),
+        )
     return record
 
 

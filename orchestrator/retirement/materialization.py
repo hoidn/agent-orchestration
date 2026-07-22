@@ -35,6 +35,7 @@ from .broad_evidence import (
     validate_review_pair,
     REVIEW_SUBJECT_SCHEMAS,
     _expected_live_review_name,
+    _head_regular_file_bytes,
 )
 from .safe_io import (
     AtomicPublishError,
@@ -107,18 +108,29 @@ class BoundRepositoryRegular:
 
 
 @dataclass(frozen=True)
+class OverlayRepositoryRegular:
+    """Immutable logical bytes supplied by an already validated snapshot."""
+
+    path: Path
+    data: bytes
+
+
+ResolvedRepositoryRegular = BoundRepositoryRegular | OverlayRepositoryRegular
+
+
+@dataclass(frozen=True)
 class GenerationBindingResolution:
-    bound_request: BoundRepositoryRegular
-    bound_snapshot: BoundRepositoryRegular
-    current_request: BoundRepositoryRegular
-    current_snapshot: BoundRepositoryRegular
-    live: BoundRepositoryRegular
+    bound_request: ResolvedRepositoryRegular
+    bound_snapshot: ResolvedRepositoryRegular
+    current_request: ResolvedRepositoryRegular
+    current_snapshot: ResolvedRepositoryRegular
+    live: ResolvedRepositoryRegular
 
 
 @dataclass(frozen=True)
 class BoundAncestryResolution:
     matched: bool
-    captures: tuple[BoundRepositoryRegular, ...]
+    captures: tuple[ResolvedRepositoryRegular, ...]
 
 
 Builder = Callable[[Path, Mapping[str, InputCapture], Mapping[str, Any]], Any]
@@ -244,15 +256,23 @@ def _build_ledger_with_future_mode(
     parameters: Mapping[str, Any],
     *,
     check_future_absence: bool,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> Any:
     plan = inputs["approved_plan"]
     plan_path = plan.path
     plan_bytes = plan.data
     record = parameters["record"]
+    resolved_bytes = dict(bound_file_bytes or {})
+    prior_plan_bytes = resolved_bytes.get(plan_path.as_posix())
+    if prior_plan_bytes is not None and prior_plan_bytes != plan_bytes:
+        raise MaterializationError("plan_binding_mismatch")
+    resolved_bytes[plan_path.as_posix()] = plan_bytes
     issues = validate_bound_record(
         record,
         repository_root=repository_root,
-        bound_file_bytes={plan_path.as_posix(): plan_bytes},
+        bound_file_bytes=resolved_bytes,
+        require_committed_fallback=require_committed_fallback,
         check_ledger_future_absence=check_future_absence,
     )
     if issues:
@@ -297,19 +317,30 @@ def _completion_review_pair_issues(
     specification_path: Path,
     quality_path: Path,
     request_prior_binding: Mapping[str, Any],
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> list[Issue]:
     try:
-        subject_capture = _capture_bound_relative_regular(
-            repository_root, subject_path
+        subject_capture = _capture_resolved_relative_regular(
+            repository_root,
+            subject_path,
+            bound_file_bytes,
+            require_committed_fallback,
         )
-        specification_capture = _capture_bound_relative_regular(
-            repository_root, specification_path
+        specification_capture = _capture_resolved_relative_regular(
+            repository_root,
+            specification_path,
+            bound_file_bytes,
+            require_committed_fallback,
         )
-        quality_capture = _capture_bound_relative_regular(
-            repository_root, quality_path
+        quality_capture = _capture_resolved_relative_regular(
+            repository_root,
+            quality_path,
+            bound_file_bytes,
+            require_committed_fallback,
         )
         subject = _load_json_bytes_closed(
-            subject_capture.file.data, subject_path
+            _resolved_regular_data(subject_capture), subject_path
         )
     except (MaterializationError, ContractError, OSError):
         return [Issue("ledger_completion_review_pair_invalid")]
@@ -324,7 +355,7 @@ def _completion_review_pair_issues(
         "path": subject_path.as_posix(),
         "sha256": (
             "sha256:"
-            + hashlib.sha256(subject_capture.file.data).hexdigest()
+            + hashlib.sha256(_resolved_regular_data(subject_capture)).hexdigest()
         ),
     }
     expected_ledger_binding = {
@@ -344,12 +375,12 @@ def _completion_review_pair_issues(
         specification_binding = derive_review_binding(
             evidence_root=evidence_root,
             review_path=specification_path,
-            review_bytes=specification_capture.file.data,
+            review_bytes=_resolved_regular_data(specification_capture),
         )
         quality_binding = derive_review_binding(
             evidence_root=evidence_root,
             review_path=quality_path,
-            review_bytes=quality_capture.file.data,
+            review_bytes=_resolved_regular_data(quality_capture),
         )
     except ContractError:
         return [Issue("ledger_completion_review_pair_invalid")]
@@ -360,6 +391,8 @@ def _completion_review_pair_issues(
             repository_root=repository_root,
             expected_subject_kind=policy.subject_kind,
             expected_subject_binding=subject_binding,
+            bound_file_bytes=bound_file_bytes,
+            require_committed_fallback=require_committed_fallback,
         )
     except (ContractError, OSError):
         pair_issues = [Issue("review_pair_binding_invalid")]
@@ -367,32 +400,47 @@ def _completion_review_pair_issues(
         return [Issue("ledger_completion_review_pair_invalid")]
 
     try:
-        live_capture = _capture_bound_relative_regular(
-            repository_root, Path(request_prior_binding["output_path"])
+        live_capture = _capture_resolved_relative_regular(
+            repository_root,
+            Path(request_prior_binding["output_path"]),
+            bound_file_bytes,
+            require_committed_fallback,
         )
-        prior_snapshot_capture = _capture_bound_relative_regular(
-            repository_root, Path(request_prior_binding["snapshot_path"])
+        prior_snapshot_capture = _capture_resolved_relative_regular(
+            repository_root,
+            Path(request_prior_binding["snapshot_path"]),
+            bound_file_bytes,
+            require_committed_fallback,
         )
     except (KeyError, TypeError, MaterializationError, OSError):
         return [Issue("ledger_completion_subject_invalid")]
     prior_snapshot_sha = (
         "sha256:"
-        + hashlib.sha256(prior_snapshot_capture.file.data).hexdigest()
+        + hashlib.sha256(_resolved_regular_data(prior_snapshot_capture)).hexdigest()
     )
     if prior_snapshot_sha != request_prior_binding.get("snapshot_sha256"):
         return [Issue("ledger_completion_subject_invalid")]
-    if live_capture.file.data == prior_snapshot_capture.file.data:
+    if _resolved_regular_data(live_capture) == _resolved_regular_data(
+        prior_snapshot_capture
+    ):
         deep_issues = validate_review_pair(
             specification_binding=specification_binding,
             quality_binding=quality_binding,
             repository_root=repository_root,
             expected_subject_kind=policy.subject_kind,
             expected_subject_binding=subject_binding,
+            bound_file_bytes=bound_file_bytes,
+            require_committed_fallback=require_committed_fallback,
         )
         if deep_issues:
             return [Issue("ledger_completion_subject_invalid")]
     if any(
-        not _bound_relative_regular_matches(repository_root, capture)
+        not _resolved_relative_regular_matches(
+            repository_root,
+            capture,
+            bound_file_bytes,
+            require_committed_fallback,
+        )
         for capture in (
             subject_capture,
             specification_capture,
@@ -411,6 +459,8 @@ def _completion_handoff_issues(
     prior_task: Mapping[str, Any],
     transition: Mapping[str, Any],
     request_prior_binding: Mapping[str, Any],
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> list[Issue]:
     policy = COMPLETION_HANDOFF_POLICIES.get(transition.get("task_number"))
     if policy is None:
@@ -454,6 +504,8 @@ def _completion_handoff_issues(
             specification_path=specification_path,
             quality_path=quality_path,
             request_prior_binding=request_prior_binding,
+            bound_file_bytes=bound_file_bytes,
+            require_committed_fallback=require_committed_fallback,
         )
         if pair_issues:
             return pair_issues
@@ -469,6 +521,8 @@ def _execution_ledger_generation_issues(
     plan_bytes: bytes,
     prior_record: Mapping[str, Any] | None,
     request_prior_binding: Mapping[str, Any] | None,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> list[Issue]:
     """Validate one contextual ledger generation against its predecessor."""
 
@@ -562,6 +616,8 @@ def _execution_ledger_generation_issues(
         prior_task=prior_task,
         transition=transition,
         request_prior_binding=request_prior_binding,
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
     )
     if completion_issues:
         return completion_issues
@@ -787,13 +843,37 @@ ADAPTERS: dict[str, Adapter] = {
 }
 
 
-def _input_binding(repository_root: Path, role: str, path: Path) -> InputCapture:
+def _input_binding(
+    repository_root: Path,
+    role: str,
+    path: Path,
+    *,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
+) -> InputCapture:
     relative = _validated_relative(path)
-    try:
-        data = _nofollow_file_bytes(repository_root, relative)
-    except FileNotFoundError as exc:
-        raise MaterializationError("input_not_regular", relative.as_posix()) from exc
-    assert data is not None
+    if bound_file_bytes is not None and relative.as_posix() in bound_file_bytes:
+        data = bound_file_bytes[relative.as_posix()]
+        if not isinstance(data, bytes):
+            raise MaterializationError(
+                "bound_file_bytes_invalid", relative.as_posix()
+            )
+    else:
+        try:
+            data = _nofollow_file_bytes(repository_root, relative)
+        except FileNotFoundError as exc:
+            raise MaterializationError(
+                "input_not_regular", relative.as_posix()
+            ) from exc
+        assert data is not None
+        if require_committed_fallback:
+            committed = _head_regular_file_bytes(
+                repository_root, relative.as_posix()
+            )
+            if committed is None or data != committed:
+                raise MaterializationError(
+                    "committed_fallback_mismatch", relative.as_posix()
+                )
     try:
         value = _load_json_bytes_closed(data, relative)
         schema = value.get("schema_version") if isinstance(value, dict) else None
@@ -947,6 +1027,57 @@ def _capture_bound_relative_regular(
     return BoundRepositoryRegular(
         path=relative_path, file=captured, parent=logical_parent
     )
+
+
+def _capture_resolved_relative_regular(
+    repository_root: Path,
+    relative_path: Path,
+    bound_file_bytes: Mapping[str, bytes] | None,
+    require_committed_fallback: bool = False,
+) -> ResolvedRepositoryRegular:
+    relative_path = _validated_relative(relative_path)
+    logical_path = relative_path.as_posix()
+    if bound_file_bytes is not None and logical_path in bound_file_bytes:
+        data = bound_file_bytes[logical_path]
+        if not isinstance(data, bytes):
+            raise MaterializationError("bound_file_bytes_invalid", logical_path)
+        return OverlayRepositoryRegular(path=relative_path, data=data)
+    capture = _capture_bound_relative_regular(repository_root, relative_path)
+    if require_committed_fallback:
+        committed = _head_regular_file_bytes(repository_root, logical_path)
+        if committed is None or capture.file.data != committed:
+            raise MaterializationError(
+                "committed_fallback_mismatch", logical_path
+            )
+    return capture
+
+
+def _resolved_regular_data(capture: ResolvedRepositoryRegular) -> bytes:
+    return (
+        capture.data
+        if isinstance(capture, OverlayRepositoryRegular)
+        else capture.file.data
+    )
+
+
+def _resolved_relative_regular_matches(
+    repository_root: Path,
+    capture: ResolvedRepositoryRegular,
+    bound_file_bytes: Mapping[str, bytes] | None,
+    require_committed_fallback: bool = False,
+) -> bool:
+    if isinstance(capture, OverlayRepositoryRegular):
+        return (
+            bound_file_bytes is not None
+            and bound_file_bytes.get(capture.path.as_posix()) == capture.data
+        )
+    if not _bound_relative_regular_matches(repository_root, capture):
+        return False
+    if require_committed_fallback:
+        return _head_regular_file_bytes(
+            repository_root, capture.path.as_posix()
+        ) == capture.file.data
+    return True
 
 
 def _capture_relative_regular(
@@ -1149,19 +1280,33 @@ def _atomic_publish(
 
 
 def _generation_slot_names(
-    repository_root: Path, directory: Path, generation: int, *, create: bool = True
+    repository_root: Path,
+    directory: Path,
+    generation: int,
+    *,
+    create: bool = True,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
 ) -> list[str]:
+    names: set[str] = set()
     try:
         descriptor = _open_nofollow_directory(
             repository_root, directory, create=create
         )
     except FileNotFoundError:
-        return []
-    try:
-        prefix = f"{generation:08d}-"
-        return sorted(name for name in os.listdir(descriptor) if name.startswith(prefix))
-    finally:
-        os.close(descriptor)
+        descriptor = None
+    if descriptor is not None:
+        try:
+            names.update(os.listdir(descriptor))
+        finally:
+            os.close(descriptor)
+    if bound_file_bytes is not None:
+        names.update(
+            Path(path).name
+            for path in bound_file_bytes
+            if _validated_relative(Path(path)).parent == directory
+        )
+    prefix = f"{generation:08d}-"
+    return sorted(name for name in names if name.startswith(prefix))
 
 
 def _materialization_boundary(_boundary: str) -> None:
@@ -1554,7 +1699,9 @@ def _validate_generation_captured(
     snapshot_bytes: bytes,
     *,
     _validate_ancestors: bool = True,
-    _ancestry_captures: list[BoundRepositoryRegular] | None = None,
+    _ancestry_captures: list[ResolvedRepositoryRegular] | None = None,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> list[Issue]:
     issues: list[Issue] = []
     try:
@@ -1586,7 +1733,11 @@ def _validate_generation_captured(
         issues.append(Issue("request_path_mismatch"))
     try:
         request_slot = _generation_slot_names(
-            repository_root, request_path.parent, generation, create=False
+            repository_root,
+            request_path.parent,
+            generation,
+            create=False,
+            bound_file_bytes=bound_file_bytes,
         )
     except (MaterializationError, OSError) as exc:
         return [Issue("generation_unreadable", "$", str(exc))]
@@ -1616,14 +1767,20 @@ def _validate_generation_captured(
             try:
                 prior_request_path = _validated_relative(Path(prior["request_path"]))
                 prior_snapshot_path = _validated_relative(Path(prior["snapshot_path"]))
-                prior_request_capture = _capture_bound_relative_regular(
-                    repository_root, prior_request_path
+                prior_request_capture = _capture_resolved_relative_regular(
+                    repository_root,
+                    prior_request_path,
+                    bound_file_bytes,
+                    require_committed_fallback,
                 )
-                prior_snapshot_capture = _capture_bound_relative_regular(
-                    repository_root, prior_snapshot_path
+                prior_snapshot_capture = _capture_resolved_relative_regular(
+                    repository_root,
+                    prior_snapshot_path,
+                    bound_file_bytes,
+                    require_committed_fallback,
                 )
-                prior_request_bytes = prior_request_capture.file.data
-                prior_snapshot_bytes = prior_snapshot_capture.file.data
+                prior_request_bytes = _resolved_regular_data(prior_request_capture)
+                prior_snapshot_bytes = _resolved_regular_data(prior_snapshot_capture)
                 if _ancestry_captures is not None:
                     _ancestry_captures.extend(
                         (prior_request_capture, prior_snapshot_capture)
@@ -1677,7 +1834,13 @@ def _validate_generation_captured(
             continue
         try:
             relative = _validated_relative(Path(binding["path"]))
-            observed = _input_binding(repository_root, role, relative)
+            observed = _input_binding(
+                repository_root,
+                role,
+                relative,
+                bound_file_bytes=bound_file_bytes,
+                require_committed_fallback=require_committed_fallback,
+            )
         except (MaterializationError, TypeError):
             issues.append(Issue("generation_input_changed", str(binding.get("path"))))
             continue
@@ -1702,7 +1865,11 @@ def _validate_generation_captured(
         return sorted(set(issues))
     try:
         snapshot_slot = _generation_slot_names(
-            repository_root, snapshot_path.parent, generation, create=False
+            repository_root,
+            snapshot_path.parent,
+            generation,
+            create=False,
+            bound_file_bytes=bound_file_bytes,
         )
     except (MaterializationError, OSError):
         snapshot_slot = []
@@ -1723,6 +1890,8 @@ def _validate_generation_captured(
                 captured_inputs,
                 request["parameters"],
                 check_future_absence=False,
+                bound_file_bytes=bound_file_bytes,
+                require_committed_fallback=require_committed_fallback,
             )
             if request.get("record_kind") == "execution-ledger"
             else adapter.builder(
@@ -1749,6 +1918,8 @@ def _validate_generation_captured(
             plan_bytes=captured_inputs["approved_plan"].data,
             prior_record=prior_record,
             request_prior_binding=prior if isinstance(prior, Mapping) else None,
+            bound_file_bytes=bound_file_bytes,
+            require_committed_fallback=require_committed_fallback,
         )
         issues.extend(ledger_issues)
     if (
@@ -1773,6 +1944,8 @@ def _validate_generation_captured(
                 ancestor_snapshot_bytes,
                 _validate_ancestors=False,
                 _ancestry_captures=_ancestry_captures,
+                bound_file_bytes=bound_file_bytes,
+                require_committed_fallback=require_committed_fallback,
             )
             if ancestor_issues:
                 issues.append(
@@ -1795,14 +1968,24 @@ def _validate_generation_captured(
                 ancestor_snapshot_path = _validated_relative(
                     Path(ancestor_prior["snapshot_path"])
                 )
-                ancestor_request_capture = _capture_bound_relative_regular(
-                    repository_root, ancestor_request_path
+                ancestor_request_capture = _capture_resolved_relative_regular(
+                    repository_root,
+                    ancestor_request_path,
+                    bound_file_bytes,
+                    require_committed_fallback,
                 )
-                ancestor_snapshot_capture = _capture_bound_relative_regular(
-                    repository_root, ancestor_snapshot_path
+                ancestor_snapshot_capture = _capture_resolved_relative_regular(
+                    repository_root,
+                    ancestor_snapshot_path,
+                    bound_file_bytes,
+                    require_committed_fallback,
                 )
-                ancestor_request_bytes = ancestor_request_capture.file.data
-                ancestor_snapshot_bytes = ancestor_snapshot_capture.file.data
+                ancestor_request_bytes = _resolved_regular_data(
+                    ancestor_request_capture
+                )
+                ancestor_snapshot_bytes = _resolved_regular_data(
+                    ancestor_snapshot_capture
+                )
                 if _ancestry_captures is not None:
                     _ancestry_captures.extend(
                         (ancestor_request_capture, ancestor_snapshot_capture)
@@ -1814,34 +1997,66 @@ def _validate_generation_captured(
 
 
 def validate_generation(
-    repository_root: Path, request_path: Path, snapshot_path: Path
+    repository_root: Path,
+    request_path: Path,
+    snapshot_path: Path,
+    *,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> list[Issue]:
     try:
         request_path = _validated_relative(request_path)
         snapshot_path = _validated_relative(snapshot_path)
-        request_capture = _capture_bound_relative_regular(repository_root, request_path)
+        request_capture = _capture_resolved_relative_regular(
+            repository_root,
+            request_path,
+            bound_file_bytes,
+            require_committed_fallback,
+        )
     except (MaterializationError, OSError) as exc:
         return [Issue("generation_unreadable", "$", str(exc))]
     try:
-        snapshot_capture = _capture_bound_relative_regular(repository_root, snapshot_path)
+        snapshot_capture = _capture_resolved_relative_regular(
+            repository_root,
+            snapshot_path,
+            bound_file_bytes,
+            require_committed_fallback,
+        )
     except (MaterializationError, OSError) as exc:
         return [Issue("snapshot_unreadable", "$", str(exc))]
-    ancestry_captures: list[BoundRepositoryRegular] = []
+    ancestry_captures: list[ResolvedRepositoryRegular] = []
     issues = _validate_generation_captured(
         repository_root,
         request_path,
         snapshot_path,
-        request_capture.file.data,
-        snapshot_capture.file.data,
+        _resolved_regular_data(request_capture),
+        _resolved_regular_data(snapshot_capture),
         _ancestry_captures=ancestry_captures,
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
     )
     _generation_validation_boundary("before_final_identity_check")
-    if not _bound_relative_regular_matches(repository_root, request_capture):
+    if not _resolved_relative_regular_matches(
+        repository_root,
+        request_capture,
+        bound_file_bytes,
+        require_committed_fallback,
+    ):
         issues.append(Issue("generation_unreadable", "$", request_path.as_posix()))
-    if not _bound_relative_regular_matches(repository_root, snapshot_capture):
+    if not _resolved_relative_regular_matches(
+        repository_root,
+        snapshot_capture,
+        bound_file_bytes,
+        require_committed_fallback,
+    ):
         issues.append(Issue("snapshot_unreadable", "$", snapshot_path.as_posix()))
     if any(
-        not _bound_relative_regular_matches(repository_root, capture)
+        not _resolved_relative_regular_matches(
+            repository_root,
+            capture,
+            bound_file_bytes,
+            require_committed_fallback,
+        )
         for capture in ancestry_captures
     ):
         issues.append(Issue("prior_generation_changed"))
@@ -1849,18 +2064,33 @@ def validate_generation(
 
 
 def _generation_request_names(
-    repository_root: Path, directory: Path
+    repository_root: Path,
+    directory: Path,
+    *,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
 ) -> list[str]:
-    descriptor = _open_nofollow_directory(
-        repository_root, directory, create=False
-    )
+    names: set[str] = set()
     try:
-        names = sorted(os.listdir(descriptor))
-    finally:
-        os.close(descriptor)
-    if any(GENERATION_FILE_RE.fullmatch(name) is None for name in names):
+        descriptor = _open_nofollow_directory(
+            repository_root, directory, create=False
+        )
+    except FileNotFoundError:
+        descriptor = None
+    if descriptor is not None:
+        try:
+            names.update(os.listdir(descriptor))
+        finally:
+            os.close(descriptor)
+    if bound_file_bytes is not None:
+        names.update(
+            Path(path).name
+            for path in bound_file_bytes
+            if _validated_relative(Path(path)).parent == directory
+        )
+    ordered = sorted(names)
+    if any(GENERATION_FILE_RE.fullmatch(name) is None for name in ordered):
         raise MaterializationError("generation_request_directory_invalid")
-    return names
+    return ordered
 
 
 def _resolve_request_bound_ancestor(
@@ -1868,6 +2098,8 @@ def _resolve_request_bound_ancestor(
     request: Mapping[str, Any],
     *,
     bound: Mapping[str, Any],
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> BoundAncestryResolution:
     expected = {
         "request_path": bound["request_path"],
@@ -1879,7 +2111,7 @@ def _resolve_request_bound_ancestor(
     }
     current = request
     seen: set[str] = set()
-    captures: list[BoundRepositoryRegular] = []
+    captures: list[ResolvedRepositoryRegular] = []
     while current.get("generation", 0) > bound["generation"]:
         prior = current.get("prior_generation_binding")
         if not isinstance(prior, Mapping):
@@ -1894,19 +2126,29 @@ def _resolve_request_bound_ancestor(
             if prior_request_path.as_posix() in seen:
                 raise MaterializationError("generation_binding_changed")
             seen.add(prior_request_path.as_posix())
-            prior_request_capture = _capture_bound_relative_regular(
-                repository_root, prior_request_path
+            prior_request_capture = _capture_resolved_relative_regular(
+                repository_root,
+                prior_request_path,
+                bound_file_bytes,
+                require_committed_fallback,
             )
-            prior_snapshot_capture = _capture_bound_relative_regular(
-                repository_root, prior_snapshot_path
+            prior_snapshot_capture = _capture_resolved_relative_regular(
+                repository_root,
+                prior_snapshot_path,
+                bound_file_bytes,
+                require_committed_fallback,
             )
             request_sha = (
                 "sha256:"
-                + hashlib.sha256(prior_request_capture.file.data).hexdigest()
+                + hashlib.sha256(
+                    _resolved_regular_data(prior_request_capture)
+                ).hexdigest()
             )
             snapshot_sha = (
                 "sha256:"
-                + hashlib.sha256(prior_snapshot_capture.file.data).hexdigest()
+                + hashlib.sha256(
+                    _resolved_regular_data(prior_snapshot_capture)
+                ).hexdigest()
             )
             if (
                 prior.get("request_sha256") != request_sha
@@ -1916,7 +2158,7 @@ def _resolve_request_bound_ancestor(
             ):
                 raise MaterializationError("generation_binding_changed")
             current = _load_json_bytes_closed(
-                prior_request_capture.file.data, prior_request_path
+                _resolved_regular_data(prior_request_capture), prior_request_path
             )
             if (
                 not isinstance(current, Mapping)
@@ -1936,6 +2178,8 @@ def _resolve_generation_binding_current(
     binding: Mapping[str, Any],
     *,
     allow_descendant: bool = True,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> tuple[list[Issue], GenerationBindingResolution | None]:
     """Reopen a bound generation against its current canonical live descendant."""
 
@@ -1943,18 +2187,31 @@ def _resolve_generation_binding_current(
         request_path = _validated_relative(Path(binding["request_path"]))
         snapshot_path = _validated_relative(Path(binding["snapshot_path"]))
         live_path = _validated_relative(Path(binding["live_path"]))
-        request_capture = _capture_bound_relative_regular(
-            repository_root, request_path
+        request_capture = _capture_resolved_relative_regular(
+            repository_root,
+            request_path,
+            bound_file_bytes,
+            require_committed_fallback,
         )
-        snapshot_capture = _capture_bound_relative_regular(
-            repository_root, snapshot_path
+        snapshot_capture = _capture_resolved_relative_regular(
+            repository_root,
+            snapshot_path,
+            bound_file_bytes,
+            require_committed_fallback,
         )
-        live_capture = _capture_bound_relative_regular(repository_root, live_path)
+        live_capture = _capture_resolved_relative_regular(
+            repository_root,
+            live_path,
+            bound_file_bytes,
+            require_committed_fallback,
+        )
     except (KeyError, TypeError, MaterializationError, OSError) as exc:
         return [Issue("live_generation_unreadable", "$", str(exc))], None
 
-    request_sha = f"sha256:{hashlib.sha256(request_capture.file.data).hexdigest()}"
-    snapshot_sha = f"sha256:{hashlib.sha256(snapshot_capture.file.data).hexdigest()}"
+    request_bytes = _resolved_regular_data(request_capture)
+    snapshot_bytes = _resolved_regular_data(snapshot_capture)
+    request_sha = f"sha256:{hashlib.sha256(request_bytes).hexdigest()}"
+    snapshot_sha = f"sha256:{hashlib.sha256(snapshot_bytes).hexdigest()}"
     if (
         request_sha != binding.get("request_sha256")
         or snapshot_sha != binding.get("snapshot_sha256")
@@ -1962,7 +2219,7 @@ def _resolve_generation_binding_current(
     ):
         return [Issue("generation_binding_coordinate_invalid")], None
     try:
-        request = _load_json_bytes_closed(request_capture.file.data, request_path)
+        request = _load_json_bytes_closed(request_bytes, request_path)
     except ContractError as exc:
         return [Issue("generation_binding_coordinate_invalid", message=str(exc))], None
     if (
@@ -1973,19 +2230,38 @@ def _resolve_generation_binding_current(
     ):
         return [Issue("generation_binding_coordinate_invalid")], None
     bound_issues = validate_generation(
-        repository_root, request_path, snapshot_path
+        repository_root,
+        request_path,
+        snapshot_path,
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
     )
     _generation_validation_boundary("after_bound_binding_validation")
     if (
-        not _bound_relative_regular_matches(repository_root, request_capture)
-        or not _bound_relative_regular_matches(repository_root, snapshot_capture)
+        not _resolved_relative_regular_matches(
+            repository_root,
+            request_capture,
+            bound_file_bytes,
+            require_committed_fallback,
+        )
+        or not _resolved_relative_regular_matches(
+            repository_root,
+            snapshot_capture,
+            bound_file_bytes,
+            require_committed_fallback,
+        )
     ):
         return [Issue("generation_binding_changed")], None
     if bound_issues:
         return [Issue("bound_generation_invalid", message=bound_issues[0].code)], None
-    live_bytes = live_capture.file.data
-    if live_bytes == snapshot_capture.file.data:
-        if not _bound_relative_regular_matches(repository_root, live_capture):
+    live_bytes = _resolved_regular_data(live_capture)
+    if live_bytes == snapshot_bytes:
+        if not _resolved_relative_regular_matches(
+            repository_root,
+            live_capture,
+            bound_file_bytes,
+            require_committed_fallback,
+        ):
             return [Issue("live_generation_unreadable")], None
         return [], GenerationBindingResolution(
             bound_request=request_capture,
@@ -2001,13 +2277,17 @@ def _resolve_generation_binding_current(
     evidence_root = _evidence_root_from_request_path(request_path)
     candidates: list[
         tuple[
-            BoundRepositoryRegular,
-            BoundRepositoryRegular,
-            tuple[BoundRepositoryRegular, ...],
+            ResolvedRepositoryRegular,
+            ResolvedRepositoryRegular,
+            tuple[ResolvedRepositoryRegular, ...],
         ]
     ] = []
     try:
-        names = _generation_request_names(repository_root, request_path.parent)
+        names = _generation_request_names(
+            repository_root,
+            request_path.parent,
+            bound_file_bytes=bound_file_bytes,
+        )
     except (MaterializationError, OSError) as exc:
         return [Issue("live_generation_unreadable", message=str(exc))], None
     for name in names:
@@ -2019,19 +2299,26 @@ def _resolve_generation_binding_current(
             evidence_root, live_path, generation, live_sha
         )
         try:
-            candidate_request_capture = _capture_bound_relative_regular(
-                repository_root, candidate_request_path
+            candidate_request_capture = _capture_resolved_relative_regular(
+                repository_root,
+                candidate_request_path,
+                bound_file_bytes,
+                require_committed_fallback,
             )
-            candidate_snapshot_capture = _capture_bound_relative_regular(
-                repository_root, candidate_snapshot_path
+            candidate_snapshot_capture = _capture_resolved_relative_regular(
+                repository_root,
+                candidate_snapshot_path,
+                bound_file_bytes,
+                require_committed_fallback,
             )
             candidate_request = _load_json_bytes_closed(
-                candidate_request_capture.file.data, candidate_request_path
+                _resolved_regular_data(candidate_request_capture),
+                candidate_request_path,
             )
         except (MaterializationError, ContractError, OSError):
             continue
         candidate_is_valid = (
-            candidate_snapshot_capture.file.data == live_bytes
+            _resolved_regular_data(candidate_snapshot_capture) == live_bytes
             and isinstance(candidate_request, Mapping)
             and candidate_request.get("record_kind") == "execution-ledger"
             and candidate_request.get("generation") == generation
@@ -2043,6 +2330,8 @@ def _resolve_generation_binding_current(
                 repository_root,
                 candidate_request_path,
                 candidate_snapshot_path,
+                bound_file_bytes=bound_file_bytes,
+                require_committed_fallback=require_committed_fallback,
             )
             _generation_validation_boundary(
                 "after_candidate_generation_validation"
@@ -2050,7 +2339,11 @@ def _resolve_generation_binding_current(
             if not candidate_generation_issues:
                 try:
                     ancestry = _resolve_request_bound_ancestor(
-                        repository_root, candidate_request, bound=binding
+                        repository_root,
+                        candidate_request,
+                        bound=binding,
+                        bound_file_bytes=bound_file_bytes,
+                        require_committed_fallback=require_committed_fallback,
                     )
                 except MaterializationError:
                     return [Issue("generation_binding_changed")], None
@@ -2064,7 +2357,12 @@ def _resolve_generation_binding_current(
             *ancestry.captures,
         )
         if any(
-            not _bound_relative_regular_matches(repository_root, capture)
+            not _resolved_relative_regular_matches(
+                repository_root,
+                capture,
+                bound_file_bytes,
+                require_committed_fallback,
+            )
             for capture in candidate_captures
         ):
             return [Issue("generation_binding_changed")], None
@@ -2079,7 +2377,12 @@ def _resolve_generation_binding_current(
         )
     _generation_validation_boundary("before_final_candidate_lineage_check")
     if any(
-        not _bound_relative_regular_matches(repository_root, capture)
+        not _resolved_relative_regular_matches(
+            repository_root,
+            capture,
+            bound_file_bytes,
+            require_committed_fallback,
+        )
         for candidate_request, candidate_snapshot, ancestry_captures in candidates
         for capture in (
             candidate_request,
@@ -2089,8 +2392,18 @@ def _resolve_generation_binding_current(
     ):
         return [Issue("generation_binding_changed")], None
     if (
-        not _bound_relative_regular_matches(repository_root, request_capture)
-        or not _bound_relative_regular_matches(repository_root, snapshot_capture)
+        not _resolved_relative_regular_matches(
+            repository_root,
+            request_capture,
+            bound_file_bytes,
+            require_committed_fallback,
+        )
+        or not _resolved_relative_regular_matches(
+            repository_root,
+            snapshot_capture,
+            bound_file_bytes,
+            require_committed_fallback,
+        )
     ):
         return [Issue("generation_binding_changed")], None
     if len(candidates) != 1:
@@ -2106,7 +2419,12 @@ def _resolve_generation_binding_current(
         ancestry_captures,
     ) = candidates[0]
     if any(
-        not _bound_relative_regular_matches(repository_root, capture)
+        not _resolved_relative_regular_matches(
+            repository_root,
+            capture,
+            bound_file_bytes,
+            require_committed_fallback,
+        )
         for capture in (
             request_capture,
             snapshot_capture,
@@ -2116,7 +2434,12 @@ def _resolve_generation_binding_current(
         )
     ):
         return [Issue("generation_binding_changed")], None
-    if not _bound_relative_regular_matches(repository_root, live_capture):
+    if not _resolved_relative_regular_matches(
+        repository_root,
+        live_capture,
+        bound_file_bytes,
+        require_committed_fallback,
+    ):
         return [Issue("live_generation_unreadable")], None
     return [], GenerationBindingResolution(
         bound_request=request_capture,
@@ -2132,11 +2455,17 @@ def validate_generation_binding_current(
     binding: Mapping[str, Any],
     *,
     allow_descendant: bool = True,
+    bound_file_bytes: Mapping[str, bytes] | None = None,
+    require_committed_fallback: bool = False,
 ) -> list[Issue]:
-    """Reopen a bound generation against its current canonical live descendant."""
+    """Reopen a generation through live state plus exact logical byte shadows."""
 
     issues, _resolution = _resolve_generation_binding_current(
-        repository_root, binding, allow_descendant=allow_descendant
+        repository_root,
+        binding,
+        allow_descendant=allow_descendant,
+        bound_file_bytes=bound_file_bytes,
+        require_committed_fallback=require_committed_fallback,
     )
     return issues
 

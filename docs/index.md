@@ -204,6 +204,16 @@ document owns the answer.
 **Keywords:** yaml, yml, retirement, current-selector, deletion-first, orc
 **Use this when:** Executing Stage 6 Task 6 under the [reviewed deletion execution plan](plans/2026-07-17-yaml-retirement-task-6-execution-plan.md), or checking the completed two-port handoff and still-pending deletion gates.
 
+### [YAML-Retirement Task 2 Commit-Lineage Restart Design](plans/2026-07-22-yaml-retirement-task-2-commit-lineage-restart-design.md)
+**Description:** Accepted corrective design for preserving an owner-adopted but uncommitted Task 2 attempt whose workspace predecessor was invalidated, restoring its tracked ledger, and restarting from a commit-aligned baseline without transferring the archived adoption.
+**Keywords:** yaml, retirement, task-2, incident, lineage, archive, restart
+**Use this when:** Reviewing the lifecycle-specific v2 archive/replay contract for the invalidated Task 2 attempt. It corrects that attempt only and does not alter YAML-retirement roadmap ordering.
+
+### [YAML-Retirement Task 2 Commit-Lineage Restart Implementation Plan](plans/2026-07-22-yaml-retirement-task-2-commit-lineage-restart-implementation-plan.md)
+**Description:** Active execution plan for reviewed implementation authority, exact incident/disposition capture, byte-preserving relocation, tracked-ledger restoration, and a fresh Task 2 attempt at the real HEAD.
+**Keywords:** yaml, retirement, task-2, implementation, evidence, restart
+**Use this when:** Executing or auditing the corrective recovery sequence for the owner-adopted uncommitted Task 2 attempt. It remains subordinate to the Stage-6 Task-6 plan and does not reorder the roadmap.
+
 ### [YAML-to-Workflow-Lisp Gap List](workflow_yaml_orc_gap_list.md)
 **Description:** Completed Stage-6 Task-1 contract reconciling the two `.orc` port queues and protected holdout into implemented mechanics, named fail-closed gates, and one YAML-only `drop`; specification PASS and quality APPROVED.
 **Keywords:** yaml, orc, retirement, gap-list, completed, provider-policy, parity

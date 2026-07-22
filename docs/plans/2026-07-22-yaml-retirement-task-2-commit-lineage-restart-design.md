@@ -131,6 +131,12 @@ Alternatives rejected:
   mutates unrelated history.
 - **Commit without the controller:** produces a boundary that cannot pass the
   roadmap's clone-reconstruction requirement.
+- **Persist a prior-validation proof:** replaces independent post-archive
+  validation with a historical assertion, while neither closed schema has a
+  role for such a proof. Making one authoritative would require a schema
+  revision; a proof of disposition validation cannot also be content-addressed
+  by that disposition without a digest cycle, while an incident-only proof
+  still would not revalidate the archived graph.
 
 The accepted tradeoff is two additional evidence schemas, one additional CLI
 operation, and one further personal-adoption boundary in exchange for
@@ -206,6 +212,35 @@ unchanged v1 validator. V2 reopens the incident, attestation, workspace
 baseline, reviews, Git objects, attempt rows, protected paths, and ledger
 lineage. Unknown versions fail closed.
 
+#### Post-archive logical evidence view
+
+After the v2 disposition structure, exact row set, and source/archive replay
+state validate, the validator derives one transient logical-path byte overlay
+from those disposition rows. Each mapped original path resolves to the exact
+row-bound source or archive bytes. In the completed post-state, mapped
+originals intentionally shadow live or restored bytes at the same logical
+path; in particular, the archived attempted ledger shadows the restored live
+ledger while the historical graph is checked. An unmapped path may use the
+ordinary live repository read only when it is a regular file in `HEAD` and its
+current bytes exactly equal that `HEAD` blob. A mapped path that is missing,
+ambiguous, or byte- or mode-inexact fails closed and may not fall back to live
+bytes.
+
+The overlay preserves the original logical paths recorded by the evidence; it
+does not rewrite bindings to physical archive paths and is never serialized.
+The owner-confirmed attestation, its pending snapshot, the known-failure
+baseline, broad outcome and raw broad evidence, ordered reviews, and
+materialization request/snapshot ancestry are all revalidated through this
+same logical view. Candidate identity, repository status, ancestry, and other
+Git-derived checks continue to inspect the real repository. They retain only
+the already-defined exact historical candidate-drift tolerance; the overlay
+does not introduce a general historical-error allowlist.
+
+This correction adds no proof artifact and changes neither
+`attempt_migration_incident.v1` nor `attempt_migration_disposition.v2`. The
+content-addressed disposition rows are the byte authority, while ordinary deep
+validation remains the semantic authority before and after relocation.
+
 ### Apply, replay, and postvalidation
 
 Apply remains gated on an exact disposition and distinct ordered reviews that
@@ -250,8 +285,10 @@ operational migration authority only.
 7. Apply, postvalidate, review, and commit the archived result.
 8. Restart Task 2 at Step 1 and continue the governing roadmap.
 
-The seven pre-existing protected paths remain outside every allowed mutation
-set. The intervening ordinary commit remains intact.
+The seven pre-existing protected paths and the later-observed ambient report
+`docs/reports/2026-07-22-compelling-example-search-and-effectiveness-doubts.md`
+remain outside every allowed mutation set. The intervening ordinary commit
+remains intact.
 
 ## Invariants And Failure Modes
 
@@ -309,6 +346,11 @@ It creates new immutable generations and reviews under the governing plan.
   false completion-commit claim, incident tamper, ancestry mismatch, extra or
   missing intervening commit/path, fully covered predecessor paths, and
   cross-version field substitution.
+- Prove post-archive deep validation rejects a coherently rebound nested broad
+  evidence defect even when its enclosing row and record digests are internally
+  consistent.
+- Prove the logical view rejects missing, swapped, duplicate, or noncontiguous
+  materialization request/snapshot slots and lineage.
 - Retain both-direction source/archive coverage and ledger restoration tests.
 - Run the retirement evidence/source-binding suites and the repository broad
   suite with the accepted known external failures compared, not repaired.
@@ -350,7 +392,7 @@ remains authoritative.
 - Three ordered review pairs approve the implementation subject, exact
   disposition, and exact post-move subject respectively.
 - Relocation and replay validate byte-for-byte.
-- The live ledger equals committed generation 5 and all seven protected paths
+- The live ledger equals committed generation 5 and all eight protected paths
   remain unchanged.
 - A fresh Task 2 attempt begins from a workspace baseline captured at its real
   HEAD and uses none of the archived attempt as adoption or completion proof.
