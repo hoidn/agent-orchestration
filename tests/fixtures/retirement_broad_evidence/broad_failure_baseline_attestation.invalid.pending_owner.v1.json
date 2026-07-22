@@ -1,0 +1,84 @@
+{
+  "baseline_binding": {
+    "candidate_path_set_sha256": "sha256:ea7c60d668fc7bf3bc5523d0eb8c8d0101492bd66001e110b476d478cef6a1fa",
+    "path": "broad_known_failure_baseline.v1.json",
+    "schema_version": "broad_known_failure_baseline.v1",
+    "sha256": "sha256:306cca8a1eae9b1726c9f8570d89d00d0ff9f3e1c26c3ae05fb727711f0d162a"
+  },
+  "claims_not_made": [
+    "example only"
+  ],
+  "classification_summary": {
+    "external": 0,
+    "queue_owned": 1
+  },
+  "evidence_status": "pending_owner_confirmation",
+  "failure_set_binding": {
+    "failure_count": 1,
+    "normalized_failure_set_sha256": "sha256:69b54d9977890a2a1d756464cd8dc393719300352b52d3ccc9538ea36abc424a"
+  },
+  "normalization_binding": {
+    "normalized_contract_sha256": "sha256:bb49d01135910f732b2358ba15b901aab1f8d54f1ebe7568a67256c4d9851cee",
+    "schema_version": "broad_failure_payload_normalization.v1"
+  },
+  "owner": {
+    "identity": "not-adopted"
+  },
+  "owner_adoption": null,
+  "owner_confirmations": {
+    "classification_partition_confirmed": false,
+    "comparison_only_confirmed": false,
+    "confirmed_at": null,
+    "exact_failure_table_confirmed": false,
+    "no_out_of_scope_repair_confirmed": false,
+    "normalization_contract_confirmed": false,
+    "reviews_confirmed": false
+  },
+  "prepared_at": "2026-01-01T00:00:00+00:00",
+  "prepared_by": {
+    "identity": "fixture"
+  },
+  "quality_review_binding": {
+    "claims_not_made": [
+      "example only"
+    ],
+    "immutable_path": "immutable-reviews/baseline-quality.json",
+    "logical_path": "reviews/baseline-quality.json",
+    "normalized_binding_sha256": "sha256:ca7c37b10c17147e61c1637fed193929dcdcbb9855afb33b764e8537e4f1319d",
+    "result": "approved",
+    "review_kind": "code_quality",
+    "reviewed_at": "2026-01-01T00:00:00+00:00",
+    "reviewer": {
+      "identity": "quality-fixture"
+    },
+    "schema_version": "review_binding.v1",
+    "sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "subject": {
+      "kind": "implementation_failure_baseline",
+      "path": "broad_known_failure_baseline.v1.json",
+      "sha256": "sha256:306cca8a1eae9b1726c9f8570d89d00d0ff9f3e1c26c3ae05fb727711f0d162a"
+    }
+  },
+  "schema_version": "broad_failure_baseline_attestation.v1",
+  "specification_review_binding": {
+    "claims_not_made": [
+      "example only"
+    ],
+    "immutable_path": "immutable-reviews/baseline-specification.json",
+    "logical_path": "reviews/baseline-specification.json",
+    "normalized_binding_sha256": "sha256:1a066fb46adf08124b434262e3f65a3e73318897a76748b3cb881432c680f9af",
+    "result": "approved",
+    "review_kind": "specification",
+    "reviewed_at": "2026-01-01T00:00:00+00:00",
+    "reviewer": {
+      "identity": "spec-fixture"
+    },
+    "schema_version": "review_binding.v1",
+    "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "subject": {
+      "kind": "implementation_failure_baseline",
+      "path": "broad_known_failure_baseline.v1.json",
+      "sha256": "sha256:306cca8a1eae9b1726c9f8570d89d00d0ff9f3e1c26c3ae05fb727711f0d162a"
+    }
+  }
+}

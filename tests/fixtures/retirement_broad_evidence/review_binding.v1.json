@@ -1,0 +1,21 @@
+{
+  "claims_not_made": [
+    "example only"
+  ],
+  "immutable_path": "immutable-reviews/example.json",
+  "logical_path": "reviews/example.json",
+  "normalized_binding_sha256": "sha256:dcb3a4653591c7d63f7cdd36abde13935dc9d774f2855ebede9b0d1cef67f322",
+  "result": "approved",
+  "review_kind": "specification",
+  "reviewed_at": "2026-01-01T00:00:00+00:00",
+  "reviewer": {
+    "identity": "fixture"
+  },
+  "schema_version": "review_binding.v1",
+  "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "subject": {
+    "kind": "broad_evidence_bootstrap",
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

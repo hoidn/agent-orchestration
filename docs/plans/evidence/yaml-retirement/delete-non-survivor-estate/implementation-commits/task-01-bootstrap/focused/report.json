@@ -1,0 +1,775 @@
+{
+  "candidate_binding": {
+    "candidate_path_set_sha256": "sha256:a7005119f4d0c8bcf084cc07892893d1229987b0d6b4dd53d581d4a073c89038",
+    "candidate_paths": [
+      {
+        "path": "orchestrator/retirement/__init__.py",
+        "sha256": "sha256:bea84c8051ba69b5817b740902868f2c8a5706ba6a4e8138c318745843203776",
+        "size": 1649,
+        "state": "added"
+      },
+      {
+        "path": "orchestrator/retirement/broad_evidence.py",
+        "sha256": "sha256:a6d795b6433187e97bb82aa963529d1dc9382ea7014bf8fcef660204619ef6b6",
+        "size": 302467,
+        "state": "added"
+      },
+      {
+        "path": "orchestrator/retirement/materialization.py",
+        "sha256": "sha256:027b23cf62e23095e732e20bf6f165c22c58ac1459029ccda9c54cb8a8a7e5f1",
+        "size": 87332,
+        "state": "added"
+      },
+      {
+        "path": "orchestrator/retirement/safe_io.py",
+        "sha256": "sha256:4386249d7eecfbeb40fac29830d47ae3aaac76c83458a5a8233a57c506585a3d",
+        "size": 27004,
+        "state": "added"
+      },
+      {
+        "path": "orchestrator/retirement/source_bindings.py",
+        "sha256": "sha256:139b8bffbc3c0e81ec1e63a4209d6620f277254c2a9289cbe6c38453586b4754",
+        "size": 144847,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/bootstrap_workspace_baseline.invalid.archive_persisted.v1.json",
+        "sha256": "sha256:003b88d71f701b788d8bd6fa15c7464eededa336f805df67a17155b1eb3824bb",
+        "size": 1603,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/bootstrap_workspace_baseline.v1.json",
+        "sha256": "sha256:44fa430aef4b07ebc9ca31f40611aaf1c0406d1f343c55f73e77a37ba992d113",
+        "size": 1602,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/broad_evidence_bootstrap_subject.v1.json",
+        "sha256": "sha256:53f9677d867a87b80182ea46cfecccde2d8b7704511b82a9c8d83d4720d2012b",
+        "size": 8023,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/broad_failure_baseline_attestation.confirmed.v1.json",
+        "sha256": "sha256:084c0c87852b2f2c9e5514a8c861e523f2a748792eb16c3fd53210b120780e23",
+        "size": 3757,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/broad_failure_baseline_attestation.invalid.pending_owner.v1.json",
+        "sha256": "sha256:19ddac6daf1a954d59e110ef08c6def0cf0fe817ef8e52a2b9c3b6c197c60257",
+        "size": 3110,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/broad_failure_baseline_attestation.pending.v1.json",
+        "sha256": "sha256:21a4f4ffb3887e17c4de4efc18035b39210a2a610ab8ac1f6f051c238f545f95",
+        "size": 3549,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/broad_failure_payload_normalization.invalid.order.v1.json",
+        "sha256": "sha256:bb4fbeb7c898eb712a92e24d7d4f0b60727b4f5b829558b6930d863bd7967262",
+        "size": 730,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/broad_failure_payload_normalization.v1.json",
+        "sha256": "sha256:757ff8c1bcf1e18c138edcf8a2bf170747b3995dc9421ea1a332e4bb5e81b054",
+        "size": 730,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/broad_failure_remediation.v1.json",
+        "sha256": "sha256:2a4b1bb12a53521370a8bb184590d378e80206b89cfd87efffd8278993eb0d7d",
+        "size": 2908,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/broad_known_failure_baseline.v1.json",
+        "sha256": "sha256:cf4e7cc799d788913466f4e6032722c3f5dd305a88862f0a17d2c8e69002e647",
+        "size": 5905,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/broad_outcome.exact_match.v1.json",
+        "sha256": "sha256:31a9569655aed53961c924cf5813a3c96fda1d8adae01105ad69a92daeab37c8",
+        "size": 10564,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/broad_outcome.invalid.digest.v1.json",
+        "sha256": "sha256:90552dd517fa68c6219d103d8858265877c0046322cd1b9285366a8692654206",
+        "size": 2026,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/broad_outcome.reviewed_subset.v1.json",
+        "sha256": "sha256:abeccdf26329af1fc77e9b0ddebfb883da4c5dc94405dbb1fe52f107a1569af7",
+        "size": 12407,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/broad_outcome.v1.json",
+        "sha256": "sha256:fccf04f28fa3df0846ee6791e29de46f1e3bb23db5f690f78013ada1e437b212",
+        "size": 7068,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/broad_skip_change.v1.json",
+        "sha256": "sha256:00ee167ec49d713985f3824462447e09353be995a3ab61769b8f4fe777f9b41f",
+        "size": 2332,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/execution_ledger.complete.v1.json",
+        "sha256": "sha256:eb30effcfe39291020c06942300c7a6f469cb53dc72c60de1aaefa7297757532",
+        "size": 4351,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/execution_ledger.in_progress.v1.json",
+        "sha256": "sha256:2922c18cb1f581cb6f1f33748553bf127b7dba4806b2e99fbb9bca53c03243a2",
+        "size": 4328,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/execution_ledger.initial.v1.json",
+        "sha256": "sha256:0d7c9ff1a26d5708f85b8496102f2d7f7f25db6bd5aecf3231123e0bdfb3136d",
+        "size": 4328,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/execution_ledger.invalid.unknown_key.v1.json",
+        "sha256": "sha256:bfde558280890b736ae1f8a63e6313f4b58a2a57bbaba3d9e6acdb0c5a76be99",
+        "size": 4350,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/implementation_focused_report.v1.json",
+        "sha256": "sha256:8aed14e39f3b7be5282447ef77cd15b65fb79a7e7c932e61c80bf0bfdc7d077f",
+        "size": 2850,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/implementation_verification_subject.v1.json",
+        "sha256": "sha256:2f607e1ff65f4f542dd0a49a9b022c19276569e3d1b6b1e30b151e3f7f072be7",
+        "size": 3040,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/manifest.v1.json",
+        "sha256": "sha256:4f3ad3ae2644db69379c73b6363e6b295f596ea58cfdf481f318a99f25f5e689",
+        "size": 11626,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/non_target_queue_sources.invalid.partition.v1.json",
+        "sha256": "sha256:2a2461b2a5151ccae188199d2a6578d998294370db998defb39f6c2062f623e9",
+        "size": 739,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/non_target_queue_sources.v1.json",
+        "sha256": "sha256:53112e8621676475261dadcab2911bb0986ce6ea224e81fbc6a7f5b8004d947d",
+        "size": 4792,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/precommit_control.invalid.digest.v1.json",
+        "sha256": "sha256:dfebf35cee802df88c9042386346dd58762a2da08b5d8f46b4bb6343dedbd6ac",
+        "size": 1714,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/precommit_control.v1.json",
+        "sha256": "sha256:ab806e3438dce84d7f6ff5e47b68742857b0f3205336ef95751ef31a04eea717",
+        "size": 2896,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/pytest_temp_root_preflight.v1.json",
+        "sha256": "sha256:da8936c989b40ac8e5e7b6c2250fe1a7505fd3e5957693d851c2c5d3b761a70c",
+        "size": 890,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/query.invalid.partition.v1.json",
+        "sha256": "sha256:2e5c06837e756f2fa65ecf78140eb62fb76b4d861a6e862c65198197ee1a5828",
+        "size": 603,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/query.v1.json",
+        "sha256": "sha256:d4b95f07510774f237083f0ce3f38a27dccd1083e50fa98165bb8dc7ccd74cef",
+        "size": 680,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/retirement_materialization_request.v1.json",
+        "sha256": "sha256:f47b1cb1770d1933625430b58ca1babf01732999cec7f807ec2cf1c8613cbe64",
+        "size": 5833,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/review.invalid.result.v1.json",
+        "sha256": "sha256:39b6ceb86239ddca7b21b7b420a7ad37698cd2683e81c574bb5f7af88e11d0ad",
+        "size": 423,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/review.v1.json",
+        "sha256": "sha256:006fcbd2fb12986518444e77ec21b6b06294171bdef356773522637a2ae2b7de",
+        "size": 426,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/review_binding.v1.json",
+        "sha256": "sha256:a3fd1c62caf8b16b0ebdd8e4167b1db856d61a937ae4c7261411bc0644f6dd72",
+        "size": 707,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/workspace_baseline.invalid.unknown_key.v1.json",
+        "sha256": "sha256:c54339195358cb87cd64b06c5f855014cba75371655effa9f4ce02a68ee73d29",
+        "size": 869,
+        "state": "added"
+      },
+      {
+        "path": "tests/fixtures/retirement_broad_evidence/workspace_baseline.v1.json",
+        "sha256": "sha256:75976d4752d556dc3ea4bcf22cc5514d62796fdc44f08562fa496461d36b4967",
+        "size": 847,
+        "state": "added"
+      },
+      {
+        "path": "tests/test_retirement_broad_evidence.py",
+        "sha256": "sha256:27e3c86d6aaac1ffabc5438bd7c720e530106a2f1760aa1e3ff71174971f1659",
+        "size": 375084,
+        "state": "added"
+      },
+      {
+        "path": "tests/test_retirement_source_bindings.py",
+        "sha256": "sha256:0cd4edd19ad6b3dd20320f4d4aac50a0924a81197ba664607c7a725e88ff478c",
+        "size": 121103,
+        "state": "added"
+      }
+    ],
+    "evidence_root_exclusion": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate",
+    "head": "a64eea53a8b1a34db6f4b02c7c9568668890b704",
+    "head_tree": "6d8f4b589f6a1fbd50ad4047054c443d9ff6c2ca",
+    "index_sha256": "sha256:9ff24c6afb778b3433ed6a84b65c15211348a5b4ff8c02f004a16e6282af940f"
+  },
+  "claims_not_made": [
+    "Focused verification does not claim a broad outcome or owner authorization."
+  ],
+  "command_count": 3,
+  "command_set_sha256": "sha256:9fa1171ee3addb5602824c15dcadf904d5a27bc5a3be031ed1c7ade6f6c88da7",
+  "commands": [
+    {
+      "argv": [
+        "pytest",
+        "--collect-only",
+        "-q",
+        "tests/test_retirement_broad_evidence.py",
+        "tests/test_retirement_source_bindings.py"
+      ],
+      "cwd": ".",
+      "environment": {
+        "LC_ALL": "C.UTF-8",
+        "PYTHONHASHSEED": "0"
+      },
+      "exit_binding": {
+        "path": "focused/exits/collect-bootstrap-focused.exit",
+        "sha256": "sha256:9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+      },
+      "finished_at": "2026-07-22T10:17:19.259641+00:00",
+      "input_bindings": [
+        {
+          "path": "orchestrator/retirement/__init__.py",
+          "sha256": "sha256:bea84c8051ba69b5817b740902868f2c8a5706ba6a4e8138c318745843203776"
+        },
+        {
+          "path": "orchestrator/retirement/broad_evidence.py",
+          "sha256": "sha256:a6d795b6433187e97bb82aa963529d1dc9382ea7014bf8fcef660204619ef6b6"
+        },
+        {
+          "path": "orchestrator/retirement/materialization.py",
+          "sha256": "sha256:027b23cf62e23095e732e20bf6f165c22c58ac1459029ccda9c54cb8a8a7e5f1"
+        },
+        {
+          "path": "orchestrator/retirement/safe_io.py",
+          "sha256": "sha256:4386249d7eecfbeb40fac29830d47ae3aaac76c83458a5a8233a57c506585a3d"
+        },
+        {
+          "path": "orchestrator/retirement/source_bindings.py",
+          "sha256": "sha256:139b8bffbc3c0e81ec1e63a4209d6620f277254c2a9289cbe6c38453586b4754"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/bootstrap_workspace_baseline.invalid.archive_persisted.v1.json",
+          "sha256": "sha256:003b88d71f701b788d8bd6fa15c7464eededa336f805df67a17155b1eb3824bb"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/bootstrap_workspace_baseline.v1.json",
+          "sha256": "sha256:44fa430aef4b07ebc9ca31f40611aaf1c0406d1f343c55f73e77a37ba992d113"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_evidence_bootstrap_subject.v1.json",
+          "sha256": "sha256:53f9677d867a87b80182ea46cfecccde2d8b7704511b82a9c8d83d4720d2012b"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_failure_baseline_attestation.confirmed.v1.json",
+          "sha256": "sha256:084c0c87852b2f2c9e5514a8c861e523f2a748792eb16c3fd53210b120780e23"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_failure_baseline_attestation.invalid.pending_owner.v1.json",
+          "sha256": "sha256:19ddac6daf1a954d59e110ef08c6def0cf0fe817ef8e52a2b9c3b6c197c60257"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_failure_baseline_attestation.pending.v1.json",
+          "sha256": "sha256:21a4f4ffb3887e17c4de4efc18035b39210a2a610ab8ac1f6f051c238f545f95"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_failure_payload_normalization.invalid.order.v1.json",
+          "sha256": "sha256:bb4fbeb7c898eb712a92e24d7d4f0b60727b4f5b829558b6930d863bd7967262"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_failure_payload_normalization.v1.json",
+          "sha256": "sha256:757ff8c1bcf1e18c138edcf8a2bf170747b3995dc9421ea1a332e4bb5e81b054"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_failure_remediation.v1.json",
+          "sha256": "sha256:2a4b1bb12a53521370a8bb184590d378e80206b89cfd87efffd8278993eb0d7d"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_known_failure_baseline.v1.json",
+          "sha256": "sha256:cf4e7cc799d788913466f4e6032722c3f5dd305a88862f0a17d2c8e69002e647"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_outcome.exact_match.v1.json",
+          "sha256": "sha256:31a9569655aed53961c924cf5813a3c96fda1d8adae01105ad69a92daeab37c8"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_outcome.invalid.digest.v1.json",
+          "sha256": "sha256:90552dd517fa68c6219d103d8858265877c0046322cd1b9285366a8692654206"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_outcome.reviewed_subset.v1.json",
+          "sha256": "sha256:abeccdf26329af1fc77e9b0ddebfb883da4c5dc94405dbb1fe52f107a1569af7"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_outcome.v1.json",
+          "sha256": "sha256:fccf04f28fa3df0846ee6791e29de46f1e3bb23db5f690f78013ada1e437b212"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_skip_change.v1.json",
+          "sha256": "sha256:00ee167ec49d713985f3824462447e09353be995a3ab61769b8f4fe777f9b41f"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/execution_ledger.complete.v1.json",
+          "sha256": "sha256:eb30effcfe39291020c06942300c7a6f469cb53dc72c60de1aaefa7297757532"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/execution_ledger.in_progress.v1.json",
+          "sha256": "sha256:2922c18cb1f581cb6f1f33748553bf127b7dba4806b2e99fbb9bca53c03243a2"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/execution_ledger.initial.v1.json",
+          "sha256": "sha256:0d7c9ff1a26d5708f85b8496102f2d7f7f25db6bd5aecf3231123e0bdfb3136d"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/execution_ledger.invalid.unknown_key.v1.json",
+          "sha256": "sha256:bfde558280890b736ae1f8a63e6313f4b58a2a57bbaba3d9e6acdb0c5a76be99"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/implementation_focused_report.v1.json",
+          "sha256": "sha256:8aed14e39f3b7be5282447ef77cd15b65fb79a7e7c932e61c80bf0bfdc7d077f"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/implementation_verification_subject.v1.json",
+          "sha256": "sha256:2f607e1ff65f4f542dd0a49a9b022c19276569e3d1b6b1e30b151e3f7f072be7"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/manifest.v1.json",
+          "sha256": "sha256:4f3ad3ae2644db69379c73b6363e6b295f596ea58cfdf481f318a99f25f5e689"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/non_target_queue_sources.invalid.partition.v1.json",
+          "sha256": "sha256:2a2461b2a5151ccae188199d2a6578d998294370db998defb39f6c2062f623e9"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/non_target_queue_sources.v1.json",
+          "sha256": "sha256:53112e8621676475261dadcab2911bb0986ce6ea224e81fbc6a7f5b8004d947d"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/precommit_control.invalid.digest.v1.json",
+          "sha256": "sha256:dfebf35cee802df88c9042386346dd58762a2da08b5d8f46b4bb6343dedbd6ac"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/precommit_control.v1.json",
+          "sha256": "sha256:ab806e3438dce84d7f6ff5e47b68742857b0f3205336ef95751ef31a04eea717"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/pytest_temp_root_preflight.v1.json",
+          "sha256": "sha256:da8936c989b40ac8e5e7b6c2250fe1a7505fd3e5957693d851c2c5d3b761a70c"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/query.invalid.partition.v1.json",
+          "sha256": "sha256:2e5c06837e756f2fa65ecf78140eb62fb76b4d861a6e862c65198197ee1a5828"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/query.v1.json",
+          "sha256": "sha256:d4b95f07510774f237083f0ce3f38a27dccd1083e50fa98165bb8dc7ccd74cef"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/retirement_materialization_request.v1.json",
+          "sha256": "sha256:f47b1cb1770d1933625430b58ca1babf01732999cec7f807ec2cf1c8613cbe64"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/review.invalid.result.v1.json",
+          "sha256": "sha256:39b6ceb86239ddca7b21b7b420a7ad37698cd2683e81c574bb5f7af88e11d0ad"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/review.v1.json",
+          "sha256": "sha256:006fcbd2fb12986518444e77ec21b6b06294171bdef356773522637a2ae2b7de"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/review_binding.v1.json",
+          "sha256": "sha256:a3fd1c62caf8b16b0ebdd8e4167b1db856d61a937ae4c7261411bc0644f6dd72"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/workspace_baseline.invalid.unknown_key.v1.json",
+          "sha256": "sha256:c54339195358cb87cd64b06c5f855014cba75371655effa9f4ce02a68ee73d29"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/workspace_baseline.v1.json",
+          "sha256": "sha256:75976d4752d556dc3ea4bcf22cc5514d62796fdc44f08562fa496461d36b4967"
+        },
+        {
+          "path": "tests/test_retirement_broad_evidence.py",
+          "sha256": "sha256:27e3c86d6aaac1ffabc5438bd7c720e530106a2f1760aa1e3ff71174971f1659"
+        },
+        {
+          "path": "tests/test_retirement_source_bindings.py",
+          "sha256": "sha256:0cd4edd19ad6b3dd20320f4d4aac50a0924a81197ba664607c7a725e88ff478c"
+        }
+      ],
+      "log_binding": {
+        "path": "focused/logs/collect-bootstrap-focused.log",
+        "sha256": "sha256:cf26acee86d25e3ad5f60aa7a6dce890e211bdb4a3bf2e2a50b736017cce1985"
+      },
+      "outcome": "passed",
+      "parsed_exit": 0,
+      "role_id": "collect-bootstrap-focused",
+      "started_at": "2026-07-22T10:17:18.952414+00:00"
+    },
+    {
+      "argv": [
+        "pytest",
+        "-q",
+        "tests/test_retirement_broad_evidence.py",
+        "tests/test_retirement_source_bindings.py"
+      ],
+      "cwd": ".",
+      "environment": {
+        "LC_ALL": "C.UTF-8",
+        "PYTHONHASHSEED": "0"
+      },
+      "exit_binding": {
+        "path": "focused/exits/test-bootstrap-focused.exit",
+        "sha256": "sha256:9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+      },
+      "finished_at": "2026-07-22T10:19:10.252769+00:00",
+      "input_bindings": [
+        {
+          "path": "orchestrator/retirement/__init__.py",
+          "sha256": "sha256:bea84c8051ba69b5817b740902868f2c8a5706ba6a4e8138c318745843203776"
+        },
+        {
+          "path": "orchestrator/retirement/broad_evidence.py",
+          "sha256": "sha256:a6d795b6433187e97bb82aa963529d1dc9382ea7014bf8fcef660204619ef6b6"
+        },
+        {
+          "path": "orchestrator/retirement/materialization.py",
+          "sha256": "sha256:027b23cf62e23095e732e20bf6f165c22c58ac1459029ccda9c54cb8a8a7e5f1"
+        },
+        {
+          "path": "orchestrator/retirement/safe_io.py",
+          "sha256": "sha256:4386249d7eecfbeb40fac29830d47ae3aaac76c83458a5a8233a57c506585a3d"
+        },
+        {
+          "path": "orchestrator/retirement/source_bindings.py",
+          "sha256": "sha256:139b8bffbc3c0e81ec1e63a4209d6620f277254c2a9289cbe6c38453586b4754"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/bootstrap_workspace_baseline.invalid.archive_persisted.v1.json",
+          "sha256": "sha256:003b88d71f701b788d8bd6fa15c7464eededa336f805df67a17155b1eb3824bb"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/bootstrap_workspace_baseline.v1.json",
+          "sha256": "sha256:44fa430aef4b07ebc9ca31f40611aaf1c0406d1f343c55f73e77a37ba992d113"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_evidence_bootstrap_subject.v1.json",
+          "sha256": "sha256:53f9677d867a87b80182ea46cfecccde2d8b7704511b82a9c8d83d4720d2012b"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_failure_baseline_attestation.confirmed.v1.json",
+          "sha256": "sha256:084c0c87852b2f2c9e5514a8c861e523f2a748792eb16c3fd53210b120780e23"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_failure_baseline_attestation.invalid.pending_owner.v1.json",
+          "sha256": "sha256:19ddac6daf1a954d59e110ef08c6def0cf0fe817ef8e52a2b9c3b6c197c60257"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_failure_baseline_attestation.pending.v1.json",
+          "sha256": "sha256:21a4f4ffb3887e17c4de4efc18035b39210a2a610ab8ac1f6f051c238f545f95"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_failure_payload_normalization.invalid.order.v1.json",
+          "sha256": "sha256:bb4fbeb7c898eb712a92e24d7d4f0b60727b4f5b829558b6930d863bd7967262"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_failure_payload_normalization.v1.json",
+          "sha256": "sha256:757ff8c1bcf1e18c138edcf8a2bf170747b3995dc9421ea1a332e4bb5e81b054"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_failure_remediation.v1.json",
+          "sha256": "sha256:2a4b1bb12a53521370a8bb184590d378e80206b89cfd87efffd8278993eb0d7d"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_known_failure_baseline.v1.json",
+          "sha256": "sha256:cf4e7cc799d788913466f4e6032722c3f5dd305a88862f0a17d2c8e69002e647"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_outcome.exact_match.v1.json",
+          "sha256": "sha256:31a9569655aed53961c924cf5813a3c96fda1d8adae01105ad69a92daeab37c8"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_outcome.invalid.digest.v1.json",
+          "sha256": "sha256:90552dd517fa68c6219d103d8858265877c0046322cd1b9285366a8692654206"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_outcome.reviewed_subset.v1.json",
+          "sha256": "sha256:abeccdf26329af1fc77e9b0ddebfb883da4c5dc94405dbb1fe52f107a1569af7"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_outcome.v1.json",
+          "sha256": "sha256:fccf04f28fa3df0846ee6791e29de46f1e3bb23db5f690f78013ada1e437b212"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/broad_skip_change.v1.json",
+          "sha256": "sha256:00ee167ec49d713985f3824462447e09353be995a3ab61769b8f4fe777f9b41f"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/execution_ledger.complete.v1.json",
+          "sha256": "sha256:eb30effcfe39291020c06942300c7a6f469cb53dc72c60de1aaefa7297757532"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/execution_ledger.in_progress.v1.json",
+          "sha256": "sha256:2922c18cb1f581cb6f1f33748553bf127b7dba4806b2e99fbb9bca53c03243a2"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/execution_ledger.initial.v1.json",
+          "sha256": "sha256:0d7c9ff1a26d5708f85b8496102f2d7f7f25db6bd5aecf3231123e0bdfb3136d"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/execution_ledger.invalid.unknown_key.v1.json",
+          "sha256": "sha256:bfde558280890b736ae1f8a63e6313f4b58a2a57bbaba3d9e6acdb0c5a76be99"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/implementation_focused_report.v1.json",
+          "sha256": "sha256:8aed14e39f3b7be5282447ef77cd15b65fb79a7e7c932e61c80bf0bfdc7d077f"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/implementation_verification_subject.v1.json",
+          "sha256": "sha256:2f607e1ff65f4f542dd0a49a9b022c19276569e3d1b6b1e30b151e3f7f072be7"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/manifest.v1.json",
+          "sha256": "sha256:4f3ad3ae2644db69379c73b6363e6b295f596ea58cfdf481f318a99f25f5e689"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/non_target_queue_sources.invalid.partition.v1.json",
+          "sha256": "sha256:2a2461b2a5151ccae188199d2a6578d998294370db998defb39f6c2062f623e9"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/non_target_queue_sources.v1.json",
+          "sha256": "sha256:53112e8621676475261dadcab2911bb0986ce6ea224e81fbc6a7f5b8004d947d"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/precommit_control.invalid.digest.v1.json",
+          "sha256": "sha256:dfebf35cee802df88c9042386346dd58762a2da08b5d8f46b4bb6343dedbd6ac"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/precommit_control.v1.json",
+          "sha256": "sha256:ab806e3438dce84d7f6ff5e47b68742857b0f3205336ef95751ef31a04eea717"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/pytest_temp_root_preflight.v1.json",
+          "sha256": "sha256:da8936c989b40ac8e5e7b6c2250fe1a7505fd3e5957693d851c2c5d3b761a70c"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/query.invalid.partition.v1.json",
+          "sha256": "sha256:2e5c06837e756f2fa65ecf78140eb62fb76b4d861a6e862c65198197ee1a5828"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/query.v1.json",
+          "sha256": "sha256:d4b95f07510774f237083f0ce3f38a27dccd1083e50fa98165bb8dc7ccd74cef"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/retirement_materialization_request.v1.json",
+          "sha256": "sha256:f47b1cb1770d1933625430b58ca1babf01732999cec7f807ec2cf1c8613cbe64"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/review.invalid.result.v1.json",
+          "sha256": "sha256:39b6ceb86239ddca7b21b7b420a7ad37698cd2683e81c574bb5f7af88e11d0ad"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/review.v1.json",
+          "sha256": "sha256:006fcbd2fb12986518444e77ec21b6b06294171bdef356773522637a2ae2b7de"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/review_binding.v1.json",
+          "sha256": "sha256:a3fd1c62caf8b16b0ebdd8e4167b1db856d61a937ae4c7261411bc0644f6dd72"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/workspace_baseline.invalid.unknown_key.v1.json",
+          "sha256": "sha256:c54339195358cb87cd64b06c5f855014cba75371655effa9f4ce02a68ee73d29"
+        },
+        {
+          "path": "tests/fixtures/retirement_broad_evidence/workspace_baseline.v1.json",
+          "sha256": "sha256:75976d4752d556dc3ea4bcf22cc5514d62796fdc44f08562fa496461d36b4967"
+        },
+        {
+          "path": "tests/test_retirement_broad_evidence.py",
+          "sha256": "sha256:27e3c86d6aaac1ffabc5438bd7c720e530106a2f1760aa1e3ff71174971f1659"
+        },
+        {
+          "path": "tests/test_retirement_source_bindings.py",
+          "sha256": "sha256:0cd4edd19ad6b3dd20320f4d4aac50a0924a81197ba664607c7a725e88ff478c"
+        }
+      ],
+      "log_binding": {
+        "path": "focused/logs/test-bootstrap-focused.log",
+        "sha256": "sha256:627e6bab29837ea8a0fc84a22254d67cf4f93e780d458193e62752fdbe074bbc"
+      },
+      "outcome": "passed",
+      "parsed_exit": 0,
+      "role_id": "test-bootstrap-focused",
+      "started_at": "2026-07-22T10:17:19.979949+00:00"
+    },
+    {
+      "argv": [
+        "python",
+        "-m",
+        "compileall",
+        "orchestrator/retirement"
+      ],
+      "cwd": ".",
+      "environment": {
+        "LC_ALL": "C.UTF-8",
+        "PYTHONHASHSEED": "0"
+      },
+      "exit_binding": {
+        "path": "focused/exits/compile-bootstrap.exit",
+        "sha256": "sha256:9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+      },
+      "finished_at": "2026-07-22T10:19:11.002705+00:00",
+      "input_bindings": [
+        {
+          "path": "orchestrator/retirement/__init__.py",
+          "sha256": "sha256:bea84c8051ba69b5817b740902868f2c8a5706ba6a4e8138c318745843203776"
+        },
+        {
+          "path": "orchestrator/retirement/broad_evidence.py",
+          "sha256": "sha256:a6d795b6433187e97bb82aa963529d1dc9382ea7014bf8fcef660204619ef6b6"
+        },
+        {
+          "path": "orchestrator/retirement/materialization.py",
+          "sha256": "sha256:027b23cf62e23095e732e20bf6f165c22c58ac1459029ccda9c54cb8a8a7e5f1"
+        },
+        {
+          "path": "orchestrator/retirement/safe_io.py",
+          "sha256": "sha256:4386249d7eecfbeb40fac29830d47ae3aaac76c83458a5a8233a57c506585a3d"
+        },
+        {
+          "path": "orchestrator/retirement/source_bindings.py",
+          "sha256": "sha256:139b8bffbc3c0e81ec1e63a4209d6620f277254c2a9289cbe6c38453586b4754"
+        }
+      ],
+      "log_binding": {
+        "path": "focused/logs/compile-bootstrap.log",
+        "sha256": "sha256:5b5ec9f6ef7efc78ed81de6803459bccbbe1c312715a440018871ca532e82ec4"
+      },
+      "outcome": "passed",
+      "parsed_exit": 0,
+      "role_id": "compile-bootstrap",
+      "started_at": "2026-07-22T10:19:10.979020+00:00"
+    }
+  ],
+  "execution_ledger_binding": {
+    "byte_sha256": "sha256:0642604c613fe1270ff1b7226c76f212381c140376a9f54a4899778cbc7a1c03",
+    "generation": 4,
+    "live_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/execution-ledger.json",
+    "request_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/materialization-inputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000004-0ac9abb61e6ca925c2e54557ec5bc25694c5329749f80f8d4b281a6de010b126.json",
+    "request_sha256": "sha256:1461b5f70ae212be32944b8ba84afd02ba4f2a58856ab9e3fa8553b9b4dd064c",
+    "schema_version": "workflow_retirement_execution_ledger.v1",
+    "snapshot_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/immutable-outputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000004-0642604c613fe1270ff1b7226c76f212381c140376a9f54a4899778cbc7a1c03.json",
+    "snapshot_sha256": "sha256:0642604c613fe1270ff1b7226c76f212381c140376a9f54a4899778cbc7a1c03"
+  },
+  "normalized_report_sha256": "sha256:0e056287affea331e93a2e3f7961b1e00e7917e5afbd2cacaa8d556bfffb9e6c",
+  "outcome": "passed",
+  "required_commands": [
+    {
+      "argv": [
+        "pytest",
+        "--collect-only",
+        "-q",
+        "tests/test_retirement_broad_evidence.py",
+        "tests/test_retirement_source_bindings.py"
+      ],
+      "cwd": ".",
+      "environment": {
+        "LC_ALL": "C.UTF-8",
+        "PYTHONHASHSEED": "0"
+      },
+      "role_id": "collect-bootstrap-focused"
+    },
+    {
+      "argv": [
+        "pytest",
+        "-q",
+        "tests/test_retirement_broad_evidence.py",
+        "tests/test_retirement_source_bindings.py"
+      ],
+      "cwd": ".",
+      "environment": {
+        "LC_ALL": "C.UTF-8",
+        "PYTHONHASHSEED": "0"
+      },
+      "role_id": "test-bootstrap-focused"
+    },
+    {
+      "argv": [
+        "python",
+        "-m",
+        "compileall",
+        "orchestrator/retirement"
+      ],
+      "cwd": ".",
+      "environment": {
+        "LC_ALL": "C.UTF-8",
+        "PYTHONHASHSEED": "0"
+      },
+      "role_id": "compile-bootstrap"
+    }
+  ],
+  "schema_version": "implementation_focused_report.v1",
+  "task_contract_binding": {
+    "plan_path": "docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md",
+    "plan_sha256": "sha256:20096b44d03017780394a6789c39705912da1909847ab3460a312c65dcb066fb",
+    "required_command_set_sha256": "sha256:9fa1171ee3addb5602824c15dcadf904d5a27bc5a3be031ed1c7ade6f6c88da7",
+    "task_number": 1
+  }
+}

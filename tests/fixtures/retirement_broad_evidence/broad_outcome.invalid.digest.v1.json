@@ -1,0 +1,58 @@
+{
+  "approved_remediation_bindings": [],
+  "approved_skip_change_bindings": [],
+  "baseline_comparison": null,
+  "candidate_binding": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "claims_not_made": [
+    "example only"
+  ],
+  "collected_node_ids": [],
+  "collection": {},
+  "command": {},
+  "environment": {},
+  "execution_ledger_binding": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "exit_result": {},
+  "failure_normalization": {
+    "normalized_contract_sha256": "sha256:bb49d01135910f732b2358ba15b901aab1f8d54f1ebe7568a67256c4d9851cee",
+    "ordered_transforms": [
+      "crlf_to_lf.v1",
+      "strip_ansi_csi.v1",
+      "repository_prefix.v1",
+      "pytest_managed_run_prefix.v1"
+    ],
+    "pytest_root_component": "ci.user+gpu",
+    "pytest_session_parent": "/tmp/pytest-of-ci.user+gpu",
+    "pytest_temp_prefix_rule": "exact_pytest_managed_run_prefix.v1",
+    "pytest_temp_root_preflight_binding": {
+      "path": "example.json",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "pytest_version": "8.4.1",
+    "repository_root": "/repo",
+    "schema_version": "broad_failure_payload_normalization.v1",
+    "system_temp_root": "/tmp"
+  },
+  "junit_report": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "known_failure_baseline_binding": null,
+  "normalized_outcome_sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "outcomes": {},
+  "pytest_temp_root_preflight": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "rs_log": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "run_root_snapshots": [],
+  "schema_version": "broad_outcome.v1"
+}

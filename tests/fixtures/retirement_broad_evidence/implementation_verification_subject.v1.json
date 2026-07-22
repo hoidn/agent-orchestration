@@ -1,0 +1,79 @@
+{
+  "broad_outcome_binding": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "candidate_binding": {
+    "candidate_path_set_sha256": "sha256:ea7c60d668fc7bf3bc5523d0eb8c8d0101492bd66001e110b476d478cef6a1fa",
+    "candidate_paths": [
+      {
+        "path": "source.py",
+        "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "size": 1,
+        "state": "added"
+      }
+    ],
+    "evidence_root_exclusion": "evidence",
+    "head": "1111111111111111111111111111111111111111",
+    "head_tree": "2222222222222222222222222222222222222222",
+    "index_sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "candidate_path_manifest": [
+    {
+      "path": "example.json",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0,
+      "state": "added"
+    },
+    {
+      "path": "execution-ledger.json",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0,
+      "state": "added"
+    },
+    {
+      "path": "immutable-outputs/snapshot.json",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0,
+      "state": "added"
+    },
+    {
+      "path": "materialization-inputs/request.json",
+      "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "size": 0,
+      "state": "added"
+    },
+    {
+      "path": "source.py",
+      "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "size": 1,
+      "state": "added"
+    }
+  ],
+  "claims_not_made": [
+    "example only"
+  ],
+  "execution_ledger_binding": {
+    "byte_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "generation": 1,
+    "live_path": "execution-ledger.json",
+    "request_path": "materialization-inputs/request.json",
+    "request_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "schema_version": "workflow_retirement_execution_ledger.v1",
+    "snapshot_path": "immutable-outputs/snapshot.json",
+    "snapshot_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "focused_report_binding": {
+    "normalized_report_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "normalized_subject_sha256": "sha256:4c9c3faaaedcf07d3b70cf6df4604cb753126e433951f8b9c41503ddaedb0ee8",
+  "schema_version": "implementation_verification_subject.v1",
+  "task_contract_binding": {
+    "plan_path": "plan.md",
+    "plan_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "required_command_set_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "task_number": 3
+  }
+}

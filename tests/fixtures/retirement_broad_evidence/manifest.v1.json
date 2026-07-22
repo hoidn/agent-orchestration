@@ -1,0 +1,250 @@
+{
+  "claims_not_made": [
+    "Contract fixtures are not repository evidence or owner adoption."
+  ],
+  "fixture_count": 34,
+  "fixture_root": "tests/fixtures/retirement_broad_evidence",
+  "normalized_path_set_sha256": "sha256:134ec1f7d49e9ba163fb80e07429b972c965951be5a6fbd1ec93d3744c8199e4",
+  "normalized_row_set_sha256": "sha256:d82402319bf8d3fb10054adef08d2f726ec86a29d6acb5aba66fc05164c51529",
+  "rows": [
+    {
+      "expected_validation": "rejected",
+      "file_sha256": "sha256:003b88d71f701b788d8bd6fa15c7464eededa336f805df67a17155b1eb3824bb",
+      "lifecycle_role": "negative_bootstrap_workspace_baseline_invalid_archive_persisted_v1",
+      "path": "bootstrap_workspace_baseline.invalid.archive_persisted.v1.json",
+      "schema_version": "bootstrap_workspace_baseline.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:44fa430aef4b07ebc9ca31f40611aaf1c0406d1f343c55f73e77a37ba992d113",
+      "lifecycle_role": "canonical_bootstrap_workspace_baseline_v1",
+      "path": "bootstrap_workspace_baseline.v1.json",
+      "schema_version": "bootstrap_workspace_baseline.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:53f9677d867a87b80182ea46cfecccde2d8b7704511b82a9c8d83d4720d2012b",
+      "lifecycle_role": "canonical_broad_evidence_bootstrap_subject_v1",
+      "path": "broad_evidence_bootstrap_subject.v1.json",
+      "schema_version": "broad_evidence_bootstrap_subject.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:084c0c87852b2f2c9e5514a8c861e523f2a748792eb16c3fd53210b120780e23",
+      "lifecycle_role": "canonical_broad_failure_baseline_attestation_confirmed_v1",
+      "path": "broad_failure_baseline_attestation.confirmed.v1.json",
+      "schema_version": "broad_failure_baseline_attestation.v1"
+    },
+    {
+      "expected_validation": "rejected",
+      "file_sha256": "sha256:19ddac6daf1a954d59e110ef08c6def0cf0fe817ef8e52a2b9c3b6c197c60257",
+      "lifecycle_role": "negative_broad_failure_baseline_attestation_invalid_pending_owner_v1",
+      "path": "broad_failure_baseline_attestation.invalid.pending_owner.v1.json",
+      "schema_version": "broad_failure_baseline_attestation.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:21a4f4ffb3887e17c4de4efc18035b39210a2a610ab8ac1f6f051c238f545f95",
+      "lifecycle_role": "canonical_broad_failure_baseline_attestation_pending_v1",
+      "path": "broad_failure_baseline_attestation.pending.v1.json",
+      "schema_version": "broad_failure_baseline_attestation.v1"
+    },
+    {
+      "expected_validation": "rejected",
+      "file_sha256": "sha256:bb4fbeb7c898eb712a92e24d7d4f0b60727b4f5b829558b6930d863bd7967262",
+      "lifecycle_role": "negative_broad_failure_payload_normalization_invalid_order_v1",
+      "path": "broad_failure_payload_normalization.invalid.order.v1.json",
+      "schema_version": "broad_failure_payload_normalization.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:757ff8c1bcf1e18c138edcf8a2bf170747b3995dc9421ea1a332e4bb5e81b054",
+      "lifecycle_role": "canonical_broad_failure_payload_normalization_v1",
+      "path": "broad_failure_payload_normalization.v1.json",
+      "schema_version": "broad_failure_payload_normalization.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:2a4b1bb12a53521370a8bb184590d378e80206b89cfd87efffd8278993eb0d7d",
+      "lifecycle_role": "canonical_broad_failure_remediation_v1",
+      "path": "broad_failure_remediation.v1.json",
+      "schema_version": "broad_failure_remediation.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:cf4e7cc799d788913466f4e6032722c3f5dd305a88862f0a17d2c8e69002e647",
+      "lifecycle_role": "canonical_broad_known_failure_baseline_v1",
+      "path": "broad_known_failure_baseline.v1.json",
+      "schema_version": "broad_known_failure_baseline.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:31a9569655aed53961c924cf5813a3c96fda1d8adae01105ad69a92daeab37c8",
+      "lifecycle_role": "canonical_broad_outcome_exact_match_v1",
+      "path": "broad_outcome.exact_match.v1.json",
+      "schema_version": "broad_outcome.v1"
+    },
+    {
+      "expected_validation": "rejected",
+      "file_sha256": "sha256:90552dd517fa68c6219d103d8858265877c0046322cd1b9285366a8692654206",
+      "lifecycle_role": "negative_broad_outcome_invalid_digest_v1",
+      "path": "broad_outcome.invalid.digest.v1.json",
+      "schema_version": "broad_outcome.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:abeccdf26329af1fc77e9b0ddebfb883da4c5dc94405dbb1fe52f107a1569af7",
+      "lifecycle_role": "canonical_broad_outcome_reviewed_subset_v1",
+      "path": "broad_outcome.reviewed_subset.v1.json",
+      "schema_version": "broad_outcome.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:fccf04f28fa3df0846ee6791e29de46f1e3bb23db5f690f78013ada1e437b212",
+      "lifecycle_role": "canonical_broad_outcome_v1",
+      "path": "broad_outcome.v1.json",
+      "schema_version": "broad_outcome.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:00ee167ec49d713985f3824462447e09353be995a3ab61769b8f4fe777f9b41f",
+      "lifecycle_role": "canonical_broad_skip_change_v1",
+      "path": "broad_skip_change.v1.json",
+      "schema_version": "broad_skip_change.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:eb30effcfe39291020c06942300c7a6f469cb53dc72c60de1aaefa7297757532",
+      "lifecycle_role": "canonical_execution_ledger_complete_v1",
+      "path": "execution_ledger.complete.v1.json",
+      "schema_version": "workflow_retirement_execution_ledger.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:2922c18cb1f581cb6f1f33748553bf127b7dba4806b2e99fbb9bca53c03243a2",
+      "lifecycle_role": "canonical_execution_ledger_in_progress_v1",
+      "path": "execution_ledger.in_progress.v1.json",
+      "schema_version": "workflow_retirement_execution_ledger.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:0d7c9ff1a26d5708f85b8496102f2d7f7f25db6bd5aecf3231123e0bdfb3136d",
+      "lifecycle_role": "canonical_execution_ledger_initial_v1",
+      "path": "execution_ledger.initial.v1.json",
+      "schema_version": "workflow_retirement_execution_ledger.v1"
+    },
+    {
+      "expected_validation": "rejected",
+      "file_sha256": "sha256:bfde558280890b736ae1f8a63e6313f4b58a2a57bbaba3d9e6acdb0c5a76be99",
+      "lifecycle_role": "negative_execution_ledger_invalid_unknown_key_v1",
+      "path": "execution_ledger.invalid.unknown_key.v1.json",
+      "schema_version": "workflow_retirement_execution_ledger.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:8aed14e39f3b7be5282447ef77cd15b65fb79a7e7c932e61c80bf0bfdc7d077f",
+      "lifecycle_role": "canonical_implementation_focused_report_v1",
+      "path": "implementation_focused_report.v1.json",
+      "schema_version": "implementation_focused_report.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:2f607e1ff65f4f542dd0a49a9b022c19276569e3d1b6b1e30b151e3f7f072be7",
+      "lifecycle_role": "canonical_implementation_verification_subject_v1",
+      "path": "implementation_verification_subject.v1.json",
+      "schema_version": "implementation_verification_subject.v1"
+    },
+    {
+      "expected_validation": "rejected",
+      "file_sha256": "sha256:2a2461b2a5151ccae188199d2a6578d998294370db998defb39f6c2062f623e9",
+      "lifecycle_role": "negative_non_target_queue_sources_invalid_partition_v1",
+      "path": "non_target_queue_sources.invalid.partition.v1.json",
+      "schema_version": "non_target_queue_sources.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:53112e8621676475261dadcab2911bb0986ce6ea224e81fbc6a7f5b8004d947d",
+      "lifecycle_role": "canonical_non_target_queue_sources_v1",
+      "path": "non_target_queue_sources.v1.json",
+      "schema_version": "non_target_queue_sources.v1"
+    },
+    {
+      "expected_validation": "rejected",
+      "file_sha256": "sha256:dfebf35cee802df88c9042386346dd58762a2da08b5d8f46b4bb6343dedbd6ac",
+      "lifecycle_role": "negative_precommit_control_invalid_digest_v1",
+      "path": "precommit_control.invalid.digest.v1.json",
+      "schema_version": "precommit_control.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:ab806e3438dce84d7f6ff5e47b68742857b0f3205336ef95751ef31a04eea717",
+      "lifecycle_role": "canonical_precommit_control_v1",
+      "path": "precommit_control.v1.json",
+      "schema_version": "precommit_control.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:da8936c989b40ac8e5e7b6c2250fe1a7505fd3e5957693d851c2c5d3b761a70c",
+      "lifecycle_role": "canonical_pytest_temp_root_preflight_v1",
+      "path": "pytest_temp_root_preflight.v1.json",
+      "schema_version": "pytest_temp_root_preflight.v1"
+    },
+    {
+      "expected_validation": "rejected",
+      "file_sha256": "sha256:2e5c06837e756f2fa65ecf78140eb62fb76b4d861a6e862c65198197ee1a5828",
+      "lifecycle_role": "negative_query_invalid_partition_v1",
+      "path": "query.invalid.partition.v1.json",
+      "schema_version": "query.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:d4b95f07510774f237083f0ce3f38a27dccd1083e50fa98165bb8dc7ccd74cef",
+      "lifecycle_role": "canonical_query_v1",
+      "path": "query.v1.json",
+      "schema_version": "query.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:f47b1cb1770d1933625430b58ca1babf01732999cec7f807ec2cf1c8613cbe64",
+      "lifecycle_role": "canonical_retirement_materialization_request_v1",
+      "path": "retirement_materialization_request.v1.json",
+      "schema_version": "retirement_materialization_request.v1"
+    },
+    {
+      "expected_validation": "rejected",
+      "file_sha256": "sha256:39b6ceb86239ddca7b21b7b420a7ad37698cd2683e81c574bb5f7af88e11d0ad",
+      "lifecycle_role": "negative_review_invalid_result_v1",
+      "path": "review.invalid.result.v1.json",
+      "schema_version": "review.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:006fcbd2fb12986518444e77ec21b6b06294171bdef356773522637a2ae2b7de",
+      "lifecycle_role": "canonical_review_v1",
+      "path": "review.v1.json",
+      "schema_version": "review.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:a3fd1c62caf8b16b0ebdd8e4167b1db856d61a937ae4c7261411bc0644f6dd72",
+      "lifecycle_role": "canonical_review_binding_v1",
+      "path": "review_binding.v1.json",
+      "schema_version": "review_binding.v1"
+    },
+    {
+      "expected_validation": "rejected",
+      "file_sha256": "sha256:c54339195358cb87cd64b06c5f855014cba75371655effa9f4ce02a68ee73d29",
+      "lifecycle_role": "negative_workspace_baseline_invalid_unknown_key_v1",
+      "path": "workspace_baseline.invalid.unknown_key.v1.json",
+      "schema_version": "workspace_baseline.v1"
+    },
+    {
+      "expected_validation": "accepted",
+      "file_sha256": "sha256:75976d4752d556dc3ea4bcf22cc5514d62796fdc44f08562fa496461d36b4967",
+      "lifecycle_role": "canonical_workspace_baseline_v1",
+      "path": "workspace_baseline.v1.json",
+      "schema_version": "workspace_baseline.v1"
+    }
+  ],
+  "schema_version": "retirement_fixture_manifest.v1"
+}

@@ -1,0 +1,223 @@
+{
+  "bootstrap_workspace_baseline_binding": {
+    "archive_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "dirty_entry_count": 0,
+    "dirty_entry_set_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "dirty_path_set_sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "head": "1111111111111111111111111111111111111111",
+    "index_entries_file_sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "index_entry_count": 1,
+    "index_entry_set_sha256": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+    "index_file_sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+    "index_sha256": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+    "normalized_baseline_sha256": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "status_file_sha256": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+  },
+  "candidate_binding": {
+    "candidate_path_set_sha256": "sha256:ea7c60d668fc7bf3bc5523d0eb8c8d0101492bd66001e110b476d478cef6a1fa",
+    "candidate_paths": [
+      {
+        "path": "source.py",
+        "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "size": 1,
+        "state": "added"
+      }
+    ],
+    "evidence_root_exclusion": "evidence",
+    "head": "1111111111111111111111111111111111111111",
+    "head_tree": "2222222222222222222222222222222222222222",
+    "index_sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "candidate_path_manifest": [
+    {
+      "path": "collect.exit",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0,
+      "state": "added"
+    },
+    {
+      "path": "collect.log",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0,
+      "state": "added"
+    },
+    {
+      "path": "collected-node-ids.txt",
+      "sha256": "sha256:4c7690897a38bd1a9c4c690505a09f965e03124e1aa27b0ea19365091df2c091",
+      "size": 222,
+      "state": "added"
+    },
+    {
+      "path": "example.json",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0,
+      "state": "added"
+    },
+    {
+      "path": "execution-ledger.json",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0,
+      "state": "added"
+    },
+    {
+      "path": "immutable-outputs/snapshot.json",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0,
+      "state": "added"
+    },
+    {
+      "path": "materialization-inputs/request.json",
+      "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "size": 0,
+      "state": "added"
+    },
+    {
+      "path": "preflight.json",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0,
+      "state": "added"
+    },
+    {
+      "path": "pytest.exit",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0,
+      "state": "added"
+    },
+    {
+      "path": "pytest.log",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0,
+      "state": "added"
+    },
+    {
+      "path": "pytest.xml",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0,
+      "state": "added"
+    },
+    {
+      "path": "source.py",
+      "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "size": 1,
+      "state": "added"
+    }
+  ],
+  "claims_not_made": [
+    "Synthetic fixture only; this subject is not repository evidence."
+  ],
+  "collection_binding": {
+    "argv": [
+      "pytest",
+      "--collect-only",
+      "-q"
+    ],
+    "cwd": ".",
+    "environment": {
+      "LC_ALL": "C.UTF-8",
+      "PYTEST_DEBUG_TEMPROOT": "/tmp",
+      "PYTHONHASHSEED": "0"
+    },
+    "exit_binding": {
+      "path": "collect.exit",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0
+    },
+    "log_binding": {
+      "path": "collect.log",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0
+    },
+    "node_id_count": 6,
+    "node_id_list_sha256": "sha256:f98ee4df0d888caff9f02c38b3d4daa9ce3f9f3bbdf2cd554bdf59a7de3681a8",
+    "node_ids_binding": {
+      "path": "collected-node-ids.txt",
+      "sha256": "sha256:4c7690897a38bd1a9c4c690505a09f965e03124e1aa27b0ea19365091df2c091",
+      "size": 222
+    },
+    "parsed_exit": 0
+  },
+  "execution_ledger_binding": {
+    "byte_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "generation": 1,
+    "live_path": "execution-ledger.json",
+    "request_path": "materialization-inputs/request.json",
+    "request_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "schema_version": "workflow_retirement_execution_ledger.v1",
+    "snapshot_path": "immutable-outputs/snapshot.json",
+    "snapshot_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "focused_report_binding": {
+    "normalized_report_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "normalized_subject_sha256": "sha256:a9dfb2db681db7e4b27ee6228b2303b856722a42eac4113bb3a2e19eef825247",
+  "observed_failed_node_ids": [
+    "tests/synthetic_alpha.py::test_alpha",
+    "tests/synthetic_beta.py::test_beta",
+    "tests/synthetic_delta.py::test_delta",
+    "tests/synthetic_epsilon.py::test_epsilon",
+    "tests/synthetic_gamma.py::test_gamma",
+    "tests/synthetic_zeta.py::test_zeta"
+  ],
+  "observed_totals": {
+    "collected": 6,
+    "errors": 1,
+    "failed": 5,
+    "passed": 0,
+    "skipped": 0
+  },
+  "raw_broad_bindings": [
+    {
+      "path": "pytest.exit",
+      "role_id": "broad-exit",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0
+    },
+    {
+      "path": "pytest.xml",
+      "role_id": "broad-junit",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0
+    },
+    {
+      "path": "pytest.log",
+      "role_id": "broad-rs-log",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0
+    },
+    {
+      "path": "collect.exit",
+      "role_id": "collection-exit",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0
+    },
+    {
+      "path": "collect.log",
+      "role_id": "collection-log",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0
+    },
+    {
+      "path": "collected-node-ids.txt",
+      "role_id": "collected-node-ids",
+      "sha256": "sha256:4c7690897a38bd1a9c4c690505a09f965e03124e1aa27b0ea19365091df2c091",
+      "size": 222
+    },
+    {
+      "path": "preflight.json",
+      "role_id": "pytest-temp-root-preflight",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0
+    }
+  ],
+  "schema_version": "broad_evidence_bootstrap_subject.v1",
+  "task_contract_binding": {
+    "plan_path": "plan.md",
+    "plan_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "required_command_set_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "task_number": 1
+  }
+}

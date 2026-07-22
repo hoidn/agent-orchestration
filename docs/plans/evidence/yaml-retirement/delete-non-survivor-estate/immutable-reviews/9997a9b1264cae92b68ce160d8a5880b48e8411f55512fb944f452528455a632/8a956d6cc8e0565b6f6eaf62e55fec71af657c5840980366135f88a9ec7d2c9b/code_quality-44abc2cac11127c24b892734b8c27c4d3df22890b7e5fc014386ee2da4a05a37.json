@@ -1,0 +1,18 @@
+{
+  "claims_not_made": [
+    "This review does not authorize deletion, owner action, or workflow execution."
+  ],
+  "issues": [],
+  "result": "approved",
+  "review_kind": "code_quality",
+  "reviewed_at": "2026-07-22T10:34:42Z",
+  "reviewer": {
+    "identity": "codex:/root/task1_canonical_evidence_quality_review"
+  },
+  "schema_version": "review.v1",
+  "subject": {
+    "kind": "broad_evidence_bootstrap",
+    "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-commits/task-01-bootstrap/subject.json",
+    "sha256": "sha256:8a956d6cc8e0565b6f6eaf62e55fec71af657c5840980366135f88a9ec7d2c9b"
+  }
+}

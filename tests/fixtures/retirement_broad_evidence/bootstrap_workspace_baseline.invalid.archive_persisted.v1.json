@@ -1,0 +1,29 @@
+{
+  "bootstrap_capture_bindings": {
+    "archive_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "head_file_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "index_entries_file_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "index_file_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "producer_contract_version": "task1_first_write_capture.v1",
+    "status_file_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "tar_stderr_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "captured_at": "2026-01-01T00:00:00+00:00",
+  "claims_not_made": [
+    "example only"
+  ],
+  "dirty_entries": [],
+  "dirty_entry_count": 0,
+  "dirty_entry_set_sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "dirty_path_set_sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "head": "0000000000000000000000000000000000000000",
+  "index_entries": [],
+  "index_entry_count": 0,
+  "index_entry_set_sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "index_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "normalized_baseline_sha256": "sha256:78f44c78336a945799c196d0307c114283c741bd6f699fc901827d79d87ffc2a",
+  "protected_paths": [],
+  "raw_archive_not_persisted": false,
+  "schema_version": "bootstrap_workspace_baseline.v1",
+  "status_rows": []
+}

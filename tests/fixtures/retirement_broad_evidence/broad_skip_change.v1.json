@@ -1,0 +1,60 @@
+{
+  "added_skip_node_ids": [
+    "tests/new.py::test_new"
+  ],
+  "authorized_diff": [
+    {
+      "path": "source.py",
+      "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "size": 1,
+      "state": "added"
+    }
+  ],
+  "candidate_binding": {
+    "candidate_path_set_sha256": "sha256:ea7c60d668fc7bf3bc5523d0eb8c8d0101492bd66001e110b476d478cef6a1fa",
+    "candidate_paths": [
+      {
+        "path": "source.py",
+        "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "size": 1,
+        "state": "added"
+      }
+    ],
+    "evidence_root_exclusion": "evidence",
+    "head": "1111111111111111111111111111111111111111",
+    "head_tree": "2222222222222222222222222222222222222222",
+    "index_sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "claims_not_made": [
+    "example only"
+  ],
+  "execution_ledger_binding": {
+    "byte_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "generation": 1,
+    "live_path": "execution-ledger.json",
+    "request_path": "materialization-inputs/request.json",
+    "request_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "schema_version": "workflow_retirement_execution_ledger.v1",
+    "snapshot_path": "immutable-outputs/snapshot.json",
+    "snapshot_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "focused_regression_evidence": {
+    "path": "focused/report.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "normalized_skip_change_sha256": "sha256:c0017cd7fe34ba4973e9ddce4e4ac260f871c9927bf27304cad462219b270c13",
+  "predecessor_skip_set_binding": {
+    "path": "predecessor-skip-set.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "skip_node_ids": [
+      "tests/keep.py::test_keep",
+      "tests/old.py::test_old"
+    ],
+    "skip_set_sha256": "sha256:1ecfc2580f3fbb0af3d21f5db5d4791ab9a9f878f55f2ad91864af1b355f6fb9"
+  },
+  "removed_skip_node_ids": [
+    "tests/old.py::test_old"
+  ],
+  "resulting_skip_set_sha256": "sha256:bd5896543b367876adb5202640ea02a24140c5c8fd0a4ad95b7d9f0561b6c2dc",
+  "schema_version": "broad_skip_change.v1"
+}

@@ -1,0 +1,19 @@
+{
+  "captured_at": "2026-01-01T00:00:00+00:00",
+  "claims_not_made": [
+    "example only"
+  ],
+  "dirty_entries": [],
+  "dirty_entry_count": 0,
+  "dirty_entry_set_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "dirty_path_set_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "head": "0000000000000000000000000000000000000000",
+  "index_entries": [],
+  "index_entry_count": 0,
+  "index_entry_set_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "index_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "normalized_baseline_sha256": "sha256:400285d240b991b0775dc4c3cf97493ac07772d1ebe40b60273b9dfe5e638af6",
+  "protected_paths": [],
+  "schema_version": "workspace_baseline.v1",
+  "status_rows": []
+}

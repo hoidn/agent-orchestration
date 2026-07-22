@@ -1,0 +1,77 @@
+{
+  "allowed_delta_count": 2,
+  "allowed_delta_rows": [
+    {
+      "after": {
+        "mode": "100644",
+        "oid": "3333333333333333333333333333333333333333",
+        "path": "authority.json",
+        "stage": 0
+      },
+      "before": null,
+      "path": "authority.json"
+    },
+    {
+      "after": {
+        "mode": "100644",
+        "oid": "1111111111111111111111111111111111111111",
+        "path": "source.yaml",
+        "stage": 0
+      },
+      "before": null,
+      "path": "source.yaml"
+    }
+  ],
+  "allowed_path_set_sha256": "sha256:4e49855ef27c08f83f275d939f5abda9584b56c2d0e5cfeb6b83cc13c645535f",
+  "base_head": "0000000000000000000000000000000000000000",
+  "base_message_binding": {
+    "byte_count": 8,
+    "path": ".git/retirement-commit-controls/9005516c786bd0a1fff640c6c05058ed72cd5c04591f79652def762f07be2e65/message.txt",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "bootstrap_workspace_baseline_binding": {
+    "path": "workspace.json",
+    "schema_version": "bootstrap_workspace_baseline.v1",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "size": 3
+  },
+  "claims_not_made": [
+    "example only"
+  ],
+  "durable_authority_bindings": [
+    {
+      "path": "authority.json",
+      "schema_version": "review.v1",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 3
+    }
+  ],
+  "durable_authority_set_sha256": "sha256:7566e1febee4fdff4086c27db9f1c570f78a2052461986ecfa087f7ae63ee37e",
+  "expected_commit_tree_oid": "2222222222222222222222222222222222222222",
+  "expected_index_binding": {
+    "entry_count": 2,
+    "entry_set_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "final_message_binding": {
+    "byte_count": 200,
+    "cleanup": "verbatim",
+    "path": ".git/retirement-commit-controls/9005516c786bd0a1fff640c6c05058ed72cd5c04591f79652def762f07be2e65/final-message.txt",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "normalized_control_sha256": "sha256:2c51df12f11f8722a83105b8b94c18e8edd61aecee7957f18ab3d4ae430d5d03",
+  "pathspec_file_binding": {
+    "byte_count": 27,
+    "encoding": "nul_terminated_literal_paths",
+    "path": ".git/retirement-commit-controls/9005516c786bd0a1fff640c6c05058ed72cd5c04591f79652def762f07be2e65/paths.nul",
+    "row_count": 2,
+    "sha256": "sha256:2054346e3ed3431688384eca3945fd130e60dbd23a9d7142b47bf7345a0e9e25"
+  },
+  "pre_commit_index_binding": {
+    "entry_count": 0,
+    "entry_set_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "prior_control_trailers": [],
+  "schema_version": "precommit_control.v1",
+  "transaction_id": "9005516c786bd0a1fff640c6c05058ed72cd5c04591f79652def762f07be2e65",
+  "workspace_baseline_binding": null
+}

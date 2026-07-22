@@ -1,0 +1,188 @@
+{
+  "approved_remediation_bindings": [],
+  "approved_skip_change_bindings": [],
+  "baseline_comparison": null,
+  "candidate_binding": {
+    "candidate_path_set_sha256": "sha256:ea7c60d668fc7bf3bc5523d0eb8c8d0101492bd66001e110b476d478cef6a1fa",
+    "candidate_paths": [
+      {
+        "path": "source.py",
+        "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "size": 1,
+        "state": "added"
+      }
+    ],
+    "evidence_root_exclusion": "evidence",
+    "head": "1111111111111111111111111111111111111111",
+    "head_tree": "2222222222222222222222222222222222222222",
+    "index_sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "claims_not_made": [
+    "Synthetic fixture only; this outcome is not repository evidence."
+  ],
+  "collected_node_ids": [
+    "tests/synthetic_alpha.py::test_alpha",
+    "tests/synthetic_beta.py::test_beta",
+    "tests/synthetic_delta.py::test_delta",
+    "tests/synthetic_epsilon.py::test_epsilon",
+    "tests/synthetic_gamma.py::test_gamma",
+    "tests/synthetic_zeta.py::test_zeta"
+  ],
+  "collection": {
+    "argv": [
+      "pytest",
+      "--collect-only",
+      "-q"
+    ],
+    "cwd": ".",
+    "environment": {
+      "LC_ALL": "C.UTF-8",
+      "PYTEST_DEBUG_TEMPROOT": "/tmp",
+      "PYTHONHASHSEED": "0"
+    },
+    "exit_binding": {
+      "path": "collect.exit",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0
+    },
+    "log_binding": {
+      "path": "collect.log",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0
+    },
+    "node_id_count": 6,
+    "node_id_list_sha256": "sha256:f98ee4df0d888caff9f02c38b3d4daa9ce3f9f3bbdf2cd554bdf59a7de3681a8",
+    "node_ids_binding": {
+      "path": "collected-node-ids.txt",
+      "sha256": "sha256:4c7690897a38bd1a9c4c690505a09f965e03124e1aa27b0ea19365091df2c091",
+      "size": 222
+    },
+    "parsed_exit": 0
+  },
+  "command": {
+    "argv": [
+      "pytest",
+      "-q",
+      "-rs",
+      "-n",
+      "16",
+      "--dist=worksteal"
+    ],
+    "cwd": "."
+  },
+  "environment": {
+    "LC_ALL": "C.UTF-8",
+    "PYTEST_DEBUG_TEMPROOT": "/tmp",
+    "PYTHONHASHSEED": "0"
+  },
+  "execution_ledger_binding": {
+    "byte_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "generation": 1,
+    "live_path": "execution-ledger.json",
+    "request_path": "materialization-inputs/request.json",
+    "request_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "schema_version": "workflow_retirement_execution_ledger.v1",
+    "snapshot_path": "immutable-outputs/snapshot.json",
+    "snapshot_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "exit_result": {
+    "binding": {
+      "path": "pytest.exit",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "parsed_exit": 1
+  },
+  "failure_normalization": {
+    "normalized_contract_sha256": "sha256:bb49d01135910f732b2358ba15b901aab1f8d54f1ebe7568a67256c4d9851cee",
+    "ordered_transforms": [
+      "crlf_to_lf.v1",
+      "strip_ansi_csi.v1",
+      "repository_prefix.v1",
+      "pytest_managed_run_prefix.v1"
+    ],
+    "pytest_root_component": "ci.user+gpu",
+    "pytest_session_parent": "/tmp/pytest-of-ci.user+gpu",
+    "pytest_temp_prefix_rule": "exact_pytest_managed_run_prefix.v1",
+    "pytest_temp_root_preflight_binding": {
+      "path": "example.json",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "pytest_version": "8.4.1",
+    "repository_root": "/repo",
+    "schema_version": "broad_failure_payload_normalization.v1",
+    "system_temp_root": "/tmp"
+  },
+  "junit_report": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "known_failure_baseline_binding": null,
+  "normalized_outcome_sha256": "sha256:37ff0b323a60a00f7c938293f8057b8471290bab4e80f56950a9e5ea99b77fc9",
+  "outcomes": {
+    "failures": [
+      {
+        "failure_payload_sha256": "sha256:85f23d82d7eb538b04bd89530f793e0ef052e44828d04cd132cb70865d571001",
+        "node_id": "tests/synthetic_alpha.py::test_alpha",
+        "normalized_payload": "FAILURE tests/synthetic_alpha.py::test_alpha\nSynthetic failure payload 1.\n",
+        "outcome_kind": "failure"
+      },
+      {
+        "failure_payload_sha256": "sha256:35c9504d53a8fdf250535f5b71268acd8fdbdd683175d2739ed478c2b3f08e3c",
+        "node_id": "tests/synthetic_beta.py::test_beta",
+        "normalized_payload": "FAILURE tests/synthetic_beta.py::test_beta\nSynthetic failure payload 2.\n",
+        "outcome_kind": "failure"
+      },
+      {
+        "failure_payload_sha256": "sha256:0ae2a1f86a3a896afc1d2e368d9e002bf42ee8ec8eff88c779e80f862a003083",
+        "node_id": "tests/synthetic_delta.py::test_delta",
+        "normalized_payload": "FAILURE tests/synthetic_delta.py::test_delta\nSynthetic failure payload 3.\n",
+        "outcome_kind": "failure"
+      },
+      {
+        "failure_payload_sha256": "sha256:87ca250ba347e3d8cc5f2eb45473b39a88163bbce17d779a71aba6be2dbf59d4",
+        "node_id": "tests/synthetic_epsilon.py::test_epsilon",
+        "normalized_payload": "FAILURE tests/synthetic_epsilon.py::test_epsilon\nSynthetic failure payload 4.\n",
+        "outcome_kind": "failure"
+      },
+      {
+        "failure_payload_sha256": "sha256:e7a1914a6e7c46c8c951da53924e5b198b4956330e519f193b82b6b28a3bb08f",
+        "node_id": "tests/synthetic_gamma.py::test_gamma",
+        "normalized_payload": "FAILURE tests/synthetic_gamma.py::test_gamma\nSynthetic failure payload 5.\n",
+        "outcome_kind": "failure"
+      },
+      {
+        "failure_payload_sha256": "sha256:311e65354a496dbb7dcfcfe77ddc5970cda1a8400430620b46b501621549dc9d",
+        "node_id": "tests/synthetic_zeta.py::test_zeta",
+        "normalized_payload": "ERROR tests/synthetic_zeta.py::test_zeta\nSynthetic error payload 6.\n",
+        "outcome_kind": "error"
+      }
+    ],
+    "outcome": "baseline_candidate",
+    "skipped_node_ids": [],
+    "totals": {
+      "collected": 6,
+      "errors": 1,
+      "failed": 5,
+      "passed": 0,
+      "skipped": 0
+    }
+  },
+  "pytest_temp_root_preflight": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "rs_log": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "run_root_snapshots": [
+    {
+      "after_snapshot_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "before_snapshot_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "root_path": "/workspace/.runs",
+      "root_path_sha256": "sha256:ee7b865ddc921783d256f50aa7b5c624a2abb1c967b88cdb454f06a42f6451ce",
+      "scope_basis": "planning_candidate"
+    }
+  ],
+  "schema_version": "broad_outcome.v1"
+}

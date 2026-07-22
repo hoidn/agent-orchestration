@@ -1,0 +1,20 @@
+{
+  "authority": {
+    "path": "handoff.json",
+    "schema_version": "workflow_retirement_handoff.v1",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "capture_commit": "0000000000000000000000000000000000000000",
+  "claims_not_made": [
+    "example only"
+  ],
+  "normalized_query_sha256": "sha256:eb739b96427d5ea101cbaf470e1b05fa6fb0fbe128492ee28f5a08c6c9ed433d",
+  "path_count": 1,
+  "path_encoding": "utf8_repository_relative_posix_lf.v1",
+  "path_list_sha256": "sha256:2e02f7d7e740656956de34ec4ee635d047607f20d1e75613486f1348c083e00d",
+  "paths": [
+    "source.yaml"
+  ],
+  "queue_id": "example",
+  "schema_version": "query.v1"
+}

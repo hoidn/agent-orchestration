@@ -1,0 +1,25 @@
+{
+  "claims_not_made": [
+    "example only"
+  ],
+  "environment_binding": {
+    "PYTEST_DEBUG_TEMPROOT": null
+  },
+  "normalized_record_sha256": "sha256:bfd25ebd50937201c467e319ebdc19b8594886c25c97ecb87cf8fa292e5da176",
+  "observed_basetemp": "/tmp/pytest-of-ci.user+gpu/pytest-1",
+  "observed_session_parent": "/tmp/pytest-of-ci.user+gpu",
+  "pytest_executable_binding": {
+    "path": "/example/pytest",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "pytest_version": "8.4.1",
+  "raw_get_user": "ci.user+gpu",
+  "root_component": "ci.user+gpu",
+  "root_component_resolution": "raw_get_user",
+  "schema_version": "pytest_temp_root_preflight.v1",
+  "system_temp_root": "/tmp",
+  "tmpdir_module_binding": {
+    "path": "/example/_pytest/tmpdir.py",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

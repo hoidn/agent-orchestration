@@ -1,0 +1,78 @@
+{
+  "baseline_binding": {
+    "path": "broad_known_failure_baseline.v1.json",
+    "sha256": "sha256:cf4e7cc799d788913466f4e6032722c3f5dd305a88862f0a17d2c8e69002e647"
+  },
+  "candidate_binding": {
+    "candidate_path_set_sha256": "sha256:ea7c60d668fc7bf3bc5523d0eb8c8d0101492bd66001e110b476d478cef6a1fa",
+    "candidate_paths": [
+      {
+        "path": "source.py",
+        "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "size": 1,
+        "state": "added"
+      }
+    ],
+    "evidence_root_exclusion": "evidence",
+    "head": "1111111111111111111111111111111111111111",
+    "head_tree": "2222222222222222222222222222222222222222",
+    "index_sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "claims_not_made": [
+    "Synthetic fixture only; this remediation record does not authorize mutation."
+  ],
+  "execution_ledger_binding": {
+    "byte_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "generation": 1,
+    "live_path": "execution-ledger.json",
+    "request_path": "materialization-inputs/request.json",
+    "request_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "schema_version": "workflow_retirement_execution_ledger.v1",
+    "snapshot_path": "immutable-outputs/snapshot.json",
+    "snapshot_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "focused_regression_evidence": {
+    "path": "focused/report.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "normalized_remediation_sha256": "sha256:053ec456da0e9040870b7a3cee7e95e96161b97a68490584986322a1894f0bb3",
+  "production_diff": [
+    {
+      "path": "source.py",
+      "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "size": 1,
+      "state": "added"
+    }
+  ],
+  "removed_failure_rows": [
+    {
+      "authorized_remediation_scope": [
+        "source.py"
+      ],
+      "failure_payload_sha256": "sha256:85f23d82d7eb538b04bd89530f793e0ef052e44828d04cd132cb70865d571001",
+      "node_id": "tests/synthetic_alpha.py::test_alpha",
+      "outcome_kind": "failure",
+      "ownership_basis": [
+        "source.py"
+      ],
+      "ownership_class": "queue_owned"
+    },
+    {
+      "authorized_remediation_scope": [
+        "source.py"
+      ],
+      "failure_payload_sha256": "sha256:35c9504d53a8fdf250535f5b71268acd8fdbdd683175d2739ed478c2b3f08e3c",
+      "node_id": "tests/synthetic_beta.py::test_beta",
+      "outcome_kind": "failure",
+      "ownership_basis": [
+        "source.py"
+      ],
+      "ownership_class": "queue_owned"
+    }
+  ],
+  "schema_version": "broad_failure_remediation.v1",
+  "task_scope_binding": {
+    "path": "task-scope.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

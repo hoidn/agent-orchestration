@@ -1,0 +1,41 @@
+{
+  "allowed_delta_count": 0,
+  "allowed_delta_rows": [],
+  "allowed_path_set_sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "base_head": "0000000000000000000000000000000000000000",
+  "base_message_binding": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "bootstrap_workspace_baseline_binding": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "claims_not_made": [
+    "example only"
+  ],
+  "durable_authority_bindings": [],
+  "durable_authority_set_sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "expected_commit_tree_oid": "0000000000000000000000000000000000000000",
+  "expected_index_binding": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "final_message_binding": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "normalized_control_sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "pathspec_file_binding": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "pre_commit_index_binding": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "prior_control_trailers": [],
+  "schema_version": "precommit_control.v1",
+  "transaction_id": "0000000000000000000000000000000000000000000000000000000000000000",
+  "workspace_baseline_binding": null
+}

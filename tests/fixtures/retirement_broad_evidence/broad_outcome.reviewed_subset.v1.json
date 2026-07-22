@@ -1,0 +1,292 @@
+{
+  "approved_remediation_bindings": [
+    {
+      "quality_review": {
+        "claims_not_made": [
+          "Synthetic review binding only; it does not authorize mutation."
+        ],
+        "immutable_path": "immutable-reviews/534dc1761ae7562f2c7fb80381400ea9a6ec0b0d5401041ea5ef0c0ea18388eb/code_quality-5854e02f98fdc541bcd0b0ab57988adba77e4fc6b3a0f8becabf78f97d558703.json",
+        "logical_path": "reviews/remediation-quality-review.json",
+        "normalized_binding_sha256": "sha256:3ab75fa67f762e5cb27d561486f1122fafb602dd71e85da172fa9d701c262d41",
+        "result": "approved",
+        "review_kind": "code_quality",
+        "reviewed_at": "2026-01-01T00:00:00+00:00",
+        "reviewer": {
+          "identity": "synthetic-code_quality-reviewer"
+        },
+        "schema_version": "review_binding.v1",
+        "sha256": "sha256:5854e02f98fdc541bcd0b0ab57988adba77e4fc6b3a0f8becabf78f97d558703",
+        "subject": {
+          "kind": "broad_failure_remediation",
+          "path": "broad_failure_remediation.v1.json",
+          "sha256": "sha256:2a4b1bb12a53521370a8bb184590d378e80206b89cfd87efffd8278993eb0d7d"
+        }
+      },
+      "record": {
+        "path": "broad_failure_remediation.v1.json",
+        "sha256": "sha256:2a4b1bb12a53521370a8bb184590d378e80206b89cfd87efffd8278993eb0d7d"
+      },
+      "specification_review": {
+        "claims_not_made": [
+          "Synthetic review binding only; it does not authorize mutation."
+        ],
+        "immutable_path": "immutable-reviews/38ae45148354dfcf39c92901dd3171f906eba183521f45228e8de3ac8d799237/specification-25f9a6fe2ae9bfb40c9114500c0d8eb6499b8cf28c62967568a0eb36ed4d4b03.json",
+        "logical_path": "reviews/remediation-specification-review.json",
+        "normalized_binding_sha256": "sha256:3867b9a935de2d08fcc0067bd8f6af3407ca8e2e31643fc1039f9352e5ca584c",
+        "result": "approved",
+        "review_kind": "specification",
+        "reviewed_at": "2026-01-01T00:00:00+00:00",
+        "reviewer": {
+          "identity": "synthetic-specification-reviewer"
+        },
+        "schema_version": "review_binding.v1",
+        "sha256": "sha256:25f9a6fe2ae9bfb40c9114500c0d8eb6499b8cf28c62967568a0eb36ed4d4b03",
+        "subject": {
+          "kind": "broad_failure_remediation",
+          "path": "broad_failure_remediation.v1.json",
+          "sha256": "sha256:2a4b1bb12a53521370a8bb184590d378e80206b89cfd87efffd8278993eb0d7d"
+        }
+      }
+    }
+  ],
+  "approved_skip_change_bindings": [],
+  "baseline_comparison": {
+    "approved_remediation_set_sha256": "sha256:24e0e1209d01717ccf5c7a7c870cf8877e3db9433047f6ddfd624034428673ca",
+    "approved_skip_change_set_sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "baseline_failure_set_sha256": "sha256:2ef884607d2b65f68d17cde0867a39a0f38a7e50c0c4730e7a1182b8157cff87",
+    "normalization_contract_sha256": "sha256:bb49d01135910f732b2358ba15b901aab1f8d54f1ebe7568a67256c4d9851cee",
+    "observed_failure_set_sha256": "sha256:4a9d2415bca1e165e6ac7c48cd18184b7e7dd17a162a07dd188d4f8480bc9c53",
+    "observed_skip_set_sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "predecessor_skip_set_sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "removed_failure_node_ids": [
+      "tests/synthetic_alpha.py::test_alpha",
+      "tests/synthetic_beta.py::test_beta"
+    ]
+  },
+  "candidate_binding": {
+    "candidate_path_set_sha256": "sha256:ea7c60d668fc7bf3bc5523d0eb8c8d0101492bd66001e110b476d478cef6a1fa",
+    "candidate_paths": [
+      {
+        "path": "source.py",
+        "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "size": 1,
+        "state": "added"
+      }
+    ],
+    "evidence_root_exclusion": "evidence",
+    "head": "1111111111111111111111111111111111111111",
+    "head_tree": "2222222222222222222222222222222222222222",
+    "index_sha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "claims_not_made": [
+    "Synthetic fixture only; reviewed subset is not repository evidence."
+  ],
+  "collected_node_ids": [
+    "tests/synthetic_alpha.py::test_alpha",
+    "tests/synthetic_beta.py::test_beta",
+    "tests/synthetic_delta.py::test_delta",
+    "tests/synthetic_epsilon.py::test_epsilon",
+    "tests/synthetic_gamma.py::test_gamma",
+    "tests/synthetic_zeta.py::test_zeta"
+  ],
+  "collection": {
+    "argv": [
+      "pytest",
+      "--collect-only",
+      "-q"
+    ],
+    "cwd": ".",
+    "environment": {
+      "LC_ALL": "C.UTF-8",
+      "PYTEST_DEBUG_TEMPROOT": "/tmp",
+      "PYTHONHASHSEED": "0"
+    },
+    "exit_binding": {
+      "path": "collect.exit",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0
+    },
+    "log_binding": {
+      "path": "collect.log",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0
+    },
+    "node_id_count": 6,
+    "node_id_list_sha256": "sha256:f98ee4df0d888caff9f02c38b3d4daa9ce3f9f3bbdf2cd554bdf59a7de3681a8",
+    "node_ids_binding": {
+      "path": "collected-node-ids.txt",
+      "sha256": "sha256:4c7690897a38bd1a9c4c690505a09f965e03124e1aa27b0ea19365091df2c091",
+      "size": 222
+    },
+    "parsed_exit": 0
+  },
+  "command": {
+    "argv": [
+      "pytest",
+      "-q",
+      "-rs",
+      "-n",
+      "16",
+      "--dist=worksteal"
+    ],
+    "cwd": "."
+  },
+  "environment": {
+    "LC_ALL": "C.UTF-8",
+    "PYTEST_DEBUG_TEMPROOT": "/tmp",
+    "PYTHONHASHSEED": "0"
+  },
+  "execution_ledger_binding": {
+    "byte_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "generation": 1,
+    "live_path": "execution-ledger.json",
+    "request_path": "materialization-inputs/request.json",
+    "request_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "schema_version": "workflow_retirement_execution_ledger.v1",
+    "snapshot_path": "immutable-outputs/snapshot.json",
+    "snapshot_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "exit_result": {
+    "binding": {
+      "path": "pytest.exit",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "parsed_exit": 1
+  },
+  "failure_normalization": {
+    "normalized_contract_sha256": "sha256:bb49d01135910f732b2358ba15b901aab1f8d54f1ebe7568a67256c4d9851cee",
+    "ordered_transforms": [
+      "crlf_to_lf.v1",
+      "strip_ansi_csi.v1",
+      "repository_prefix.v1",
+      "pytest_managed_run_prefix.v1"
+    ],
+    "pytest_root_component": "ci.user+gpu",
+    "pytest_session_parent": "/tmp/pytest-of-ci.user+gpu",
+    "pytest_temp_prefix_rule": "exact_pytest_managed_run_prefix.v1",
+    "pytest_temp_root_preflight_binding": {
+      "path": "example.json",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "pytest_version": "8.4.1",
+    "repository_root": "/repo",
+    "schema_version": "broad_failure_payload_normalization.v1",
+    "system_temp_root": "/tmp"
+  },
+  "junit_report": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "known_failure_baseline_binding": {
+    "outcome": {
+      "path": "broad_outcome.v1.json",
+      "sha256": "sha256:fccf04f28fa3df0846ee6791e29de46f1e3bb23db5f690f78013ada1e437b212"
+    },
+    "owner_attestation": {
+      "path": "broad_failure_baseline_attestation.confirmed.v1.json",
+      "sha256": "sha256:084c0c87852b2f2c9e5514a8c861e523f2a748792eb16c3fd53210b120780e23"
+    },
+    "quality_review": {
+      "claims_not_made": [
+        "Synthetic review binding only; it does not authorize mutation."
+      ],
+      "immutable_path": "immutable-reviews/654662187e5b6ed796964201e53781410bbfd4b8bd3d85bc94c5b4667c2df2aa/code_quality-3c88fa35630b47a5feab651d5252a24a3b8b8d2b05ffdfecef12eadb051081fe.json",
+      "logical_path": "reviews/implementation-baseline-quality.json",
+      "normalized_binding_sha256": "sha256:14bdb4179d3a6b0b312531da16018538002c35fa79baecbf59e5b2ce44cbfba9",
+      "result": "approved",
+      "review_kind": "code_quality",
+      "reviewed_at": "2026-01-01T00:00:00+00:00",
+      "reviewer": {
+        "identity": "synthetic-code_quality-reviewer"
+      },
+      "schema_version": "review_binding.v1",
+      "sha256": "sha256:3c88fa35630b47a5feab651d5252a24a3b8b8d2b05ffdfecef12eadb051081fe",
+      "subject": {
+        "kind": "implementation_failure_baseline",
+        "path": "broad_known_failure_baseline.v1.json",
+        "sha256": "sha256:cf4e7cc799d788913466f4e6032722c3f5dd305a88862f0a17d2c8e69002e647"
+      }
+    },
+    "record": {
+      "path": "broad_known_failure_baseline.v1.json",
+      "sha256": "sha256:cf4e7cc799d788913466f4e6032722c3f5dd305a88862f0a17d2c8e69002e647"
+    },
+    "specification_review": {
+      "claims_not_made": [
+        "Synthetic review binding only; it does not authorize mutation."
+      ],
+      "immutable_path": "immutable-reviews/7ba204f83406b0acdb92834009ad28a30d78e439881ac02f513e58822d1e39ed/specification-f0e0ff7e3d79a33ea60780e780ffef2d7d8a4441ec8784243a70310ea4bf3fc9.json",
+      "logical_path": "reviews/implementation-baseline-specification.json",
+      "normalized_binding_sha256": "sha256:cbff3c1816bc7e8ab55639bfea300fd116479c6f4b6c0deb391e1addbe2b014d",
+      "result": "approved",
+      "review_kind": "specification",
+      "reviewed_at": "2026-01-01T00:00:00+00:00",
+      "reviewer": {
+        "identity": "synthetic-specification-reviewer"
+      },
+      "schema_version": "review_binding.v1",
+      "sha256": "sha256:f0e0ff7e3d79a33ea60780e780ffef2d7d8a4441ec8784243a70310ea4bf3fc9",
+      "subject": {
+        "kind": "implementation_failure_baseline",
+        "path": "broad_known_failure_baseline.v1.json",
+        "sha256": "sha256:cf4e7cc799d788913466f4e6032722c3f5dd305a88862f0a17d2c8e69002e647"
+      }
+    }
+  },
+  "normalized_outcome_sha256": "sha256:7027247202baaa3f357b655aa75c91a9e2e28c55e37df77bf330594fde9edfce",
+  "outcomes": {
+    "failures": [
+      {
+        "failure_payload_sha256": "sha256:0ae2a1f86a3a896afc1d2e368d9e002bf42ee8ec8eff88c779e80f862a003083",
+        "node_id": "tests/synthetic_delta.py::test_delta",
+        "normalized_payload": "FAILURE tests/synthetic_delta.py::test_delta\nSynthetic failure payload 3.\n",
+        "outcome_kind": "failure"
+      },
+      {
+        "failure_payload_sha256": "sha256:87ca250ba347e3d8cc5f2eb45473b39a88163bbce17d779a71aba6be2dbf59d4",
+        "node_id": "tests/synthetic_epsilon.py::test_epsilon",
+        "normalized_payload": "FAILURE tests/synthetic_epsilon.py::test_epsilon\nSynthetic failure payload 4.\n",
+        "outcome_kind": "failure"
+      },
+      {
+        "failure_payload_sha256": "sha256:e7a1914a6e7c46c8c951da53924e5b198b4956330e519f193b82b6b28a3bb08f",
+        "node_id": "tests/synthetic_gamma.py::test_gamma",
+        "normalized_payload": "FAILURE tests/synthetic_gamma.py::test_gamma\nSynthetic failure payload 5.\n",
+        "outcome_kind": "failure"
+      },
+      {
+        "failure_payload_sha256": "sha256:311e65354a496dbb7dcfcfe77ddc5970cda1a8400430620b46b501621549dc9d",
+        "node_id": "tests/synthetic_zeta.py::test_zeta",
+        "normalized_payload": "ERROR tests/synthetic_zeta.py::test_zeta\nSynthetic error payload 6.\n",
+        "outcome_kind": "error"
+      }
+    ],
+    "outcome": "approved_failure_subset",
+    "skipped_node_ids": [],
+    "totals": {
+      "collected": 6,
+      "errors": 1,
+      "failed": 3,
+      "passed": 2,
+      "skipped": 0
+    }
+  },
+  "pytest_temp_root_preflight": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "rs_log": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "run_root_snapshots": [
+    {
+      "after_snapshot_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "before_snapshot_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "root_path": "/workspace/.runs",
+      "root_path_sha256": "sha256:ee7b865ddc921783d256f50aa7b5c624a2abb1c967b88cdb454f06a42f6451ce",
+      "scope_basis": "planning_candidate"
+    }
+  ],
+  "schema_version": "broad_outcome.v1"
+}

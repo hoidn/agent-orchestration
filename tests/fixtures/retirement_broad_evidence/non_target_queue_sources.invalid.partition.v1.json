@@ -1,0 +1,19 @@
+{
+  "claims_not_made": [
+    "example only"
+  ],
+  "handoff_binding": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "normalized_record_sha256": "sha256:8d7f3b95a73df9914f25dafdf33bc94e7140960b6ed495b139ffde4b044351b0",
+  "path_list_sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "row_set_sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "schema_version": "non_target_queue_sources.v1",
+  "source_count": 1,
+  "source_rows": [],
+  "workspace_baseline_binding": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

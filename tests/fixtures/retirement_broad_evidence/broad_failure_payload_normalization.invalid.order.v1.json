@@ -1,0 +1,20 @@
+{
+  "normalized_contract_sha256": "sha256:5e078f22f74e133759012e6df2694305553c884bb05302a8eac7590340efe9fa",
+  "ordered_transforms": [
+    "pytest_managed_run_prefix.v1",
+    "repository_prefix.v1",
+    "strip_ansi_csi.v1",
+    "crlf_to_lf.v1"
+  ],
+  "pytest_root_component": "ci.user+gpu",
+  "pytest_session_parent": "/tmp/pytest-of-ci.user+gpu",
+  "pytest_temp_prefix_rule": "exact_pytest_managed_run_prefix.v1",
+  "pytest_temp_root_preflight_binding": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "pytest_version": "8.4.1",
+  "repository_root": "/repo",
+  "schema_version": "broad_failure_payload_normalization.v1",
+  "system_temp_root": "/tmp"
+}

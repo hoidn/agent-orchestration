@@ -1,0 +1,17 @@
+{
+  "authority": {
+    "path": "example.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "capture_commit": "0000000000000000000000000000000000000000",
+  "claims_not_made": [
+    "example only"
+  ],
+  "normalized_query_sha256": "sha256:1720b3d038c6a5f4656218b785331c76e2f0a6432ea4155e4d8697664a1ca6d2",
+  "path_count": 1,
+  "path_encoding": "utf8_repository_relative_posix_lf.v1",
+  "path_list_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "paths": [],
+  "queue_id": "example",
+  "schema_version": "query.v1"
+}

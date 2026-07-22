@@ -1,0 +1,81 @@
+{
+  "claims_not_made": ["example only"],
+  "handoff_binding": {
+    "handoff_schema_version": "workflow_retirement_handoff.v1",
+    "path": "handoff.json",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "normalized_record_sha256": "sha256:fc9cea1e73cebebbb57d38b87941ac5e6cf2e9164215af945d76718ff321d37e",
+  "path_list_sha256": "sha256:99cb2739e36fcbe06271a562d3185c348970b60df14e9ac33965cf5c415bfcea",
+  "row_set_sha256": "sha256:539094287041e1bca591295f67c4e711747d9446bc3602352c10281a5ae2c4c7",
+  "schema_version": "non_target_queue_sources.v1",
+  "source_count": 10,
+  "source_rows": [
+    {
+      "binding_source": "workspace_protected_binding", "blob_oid": null,
+      "disposition_owner": "protected", "lstat_mode": null,
+      "path": "protected.yaml",
+      "protected_binding": {"normalized_entry_sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "path": "protected.yaml"},
+      "queue_id": "protected", "sha256": null, "size": null, "tracked_mode": null
+    },
+    {
+      "binding_source": "tracked_source_binding", "blob_oid": "0000000000000000000000000000000000000001",
+      "disposition_owner": "tracked-0", "lstat_mode": 420, "path": "source-00.yaml",
+      "protected_binding": null, "queue_id": "tracked-0",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000001", "size": 1, "tracked_mode": "100644"
+    },
+    {
+      "binding_source": "tracked_source_binding", "blob_oid": "0000000000000000000000000000000000000002",
+      "disposition_owner": "tracked-0", "lstat_mode": 420, "path": "source-01.yaml",
+      "protected_binding": null, "queue_id": "tracked-0",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000002", "size": 2, "tracked_mode": "100644"
+    },
+    {
+      "binding_source": "tracked_source_binding", "blob_oid": "0000000000000000000000000000000000000003",
+      "disposition_owner": "tracked-0", "lstat_mode": 420, "path": "source-02.yaml",
+      "protected_binding": null, "queue_id": "tracked-0",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000003", "size": 3, "tracked_mode": "100644"
+    },
+    {
+      "binding_source": "tracked_source_binding", "blob_oid": "0000000000000000000000000000000000000004",
+      "disposition_owner": "tracked-0", "lstat_mode": 420, "path": "source-03.yaml",
+      "protected_binding": null, "queue_id": "tracked-0",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000004", "size": 4, "tracked_mode": "100644"
+    },
+    {
+      "binding_source": "tracked_source_binding", "blob_oid": "0000000000000000000000000000000000000005",
+      "disposition_owner": "tracked-0", "lstat_mode": 420, "path": "source-04.yaml",
+      "protected_binding": null, "queue_id": "tracked-0",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000005", "size": 5, "tracked_mode": "100644"
+    },
+    {
+      "binding_source": "tracked_source_binding", "blob_oid": "0000000000000000000000000000000000000006",
+      "disposition_owner": "tracked-0", "lstat_mode": 420, "path": "source-05.yaml",
+      "protected_binding": null, "queue_id": "tracked-0",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000006", "size": 6, "tracked_mode": "100644"
+    },
+    {
+      "binding_source": "tracked_source_binding", "blob_oid": "0000000000000000000000000000000000000007",
+      "disposition_owner": "tracked-0", "lstat_mode": 420, "path": "source-06.yaml",
+      "protected_binding": null, "queue_id": "tracked-0",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000007", "size": 7, "tracked_mode": "100644"
+    },
+    {
+      "binding_source": "tracked_source_binding", "blob_oid": "0000000000000000000000000000000000000008",
+      "disposition_owner": "tracked-1", "lstat_mode": 420, "path": "source-07.yaml",
+      "protected_binding": null, "queue_id": "tracked-1",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000008", "size": 8, "tracked_mode": "100644"
+    },
+    {
+      "binding_source": "tracked_source_binding", "blob_oid": "0000000000000000000000000000000000000009",
+      "disposition_owner": "tracked-2", "lstat_mode": 420, "path": "source-08.yaml",
+      "protected_binding": null, "queue_id": "tracked-2",
+      "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000009", "size": 9, "tracked_mode": "100644"
+    }
+  ],
+  "workspace_baseline_binding": {
+    "path": "workspace.json", "protected_path_count": 1,
+    "schema_version": "workspace_baseline.v1",
+    "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

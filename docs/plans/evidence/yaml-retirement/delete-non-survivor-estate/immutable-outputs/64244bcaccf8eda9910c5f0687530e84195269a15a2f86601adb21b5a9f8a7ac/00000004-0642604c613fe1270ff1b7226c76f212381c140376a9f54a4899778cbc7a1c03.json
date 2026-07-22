@@ -1,0 +1,177 @@
+{
+  "claims_not_made": [
+    "This ledger does not authorize deletion, owner action, or workflow execution."
+  ],
+  "current_task": 1,
+  "last_transition": {
+    "evidence_bindings": [],
+    "future_bindings": [
+      {
+        "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-commits/task-01-bootstrap/quality-review.json",
+        "sha256": null
+      },
+      {
+        "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-commits/task-01-bootstrap/specification-review.json",
+        "sha256": null
+      }
+    ],
+    "new_status": "in_progress",
+    "old_status": "in_progress",
+    "prepared_at": "2026-07-22T08:17:10.638863+00:00",
+    "prior_generation_binding": {
+      "generation": 3,
+      "output_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/execution-ledger.json",
+      "request_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/materialization-inputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000003-d92aa8c9bbb0670e413490d93e8fbd851c2e56289380c207a0c4d4eb70959f64.json",
+      "request_sha256": "sha256:f65e41f7c188221cc47eef5a0e7a8007e4c4516d15d2bf84cc297e29ebecd381",
+      "snapshot_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/immutable-outputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000003-3275524218bc614d9ab0ebc438fa16f24f143f93d18c91f84e805a3c76721b94.json",
+      "snapshot_sha256": "sha256:3275524218bc614d9ab0ebc438fa16f24f143f93d18c91f84e805a3c76721b94"
+    },
+    "step_number": 3,
+    "task_number": 1
+  },
+  "normalized_ledger_sha256": "sha256:4015b7acd5964225c2b79af109628ece5a57cb7e7fdcdf2a9bb4d31cc6a23556",
+  "plan_binding": {
+    "path": "docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md",
+    "sha256": "sha256:20096b44d03017780394a6789c39705912da1909847ab3460a312c65dcb066fb"
+  },
+  "schema_version": "workflow_retirement_execution_ledger.v1",
+  "task_count": 17,
+  "tasks": [
+    {
+      "completed_step_count": 3,
+      "evidence_bindings": [],
+      "status": "in_progress",
+      "task_number": 1,
+      "title": "Bootstrap The Generic Broad-Evidence Foundation",
+      "total_step_count": 4
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 2,
+      "title": "Characterize, Adopt, And Freeze The Pre-Implementation Boundary",
+      "total_step_count": 8
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 3,
+      "title": "Extract Stable Generic State-Store Traversal",
+      "total_step_count": 6
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 4,
+      "title": "Add Generic `workflow_file` Top-Level And Nested Consumer Scanning",
+      "total_step_count": 6
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 5,
+      "title": "Add The Generic Repository Reference And Import-Graph Scanner",
+      "total_step_count": 6
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 6,
+      "title": "Implement Closed Evidence, Execution-Index, And Batch Validators",
+      "total_step_count": 7
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 7,
+      "title": "Materialize And Review The Exact Seven-Batch Assignment",
+      "total_step_count": 8
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 8,
+      "title": "Prepare And Obtain Owner Root-Scope Adoption",
+      "total_step_count": 5
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 9,
+      "title": "Capture Per-Root Scans And Obtain Per-Root Attestations",
+      "total_step_count": 5
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 10,
+      "title": "Execute Batch 1 (15 Paths)",
+      "total_step_count": 13
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 11,
+      "title": "Execute Batch 2 (15 Paths)",
+      "total_step_count": 13
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 12,
+      "title": "Execute Batch 3 (10 Paths)",
+      "total_step_count": 13
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 13,
+      "title": "Resolve And Execute Batch 4 (15 Paths)",
+      "total_step_count": 13
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 14,
+      "title": "Resolve And Execute Batch 5 (15 Paths)",
+      "total_step_count": 13
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 15,
+      "title": "Resolve And Execute Batch 6 (15 Paths)",
+      "total_step_count": 13
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 16,
+      "title": "Resolve And Execute Batch 7 (15 Paths)",
+      "total_step_count": 13
+    },
+    {
+      "completed_step_count": 0,
+      "evidence_bindings": [],
+      "status": "pending",
+      "task_number": 17,
+      "title": "Close The Queue And Hand Off The Archive Queue",
+      "total_step_count": 6
+    }
+  ]
+}
