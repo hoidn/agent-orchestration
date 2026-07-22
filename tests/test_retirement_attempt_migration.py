@@ -354,8 +354,111 @@ def _retirement_fixture(name: str) -> dict[str, object]:
     return json.loads(path.read_text())
 
 
+def _publish_attempt_migration_authority(
+    root: Path,
+    *,
+    governing_plan_path: str,
+    migration_plan_path: str,
+    expected_paths_manifest_path: str,
+    protected_paths: list[str],
+) -> dict[str, object]:
+    authority_subject_path = "authority/migration-subject.json"
+    authority_specification_review_path = "authority/migration-specification.json"
+    authority_quality_review_path = "authority/migration-quality.json"
+    mechanism_path = "implementation/attempt-migration.py"
+    test_path = "implementation/test-attempt-migration.py"
+    evidence_paths = {
+        "candidate_manifest": "verification/candidate-manifest.json",
+        "exact_diff": "verification/exact-diff.json",
+        "focused_test_evidence": "verification/focused-tests.txt",
+        "broad_test_evidence": "verification/broad-tests.txt",
+    }
+    _write(root, mechanism_path, b"generic migration mechanism\n")
+    _write(root, test_path, b"generic migration contract tests\n")
+    for role, path in evidence_paths.items():
+        _write(root, path, f"{role} evidence\n".encode())
+
+    manifest_rows = (root / expected_paths_manifest_path).read_text().splitlines()
+    manifest_binding = _file_binding(root, expected_paths_manifest_path)
+    manifest_binding.update(
+        {
+            "row_count": len(manifest_rows),
+            "normalized_path_set_sha256": _digest(_canonical(manifest_rows)),
+        }
+    )
+    subject = {
+        "schema_version": "attempt_migration_authority_subject.v1",
+        "governing_plan_binding": _file_binding(root, governing_plan_path),
+        "migration_plan_binding": _file_binding(root, migration_plan_path),
+        "expected_paths_manifest_binding": manifest_binding,
+        "protected_path_bindings": [
+            _file_binding(root, path, full=True) for path in protected_paths
+        ],
+        "mechanism_binding": _file_binding(root, mechanism_path, full=True),
+        "test_binding": _file_binding(root, test_path, full=True),
+        "evidence_bindings": {
+            role: _file_binding(root, path, full=True)
+            for role, path in evidence_paths.items()
+        },
+        "normalized_subject_sha256": "",
+        "claims_not_made": AUTHORITY_CLAIMS_NOT_MADE,
+    }
+    subject["normalized_subject_sha256"] = _digest(
+        _canonical(
+            {
+                key: value
+                for key, value in subject.items()
+                if key != "normalized_subject_sha256"
+            }
+        )
+    )
+    subject_data = _canonical(subject) + b"\n"
+    _write(root, authority_subject_path, subject_data)
+    _write(
+        root,
+        authority_specification_review_path,
+        _review(
+            "specification",
+            authority_subject_path,
+            subject_data,
+            "migration-specification-reviewer",
+        ),
+    )
+    _write(
+        root,
+        authority_quality_review_path,
+        _review(
+            "code_quality",
+            authority_subject_path,
+            subject_data,
+            "migration-quality-reviewer",
+        ),
+    )
+    committed_paths = [
+        authority_subject_path,
+        authority_specification_review_path,
+        authority_quality_review_path,
+        mechanism_path,
+        test_path,
+        *evidence_paths.values(),
+    ]
+    _git(root, "add", "--", *committed_paths)
+    _git(root, "commit", "-qm", "bind migration authority")
+    return {
+        "authority_subject_path": authority_subject_path,
+        "authority_specification_review_path": (
+            authority_specification_review_path
+        ),
+        "authority_quality_review_path": authority_quality_review_path,
+        "protected_paths": protected_paths,
+    }
+
+
 def _make_invalidated_adopted_repository(
-    tmp_path: Path, *, controlled_predecessor: bool = False
+    tmp_path: Path,
+    *,
+    controlled_predecessor: bool = False,
+    with_disposition_coordinates: bool = False,
 ) -> dict[str, object]:
     from orchestrator.retirement.broad_evidence import (
         build_broad_known_failure_baseline,
@@ -368,7 +471,48 @@ def _make_invalidated_adopted_repository(
 
     root = tmp_path / "repository"
     root.mkdir()
-    candidate, ledger = producer_candidate_and_ledger(root)
+    candidate, ledger = producer_candidate_and_ledger(
+        root, ledger_generation=2 if with_disposition_coordinates else 1
+    )
+    restoration_commit: str | None = None
+    restoration_tree: str | None = None
+    generation5_request_path: str | None = None
+    generation5_snapshot_path: str | None = None
+    generation11_request_path: str | None = None
+    generation11_snapshot_path: str | None = None
+    live_ledger_path: str | None = None
+    if with_disposition_coordinates:
+        live_ledger_path = str(ledger["live_path"])
+        generation11_request_path = str(ledger["request_path"])
+        generation11_snapshot_path = str(ledger["snapshot_path"])
+        generation5_requests = sorted(
+            root.glob("evidence/materialization-inputs/*/00000001-*.json")
+        )
+        generation5_snapshots = sorted(
+            root.glob("evidence/immutable-outputs/*/00000001-*.json")
+        )
+        assert len(generation5_requests) == 1
+        assert len(generation5_snapshots) == 1
+        generation5_request_path = generation5_requests[0].relative_to(root).as_posix()
+        generation5_snapshot_path = (
+            generation5_snapshots[0].relative_to(root).as_posix()
+        )
+        generation11_live_bytes = (root / live_ledger_path).read_bytes()
+        (root / live_ledger_path).write_bytes(
+            (root / generation5_snapshot_path).read_bytes()
+        )
+        _git(
+            root,
+            "add",
+            "--",
+            live_ledger_path,
+            generation5_request_path,
+            generation5_snapshot_path,
+        )
+        _git(root, "commit", "-qm", "bind restoration source")
+        restoration_commit = _git(root, "rev-parse", "HEAD").decode().strip()
+        restoration_tree = _git(root, "rev-parse", "HEAD^{tree}").decode().strip()
+        (root / live_ledger_path).write_bytes(generation11_live_bytes)
     source_path = root / candidate["candidate_paths"][0]["path"]
     candidate_data = source_path.read_bytes()
     source_path.write_text("candidate base = False\n")
@@ -516,8 +660,16 @@ def _make_invalidated_adopted_repository(
     pending_snapshot_path = (
         "evidence/attestations/pre-implementation/pending-snapshot.json"
     )
+    attestation_request_path = (
+        "evidence/attestations/pre-implementation/owner-request.json"
+    )
     owner_attestation_path = (
         "evidence/attestations/pre-implementation/broad-failure-baseline.json"
+    )
+    _write(
+        root,
+        attestation_request_path,
+        b'{\n  "requested_action": "review_and_adopt"\n}\n',
     )
     _write(root, pending_snapshot_path, pending_data)
 
@@ -586,6 +738,51 @@ def _make_invalidated_adopted_repository(
         _write(root, path, candidate_data)
     _write(root, "later-corrective-untracked.txt", b"later correction\n")
 
+    disposition_coordinates: dict[str, object] = {}
+    if with_disposition_coordinates:
+        assert restoration_commit is not None
+        assert restoration_tree is not None
+        assert generation5_request_path is not None
+        assert generation5_snapshot_path is not None
+        assert generation11_request_path is not None
+        assert generation11_snapshot_path is not None
+        assert live_ledger_path is not None
+        protected_paths = [
+            source_path.relative_to(root).as_posix(),
+            "later-corrective-untracked.txt",
+        ]
+        disposition_coordinates.update(
+            _publish_attempt_migration_authority(
+                root,
+                governing_plan_path=governing_plan_path,
+                migration_plan_path=migration_plan_path,
+                expected_paths_manifest_path=manifest_path,
+                protected_paths=protected_paths,
+            )
+        )
+        disposition_coordinates.update(
+            {
+                "archive_root": "archive",
+                "incident_path": "migration/incident.json",
+                "disposition_path": "migration/disposition.json",
+                "restoration_commit": restoration_commit,
+                "restoration_tree": restoration_tree,
+                "generation5_request_path": generation5_request_path,
+                "generation5_snapshot_path": generation5_snapshot_path,
+                "generation11_request_path": generation11_request_path,
+                "generation11_snapshot_path": generation11_snapshot_path,
+                "live_ledger_path": live_ledger_path,
+                "baseline_path": baseline_path,
+                "baseline_specification_review_path": specification_binding[
+                    "logical_path"
+                ],
+                "baseline_quality_review_path": quality_binding["logical_path"],
+                "attestation_request_path": attestation_request_path,
+                "attestation_snapshot_path": pending_snapshot_path,
+                "attestation_record_path": owner_attestation_path,
+            }
+        )
+
     return {
         "root": root,
         "source_root": source_root,
@@ -602,6 +799,7 @@ def _make_invalidated_adopted_repository(
         "expected_paths": expected_paths,
         "pending_attestation": pending,
         "confirmed_attestation": confirmed,
+        **disposition_coordinates,
     }
 
 
@@ -634,6 +832,84 @@ def _validate_incident(
 
     validator = getattr(attempt_migration, "validate_attempt_migration_incident")
     return validator(arguments["root"], record)
+
+
+def _capture_invalidated_adopted(
+    arguments: dict[str, object],
+) -> dict[str, dict[str, object]]:
+    from orchestrator.retirement import attempt_migration
+
+    operation = getattr(attempt_migration, "capture_invalidated_adopted")
+    keys = (
+        "incident_path",
+        "disposition_path",
+        "source_root",
+        "archive_root",
+        "governing_plan_path",
+        "migration_plan_path",
+        "authority_subject_path",
+        "authority_specification_review_path",
+        "authority_quality_review_path",
+        "intended_predecessor_head",
+        "restoration_commit",
+        "restoration_tree",
+        "expected_paths_manifest_path",
+        "protected_paths",
+        "generation5_request_path",
+        "generation5_snapshot_path",
+        "generation11_request_path",
+        "generation11_snapshot_path",
+        "live_ledger_path",
+        "baseline_path",
+        "baseline_specification_review_path",
+        "baseline_quality_review_path",
+        "workspace_baseline_path",
+        "attestation_request_path",
+        "attestation_snapshot_path",
+        "attestation_record_path",
+    )
+    return operation(arguments["root"], **{key: arguments[key] for key in keys})
+
+
+def _invalidated_adopted_cli_arguments(
+    arguments: dict[str, object],
+) -> list[str]:
+    command = [
+        "capture-invalidated-adopted",
+        "--repository-root",
+        str(arguments["root"]),
+    ]
+    for key in (
+        "incident_path",
+        "disposition_path",
+        "source_root",
+        "archive_root",
+        "governing_plan_path",
+        "migration_plan_path",
+        "authority_subject_path",
+        "authority_specification_review_path",
+        "authority_quality_review_path",
+        "intended_predecessor_head",
+        "restoration_commit",
+        "restoration_tree",
+        "expected_paths_manifest_path",
+        "generation5_request_path",
+        "generation5_snapshot_path",
+        "generation11_request_path",
+        "generation11_snapshot_path",
+        "live_ledger_path",
+        "baseline_path",
+        "baseline_specification_review_path",
+        "baseline_quality_review_path",
+        "workspace_baseline_path",
+        "attestation_request_path",
+        "attestation_snapshot_path",
+        "attestation_record_path",
+    ):
+        command.extend(["--" + key.replace("_", "-"), str(arguments[key])])
+    for path in arguments["protected_paths"]:
+        command.extend(["--protected-path", str(path)])
+    return command
 
 
 def _capture(arguments: dict[str, object]) -> dict[str, object]:
@@ -2733,9 +3009,10 @@ def test_cli_smoke_covers_capture_validate_apply_and_postvalidate(
     )
 
 
-def test_incident_v1_builds_from_owner_confirmed_invalidated_attempt(
+def test_invalidated_adopted_incident_v1_builds_from_owner_confirmed_attempt(
     tmp_path: Path,
 ) -> None:
+    from orchestrator.retirement import attempt_migration
     from orchestrator.retirement.broad_evidence import validate_bound_record
 
     arguments = _make_invalidated_adopted_repository(tmp_path)
@@ -2756,8 +3033,30 @@ def test_incident_v1_builds_from_owner_confirmed_invalidated_attempt(
     ).read_bytes()
     assert pending_bytes != _canonical(json.loads(pending_bytes)) + b"\n"
 
+    pre_move_repository_state = attempt_migration._repository_state(root)
     record = _build_incident(arguments)
 
+    assert set(record) == {
+        "schema_version",
+        "governing_plan_binding",
+        "migration_plan_binding",
+        "workspace_baseline_binding",
+        "owner_attestation_binding",
+        "pending_attestation_snapshot_binding",
+        "known_failure_baseline_binding",
+        "expected_paths_manifest_binding",
+        "source_root",
+        "intended_predecessor",
+        "predecessor_projection",
+        "pre_move_repository_state",
+        "attempt_rows",
+        "attempt_path_count",
+        "attempt_path_set_sha256",
+        "normalized_attempt_row_set_sha256",
+        "adoption_facts",
+        "normalized_incident_sha256",
+        "claims_not_made",
+    }
     assert record["schema_version"] == "attempt_migration_incident.v1"
     assert record["intended_predecessor"] == {
         "head": arguments["intended_predecessor_head"],
@@ -2767,6 +3066,18 @@ def test_incident_v1_builds_from_owner_confirmed_invalidated_attempt(
     assert record["workspace_baseline_binding"]["path"] == arguments[
         "workspace_baseline_path"
     ]
+    assert record["pre_move_repository_state"] == pre_move_repository_state
+    assert set(record["pre_move_repository_state"]) == {
+        "head",
+        "tree",
+        "index_sha256",
+        "status_projection",
+    }
+    assert set(record["pre_move_repository_state"]["status_projection"]) == {
+        "rows",
+        "row_count",
+        "normalized_rows_sha256",
+    }
     assert record["owner_attestation_binding"] == _file_binding(
         arguments["root"], arguments["owner_attestation_path"]
     )
@@ -2940,3 +3251,548 @@ def test_incident_v1_rejects_current_head_outside_predecessor_ancestry(
 
     with pytest.raises(AttemptMigrationError):
         _build_incident(arguments)
+
+
+V2_ARTIFACT_ROLES = {
+    "baseline",
+    "baseline_specification_review",
+    "baseline_quality_review",
+    "workspace_baseline",
+    "attestation_request",
+    "attestation_snapshot",
+    "attestation_record",
+}
+
+
+def _assert_invalidated_adopted_capture(
+    arguments: dict[str, object],
+    result: dict[str, dict[str, object]],
+    *,
+    expected_pre_move_repository_state: dict[str, object],
+) -> None:
+    assert set(result) == {"incident", "disposition"}
+    incident = result["incident"]
+    disposition = result["disposition"]
+    root = arguments["root"]
+    incident_path = arguments["incident_path"]
+    disposition_path = arguments["disposition_path"]
+    assert isinstance(root, Path)
+    assert isinstance(incident_path, str)
+    assert isinstance(disposition_path, str)
+
+    assert incident["schema_version"] == "attempt_migration_incident.v1"
+    assert incident["pre_move_repository_state"] == (
+        expected_pre_move_repository_state
+    )
+    assert disposition["schema_version"] == "attempt_migration_disposition.v2"
+    assert disposition["disposition"] == (
+        "archive_invalidated_owner_adopted_uncommitted_attempt_and_restore_tracked_files"
+    )
+    assert disposition["claims_not_made"] == [
+        "The captured attempt was personally owner-adopted but remained uncommitted when its repository predecessor was invalidated.",
+        "Historical owner adoption remains bound only to the archived attempt and may not be transferred to or consumed by any later attestation, index, or completion claim.",
+        "Archival relocation preserves bytes but grants no mutation or completion authority.",
+        "A later attempt may begin only after the tracked live file equals its reviewed restoration binding.",
+    ]
+    assert set(disposition) == {
+        "schema_version",
+        "disposition",
+        "governing_plan_binding",
+        "migration_plan_binding",
+        "authority_review_bindings",
+        "attempt_binding",
+        "attempt_lifecycle",
+        "pre_move_repository_state",
+        "protected_path_bindings",
+        "ledger_lineage",
+        "attempt_rows",
+        "attempt_path_count",
+        "attempt_path_set_sha256",
+        "archive_path_set_sha256",
+        "normalized_row_set_sha256",
+        "normalized_disposition_sha256",
+        "claims_not_made",
+    }
+    assert disposition["pre_move_repository_state"] == (
+        expected_pre_move_repository_state
+    )
+    assert disposition["attempt_lifecycle"] == {
+        "adoption_state": "owner_adopted",
+        "repository_commit_state": "uncommitted",
+        "invalidation_reason": "workspace_baseline_predecessor_mismatch",
+        "incident_binding": _file_binding(root, incident_path),
+        "workspace_baseline_role": "workspace_baseline",
+        "owner_attestation_role": "attestation_record",
+        "adoption_transfer": "forbidden",
+    }
+
+    artifacts = disposition["attempt_binding"]["artifact_bindings"]
+    assert set(artifacts) == V2_ARTIFACT_ROLES
+    incident_rows = {row["path"]: row for row in incident["attempt_rows"]}
+    for binding in artifacts.values():
+        row = incident_rows[binding["path"]]
+        assert binding == {
+            "path": row["path"],
+            "file_type": row["file_type"],
+            "lstat_mode": row["lstat_mode"],
+            "size": row["size"],
+            "sha256": row["sha256"],
+        }
+
+    pending_path = arguments["attestation_snapshot_path"]
+    record_path = arguments["attestation_record_path"]
+    assert artifacts["attestation_snapshot"]["path"] == pending_path
+    assert artifacts["attestation_record"]["path"] == record_path
+    pending_bytes = (root / pending_path).read_bytes()
+    owner_record_bytes = (root / record_path).read_bytes()
+    assert pending_bytes != _canonical(json.loads(pending_bytes)) + b"\n"
+    pending = json.loads(pending_bytes)
+    owner_record = json.loads(owner_record_bytes)
+    assert pending["evidence_status"] == "pending_owner_confirmation"
+    assert owner_record["evidence_status"] == "owner_confirmed"
+    reversed_record = deepcopy(owner_record)
+    for field in (
+        "evidence_status",
+        "owner",
+        "owner_confirmations",
+        "owner_adoption",
+    ):
+        reversed_record[field] = pending[field]
+    assert reversed_record == pending
+
+    assert (root / incident_path).read_bytes() == _canonical(incident) + b"\n"
+    assert (root / disposition_path).read_bytes() == (
+        _canonical(disposition) + b"\n"
+    )
+
+
+def _change_final_byte(path: Path) -> None:
+    data = path.read_bytes()
+    assert data.endswith(b"\n")
+    path.write_bytes(data[:-1] + b" ")
+
+
+def test_v1_compatibility_constants_roles_canonical_validation_and_cli_are_unchanged(
+    migration_repository: dict[str, object], capsys: pytest.CaptureFixture[str]
+) -> None:
+    from orchestrator.retirement import attempt_migration
+
+    assert attempt_migration.SCHEMA_VERSION == "attempt_migration_disposition.v1"
+    assert attempt_migration.POST_REPORT_SCHEMA_VERSION == (
+        "attempt_migration_post_report.v1"
+    )
+    assert attempt_migration.DISPOSITION == (
+        "archive_failed_pre_adoption_attempt_and_restore_tracked_files"
+    )
+    assert attempt_migration.TOP_LEVEL_KEYS == {
+        "schema_version",
+        "disposition",
+        "governing_plan_binding",
+        "migration_plan_binding",
+        "authority_review_bindings",
+        "attempt_binding",
+        "pre_move_repository_state",
+        "protected_path_bindings",
+        "ledger_lineage",
+        "attempt_rows",
+        "attempt_path_count",
+        "attempt_path_set_sha256",
+        "archive_path_set_sha256",
+        "normalized_row_set_sha256",
+        "normalized_disposition_sha256",
+        "claims_not_made",
+    }
+    assert attempt_migration.ROW_KEYS == {
+        "original_path",
+        "archive_path",
+        "tracked_state",
+        "file_type",
+        "lstat_mode",
+        "size",
+        "sha256",
+    }
+    assert attempt_migration.ARTIFACT_ROLES == (
+        "baseline",
+        "baseline_specification_review",
+        "baseline_quality_review",
+        "pending_request",
+        "pending_snapshot",
+        "pending_record",
+    )
+    assert attempt_migration.CLAIMS_NOT_MADE == [
+        "The captured attempt stopped before personal owner adoption.",
+        "None of the captured baseline, reviews, or pending form may be consumed by a later attestation, index, or completion claim.",
+        "Archival relocation preserves bytes but grants no mutation or completion authority.",
+        "A later attempt may begin only after the tracked live file equals its reviewed restoration binding.",
+    ]
+    assert attempt_migration.POST_CLAIMS_NOT_MADE == [
+        "This report proves only the exact reviewed archival move and tracked-file restoration.",
+        "This report grants no owner adoption, workflow execution, remediation, or completion authority.",
+    ]
+
+    record = _capture(migration_repository)
+    root = migration_repository["root"]
+    disposition_path = migration_repository["disposition_path"]
+    assert isinstance(root, Path)
+    assert isinstance(disposition_path, str)
+    disposition_bytes = (root / disposition_path).read_bytes()
+    assert set(record) == attempt_migration.TOP_LEVEL_KEYS
+    assert record["claims_not_made"] == attempt_migration.CLAIMS_NOT_MADE
+    assert set(record["attempt_binding"]["artifact_bindings"]) == set(
+        attempt_migration.ARTIFACT_ROLES
+    )
+    assert disposition_bytes == _canonical(record) + b"\n"
+    assert attempt_migration.validate(root, disposition_path) == record
+    assert (
+        attempt_migration.main(
+            [
+                "validate",
+                "--repository-root",
+                str(root),
+                "--disposition-path",
+                disposition_path,
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out) == record
+    assert (root / disposition_path).read_bytes() == disposition_bytes
+
+
+def test_v1_compatibility_rejects_v2_artifact_role_substitution(
+    migration_repository: dict[str, object],
+) -> None:
+    from orchestrator.retirement.attempt_migration import (
+        AttemptMigrationError,
+        validate,
+    )
+
+    record = _capture(migration_repository)
+    root = migration_repository["root"]
+    disposition_path = migration_repository["disposition_path"]
+    assert isinstance(root, Path)
+    assert isinstance(disposition_path, str)
+    old = record["attempt_binding"]["artifact_bindings"]
+    record["attempt_binding"]["artifact_bindings"] = {
+        "baseline": old["baseline"],
+        "baseline_specification_review": old["baseline_specification_review"],
+        "baseline_quality_review": old["baseline_quality_review"],
+        "workspace_baseline": old["pending_request"],
+        "attestation_request": old["pending_request"],
+        "attestation_snapshot": old["pending_snapshot"],
+        "attestation_record": old["pending_record"],
+    }
+    _rewrite_disposition(root, disposition_path, record)
+
+    with pytest.raises(AttemptMigrationError, match="attempt_artifact_bindings_invalid"):
+        validate(root, disposition_path)
+
+
+def test_v1_compatibility_rejects_unknown_schema_dispatch(
+    migration_repository: dict[str, object],
+) -> None:
+    from orchestrator.retirement.attempt_migration import (
+        AttemptMigrationError,
+        validate,
+    )
+
+    record = _capture(migration_repository)
+    root = migration_repository["root"]
+    disposition_path = migration_repository["disposition_path"]
+    assert isinstance(root, Path)
+    assert isinstance(disposition_path, str)
+    record["schema_version"] = "attempt_migration_disposition.v999"
+    _rewrite_disposition(root, disposition_path, record)
+
+    with pytest.raises(AttemptMigrationError, match="disposition_schema_invalid"):
+        validate(root, disposition_path)
+
+
+def test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.retirement import attempt_migration
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    pre_move_repository_state = attempt_migration._repository_state(root)
+
+    result = _capture_invalidated_adopted(arguments)
+
+    _assert_invalidated_adopted_capture(
+        arguments,
+        result,
+        expected_pre_move_repository_state=pre_move_repository_state,
+    )
+    assert attempt_migration.validate(
+        root, arguments["disposition_path"]
+    ) == result["disposition"]
+
+
+def test_invalidated_adopted_cli_publishes_the_same_closed_pair(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from orchestrator.retirement.attempt_migration import main
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+
+    assert main(_invalidated_adopted_cli_arguments(arguments)) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    result = json.loads(captured.out)
+    assert set(result) == {"incident", "disposition"}
+    assert result["incident"]["schema_version"] == "attempt_migration_incident.v1"
+    assert result["disposition"]["schema_version"] == (
+        "attempt_migration_disposition.v2"
+    )
+
+
+def test_invalidated_adopted_exact_full_replay_is_nonmutating(
+    tmp_path: Path,
+) -> None:
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    first = _capture_invalidated_adopted(arguments)
+    output_paths = [arguments["incident_path"], arguments["disposition_path"]]
+    before = {
+        path: (
+            (root / path).read_bytes(),
+            (root / path).stat().st_ino,
+            (root / path).stat().st_mtime_ns,
+            stat.S_IMODE((root / path).stat().st_mode),
+        )
+        for path in output_paths
+    }
+    status_before = _git(
+        root, "status", "--porcelain=v1", "-z", "--untracked-files=all"
+    )
+
+    second = _capture_invalidated_adopted(arguments)
+
+    assert second == first
+    assert status_before == _git(
+        root, "status", "--porcelain=v1", "-z", "--untracked-files=all"
+    )
+    assert before == {
+        path: (
+            (root / path).read_bytes(),
+            (root / path).stat().st_ino,
+            (root / path).stat().st_mtime_ns,
+            stat.S_IMODE((root / path).stat().st_mode),
+        )
+        for path in output_paths
+    }
+
+
+def test_invalidated_adopted_recovers_only_after_incident_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from orchestrator.retirement import attempt_migration
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    real_publish = attempt_migration._publish_exclusive
+    publication_count = 0
+
+    def crash_after_incident(*args: object, **kwargs: object) -> None:
+        nonlocal publication_count
+        publication_count += 1
+        if publication_count == 2:
+            raise attempt_migration.AttemptMigrationError(
+                "injected_after_incident_publication"
+            )
+        real_publish(*args, **kwargs)
+
+    monkeypatch.setattr(attempt_migration, "_publish_exclusive", crash_after_incident)
+    with pytest.raises(
+        attempt_migration.AttemptMigrationError,
+        match="injected_after_incident_publication",
+    ):
+        _capture_invalidated_adopted(arguments)
+
+    incident_path = root / arguments["incident_path"]
+    disposition_path = root / arguments["disposition_path"]
+    assert incident_path.is_file()
+    assert not disposition_path.exists()
+    incident_before = (
+        incident_path.read_bytes(),
+        incident_path.stat().st_ino,
+        incident_path.stat().st_mtime_ns,
+    )
+    monkeypatch.setattr(attempt_migration, "_publish_exclusive", real_publish)
+
+    result = _capture_invalidated_adopted(arguments)
+
+    assert result["incident"] == json.loads(incident_before[0])
+    assert disposition_path.is_file()
+    assert incident_before == (
+        incident_path.read_bytes(),
+        incident_path.stat().st_ino,
+        incident_path.stat().st_mtime_ns,
+    )
+
+
+def test_invalidated_adopted_incident_only_recovery_rejects_unrelated_status_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from orchestrator.retirement import attempt_migration
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    real_publish = attempt_migration._publish_exclusive
+    publication_count = 0
+
+    def crash_after_incident(*args: object, **kwargs: object) -> None:
+        nonlocal publication_count
+        publication_count += 1
+        if publication_count == 2:
+            raise attempt_migration.AttemptMigrationError(
+                "injected_after_incident_publication"
+            )
+        real_publish(*args, **kwargs)
+
+    monkeypatch.setattr(attempt_migration, "_publish_exclusive", crash_after_incident)
+    with pytest.raises(attempt_migration.AttemptMigrationError):
+        _capture_invalidated_adopted(arguments)
+    monkeypatch.setattr(attempt_migration, "_publish_exclusive", real_publish)
+    _write(root, "unrelated-after-incident.txt", b"drift\n")
+
+    with pytest.raises(attempt_migration.AttemptMigrationError):
+        _capture_invalidated_adopted(arguments)
+    assert not (root / arguments["disposition_path"]).exists()
+
+
+def test_invalidated_adopted_rejects_a_one_byte_different_existing_incident(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.retirement.attempt_migration import AttemptMigrationError
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    incident = _build_incident(arguments)
+    incident_path = root / arguments["incident_path"]
+    _write(root, arguments["incident_path"], _canonical(incident) + b"\n")
+    _change_final_byte(incident_path)
+
+    with pytest.raises(AttemptMigrationError):
+        _capture_invalidated_adopted(arguments)
+    assert not (root / arguments["disposition_path"]).exists()
+
+
+@pytest.mark.parametrize(
+    "invalid_output_state",
+    ["disposition_only", "different_disposition", "different_incident"],
+)
+def test_invalidated_adopted_rejects_every_other_partial_or_different_pair(
+    tmp_path: Path, invalid_output_state: str
+) -> None:
+    from orchestrator.retirement.attempt_migration import AttemptMigrationError
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    _capture_invalidated_adopted(arguments)
+    incident_path = root / arguments["incident_path"]
+    disposition_path = root / arguments["disposition_path"]
+    if invalid_output_state == "disposition_only":
+        incident_path.unlink()
+    elif invalid_output_state == "different_disposition":
+        _change_final_byte(disposition_path)
+    else:
+        _change_final_byte(incident_path)
+
+    with pytest.raises(AttemptMigrationError):
+        _capture_invalidated_adopted(arguments)
+
+
+@pytest.mark.parametrize(
+    "output_classification", ["staged", "tracked", "rename", "cross_boundary"]
+)
+def test_invalidated_adopted_rejects_non_untracked_incident_output_classifications(
+    tmp_path: Path, output_classification: str
+) -> None:
+    from orchestrator.retirement.attempt_migration import AttemptMigrationError
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    incident = _build_incident(arguments)
+    incident_path = str(arguments["incident_path"])
+    incident_bytes = _canonical(incident) + b"\n"
+    if output_classification in {"staged", "tracked"}:
+        _write(root, incident_path, incident_bytes)
+        _git(root, "add", "--", incident_path)
+        if output_classification == "tracked":
+            _git(root, "commit", "-qm", "track incident output")
+    else:
+        source_path = (
+            "migration/incident-source.json"
+            if output_classification == "rename"
+            else f"{arguments['source_root']}/incident-source.json"
+        )
+        _write(root, source_path, incident_bytes)
+        _git(root, "add", "--", source_path)
+        _git(root, "commit", "-qm", "bind incident rename source")
+        (root / Path(incident_path).parent).mkdir(parents=True, exist_ok=True)
+        _git(root, "mv", source_path, incident_path)
+
+    with pytest.raises(AttemptMigrationError):
+        _capture_invalidated_adopted(arguments)
+    assert not (root / arguments["disposition_path"]).exists()
+
+
+@pytest.mark.parametrize("substitution", ["v1_artifact_roles", "missing_lifecycle"])
+def test_disposition_v2_rejects_each_v1_field_substitution_independently(
+    tmp_path: Path, substitution: str
+) -> None:
+    from orchestrator.retirement.attempt_migration import (
+        AttemptMigrationError,
+        validate,
+    )
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    result = _capture_invalidated_adopted(arguments)
+    record = result["disposition"]
+    if substitution == "v1_artifact_roles":
+        artifacts = record["attempt_binding"]["artifact_bindings"]
+        record["attempt_binding"]["artifact_bindings"] = {
+            "baseline": artifacts["baseline"],
+            "baseline_specification_review": artifacts[
+                "baseline_specification_review"
+            ],
+            "baseline_quality_review": artifacts["baseline_quality_review"],
+            "pending_request": artifacts["attestation_request"],
+            "pending_snapshot": artifacts["attestation_snapshot"],
+            "pending_record": artifacts["attestation_record"],
+        }
+    else:
+        record.pop("attempt_lifecycle")
+    _rewrite_disposition(root, arguments["disposition_path"], record)
+
+    with pytest.raises(AttemptMigrationError):
+        validate(root, arguments["disposition_path"])
