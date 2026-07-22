@@ -2051,6 +2051,164 @@ def _trailer_coordinates(message: bytes) -> tuple[str, str] | None:
     return matches[0].group(1).decode("ascii"), "sha256:" + matches[0].group(2).decode("ascii")
 
 
+def derive_committed_predecessor_lineage(
+    repository_root: Path | str,
+    *,
+    baseline_head: str,
+    intended_predecessor_head: str,
+    require_uncovered_paths: bool = False,
+) -> dict[str, Any]:
+    """Project the closed first-parent delta between two committed states.
+
+    A valid retirement-control trailer covers only the paths changed by that
+    particular commit.  The projection deliberately retains a path in both
+    aggregate coverage sets when separate commit occurrences changed it under
+    different control states.
+    """
+
+    root = _repository_root(repository_root)
+    for name, value in (
+        ("baseline_head", baseline_head),
+        ("intended_predecessor_head", intended_predecessor_head),
+    ):
+        if not isinstance(value, str) or _HEX40_RE.fullmatch(value) is None:
+            raise SourceBindingError(f"{name}_invalid")
+        resolved = _git(root, "rev-parse", "--verify", f"{value}^{{commit}}")
+        if resolved.decode("ascii", "strict").strip() != value:
+            raise SourceBindingError(f"{name}_invalid")
+
+    merge_base = _git(root, "merge-base", baseline_head, intended_predecessor_head)
+    if merge_base.decode("ascii", "strict").strip() != baseline_head:
+        raise SourceBindingError("predecessor_baseline_not_ancestor")
+
+    commits = (
+        _git(
+            root,
+            "rev-list",
+            "--first-parent",
+            "--reverse",
+            f"{baseline_head}..{intended_predecessor_head}",
+        )
+        .decode("ascii", "strict")
+        .splitlines()
+    )
+    if commits and commits[-1] != intended_predecessor_head:
+        raise SourceBindingError("predecessor_first_parent_lineage_invalid")
+    if not commits and baseline_head != intended_predecessor_head:
+        raise SourceBindingError("predecessor_first_parent_lineage_invalid")
+
+    commit_rows: list[dict[str, Any]] = []
+    changed: set[str] = set()
+    controlled: set[str] = set()
+    uncovered: set[str] = set()
+    expected_parent = baseline_head
+    for commit in commits:
+        parents = (
+            _git(root, "rev-list", "--parents", "-n", "1", commit)
+            .decode("ascii", "strict")
+            .split()
+        )
+        if len(parents) != 2 or parents[0] != commit:
+            raise SourceBindingError("predecessor_merge_topology_invalid")
+        parent = parents[1]
+        if parent != expected_parent:
+            raise SourceBindingError("predecessor_first_parent_lineage_invalid")
+
+        raw_paths = _git(
+            root,
+            "diff-tree",
+            "--no-commit-id",
+            "--name-only",
+            "--no-renames",
+            "-r",
+            "-z",
+            commit,
+        )
+        path_fields = raw_paths.split(b"\0")
+        if path_fields[-1:] == [b""]:
+            path_fields.pop()
+        paths = [_decode_path(field) for field in path_fields]
+        if len(paths) != len(set(paths)):
+            raise SourceBindingError("duplicate_predecessor_path")
+        paths.sort()
+
+        message = _raw_commit_message(root, commit)
+        coordinates = _trailer_coordinates(message)
+        marker_present = (
+            b"Retirement-Control-" in message
+            or b"Retirement-Transaction-ID:" in message
+        )
+        if coordinates is None and marker_present:
+            raise SourceBindingError("commit_control_trailer_invalid")
+        if coordinates is not None:
+            canonical_trailer = (
+                b"\nRetirement-Control-Schema: precommit_control.v1\n"
+                b"Retirement-Transaction-ID: "
+                + coordinates[0].encode("ascii")
+                + b"\nRetirement-Control-SHA256: "
+                + coordinates[1].removeprefix("sha256:").encode("ascii")
+                + b"\n"
+            )
+            prefix = message.removesuffix(canonical_trailer)
+            if (
+                len(prefix) + len(canonical_trailer) != len(message)
+                or b"Retirement-Control-" in prefix
+                or b"Retirement-Transaction-ID:" in prefix
+            ):
+                raise SourceBindingError("commit_control_trailer_invalid")
+
+        tree = _git(root, "rev-parse", f"{commit}^{{tree}}").decode("ascii").strip()
+        control_coordinates = (
+            None
+            if coordinates is None
+            else {
+                "transaction_id": coordinates[0],
+                "normalized_control_sha256": coordinates[1],
+            }
+        )
+        commit_rows.append(
+            {
+                "commit": commit,
+                "parent": parent,
+                "tree": tree,
+                "raw_message_sha256": _sha256_bytes(message),
+                "changed_paths": paths,
+                "changed_path_set_sha256": _path_list_digest(paths),
+                "control_coordinates": control_coordinates,
+            }
+        )
+        changed.update(paths)
+        (controlled if coordinates is not None else uncovered).update(paths)
+        expected_parent = commit
+
+    changed_paths = sorted(changed)
+    controlled_paths = sorted(controlled)
+    uncovered_paths = sorted(uncovered)
+    if require_uncovered_paths and not uncovered_paths:
+        raise SourceBindingError("predecessor_uncovered_paths_required")
+
+    projection: dict[str, Any] = {
+        "baseline_head": baseline_head,
+        "intended_predecessor_head": intended_predecessor_head,
+        "intended_predecessor_tree": _git(
+            root, "rev-parse", f"{intended_predecessor_head}^{{tree}}"
+        )
+        .decode("ascii", "strict")
+        .strip(),
+        "first_parent_commits": commit_rows,
+        "commit_count": len(commit_rows),
+        "changed_paths": changed_paths,
+        "changed_path_count": len(changed_paths),
+        "changed_path_set_sha256": _path_list_digest(changed_paths),
+        "controlled_paths": controlled_paths,
+        "controlled_path_set_sha256": _path_list_digest(controlled_paths),
+        "uncovered_paths": uncovered_paths,
+        "uncovered_path_set_sha256": _path_list_digest(uncovered_paths),
+    }
+    projection["normalized_projection_sha256"] = _canonical_sha256(projection)
+    return projection
+
+
 def _prior_trailers(root: Path, baseline_head: str, base_head: str) -> list[dict[str, str]]:
     if baseline_head == base_head:
         return []

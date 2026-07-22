@@ -14,6 +14,7 @@ __all__ = [
     "canonical_sha256",
     "compare_failure_sets",
     "derive_broad_baseline_comparison",
+    "derive_committed_predecessor_lineage",
     "derive_review_binding",
     "build_broad_evidence_bootstrap_subject",
     "build_broad_known_failure_baseline",
@@ -38,6 +39,7 @@ __all__ = [
     "validate_review_pair",
     "validate_review_subject",
     "validate_implementation_focused_report",
+    "validate_attempt_migration_incident",
 ]
 
 _MATERIALIZATION_EXPORTS = {
@@ -47,12 +49,21 @@ _MATERIALIZATION_EXPORTS = {
     "materialize_transaction",
     "validate_generation",
 }
+_SOURCE_BINDING_EXPORTS = {"derive_committed_predecessor_lineage"}
+_ATTEMPT_MIGRATION_EXPORTS = {"validate_attempt_migration_incident"}
 
 
 def __getattr__(name: str) -> Any:
     if name not in __all__:
         raise AttributeError(name)
-    module_name = "materialization" if name in _MATERIALIZATION_EXPORTS else "broad_evidence"
+    if name in _MATERIALIZATION_EXPORTS:
+        module_name = "materialization"
+    elif name in _SOURCE_BINDING_EXPORTS:
+        module_name = "source_bindings"
+    elif name in _ATTEMPT_MIGRATION_EXPORTS:
+        module_name = "attempt_migration"
+    else:
+        module_name = "broad_evidence"
     value = getattr(import_module(f"{__name__}.{module_name}"), name)
     globals()[name] = value
     return value

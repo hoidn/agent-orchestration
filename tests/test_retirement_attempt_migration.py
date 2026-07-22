@@ -369,6 +369,24 @@ def _make_invalidated_adopted_repository(
     root = tmp_path / "repository"
     root.mkdir()
     candidate, ledger = producer_candidate_and_ledger(root)
+    source_path = root / candidate["candidate_paths"][0]["path"]
+    candidate_data = source_path.read_bytes()
+    source_path.write_text("candidate base = False\n")
+    _git(root, "add", "--", source_path.relative_to(root).as_posix())
+    _git(root, "commit", "-qm", "bind candidate base")
+    source_path.write_bytes(candidate_data)
+    candidate_row = candidate["candidate_paths"][0]
+    candidate_row.update(
+        {
+            "sha256": _digest(candidate_data),
+            "size": len(candidate_data),
+            "state": "modified",
+        }
+    )
+    candidate["candidate_path_set_sha256"] = canonical_sha256(
+        candidate["candidate_paths"]
+    )
+    bind_candidate_to_repository(root, candidate)
     source_root = "evidence"
     governing_plan_path = "plans/governing.md"
     migration_plan_path = "plans/correction.md"
@@ -492,7 +510,9 @@ def _make_invalidated_adopted_repository(
     pending["quality_review_binding"] = quality_binding
     assert validate_record(pending) == []
     assert validate_bound_record(pending, root) == []
-    pending_data = _canonical(pending) + b"\n"
+    pending_data = json.dumps(
+        pending, sort_keys=True, indent=2, ensure_ascii=False
+    ).encode("utf-8") + b"\n"
     pending_snapshot_path = (
         "evidence/attestations/pre-implementation/pending-snapshot.json"
     )
@@ -541,8 +561,30 @@ def _make_invalidated_adopted_repository(
         row[3:].decode("utf-8") for row in status.split(b"\0") if row
     )
     _write(root, manifest_path, ("\n".join(expected_paths) + "\n").encode())
-    _git(root, "add", "--", manifest_path)
-    _git(root, "commit", "-qm", "freeze invalidated attempt manifest")
+    landed_candidate_paths = [
+        row["path"]
+        for row in baseline["candidate_binding"]["candidate_paths"]
+        if row["state"] != "deleted"
+    ]
+    for path in landed_candidate_paths:
+        _write(root, path, b"later corrective committed bytes\n")
+    _git(root, "add", "--", manifest_path, *landed_candidate_paths)
+    _git(
+        root,
+        "commit",
+        "-qm",
+        "freeze invalidated attempt manifest and land corrective candidate",
+    )
+    for path in landed_candidate_paths:
+        row = next(
+            item
+            for item in baseline["candidate_binding"]["candidate_paths"]
+            if item["path"] == path
+        )
+        assert path == source_path.relative_to(root).as_posix()
+        assert row["sha256"] == _digest(candidate_data)
+        _write(root, path, candidate_data)
+    _write(root, "later-corrective-untracked.txt", b"later correction\n")
 
     return {
         "root": root,
@@ -556,6 +598,7 @@ def _make_invalidated_adopted_repository(
         "known_failure_baseline_path": baseline_path,
         "intended_predecessor_head": intended_predecessor_head,
         "intended_predecessor_tree": intended_predecessor_tree,
+        "landed_candidate_paths": landed_candidate_paths,
         "expected_paths": expected_paths,
         "pending_attestation": pending,
         "confirmed_attestation": confirmed,
@@ -2693,7 +2736,25 @@ def test_cli_smoke_covers_capture_validate_apply_and_postvalidate(
 def test_incident_v1_builds_from_owner_confirmed_invalidated_attempt(
     tmp_path: Path,
 ) -> None:
+    from orchestrator.retirement.broad_evidence import validate_bound_record
+
     arguments = _make_invalidated_adopted_repository(tmp_path)
+    root = arguments["root"]
+    baseline = json.loads(
+        (root / arguments["known_failure_baseline_path"]).read_text()
+    )
+    historical_issue_codes = {
+        issue.code
+        for issue in validate_bound_record(
+            baseline, root, check_ledger_future_absence=False
+        )
+    }
+    assert arguments["landed_candidate_paths"]
+    assert "candidate_path_set_live_mismatch" in historical_issue_codes
+    pending_bytes = (
+        root / arguments["pending_attestation_snapshot_path"]
+    ).read_bytes()
+    assert pending_bytes != _canonical(json.loads(pending_bytes)) + b"\n"
 
     record = _build_incident(arguments)
 

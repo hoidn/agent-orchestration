@@ -31,6 +31,7 @@ from .safe_io import (
 
 SCHEMA_VERSION = "attempt_migration_disposition.v1"
 POST_REPORT_SCHEMA_VERSION = "attempt_migration_post_report.v1"
+INCIDENT_SCHEMA_VERSION = "attempt_migration_incident.v1"
 DISPOSITION = "archive_failed_pre_adoption_attempt_and_restore_tracked_files"
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -105,6 +106,48 @@ ARTIFACT_ROLES = (
     "pending_record",
 )
 CONTENT_METADATA_FIELDS = ("file_type", "lstat_mode", "size", "sha256")
+INCIDENT_TOP_LEVEL_KEYS = {
+    "schema_version",
+    "governing_plan_binding",
+    "migration_plan_binding",
+    "workspace_baseline_binding",
+    "owner_attestation_binding",
+    "pending_attestation_snapshot_binding",
+    "known_failure_baseline_binding",
+    "expected_paths_manifest_binding",
+    "source_root",
+    "intended_predecessor",
+    "predecessor_projection",
+    "attempt_rows",
+    "attempt_path_count",
+    "attempt_path_set_sha256",
+    "normalized_attempt_row_set_sha256",
+    "adoption_facts",
+    "normalized_incident_sha256",
+    "claims_not_made",
+}
+INCIDENT_ROW_KEYS = {
+    "path",
+    "tracked_state",
+    "file_type",
+    "lstat_mode",
+    "size",
+    "sha256",
+}
+INCIDENT_ADOPTION_FACT_KEYS = {
+    "adoption_state",
+    "repository_commit_state",
+    "evidence_status",
+    "owner_identity",
+    "owner_role",
+    "confirmed_at",
+    "adopted_at",
+}
+INCIDENT_CLAIMS_NOT_MADE = [
+    "This incident makes no claim that the bound uncommitted attempt was sealed "
+    "because its recorded workspace-baseline HEAD does not equal the intended "
+    "commit predecessor."
+]
 
 
 class AttemptMigrationError(RuntimeError):
@@ -638,6 +681,683 @@ def _manifest_paths(data: bytes, logical_path: str) -> list[str]:
     if not paths or paths != sorted(paths) or len(paths) != len(set(paths)):
         raise AttemptMigrationError("expected_manifest_order_invalid", logical_path)
     return paths
+
+
+def _incident_manifest_binding(
+    snapshot: Mapping[str, Any], paths: Sequence[str]
+) -> dict[str, Any]:
+    binding = _content_binding(snapshot)
+    binding.update(
+        {
+            "row_count": len(paths),
+            "normalized_path_set_sha256": _canonical_digest(list(paths)),
+        }
+    )
+    return binding
+
+
+def _incident_attempt_rows(
+    repository_root: Path, paths: Sequence[str]
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for path in paths:
+        snapshot = _read_regular(repository_root, path)
+        assert snapshot is not None
+        rows.append(
+            {
+                "path": path,
+                "tracked_state": (
+                    "modified" if _is_tracked(repository_root, path) else "untracked"
+                ),
+                "file_type": "regular",
+                "lstat_mode": snapshot["lstat_mode"],
+                "size": snapshot["size"],
+                "sha256": snapshot["sha256"],
+            }
+        )
+    return rows
+
+
+def _incident_status_paths(
+    rows: Sequence[Mapping[str, Any]], source_root: str
+) -> list[str]:
+    paths: list[str] = []
+    for row in rows:
+        for field in ("path", "source_path"):
+            value = row.get(field)
+            if isinstance(value, str) and _under(value, source_root):
+                paths.append(value)
+    if len(paths) != len(set(paths)):
+        raise AttemptMigrationError("incident_source_status_duplicate")
+    return sorted(paths)
+
+
+def _broad_issue_detail(issues: Sequence[Any]) -> str:
+    return ",".join(
+        sorted(
+            {
+                str(getattr(issue, "code", issue))
+                for issue in issues
+            }
+        )
+    )
+
+
+def _validate_incident_broad_record(
+    repository_root: Path,
+    record: Mapping[str, Any],
+    *,
+    role: str,
+    validate_bound: bool,
+) -> None:
+    from .broad_evidence import (
+        validate_bound_record,
+        validate_record,
+        validate_review_binding_pair,
+    )
+
+    shape_issues = validate_record(record)
+    if shape_issues:
+        raise AttemptMigrationError(
+            f"incident_{role}_invalid", _broad_issue_detail(shape_issues)
+        )
+    if validate_bound:
+        bound_issues = validate_bound_record(record, repository_root)
+        historical_subject_issues = [
+            issue
+            for issue in bound_issues
+            if getattr(issue, "code", None) == "review_pair_subject_invalid"
+        ]
+        other_bound_issues = [
+            issue
+            for issue in bound_issues
+            if getattr(issue, "code", None) != "review_pair_subject_invalid"
+        ]
+        if historical_subject_issues:
+            baseline = record.get("baseline_binding")
+            review_issues = validate_review_binding_pair(
+                specification_binding=record.get("specification_review_binding"),
+                quality_binding=record.get("quality_review_binding"),
+                repository_root=repository_root,
+                expected_subject_kind="implementation_failure_baseline",
+                expected_subject_binding={
+                    "path": baseline.get("path"),
+                    "sha256": baseline.get("sha256"),
+                }
+                if isinstance(baseline, Mapping)
+                else None,
+            )
+            other_bound_issues.extend(review_issues)
+        if other_bound_issues:
+            raise AttemptMigrationError(
+                f"incident_{role}_binding_invalid",
+                _broad_issue_detail(other_bound_issues),
+            )
+
+
+def _issue_coordinates(issues: Sequence[Any]) -> set[tuple[str, str]]:
+    return {
+        (str(getattr(issue, "code", issue)), str(getattr(issue, "path", "")))
+        for issue in issues
+    }
+
+
+def _validate_incident_historical_baseline(
+    repository_root: Path, baseline: Mapping[str, Any]
+) -> None:
+    """Validate a bound baseline while recognizing only its expected HEAD drift.
+
+    The broad validator is intentionally live-candidate strict.  An incident is
+    captured after a corrective descendant commit, so its content-addressed
+    baseline graph is historical by construction.  Every ordinary bound check
+    still runs; only the two wrapper issues caused by that already-proved HEAD
+    drift are accepted, and the nested outcome must fail for that reason alone.
+    """
+
+    from .broad_evidence import validate_bound_record, validate_record
+
+    baseline_issues = validate_bound_record(
+        baseline, repository_root, check_ledger_future_absence=False
+    )
+    if not baseline_issues:
+        return
+    baseline_coordinates = _issue_coordinates(baseline_issues)
+    required_baseline_coordinates = {
+        ("bound_record_invalid", "$.broad_outcome_binding"),
+        ("candidate_git_identity_mismatch", "$.candidate_binding"),
+    }
+    permitted_candidate_drift = {
+        (
+            "candidate_path_set_live_mismatch",
+            "$.candidate_binding.candidate_paths",
+        )
+    }
+    if (
+        not required_baseline_coordinates <= baseline_coordinates
+        or baseline_coordinates
+        - required_baseline_coordinates
+        - permitted_candidate_drift
+    ):
+        raise AttemptMigrationError(
+            "incident_known_failure_baseline_binding_invalid",
+            _broad_issue_detail(baseline_issues),
+        )
+
+    broad_binding = baseline.get("broad_outcome_binding")
+    if not isinstance(broad_binding, Mapping):
+        raise AttemptMigrationError(
+            "incident_known_failure_baseline_binding_invalid"
+        )
+    broad_snapshot = _read_regular(repository_root, broad_binding.get("path"))
+    assert broad_snapshot is not None
+    if (
+        broad_snapshot["sha256"] != broad_binding.get("sha256")
+        or (
+            "size" in broad_binding
+            and broad_snapshot["size"] != broad_binding.get("size")
+        )
+    ):
+        raise AttemptMigrationError(
+            "incident_known_failure_baseline_binding_invalid"
+        )
+    broad = _json_bytes(broad_snapshot["data"], broad_snapshot["path"])
+    broad_shape_issues = validate_record(broad)
+    broad_bound_issues = validate_bound_record(
+        broad, repository_root, check_ledger_future_absence=False
+    )
+    broad_coordinates = _issue_coordinates(broad_bound_issues)
+    required_broad_coordinates = {
+        ("candidate_git_identity_mismatch", "$.candidate_binding")
+    }
+    if (
+        broad_shape_issues
+        or not required_broad_coordinates <= broad_coordinates
+        or broad_coordinates - required_broad_coordinates - permitted_candidate_drift
+    ):
+        raise AttemptMigrationError(
+            "incident_known_failure_baseline_binding_invalid",
+            _broad_issue_detail([*broad_shape_issues, *broad_bound_issues]),
+        )
+
+
+def _incident_adoption_facts(
+    owner_attestation: Mapping[str, Any],
+) -> dict[str, Any]:
+    owner = owner_attestation.get("owner")
+    confirmations = owner_attestation.get("owner_confirmations")
+    adoption = owner_attestation.get("owner_adoption")
+    if not all(isinstance(value, Mapping) for value in (owner, confirmations, adoption)):
+        raise AttemptMigrationError("incident_owner_lifecycle_invalid")
+    assert isinstance(owner, Mapping)
+    assert isinstance(confirmations, Mapping)
+    assert isinstance(adoption, Mapping)
+    if (
+        owner_attestation.get("evidence_status") != "owner_confirmed"
+        or owner.get("identity") != adoption.get("identity")
+    ):
+        raise AttemptMigrationError("incident_owner_lifecycle_invalid")
+    return {
+        "adoption_state": "owner_adopted",
+        "repository_commit_state": "uncommitted",
+        "evidence_status": "owner_confirmed",
+        "owner_identity": owner.get("identity"),
+        "owner_role": owner.get("role"),
+        "confirmed_at": confirmations.get("confirmed_at"),
+        "adopted_at": adoption.get("adopted_at"),
+    }
+
+
+def _validate_incident_evidence_records(
+    repository_root: Path,
+    *,
+    workspace_snapshot: Mapping[str, Any],
+    owner_snapshot: Mapping[str, Any],
+    pending_snapshot: Mapping[str, Any],
+    baseline_snapshot: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    from .source_bindings import validate_workspace_record_shape
+
+    workspace = _json_bytes(workspace_snapshot["data"], workspace_snapshot["path"])
+    workspace_issues = validate_workspace_record_shape(workspace)
+    if workspace_issues:
+        raise AttemptMigrationError(
+            "incident_workspace_baseline_invalid",
+            _broad_issue_detail(workspace_issues),
+        )
+
+    owner_attestation = _json_bytes(owner_snapshot["data"], owner_snapshot["path"])
+    pending_attestation = _json_bytes(
+        pending_snapshot["data"], pending_snapshot["path"]
+    )
+    baseline = _json_bytes(baseline_snapshot["data"], baseline_snapshot["path"])
+    _validate_incident_broad_record(
+        repository_root,
+        owner_attestation,
+        role="owner_attestation",
+        validate_bound=True,
+    )
+    _validate_incident_broad_record(
+        repository_root,
+        pending_attestation,
+        role="pending_attestation",
+        validate_bound=True,
+    )
+    _validate_incident_broad_record(
+        repository_root,
+        baseline,
+        role="known_failure_baseline",
+        validate_bound=False,
+    )
+    _validate_incident_historical_baseline(repository_root, baseline)
+
+    if pending_attestation.get("evidence_status") != "pending_owner_confirmation":
+        raise AttemptMigrationError("incident_pending_lifecycle_invalid")
+    facts = _incident_adoption_facts(owner_attestation)
+
+    reverted = dict(owner_attestation)
+    reverted.update(
+        {
+            "evidence_status": "pending_owner_confirmation",
+            "owner": None,
+            "owner_confirmations": {
+                "classification_partition_confirmed": False,
+                "comparison_only_confirmed": False,
+                "confirmed_at": None,
+                "exact_failure_table_confirmed": False,
+                "no_out_of_scope_repair_confirmed": False,
+                "normalization_contract_confirmed": False,
+                "reviews_confirmed": False,
+            },
+            "owner_adoption": None,
+        }
+    )
+    if reverted != pending_attestation:
+        raise AttemptMigrationError("incident_attestation_snapshot_mismatch")
+
+    owner_baseline_binding = owner_attestation.get("baseline_binding")
+    pending_baseline_binding = pending_attestation.get("baseline_binding")
+    if (
+        not isinstance(owner_baseline_binding, Mapping)
+        or owner_baseline_binding != pending_baseline_binding
+        or owner_baseline_binding.get("path") != baseline_snapshot["path"]
+        or owner_baseline_binding.get("sha256") != baseline_snapshot["sha256"]
+    ):
+        raise AttemptMigrationError("incident_baseline_binding_mismatch")
+    return (
+        workspace,
+        owner_attestation,
+        pending_attestation,
+        baseline,
+        facts,
+    )
+
+
+def _validate_incident_structure(record: Any) -> dict[str, Any]:
+    incident = dict(
+        _require_keys(record, INCIDENT_TOP_LEVEL_KEYS, "incident_keys_mismatch")
+    )
+    if incident["schema_version"] != INCIDENT_SCHEMA_VERSION:
+        raise AttemptMigrationError("incident_schema_invalid")
+    if incident["claims_not_made"] != INCIDENT_CLAIMS_NOT_MADE:
+        raise AttemptMigrationError("incident_claims_invalid")
+    if incident["normalized_incident_sha256"] != _canonical_digest(
+        incident, exclude="normalized_incident_sha256"
+    ):
+        raise AttemptMigrationError("normalized_incident_digest_mismatch")
+
+    for field in (
+        "governing_plan_binding",
+        "migration_plan_binding",
+        "workspace_baseline_binding",
+        "owner_attestation_binding",
+        "pending_attestation_snapshot_binding",
+        "known_failure_baseline_binding",
+    ):
+        _validate_file_binding(incident[field], full=False)
+    manifest = _require_keys(
+        incident["expected_paths_manifest_binding"],
+        {"path", "size", "sha256", "row_count", "normalized_path_set_sha256"},
+        "incident_manifest_binding_invalid",
+    )
+    _validate_file_binding(
+        {key: manifest[key] for key in ("path", "size", "sha256")}, full=False
+    )
+    if type(manifest["row_count"]) is not int or manifest["row_count"] <= 0:
+        raise AttemptMigrationError("incident_manifest_binding_invalid")
+    if not _is_sha256(manifest["normalized_path_set_sha256"]):
+        raise AttemptMigrationError("incident_manifest_binding_invalid")
+
+    source_root = _relative_path(incident["source_root"], field="source_root")
+    intended = _require_keys(
+        incident["intended_predecessor"],
+        {"head", "tree"},
+        "incident_predecessor_invalid",
+    )
+    if not _is_commit_identity(intended["head"]) or not _is_commit_identity(
+        intended["tree"]
+    ):
+        raise AttemptMigrationError("incident_predecessor_invalid")
+    if not isinstance(incident["predecessor_projection"], Mapping):
+        raise AttemptMigrationError("incident_predecessor_projection_invalid")
+
+    rows = incident["attempt_rows"]
+    if not isinstance(rows, list) or not rows:
+        raise AttemptMigrationError("incident_attempt_rows_invalid")
+    row_paths: list[str] = []
+    for value in rows:
+        row = _require_keys(value, INCIDENT_ROW_KEYS, "incident_attempt_row_invalid")
+        path = _relative_path(row["path"], field="incident_attempt_row.path")
+        if not _under(path, source_root):
+            raise AttemptMigrationError("incident_attempt_path_outside_source", path)
+        if row["tracked_state"] not in {"modified", "untracked"}:
+            raise AttemptMigrationError("incident_attempt_row_invalid", path)
+        if (
+            row["file_type"] != "regular"
+            or type(row["lstat_mode"]) is not int
+            or not 0 <= row["lstat_mode"] <= 0o7777
+            or type(row["size"]) is not int
+            or row["size"] < 0
+            or not _is_sha256(row["sha256"])
+        ):
+            raise AttemptMigrationError("incident_attempt_row_invalid", path)
+        row_paths.append(path)
+    if row_paths != sorted(set(row_paths)):
+        raise AttemptMigrationError("incident_attempt_row_order_invalid")
+    if (
+        type(incident["attempt_path_count"]) is not int
+        or incident["attempt_path_count"] != len(rows)
+        or incident["attempt_path_set_sha256"] != _canonical_digest(row_paths)
+        or incident["normalized_attempt_row_set_sha256"]
+        != _canonical_digest(rows)
+    ):
+        raise AttemptMigrationError("incident_attempt_projection_invalid")
+    if manifest["row_count"] != len(rows):
+        raise AttemptMigrationError("incident_manifest_binding_invalid")
+
+    facts = _require_keys(
+        incident["adoption_facts"],
+        INCIDENT_ADOPTION_FACT_KEYS,
+        "incident_adoption_facts_invalid",
+    )
+    if (
+        facts["adoption_state"] != "owner_adopted"
+        or facts["repository_commit_state"] != "uncommitted"
+        or facts["evidence_status"] != "owner_confirmed"
+        or any(
+            not isinstance(facts[field], str) or not facts[field]
+            for field in ("owner_identity", "owner_role")
+        )
+    ):
+        raise AttemptMigrationError("incident_adoption_facts_invalid")
+    timestamps: list[datetime] = []
+    for field in ("confirmed_at", "adopted_at"):
+        try:
+            timestamp = datetime.fromisoformat(facts[field])
+            if timestamp.tzinfo is None:
+                raise ValueError
+        except (TypeError, ValueError) as exc:
+            raise AttemptMigrationError("incident_adoption_facts_invalid") from exc
+        timestamps.append(timestamp)
+    if timestamps[0] > timestamps[1]:
+        raise AttemptMigrationError("incident_adoption_facts_invalid")
+    return incident
+
+
+def _reopen_incident_binding(
+    repository_root: Path, binding: Mapping[str, Any], *, role: str
+) -> dict[str, Any]:
+    snapshot = _read_regular(repository_root, binding["path"])
+    assert snapshot is not None
+    if _content_binding(snapshot) != dict(binding):
+        raise AttemptMigrationError("incident_binding_mismatch", role)
+    return snapshot
+
+
+def validate_attempt_migration_incident(
+    repository_root: Path | str, record: Any
+) -> dict[str, Any]:
+    """Reopen and rederive one closed invalidated-attempt incident."""
+
+    from .source_bindings import (
+        SourceBindingError,
+        derive_committed_predecessor_lineage,
+    )
+
+    root = _repository_root(repository_root)
+    incident = _validate_incident_structure(record)
+    snapshots: dict[str, dict[str, Any]] = {}
+    for field in ("governing_plan_binding", "migration_plan_binding"):
+        snapshot = _require_committed_live(root, incident[field]["path"])
+        if _content_binding(snapshot) != incident[field]:
+            raise AttemptMigrationError("incident_binding_mismatch", field)
+        snapshots[field] = snapshot
+    for field in (
+        "workspace_baseline_binding",
+        "owner_attestation_binding",
+        "pending_attestation_snapshot_binding",
+        "known_failure_baseline_binding",
+    ):
+        snapshots[field] = _reopen_incident_binding(
+            root, incident[field], role=field
+        )
+    manifest_binding = incident["expected_paths_manifest_binding"]
+    manifest_snapshot = _require_committed_live(root, manifest_binding["path"])
+    paths = _manifest_paths(manifest_snapshot["data"], manifest_snapshot["path"])
+    if _incident_manifest_binding(manifest_snapshot, paths) != manifest_binding:
+        raise AttemptMigrationError("incident_manifest_binding_mismatch")
+    source_root = incident["source_root"]
+    if any(not _under(path, source_root) for path in paths):
+        raise AttemptMigrationError("incident_attempt_path_outside_source")
+
+    workspace, _owner, _pending, baseline, adoption_facts = (
+        _validate_incident_evidence_records(
+            root,
+            workspace_snapshot=snapshots["workspace_baseline_binding"],
+            owner_snapshot=snapshots["owner_attestation_binding"],
+            pending_snapshot=snapshots["pending_attestation_snapshot_binding"],
+            baseline_snapshot=snapshots["known_failure_baseline_binding"],
+        )
+    )
+    if adoption_facts != incident["adoption_facts"]:
+        raise AttemptMigrationError("incident_adoption_facts_mismatch")
+
+    intended = incident["intended_predecessor"]
+    candidate = baseline.get("candidate_binding")
+    if (
+        not isinstance(candidate, Mapping)
+        or candidate.get("head") != intended["head"]
+        or candidate.get("head_tree") != intended["tree"]
+    ):
+        raise AttemptMigrationError("incident_candidate_predecessor_mismatch")
+    try:
+        projection = derive_committed_predecessor_lineage(
+            root,
+            baseline_head=workspace["head"],
+            intended_predecessor_head=intended["head"],
+            require_uncovered_paths=True,
+        )
+    except (KeyError, SourceBindingError) as exc:
+        raise AttemptMigrationError(
+            "incident_predecessor_projection_invalid", str(exc)
+        ) from exc
+    if (
+        projection != incident["predecessor_projection"]
+        or projection["intended_predecessor_tree"] != intended["tree"]
+    ):
+        raise AttemptMigrationError("incident_predecessor_projection_mismatch")
+
+    state = _repository_state(root)
+    if not _git_is_ancestor(root, intended["head"], state["head"]):
+        raise AttemptMigrationError("incident_predecessor_not_current_ancestor")
+    _validate_status_projection_boundaries(
+        state["status_projection"]["rows"], source_root
+    )
+    observed_paths = _incident_status_paths(
+        state["status_projection"]["rows"], source_root
+    )
+    if observed_paths != paths:
+        raise AttemptMigrationError("incident_source_set_mismatch")
+    required_attempt_bindings = {
+        incident[field]["path"]
+        for field in (
+            "workspace_baseline_binding",
+            "owner_attestation_binding",
+            "pending_attestation_snapshot_binding",
+            "known_failure_baseline_binding",
+        )
+    }
+    if not required_attempt_bindings <= set(paths):
+        raise AttemptMigrationError("incident_evidence_outside_attempt")
+    if _incident_attempt_rows(root, paths) != incident["attempt_rows"]:
+        raise AttemptMigrationError("incident_attempt_rows_mismatch")
+    return incident
+
+
+def build_attempt_migration_incident(
+    repository_root: Path | str,
+    *,
+    governing_plan_path: Path | str,
+    migration_plan_path: Path | str,
+    workspace_baseline_path: Path | str,
+    owner_attestation_path: Path | str,
+    pending_attestation_snapshot_path: Path | str,
+    known_failure_baseline_path: Path | str,
+    expected_paths_manifest_path: Path | str,
+    source_root: Path | str,
+    intended_predecessor_head: str,
+) -> dict[str, Any]:
+    """Build, without publishing, one deterministic invalidation incident."""
+
+    from .source_bindings import (
+        SourceBindingError,
+        derive_committed_predecessor_lineage,
+    )
+
+    root = _repository_root(repository_root)
+    source_prefix = _relative_path(source_root, field="source_root")
+    path_fields = {
+        "governing_plan_binding": governing_plan_path,
+        "migration_plan_binding": migration_plan_path,
+        "workspace_baseline_binding": workspace_baseline_path,
+        "owner_attestation_binding": owner_attestation_path,
+        "pending_attestation_snapshot_binding": pending_attestation_snapshot_path,
+        "known_failure_baseline_binding": known_failure_baseline_path,
+    }
+    snapshots: dict[str, dict[str, Any]] = {}
+    for field, raw_path in path_fields.items():
+        path = _relative_path(raw_path, field=field)
+        snapshot = (
+            _require_committed_live(root, path)
+            if field in {"governing_plan_binding", "migration_plan_binding"}
+            else _read_regular(root, path)
+        )
+        assert snapshot is not None
+        snapshots[field] = snapshot
+
+    manifest_path = _relative_path(
+        expected_paths_manifest_path, field="expected_paths_manifest_path"
+    )
+    manifest_snapshot = _require_committed_live(root, manifest_path)
+    paths = _manifest_paths(manifest_snapshot["data"], manifest_path)
+    if any(not _under(path, source_prefix) for path in paths):
+        raise AttemptMigrationError("incident_attempt_path_outside_source")
+
+    workspace, _owner, _pending, baseline, adoption_facts = (
+        _validate_incident_evidence_records(
+            root,
+            workspace_snapshot=snapshots["workspace_baseline_binding"],
+            owner_snapshot=snapshots["owner_attestation_binding"],
+            pending_snapshot=snapshots["pending_attestation_snapshot_binding"],
+            baseline_snapshot=snapshots["known_failure_baseline_binding"],
+        )
+    )
+    if not _is_commit_identity(intended_predecessor_head):
+        raise AttemptMigrationError("incident_predecessor_invalid")
+    try:
+        projection = derive_committed_predecessor_lineage(
+            root,
+            baseline_head=workspace["head"],
+            intended_predecessor_head=intended_predecessor_head,
+            require_uncovered_paths=True,
+        )
+    except (KeyError, SourceBindingError) as exc:
+        raise AttemptMigrationError(
+            "incident_predecessor_projection_invalid", str(exc)
+        ) from exc
+    intended = {
+        "head": intended_predecessor_head,
+        "tree": projection["intended_predecessor_tree"],
+    }
+    candidate = baseline.get("candidate_binding")
+    if (
+        not isinstance(candidate, Mapping)
+        or candidate.get("head") != intended["head"]
+        or candidate.get("head_tree") != intended["tree"]
+    ):
+        raise AttemptMigrationError("incident_candidate_predecessor_mismatch")
+
+    state = _repository_state(root)
+    if not _git_is_ancestor(root, intended_predecessor_head, state["head"]):
+        raise AttemptMigrationError("incident_predecessor_not_current_ancestor")
+    _validate_status_projection_boundaries(
+        state["status_projection"]["rows"], source_prefix
+    )
+    if (
+        _incident_status_paths(state["status_projection"]["rows"], source_prefix)
+        != paths
+    ):
+        raise AttemptMigrationError("incident_source_set_mismatch")
+
+    required_attempt_paths = {
+        snapshots[field]["path"]
+        for field in (
+            "workspace_baseline_binding",
+            "owner_attestation_binding",
+            "pending_attestation_snapshot_binding",
+            "known_failure_baseline_binding",
+        )
+    }
+    if not required_attempt_paths <= set(paths):
+        raise AttemptMigrationError("incident_evidence_outside_attempt")
+    rows = _incident_attempt_rows(root, paths)
+    record: dict[str, Any] = {
+        "schema_version": INCIDENT_SCHEMA_VERSION,
+        "governing_plan_binding": _content_binding(
+            snapshots["governing_plan_binding"]
+        ),
+        "migration_plan_binding": _content_binding(
+            snapshots["migration_plan_binding"]
+        ),
+        "workspace_baseline_binding": _content_binding(
+            snapshots["workspace_baseline_binding"]
+        ),
+        "owner_attestation_binding": _content_binding(
+            snapshots["owner_attestation_binding"]
+        ),
+        "pending_attestation_snapshot_binding": _content_binding(
+            snapshots["pending_attestation_snapshot_binding"]
+        ),
+        "known_failure_baseline_binding": _content_binding(
+            snapshots["known_failure_baseline_binding"]
+        ),
+        "expected_paths_manifest_binding": _incident_manifest_binding(
+            manifest_snapshot, paths
+        ),
+        "source_root": source_prefix,
+        "intended_predecessor": intended,
+        "predecessor_projection": projection,
+        "attempt_rows": rows,
+        "attempt_path_count": len(rows),
+        "attempt_path_set_sha256": _canonical_digest(paths),
+        "normalized_attempt_row_set_sha256": _canonical_digest(rows),
+        "adoption_facts": adoption_facts,
+        "normalized_incident_sha256": "",
+        "claims_not_made": INCIDENT_CLAIMS_NOT_MADE,
+    }
+    record["normalized_incident_sha256"] = _canonical_digest(
+        record, exclude="normalized_incident_sha256"
+    )
+    return validate_attempt_migration_incident(root, record)
 
 
 def _binding_from_row(row: Mapping[str, Any], *, path_field: str) -> dict[str, Any]:
