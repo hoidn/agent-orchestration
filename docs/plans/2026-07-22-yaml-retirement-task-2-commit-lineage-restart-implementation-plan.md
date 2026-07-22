@@ -98,6 +98,8 @@ Add tests for `attempt_migration_incident.v1` covering:
 - workspace baseline and intended predecessor mismatch captured exactly;
 - candidate HEAD in the bound failure baseline equals the intended predecessor;
 - path manifest and owner-attestation byte digests reopened;
+- pre-publication repository state captured in the incident for deterministic
+  incident-only crash recovery;
 - uncovered predecessor paths required;
 - fully controlled predecessor range rejected;
 - incident digest, commit row, path set, raw-message digest, and nested type
@@ -169,7 +171,11 @@ digests.
 The incident must bind the accepted design, this implementation plan, workspace
 baseline, owner-confirmed attestation, its pending snapshot, known-failure
 baseline, expected path manifest, and derived predecessor projection. Its
-claims state only why the uncommitted attempt cannot be sealed.
+claims state only why the uncommitted attempt cannot be sealed. It also binds
+the exact repository state observed before publication. The general incident
+validator treats that state as historical so later corrective descendants
+remain valid; the capture replay path consumes it as the frozen comparison
+source for the incident-only crash prefix.
 
 - [ ] **Step 3: Export only the stable read/validate surface**
 
@@ -250,15 +256,18 @@ restoration commit/tree, generation-5/generation-11 coordinates, manifest,
 protected paths, baseline/reviews, workspace baseline, and attestation
 request/snapshot/record. It derives and exclusively publishes the incident,
 then the disposition. Capture the pre-move repository state before publishing
-either output. On exact replay, an already-published byte-identical incident is
+either output and bind that same state into both records. On exact replay, an
+already-published byte-identical incident is
 the sole permitted output-path addition and is excluded from the pre-move
 outside-status comparison; it is never reclassified as a protected path.
 Exact replay returns the same records; a partial or different replay fails
 closed, except for the one explicitly recoverable crash state: the exact
 byte-identical incident is present and the disposition is absent. In that state
-the operation revalidates the incident and frozen pre-move projection, then
+the operation revalidates the incident and its bound frozen pre-move projection
+after removing exactly the proven incident-output addition, then
 publishes only the deterministic disposition. Every other partial state, or
-any differing existing byte, fails closed.
+any differing existing byte, fails closed. Recomputing a new baseline from the
+retry workspace is forbidden.
 
 - [ ] **Step 4: Implement strict version dispatch**
 

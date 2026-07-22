@@ -156,12 +156,19 @@ The incident binds:
 - the nonempty uncovered path set;
 - the owner-confirmed attestation bytes;
 - the exact current attempt-path projection; and
+- the exact repository state captured before either incident or disposition
+  publication, used as the frozen comparison source for incident-only crash
+  recovery; and
 - a claim that the incident proves only why the uncommitted attempt cannot be
   sealed.
 
 Later corrective commits may advance HEAD, so the disposition binds this
 frozen incident record rather than reinterpreting the original detection
-coordinates.
+coordinates. Ordinary incident validation continues to permit corrective
+descendants. The stricter pre-publication repository-state equality is applied
+only by capture replay after the exact incident exists and the disposition is
+absent; that comparison removes exactly the proven incident-output addition
+and never recaptures a replacement baseline.
 
 ### Successor disposition
 
