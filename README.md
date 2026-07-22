@@ -142,7 +142,7 @@ What the typed declarations buy:
 - Every generated step maps back to this source form, and the whole run is
   resumable from its last validated state.
 
-The same contracts exist on the mature YAML surface (`variant_output`,
+The same contracts exist on the legacy YAML surface (`variant_output`,
 `match`, injected output contracts); the Lisp frontend is the typed,
 composable way to author them.
 
@@ -382,9 +382,6 @@ python -m orchestrator report --format md
 
 # Serve the dashboard
 python -m orchestrator dashboard --workspace "$(pwd)"
-
-# Validate an observability-focused example
-python -m orchestrator run workflows/examples/observability_runtime_config_demo.yaml --debug --step-summaries
 
 # Run the default non-e2e test loop
 pytest -m "not e2e" -v
