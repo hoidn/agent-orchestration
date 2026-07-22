@@ -2730,10 +2730,12 @@ def test_incident_v1_rejects_failure_baseline_candidate_head_mismatch(
 
     arguments = _make_invalidated_adopted_repository(tmp_path)
     root = arguments["root"]
-    baseline_path = arguments["known_failure_baseline_path"]
-    baseline = json.loads((root / baseline_path).read_text())
-    baseline["candidate_binding"]["head"] = "0" * 40
-    _write(root, baseline_path, _canonical(baseline) + b"\n")
+    arguments["intended_predecessor_head"] = _git(
+        root, "rev-parse", "HEAD"
+    ).decode().strip()
+    arguments["intended_predecessor_tree"] = _git(
+        root, "rev-parse", "HEAD^{tree}"
+    ).decode().strip()
 
     with pytest.raises(AttemptMigrationError):
         _build_incident(arguments)
