@@ -6,6 +6,7 @@ import json
 import os
 import stat
 import subprocess
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -336,6 +337,248 @@ def _make_migration_repository(
 @pytest.fixture
 def migration_repository(tmp_path: Path) -> dict[str, object]:
     return _make_migration_repository(tmp_path)
+
+
+def _retirement_fixture(name: str) -> dict[str, object]:
+    path = Path("tests/fixtures/retirement_broad_evidence") / name
+    return json.loads(path.read_text())
+
+
+def _make_invalidated_adopted_repository(
+    tmp_path: Path, *, controlled_predecessor: bool = False
+) -> dict[str, object]:
+    from orchestrator.retirement.broad_evidence import (
+        build_broad_known_failure_baseline,
+        build_broad_outcome,
+        canonical_sha256,
+        validate_bound_record,
+        validate_record,
+    )
+    from orchestrator.retirement.source_bindings import capture_workspace_baseline
+    from tests import test_retirement_broad_evidence as broad_fixtures
+
+    root = tmp_path / "repository"
+    root.mkdir()
+    candidate, ledger = broad_fixtures._producer_candidate_and_ledger(root)
+    source_root = "evidence"
+    governing_plan_path = "plans/governing.md"
+    migration_plan_path = "plans/correction.md"
+    manifest_path = "authority/expected-paths.txt"
+    workspace_baseline_path = (
+        "evidence/implementation-baseline/workspace-baseline.json"
+    )
+    _write(root, governing_plan_path, b"governing plan\n")
+    _write(root, migration_plan_path, b"corrective implementation plan\n")
+    _git(root, "add", "--", governing_plan_path, migration_plan_path)
+    _git(root, "commit", "-qm", "bind incident plans")
+    workspace_baseline = capture_workspace_baseline(root)
+    _write(root, workspace_baseline_path, _canonical(workspace_baseline) + b"\n")
+
+    _write(root, "README.md", b"ordinary predecessor change\n")
+    _git(root, "add", "--", "README.md")
+    if controlled_predecessor:
+        _git(
+            root,
+            "commit",
+            "-qm",
+            "controlled predecessor",
+            "-m",
+            "\n".join(
+                [
+                    "Retirement-Control-Schema: precommit_control.v1",
+                    "Retirement-Transaction-ID: " + "3" * 64,
+                    "Retirement-Control-SHA256: " + "4" * 64,
+                ]
+            ),
+        )
+    else:
+        _git(root, "commit", "-qm", "ordinary predecessor")
+    intended_predecessor_head = _git(root, "rev-parse", "HEAD").decode().strip()
+    intended_predecessor_tree = _git(
+        root, "rev-parse", "HEAD^{tree}"
+    ).decode().strip()
+    broad_fixtures._bind_candidate_to_repository(root, candidate)
+    raw_paths = broad_fixtures._producer_raw_broad(root)
+    snapshot_digest = canonical_sha256([])
+    outcome = build_broad_outcome(
+        repository_root=root,
+        candidate_binding=candidate,
+        execution_ledger_binding=ledger,
+        collection_argv=["pytest", "--collect-only", "-q"],
+        broad_argv=["pytest", "-q", "-rs", "-n", "16", "--dist=worksteal"],
+        environment={
+            "LC_ALL": "C.UTF-8",
+            "PYTHONHASHSEED": "0",
+            "PYTEST_DEBUG_TEMPROOT": None,
+        },
+        run_root_snapshots=[
+            {
+                "root_path": (root / "runs").as_posix(),
+                "root_path_sha256": canonical_sha256((root / "runs").as_posix()),
+                "scope_basis": "planning_candidate",
+                "before_snapshot_sha256": snapshot_digest,
+                "after_snapshot_sha256": snapshot_digest,
+            }
+        ],
+        **raw_paths,
+    )
+    outcome_path = broad_fixtures._write_producer_json(
+        root, "evidence/implementation-baseline/outcome.json", outcome
+    )
+    ownership_classifications = [
+        {
+            "node_id": node_id,
+            "ownership_class": "queue_owned",
+            "ownership_basis": ["source.py"],
+            "authorized_remediation_scope": ["source.py"],
+        }
+        for node_id in broad_fixtures._PRODUCER_FAILURE_NODE_IDS
+    ]
+    baseline = build_broad_known_failure_baseline(
+        repository_root=root,
+        broad_outcome_path=outcome_path.relative_to(root),
+        ownership_classifications=ownership_classifications,
+    )
+    baseline_path = "evidence/implementation-baseline/known-failure-baseline.json"
+    broad_fixtures._write_producer_json(root, baseline_path, baseline)
+    specification_binding, quality_binding = (
+        broad_fixtures._publish_producer_review_pair(
+            root,
+            evidence_root=Path(source_root),
+            subject_path=Path(baseline_path),
+            subject_kind="implementation_failure_baseline",
+            specification_name="reviews/implementation-baseline-specification.json",
+            quality_name="reviews/implementation-baseline-quality.json",
+        )
+    )
+
+    pending = _retirement_fixture(
+        "broad_failure_baseline_attestation.pending.v1.json"
+    )
+    pending["baseline_binding"] = {
+        "path": baseline_path,
+        "sha256": _digest((root / baseline_path).read_bytes()),
+        "schema_version": "broad_known_failure_baseline.v1",
+        "candidate_path_set_sha256": baseline["candidate_binding"][
+            "candidate_path_set_sha256"
+        ],
+    }
+    pending["failure_set_binding"] = {
+        "failure_count": len(baseline["failures"]),
+        "normalized_failure_set_sha256": baseline[
+            "normalized_failure_set_sha256"
+        ],
+    }
+    pending["normalization_binding"] = {
+        "schema_version": baseline["failure_normalization"]["schema_version"],
+        "normalized_contract_sha256": baseline["failure_normalization"][
+            "normalized_contract_sha256"
+        ],
+    }
+    pending["classification_summary"] = baseline["classification_summary"]
+    pending["specification_review_binding"] = specification_binding
+    pending["quality_review_binding"] = quality_binding
+    assert validate_record(pending) == []
+    assert validate_bound_record(pending, root) == []
+    pending_data = _canonical(pending) + b"\n"
+    pending_snapshot_path = (
+        "evidence/attestations/pre-implementation/pending-snapshot.json"
+    )
+    owner_attestation_path = (
+        "evidence/attestations/pre-implementation/broad-failure-baseline.json"
+    )
+    _write(root, pending_snapshot_path, pending_data)
+
+    confirmed = deepcopy(pending)
+    confirmed.update(
+        {
+            "evidence_status": "owner_confirmed",
+            "owner": {"identity": "Fixture Owner", "role": "owner"},
+            "owner_confirmations": {
+                "classification_partition_confirmed": True,
+                "comparison_only_confirmed": True,
+                "confirmed_at": "2026-01-01T00:00:00+00:00",
+                "exact_failure_table_confirmed": True,
+                "no_out_of_scope_repair_confirmed": True,
+                "normalization_contract_confirmed": True,
+                "reviews_confirmed": True,
+            },
+            "owner_adoption": {
+                "adopted_at": "2026-01-01T00:00:00+00:00",
+                "identity": "Fixture Owner",
+                "statement": (
+                    "I personally adopt this exact baseline for comparison only."
+                ),
+            },
+        }
+    )
+    assert validate_record(confirmed) == []
+    assert validate_bound_record(confirmed, root) == []
+    _write(root, owner_attestation_path, _canonical(confirmed) + b"\n")
+
+    status = _git(
+        root,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--",
+        source_root,
+    )
+    expected_paths = sorted(
+        row[3:].decode("utf-8") for row in status.split(b"\0") if row
+    )
+    _write(root, manifest_path, ("\n".join(expected_paths) + "\n").encode())
+    _git(root, "add", "--", manifest_path)
+    _git(root, "commit", "-qm", "freeze invalidated attempt manifest")
+
+    return {
+        "root": root,
+        "source_root": source_root,
+        "governing_plan_path": governing_plan_path,
+        "migration_plan_path": migration_plan_path,
+        "expected_paths_manifest_path": manifest_path,
+        "workspace_baseline_path": workspace_baseline_path,
+        "owner_attestation_path": owner_attestation_path,
+        "pending_attestation_snapshot_path": pending_snapshot_path,
+        "known_failure_baseline_path": baseline_path,
+        "intended_predecessor_head": intended_predecessor_head,
+        "intended_predecessor_tree": intended_predecessor_tree,
+        "expected_paths": expected_paths,
+        "pending_attestation": pending,
+        "confirmed_attestation": confirmed,
+    }
+
+
+def _build_incident(arguments: dict[str, object]) -> dict[str, object]:
+    from orchestrator.retirement import attempt_migration
+
+    builder = getattr(attempt_migration, "build_attempt_migration_incident")
+    return builder(
+        arguments["root"],
+        governing_plan_path=arguments["governing_plan_path"],
+        migration_plan_path=arguments["migration_plan_path"],
+        workspace_baseline_path=arguments["workspace_baseline_path"],
+        owner_attestation_path=arguments["owner_attestation_path"],
+        pending_attestation_snapshot_path=arguments[
+            "pending_attestation_snapshot_path"
+        ],
+        known_failure_baseline_path=arguments["known_failure_baseline_path"],
+        expected_paths_manifest_path=arguments[
+            "expected_paths_manifest_path"
+        ],
+        source_root=arguments["source_root"],
+        intended_predecessor_head=arguments["intended_predecessor_head"],
+    )
+
+
+def _validate_incident(
+    arguments: dict[str, object], record: dict[str, object]
+) -> dict[str, object]:
+    from orchestrator.retirement import attempt_migration
+
+    validator = getattr(attempt_migration, "validate_attempt_migration_incident")
+    return validator(arguments["root"], record)
 
 
 def _capture(arguments: dict[str, object]) -> dict[str, object]:
@@ -2433,3 +2676,192 @@ def test_cli_smoke_covers_capture_validate_apply_and_postvalidate(
     assert json.loads(capsys.readouterr().out)["schema_version"] == (
         "attempt_migration_post_report.v1"
     )
+
+
+def test_incident_v1_builds_from_owner_confirmed_invalidated_attempt(
+    tmp_path: Path,
+) -> None:
+    arguments = _make_invalidated_adopted_repository(tmp_path)
+
+    record = _build_incident(arguments)
+
+    assert record["schema_version"] == "attempt_migration_incident.v1"
+    assert record["intended_predecessor"] == {
+        "head": arguments["intended_predecessor_head"],
+        "tree": arguments["intended_predecessor_tree"],
+    }
+    assert record["predecessor_projection"]["uncovered_paths"] == ["README.md"]
+    assert record["workspace_baseline_binding"]["path"] == arguments[
+        "workspace_baseline_path"
+    ]
+    assert record["owner_attestation_binding"] == _file_binding(
+        arguments["root"], arguments["owner_attestation_path"]
+    )
+    assert record["expected_paths_manifest_binding"]["row_count"] == len(
+        arguments["expected_paths"]
+    )
+    assert _validate_incident(arguments, record) == record
+
+
+@pytest.mark.parametrize("lifecycle_defect", ["pending", "identity_mismatch"])
+def test_incident_v1_rejects_non_owner_confirmed_lifecycle(
+    tmp_path: Path, lifecycle_defect: str
+) -> None:
+    from orchestrator.retirement.attempt_migration import AttemptMigrationError
+
+    arguments = _make_invalidated_adopted_repository(tmp_path)
+    root = arguments["root"]
+    owner_attestation_path = arguments["owner_attestation_path"]
+    if lifecycle_defect == "pending":
+        replacement = arguments["pending_attestation"]
+    else:
+        replacement = deepcopy(arguments["confirmed_attestation"])
+        replacement["owner_adoption"]["identity"] = "Different Owner"
+    _write(root, owner_attestation_path, _canonical(replacement) + b"\n")
+
+    with pytest.raises(AttemptMigrationError):
+        _build_incident(arguments)
+
+
+def test_incident_v1_rejects_failure_baseline_candidate_head_mismatch(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.retirement.attempt_migration import AttemptMigrationError
+
+    arguments = _make_invalidated_adopted_repository(tmp_path)
+    root = arguments["root"]
+    baseline_path = arguments["known_failure_baseline_path"]
+    baseline = json.loads((root / baseline_path).read_text())
+    baseline["candidate_binding"]["head"] = "0" * 40
+    _write(root, baseline_path, _canonical(baseline) + b"\n")
+
+    with pytest.raises(AttemptMigrationError):
+        _build_incident(arguments)
+
+
+def test_incident_v1_requires_an_uncovered_predecessor_path(tmp_path: Path) -> None:
+    from orchestrator.retirement.attempt_migration import AttemptMigrationError
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, controlled_predecessor=True
+    )
+
+    with pytest.raises(AttemptMigrationError):
+        _build_incident(arguments)
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "normalized_digest",
+        "commit_coordinate",
+        "changed_path_set",
+        "raw_message_digest",
+        "nested_binding_type",
+    ],
+)
+def test_incident_v1_rejects_canonical_and_nested_tamper(
+    tmp_path: Path, tamper: str
+) -> None:
+    from orchestrator.retirement.attempt_migration import AttemptMigrationError
+
+    arguments = _make_invalidated_adopted_repository(tmp_path)
+    record = _build_incident(arguments)
+    if tamper == "normalized_digest":
+        record["normalized_incident_sha256"] = "sha256:" + "0" * 64
+    elif tamper == "commit_coordinate":
+        record["predecessor_projection"]["first_parent_commits"][0][
+            "commit"
+        ] = "0" * 40
+    elif tamper == "changed_path_set":
+        record["predecessor_projection"]["changed_path_set_sha256"] = (
+            "sha256:" + "0" * 64
+        )
+    elif tamper == "raw_message_digest":
+        record["predecessor_projection"]["first_parent_commits"][0][
+            "raw_message_sha256"
+        ] = "sha256:" + "0" * 64
+    else:
+        record["owner_attestation_binding"]["size"] = "not-an-integer"
+    if tamper != "normalized_digest":
+        record["normalized_incident_sha256"] = _digest(
+            _canonical(
+                {
+                    key: value
+                    for key, value in record.items()
+                    if key != "normalized_incident_sha256"
+                }
+            )
+        )
+
+    with pytest.raises(AttemptMigrationError):
+        _validate_incident(arguments, record)
+
+
+@pytest.mark.parametrize("binding_role", ["manifest", "owner_attestation"])
+def test_incident_v1_reopens_manifest_and_owner_attestation_bytes(
+    tmp_path: Path, binding_role: str
+) -> None:
+    from orchestrator.retirement.attempt_migration import AttemptMigrationError
+
+    arguments = _make_invalidated_adopted_repository(tmp_path)
+    record = _build_incident(arguments)
+    path = (
+        arguments["expected_paths_manifest_path"]
+        if binding_role == "manifest"
+        else arguments["owner_attestation_path"]
+    )
+    absolute = arguments["root"] / path
+    absolute.write_bytes(absolute.read_bytes() + b"tamper\n")
+
+    with pytest.raises(AttemptMigrationError):
+        _validate_incident(arguments, record)
+
+
+def test_incident_v1_allows_later_corrective_commit_but_not_attempt_drift(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.retirement.attempt_migration import AttemptMigrationError
+
+    arguments = _make_invalidated_adopted_repository(tmp_path)
+    record = _build_incident(arguments)
+    root = arguments["root"]
+    _write(root, "notes/later-correction.md", b"later correction\n")
+    _git(root, "add", "--", "notes/later-correction.md")
+    _git(root, "commit", "-qm", "later corrective commit")
+
+    assert _validate_incident(arguments, record) == record
+
+    changed_attempt_path = arguments["known_failure_baseline_path"]
+    absolute = root / changed_attempt_path
+    absolute.write_bytes(absolute.read_bytes() + b"changed\n")
+    with pytest.raises(AttemptMigrationError):
+        _validate_incident(arguments, record)
+
+
+def test_incident_v1_rejects_current_head_outside_predecessor_ancestry(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.retirement.attempt_migration import AttemptMigrationError
+
+    arguments = _make_invalidated_adopted_repository(tmp_path)
+    root = arguments["root"]
+    workspace = json.loads(
+        (root / arguments["workspace_baseline_path"]).read_text()
+    )
+    sibling_tree = _git(
+        root, "rev-parse", f"{workspace['head']}^{{tree}}"
+    ).decode().strip()
+    sibling = _git(
+        root,
+        "commit-tree",
+        sibling_tree,
+        "-p",
+        workspace["head"],
+        "-m",
+        "sibling corrective history",
+    ).decode().strip()
+    _git(root, "update-ref", "HEAD", sibling)
+
+    with pytest.raises(AttemptMigrationError):
+        _build_incident(arguments)

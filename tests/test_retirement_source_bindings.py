@@ -55,6 +55,76 @@ def _git(root: Path, *args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
 
 
+def _lineage_path_set_sha256(paths: list[str]) -> str:
+    data = b"".join(path.encode("utf-8") + b"\n" for path in sorted(paths))
+    return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def _lineage_commit_message(
+    subject: str,
+    *,
+    transaction_id: str | None = None,
+    control_sha256: str | None = None,
+) -> bytes:
+    message = subject.encode("utf-8") + b"\n"
+    if transaction_id is None and control_sha256 is None:
+        return message
+    assert transaction_id is not None and control_sha256 is not None
+    return (
+        message
+        + b"\nRetirement-Control-Schema: precommit_control.v1\n"
+        + f"Retirement-Transaction-ID: {transaction_id}\n".encode("ascii")
+        + f"Retirement-Control-SHA256: {control_sha256.removeprefix('sha256:')}\n".encode(
+            "ascii"
+        )
+    )
+
+
+def _commit_lineage_tree(
+    repository: Path,
+    message: bytes,
+    *,
+    parents: list[str] | None = None,
+    update_head: bool = True,
+) -> str:
+    tree = _git(repository, "write-tree")
+    selected_parents = parents or [_git(repository, "rev-parse", "HEAD")]
+    arguments = ["git", "commit-tree", tree]
+    for parent in selected_parents:
+        arguments.extend(["-p", parent])
+    completed = subprocess.run(
+        arguments,
+        cwd=repository,
+        input=message,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    commit = completed.stdout.decode("ascii").strip()
+    if update_head:
+        _git(repository, "update-ref", "HEAD", commit)
+    return commit
+
+
+def _derive_committed_predecessor_lineage(
+    repository: Path,
+    *,
+    baseline_head: str,
+    intended_predecessor_head: str,
+    require_uncovered_paths: bool = False,
+) -> dict[str, object]:
+    helper = getattr(
+        retirement_source_bindings, "derive_committed_predecessor_lineage"
+    )
+    keyword_arguments: dict[str, object] = {
+        "baseline_head": baseline_head,
+        "intended_predecessor_head": intended_predecessor_head,
+    }
+    if require_uncovered_paths:
+        keyword_arguments["require_uncovered_paths"] = True
+    return helper(repository, **keyword_arguments)
+
+
 @pytest.fixture
 def repository(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
@@ -3211,3 +3281,245 @@ def test_reconstruction_rejects_malformed_control_message(
     commit = completed.stdout.decode("ascii").strip()
     issues = validate_commit_boundary(repository, commit=commit, reconstruct=True)
     assert [issue.code for issue in issues] == ["commit_reconstruction_failed"]
+
+
+def test_committed_predecessor_lineage_projects_controlled_and_uncovered_paths(
+    repository: Path,
+) -> None:
+    baseline_head = _git(repository, "rev-parse", "HEAD")
+    transaction_id = "1" * 64
+    control_sha256 = "sha256:" + "2" * 64
+    controlled_message = _lineage_commit_message(
+        "controlled predecessor change",
+        transaction_id=transaction_id,
+        control_sha256=control_sha256,
+    )
+    (repository / "controlled.txt").write_text("controlled\n")
+    _git(repository, "add", "controlled.txt")
+    controlled_commit = _commit_lineage_tree(repository, controlled_message)
+
+    ordinary_message = _lineage_commit_message("ordinary predecessor change")
+    (repository / "README.md").write_text("ordinary\n")
+    _git(repository, "add", "README.md")
+    intended_predecessor_head = _commit_lineage_tree(
+        repository, ordinary_message
+    )
+
+    controlled_paths = ["controlled.txt"]
+    uncovered_paths = ["README.md"]
+    changed_paths = sorted(controlled_paths + uncovered_paths)
+    commit_rows = [
+        {
+            "commit": controlled_commit,
+            "parent": baseline_head,
+            "tree": _git(repository, "rev-parse", f"{controlled_commit}^{{tree}}"),
+            "raw_message_sha256": "sha256:"
+            + hashlib.sha256(controlled_message).hexdigest(),
+            "changed_paths": controlled_paths,
+            "changed_path_set_sha256": _lineage_path_set_sha256(
+                controlled_paths
+            ),
+            "control_coordinates": {
+                "transaction_id": transaction_id,
+                "normalized_control_sha256": control_sha256,
+            },
+        },
+        {
+            "commit": intended_predecessor_head,
+            "parent": controlled_commit,
+            "tree": _git(
+                repository,
+                "rev-parse",
+                f"{intended_predecessor_head}^{{tree}}",
+            ),
+            "raw_message_sha256": "sha256:"
+            + hashlib.sha256(ordinary_message).hexdigest(),
+            "changed_paths": uncovered_paths,
+            "changed_path_set_sha256": _lineage_path_set_sha256(
+                uncovered_paths
+            ),
+            "control_coordinates": None,
+        },
+    ]
+    expected = {
+        "baseline_head": baseline_head,
+        "intended_predecessor_head": intended_predecessor_head,
+        "intended_predecessor_tree": _git(
+            repository,
+            "rev-parse",
+            f"{intended_predecessor_head}^{{tree}}",
+        ),
+        "first_parent_commits": commit_rows,
+        "commit_count": 2,
+        "changed_paths": changed_paths,
+        "changed_path_count": 2,
+        "changed_path_set_sha256": _lineage_path_set_sha256(changed_paths),
+        "controlled_paths": controlled_paths,
+        "controlled_path_set_sha256": _lineage_path_set_sha256(
+            controlled_paths
+        ),
+        "uncovered_paths": uncovered_paths,
+        "uncovered_path_set_sha256": _lineage_path_set_sha256(
+            uncovered_paths
+        ),
+    }
+    expected["normalized_projection_sha256"] = _canonical_sha256(expected)
+
+    projection = _derive_committed_predecessor_lineage(
+        repository,
+        baseline_head=baseline_head,
+        intended_predecessor_head=intended_predecessor_head,
+    )
+
+    assert projection == expected
+
+
+def test_committed_predecessor_lineage_rejects_non_ancestor_heads(
+    repository: Path,
+) -> None:
+    common_parent = _git(repository, "rev-parse", "HEAD")
+    (repository / "intended.txt").write_text("intended\n")
+    _git(repository, "add", "intended.txt")
+    intended_predecessor_head = _commit_lineage_tree(
+        repository, _lineage_commit_message("intended branch")
+    )
+    _git(repository, "reset", "--hard", common_parent)
+    (repository / "sibling.txt").write_text("sibling\n")
+    _git(repository, "add", "sibling.txt")
+    sibling_head = _commit_lineage_tree(
+        repository, _lineage_commit_message("sibling branch")
+    )
+
+    with pytest.raises(SourceBindingError):
+        _derive_committed_predecessor_lineage(
+            repository,
+            baseline_head=sibling_head,
+            intended_predecessor_head=intended_predecessor_head,
+        )
+
+
+def test_committed_predecessor_lineage_rejects_merge_ambiguity(
+    repository: Path,
+) -> None:
+    baseline_head = _git(repository, "rev-parse", "HEAD")
+    (repository / "first-parent.txt").write_text("first parent\n")
+    _git(repository, "add", "first-parent.txt")
+    first_parent = _commit_lineage_tree(
+        repository, _lineage_commit_message("first parent")
+    )
+
+    _git(repository, "reset", "--hard", baseline_head)
+    (repository / "second-parent.txt").write_text("second parent\n")
+    _git(repository, "add", "second-parent.txt")
+    second_parent = _commit_lineage_tree(
+        repository, _lineage_commit_message("second parent")
+    )
+
+    _git(repository, "reset", "--hard", first_parent)
+    merge_head = _commit_lineage_tree(
+        repository,
+        _lineage_commit_message("ambiguous merge"),
+        parents=[first_parent, second_parent],
+    )
+
+    with pytest.raises(SourceBindingError):
+        _derive_committed_predecessor_lineage(
+            repository,
+            baseline_head=baseline_head,
+            intended_predecessor_head=merge_head,
+        )
+
+
+def test_committed_predecessor_lineage_rejects_malformed_control_trailer(
+    repository: Path,
+) -> None:
+    baseline_head = _git(repository, "rev-parse", "HEAD")
+    (repository / "malformed.txt").write_text("malformed\n")
+    _git(repository, "add", "malformed.txt")
+    malformed_message = (
+        b"malformed control\n\n"
+        b"Retirement-Control-Schema: precommit_control.v1\n"
+        b"Retirement-Transaction-ID: short\n"
+        b"Retirement-Control-SHA256: " + b"2" * 64 + b"\n"
+    )
+    intended_predecessor_head = _commit_lineage_tree(
+        repository, malformed_message
+    )
+
+    with pytest.raises(SourceBindingError):
+        _derive_committed_predecessor_lineage(
+            repository,
+            baseline_head=baseline_head,
+            intended_predecessor_head=intended_predecessor_head,
+        )
+
+
+def test_committed_predecessor_lineage_rejects_duplicate_path_projection(
+    repository: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    baseline_head = _git(repository, "rev-parse", "HEAD")
+    (repository / "duplicate.txt").write_text("duplicate\n")
+    _git(repository, "add", "duplicate.txt")
+    intended_predecessor_head = _commit_lineage_tree(
+        repository, _lineage_commit_message("duplicate projection")
+    )
+    original_git = retirement_source_bindings._git
+
+    def duplicate_diff_tree_paths(
+        root: Path,
+        *arguments: str,
+        input_bytes: bytes | None = None,
+        env: dict[str, str] | None = None,
+    ) -> bytes:
+        output = original_git(
+            root, *arguments, input_bytes=input_bytes, env=env
+        )
+        if arguments and arguments[0] == "diff-tree" and output:
+            return output + output
+        return output
+
+    monkeypatch.setattr(
+        retirement_source_bindings, "_git", duplicate_diff_tree_paths
+    )
+
+    with pytest.raises(SourceBindingError):
+        _derive_committed_predecessor_lineage(
+            repository,
+            baseline_head=baseline_head,
+            intended_predecessor_head=intended_predecessor_head,
+        )
+
+
+def test_committed_predecessor_lineage_rejects_missing_git_object(
+    repository: Path,
+) -> None:
+    with pytest.raises(SourceBindingError):
+        _derive_committed_predecessor_lineage(
+            repository,
+            baseline_head=_git(repository, "rev-parse", "HEAD"),
+            intended_predecessor_head="0" * 40,
+        )
+
+
+def test_committed_predecessor_lineage_requires_uncovered_invalidating_gap(
+    repository: Path,
+) -> None:
+    baseline_head = _git(repository, "rev-parse", "HEAD")
+    (repository / "controlled-only.txt").write_text("controlled only\n")
+    _git(repository, "add", "controlled-only.txt")
+    intended_predecessor_head = _commit_lineage_tree(
+        repository,
+        _lineage_commit_message(
+            "controlled-only predecessor",
+            transaction_id="3" * 64,
+            control_sha256="sha256:" + "4" * 64,
+        ),
+    )
+
+    with pytest.raises(SourceBindingError):
+        _derive_committed_predecessor_lineage(
+            repository,
+            baseline_head=baseline_head,
+            intended_predecessor_head=intended_predecessor_head,
+            require_uncovered_paths=True,
+        )
