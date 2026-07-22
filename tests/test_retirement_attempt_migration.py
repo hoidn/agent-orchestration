@@ -11,6 +11,16 @@ from pathlib import Path
 
 import pytest
 
+from tests.retirement_broad_evidence_support import (
+    PRODUCER_FAILURE_NODE_IDS,
+    bind_candidate_to_repository,
+    producer_candidate_and_ledger,
+    producer_raw_broad,
+    publish_producer_review_pair,
+    synthetic_pytest_temp_root_preflight,
+    write_producer_json,
+)
+
 
 def test_attempt_migration_module_exists() -> None:
     assert importlib.util.find_spec("orchestrator.retirement.attempt_migration") is not None
@@ -355,11 +365,10 @@ def _make_invalidated_adopted_repository(
         validate_record,
     )
     from orchestrator.retirement.source_bindings import capture_workspace_baseline
-    from tests import test_retirement_broad_evidence as broad_fixtures
 
     root = tmp_path / "repository"
     root.mkdir()
-    candidate, ledger = broad_fixtures._producer_candidate_and_ledger(root)
+    candidate, ledger = producer_candidate_and_ledger(root)
     source_root = "evidence"
     governing_plan_path = "plans/governing.md"
     migration_plan_path = "plans/correction.md"
@@ -397,8 +406,11 @@ def _make_invalidated_adopted_repository(
     intended_predecessor_tree = _git(
         root, "rev-parse", "HEAD^{tree}"
     ).decode().strip()
-    broad_fixtures._bind_candidate_to_repository(root, candidate)
-    raw_paths = broad_fixtures._producer_raw_broad(root)
+    bind_candidate_to_repository(root, candidate)
+    raw_paths = producer_raw_broad(
+        root,
+        pytest_temp_root_preflight=synthetic_pytest_temp_root_preflight(),
+    )
     snapshot_digest = canonical_sha256([])
     outcome = build_broad_outcome(
         repository_root=root,
@@ -422,7 +434,7 @@ def _make_invalidated_adopted_repository(
         ],
         **raw_paths,
     )
-    outcome_path = broad_fixtures._write_producer_json(
+    outcome_path = write_producer_json(
         root, "evidence/implementation-baseline/outcome.json", outcome
     )
     ownership_classifications = [
@@ -432,7 +444,7 @@ def _make_invalidated_adopted_repository(
             "ownership_basis": ["source.py"],
             "authorized_remediation_scope": ["source.py"],
         }
-        for node_id in broad_fixtures._PRODUCER_FAILURE_NODE_IDS
+        for node_id in PRODUCER_FAILURE_NODE_IDS
     ]
     baseline = build_broad_known_failure_baseline(
         repository_root=root,
@@ -440,9 +452,9 @@ def _make_invalidated_adopted_repository(
         ownership_classifications=ownership_classifications,
     )
     baseline_path = "evidence/implementation-baseline/known-failure-baseline.json"
-    broad_fixtures._write_producer_json(root, baseline_path, baseline)
+    write_producer_json(root, baseline_path, baseline)
     specification_binding, quality_binding = (
-        broad_fixtures._publish_producer_review_pair(
+        publish_producer_review_pair(
             root,
             evidence_root=Path(source_root),
             subject_path=Path(baseline_path),

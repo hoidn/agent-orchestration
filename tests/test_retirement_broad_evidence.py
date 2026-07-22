@@ -11,7 +11,6 @@ import subprocess
 import sys
 import inspect
 import time
-from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
@@ -54,6 +53,15 @@ from orchestrator.retirement.materialization import (
     validate_generation,
 )
 from orchestrator.retirement.source_bindings import capture_workspace_baseline
+from tests.retirement_broad_evidence_support import (
+    PRODUCER_FAILURE_NODE_IDS as _PRODUCER_FAILURE_NODE_IDS,
+    bind_candidate_to_repository as _bind_candidate_to_repository,
+    producer_candidate_and_ledger as _producer_candidate_and_ledger,
+    producer_raw_broad as _producer_raw_broad,
+    publish_producer_review_pair as _publish_producer_review_pair,
+    synthetic_pytest_temp_root_preflight as _synthetic_pytest_temp_root_preflight,
+    write_producer_json as _write_producer_json,
+)
 
 
 def _ledger(plan_path: Path) -> dict[str, object]:
@@ -5689,45 +5697,6 @@ def test_retirement_public_surface_is_cold_lazy_and_cli_sets_are_exact() -> None
         assert set(match.group(1).split(",")) == expected
 
 
-def _write_producer_json(repository: Path, logical_path: str, value: object) -> Path:
-    path = repository / logical_path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, sort_keys=True) + "\n")
-    return path
-
-
-def _producer_candidate_and_ledger(
-    repository: Path, *, ledger_generation: int = 1
-) -> tuple[dict[str, object], dict[str, object]]:
-    _initialize_candidate_repository(repository)
-    plan, ledger_record, receipt = _materialize_first_ledger(repository)
-    for _ in range(2, ledger_generation + 1):
-        ledger_record, receipt = _materialize_next_ledger(
-            repository, ledger_record, receipt
-        )
-    _git_output(repository, "add", "--", plan.relative_to(repository).as_posix())
-    _git_output(repository, "commit", "-q", "-m", "bind plan")
-    source = repository / "source.py"
-    source.write_text("candidate = True\n")
-    row = {
-        "path": "source.py",
-        "sha256": file_sha256(source),
-        "size": source.stat().st_size,
-        "state": "added",
-    }
-    candidate: dict[str, object] = {
-        "head": "0" * 40,
-        "head_tree": "0" * 40,
-        "index_sha256": "sha256:" + "0" * 64,
-        "evidence_root_exclusion": "evidence",
-        "candidate_paths": [row],
-        "candidate_path_set_sha256": canonical_sha256([row]),
-    }
-    _bind_candidate_to_repository(repository, candidate)
-    ledger = _ledger_binding(receipt)
-    return candidate, ledger
-
-
 def _producer_task1_candidate_ledger_and_bootstrap(
     repository: Path,
 ) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
@@ -5928,62 +5897,6 @@ def _producer_focused_report(
     return task, path
 
 
-_PRODUCER_FAILURE_NODE_IDS = (
-    "tests/synthetic_alpha.py::test_alpha",
-    "tests/synthetic_beta.py::test_beta",
-    "tests/synthetic_delta.py::test_delta",
-    "tests/synthetic_epsilon.py::test_epsilon",
-    "tests/synthetic_gamma.py::test_gamma",
-    "tests/synthetic_zeta.py::test_zeta",
-)
-
-
-def _producer_raw_broad(
-    repository: Path,
-    *,
-    failure_node_ids: tuple[str, ...] = _PRODUCER_FAILURE_NODE_IDS,
-) -> dict[str, str]:
-    pass_node_id = "tests/synthetic_pass.py::test_pass"
-    nodes = sorted((*failure_node_ids, pass_node_id))
-    raw = repository / "evidence/implementation-baseline"
-    raw.mkdir(parents=True, exist_ok=True)
-    (raw / "collect.log").write_text("\n".join(nodes) + "\n")
-    (raw / "collect.exit").write_bytes(b"0\n")
-    (raw / "collected-node-ids.txt").write_text("\n".join(nodes) + "\n")
-    (raw / "pytest-rs.log").write_text(
-        "".join(f"FAILED {node_id} - assertion\n" for node_id in failure_node_ids)
-        + f"================ {len(failure_node_ids)} failed, 1 passed in 0.01s ================\n"
-    )
-    (raw / "pytest.exit").write_bytes(b"1\n")
-    (raw / "pytest.junit.xml").write_text(
-        f'<testsuite tests="{len(nodes)}" failures="{len(failure_node_ids)}" errors="0" skipped="0">'
-        + "".join(
-            f'<testcase file="{node_id.partition("::")[0]}" '
-            f'name="{node_id.partition("::")[2]}"><failure>'
-            f'{repository}/source.py failed for {node_id}'
-            '</failure></testcase>'
-            for node_id in failure_node_ids
-        )
-        + '<testcase file="tests/synthetic_pass.py" name="test_pass"/>'
-        + '</testsuite>\n'
-    )
-    with pytest.MonkeyPatch.context() as preflight_environment:
-        preflight_environment.delenv("PYTEST_DEBUG_TEMPROOT", raising=False)
-        preflight = build_pytest_temp_root_preflight(
-            Path(sys.executable).with_name("pytest")
-        )
-    _write_producer_json(repository, "evidence/implementation-baseline/pytest-temp-root-preflight.json", preflight)
-    return {
-        "collection_log_path": "evidence/implementation-baseline/collect.log",
-        "collection_exit_path": "evidence/implementation-baseline/collect.exit",
-        "collected_node_ids_path": "evidence/implementation-baseline/collected-node-ids.txt",
-        "rs_log_path": "evidence/implementation-baseline/pytest-rs.log",
-        "broad_exit_path": "evidence/implementation-baseline/pytest.exit",
-        "junit_path": "evidence/implementation-baseline/pytest.junit.xml",
-        "pytest_temp_root_preflight_path": "evidence/implementation-baseline/pytest-temp-root-preflight.json",
-    }
-
-
 def test_producer_raw_broad_uses_declared_null_temp_root_and_restores_ambient(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -6001,6 +5914,33 @@ def test_producer_raw_broad_uses_declared_null_temp_root_and_restores_ambient(
         "PYTEST_DEBUG_TEMPROOT": None
     }
     assert validate_record(preflight) == []
+
+
+def test_producer_raw_broad_accepts_precomputed_pytest_preflight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests import retirement_broad_evidence_support
+
+    def reject_nested_probe(_executable: Path) -> dict[str, object]:
+        raise AssertionError("precomputed preflight must bypass the nested probe")
+
+    monkeypatch.setattr(
+        retirement_broad_evidence_support,
+        "build_pytest_temp_root_preflight",
+        reject_nested_probe,
+    )
+    preflight = _synthetic_pytest_temp_root_preflight()
+    assert validate_bound_record(preflight, tmp_path) == []
+
+    paths = _producer_raw_broad(
+        tmp_path,
+        pytest_temp_root_preflight=preflight,
+    )
+
+    assert load_json_closed(
+        tmp_path / paths["pytest_temp_root_preflight_path"]
+    ) == preflight
 
 
 def _producer_broad_builder_inputs(
@@ -6358,53 +6298,6 @@ def test_bound_raw_log_consumers_reject_empty_or_trailing_summary(
     assert broad_evidence.Issue(
         "rs_log_outcome_mismatch"
     ) in validate_bound_record(record, tmp_path)
-
-
-def _publish_producer_review_pair(
-    repository: Path,
-    *,
-    evidence_root: Path,
-    subject_path: Path,
-    subject_kind: str,
-    specification_name: str,
-    quality_name: str,
-    specification_reviewed_at: str = "2026-01-01T00:00:00+00:00",
-    quality_reviewed_at: str = "2026-01-01T00:00:00+00:00",
-    prior_review_bindings: Mapping[str, dict[str, object] | None] | None = None,
-) -> tuple[dict[str, object], dict[str, object]]:
-    bindings = []
-    for review_kind, name, reviewed_at in (
-        ("specification", specification_name, specification_reviewed_at),
-        ("code_quality", quality_name, quality_reviewed_at),
-    ):
-        review_path = evidence_root / name
-        review = {
-            "schema_version": "review.v1",
-            "review_kind": review_kind,
-            "reviewer": {"identity": f"{review_kind}-reviewer"},
-            "reviewed_at": reviewed_at,
-            "subject": {
-                "kind": subject_kind,
-                "path": subject_path.as_posix(),
-                "sha256": file_sha256(repository / subject_path),
-            },
-            "result": "approved",
-            "issues": [],
-            "claims_not_made": ["Synthetic approval for producer integration testing."],
-        }
-        _write_producer_json(repository, review_path.as_posix(), review)
-        bindings.append(
-            publish_immutable_review(
-                repository_root=repository,
-                evidence_root=evidence_root,
-                subject_path=subject_path,
-                review_path=review_path,
-                prior_review_binding=(prior_review_bindings or {}).get(
-                    review_kind
-                ),
-            )
-        )
-    return bindings[0], bindings[1]
 
 
 def test_producers_create_bound_outcome_baseline_and_subject(tmp_path: Path) -> None:
@@ -7198,18 +7091,6 @@ def _initialize_candidate_repository(repository: Path) -> None:
     _git_output(repository, "config", "user.email", "fixture@example.invalid")
     _git_output(repository, "config", "user.name", "Fixture")
     _git_output(repository, "commit", "-q", "--allow-empty", "-m", "baseline")
-
-
-def _bind_candidate_to_repository(
-    repository: Path, binding: dict[str, object]
-) -> None:
-    binding["head"] = _git_output(repository, "rev-parse", "HEAD").decode().strip()
-    binding["head_tree"] = _git_output(
-        repository, "rev-parse", "HEAD^{tree}"
-    ).decode().strip()
-    binding["index_sha256"] = (
-        "sha256:" + hashlib.sha256((repository / ".git/index").read_bytes()).hexdigest()
-    )
 
 
 @pytest.mark.parametrize("state", ["added", "modified", "deleted"])
