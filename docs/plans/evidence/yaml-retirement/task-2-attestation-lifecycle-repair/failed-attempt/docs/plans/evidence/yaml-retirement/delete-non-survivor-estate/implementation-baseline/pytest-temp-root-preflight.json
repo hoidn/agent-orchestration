@@ -1,0 +1,25 @@
+{
+  "claims_not_made": [
+    "This probe does not execute the broad test suite."
+  ],
+  "environment_binding": {
+    "PYTEST_DEBUG_TEMPROOT": "/home/ollie/.cache/pytest-yaml-retirement-task2"
+  },
+  "normalized_record_sha256": "sha256:2afcab64a4dfe962e25cae062970457fa679fd7dd916ebab8217e04b0db7cff4",
+  "observed_basetemp": "/home/ollie/.cache/pytest-yaml-retirement-task2/pytest-of-ollie/pytest-0",
+  "observed_session_parent": "/home/ollie/.cache/pytest-yaml-retirement-task2/pytest-of-ollie",
+  "pytest_executable_binding": {
+    "path": "/home/ollie/miniconda3/bin/pytest",
+    "sha256": "sha256:22eea6cc2d26e4c55812576e1d14f89ca2db2efb17a0b4f440a6a26545d14f60"
+  },
+  "pytest_version": "8.4.1",
+  "raw_get_user": "ollie",
+  "root_component": "ollie",
+  "root_component_resolution": "raw_get_user",
+  "schema_version": "pytest_temp_root_preflight.v1",
+  "system_temp_root": "/home/ollie/.cache/pytest-yaml-retirement-task2",
+  "tmpdir_module_binding": {
+    "path": "/home/ollie/miniconda3/lib/python3.13/site-packages/_pytest/tmpdir.py",
+    "sha256": "sha256:236918c090160c1f6b935e162ff44ab273a700221d5f40ac15892be75e4503ee"
+  }
+}
