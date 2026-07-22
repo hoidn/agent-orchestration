@@ -3592,6 +3592,59 @@ def test_invalidated_adopted_exact_full_replay_is_nonmutating(
     }
 
 
+def test_disposition_v2_completed_post_state_validates_replays_and_postvalidates(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.retirement.attempt_migration import (
+        apply,
+        postvalidate,
+        validate,
+    )
+
+    arguments = _make_invalidated_adopted_repository(
+        tmp_path, with_disposition_coordinates=True
+    )
+    root = arguments["root"]
+    assert isinstance(root, Path)
+    captured = _capture_invalidated_adopted(arguments)
+    arguments.update(
+        {
+            "disposition_specification_review_path": (
+                "migration/disposition-specification-review.json"
+            ),
+            "disposition_quality_review_path": (
+                "migration/disposition-quality-review.json"
+            ),
+            "post_report_path": "migration/post-report.json",
+        }
+    )
+    _git(root, "add", "--", str(arguments["incident_path"]))
+    _commit_disposition_reviews(arguments)
+
+    assert apply(
+        root,
+        arguments["disposition_path"],
+        arguments["disposition_specification_review_path"],
+        arguments["disposition_quality_review_path"],
+    ) == captured["disposition"]
+    assert validate(root, arguments["disposition_path"]) == captured["disposition"]
+    assert apply(
+        root,
+        arguments["disposition_path"],
+        arguments["disposition_specification_review_path"],
+        arguments["disposition_quality_review_path"],
+    ) == captured["disposition"]
+    report = postvalidate(
+        root,
+        arguments["disposition_path"],
+        arguments["disposition_specification_review_path"],
+        arguments["disposition_quality_review_path"],
+        arguments["post_report_path"],
+    )
+    assert report["result"] == "passed"
+    assert report["disposition_binding"]["path"] == arguments["disposition_path"]
+
+
 def test_invalidated_adopted_recovers_only_after_incident_publication(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
