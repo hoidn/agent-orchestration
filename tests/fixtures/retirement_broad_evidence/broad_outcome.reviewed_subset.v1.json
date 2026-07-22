@@ -184,7 +184,7 @@
     },
     "owner_attestation": {
       "path": "broad_failure_baseline_attestation.confirmed.v1.json",
-      "sha256": "sha256:084c0c87852b2f2c9e5514a8c861e523f2a748792eb16c3fd53210b120780e23"
+      "sha256": "sha256:1eba354078c77a2ec2d593c80e18082de46b81ad916e5d0d63dbdc871ab87059"
     },
     "quality_review": {
       "claims_not_made": [
@@ -233,7 +233,7 @@
       }
     }
   },
-  "normalized_outcome_sha256": "sha256:7027247202baaa3f357b655aa75c91a9e2e28c55e37df77bf330594fde9edfce",
+  "normalized_outcome_sha256": "sha256:9208d904371969a518af3f889979a674d6e4cb9d7ba09eb021f45a99289826f6",
   "outcomes": {
     "failures": [
       {

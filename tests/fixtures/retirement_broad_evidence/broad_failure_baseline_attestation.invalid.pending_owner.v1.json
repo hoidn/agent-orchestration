@@ -6,7 +6,7 @@
     "sha256": "sha256:306cca8a1eae9b1726c9f8570d89d00d0ff9f3e1c26c3ae05fb727711f0d162a"
   },
   "claims_not_made": [
-    "example only"
+    "Pending status alone is not owner adoption; this attestation does not authorize source, store, workflow, run-root, or repository mutation or out-of-scope remediation."
   ],
   "classification_summary": {
     "external": 0,

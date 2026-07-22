@@ -1951,6 +1951,42 @@ def test_pending_baseline_attestation_rejects_owner_or_affirmative_confirmation(
     }
 
 
+def test_baseline_attestation_claim_boundary_is_status_neutral_and_closed() -> None:
+    fixture_root = Path("tests/fixtures/retirement_broad_evidence")
+    expected_claims = [
+        "Pending status alone is not owner adoption; this attestation does not "
+        "authorize source, store, workflow, run-root, or repository mutation or "
+        "out-of-scope remediation."
+    ]
+    pending = load_json_closed(
+        fixture_root / "broad_failure_baseline_attestation.pending.v1.json"
+    )
+    confirmed = load_json_closed(
+        fixture_root / "broad_failure_baseline_attestation.confirmed.v1.json"
+    )
+
+    assert pending["claims_not_made"] == expected_claims
+    assert confirmed["claims_not_made"] == expected_claims
+
+    adopted = deepcopy(pending)
+    adopted["evidence_status"] = "owner_confirmed"
+    adopted["owner"] = deepcopy(confirmed["owner"])
+    adopted["owner_confirmations"] = deepcopy(confirmed["owner_confirmations"])
+    adopted["owner_adoption"] = deepcopy(confirmed["owner_adoption"])
+    assert validate_record(adopted) == []
+    assert adopted["claims_not_made"] == pending["claims_not_made"]
+
+    for invalid_claims in (
+        ["This pending record is not an owner adoption or mutation authorization."],
+        [*expected_claims, "An unreviewed additional claim."],
+    ):
+        drifted = deepcopy(pending)
+        drifted["claims_not_made"] = invalid_claims
+        assert "attestation_claims_not_made_invalid" in {
+            issue.code for issue in validate_record(drifted)
+        }
+
+
 @pytest.mark.parametrize(
     ("fixture_name", "mutations", "expected_codes"),
     [
@@ -6501,7 +6537,9 @@ def test_producers_create_bound_outcome_baseline_and_subject(tmp_path: Path) -> 
             "adopted_at": "2026-01-01T00:00:00+00:00",
             "statement": "I personally adopt this exact baseline for comparison only.",
         },
-        "claims_not_made": ["Synthetic owner-confirmed integration record."],
+        "claims_not_made": list(
+            broad_evidence.FAILURE_BASELINE_ATTESTATION_CLAIMS_NOT_MADE
+        ),
     }
     attestation_path = _write_producer_json(
         tmp_path,
@@ -8815,6 +8853,9 @@ def test_pending_materializer_never_writes_owner_values(tmp_path: Path) -> None:
     assert result["evidence_status"] == "pending_owner_confirmation"
     assert result["owner"] is None
     assert result["owner_adoption"] is None
+    assert result["claims_not_made"] == list(
+        broad_evidence.FAILURE_BASELINE_ATTESTATION_CLAIMS_NOT_MADE
+    )
     assert not any(
         value for key, value in result["owner_confirmations"].items() if key != "confirmed_at"
     )

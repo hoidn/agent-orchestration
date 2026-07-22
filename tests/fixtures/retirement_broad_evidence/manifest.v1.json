@@ -5,7 +5,7 @@
   "fixture_count": 34,
   "fixture_root": "tests/fixtures/retirement_broad_evidence",
   "normalized_path_set_sha256": "sha256:134ec1f7d49e9ba163fb80e07429b972c965951be5a6fbd1ec93d3744c8199e4",
-  "normalized_row_set_sha256": "sha256:d82402319bf8d3fb10054adef08d2f726ec86a29d6acb5aba66fc05164c51529",
+  "normalized_row_set_sha256": "sha256:a13e5c1f1b5771a0d7c77bf4efcfb491ea91bbfae6a257d1d77154dbbcff4eec",
   "rows": [
     {
       "expected_validation": "rejected",
@@ -30,21 +30,21 @@
     },
     {
       "expected_validation": "accepted",
-      "file_sha256": "sha256:084c0c87852b2f2c9e5514a8c861e523f2a748792eb16c3fd53210b120780e23",
+      "file_sha256": "sha256:1eba354078c77a2ec2d593c80e18082de46b81ad916e5d0d63dbdc871ab87059",
       "lifecycle_role": "canonical_broad_failure_baseline_attestation_confirmed_v1",
       "path": "broad_failure_baseline_attestation.confirmed.v1.json",
       "schema_version": "broad_failure_baseline_attestation.v1"
     },
     {
       "expected_validation": "rejected",
-      "file_sha256": "sha256:19ddac6daf1a954d59e110ef08c6def0cf0fe817ef8e52a2b9c3b6c197c60257",
+      "file_sha256": "sha256:a5814bdf6e5259dd447865dff1cf3b5d70060b4057465853e96b9d473f9b849b",
       "lifecycle_role": "negative_broad_failure_baseline_attestation_invalid_pending_owner_v1",
       "path": "broad_failure_baseline_attestation.invalid.pending_owner.v1.json",
       "schema_version": "broad_failure_baseline_attestation.v1"
     },
     {
       "expected_validation": "accepted",
-      "file_sha256": "sha256:21a4f4ffb3887e17c4de4efc18035b39210a2a610ab8ac1f6f051c238f545f95",
+      "file_sha256": "sha256:6ade1c9902fa1aaf4438addcc44c059b29a0ea00930a13bbfbcb6d6b1b47cd17",
       "lifecycle_role": "canonical_broad_failure_baseline_attestation_pending_v1",
       "path": "broad_failure_baseline_attestation.pending.v1.json",
       "schema_version": "broad_failure_baseline_attestation.v1"
@@ -79,7 +79,7 @@
     },
     {
       "expected_validation": "accepted",
-      "file_sha256": "sha256:31a9569655aed53961c924cf5813a3c96fda1d8adae01105ad69a92daeab37c8",
+      "file_sha256": "sha256:53ad3c0e217dc1282ca34df00f56679fafe7d23d8c6400eeace94955a347b96b",
       "lifecycle_role": "canonical_broad_outcome_exact_match_v1",
       "path": "broad_outcome.exact_match.v1.json",
       "schema_version": "broad_outcome.v1"
@@ -93,7 +93,7 @@
     },
     {
       "expected_validation": "accepted",
-      "file_sha256": "sha256:abeccdf26329af1fc77e9b0ddebfb883da4c5dc94405dbb1fe52f107a1569af7",
+      "file_sha256": "sha256:32f57c1e39540ec03441db2b327fb3a9ef106a7faea7e2716a7571a86eea516a",
       "lifecycle_role": "canonical_broad_outcome_reviewed_subset_v1",
       "path": "broad_outcome.reviewed_subset.v1.json",
       "schema_version": "broad_outcome.v1"

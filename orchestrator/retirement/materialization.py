@@ -20,6 +20,7 @@ from typing import Any, Callable, Mapping
 
 from .broad_evidence import (
     ContractError,
+    FAILURE_BASELINE_ATTESTATION_CLAIMS_NOT_MADE,
     Issue,
     build_initial_execution_ledger,
     canonical_json_bytes,
@@ -726,9 +727,7 @@ def _build_pending_baseline_attestation(
         "prepared_by": parameters["prepared_by"],
         "prepared_at": parameters["prepared_at"],
         "owner_adoption": None,
-        "claims_not_made": [
-            "This pending record is not an owner adoption or mutation authorization."
-        ],
+        "claims_not_made": list(FAILURE_BASELINE_ATTESTATION_CLAIMS_NOT_MADE),
     }
     return record
 

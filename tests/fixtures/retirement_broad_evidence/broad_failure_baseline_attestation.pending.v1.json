@@ -6,7 +6,7 @@
     "sha256": "sha256:cf4e7cc799d788913466f4e6032722c3f5dd305a88862f0a17d2c8e69002e647"
   },
   "claims_not_made": [
-    "Synthetic fixture only; this record is not repository owner adoption."
+    "Pending status alone is not owner adoption; this attestation does not authorize source, store, workflow, run-root, or repository mutation or out-of-scope remediation."
   ],
   "classification_summary": {
     "external": 2,

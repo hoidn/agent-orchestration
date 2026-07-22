@@ -36,6 +36,12 @@ from .safe_io import (
 
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 HEX_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+FAILURE_BASELINE_ATTESTATION_CLAIMS_NOT_MADE = (
+    "Pending status alone is not owner adoption; this attestation does not "
+    "authorize source, store, workflow, run-root, or repository mutation or "
+    "out-of-scope remediation.",
+)
 ANSI_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 ASCII_PATH_BOUNDARY = " \t\r\n\f\v\"'([{=:`"
 PREFIX_BOUNDARY = frozenset(ASCII_PATH_BOUNDARY)
@@ -1916,6 +1922,15 @@ def _validate_failure_baseline_attestation(
     record: Mapping[str, Any]
 ) -> list[Issue]:
     issues: list[Issue] = []
+    if record["claims_not_made"] != list(
+        FAILURE_BASELINE_ATTESTATION_CLAIMS_NOT_MADE
+    ):
+        issues.append(
+            Issue(
+                "attestation_claims_not_made_invalid",
+                "$.claims_not_made",
+            )
+        )
     baseline = record["baseline_binding"]
     if (
         not isinstance(baseline, Mapping)
