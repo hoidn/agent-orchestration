@@ -105,6 +105,35 @@ ARTIFACT_ROLES = (
     "pending_snapshot",
     "pending_record",
 )
+V2_SCHEMA_VERSION = "attempt_migration_disposition.v2"
+V2_DISPOSITION = (
+    "archive_invalidated_owner_adopted_uncommitted_attempt_and_restore_tracked_files"
+)
+V2_TOP_LEVEL_KEYS = TOP_LEVEL_KEYS | {"attempt_lifecycle"}
+V2_ARTIFACT_ROLES = (
+    "baseline",
+    "baseline_specification_review",
+    "baseline_quality_review",
+    "workspace_baseline",
+    "attestation_request",
+    "attestation_snapshot",
+    "attestation_record",
+)
+V2_ATTEMPT_LIFECYCLE_KEYS = {
+    "adoption_state",
+    "repository_commit_state",
+    "invalidation_reason",
+    "incident_binding",
+    "workspace_baseline_role",
+    "owner_attestation_role",
+    "adoption_transfer",
+}
+V2_CLAIMS_NOT_MADE = [
+    "The captured attempt was personally owner-adopted but remained uncommitted when its repository predecessor was invalidated.",
+    "Historical owner adoption remains bound only to the archived attempt and may not be transferred to or consumed by any later attestation, index, or completion claim.",
+    "Archival relocation preserves bytes but grants no mutation or completion authority.",
+    "A later attempt may begin only after the tracked live file equals its reviewed restoration binding.",
+]
 CONTENT_METADATA_FIELDS = ("file_type", "lstat_mode", "size", "sha256")
 INCIDENT_TOP_LEVEL_KEYS = {
     "schema_version",
@@ -118,6 +147,7 @@ INCIDENT_TOP_LEVEL_KEYS = {
     "source_root",
     "intended_predecessor",
     "predecessor_projection",
+    "pre_move_repository_state",
     "attempt_rows",
     "attempt_path_count",
     "attempt_path_set_sha256",
@@ -625,6 +655,74 @@ def _repository_state(repository_root: Path) -> dict[str, Any]:
     }
 
 
+def _validate_repository_state_structure(
+    value: Any, *, source_root: str
+) -> dict[str, Any]:
+    """Validate the closed repository-state projection without reading live state."""
+
+    state = dict(
+        _require_keys(
+            value,
+            {"head", "tree", "index_sha256", "status_projection"},
+            "repository_state_keys_mismatch",
+        )
+    )
+    if (
+        not _is_commit_identity(state["head"])
+        or not _is_commit_identity(state["tree"])
+        or not _is_sha256(state["index_sha256"])
+    ):
+        raise AttemptMigrationError("repository_state_identity_invalid")
+    projection = _require_keys(
+        state["status_projection"],
+        {"rows", "row_count", "normalized_rows_sha256"},
+        "status_projection_keys_mismatch",
+    )
+    if (
+        not isinstance(projection["rows"], list)
+        or type(projection["row_count"]) is not int
+        or projection["row_count"] != len(projection["rows"])
+        or projection["normalized_rows_sha256"]
+        != _canonical_digest(projection["rows"])
+    ):
+        raise AttemptMigrationError("status_projection_invalid")
+    status_rows = projection["rows"]
+    for row in status_rows:
+        if not isinstance(row, Mapping) or set(row) != {
+            "path",
+            "source_path",
+            "status",
+        }:
+            raise AttemptMigrationError("status_projection_row_invalid")
+        try:
+            _relative_path(row["path"], field="status.path")
+            if row["source_path"] is not None:
+                _relative_path(row["source_path"], field="status.source_path")
+        except (AttemptMigrationError, TypeError) as exc:
+            raise AttemptMigrationError("status_projection_row_invalid") from exc
+        if (
+            not isinstance(row["status"], str)
+            or GIT_STATUS_RE.fullmatch(row["status"]) is None
+            or row["status"] == "  "
+        ):
+            raise AttemptMigrationError("status_projection_row_invalid")
+        is_rename = row["status"][0] in "RC" or row["status"][1] in "RC"
+        if is_rename != (row["source_path"] is not None):
+            raise AttemptMigrationError("status_projection_row_invalid")
+    _validate_status_projection_boundaries(status_rows, source_root)
+    if status_rows != sorted(
+        status_rows,
+        key=lambda row: (row["path"], row["source_path"] or "", row["status"]),
+    ):
+        raise AttemptMigrationError("status_projection_row_order_invalid")
+    status_identities = [
+        (row["path"], row["source_path"], row["status"]) for row in status_rows
+    ]
+    if len(status_identities) != len(set(status_identities)):
+        raise AttemptMigrationError("status_projection_row_duplicate")
+    return state
+
+
 def _validate_status_projection_boundaries(
     rows: Sequence[Mapping[str, Any]], source_root: str
 ) -> None:
@@ -1028,6 +1126,9 @@ def _validate_incident_structure(record: Any) -> dict[str, Any]:
         raise AttemptMigrationError("incident_manifest_binding_invalid")
 
     source_root = _relative_path(incident["source_root"], field="source_root")
+    pre_move_state = _validate_repository_state_structure(
+        incident["pre_move_repository_state"], source_root=source_root
+    )
     intended = _require_keys(
         incident["intended_predecessor"],
         {"head", "tree"},
@@ -1073,6 +1174,11 @@ def _validate_incident_structure(record: Any) -> dict[str, Any]:
         raise AttemptMigrationError("incident_attempt_projection_invalid")
     if manifest["row_count"] != len(rows):
         raise AttemptMigrationError("incident_manifest_binding_invalid")
+    if (
+        _status_paths(pre_move_state["status_projection"]["rows"], source_root)
+        != row_paths
+    ):
+        raise AttemptMigrationError("incident_source_status_coverage_mismatch")
 
     facts = _require_keys(
         incident["adoption_facts"],
@@ -1125,6 +1231,12 @@ def validate_attempt_migration_incident(
 
     root = _repository_root(repository_root)
     incident = _validate_incident_structure(record)
+    frozen_state = incident["pre_move_repository_state"]
+    frozen_tree = _git(
+        root, "rev-parse", f"{frozen_state['head']}^{{tree}}"
+    ).decode("ascii").strip()
+    if frozen_tree != frozen_state["tree"]:
+        raise AttemptMigrationError("incident_repository_state_tree_mismatch")
     snapshots: dict[str, dict[str, Any]] = {}
     for field in ("governing_plan_binding", "migration_plan_binding"):
         snapshot = _require_committed_live(root, incident[field]["path"])
@@ -1213,7 +1325,7 @@ def validate_attempt_migration_incident(
     return incident
 
 
-def build_attempt_migration_incident(
+def _build_attempt_migration_incident(
     repository_root: Path | str,
     *,
     governing_plan_path: Path | str,
@@ -1225,8 +1337,9 @@ def build_attempt_migration_incident(
     expected_paths_manifest_path: Path | str,
     source_root: Path | str,
     intended_predecessor_head: str,
+    pre_move_repository_state: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Build, without publishing, one deterministic invalidation incident."""
+    """Purely derive an incident from one already captured repository state."""
 
     from .source_bindings import (
         SourceBindingError,
@@ -1296,7 +1409,8 @@ def build_attempt_migration_incident(
     ):
         raise AttemptMigrationError("incident_candidate_predecessor_mismatch")
 
-    state = _repository_state(root)
+    state = dict(pre_move_repository_state)
+    _validate_repository_state_structure(state, source_root=source_prefix)
     if not _git_is_ancestor(root, intended_predecessor_head, state["head"]):
         raise AttemptMigrationError("incident_predecessor_not_current_ancestor")
     _validate_status_projection_boundaries(
@@ -1346,6 +1460,7 @@ def build_attempt_migration_incident(
         "source_root": source_prefix,
         "intended_predecessor": intended,
         "predecessor_projection": projection,
+        "pre_move_repository_state": state,
         "attempt_rows": rows,
         "attempt_path_count": len(rows),
         "attempt_path_set_sha256": _canonical_digest(paths),
@@ -1357,7 +1472,39 @@ def build_attempt_migration_incident(
     record["normalized_incident_sha256"] = _canonical_digest(
         record, exclude="normalized_incident_sha256"
     )
+    _validate_incident_structure(record)
     return validate_attempt_migration_incident(root, record)
+
+
+def build_attempt_migration_incident(
+    repository_root: Path | str,
+    *,
+    governing_plan_path: Path | str,
+    migration_plan_path: Path | str,
+    workspace_baseline_path: Path | str,
+    owner_attestation_path: Path | str,
+    pending_attestation_snapshot_path: Path | str,
+    known_failure_baseline_path: Path | str,
+    expected_paths_manifest_path: Path | str,
+    source_root: Path | str,
+    intended_predecessor_head: str,
+) -> dict[str, Any]:
+    """Build and fully validate one deterministic invalidation incident."""
+
+    root = _repository_root(repository_root)
+    return _build_attempt_migration_incident(
+        root,
+        governing_plan_path=governing_plan_path,
+        migration_plan_path=migration_plan_path,
+        workspace_baseline_path=workspace_baseline_path,
+        owner_attestation_path=owner_attestation_path,
+        pending_attestation_snapshot_path=pending_attestation_snapshot_path,
+        known_failure_baseline_path=known_failure_baseline_path,
+        expected_paths_manifest_path=expected_paths_manifest_path,
+        source_root=source_root,
+        intended_predecessor_head=intended_predecessor_head,
+        pre_move_repository_state=_repository_state(root),
+    )
 
 
 def _binding_from_row(row: Mapping[str, Any], *, path_field: str) -> dict[str, Any]:
@@ -1385,6 +1532,11 @@ def _validate_semantic_coordinates(
     generation5: Mapping[str, Any],
     generation11: Mapping[str, Any],
     restoration: Mapping[str, Any],
+    artifact_roles: Sequence[str] = ARTIFACT_ROLES,
+    snapshot_record_roles: tuple[str, str] | None = (
+        "pending_snapshot",
+        "pending_record",
+    ),
 ) -> None:
     coordinate_bindings: dict[str, Mapping[str, Any]] = {
         "generation5_request": generation5["request_binding"],
@@ -1394,7 +1546,7 @@ def _validate_semantic_coordinates(
         "generation11_live": generation11["live_binding"],
     }
     coordinate_bindings.update(
-        {role: artifact_bindings[role] for role in ARTIFACT_ROLES}
+        {role: artifact_bindings[role] for role in artifact_roles}
     )
     paths = [binding["path"] for binding in coordinate_bindings.values()]
     if len(paths) != len(set(paths)):
@@ -1433,10 +1585,12 @@ def _validate_semantic_coordinates(
         generation11["live_binding"]
     ):
         raise AttemptMigrationError("generation11_snapshot_live_mismatch")
-    if _byte_identity(artifact_bindings["pending_snapshot"]) != _byte_identity(
-        artifact_bindings["pending_record"]
-    ):
-        raise AttemptMigrationError("pending_snapshot_record_mismatch")
+    if snapshot_record_roles is not None:
+        snapshot_role, record_role = snapshot_record_roles
+        if _byte_identity(artifact_bindings[snapshot_role]) != _byte_identity(
+            artifact_bindings[record_role]
+        ):
+            raise AttemptMigrationError("pending_snapshot_record_mismatch")
 
 
 def _publish_exclusive(
@@ -1501,6 +1655,7 @@ def _validate_authority_subject(
     migration_plan_binding: Mapping[str, Any],
     expected_manifest_binding: Mapping[str, Any],
     protected_path_bindings: Sequence[Mapping[str, Any]],
+    protected_order_insensitive: bool = False,
 ) -> dict[str, Any]:
     subject_file = _require_committed_live(repository_root, subject_path)
     subject = _json_bytes(subject_file["data"], subject_path)
@@ -1521,7 +1676,20 @@ def _validate_authority_subject(
         raise AttemptMigrationError("authority_subject_migration_plan_mismatch")
     if subject["expected_paths_manifest_binding"] != expected_manifest_binding:
         raise AttemptMigrationError("authority_subject_manifest_mismatch")
-    if subject["protected_path_bindings"] != list(protected_path_bindings):
+    subject_protected = subject["protected_path_bindings"]
+    expected_protected = list(protected_path_bindings)
+    if protected_order_insensitive:
+        if (
+            not isinstance(subject_protected, list)
+            or any(not isinstance(row, Mapping) for row in subject_protected)
+            or any(not isinstance(row, Mapping) for row in expected_protected)
+        ):
+            raise AttemptMigrationError("authority_subject_protected_set_mismatch")
+        subject_protected = sorted(subject_protected, key=lambda row: row.get("path", ""))
+        expected_protected = sorted(
+            expected_protected, key=lambda row: row.get("path", "")
+        )
+    if subject_protected != expected_protected:
         raise AttemptMigrationError("authority_subject_protected_set_mismatch")
 
     mechanism = _validate_file_binding(subject["mechanism_binding"])
@@ -1815,6 +1983,531 @@ def capture(
     return validate(root, output_path)
 
 
+def _classify_invalidated_adopted_outputs(
+    root: Path,
+    *,
+    source_root: str,
+    incident_path: str,
+    disposition_path: str,
+) -> tuple[
+    str,
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+]:
+    """Recognize only A/A, exact I/A, or exact I/D publication prefixes."""
+
+    current_state = _repository_state(root)
+    _validate_repository_state_structure(current_state, source_root=source_root)
+    status_rows = current_state["status_projection"]["rows"]
+    _validate_status_projection_boundaries(status_rows, source_root)
+    snapshots = {
+        incident_path: _read_regular(root, incident_path, missing_ok=True),
+        disposition_path: _read_regular(root, disposition_path, missing_ok=True),
+    }
+    output_rows: dict[str, dict[str, Any]] = {}
+    for path, snapshot in snapshots.items():
+        touching = [
+            row
+            for row in status_rows
+            if path in {row["path"], row.get("source_path")}
+        ]
+        if snapshot is None:
+            if touching:
+                raise AttemptMigrationError("capture_output_state_invalid", path)
+            continue
+        if (
+            snapshot["lstat_mode"] != 0o644
+            or touching
+            != [{"path": path, "source_path": None, "status": "??"}]
+        ):
+            raise AttemptMigrationError("capture_output_state_invalid", path)
+        output_rows[path] = touching[0]
+
+    incident_snapshot = snapshots[incident_path]
+    disposition_snapshot = snapshots[disposition_path]
+    if incident_snapshot is None:
+        if disposition_snapshot is not None:
+            raise AttemptMigrationError("capture_output_prefix_invalid")
+        return "A/A", current_state, current_state, None, None, None
+
+    incident = _json_bytes(incident_snapshot["data"], incident_path)
+    if incident_snapshot["data"] != _canonical_json(incident) + b"\n":
+        raise AttemptMigrationError("capture_incident_not_canonical")
+    incident = _validate_incident_structure(incident)
+    removed = set(output_rows)
+    stripped_rows = [row for row in status_rows if row["path"] not in removed]
+    stripped_state = dict(current_state)
+    stripped_state["status_projection"] = {
+        "rows": stripped_rows,
+        "row_count": len(stripped_rows),
+        "normalized_rows_sha256": _canonical_digest(stripped_rows),
+    }
+    if stripped_state != incident["pre_move_repository_state"]:
+        raise AttemptMigrationError("capture_frozen_repository_state_mismatch")
+    return (
+        "I/D" if disposition_snapshot is not None else "I/A",
+        current_state,
+        incident["pre_move_repository_state"],
+        incident_snapshot,
+        disposition_snapshot,
+        incident,
+    )
+
+
+def _validate_owner_review_role_cross_links(
+    owner_attestation: Mapping[str, Any],
+    artifact_bindings: Mapping[str, Mapping[str, Any]],
+) -> None:
+    role_fields = {
+        "baseline_specification_review": "specification_review_binding",
+        "baseline_quality_review": "quality_review_binding",
+    }
+    for role, field in role_fields.items():
+        owner_binding = owner_attestation.get(field)
+        artifact = artifact_bindings[role]
+        if (
+            not isinstance(owner_binding, Mapping)
+            or owner_binding.get("logical_path") != artifact["path"]
+            or owner_binding.get("sha256") != artifact["sha256"]
+        ):
+            raise AttemptMigrationError("v2_owner_review_binding_mismatch", role)
+
+
+def _build_invalidated_adopted_disposition(
+    root: Path,
+    *,
+    incident_path: str,
+    disposition_path: str,
+    incident: Mapping[str, Any],
+    archive_root: Path | str,
+    authority_subject_path: Path | str,
+    authority_specification_review_path: Path | str,
+    authority_quality_review_path: Path | str,
+    restoration_commit: str,
+    restoration_tree: str,
+    protected_paths: Sequence[Path | str],
+    generation5_request_path: Path | str,
+    generation5_snapshot_path: Path | str,
+    generation11_request_path: Path | str,
+    generation11_snapshot_path: Path | str,
+    live_ledger_path: Path | str,
+    baseline_path: Path | str,
+    baseline_specification_review_path: Path | str,
+    baseline_quality_review_path: Path | str,
+    workspace_baseline_path: Path | str,
+    attestation_request_path: Path | str,
+    attestation_snapshot_path: Path | str,
+    attestation_record_path: Path | str,
+) -> dict[str, Any]:
+    source_prefix = incident["source_root"]
+    archive_prefix = _relative_path(archive_root, field="archive_root")
+    state = incident["pre_move_repository_state"]
+    expected_paths = [row["path"] for row in incident["attempt_rows"]]
+    governing_binding = _committed_binding(
+        root, incident["governing_plan_binding"]["path"]
+    )
+    migration_binding = _committed_binding(
+        root, incident["migration_plan_binding"]["path"]
+    )
+    if (
+        governing_binding != incident["governing_plan_binding"]
+        or migration_binding != incident["migration_plan_binding"]
+    ):
+        raise AttemptMigrationError("v2_incident_plan_binding_mismatch")
+    manifest_binding = incident["expected_paths_manifest_binding"]
+    manifest_file = _require_committed_live(root, manifest_binding["path"])
+    if _incident_manifest_binding(
+        manifest_file,
+        _manifest_paths(manifest_file["data"], manifest_binding["path"]),
+    ) != manifest_binding:
+        raise AttemptMigrationError("expected_manifest_binding_mismatch")
+
+    protected: list[dict[str, Any]] = []
+    for raw_path in protected_paths:
+        path = _relative_path(raw_path, field="protected_path")
+        if (
+            path in expected_paths
+            or _under(path, archive_prefix)
+            or path in {incident_path, disposition_path}
+        ):
+            raise AttemptMigrationError("protected_path_overlaps_attempt", path)
+        snapshot = _read_regular(root, path)
+        assert snapshot is not None
+        protected.append(_public_binding(snapshot))
+    authority_protected = list(protected)
+    protected.sort(key=lambda row: row["path"])
+    if len({row["path"] for row in protected}) != len(protected):
+        raise AttemptMigrationError("protected_path_duplicate")
+    if [row["path"] for row in protected] != _outside_status_paths(
+        state["status_projection"]["rows"], source_prefix
+    ):
+        raise AttemptMigrationError("protected_status_coverage_mismatch")
+
+    authority_subject_relative = _relative_path(authority_subject_path)
+    authority_subject_file = _validate_authority_subject(
+        root,
+        authority_subject_relative,
+        governing_plan_binding=governing_binding,
+        migration_plan_binding=migration_binding,
+        expected_manifest_binding=manifest_binding,
+        protected_path_bindings=authority_protected,
+    )
+    authority_spec_file, authority_quality_file, _, _ = _validate_review_pair(
+        root,
+        _relative_path(authority_specification_review_path),
+        _relative_path(authority_quality_review_path),
+        require_committed=True,
+        expected_subject_kind="attempt_migration_authority",
+        expected_subject_path=authority_subject_relative,
+        expected_subject_sha256=authority_subject_file["sha256"],
+    )
+
+    rows = [
+        {
+            "original_path": row["path"],
+            "archive_path": f"{archive_prefix}/{row['path']}",
+            "tracked_state": row["tracked_state"],
+            "file_type": row["file_type"],
+            "lstat_mode": row["lstat_mode"],
+            "size": row["size"],
+            "sha256": row["sha256"],
+        }
+        for row in incident["attempt_rows"]
+    ]
+    row_by_path = {row["original_path"]: row for row in rows}
+    live_path = _relative_path(live_ledger_path)
+    modified_rows = [row for row in rows if row["tracked_state"] == "modified"]
+    if len(modified_rows) != 1 or modified_rows[0]["original_path"] != live_path:
+        raise AttemptMigrationError("tracked_source_set_invalid")
+
+    role_paths = {
+        "baseline": _relative_path(baseline_path),
+        "baseline_specification_review": _relative_path(
+            baseline_specification_review_path
+        ),
+        "baseline_quality_review": _relative_path(
+            baseline_quality_review_path
+        ),
+        "workspace_baseline": _relative_path(workspace_baseline_path),
+        "attestation_request": _relative_path(attestation_request_path),
+        "attestation_snapshot": _relative_path(attestation_snapshot_path),
+        "attestation_record": _relative_path(attestation_record_path),
+    }
+    if any(path not in row_by_path for path in role_paths.values()):
+        raise AttemptMigrationError("attempt_artifact_coordinates_invalid")
+    artifact_bindings = {
+        role: _binding_from_row(row_by_path[path], path_field="original_path")
+        for role, path in sorted(role_paths.items())
+    }
+    baseline_file = _read_regular(root, role_paths["baseline"])
+    assert baseline_file is not None
+    _validate_review_pair(
+        root,
+        role_paths["baseline_specification_review"],
+        role_paths["baseline_quality_review"],
+        require_committed=False,
+        expected_subject_kind="implementation_failure_baseline",
+        expected_subject_path=role_paths["baseline"],
+        expected_subject_sha256=baseline_file["sha256"],
+    )
+    owner_snapshot = _read_regular(root, role_paths["attestation_record"])
+    assert owner_snapshot is not None
+    owner_attestation = _json_bytes(
+        owner_snapshot["data"], role_paths["attestation_record"]
+    )
+    _validate_owner_review_role_cross_links(owner_attestation, artifact_bindings)
+
+    g5_request_path = _relative_path(generation5_request_path)
+    g5_snapshot_path = _relative_path(generation5_snapshot_path)
+    g11_request_path = _relative_path(generation11_request_path)
+    g11_snapshot_path = _relative_path(generation11_snapshot_path)
+    g5_request_file = _require_committed_live(root, g5_request_path)
+    g5_snapshot_file = _require_committed_live(root, g5_snapshot_path)
+    if g11_request_path not in row_by_path or g11_snapshot_path not in row_by_path:
+        raise AttemptMigrationError("generation11_coordinates_invalid")
+    g11_request_file = _read_regular(root, g11_request_path)
+    g11_snapshot_file = _read_regular(root, g11_snapshot_path)
+    live_file = _read_regular(root, live_path)
+    assert g11_request_file and g11_snapshot_file and live_file
+    if not _is_commit_identity(restoration_commit) or not _is_commit_identity(
+        restoration_tree
+    ):
+        raise AttemptMigrationError("source_identity_invalid")
+    observed_tree = _git(
+        root, "rev-parse", f"{restoration_commit}^{{tree}}"
+    ).decode("ascii").strip()
+    if observed_tree != restoration_tree:
+        raise AttemptMigrationError("source_tree_mismatch")
+    if not _git_is_ancestor(root, restoration_commit, state["head"]):
+        raise AttemptMigrationError("source_commit_not_ancestor")
+    committed_live = _committed_bytes(
+        root, live_path, revision=restoration_commit
+    )
+    if g5_snapshot_file["data"] != committed_live:
+        raise AttemptMigrationError("restoration_bytes_mismatch")
+    source_mode_text = _git(
+        root, "ls-tree", restoration_commit, "--", live_path
+    ).decode("ascii", "strict").strip()
+    if not source_mode_text or not _git_regular_mode_matches_live(
+        source_mode_text, g5_snapshot_file["lstat_mode"]
+    ):
+        raise AttemptMigrationError("restoration_mode_mismatch")
+
+    attempt_binding = {
+        "source_commit": restoration_commit,
+        "source_tree": restoration_tree,
+        "source_root": source_prefix,
+        "archive_root": archive_prefix,
+        "expected_paths_manifest_binding": manifest_binding,
+        "artifact_bindings": artifact_bindings,
+    }
+    ledger_lineage = {
+        "generation_5": {
+            "generation": 5,
+            "request_binding": _public_binding(g5_request_file),
+            "snapshot_binding": _public_binding(g5_snapshot_file),
+        },
+        "generation_11": {
+            "generation": 11,
+            "request_binding": _binding_from_row(
+                row_by_path[g11_request_path], path_field="original_path"
+            ),
+            "snapshot_binding": _binding_from_row(
+                row_by_path[g11_snapshot_path], path_field="original_path"
+            ),
+            "live_binding": _binding_from_row(
+                row_by_path[live_path], path_field="original_path"
+            ),
+        },
+        "restoration_binding": {
+            "source_path": g5_snapshot_path,
+            "target_path": live_path,
+            "source_commit": restoration_commit,
+            "source_tree": restoration_tree,
+            "file_type": "regular",
+            "lstat_mode": g5_snapshot_file["lstat_mode"],
+            "size": g5_snapshot_file["size"],
+            "sha256": g5_snapshot_file["sha256"],
+        },
+    }
+    _validate_semantic_coordinates(
+        rows=rows,
+        artifact_bindings=artifact_bindings,
+        generation5=ledger_lineage["generation_5"],
+        generation11=ledger_lineage["generation_11"],
+        restoration=ledger_lineage["restoration_binding"],
+        artifact_roles=V2_ARTIFACT_ROLES,
+        snapshot_record_roles=None,
+    )
+    incident_data = _canonical_json(incident) + b"\n"
+    incident_binding = {
+        "path": incident_path,
+        "size": len(incident_data),
+        "sha256": _bytes_digest(incident_data),
+    }
+    record: dict[str, Any] = {
+        "schema_version": V2_SCHEMA_VERSION,
+        "disposition": V2_DISPOSITION,
+        "governing_plan_binding": governing_binding,
+        "migration_plan_binding": migration_binding,
+        "authority_review_bindings": {
+            "specification": _content_binding(authority_spec_file),
+            "code_quality": _content_binding(authority_quality_file),
+        },
+        "attempt_binding": attempt_binding,
+        "attempt_lifecycle": {
+            "adoption_state": "owner_adopted",
+            "repository_commit_state": "uncommitted",
+            "invalidation_reason": "workspace_baseline_predecessor_mismatch",
+            "incident_binding": incident_binding,
+            "workspace_baseline_role": "workspace_baseline",
+            "owner_attestation_role": "attestation_record",
+            "adoption_transfer": "forbidden",
+        },
+        "pre_move_repository_state": state,
+        "protected_path_bindings": protected,
+        "ledger_lineage": ledger_lineage,
+        "attempt_rows": rows,
+        "attempt_path_count": len(rows),
+        "attempt_path_set_sha256": _canonical_digest(expected_paths),
+        "archive_path_set_sha256": _canonical_digest(
+            [row["archive_path"] for row in rows]
+        ),
+        "normalized_row_set_sha256": _canonical_digest(rows),
+        "normalized_disposition_sha256": "",
+        "claims_not_made": V2_CLAIMS_NOT_MADE,
+    }
+    record["normalized_disposition_sha256"] = _canonical_digest(
+        record, exclude="normalized_disposition_sha256"
+    )
+    validated = _validate_disposition_v2_structure(record)
+    _validate_v2_attestation_transition(root, validated)
+    return validated
+
+
+def capture_invalidated_adopted(
+    repository_root: Path | str,
+    *,
+    incident_path: Path | str,
+    disposition_path: Path | str,
+    source_root: Path | str,
+    archive_root: Path | str,
+    governing_plan_path: Path | str,
+    migration_plan_path: Path | str,
+    authority_subject_path: Path | str,
+    authority_specification_review_path: Path | str,
+    authority_quality_review_path: Path | str,
+    intended_predecessor_head: str,
+    restoration_commit: str,
+    restoration_tree: str,
+    expected_paths_manifest_path: Path | str,
+    protected_paths: Sequence[Path | str],
+    generation5_request_path: Path | str,
+    generation5_snapshot_path: Path | str,
+    generation11_request_path: Path | str,
+    generation11_snapshot_path: Path | str,
+    live_ledger_path: Path | str,
+    baseline_path: Path | str,
+    baseline_specification_review_path: Path | str,
+    baseline_quality_review_path: Path | str,
+    workspace_baseline_path: Path | str,
+    attestation_request_path: Path | str,
+    attestation_snapshot_path: Path | str,
+    attestation_record_path: Path | str,
+) -> dict[str, dict[str, Any]]:
+    """Publish one incident/disposition pair through its exact prefix automaton."""
+
+    root = _repository_root(repository_root)
+    incident_relative = _relative_path(incident_path, field="incident_path")
+    disposition_relative = _relative_path(
+        disposition_path, field="disposition_path"
+    )
+    source_prefix = _relative_path(source_root, field="source_root")
+    archive_prefix = _relative_path(archive_root, field="archive_root")
+    if incident_relative == disposition_relative:
+        raise AttemptMigrationError("capture_output_paths_alias")
+    if _under(incident_relative, disposition_relative) or _under(
+        disposition_relative, incident_relative
+    ):
+        raise AttemptMigrationError("capture_output_paths_overlap")
+    if _under(source_prefix, archive_prefix) or _under(
+        archive_prefix, source_prefix
+    ):
+        raise AttemptMigrationError("source_archive_roots_overlap")
+    _reject_output_overlap(incident_relative, source_prefix, archive_prefix)
+    _reject_output_overlap(disposition_relative, source_prefix, archive_prefix)
+
+    operand_paths = {
+        _relative_path(path)
+        for path in (
+            governing_plan_path,
+            migration_plan_path,
+            authority_subject_path,
+            authority_specification_review_path,
+            authority_quality_review_path,
+            expected_paths_manifest_path,
+            generation5_request_path,
+            generation5_snapshot_path,
+            generation11_request_path,
+            generation11_snapshot_path,
+            live_ledger_path,
+            baseline_path,
+            baseline_specification_review_path,
+            baseline_quality_review_path,
+            workspace_baseline_path,
+            attestation_request_path,
+            attestation_snapshot_path,
+            attestation_record_path,
+        )
+    }
+    protected_relatives = [
+        _relative_path(path, field="protected_path") for path in protected_paths
+    ]
+    for output in (incident_relative, disposition_relative):
+        if output in operand_paths or output in protected_relatives:
+            raise AttemptMigrationError("capture_output_overlaps_operand", output)
+    if _scan_regular_files(root, archive_prefix):
+        raise AttemptMigrationError("archive_not_empty", archive_prefix)
+
+    prefix, _current_state, frozen_state, incident_snapshot, disposition_snapshot, _ = (
+        _classify_invalidated_adopted_outputs(
+            root,
+            source_root=source_prefix,
+            incident_path=incident_relative,
+            disposition_path=disposition_relative,
+        )
+    )
+    incident = _build_attempt_migration_incident(
+        root,
+        governing_plan_path=governing_plan_path,
+        migration_plan_path=migration_plan_path,
+        workspace_baseline_path=workspace_baseline_path,
+        owner_attestation_path=attestation_record_path,
+        pending_attestation_snapshot_path=attestation_snapshot_path,
+        known_failure_baseline_path=baseline_path,
+        expected_paths_manifest_path=expected_paths_manifest_path,
+        source_root=source_prefix,
+        intended_predecessor_head=intended_predecessor_head,
+        pre_move_repository_state=frozen_state,
+    )
+    incident_data = _canonical_json(incident) + b"\n"
+    if incident_snapshot is not None and (
+        incident_snapshot["data"] != incident_data
+        or incident_snapshot["lstat_mode"] != 0o644
+    ):
+        raise AttemptMigrationError("capture_incident_conflict", incident_relative)
+
+    disposition = _build_invalidated_adopted_disposition(
+        root,
+        incident_path=incident_relative,
+        disposition_path=disposition_relative,
+        incident=incident,
+        archive_root=archive_prefix,
+        authority_subject_path=authority_subject_path,
+        authority_specification_review_path=authority_specification_review_path,
+        authority_quality_review_path=authority_quality_review_path,
+        restoration_commit=restoration_commit,
+        restoration_tree=restoration_tree,
+        protected_paths=protected_relatives,
+        generation5_request_path=generation5_request_path,
+        generation5_snapshot_path=generation5_snapshot_path,
+        generation11_request_path=generation11_request_path,
+        generation11_snapshot_path=generation11_snapshot_path,
+        live_ledger_path=live_ledger_path,
+        baseline_path=baseline_path,
+        baseline_specification_review_path=baseline_specification_review_path,
+        baseline_quality_review_path=baseline_quality_review_path,
+        workspace_baseline_path=workspace_baseline_path,
+        attestation_request_path=attestation_request_path,
+        attestation_snapshot_path=attestation_snapshot_path,
+        attestation_record_path=attestation_record_path,
+    )
+    disposition_data = _canonical_json(disposition) + b"\n"
+    if disposition_snapshot is not None and (
+        disposition_snapshot["data"] != disposition_data
+        or disposition_snapshot["lstat_mode"] != 0o644
+    ):
+        raise AttemptMigrationError(
+            "capture_disposition_conflict", disposition_relative
+        )
+
+    if prefix == "A/A":
+        _publish_exclusive(root, incident_relative, incident_data, 0o644)
+        _publish_exclusive(root, disposition_relative, disposition_data, 0o644)
+    elif prefix == "I/A":
+        _publish_exclusive(root, disposition_relative, disposition_data, 0o644)
+    elif prefix != "I/D":
+        raise AttemptMigrationError("capture_output_prefix_invalid")
+
+    validated = validate(root, disposition_relative)
+    if validated != disposition:
+        raise AttemptMigrationError("capture_disposition_replay_mismatch")
+    return {"incident": incident, "disposition": disposition}
+
+
 def _require_keys(value: Any, expected: set[str], code: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping) or set(value) != expected:
         raise AttemptMigrationError(code)
@@ -1912,7 +2605,15 @@ def _scan_regular_files(repository_root: Path, prefix: str) -> list[str]:
             os.close(descriptor)
 
 
-def _validate_disposition_structure(record: Any) -> dict[str, Any]:
+def _validate_disposition_v1_structure(
+    record: Any,
+    *,
+    artifact_roles: Sequence[str] = ARTIFACT_ROLES,
+    snapshot_record_roles: tuple[str, str] | None = (
+        "pending_snapshot",
+        "pending_record",
+    ),
+) -> dict[str, Any]:
     disposition = dict(_require_keys(record, TOP_LEVEL_KEYS, "disposition_keys_mismatch"))
     if disposition["schema_version"] != SCHEMA_VERSION:
         raise AttemptMigrationError("disposition_schema_invalid")
@@ -1968,7 +2669,7 @@ def _validate_disposition_structure(record: Any) -> dict[str, Any]:
         raise AttemptMigrationError("expected_manifest_digest_invalid")
     artifacts = _require_keys(
         attempt["artifact_bindings"],
-        set(ARTIFACT_ROLES),
+        set(artifact_roles),
         "attempt_artifact_bindings_invalid",
     )
     for binding in artifacts.values():
@@ -2141,6 +2842,8 @@ def _validate_disposition_structure(record: Any) -> dict[str, Any]:
         generation5=g5,
         generation11=g11,
         restoration=restoration,
+        artifact_roles=artifact_roles,
+        snapshot_record_roles=snapshot_record_roles,
     )
     if (
         restoration["source_commit"] != attempt["source_commit"]
@@ -2148,6 +2851,74 @@ def _validate_disposition_structure(record: Any) -> dict[str, Any]:
     ):
         raise AttemptMigrationError("restoration_coordinates_mismatch")
     return disposition
+
+
+def _validate_disposition_v2_structure(record: Any) -> dict[str, Any]:
+    disposition = dict(
+        _require_keys(record, V2_TOP_LEVEL_KEYS, "disposition_keys_mismatch")
+    )
+    if disposition["schema_version"] != V2_SCHEMA_VERSION:
+        raise AttemptMigrationError("disposition_schema_invalid")
+    if disposition["disposition"] != V2_DISPOSITION:
+        raise AttemptMigrationError("disposition_value_invalid")
+    if disposition["claims_not_made"] != V2_CLAIMS_NOT_MADE:
+        raise AttemptMigrationError("disposition_claims_invalid")
+    if disposition["normalized_disposition_sha256"] != _canonical_digest(
+        disposition, exclude="normalized_disposition_sha256"
+    ):
+        raise AttemptMigrationError("normalized_disposition_digest_mismatch")
+
+    lifecycle = _require_keys(
+        disposition["attempt_lifecycle"],
+        V2_ATTEMPT_LIFECYCLE_KEYS,
+        "attempt_lifecycle_invalid",
+    )
+    if (
+        lifecycle["adoption_state"] != "owner_adopted"
+        or lifecycle["repository_commit_state"] != "uncommitted"
+        or lifecycle["invalidation_reason"]
+        != "workspace_baseline_predecessor_mismatch"
+        or lifecycle["workspace_baseline_role"] != "workspace_baseline"
+        or lifecycle["owner_attestation_role"] != "attestation_record"
+        or lifecycle["adoption_transfer"] != "forbidden"
+    ):
+        raise AttemptMigrationError("attempt_lifecycle_invalid")
+    _validate_file_binding(lifecycle["incident_binding"], full=False)
+
+    common = {
+        key: value
+        for key, value in disposition.items()
+        if key != "attempt_lifecycle"
+    }
+    common.update(
+        {
+            "schema_version": SCHEMA_VERSION,
+            "disposition": DISPOSITION,
+            "claims_not_made": CLAIMS_NOT_MADE,
+            "normalized_disposition_sha256": "",
+        }
+    )
+    common["normalized_disposition_sha256"] = _canonical_digest(
+        common, exclude="normalized_disposition_sha256"
+    )
+    _validate_disposition_v1_structure(
+        common,
+        artifact_roles=V2_ARTIFACT_ROLES,
+        snapshot_record_roles=None,
+    )
+    return disposition
+
+
+def _validate_disposition_structure(record: Any) -> dict[str, Any]:
+    """Dispatch a closed disposition to exactly one versioned validator."""
+
+    if isinstance(record, Mapping) and record.get("schema_version") == V2_SCHEMA_VERSION:
+        return _validate_disposition_v2_structure(record)
+    if isinstance(record, Mapping) and "schema_version" in record and record.get(
+        "schema_version"
+    ) != SCHEMA_VERSION:
+        raise AttemptMigrationError("disposition_schema_invalid")
+    return _validate_disposition_v1_structure(record)
 
 
 def _validate_attempt_replay_states(
@@ -2191,7 +2962,7 @@ def _validate_attempt_replay_states(
                 )
 
 
-def _validate_live_bindings(root: Path, record: Mapping[str, Any]) -> None:
+def _validate_common_live_bindings(root: Path, record: Mapping[str, Any]) -> None:
     capture_state = record["pre_move_repository_state"]
     capture_tree = _git(
         root, "rev-parse", f"{capture_state['head']}^{{tree}}"
@@ -2251,6 +3022,7 @@ def _validate_live_bindings(root: Path, record: Mapping[str, Any]) -> None:
         migration_plan_binding=record["migration_plan_binding"],
         expected_manifest_binding=manifest_binding,
         protected_path_bindings=record["protected_path_bindings"],
+        protected_order_insensitive=(record["schema_version"] == V2_SCHEMA_VERSION),
     )
 
     _validate_attempt_replay_states(root, record)
@@ -2331,6 +3103,114 @@ def _validate_live_bindings(root: Path, record: Mapping[str, Any]) -> None:
     extras = set(_status_paths(current_status, attempt["source_root"])) - expected_source_status
     if extras:
         raise AttemptMigrationError("source_contains_unreviewed_change")
+
+
+def _validate_v2_attestation_transition(
+    root: Path, record: Mapping[str, Any]
+) -> dict[str, Any]:
+    artifacts = record["attempt_binding"]["artifact_bindings"]
+    row_by_path = {row["original_path"]: row for row in record["attempt_rows"]}
+    snapshot_binding = artifacts["attestation_snapshot"]
+    owner_binding = artifacts["attestation_record"]
+    pending_snapshot = _resolve_attempt_row_snapshot(
+        root, row_by_path[snapshot_binding["path"]]
+    )
+    owner_snapshot = _resolve_attempt_row_snapshot(
+        root, row_by_path[owner_binding["path"]]
+    )
+    pending = _json_bytes(pending_snapshot["data"], snapshot_binding["path"])
+    owner = _json_bytes(owner_snapshot["data"], owner_binding["path"])
+    if pending.get("evidence_status") != "pending_owner_confirmation":
+        raise AttemptMigrationError("v2_attestation_snapshot_lifecycle_invalid")
+    if owner.get("evidence_status") != "owner_confirmed":
+        raise AttemptMigrationError("v2_attestation_record_lifecycle_invalid")
+    reversal_fields = (
+        "evidence_status",
+        "owner",
+        "owner_confirmations",
+        "owner_adoption",
+    )
+    if any(field not in pending or field not in owner for field in reversal_fields):
+        raise AttemptMigrationError("v2_attestation_transition_invalid")
+    reversed_owner = dict(owner)
+    for field in reversal_fields:
+        reversed_owner[field] = pending[field]
+    if reversed_owner != pending:
+        raise AttemptMigrationError("v2_attestation_transition_invalid")
+    return owner
+
+
+def _validate_disposition_v2_live_bindings(
+    root: Path, record: Mapping[str, Any]
+) -> None:
+    lifecycle = record["attempt_lifecycle"]
+    incident_binding = lifecycle["incident_binding"]
+    incident_snapshot = _read_regular(root, incident_binding["path"])
+    assert incident_snapshot is not None
+    if (
+        incident_snapshot["lstat_mode"] != 0o644
+        or _content_binding(incident_snapshot) != incident_binding
+    ):
+        raise AttemptMigrationError("v2_incident_binding_mismatch")
+    incident = _json_bytes(incident_snapshot["data"], incident_binding["path"])
+    if incident_snapshot["data"] != _canonical_json(incident) + b"\n":
+        raise AttemptMigrationError("v2_incident_not_canonical")
+    incident = validate_attempt_migration_incident(root, incident)
+
+    if (
+        record["governing_plan_binding"] != incident["governing_plan_binding"]
+        or record["migration_plan_binding"] != incident["migration_plan_binding"]
+        or record["pre_move_repository_state"]
+        != incident["pre_move_repository_state"]
+    ):
+        raise AttemptMigrationError("v2_incident_coordinate_mismatch")
+    attempt = record["attempt_binding"]
+    if (
+        attempt["source_root"] != incident["source_root"]
+        or attempt["expected_paths_manifest_binding"]
+        != incident["expected_paths_manifest_binding"]
+    ):
+        raise AttemptMigrationError("v2_incident_coordinate_mismatch")
+
+    incident_rows = {row["path"]: row for row in incident["attempt_rows"]}
+    if set(incident_rows) != {
+        row["original_path"] for row in record["attempt_rows"]
+    }:
+        raise AttemptMigrationError("v2_incident_row_set_mismatch")
+    for row in record["attempt_rows"]:
+        incident_row = incident_rows[row["original_path"]]
+        if {
+            "path": row["original_path"],
+            "tracked_state": row["tracked_state"],
+            "file_type": row["file_type"],
+            "lstat_mode": row["lstat_mode"],
+            "size": row["size"],
+            "sha256": row["sha256"],
+        } != incident_row:
+            raise AttemptMigrationError("v2_incident_row_binding_mismatch")
+
+    artifacts = attempt["artifact_bindings"]
+    incident_role_fields = {
+        "baseline": "known_failure_baseline_binding",
+        "workspace_baseline": "workspace_baseline_binding",
+        "attestation_snapshot": "pending_attestation_snapshot_binding",
+        "attestation_record": "owner_attestation_binding",
+    }
+    for role, field in incident_role_fields.items():
+        binding = artifacts[role]
+        incident_content = incident[field]
+        if {
+            key: binding[key] for key in ("path", "size", "sha256")
+        } != incident_content:
+            raise AttemptMigrationError("v2_incident_artifact_binding_mismatch", role)
+    owner_attestation = _validate_v2_attestation_transition(root, record)
+    _validate_owner_review_role_cross_links(owner_attestation, artifacts)
+
+
+def _validate_live_bindings(root: Path, record: Mapping[str, Any]) -> None:
+    _validate_common_live_bindings(root, record)
+    if record["schema_version"] == V2_SCHEMA_VERSION:
+        _validate_disposition_v2_live_bindings(root, record)
 
 def _load_disposition(
     repository_root: Path, disposition_path: Path | str
@@ -2888,6 +3768,39 @@ def _parser() -> argparse.ArgumentParser:
     capture_parser.add_argument("--pending-snapshot-path", required=True)
     capture_parser.add_argument("--pending-record-path", required=True)
 
+    adopted_parser = subparsers.add_parser("capture-invalidated-adopted")
+    adopted_parser.add_argument("--repository-root", required=True)
+    adopted_parser.add_argument("--incident-path", required=True)
+    adopted_parser.add_argument("--disposition-path", required=True)
+    adopted_parser.add_argument("--source-root", required=True)
+    adopted_parser.add_argument("--archive-root", required=True)
+    adopted_parser.add_argument("--governing-plan-path", required=True)
+    adopted_parser.add_argument("--migration-plan-path", required=True)
+    adopted_parser.add_argument("--authority-subject-path", required=True)
+    adopted_parser.add_argument(
+        "--authority-specification-review-path", required=True
+    )
+    adopted_parser.add_argument("--authority-quality-review-path", required=True)
+    adopted_parser.add_argument("--intended-predecessor-head", required=True)
+    adopted_parser.add_argument("--restoration-commit", required=True)
+    adopted_parser.add_argument("--restoration-tree", required=True)
+    adopted_parser.add_argument("--expected-paths-manifest-path", required=True)
+    adopted_parser.add_argument("--protected-path", action="append", default=[])
+    adopted_parser.add_argument("--generation5-request-path", required=True)
+    adopted_parser.add_argument("--generation5-snapshot-path", required=True)
+    adopted_parser.add_argument("--generation11-request-path", required=True)
+    adopted_parser.add_argument("--generation11-snapshot-path", required=True)
+    adopted_parser.add_argument("--live-ledger-path", required=True)
+    adopted_parser.add_argument("--baseline-path", required=True)
+    adopted_parser.add_argument(
+        "--baseline-specification-review-path", required=True
+    )
+    adopted_parser.add_argument("--baseline-quality-review-path", required=True)
+    adopted_parser.add_argument("--workspace-baseline-path", required=True)
+    adopted_parser.add_argument("--attestation-request-path", required=True)
+    adopted_parser.add_argument("--attestation-snapshot-path", required=True)
+    adopted_parser.add_argument("--attestation-record-path", required=True)
+
     validate_parser = subparsers.add_parser("validate")
     validate_parser.add_argument("--repository-root", required=True)
     validate_parser.add_argument("--disposition-path", required=True)
@@ -2910,12 +3823,17 @@ def main(argv: list[str] | None = None) -> int:
         if mode == "capture":
             arguments["protected_paths"] = arguments.pop("protected_path")
             result = capture(**arguments)
+        elif mode == "capture-invalidated-adopted":
+            arguments["protected_paths"] = arguments.pop("protected_path")
+            result = capture_invalidated_adopted(**arguments)
         elif mode == "validate":
             result = validate(**arguments)
         elif mode == "apply":
             result = apply(**arguments)
-        else:
+        elif mode == "postvalidate":
             result = postvalidate(**arguments)
+        else:  # pragma: no cover - argparse constrains the mode set
+            raise AttemptMigrationError("operation_mode_invalid", mode)
     except AttemptMigrationError as exc:
         print(str(exc), file=sys.stderr)
         return 1
