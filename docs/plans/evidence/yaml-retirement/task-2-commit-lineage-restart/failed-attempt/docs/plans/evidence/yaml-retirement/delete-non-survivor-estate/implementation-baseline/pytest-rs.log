@@ -1,0 +1,413 @@
+bringing up nodes...
+bringing up nodes...
+
+ss..ss................................s................................. [  1%]
+........................................................................ [  2%]
+........................................................................ [  3%]
+........................................................................ [  4%]
+..........................................................s...s.s.s...s. [  5%]
+....s................................................................... [  6%]
+........................................................................ [  7%]
+........................................................................ [  8%]
+........................................................................ [  9%]
+........................................................................ [ 10%]
+........................................................................ [ 11%]
+...................................F.................................... [ 13%]
+........................................................................ [ 14%]
+........................................................................ [ 15%]
+........................F............................................... [ 16%]
+..................................................F..................... [ 17%]
+...................................................................F.... [ 18%]
+........................................................................ [ 19%]
+........................................................................ [ 20%]
+........................................................................ [ 21%]
+........................................................................ [ 22%]
+........................................................................ [ 23%]
+........................................................................ [ 24%]
+........................................................................ [ 26%]
+........................................................................ [ 27%]
+........................................................................ [ 28%]
+........................................................................ [ 29%]
+........................................................................ [ 30%]
+........................................................................ [ 31%]
+........................................................................ [ 32%]
+........................................................................ [ 33%]
+........................................................................ [ 34%]
+........................................................................ [ 35%]
+........................................................................ [ 36%]
+........................................................................ [ 37%]
+........................................................................ [ 39%]
+........................................................................ [ 40%]
+........................................................................ [ 41%]
+........................................................................ [ 42%]
+........................................................................ [ 43%]
+......ss...ss........................................................... [ 44%]
+........................................................................ [ 45%]
+........................................................................ [ 46%]
+........................................................................ [ 47%]
+..................................s..................................... [ 48%]
+........................................................................ [ 49%]
+........................................................................ [ 50%]
+........................................................................ [ 52%]
+........................................................................ [ 53%]
+........................................................................ [ 54%]
+........................................................................ [ 55%]
+........................................................................ [ 56%]
+........................................................................ [ 57%]
+........................................................................ [ 58%]
+........................................................................ [ 59%]
+........................................................................ [ 60%]
+........................................................................ [ 61%]
+........................................................................ [ 62%]
+........................................................................ [ 63%]
+........................................................................ [ 65%]
+........F............................................................... [ 66%]
+........................................................................ [ 67%]
+..................F..................................................... [ 68%]
+........................................................................ [ 69%]
+........................................................................ [ 70%]
+........................................................................ [ 71%]
+........................................................................ [ 72%]
+........................................................................ [ 73%]
+........................................................................ [ 74%]
+........................................................................ [ 75%]
+........................................................................ [ 76%]
+........................................................................ [ 78%]
+........................................................................ [ 79%]
+........................................................................ [ 80%]
+........................................................................ [ 81%]
+........................................................................ [ 82%]
+........................................................................ [ 83%]
+........................................................................ [ 84%]
+........................................................................ [ 85%]
+........................................................................ [ 86%]
+........................................................................ [ 87%]
+.........s.............................................................. [ 88%]
+........................................................................ [ 89%]
+........................................................................ [ 91%]
+........................................................................ [ 92%]
+........................................................................ [ 93%]
+........................................................................ [ 94%]
+........................................................................ [ 95%]
+........................................................................ [ 96%]
+........................................................................ [ 97%]
+........................................................................ [ 98%]
+........................................................................ [ 99%]
+..................                                                       [100%]
+=================================== FAILURES ===================================
+_________ test_provider_valid_output_bundle_overrides_raw_nonzero_exit _________
+[gw15] linux -- Python 3.13.9 /home/ollie/miniconda3/bin/python3.13
+
+tmp_path = PosixPath('/home/ollie/.cache/pytest-yaml-retirement-task2/pytest-of-ollie/pytest-3/popen-gw15/test_provider_valid_output_bun0')
+
+    def test_provider_valid_output_bundle_overrides_raw_nonzero_exit(tmp_path: Path):
+        """A validated provider bundle is authority even if agent tooling exits nonzero."""
+        workflow = {
+            "version": "1.3",
+            "name": "bundle-provider-valid-after-nonzero",
+            "steps": [{
+                "name": "Review",
+                "provider": "codex",
+                "output_bundle": {
+                    "path": "artifacts/work/review.json",
+                    "fields": [{
+                        "name": "review_decision",
+                        "json_pointer": "/review_decision",
+                        "type": "enum",
+                        "allowed": ["APPROVE", "REVISE"],
+                    }],
+                },
+            }],
+        }
+    
+        workflow_file = _write_workflow(tmp_path, workflow)
+        loader = WorkflowLoader(tmp_path)
+        loaded = loader.load(workflow_file)
+    
+        state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+        state_manager.initialize("workflow.yaml")
+    
+        executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+        executor.provider_executor.prepare_invocation = lambda *args, **kwargs: (SimpleNamespace(), None)
+    
+        def _fake_execute(_invocation, **_kwargs):
+            (tmp_path / "artifacts" / "work").mkdir(parents=True, exist_ok=True)
+            (tmp_path / "artifacts" / "work" / "review.json").write_text(
+                '{"review_decision":"APPROVE"}\n',
+                encoding="utf-8",
+            )
+            return SimpleNamespace(
+                exit_code=2,
+                stdout=b"",
+                stderr=b"one exploratory tool command failed",
+                duration_ms=1,
+                error=None,
+                missing_placeholders=None,
+                invalid_prompt_placeholder=False,
+            )
+    
+        executor.provider_executor.execute = _fake_execute
+    
+        state = executor.execute()
+        result = state["steps"]["Review"]
+    
+>       assert result["exit_code"] == 0
+E       assert 2 == 0
+
+tests/test_workflow_output_contract_integration.py:1135: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  orchestrator.loader.yaml_deprecation:loader.py:199 Authored YAML workflow loading is deprecated
+ERROR    orchestrator.workflow.executor:executor.py:4158 Step 'Review' failed with exit code 2. Stopping execution (strict_flow=true, on_error=stop)
+__ test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence ___
+[gw15] linux -- Python 3.13.9 /home/ollie/miniconda3/bin/python3.13
+
+tmp_path = PosixPath('/home/ollie/.cache/pytest-yaml-retirement-task2/pytest-of-ollie/pytest-3/popen-gw15/test_semantic_ir_adds_typed_pr0')
+
+    def test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence(
+        tmp_path: Path,
+    ) -> None:
+        bundle = _compile_entrypoint_fixture(
+            tmp_path,
+            fixture_path=TYPED_PROMPT_INPUT_FIXTURE,
+            entry_workflow="run-typed-prompt-phase-demo",
+            extra_source_roots=(TYPED_PROMPT_INPUT_FIXTURE.parent,),
+        ).validated_bundles_by_name["typed_prompt_input_phase::run-typed-prompt-phase-demo"]
+    
+        workflow = bundle.semantic_ir.workflows[bundle.surface.name]
+        prompt_surface = bundle.semantic_ir.prompt_surfaces[workflow.prompt_surface_ids[0]]
+    
+>       assert getattr(prompt_surface, "typed_prompt_inputs")
+E       AssertionError: assert ()
+E        +  where () = getattr(SemanticPromptSurface(prompt_surface_id='prompt:typed_prompt_input_phase::run-typed-prompt-phase-demo:root.typed_promp...), typed_prompt_inputs=(), inject_output_contract=True, inject_consumes=None, compiler_prompt_dependency_contract=None), 'typed_prompt_inputs')
+
+tests/test_workflow_semantic_ir.py:895: AssertionError
+_ test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys _
+[gw15] linux -- Python 3.13.9 /home/ollie/miniconda3/bin/python3.13
+
+tmp_path = PosixPath('/home/ollie/.cache/pytest-yaml-retirement-task2/pytest-of-ollie/pytest-3/popen-gw15/test_executable_ir_artifact_om0')
+
+    def test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys(
+        tmp_path: Path,
+    ) -> None:
+        result = _build_frontend_bundle_from_fixture(
+            tmp_path,
+            fixture_path=Path("tests/fixtures/workflow_lisp/valid/pointer_materialization_effects.orc"),
+            module_name="pointer_effects",
+            entry_workflow="orchestrate",
+        )
+        executable_ir_payload = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
+        serialized = json.dumps(executable_ir_payload, sort_keys=True)
+    
+        assert executable_ir_payload["schema_version"] == "workflow_executable_ir.v1"
+        assert "_surface_step" not in serialized
+        assert "_surface_workflow" not in serialized
+        assert "typed_workflow" not in serialized
+>       assert "form_path" not in serialized
+E       assert 'form_path' not in '{"artifacts...on": "2.14"}'
+E         
+E         'form_path' is contained here:
+E         ?           ^^
+E           nance": {"form_path": ["workflow-lisp", "defworkflow", "orchestrate"], "line": 52, "path": "/home/ollie/.cache/pytest-yaml-retirement-task2/pytest-of-ollie/pytest-3/popen-gw15/test_executable_ir_artifact_om0/pointer_materialization_effects.orc", "workflow_name": "pointer_materialization_effects::orchestrate"}}], "runtime_context_inputs": ["phase-ctx__artifact-root", "phase-ctx__phase-name", "phase-ctx__run__artifact-root", "phase-ctx__run__run-id", "phase-ctx__run__state-root", "phase-ctx__state-root"], "source_root": "/home/ollie/.cache/pyt...
+E         
+E         ...Full output truncated (2 lines hidden), use '-vv' to show
+
+tests/test_workflow_semantic_ir.py:1148: AssertionError
+__ test_compiled_bundle_semantic_ir_preserves_command_boundary_classification __
+[gw15] linux -- Python 3.13.9 /home/ollie/miniconda3/bin/python3.13
+
+tmp_path = PosixPath('/home/ollie/.cache/pytest-yaml-retirement-task2/pytest-of-ollie/pytest-3/popen-gw15/test_compiled_bundle_semantic_0')
+
+    def test_compiled_bundle_semantic_ir_preserves_command_boundary_classification(tmp_path: Path) -> None:
+        structured_result = compile_stage3_module(
+            Path("tests/fixtures/workflow_lisp/valid/structured_results.orc"),
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            command_boundaries={
+                "run_checks": ExternalToolBinding(
+                    name="run_checks",
+                    stable_command=("python", "scripts/run_checks.py"),
+                )
+            },
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+    
+        command_bundle = structured_result.validated_bundles["command_checks"]
+        command_effects = [
+            effect
+            for effect in command_bundle.semantic_ir.effects.values()
+            if effect.effect_kind == "command_call"
+        ]
+        assert any(effect.boundary_kind == "external_tool" for effect in command_effects)
+    
+        build_module = importlib.import_module("orchestrator.workflow_lisp.build")
+        request_cls = getattr(build_module, "FrontendBuildRequest")
+        resource_source = Path("tests/fixtures/workflow_lisp/valid/resource_stdlib_transition.orc").read_text(
+            encoding="utf-8"
+        )
+        resource_module_path = tmp_path / "resource" / "module.orc"
+        resource_module_path.parent.mkdir(parents=True, exist_ok=True)
+        resource_module_path.write_text(
+            resource_source.replace(
+                '  (:target-dsl "2.14")\n',
+                '  (:target-dsl "2.14")\n  (defmodule resource/module)\n  (export move-selected-item)\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        resource_result = build_module.build_frontend_bundle(
+            request_cls(
+                source_path=resource_module_path,
+                source_roots=(tmp_path,),
+                entry_workflow="move-selected-item",
+                provider_externs_path=None,
+                prompt_externs_path=None,
+                imported_workflow_bundles_path=None,
+                command_boundaries_path=None,
+                emit_debug_yaml=False,
+                workspace_root=tmp_path,
+            )
+        )
+        resource_bundle = resource_result.validated_bundle
+        resource_effects = [
+            effect
+            for effect in resource_bundle.semantic_ir.effects.values()
+            if effect.effect_kind == "command_call"
+        ]
+        resource_command_steps = _core_command_steps(resource_bundle.core_workflow_ast.body)
+    
+        assert any(effect.boundary_kind == "certified_adapter" for effect in resource_effects)
+>       assert any(
+            step.boundary_kind == "certified_adapter" and step.boundary_name == "apply_resource_transition"
+            for step in resource_command_steps
+        )
+E       assert False
+E        +  where False = any(<generator object test_compiled_bundle_semantic_ir_preserves_command_boundary_classification.<locals>.<genexpr> at 0x76f31c9b6400>)
+
+tests/test_workflow_semantic_ir.py:1828: AssertionError
+_ test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch _
+[gw3] linux -- Python 3.13.9 /home/ollie/miniconda3/bin/python3.13
+
+tmp_path = PosixPath('/home/ollie/.cache/pytest-yaml-retirement-task2/pytest-of-ollie/pytest-3/popen-gw3/test_neurips_steered_backlog_r3')
+
+    def test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch(tmp_path):
+        workspace = tmp_path / "workspace"
+        workflow_path = _copy_runtime_files(workspace)
+        _replace_active_backlog_with_future_phase_gap_fixture(workspace)
+    
+        provider_sequence = [
+            ("DraftMissingBacklogItem", _write_gap_draft),
+            ("SelectNextItem", _write_selector_blocked_after_gap),
+        ]
+        call_index = {"value": 0}
+    
+        def _prepare_invocation(_self, *args, **kwargs):
+            return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
+    
+        def _execute(_self, _invocation, **kwargs):
+            expected_step, writer = provider_sequence[call_index["value"]]
+            actual_step = kwargs.get("step_name")
+            if actual_step is not None:
+                assert actual_step == expected_step
+            call_index["value"] += 1
+            writer(workspace)
+            return SimpleNamespace(
+                exit_code=0,
+                stdout=b"ok",
+                stderr=b"",
+                duration_ms=1,
+                error=None,
+                missing_placeholders=None,
+                invalid_prompt_placeholder=False,
+                raw_stdout=None,
+                normalized_stdout=None,
+                provider_session=None,
+            )
+    
+        loader = WorkflowLoader(workspace)
+        workflow = loader.load(workflow_path)
+        workflow_relpath = workflow_path.relative_to(workspace).as_posix()
+        bound_inputs = bind_workflow_inputs(workflow_input_contracts(workflow), _fixture_workflow_inputs(), workspace)
+        state_manager = StateManager(workspace=workspace, run_id="test-run")
+        state_manager.initialize(workflow_relpath, _bundle_context_dict(workflow), bound_inputs=bound_inputs)
+        executor = WorkflowExecutor(workflow, workspace, state_manager)
+    
+        with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+            ProviderExecutor, "execute", _execute
+        ):
+            executor.execute()
+    
+        assert call_index["value"] == 2
+        assert (workspace / "docs/backlog/active/2026-04-27-future-item.md").is_file()
+        assert (workspace / "docs/backlog/active/2026-04-28-phase2-gap.md").is_file()
+        summary = json.loads(
+>           (workspace / "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog-drain-summary.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+tests/test_neurips_steered_backlog_runtime.py:963: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../miniconda3/lib/python3.13/pathlib/_local.py:546: in read_text
+    return PathBase.read_text(self, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../miniconda3/lib/python3.13/pathlib/_abc.py:632: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/home/ollie/.cache/pytest-yaml-retirement-task2/pytest-of-ollie/pytest-3/popen-gw3/test_neurips_steered_backlog_r3/workspace/artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog-drain-summary.json')
+mode = 'r', buffering = -1, encoding = 'utf-8', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/home/ollie/.cache/pytest-yaml-retirement-task2/pytest-of-ollie/pytest-3/popen-gw3/test_neurips_steered_backlog_r3/workspace/artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog-drain-summary.json'
+
+../../miniconda3/lib/python3.13/pathlib/_local.py:537: FileNotFoundError
+------------------------------ Captured log call -------------------------------
+WARNING  orchestrator.loader.yaml_deprecation:loader.py:199 Authored YAML workflow loading is deprecated
+ERROR    orchestrator.workflow.executor:executor.py:4158 Step 'SelectNextItem' failed with exit code 2. Stopping execution (strict_flow=true, on_error=stop)
+ERROR    orchestrator.workflow.executor:executor.py:4158 Step 'DrainBacklogItems' failed with exit code 2. Stopping execution (strict_flow=true, on_error=stop)
+__________ test_design_delta_drain_defaults_route_work_to_codex_gpt54 __________
+[gw4] linux -- Python 3.13.9 /home/ollie/miniconda3/bin/python3.13
+
+    def test_design_delta_drain_defaults_route_work_to_codex_gpt54():
+        workflow = yaml.safe_load(
+            (REPO_ROOT / "workflows/examples/lisp_frontend_design_delta_drain.yaml").read_text(encoding="utf-8")
+        )
+    
+>       assert workflow["inputs"]["design_gap_draft_provider"]["default"] == "codex"
+E       AssertionError: assert 'claude' == 'codex'
+E         
+E         - codex
+E         + claude
+
+tests/test_provider_role_routing.py:54: AssertionError
+=============================== warnings summary ===============================
+tests/test_provider_attempt_allocation.py: 20 warnings
+  /home/ollie/miniconda3/lib/python3.13/multiprocessing/popen_fork.py:67: DeprecationWarning: This process (pid=3512058) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    self.pid = os.fork()
+
+tests/test_prompt_dependency_evidence.py: 13 warnings
+  /home/ollie/miniconda3/lib/python3.13/multiprocessing/popen_fork.py:67: DeprecationWarning: This process (pid=3512046) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    self.pid = os.fork()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/ollie/Documents/agent-orchestration/docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-baseline/pytest.junit.xml -
+=========================== short test summary info ============================
+SKIPPED [11] tests/e2e/conftest.py:26: E2E tests disabled (set ORCHESTRATE_E2E to enable)
+SKIPPED [1] tests/test_workflow_lisp_procedure_first_migrations.py:1643: set ORCHESTRATOR_REBUILD_TRACKED_DESIGN_PROJECTIONS=1
+SKIPPED [1] tests/test_workflow_lisp_procedure_first_migrations.py:1675: set ORCHESTRATOR_RESCAN_TRACKED_DESIGN_ELIGIBILITY=1
+SKIPPED [1] tests/test_workflow_lisp_procedure_first_migrations.py:1798: set ORCHESTRATOR_REBUILD_STACK_IMPLEMENTATION_PROJECTIONS=1
+SKIPPED [1] tests/test_workflow_lisp_procedure_first_migrations.py:1833: set ORCHESTRATOR_RESCAN_STACK_IMPLEMENTATION_ELIGIBILITY=1
+SKIPPED [1] tests/test_workflow_lisp_key_migrations.py:5153: owner-confirmed interrupted-run recovery is an explicit one-time gate
+SKIPPED [1] tests/test_workflow_lisp_procedure_first_migrations.py:6764: live procedure-retirement scan validation is opt-in
+6 failed, 6619 passed, 17 skipped, 33 warnings in 140.34s (0:02:20)

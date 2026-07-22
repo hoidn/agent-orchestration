@@ -1,0 +1,20 @@
+{
+  "claims_not_made": [
+    "This code-quality review used bounded independent digest, artifact-manifest, immutable-publication, and production-validator checks after approved specification review sha256:e93c11c038a21d57a1b67876b107c1a3179b8a587bf59e41b851ff5c8a509533; temporary driver sha256:25c977cdfdfe87e8f532554870663164c97d1bd1f6fdf14cb2e88b20be733c51 and self-test sha256:bdbbaab98f01c98d2ed72b7e6d8834a004a24994275701398adfcdfc6be46ffd are not durable repository evidence.",
+    "This review observes candidate commit db2107526a7000c6ea9e8e4041e8d786ff624e79 after the exact single-path README.md committed bridge; it does not authorize that commit or any source, store, workflow, run-root, or repository mutation.",
+    "This review is not personal owner adoption, does not authorize remediation, and does not advance Task 2 beyond its personal-owner boundary."
+  ],
+  "issues": [],
+  "result": "approved",
+  "review_kind": "code_quality",
+  "reviewed_at": "2026-07-22T10:47:21-07:00",
+  "reviewer": {
+    "identity": "quality_hashes"
+  },
+  "schema_version": "review.v1",
+  "subject": {
+    "kind": "implementation_failure_baseline",
+    "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-baseline/known-failure-baseline.json",
+    "sha256": "sha256:2a1202d32bd4c8e6853c686a9b6b5d0a843787adf9f523ad5c2729da426155a4"
+  }
+}

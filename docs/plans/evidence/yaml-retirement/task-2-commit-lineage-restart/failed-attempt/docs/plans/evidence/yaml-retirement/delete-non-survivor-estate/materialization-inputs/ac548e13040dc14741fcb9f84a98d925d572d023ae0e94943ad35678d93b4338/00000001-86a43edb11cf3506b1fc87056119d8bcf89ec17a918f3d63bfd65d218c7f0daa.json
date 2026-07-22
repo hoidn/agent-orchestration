@@ -1,0 +1,41 @@
+{
+  "claims_not_made": [
+    "This request does not authorize owner action or source mutation."
+  ],
+  "expected_input_set_sha256": "sha256:4a48b7863480d051a4487df7a520992771b06e0684c09b3494ec030d2edacd65",
+  "generation": 1,
+  "input_bindings": [
+    {
+      "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-baseline/known-failure-baseline.json",
+      "role": "baseline",
+      "schema_version": "broad_known_failure_baseline.v1",
+      "sha256": "sha256:2a1202d32bd4c8e6853c686a9b6b5d0a843787adf9f523ad5c2729da426155a4",
+      "size": 9179
+    },
+    {
+      "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/reviews/implementation-baseline-quality.json",
+      "role": "quality_review",
+      "schema_version": "review.v1",
+      "sha256": "sha256:2d7fa310bd71c67dc2d12e4c4bd42bf7f0734d116bec7af31cccf2038634e97e",
+      "size": 1370
+    },
+    {
+      "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/reviews/implementation-baseline-specification.json",
+      "role": "specification_review",
+      "schema_version": "review.v1",
+      "sha256": "sha256:e93c11c038a21d57a1b67876b107c1a3179b8a587bf59e41b851ff5c8a509533",
+      "size": 1295
+    }
+  ],
+  "normalized_request_sha256": "sha256:86a43edb11cf3506b1fc87056119d8bcf89ec17a918f3d63bfd65d218c7f0daa",
+  "output_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/attestations/pre-implementation/broad-failure-baseline.json",
+  "parameters": {
+    "prepared_at": "2026-07-22T10:48:37.308195-07:00",
+    "prepared_by": {
+      "identity": "Codex root session agent"
+    }
+  },
+  "prior_generation_binding": null,
+  "record_kind": "broad-failure-baseline-attestation",
+  "schema_version": "retirement_materialization_request.v1"
+}

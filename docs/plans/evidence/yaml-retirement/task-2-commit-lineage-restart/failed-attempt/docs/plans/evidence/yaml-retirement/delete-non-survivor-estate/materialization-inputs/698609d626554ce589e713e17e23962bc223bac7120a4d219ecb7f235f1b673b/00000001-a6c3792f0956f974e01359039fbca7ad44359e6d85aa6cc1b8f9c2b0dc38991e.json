@@ -1,0 +1,25 @@
+{
+  "claims_not_made": [
+    "This request does not authorize owner action or source mutation."
+  ],
+  "expected_input_set_sha256": "sha256:98338f764520f1a2e2c014e57ae6a7097e08e519642031a230282e484127743c",
+  "generation": 1,
+  "input_bindings": [
+    {
+      "path": "docs/plans/2026-07-13-procedure-first-reuse-inventory.json",
+      "role": "handoff",
+      "schema_version": "procedure_first_reuse_inventory.v2",
+      "sha256": "sha256:0c6b8fdcc09ef18c172bdaeff99027f1bd0f6a35b529a1e3e17803741ee156d5",
+      "size": 217694
+    }
+  ],
+  "normalized_request_sha256": "sha256:a6c3792f0956f974e01359039fbca7ad44359e6d85aa6cc1b8f9c2b0dc38991e",
+  "output_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/query.json",
+  "parameters": {
+    "capture_commit": "56a832bffc11ea4572eae3e6285690a74db7d990",
+    "queue_id": "delete_non_survivor_estate"
+  },
+  "prior_generation_binding": null,
+  "record_kind": "query",
+  "schema_version": "retirement_materialization_request.v1"
+}
