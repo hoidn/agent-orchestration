@@ -4,7 +4,7 @@ Frozen human projection of `docs/plans/2026-07-13-procedure-first-reuse-inventor
 
 Capture commit: `56a832bffc11ea4572eae3e6285690a74db7d990`.  Normalized estate-path digest: `sha256:ca994efbfba9c69836821b99239b7fb9d90656979701c3d679cdcb5b519fe2b5`.
 
-This table routes Stage-6 work only. Task 5's two ports are promoted, and Task 6 is the current selector. Every queue remains pending its applicable reference, import, run-consumer, archive, or owner gate; this projection authorizes no deletion, archive, rename, workflow launch, or run mutation.
+This table routes Stage-6 work only. Task 5's two ports are promoted, and Task 6 is the current selector. At `2026-07-23T16:06:20-07:00`, owner Ollie selected DELETE, not port, for the former holdout; its unchanged queue ID is pending deletion with no replacement and retains its reference and supported-run-consumer gates. This projection authorizes no deletion, archive, rename, workflow launch, or run mutation.
 
 | path | queue | disposition | replacement or rationale | legacy rows | archive | status | deletion gate |
 |---|---|---|---|---:|---|---|---|
@@ -48,7 +48,7 @@ This table routes Stage-6 work only. Task 5's two ports are promoted, and Task 6
 | workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml | delete_non_survivor_estate | delete | The deletion-first steering decision retires every non-survivor YAML/YML workflow without translating its internal calls. | 3 | git_history | pending | reference + supported-run-consumer |
 | workflows/examples/neurips_steered_backlog_drain.legacy.yaml | delete_non_survivor_estate | delete | The deletion-first steering decision retires every non-survivor YAML/YML workflow without translating its internal calls. | 3 | git_history | pending | reference + supported-run-consumer |
 | workflows/examples/neurips_steered_backlog_drain.yaml | delete_non_survivor_estate | delete | The deletion-first steering decision retires every non-survivor YAML/YML workflow without translating its internal calls. | 3 | git_history | pending | reference + supported-run-consumer |
-| workflows/examples/non_progress_step_back_demo.yaml | hold_non_progress_step_back | hold | The protected in-flight recovery owner must record delete-or-port disposition before Stage 6 mutates this path. | 0 | git_history | pending | reference + supported-run-consumer |
+| workflows/examples/non_progress_step_back_demo.yaml | hold_non_progress_step_back | delete | At 2026-07-23T16:06:20-07:00, owner Ollie personally selected DELETE, not port; this reviewed handoff requeues the path for ordinary Stage 6 deletion subject to its unchanged zero-reference and supported-run-consumer gates. | 0 | git_history | pending | reference + supported-run-consumer |
 | workflows/examples/observability_runtime_config_demo.yaml | delete_non_survivor_estate | delete | The deletion-first steering decision retires every non-survivor YAML/YML workflow without translating its internal calls. | 0 | git_history | pending | reference + supported-run-consumer |
 | workflows/examples/output_capture_demo.yaml | delete_non_survivor_estate | delete | The deletion-first steering decision retires every non-survivor YAML/YML workflow without translating its internal calls. | 0 | git_history | pending | reference + supported-run-consumer |
 | workflows/examples/prompt_audit_demo.yaml | delete_non_survivor_estate | delete | The deletion-first steering decision retires every non-survivor YAML/YML workflow without translating its internal calls. | 0 | git_history | pending | reference + supported-run-consumer |
@@ -122,7 +122,7 @@ This table routes Stage-6 work only. Task 5's two ports are promoted, and Task 6
 ## Exact reconciliation
 
 - Estate paths: 110 (`*.yaml` and `*.yml`).
-- Queue paths: 100 delete + 7 Design Delta archive + 1 verified-iteration port + 1 watchdog port + 1 protected hold = 110.
+- Queue paths: 100 estate delete + 7 Design Delta archive + 1 verified-iteration port + 1 watchdog port + 1 owner-directed pending delete = 110.
 - Legacy-retire records: 53 delete + 10 Design Delta archive = 63.
 - Preserved non-retirement boundaries: 32 Workflow Lisp effect adapters and 13 public entries.
 - Archive destination: Git history with pre-delete blob IDs; no live YAML archive tree.

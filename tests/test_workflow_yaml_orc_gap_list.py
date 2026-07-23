@@ -23,7 +23,7 @@ SCOPED_QUEUES = {
         "path": "workflows/examples/generic_run_watchdog.yaml",
     },
     "hold_non_progress_step_back": {
-        "disposition": "hold",
+        "disposition": "delete",
         "path": "workflows/examples/non_progress_step_back_demo.yaml",
     },
 }
@@ -46,7 +46,7 @@ EXPECTED_GAPS = {
     "watchdog.conditional-repair": "implemented",
     "watchdog.port-plan-and-parity": "implemented",
     "step-back.typed-routing": "implemented",
-    "step-back.owner-disposition": "blocking_gate",
+    "step-back.owner-disposition": "drop",
 }
 
 REQUIRED_MECHANIC_TOKENS = {
@@ -220,12 +220,31 @@ def test_task_15_reconciliation_binds_three_prompts_and_drops_only_pointer_helpe
     assert pointer["Classification"] == "drop"
 
 
-def test_protected_holdout_stays_owner_gated_without_an_inferred_port() -> None:
-    rows = _table_after_heading(GAP_LIST.read_text(encoding="utf-8"), "## Gap decisions")
-    owner_gate = next(row for row in rows if row["Gap ID"] == "step-back.owner-disposition")
-    assert owner_gate["Classification"] == "blocking_gate"
-    assert "hold_non_progress_step_back" in owner_gate["Applies to"]
-    assert "owner" in owner_gate["Gate or authority"].lower()
+def test_owner_delete_closes_step_back_decision_without_an_inferred_port() -> None:
+    text = GAP_LIST.read_text(encoding="utf-8")
+    decisions = _table_after_heading(text, "## Gap decisions")
+    queues = _table_after_heading(text, "## Queue reconciliation")
+    owner_decision = next(
+        row for row in decisions if row["Gap ID"] == "step-back.owner-disposition"
+    )
+    typed_routing = next(
+        row for row in decisions if row["Gap ID"] == "step-back.typed-routing"
+    )
+    queue = next(
+        row for row in queues if row["Queue ID"] == "hold_non_progress_step_back"
+    )
+    normalized = " ".join(text.lower().split())
+
+    assert owner_decision["Classification"] == "drop"
+    assert "hold_non_progress_step_back" in owner_decision["Applies to"]
+    assert "2026-07-23t16:06:20-07:00" in owner_decision["Gate or authority"].lower()
+    assert "delete" in owner_decision["Gate or authority"].lower()
+    assert "port" in owner_decision["Gate or authority"].lower()
+    assert typed_routing["Classification"] == "implemented"
+    assert queue["Disposition"] == "delete"
+    assert "reference" in queue["Decision gate"].lower()
+    assert "supported" in queue["Decision gate"].lower()
+    assert "if the owner later selects port" not in normalized
 
 
 def _section(text: str, heading: str) -> str:

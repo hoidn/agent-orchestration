@@ -1122,15 +1122,21 @@ def test_yaml_retirement_program_uses_exact_handoff_queues_and_two_ports() -> No
         queue["queue_id"]: (
             str(len(queue["paths"])),
             str(len(queue["legacy_retire_record_ids"])),
+            queue["status"],
         )
         for queue in handoff["queues"]
     }
     assert set(manifest_rows) == set(expected)
-    for queue_id, (path_count, legacy_count) in expected.items():
+    for queue_id, (path_count, legacy_count, machine_status) in expected.items():
         row = manifest_rows[queue_id]
         assert row[1] == path_count
         assert row[2] == legacy_count
-        assert row[3] == "pending"
+        expected_status = (
+            "complete"
+            if queue_id in {"port_verified_iteration", "port_generic_run_watchdog"}
+            else machine_status
+        )
+        assert row[3] == expected_status
 
     assert manifest_rows["delete_non_survivor_estate"][4] == "none"
     assert manifest_rows["archive_design_delta_yaml_twin"][4] == (
@@ -1142,6 +1148,12 @@ def test_yaml_retirement_program_uses_exact_handoff_queues_and_two_ports() -> No
         "hold_non_progress_step_back",
     ):
         assert manifest_rows[queue_id][4] == "none"
+    holdout_row = manifest_rows["hold_non_progress_step_back"]
+    holdout_contract = _normalized_routing_text(holdout_row[5])
+    assert "delete" in holdout_contract
+    assert "no .orc port" in holdout_contract
+    assert "zero unclassified active references" in holdout_contract
+    assert "zero supported matching nonterminal" in holdout_contract
 
     task_5 = program.split("### Task 5:", 1)[1].split("### Task 6:", 1)[0]
     task_5_rows = [
@@ -1155,13 +1167,13 @@ def test_yaml_retirement_program_uses_exact_handoff_queues_and_two_ports() -> No
         "artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/"
         "verified_iteration_drain.json"
     ) in task_5_rows[0]
-    assert "YAML remains present and executable until Task 6" in task_5_rows[0]
+    assert "The former YAML twin is retired" in task_5_rows[0]
     assert "Promotion gates closed" in task_5_rows[1]
     assert (
         "artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/"
         "generic_run_watchdog.json"
     ) in task_5_rows[1]
-    assert "YAML remains present and executable until Task 6" in task_5_rows[1]
+    assert "The former YAML twin is retired" in task_5_rows[1]
     for retired_family in (
         "lisp_frontend_autonomous_drain",
         "neurips_steered_backlog_drain",
@@ -1199,18 +1211,24 @@ def test_yaml_retirement_program_uses_exact_handoff_queues_and_two_ports() -> No
         "workflows/examples/non_progress_step_back_demo.yaml",
         "workflows/library/prompts/workflow_step_back/diagnose_non_progress.md",
     }
-    protected = program.split("## Protected working-tree guard", 1)[1].split(
+    assert "## Protected working-tree guard" not in program
+    released = program.split(
+        "## Released holdout-specific working-tree fence", 1
+    )[1].split(
         "## Stage-6 Queue Manifest", 1
     )[0]
     listed = {
         line[3:-1]
-        for line in protected.splitlines()
+        for line in released.splitlines()
         if line.startswith("- `") and line.endswith("`")
     }
     assert listed == protected_paths
-    assert "git diff --cached --name-only --" in protected
-    for path in protected_paths:
-        assert f"'{path}'" in protected
+    normalized_release = _normalized_routing_text(released)
+    assert "2026-07-23t16:06:20-07:00" in released.lower()
+    assert "no longer fenced" in normalized_release
+    assert "delete, not port" in normalized_release
+    assert "git diff --cached --name-only --" not in released
+    assert "never stage, restore, rewrite, format, or delete" not in normalized_release
 
 
 def test_yaml_task_5_is_complete_and_routes_next_to_task_6() -> None:

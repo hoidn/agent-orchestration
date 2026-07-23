@@ -317,7 +317,7 @@ _YAML_RETIREMENT_QUEUE_DISPOSITIONS = {
     "archive_design_delta_yaml_twin": ("archive", "existing_orc_primary"),
     "port_verified_iteration": ("port", "new_orc_port"),
     "port_generic_run_watchdog": ("port", "new_orc_port"),
-    "hold_non_progress_step_back": ("hold", "owner_disposition"),
+    "hold_non_progress_step_back": ("delete", "none"),
 }
 _YAML_RETIREMENT_QUEUE_GATES = {
     "delete_non_survivor_estate": (
@@ -336,7 +336,10 @@ _YAML_RETIREMENT_QUEUE_GATES = {
         "Task 6: generic-run-watchdog YAML deletion gate",
         [],
     ),
-    "hold_non_progress_step_back": ("Step-back recovery owner handoff", []),
+    "hold_non_progress_step_back": (
+        "Task 6: non-progress-step-back YAML deletion gate",
+        [],
+    ),
 }
 _YAML_RETIREMENT_REPLACEMENT_PATHS = {
     "delete_non_survivor_estate": [],
@@ -723,6 +726,28 @@ def test_yaml_retirement_handoff_names_both_promoted_port_replacements() -> None
                 "2026-07-18-yaml-retirement-task-5-two-port-execution-plan.md"
             ),
         }
+
+
+def test_non_progress_step_back_owner_delete_requeues_without_a_replacement() -> None:
+    handoff = _load_json(REUSE_INVENTORY)["yaml_retirement_handoff"]
+    queue = next(
+        queue
+        for queue in handoff["queues"]
+        if queue["queue_id"] == "hold_non_progress_step_back"
+    )
+    rationale = " ".join(queue["replacement"]["rationale"].lower().split())
+
+    assert queue["status"] == "pending"
+    assert queue["disposition"] == "delete"
+    assert queue["replacement"]["kind"] == "none"
+    assert queue["replacement"]["paths"] == []
+    assert "2026-07-23t16:06:20-07:00" in rationale
+    assert "delete" in rationale
+    assert "not port" in rationale
+    assert queue["reference_gate"] == "zero_unclassified_active_references"
+    assert queue["run_consumer_gate"] == (
+        "zero_supported_matching_nonterminal_consumers"
+    )
 
 
 def test_yaml_task_5_keeps_both_old_sources_pending_their_deletion_gates() -> None:

@@ -39,25 +39,28 @@ Effective immediately:
    not a support decision. This ruling requires no new attestation lifecycle.
 6. Each batch runs the narrowest focused pytest selectors that exercise its
    affected loader, workflow, test, fixture, or routing surfaces. The batch is
-   staged by explicit path and lands as an ordinary commit after the protected
-   working-tree guard passes.
+   staged by explicit path and lands as an ordinary commit after the cached path
+   list confirms the intended scope.
 7. The owner-adopted before-sweep baseline is sufficient through every queue
    commit. Run one `pytest -q -n 16 --dist=worksteal` on the Task 7 final
    parser-removal candidate after the queues have drained, not once per batch,
    task, or repair.
 8. The seven Design Delta twins keep their existing history/archive,
    replacement, parity, and promoted-primary checks. The two promoted port
-   twins keep their existing Task 6 deletion gates. The
-   `hold_non_progress_step_back` path remains fenced and untouched until its
-   owner supplies a disposition.
+   twins keep their existing Task 6 deletion gates. At
+   `2026-07-23T16:06:20-07:00`, owner Ollie selected DELETE, not port, for
+   `hold_non_progress_step_back`; the reviewed handoff requeues that unchanged
+   queue ID as pending deletion with no replacement. Its existing reference and
+   supported-run-consumer gates remain.
 9. No new evidence schema, repair class, attestation lifecycle, capture
    window, discretionary review layer, or process-recovery mechanism is added
    during this sweep.
-10. After every deletable queue is drained and the holdout is resolved, execute
-   Task 7 from `docs/plans/2026-07-07-yaml-retirement-program.md`: reject fresh
-   YAML/YML execution, remove authored YAML parsing/loading, prove the authored
-   workflow estate empty, run its focused checks and the one final broad
-   comparison, run a fresh `.orc` smoke, and update routing/capability docs.
+10. After every deletable queue, including the owner-directed step-back row, is
+    drained, execute Task 7 from
+    `docs/plans/2026-07-07-yaml-retirement-program.md`: reject fresh YAML/YML
+    execution, remove authored YAML parsing/loading, prove the authored workflow
+    estate empty, run its focused checks and the one final broad comparison, run
+    a fresh `.orc` smoke, and update routing/capability docs.
 11. Report Stage 6 complete and stop. Stage 7 provider live binding starts only
     when the owner schedules its design review.
 
@@ -85,7 +88,31 @@ session relayed the decision mechanically at his direction:
 
 This closes the supported-root and matching-consumer gate for the deletion
 queues. It does not waive each target's fresh repository-reference check or
-the separately retained Design Delta, port-twin, and protected-holdout gates.
+the separately retained Design Delta and port-twin gates. The newly requeued
+step-back row still requires its own fresh reference and supported-consumer
+checks before deletion; this handoff does not infer their result from the
+earlier deletion-queue disposition.
+
+## Non-Progress Step-Back Owner Disposition
+
+At `2026-07-23T16:06:20-07:00`, Ollie personally adopted
+`step-back-owner-disposition` as DELETE, not port, through an explicit selection
+in his supervising session; that session relayed the decision mechanically at
+his direction. The reviewed handoff updates only the existing
+`hold_non_progress_step_back` row: its status remains `pending`, its disposition
+is `delete`, its replacement kind is `none`, and its zero-reference and
+supported-run-consumer gates are unchanged. No `.orc` port is authorized.
+
+For deletion purposes, this decision releases the former seven-path
+holdout-specific working-tree fence. The handoff update does not modify or stage
+those paths, overwrite unrelated working-tree edits, or decide whether adjacent
+step-back files are retained or retired. Step-back mechanics remain available
+through Git history and the recovery-plan documentation; future live-surface
+retention or retirement follows ordinary rules.
+
+This records routing and authority only. It does not delete the YAML, attest
+that either deletion gate passed, make Task 7 eligible, add a schema or evidence
+process, or authorize mutation of run state.
 
 ## Supersession Boundary
 
@@ -100,12 +127,12 @@ It does not change:
 - the five frozen queue memberships;
 - the batch-size ceiling;
 - dependency-safe deletion order;
-- explicit-path staging and the protected working-tree guard;
+- explicit-path staging;
 - zero live references before deletion;
 - explicit owner disposition of matching supported run consumers;
 - the Design Delta archive and replacement checks;
 - either promoted port twin's existing deletion gate;
-- the protected holdout fence; or
+- the requeued step-back row's zero-reference and supported-consumer gates; or
 - Task 7's product-facing parser-removal checklist and final verification.
 
 ## Claims Not Made
@@ -116,3 +143,5 @@ It does not change:
 - The before-sweep broad baseline does not excuse a new final-suite regression.
 - Historical text retention is not permission to retain an executable,
   routing, test, fixture, or current-documentation dependency on deleted YAML.
+- The owner DELETE decision and reviewed handoff do not claim that the
+  step-back YAML is deleted or that Task 7 is eligible.
