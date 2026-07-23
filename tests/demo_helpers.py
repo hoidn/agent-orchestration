@@ -36,3 +36,38 @@ def snapshot_tree(root: Path) -> list[tuple[str, bool, int | None]]:
         else:
             entries.append((relative, False, None))
     return entries
+
+
+def write_trial_workflow(root: Path, *, name: str = "trial_workflow.yaml") -> Path:
+    """Write the smallest legacy workflow needed by trial-runner mechanics tests."""
+    workflow_path = root / name
+    workflow_path.write_text(
+        """version: "1.4"
+name: "trial-runner-fixture"
+context:
+  workflow_model: "claude-sonnet-4-6"
+  workflow_effort: "medium"
+providers:
+  claude:
+    command:
+      [
+        "claude",
+        "-p",
+        "${PROMPT}",
+        "--dangerously-skip-permissions",
+        "--model",
+        "${model}",
+        "--effort",
+        "${effort}",
+      ]
+    defaults:
+      model: "${context.workflow_model}"
+      effort: "${context.workflow_effort}"
+steps:
+  - name: Execute
+    provider: claude
+    input_file: prompts/workflows/generic_task_loop/draft_plan.md
+""",
+        encoding="utf-8",
+    )
+    return workflow_path

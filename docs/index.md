@@ -725,11 +725,6 @@ before adding or preserving the command boundary.
 **Keywords:** examples, reference-corpus, yaml-compatibility, workflow-lisp, retries, loops, dataflow
 **Use this when:** Inspecting historical or compatibility behavior. Select new-author examples through the route-readiness registry rather than treating the directory as a template source.
 
-### [PtychoPINN Backlog Plan Slice Loop (Downstream Reference)](../workflows/examples/ptychopinn_backlog_plan_slice_impl_review_loop.yaml)
-**Description:** Informative snapshot of a real downstream workflow copied from `PtychoPINN/workflows/agent_orchestration/backlog_plan_slice_impl_review_loop.yaml` at source commit `370f641fdf84` (copied March 3, 2026).  
-**Keywords:** downstream, ptychopinn, backlog, execute-review-loop, reference  
-**Use this when:** You want a non-trivial real-world workflow example that demonstrates producer/consumer dataflow and looped review gates.
-
 ## Testing and Validation
 
 ### [E2E Testing Guide](../tests/README.md)

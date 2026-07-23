@@ -701,7 +701,7 @@ def _build_call_resume_caller_workflow() -> dict:
         "version": "2.5",
         "name": "resume-call-workflow",
         "imports": {
-            "review_loop": "workflows/library/review_fix_loop.yaml",
+            "review_loop": "workflows/library/review_loop_fixture.yaml",
         },
         "steps": [
             {
@@ -878,7 +878,7 @@ def _build_repeat_until_call_resume_workflow() -> dict:
         "version": "2.7",
         "name": "repeat-until-call-resume-workflow",
         "imports": {
-            "review_loop": "workflows/library/repeat_until_review_loop.yaml",
+            "review_loop": "workflows/library/repeat_until_review_fixture.yaml",
         },
         "artifacts": {
             "review_decision": {
@@ -1529,7 +1529,7 @@ def test_projection_runtime_plan_summarizes_artifacts_and_snapshots_from_executa
 def test_repeat_until_runtime_plan_checkpoint_metadata_preserves_projection_resume_authority(
     tmp_path: Path,
 ):
-    library_path = tmp_path / "workflows" / "library" / "repeat_until_review_loop.yaml"
+    library_path = tmp_path / "workflows" / "library" / "repeat_until_review_fixture.yaml"
     library_path.parent.mkdir(parents=True, exist_ok=True)
     library_path.write_text(
         yaml.safe_dump(_build_repeat_until_call_resume_library_workflow(), sort_keys=False),
@@ -1787,7 +1787,7 @@ def test_resume_planner_marks_yaml_route_ineligible_without_lexical_restore(
 
 
 def _seed_repeat_until_call_failure(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
-    library_path = workspace / "workflows" / "library" / "repeat_until_review_loop.yaml"
+    library_path = workspace / "workflows" / "library" / "repeat_until_review_fixture.yaml"
     library_path.parent.mkdir(parents=True, exist_ok=True)
     library_path.write_text(
         yaml.safe_dump(_build_repeat_until_call_resume_library_workflow(), sort_keys=False),
@@ -2435,7 +2435,7 @@ def test_repeat_until_resume_clears_stale_failed_nested_call_result_while_child_
 ):
     """Resume should not leave a stale failed nested-call step visible while the child call is active."""
     run_id = "repeat-until-call-running-resume"
-    library_path = temp_workspace / "workflows" / "library" / "repeat_until_review_loop.yaml"
+    library_path = temp_workspace / "workflows" / "library" / "repeat_until_review_fixture.yaml"
     library_workflow = _build_repeat_until_call_resume_library_workflow()
     library_workflow["steps"][2]["command"] = [
         "bash",
@@ -2595,7 +2595,7 @@ def test_finally_smoke_resume_restarts_at_first_unfinished_cleanup_step(temp_wor
 
 def test_call_subworkflow_smoke_resume_preserves_completed_nested_steps(temp_workspace):
     run_id = "call-subworkflow-resume-run"
-    library_path = temp_workspace / "workflows" / "library" / "review_fix_loop.yaml"
+    library_path = temp_workspace / "workflows" / "library" / "review_loop_fixture.yaml"
     library_path.parent.mkdir(parents=True, exist_ok=True)
     library_path.write_text(
         yaml.safe_dump(_build_call_resume_library_workflow(), sort_keys=False),
@@ -2652,7 +2652,7 @@ def test_call_subworkflow_smoke_resume_preserves_completed_nested_steps(temp_wor
 
 def test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch(temp_workspace):
     run_id = "call-subworkflow-checksum-run"
-    library_path = temp_workspace / "workflows" / "library" / "review_fix_loop.yaml"
+    library_path = temp_workspace / "workflows" / "library" / "review_loop_fixture.yaml"
     library_path.parent.mkdir(parents=True, exist_ok=True)
     library_path.write_text(
         yaml.safe_dump(_build_call_resume_library_workflow(), sort_keys=False),

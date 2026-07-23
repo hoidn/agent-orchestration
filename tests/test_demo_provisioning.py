@@ -90,7 +90,7 @@ def test_provision_trial_stages_workflow_assets_into_workflow_workspace(tmp_path
     seed_repo, _ = _init_seed_repo(tmp_path)
     task_file = tmp_path / "task.md"
     task_file.write_text("task\n")
-    workflow_file = tmp_path / "generic_task_plan_execute_review_loop.yaml"
+    workflow_file = tmp_path / "trial_workflow_fixture.yaml"
     workflow_file.write_text("name: demo\n")
     prompt_root = tmp_path / "prompt-root"
     (prompt_root / "generic_task_loop").mkdir(parents=True)

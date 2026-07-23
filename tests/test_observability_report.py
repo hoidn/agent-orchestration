@@ -372,7 +372,7 @@ def test_snapshot_recognizes_call_steps(tmp_path: Path):
                     "call": {
                         "call_frame_id": "root.run_review_loop::visit::1",
                         "import_alias": "review_loop",
-                        "workflow_file": "workflows/library/review_fix_loop.yaml",
+                        "workflow_file": "workflows/library/review_loop_fixture.yaml",
                         "export_status": "completed",
                     }
                 },

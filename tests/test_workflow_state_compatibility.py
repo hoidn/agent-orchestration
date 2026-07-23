@@ -234,7 +234,7 @@ def _build_repeat_until_call_resume_workflow() -> dict:
         "version": "2.7",
         "name": "repeat-until-call-resume",
         "imports": {
-            "review_loop": "workflows/library/repeat_until_review_loop.yaml",
+            "review_loop": "workflows/library/repeat_until_review_fixture.yaml",
         },
         "artifacts": {
             "review_decision": {
@@ -649,7 +649,7 @@ def test_repeat_until_failure_persists_loop_frame_current_step_and_transition_su
 
 def test_repeat_until_call_resume_preserves_call_frame_checkpoint_surfaces(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "repeat_until_review_loop.yaml",
+        tmp_path / "workflows" / "library" / "repeat_until_review_fixture.yaml",
         _build_repeat_until_call_library_workflow(),
     )
     workflow_path = _write_yaml(

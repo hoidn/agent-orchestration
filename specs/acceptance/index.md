@@ -300,7 +300,7 @@ remains mapped as follows:
 
 - Task 11 executable proof: `tests/test_subworkflow_calls.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_dependency_resolution.py`, `tests/test_dependency_injection.py`, `tests/test_prompt_contract_injection.py`, `tests/test_provider_execution.py`, `tests/test_provider_integration.py`, and `tests/test_secrets.py`
 - Task 12 executable proof: `tests/test_loader_validation.py` and `tests/test_structured_control_flow.py`
-- Task 13 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_resume_command.py`, and `workflows/examples/repeat_until_demo.yaml`
+- Task 13 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_resume_command.py`, `tests/test_workflow_lisp_loop_recur.py`, and `tests/test_workflow_lisp_loop_state.py`
 - Task 15 executable proof: `tests/test_adjudicated_provider_loader.py`, `tests/test_adjudicated_provider_baseline.py`, `tests/test_adjudicated_provider_promotion.py`, `tests/test_adjudicated_provider_scoring.py`, `tests/test_adjudicated_provider_runtime.py`, and `tests/test_adjudicated_provider_outcomes.py`
 
 ## Future Acceptance (v1.2)

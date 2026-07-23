@@ -56,16 +56,11 @@ Best practices:
 Notes:
 - These patterns keep control flow deterministic without parsing prose. They complement (but do not depend on) the planned v1.3 hooks (`output_schema`, `output_require`).
 
-## v0 Artifact-Contract Workflow Patterns
+## Artifact-Contract Workflow Patterns
 
-New prototype workflows using deterministic file-based handoff contracts:
-
-- `workflows/examples/test_fix_loop_v0.yaml`
-  - Pattern: `run tests -> gate -> fix -> retry` with a max-cycle guard.
-  - Gate uses artifact file `state/test_fail_count.txt` parsed as integer.
-- `workflows/examples/unit_of_work_plus_test_fix_v0.yaml`
-  - Pattern: complete a unit of work, then enter a test-fix stabilization loop.
-  - Demonstrates composing sub-workflow style behavior with explicit state artifacts.
+Deterministic file-based handoff contracts are covered by
+`tests/test_workflow_output_contract_integration.py` and
+`tests/test_prompt_contract_injection.py`.
 
 Contract notes:
 

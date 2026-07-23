@@ -3,13 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from orchestrator.demo.provisioning import provision_trial
-from tests.demo_helpers import init_git_seed_repo_from_example
+from tests.demo_helpers import init_git_seed_repo_from_example, write_trial_workflow
 
 
 ROOT = Path(__file__).resolve().parent.parent
 SEED = ROOT / "examples" / "demo_task_nanobragg_accumulation_port"
 TASK_FILE = SEED / "docs" / "tasks" / "port_nanobragg_accumulation_to_pytorch.md"
-WORKFLOW = ROOT / "workflows" / "examples" / "generic_task_plan_execute_review_loop.yaml"
 WORKFLOW_PROMPTS = ROOT / "prompts" / "workflows"
 
 
@@ -20,12 +19,13 @@ def _tracked_visible_files(root: Path) -> list[Path]:
 def test_nanobragg_seed_provisions_clean_workspaces_with_staged_workflow_assets(tmp_path: Path):
     seed_repo, _commit = init_git_seed_repo_from_example(tmp_path=tmp_path, source_dir=SEED)
     experiment_root = tmp_path / "experiment"
+    workflow = write_trial_workflow(tmp_path)
 
     metadata = provision_trial(
         seed_repo=seed_repo,
         experiment_root=experiment_root,
         task_file=TASK_FILE,
-        workflow_path=WORKFLOW,
+        workflow_path=workflow,
         workflow_prompts_dir=WORKFLOW_PROMPTS,
     )
 
@@ -35,7 +35,7 @@ def test_nanobragg_seed_provisions_clean_workspaces_with_staged_workflow_assets(
     assert (direct_workspace / "state" / "task.md").is_file()
     assert (workflow_workspace / "state" / "task.md").is_file()
     assert (
-        workflow_workspace / "workflows" / "examples" / WORKFLOW.name
+        workflow_workspace / "workflows" / "examples" / workflow.name
     ).is_file()
     assert (
         workflow_workspace / "prompts" / "workflows" / "generic_task_loop" / "draft_plan.md"

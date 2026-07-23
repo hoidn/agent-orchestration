@@ -7,10 +7,10 @@ import sys
 from pathlib import Path
 
 from orchestrator.demo.trial_runner import run_trial
+from tests.demo_helpers import write_trial_workflow
 
 
 ROOT = Path(__file__).resolve().parent.parent
-WORKFLOW = ROOT / "workflows" / "examples" / "generic_task_plan_execute_review_loop.yaml"
 NANOBRAGG_EVAL = ROOT / "scripts" / "demo" / "evaluate_nanobragg_accumulation.py"
 
 
@@ -82,7 +82,7 @@ def test_run_trial_smoke_archives_nanobragg_results(tmp_path: Path, monkeypatch)
         seed_repo=seed_repo,
         experiment_root=experiment_root,
         task_file=task_file,
-        workflow_path=WORKFLOW,
+        workflow_path=write_trial_workflow(tmp_path),
         direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
         commitish="HEAD",
     )

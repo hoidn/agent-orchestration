@@ -92,7 +92,7 @@ The existing implementation is not sufficient for evidence-grade claims:
   one object store and making historical-reference leakage possible;
 - `orchestrator.demo.trial_runner` labels its mode `serial` and launches the
   direct arm before the workflow arm;
-- its workflow is the retained YAML example
+- its workflow was the now-retired YAML example
   `generic_task_plan_execute_review_loop.yaml`, not a current `.orc` workflow;
 - evaluator selection depends on seed/task naming rather than a frozen
   experiment contract;

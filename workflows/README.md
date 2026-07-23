@@ -126,10 +126,8 @@ nearby parity evidence; route identity remains registry metadata.
 When adapting a workflow from another repository checkout, inspect the relevant
 call-based stack together with its imported library workflows and bundled
 prompt directory. Revalidate the adapted workflow against current specs and
-guides before using it. Use a no-import monolith such as
-`workflows/library/revision_study_design_plan_impl_monolith.yaml` only as a
-portability or debugging fallback when adapting the import tree is not
-practical.
+guides before using it. Select the current structured route from the
+route-readiness registry rather than falling back to a retired YAML monolith.
 
 ## Prompt Resolution
 
@@ -169,22 +167,6 @@ The prompt map reports missing paths; a missing path may indicate a stale exampl
 | `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | Historical Workflow Lisp migration surface; input-required | `2.14` | `design-plan-impl-review-stack` | Preserved `.orc` surface for the call-based design->plan->implementation family, with typed provider/prompt extern bindings and frozen historical YAML contract/evidence. Inspect it for stack migration context; it is not a live YAML-parity target or the real-life-tested design-doc review/fix workflow. |
 | `workflows/examples/review_revise_design_docs.orc` | Workflow Lisp generic review/fix workflow; input-required | `2.14` | `review_revise_design_docs::review-revise-design-docs` | Generic `.orc` workflow that runs a bounded stdlib review/fix loop over a parameterized `target_doc`, `context_docs`, and `review_focus`. Use it as the current model for targeted design-doc review/fix loops; it is not a production drain or YAML parity replacement. |
 | `workflows/examples/review_revise_parametric_design_docs.orc` | Workflow Lisp historical one-off review/fix workflow; input-required | `2.14` | `review-revise-parametric-design-docs` | Earlier one-off `.orc` workflow for the Workflow Lisp review/revise stdlib integration, structural parametric constraints, and compile-time parametric specialization docs. Keep it as provenance for the real-life-tested review path, but prefer `review_revise_design_docs.orc` for new targeted design-doc review/fix authoring. |
-| `workflows/examples/repeat_until_demo.yaml` | Current canonical; reusable call-based | `2.7` | `repeat-until-demo` | Demonstrates post-test `repeat_until` with loop-frame outputs, nested `call` + `match` body composition, and resume-safe iteration/condition bookkeeping. |
-| `workflows/examples/generic_task_plan_execute_review_loop.yaml` | Legacy or migration | `1.4` | `generic-task-plan-execute-review-loop` | Full task workflow with plan, execution, checks, review, fix, and bounded cycles. |
-| `workflows/examples/ptychopinn_backlog_plan_slice_impl_review_loop.yaml` | Downstream reference; prompt asset issue | `1.2` | `backlog-plan-impl-review-loop-v2` | Downstream reference workflow for a non-trivial backlog/implementation/review loop. |
-| `workflows/examples/retry_demo.yaml` | Legacy or migration; prompt asset issue | `1.1` | `Retry Demo Workflow` | Demonstrates retry defaults, explicit retry policy, and timeout handling. |
-| `workflows/examples/test_fix_loop_v0.yaml` | Legacy or migration | `1.1.1` | `test-fix-loop-v0` | Minimal test/fix loop with a shell gate and bounded retry count. |
-| `workflows/examples/test_validation.yml` | Legacy or migration | `1.1` | `validation test` | Loader-validation fixture showing valid and intentionally commented invalid forms. |
-| `workflows/examples/unit_of_work_plus_test_fix_v0.yaml` | Legacy or migration | `1.1.1` | `unit-of-work-plus-test-fix-v0` | Unit-of-work execution followed by a bounded post-work test/fix loop. |
-| `workflows/examples/wait_for_example.yaml` | Legacy or migration | `1.1` | `wait-for-example` | Minimal `wait_for` example for task-file arrival polling. |
-
-## Prompt Asset Issue Notes
-
-The generated prompt map is the source for exact missing-file rows. Current classifications:
-
-- `workflows/examples/ptychopinn_backlog_plan_slice_impl_review_loop.yaml`: external downstream snapshot; references downstream `prompts/workflows/backlog_plan_loop/*` assets not included in this repo snapshot.
-- `workflows/examples/retry_demo.yaml`: stale example asset `test_prompt.txt`; keep as a retry schema example unless runnable provider prompt content becomes necessary.
-
 ## Reusable Library Workflows
 
 | Path | DSL | Workflow Name | Purpose |
@@ -197,9 +179,6 @@ The generated prompt map is the source for exact missing-file rows. Current clas
 | `workflows/library/lisp_frontend_design_delta_work_item.v214.yaml` | `2.14` | `lisp-frontend-design-delta-work-item-v214` | Design-delta work-item stack: target/baseline variant that imports the design-delta plan and implementation phases. |
 | `workflows/library/lisp_frontend_design_delta_plan_phase.v214.yaml` | `2.14` | `lisp-frontend-design-delta-plan-phase-v214` | Design-delta planning phase variant that treats target design as the active authority and baseline design as compatibility context. |
 | `workflows/library/lisp_frontend_design_delta_implementation_phase.v214.yaml` | `2.14` | `lisp-frontend-design-delta-implementation-phase-v214` | Design-delta implementation phase variant using target/baseline design inputs and isolated design-delta prompt assets. |
-
-| `workflows/library/review_fix_loop.yaml` | `2.5` | `review-fix-loop` | Minimal reusable call demo library. |
-| `workflows/library/revision_study_design_plan_impl_monolith.yaml` | `2.7` | `revision-study-design-plan-impl-monolith` | No-import revision-study fallback for portability or debugging when adapting the call-based import tree is not practical. Keep behavior aligned with the call-based stack; do not use it as the normal authoring target. |
 
 ## Related Docs
 

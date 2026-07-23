@@ -582,7 +582,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--task-file", required=True, help="Path to the shared task markdown file.")
     parser.add_argument(
         "--workflow",
-        default=str(_repo_root() / "workflows" / "examples" / "generic_task_plan_execute_review_loop.yaml"),
+        required=True,
         help="Workflow YAML to run for the workflow arm.",
     )
     parser.add_argument(

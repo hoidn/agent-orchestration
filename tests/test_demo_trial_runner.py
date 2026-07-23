@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from orchestrator.demo.trial_runner import (
     _select_evaluator,
     build_direct_command,
@@ -15,11 +17,11 @@ from orchestrator.demo.trial_runner import (
     render_workflow_for_provider,
     run_trial,
 )
+from tests.demo_helpers import write_trial_workflow
 from tests.test_demo_provisioning import _init_seed_repo
 
 
 ROOT = Path(__file__).resolve().parent.parent
-WORKFLOW = ROOT / "workflows" / "examples" / "generic_task_plan_execute_review_loop.yaml"
 LINEAR_EVAL = ROOT / "scripts" / "demo" / "evaluate_linear_classifier.py"
 NANOBRAGG_EVAL = ROOT / "scripts" / "demo" / "evaluate_nanobragg_accumulation.py"
 NANOBRAGG_ENTRYPOINT_EVAL = ROOT / "scripts" / "demo" / "evaluate_nanobragg_entrypoint.py"
@@ -66,7 +68,7 @@ def test_build_direct_command_supports_codex_provider():
 
 
 def test_build_workflow_command_matches_expected_cli_shape():
-    local_workflow = Path("workflows/examples/generic_task_plan_execute_review_loop.yaml")
+    local_workflow = Path("workflows/examples/trial_runner_fixture.yaml")
     command = build_workflow_command(
         workflow_path=local_workflow,
         repo_root=ROOT,
@@ -100,11 +102,29 @@ def test_build_parser_supports_stream_output_flag():
             "/tmp/experiment",
             "--task-file",
             "/tmp/task.md",
+            "--workflow",
+            "/tmp/trial-workflow.yaml",
             "--no-stream-output",
         ]
     )
 
     assert args.stream_output is False
+
+
+def test_build_parser_requires_explicit_workflow():
+    parser = build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "--seed-repo",
+                "/tmp/seed",
+                "--experiment-root",
+                "/tmp/experiment",
+                "--task-file",
+                "/tmp/task.md",
+            ]
+        )
 
 
 def test_build_parser_supports_direct_and_workflow_model_and_effort_flags():
@@ -118,6 +138,8 @@ def test_build_parser_supports_direct_and_workflow_model_and_effort_flags():
             "/tmp/experiment",
             "--task-file",
             "/tmp/task.md",
+            "--workflow",
+            "/tmp/trial-workflow.yaml",
             "--direct-model",
             "claude-opus-4-6",
             "--direct-effort",
@@ -146,6 +168,8 @@ def test_build_parser_supports_direct_and_workflow_provider_flags():
             "/tmp/experiment",
             "--task-file",
             "/tmp/task.md",
+            "--workflow",
+            "/tmp/trial-workflow.yaml",
             "--direct-provider",
             "codex",
             "--workflow-provider",
@@ -158,11 +182,7 @@ def test_build_parser_supports_direct_and_workflow_provider_flags():
 
 
 def test_render_workflow_for_provider_rewrites_provider_block_and_bindings(tmp_path: Path):
-    workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(
-        WORKFLOW.read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    workflow_path = write_trial_workflow(tmp_path)
 
     render_workflow_for_provider(workflow_path, provider="codex")
 
@@ -210,6 +230,7 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
     seed_repo = tmp_path / "seed-repo"
     task_file = tmp_path / "port_linear_classifier_to_rust.md"
     task_file.write_text("translate the module\n")
+    workflow = write_trial_workflow(tmp_path)
     direct_workspace = experiment_root / "direct-run"
     workflow_workspace = experiment_root / "workflow-run"
     archive_dir = experiment_root / "archive"
@@ -291,7 +312,7 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
         seed_repo=seed_repo,
         experiment_root=experiment_root,
         task_file=task_file,
-        workflow_path=WORKFLOW,
+        workflow_path=workflow,
         direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
         commitish="HEAD",
         direct_provider="claude",
@@ -307,7 +328,7 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
             "seed_repo": seed_repo,
             "experiment_root": experiment_root,
             "task_file": task_file,
-            "workflow_path": WORKFLOW,
+            "workflow_path": workflow,
             "workflow_prompts_dir": ROOT / "prompts" / "workflows",
             "commitish": "HEAD",
         }
@@ -346,7 +367,7 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
                 "-m",
                 "orchestrator",
                 "run",
-                "workflows/examples/generic_task_plan_execute_review_loop.yaml",
+                f"workflows/examples/{workflow.name}",
                 "--context",
                 "workflow_model=claude-opus-4-6",
                 "--context",
@@ -387,6 +408,7 @@ def test_run_trial_works_with_real_provisioner_contract(tmp_path: Path, monkeypa
     seed_repo, _ = _init_seed_repo(tmp_path)
     task_file = tmp_path / "task.md"
     task_file.write_text("translate the module\n")
+    workflow = write_trial_workflow(tmp_path)
     experiment_root = tmp_path / "experiment"
 
     def fake_run_command(command, *, cwd, archive_dir, arm, timeout_sec=None, stream_output=True):
@@ -423,7 +445,7 @@ def test_run_trial_works_with_real_provisioner_contract(tmp_path: Path, monkeypa
         seed_repo=seed_repo,
         experiment_root=experiment_root,
         task_file=task_file,
-        workflow_path=WORKFLOW,
+        workflow_path=workflow,
         direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
         commitish="HEAD",
         stream_output=False,
@@ -447,6 +469,7 @@ def test_run_trial_renders_staged_workflow_for_codex_provider(tmp_path: Path, mo
     seed_repo, _ = _init_seed_repo(tmp_path)
     task_file = tmp_path / "task.md"
     task_file.write_text("translate the module\n")
+    workflow = write_trial_workflow(tmp_path)
     experiment_root = tmp_path / "experiment"
 
     def fake_run_command(command, *, cwd, archive_dir, arm, timeout_sec=None, stream_output=True):
@@ -473,7 +496,7 @@ def test_run_trial_renders_staged_workflow_for_codex_provider(tmp_path: Path, mo
         seed_repo=seed_repo,
         experiment_root=experiment_root,
         task_file=task_file,
-        workflow_path=WORKFLOW,
+        workflow_path=workflow,
         direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
         commitish="HEAD",
         stream_output=False,
@@ -490,7 +513,7 @@ def test_run_trial_renders_staged_workflow_for_codex_provider(tmp_path: Path, mo
         / "workflow-run"
         / "workflows"
         / "examples"
-        / "generic_task_plan_execute_review_loop.yaml"
+        / workflow.name
     )
     rendered = staged_workflow.read_text(encoding="utf-8")
     assert "providers:\n  codex:" in rendered
@@ -503,6 +526,7 @@ def test_run_trial_streams_direct_output_to_console(tmp_path: Path, monkeypatch)
     seed_repo = tmp_path / "seed-repo"
     task_file = tmp_path / "port_linear_classifier_to_rust.md"
     task_file.write_text("translate the module\n")
+    workflow = write_trial_workflow(tmp_path)
     direct_workspace = experiment_root / "direct-run"
     workflow_workspace = experiment_root / "workflow-run"
     archive_dir = experiment_root / "archive"
@@ -570,7 +594,7 @@ def test_run_trial_streams_direct_output_to_console(tmp_path: Path, monkeypatch)
             seed_repo=seed_repo,
             experiment_root=experiment_root,
             task_file=task_file,
-            workflow_path=WORKFLOW,
+            workflow_path=workflow,
             direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
             commitish="HEAD",
             direct_provider="claude",
@@ -590,6 +614,7 @@ def test_run_trial_streams_workflow_output_to_console(tmp_path: Path, monkeypatc
     seed_repo = tmp_path / "seed-repo"
     task_file = tmp_path / "port_linear_classifier_to_rust.md"
     task_file.write_text("translate the module\n")
+    workflow = write_trial_workflow(tmp_path)
     direct_workspace = experiment_root / "direct-run"
     workflow_workspace = experiment_root / "workflow-run"
     archive_dir = experiment_root / "archive"
@@ -657,7 +682,7 @@ def test_run_trial_streams_workflow_output_to_console(tmp_path: Path, monkeypatc
             seed_repo=seed_repo,
             experiment_root=experiment_root,
             task_file=task_file,
-            workflow_path=WORKFLOW,
+            workflow_path=workflow,
             direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
             commitish="HEAD",
             direct_provider="claude",

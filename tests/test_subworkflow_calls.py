@@ -136,7 +136,7 @@ def _caller_workflow(*, call_step: dict, imports: dict | None = None, version: s
     return {
         "version": version,
         "name": "call-demo",
-        "imports": imports or {"review_loop": "workflows/library/review_fix_loop.yaml"},
+        "imports": imports or {"review_loop": "workflows/library/review_loop_fixture.yaml"},
         "steps": [call_step],
     }
 
@@ -335,7 +335,7 @@ def _projection_call_frame(
 
 def test_imported_workflows_must_validate_independently(tmp_path: Path):
     library_path = _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         {
             "version": "2.5",
             "name": "invalid-library",
@@ -378,7 +378,7 @@ def test_imported_workflows_must_validate_independently(tmp_path: Path):
 
 def test_call_requires_authored_stable_id(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         _library_workflow(),
     )
     caller_path = _write_yaml(
@@ -406,7 +406,7 @@ def test_call_requires_authored_stable_id(tmp_path: Path):
 
 def test_call_rejects_mixed_caller_callee_versions(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         _library_workflow(version="2.4"),
     )
     caller_path = _write_yaml(
@@ -435,7 +435,7 @@ def test_call_rejects_mixed_caller_callee_versions(tmp_path: Path):
 
 def test_call_with_literal_binding_must_match_callee_input_type(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         _library_workflow(),
     )
     caller_path = _write_yaml(
@@ -489,7 +489,7 @@ def test_call_rejects_unknown_import_alias(tmp_path: Path):
 
 def test_imported_v2_workflow_allows_depends_on_inject(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         {
             "version": "2.7",
             "name": "imported-depends-on-inject",
@@ -517,7 +517,7 @@ def test_imported_v2_workflow_allows_depends_on_inject(tmp_path: Path):
         {
             "version": "2.7",
             "name": "call-demo",
-            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "imports": {"review_loop": "workflows/library/review_loop_fixture.yaml"},
             "steps": [
                 {
                     "name": "RunReviewLoop",
@@ -535,7 +535,7 @@ def test_imported_v2_workflow_allows_depends_on_inject(tmp_path: Path):
 
 def test_call_executes_from_loaded_bundle_without_legacy_import_magic(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         _library_workflow(),
     )
     workflow_path = _write_yaml(
@@ -565,7 +565,7 @@ def test_call_executes_from_loaded_bundle_without_legacy_import_magic(tmp_path: 
 
 def test_call_uses_typed_import_contracts_when_legacy_specs_are_missing(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         _library_workflow(),
     )
     workflow_path = _write_yaml(
@@ -617,7 +617,7 @@ def test_call_runtime_preserves_depends_on_inject_and_asset_depends_on_prompt_or
         encoding="utf-8",
     )
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         {
             "version": "2.7",
             "name": "depends-on-inject-imported-review",
@@ -676,7 +676,7 @@ def test_call_runtime_preserves_depends_on_inject_and_asset_depends_on_prompt_or
         {
             "version": "2.7",
             "name": "call-mixed-injection-order",
-            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "imports": {"review_loop": "workflows/library/review_loop_fixture.yaml"},
             "steps": [
                 {
                     "name": "WriteRuntimeManifest",
@@ -780,7 +780,7 @@ def test_import_path_rejects_source_tree_escape(tmp_path: Path):
 
 def test_reusable_workflow_rejects_hard_coded_dsl_managed_write_root(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         {
             "version": "2.5",
             "name": "review-fix-loop",
@@ -816,7 +816,7 @@ def test_reusable_workflow_rejects_hard_coded_dsl_managed_write_root(tmp_path: P
 
 def test_call_rejects_colliding_write_root_bindings(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         {
             "version": "2.5",
             "name": "review-fix-loop",
@@ -841,7 +841,7 @@ def test_call_rejects_colliding_write_root_bindings(tmp_path: Path):
         {
             "version": "2.5",
             "name": "call-demo",
-            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "imports": {"review_loop": "workflows/library/review_loop_fixture.yaml"},
             "steps": [
                 {
                     "name": "RunReviewLoopA",
@@ -874,7 +874,7 @@ def test_call_rejects_colliding_write_root_bindings(tmp_path: Path):
 
 def test_call_rejects_colliding_write_root_bindings_without_imported_legacy_magic(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         _managed_write_root_library(version="2.7"),
     )
     workflow_path = _write_yaml(
@@ -882,7 +882,7 @@ def test_call_rejects_colliding_write_root_bindings_without_imported_legacy_magi
         {
             "version": "2.7",
             "name": "for-each-call-collision-typed-imports",
-            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "imports": {"review_loop": "workflows/library/review_loop_fixture.yaml"},
             "steps": [
                 {
                     "name": "ReviewItems",
@@ -941,7 +941,7 @@ def test_call_rejects_colliding_write_root_bindings_without_imported_legacy_magi
 
 def test_repeat_until_call_rejects_invariant_write_root_binding(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         _managed_write_root_library(version="2.7"),
     )
     caller_path = _write_yaml(
@@ -949,7 +949,7 @@ def test_repeat_until_call_rejects_invariant_write_root_binding(tmp_path: Path):
         {
             "version": "2.7",
             "name": "looped-call-demo",
-            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "imports": {"review_loop": "workflows/library/review_loop_fixture.yaml"},
             "artifacts": {
                 "done": {
                     "kind": "scalar",
@@ -1013,13 +1013,13 @@ def test_repeat_until_call_rejects_invariant_write_root_binding(tmp_path: Path):
 
 def test_for_each_call_runtime_rejects_reused_write_root_from_loop_local_ref(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         _managed_write_root_library(version="2.5"),
     )
     workflow = {
         "version": "2.5",
         "name": "for-each-call-collision",
-        "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+        "imports": {"review_loop": "workflows/library/review_loop_fixture.yaml"},
         "steps": [
             {
                 "name": "ReviewItems",
@@ -1075,7 +1075,7 @@ def test_for_each_call_runtime_rejects_reused_write_root_from_loop_local_ref(tmp
 
 def test_reusable_call_runtime_write_root_bindings_still_validate(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         _managed_write_root_library(version="2.7"),
     )
     final_state, persisted = _run_workflow(
@@ -1083,7 +1083,7 @@ def test_reusable_call_runtime_write_root_bindings_still_validate(tmp_path: Path
         {
             "version": "2.7",
             "name": "call-with-distinct-write-root",
-            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "imports": {"review_loop": "workflows/library/review_loop_fixture.yaml"},
             "steps": [
                 {
                     "name": "RunReviewLoop",
@@ -1107,7 +1107,7 @@ def test_reusable_call_runtime_write_root_bindings_still_validate(tmp_path: Path
 
 def test_call_executes_imported_workflow_and_persists_call_frame_state(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         {
             "version": "2.5",
             "name": "review-fix-loop",
@@ -1172,7 +1172,7 @@ def test_call_executes_imported_workflow_and_persists_call_frame_state(tmp_path:
 
 def test_resumed_parent_starts_never_entered_child_call_fresh(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         _library_workflow(),
     )
     workflow_path = _write_yaml(
@@ -1180,7 +1180,7 @@ def test_resumed_parent_starts_never_entered_child_call_fresh(tmp_path: Path):
         {
             "version": "2.5",
             "name": "resume-reaches-new-child",
-            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "imports": {"review_loop": "workflows/library/review_loop_fixture.yaml"},
             "steps": [
                 {
                     "name": "PersistProgress",
@@ -1276,7 +1276,7 @@ def test_resumed_parent_rejects_malformed_child_call_frame_state_without_overwri
     expected_detail: str,
 ):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         _library_workflow(),
     )
     workflow_path = _write_yaml(
@@ -1284,7 +1284,7 @@ def test_resumed_parent_rejects_malformed_child_call_frame_state_without_overwri
         {
             "version": "2.5",
             "name": "resume-rejects-corrupt-child-state",
-            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "imports": {"review_loop": "workflows/library/review_loop_fixture.yaml"},
             "steps": [
                 {
                     "name": "ResumeGate",
@@ -1378,7 +1378,7 @@ def test_resumed_parent_still_fails_closed_for_persisted_child_without_prior_bou
         },
     )
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         library,
     )
     workflow_path = _write_yaml(
@@ -1460,7 +1460,7 @@ def test_failed_workflow_lisp_child_retry_still_allocates_fresh_frame(tmp_path: 
         },
     )
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         library,
     )
     workflow_path = _write_yaml(
@@ -1552,7 +1552,7 @@ def test_failed_workflow_lisp_child_retry_still_allocates_fresh_frame(tmp_path: 
 
 def test_call_outputs_publish_into_caller_lineage_with_outer_producer(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         _library_workflow(),
     )
     workflow_path = _write_yaml(
@@ -1560,7 +1560,7 @@ def test_call_outputs_publish_into_caller_lineage_with_outer_producer(tmp_path: 
         {
             "version": "2.5",
             "name": "call-demo",
-            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "imports": {"review_loop": "workflows/library/review_loop_fixture.yaml"},
             "artifacts": {
                 "approved": {
                     "kind": "scalar",
@@ -1624,7 +1624,7 @@ def test_call_outputs_publish_into_caller_lineage_with_outer_producer(tmp_path: 
 
 def test_call_keeps_callee_context_defaults_isolated_from_caller(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         {
             "version": "2.5",
             "name": "review-fix-loop",
@@ -1649,7 +1649,7 @@ def test_call_keeps_callee_context_defaults_isolated_from_caller(tmp_path: Path)
             "context": {
                 "decision": "parent",
             },
-            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "imports": {"review_loop": "workflows/library/review_loop_fixture.yaml"},
             "steps": [
                 {
                     "name": "RunReviewLoop",
@@ -1824,7 +1824,7 @@ def test_call_repeat_until_provider_defaults_use_callee_context(tmp_path: Path):
 
 def test_call_uses_bound_inputs_when_legacy_ref_is_corrupted(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         _library_workflow(version="2.7"),
     )
     workflow_path = _write_yaml(
@@ -1832,7 +1832,7 @@ def test_call_uses_bound_inputs_when_legacy_ref_is_corrupted(tmp_path: Path):
         {
             "version": "2.7",
             "name": "bound-call-inputs",
-            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "imports": {"review_loop": "workflows/library/review_loop_fixture.yaml"},
             "artifacts": {
                 "max_cycles": {
                     "kind": "scalar",
@@ -1880,7 +1880,7 @@ def test_call_uses_bound_inputs_when_legacy_ref_is_corrupted(tmp_path: Path):
 
 def test_call_debug_exports_use_bound_output_addresses_when_surface_ref_is_corrupted(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         _library_workflow(),
     )
     workflow_path = _write_yaml(
@@ -2236,7 +2236,7 @@ def test_occupied_completed_call_frame_collision_rejects_before_lineage_grouping
     persisted_call_step_id: str | None,
 ) -> None:
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         _library_workflow(),
     )
     workflow_path = _write_yaml(
@@ -3344,7 +3344,7 @@ def test_projection_resume_call_frame_mutation_order_callee_local_corruption_pre
 
 def test_call_frame_persists_internal_since_last_consume_bookkeeping(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         {
             "version": "2.5",
             "name": "review-fix-loop",
@@ -3440,7 +3440,7 @@ def test_call_frame_persists_internal_since_last_consume_bookkeeping(tmp_path: P
 
 def test_call_exports_outputs_after_callee_finalization_completes(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         {
             "version": "2.5",
             "name": "review-fix-loop",
@@ -3508,7 +3508,7 @@ def test_call_exports_outputs_after_callee_finalization_completes(tmp_path: Path
 
 def test_call_suppresses_outputs_when_callee_finalization_fails(tmp_path: Path):
     _write_yaml(
-        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        tmp_path / "workflows" / "library" / "review_loop_fixture.yaml",
         {
             "version": "2.5",
             "name": "review-fix-loop",

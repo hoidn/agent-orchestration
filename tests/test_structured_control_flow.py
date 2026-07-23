@@ -555,7 +555,7 @@ def _structured_repeat_until_workflow(*, include_inserted_sibling: bool = False)
 
 
 def _write_repeat_until_call_library(workspace: Path) -> None:
-    library_path = workspace / "workflows" / "library" / "repeat_until_review_loop.yaml"
+    library_path = workspace / "workflows" / "library" / "repeat_until_review_fixture.yaml"
     library_path.parent.mkdir(parents=True, exist_ok=True)
     library_path.write_text(
         yaml.safe_dump(
@@ -787,7 +787,7 @@ def _structured_repeat_until_with_call_and_match_workflow(
         "version": "2.7",
         "name": "structured-repeat-until-call-match",
         "imports": {
-            "review_loop": "workflows/library/repeat_until_review_loop.yaml",
+            "review_loop": "workflows/library/repeat_until_review_fixture.yaml",
         },
         "artifacts": {
             "review_decision": {

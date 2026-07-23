@@ -2558,7 +2558,7 @@ steps:
 
     def test_repeat_until_body_accepts_nested_call_and_match(self):
         """repeat_until bodies may compose statement-layer call and match forms."""
-        library_path = self.workspace / "workflows" / "library" / "repeat_until_review_loop.yaml"
+        library_path = self.workspace / "workflows" / "library" / "repeat_until_review_fixture.yaml"
         library_path.parent.mkdir(parents=True, exist_ok=True)
         library_path.write_text(
             yaml.safe_dump(
@@ -2616,7 +2616,7 @@ steps:
             "version": "2.7",
             "name": "repeat-until-call-match",
             "imports": {
-                "review_loop": "workflows/library/repeat_until_review_loop.yaml",
+                "review_loop": "workflows/library/repeat_until_review_fixture.yaml",
             },
             "artifacts": {
                 "review_decision": {

@@ -10,10 +10,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from orchestrator.demo.trial_runner import _run_command, run_trial
+from tests.demo_helpers import write_trial_workflow
 
 
 ROOT = Path(__file__).resolve().parent.parent
-WORKFLOW = ROOT / "workflows" / "examples" / "generic_task_plan_execute_review_loop.yaml"
 LINEAR_EVAL = ROOT / "scripts" / "demo" / "evaluate_linear_classifier.py"
 NANOBRAGG_EVAL = ROOT / "scripts" / "demo" / "evaluate_nanobragg_accumulation.py"
 
@@ -116,7 +116,7 @@ def test_run_trial_writes_runner_state_and_partial_result(tmp_path: Path, monkey
         seed_repo=seed_repo,
         experiment_root=experiment_root,
         task_file=task_file,
-        workflow_path=WORKFLOW,
+        workflow_path=write_trial_workflow(tmp_path),
         direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
         commitish="HEAD",
     )
@@ -149,7 +149,7 @@ def test_run_trial_emits_event_log(tmp_path: Path, monkeypatch):
         seed_repo=seed_repo,
         experiment_root=experiment_root,
         task_file=task_file,
-        workflow_path=WORKFLOW,
+        workflow_path=write_trial_workflow(tmp_path),
         direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
         commitish="HEAD",
     )
@@ -183,7 +183,7 @@ def test_run_trial_writes_per_arm_process_metadata_and_logs(tmp_path: Path, monk
         seed_repo=seed_repo,
         experiment_root=experiment_root,
         task_file=task_file,
-        workflow_path=WORKFLOW,
+        workflow_path=write_trial_workflow(tmp_path),
         direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
         commitish="HEAD",
     )
@@ -223,7 +223,7 @@ def test_run_trial_writes_heartbeat_files(tmp_path: Path, monkeypatch):
         seed_repo=seed_repo,
         experiment_root=experiment_root,
         task_file=task_file,
-        workflow_path=WORKFLOW,
+        workflow_path=write_trial_workflow(tmp_path),
         direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
         commitish="HEAD",
     )
@@ -255,7 +255,7 @@ def test_run_trial_records_nanobragg_evaluator_status(tmp_path: Path, monkeypatc
         seed_repo=seed_repo,
         experiment_root=experiment_root,
         task_file=task_file,
-        workflow_path=WORKFLOW,
+        workflow_path=write_trial_workflow(tmp_path),
         direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
         commitish="HEAD",
     )
@@ -344,7 +344,7 @@ def test_run_trial_records_direct_timeout(tmp_path: Path, monkeypatch):
         seed_repo=seed_repo,
         experiment_root=experiment_root,
         task_file=task_file,
-        workflow_path=WORKFLOW,
+        workflow_path=write_trial_workflow(tmp_path),
         direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
         commitish="HEAD",
         direct_timeout_sec=1,
@@ -378,7 +378,7 @@ def test_run_trial_writes_freeze_and_evaluator_artifacts(tmp_path: Path, monkeyp
         seed_repo=seed_repo,
         experiment_root=experiment_root,
         task_file=task_file,
-        workflow_path=WORKFLOW,
+        workflow_path=write_trial_workflow(tmp_path),
         direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
         commitish="HEAD",
     )

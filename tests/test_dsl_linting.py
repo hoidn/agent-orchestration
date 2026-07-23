@@ -497,23 +497,6 @@ def test_lint_does_not_warn_for_non_boundary_relpath_contracts(tmp_path: Path):
     assert all(warning["code"] != "redundant-relpath-boundary-kind" for warning in warnings)
 
 
-def test_lint_does_not_warn_for_active_examples_using_preferred_relpath_boundary_style():
-    repo_root = _repo_root()
-    loader = WorkflowLoader(repo_root)
-    workflow_paths = [
-        "workflows/examples/library/repeat_until_review_loop.yaml",
-        "workflows/library/review_fix_loop.yaml",
-    ]
-
-    for workflow_relpath in workflow_paths:
-        workflow = loader.load(repo_root / workflow_relpath)
-        warnings = lint_workflow(workflow)
-        assert all(
-            warning["code"] != "redundant-relpath-boundary-kind"
-            for warning in warnings
-        ), workflow_relpath
-
-
 def test_lint_requires_loaded_workflow_bundle() -> None:
     with pytest.raises(TypeError, match="LoadedWorkflowBundle"):
         lint_workflow({"steps": []})

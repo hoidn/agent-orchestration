@@ -27,7 +27,7 @@ Selection rule:
 | [review_implementation.md](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/design_plan_impl_stack_v2_call/review_implementation.md) | Review implementation against the full approved plan and prioritize unfinished required work over non-blocking cleanup. | [design_plan_impl_implementation_phase.orc](/home/ollie/Documents/agent-orchestration/workflows/library/design_plan_impl_implementation_phase.orc) | Chosen because it has the strongest guidance around plan completion, blocking defects, and next coherent tranche selection. |
 | [fix_implementation.md](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/design_plan_impl_stack_v2_call/fix_implementation.md) | Fix blocking defects and continue the next coherent required tranche by checking the plan directly, not trusting the review as complete. | [design_plan_impl_implementation_phase.orc](/home/ollie/Documents/agent-orchestration/workflows/library/design_plan_impl_implementation_phase.orc) | Canonical current implementation-fix prompt. |
 | [major_project_stack/](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/major_project_stack) | Retained roadmap, big-design, plan, implementation, and roadmap-revision prompt references for broad project tranches. | Retained prompt reference. | Historical prompt assets remain available for inspection; they no longer have a live YAML workflow consumer. |
-| [revision_study_stack/](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/revision_study_stack) | Design, plan, implement, review, and fix prompts for paper revision studies seeded by an immutable revision design doc. | [revision_study_design_plan_impl_monolith.yaml](/home/ollie/Documents/agent-orchestration/workflows/library/revision_study_design_plan_impl_monolith.yaml) | Retained by the no-import monolith for external paper checkouts and historical compatibility. |
+| [revision_study_stack/](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/revision_study_stack) | Design, plan, implement, review, and fix prompts for paper revision studies seeded by an immutable revision design doc. | Retained prompt reference. | Historical prompt assets remain available for inspection; they no longer have a live YAML workflow consumer. |
 
 ## Superseded Near-Duplicates
 
@@ -39,12 +39,6 @@ These prompt families were used by workflows run in the last two days, but they 
   Reason: structured-v2 rewrite, but still an intermediate step between the older monolith and the current call-based stack.
 - [dsl_follow_on_plan_impl_loop_v2_call/](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/dsl_follow_on_plan_impl_loop_v2_call)
   Reason: call-oriented predecessor to the current stack prompts; retained on disk but superseded by the newer design/plan/implementation stack family.
-
-## Recent Promptless Workflow Runs
-
-These workflows were run in the last two days but do not contribute dedicated repo prompt files, so they are not represented in the canonical table:
-
-- [repeat_until_demo.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/repeat_until_demo.yaml)
 
 Excluded as non-canonical scratch/test run:
 - `tmp/review_call_runtime/caller.yaml`
