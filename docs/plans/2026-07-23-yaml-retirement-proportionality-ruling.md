@@ -61,6 +61,32 @@ Effective immediately:
 11. Report Stage 6 complete and stop. Stage 7 provider live binding starts only
     when the owner schedules its design review.
 
+## Supported-Run Disposition
+
+At `2026-07-23T12:38:06-07:00`, Ollie personally adopted the following
+disposition through an explicit selection in his supervising session; that
+session relayed the decision mechanically at his direction:
+
+- the complete supported run-root scope is
+  `/home/ollie/Documents/agent-orchestration/.orchestrate/runs`,
+  `/home/ollie/Documents/agent-orchestration-2/.orchestrate/runs`,
+  `/home/ollie/Documents/EasySpin/.orchestrate/runs`,
+  `/home/ollie/Documents/PtychoPINN/.orchestrate/runs`, and
+  `/home/ollie/Documents/ptychopinnpaper2/.orchestrate/runs`;
+- filesystem enumeration under `/home/ollie/Documents` was used to bind those
+  five repository-level roots as the complete supported scope, and no other
+  supported run store is intentionally used; nested disposable test, probe,
+  artifact, and scratch roots are outside that owner-bound supported scope;
+- every matching nonterminal deletion-queue consumer in those roots is
+  `unsupported_abandoned`; and
+- the supporting live-process check found zero orchestrator processes, so the
+  matching `running` and `suspended` labels are stale state from crashed or
+  abandoned sessions.
+
+This closes the supported-root and matching-consumer gate for the deletion
+queues. It does not waive each target's fresh repository-reference check or
+the separately retained Design Delta, port-twin, and protected-holdout gates.
+
 ## Supersession Boundary
 
 For Stage 6 queue execution this ruling supersedes the Task 6 execution plan's
