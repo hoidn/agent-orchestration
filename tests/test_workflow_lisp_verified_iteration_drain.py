@@ -7,8 +7,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import yaml
-
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
@@ -24,7 +22,6 @@ from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 ROOT = Path(__file__).resolve().parents[1]
-YAML_WORKFLOW = ROOT / "workflows/examples/verified_iteration_drain.yaml"
 ORC_WORKFLOW = ROOT / "workflows/library/verified_iteration_drain/drain.orc"
 MIGRATION_INPUTS = ROOT / "workflows/examples/inputs/workflow_lisp_migrations"
 ENTRY_WORKFLOW = "verified_iteration_drain/drain::drain"
@@ -434,135 +431,6 @@ def _run_verified_retry_resume_scenario(workspace: Path) -> dict[str, object]:
     }
 
 
-def test_verified_yaml_baseline_contract_is_frozen() -> None:
-    raw = YAML_WORKFLOW.read_bytes()
-    workflow = yaml.safe_load(raw)
-
-    assert hashlib.sha256(raw).hexdigest() == "30f868c01d3ead33e958045e37a2062da9256f23f585f68ef9381358d3c4b5b0"
-    assert workflow["name"] == "verified-iteration-drain"
-    assert workflow["inputs"] == {
-        "target_design_path": {
-            "type": "relpath",
-            "under": "docs/design",
-            "must_exist_target": True,
-        },
-        "check_commands_path": {
-            "type": "relpath",
-            "under": "workflows",
-            "must_exist_target": True,
-        },
-        "drain_state_root": {
-            "type": "relpath",
-            "under": "state",
-            "default": "state/VERIFIED-ITERATION-DRAIN",
-        },
-        "artifact_work_root": {
-            "type": "relpath",
-            "under": "artifacts/work",
-            "default": "artifacts/work/VERIFIED-ITERATION-DRAIN",
-        },
-        "stall_limit": {"kind": "scalar", "type": "string", "default": "3"},
-        "worker_provider": {
-            "kind": "scalar",
-            "type": "enum",
-            "allowed": ["codex", "claude"],
-            "default": "codex",
-        },
-        "worker_model": {"kind": "scalar", "type": "string", "default": "gpt-5.5"},
-        "worker_effort": {"kind": "scalar", "type": "string", "default": "high"},
-        "reviewer_provider": {
-            "kind": "scalar",
-            "type": "enum",
-            "allowed": ["codex", "claude"],
-            "default": "codex",
-        },
-        "reviewer_model": {"kind": "scalar", "type": "string", "default": "gpt-5.5"},
-        "reviewer_effort": {"kind": "scalar", "type": "string", "default": "high"},
-    }
-    assert workflow["outputs"] == {
-        "drain_status": {
-            "kind": "scalar",
-            "type": "enum",
-            "allowed": ["CONTINUE", "DONE", "BLOCKED_ON_USER", "STALLED"],
-            "from": {"ref": "root.steps.DrainVerifiedIterations.artifacts.drain_status"},
-        },
-        "drain_summary_path": {
-            "type": "relpath",
-            "under": "artifacts/work",
-            "must_exist_target": True,
-            "from": {"ref": "root.steps.PublishSummaryPath.artifacts.drain_summary_path"},
-        },
-    }
-    assert workflow["providers"] == {
-        "codex": {
-            "command": [
-                "codex",
-                "exec",
-                "--dangerously-bypass-approvals-and-sandbox",
-                "--skip-git-repo-check",
-                "--model",
-                "${model}",
-                "--config",
-                "reasoning_effort=${effort}",
-            ],
-            "input_mode": "stdin",
-            "defaults": {
-                "model": "${context.workflow_model}",
-                "effort": "${context.workflow_effort}",
-            },
-        },
-        "claude": {
-            "command": [
-                "claude",
-                "-p",
-                "--model",
-                "${model}",
-                "--effort",
-                "${effort}",
-                "--permission-mode",
-                "bypassPermissions",
-            ],
-            "input_mode": "stdin",
-            "defaults": {"model": "fable", "effort": "high"},
-        },
-    }
-
-    loop = workflow["steps"][0]["repeat_until"]
-    assert loop["max_iterations"] == 40
-    assert loop["on_exhausted"] == {"outputs": {"drain_status": "STALLED"}}
-    assert [
-        row["compare"]["right"] for row in loop["condition"]["any_of"]
-    ] == ["DONE", "BLOCKED_ON_USER", "STALLED"]
-    steps = loop["steps"]
-    assert [step["input_file"] for step in steps if "input_file" in step] == [
-        "workflows/library/prompts/verified_iteration_drain/work.md",
-        "workflows/library/prompts/verified_iteration_drain/review_iteration.md",
-        "workflows/library/prompts/verified_iteration_drain/review_done.md",
-    ]
-    assert [step["command"][:2] for step in steps if "command" in step] == [
-        ["python", "workflows/library/scripts/prepare_verified_iteration.py"],
-        ["python", "workflows/library/scripts/run_verified_iteration_checks.py"],
-        ["python", "workflows/library/scripts/record_verified_iteration.py"],
-    ]
-    assert [
-        (step["name"], step["timeout_sec"], step["provider_params"])
-        for step in steps
-        if "provider" in step
-    ] == [
-        ("Work", 7200, {"model": "${inputs.worker_model}", "effort": "${inputs.worker_effort}"}),
-        (
-            "ReviewIteration",
-            1800,
-            {"model": "${inputs.reviewer_model}", "effort": "${inputs.reviewer_effort}"},
-        ),
-        (
-            "ReviewDoneClaim",
-            3600,
-            {"model": "${inputs.reviewer_model}", "effort": "${inputs.reviewer_effort}"},
-        ),
-    ]
-
-
 def test_verified_orc_compiles_with_exact_public_contract() -> None:
     result = _compile_verified_orc()
     bundle = result.validated_bundles_by_name[ENTRY_WORKFLOW]
@@ -970,15 +838,18 @@ def test_verified_orc_retry_refreshes_dependencies_and_resume_is_idempotent(
 
 
 def test_verified_post_promotion_orc_smoke_is_fresh(tmp_path: Path) -> None:
-    targets = json.loads((MIGRATION_INPUTS / "parity_targets.json").read_text())
-    target = next(
-        row
-        for row in targets["targets"]
-        if row["workflow_family"] == "verified_iteration_drain"
+    registry = json.loads(
+        (ROOT / "docs/workflow_lisp_route_readiness_registry.json").read_text()
     )
-    assert target["promotion_eligibility"] == {
-        "eligible_for_primary_surface": True,
-    }
+    route = next(
+        row
+        for row in registry["surfaces"]
+        if row["path"] == "workflows/library/verified_iteration_drain/drain.orc"
+    )
+    assert route["surface_kind"] == "library_workflow"
+    assert route["route_label"] == "wcc_default"
+    assert route["readiness_label"] == "promotion_eligible"
+    assert route["entry_workflow"] == ENTRY_WORKFLOW
 
     result = _run_verified_runtime_scenario(
         tmp_path,

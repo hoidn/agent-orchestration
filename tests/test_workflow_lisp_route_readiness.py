@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -142,6 +142,18 @@ def test_discover_required_orc_surfaces_includes_initial_required_paths() -> Non
     required = discover_required_orc_surfaces(REPO_ROOT)
 
     assert INITIAL_REQUIRED_PATHS.issubset(required)
+
+
+def test_discover_required_orc_surfaces_includes_nested_library_workflows(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "workflows" / "library" / "example_family" / "main.orc"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text("(module example-family)\n", encoding="utf-8")
+
+    assert discover_required_orc_surfaces(tmp_path) == {
+        "workflows/library/example_family/main.orc"
+    }
 
 
 def test_missing_registry_coverage_emits_stable_code(tmp_path: Path) -> None:
@@ -617,7 +629,7 @@ def test_registry_evidence_canonicalizes_path_before_self_reference_check(
     )
 
 
-def test_registry_evidence_accepts_current_parity_target_selector(
+def test_registry_evidence_accepts_checked_empty_parity_manifest(
     tmp_path: Path,
 ) -> None:
     registry = load_route_readiness_registry(
@@ -627,7 +639,7 @@ def test_registry_evidence_accepts_current_parity_target_selector(
                 _base_entry(
                     evidence=[
                         "workflows/examples/inputs/workflow_lisp_migrations/"
-                        "parity_targets.json::verified_iteration_drain"
+                        "parity_targets.json"
                     ]
                 )
             ],
@@ -761,18 +773,14 @@ def test_malformed_registry_raises_loader_error(tmp_path: Path) -> None:
 
 
 def test_migration_target_identity_mismatch_codes(tmp_path: Path) -> None:
-    targets = load_parity_targets(PARITY_TARGETS_PATH)
-    target = next(
-        target
-        for target in targets
-        if target.workflow_family == "verified_iteration_drain"
-    )
-    target = replace(
-        target,
+    target = SimpleNamespace(
+        workflow_family="example_family",
+        candidate="workflows/examples/effectful_match_arm_normalization.orc",
         readiness_label="promotion_eligible",
         lowering_route="wcc_m4",
         lowering_schema_version=2,
         required_family_evidence_roles=("parent_callable_compile",),
+        promotion_eligibility={"eligible_for_primary_surface": True},
     )
     entry = _base_entry(
         surface_id="workflows.library.lisp_frontend_design_delta.drain",
@@ -808,7 +816,7 @@ def test_verified_route_is_promotion_eligible_and_parity_constrained() -> None:
     )
 
     assert entry is not None
-    assert entry.surface_kind == "migration_target"
+    assert entry.surface_kind == "library_workflow"
     assert entry.entry_workflow == "verified_iteration_drain/drain::drain"
     assert entry.route_label == "wcc_default"
     assert entry.readiness_label == "promotion_eligible"
@@ -826,7 +834,7 @@ def test_watchdog_route_is_promotion_eligible_and_parity_constrained() -> None:
     )
 
     assert entry is not None
-    assert entry.surface_kind == "migration_target"
+    assert entry.surface_kind == "library_workflow"
     assert entry.entry_workflow == "generic_run_watchdog/watchdog::watchdog"
     assert entry.route_label == "wcc_default"
     assert entry.readiness_label == "promotion_eligible"

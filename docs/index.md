@@ -709,14 +709,6 @@ before adding or preserving the command boundary.
 **Keywords:** workflows, watchdog, run-monitoring, repair, resume, v2.15, workflow-lisp
 **Use this when:** Starting a new generic watchdog launch; supply the required extern manifests and typed inputs documented in the workflow index.
 
-### [Generic Run Watchdog YAML Compatibility Twin](../workflows/examples/generic_run_watchdog.yaml)
-**Route scope:** `existing_yaml_compatibility`
-**Copy role:** `not_new_author_template`
-**New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
-**Description:** Retained v2.14 YAML compatibility watchdog that probes an existing orchestrator run by `run_id`, emits evidence for running/completed/failed/stalled states, and invokes a repair provider only when recovery is needed.
-**Keywords:** workflows, watchdog, run-monitoring, repair, resume, v2.14, yaml-compatibility
-**Use this when:** Operating or auditing the retained YAML watchdog before its Task 6 deletion gate; do not use it for new launches.
-
 ### [Workflow Examples Directory](../workflows/examples/)
 **Route scope:** `reference_only`
 **Copy role:** `not_new_author_template`

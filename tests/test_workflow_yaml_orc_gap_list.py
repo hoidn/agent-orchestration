@@ -118,7 +118,7 @@ def test_every_scoped_gap_has_a_closed_classification_and_binding() -> None:
     assert "TBD" not in text.upper()
 
 
-def test_generic_provider_closures_cover_both_ports_and_keep_yaml_pending() -> None:
+def test_generic_provider_closures_cover_both_retired_port_twins() -> None:
     text = GAP_LIST.read_text(encoding="utf-8")
     rows = _table_after_heading(text, "## Gap decisions")
     decisions = {row["Gap ID"]: row for row in rows}
@@ -135,7 +135,7 @@ def test_generic_provider_closures_cover_both_ports_and_keep_yaml_pending() -> N
     assert "exact argv profile evidence" in profile["Gate or authority"].lower()
     assert "not family-specific compiler routes" in profile["Gate or authority"].lower()
     assert "both survivor families have closed parity and promotion" in normalized
-    assert "yaml deletion remains pending" in normalized
+    assert "both former yaml twins are retired" in normalized
 
 
 def test_prompt_dependency_gap_closes_both_survivor_family_applications() -> None:
@@ -154,7 +154,7 @@ def test_prompt_dependency_gap_closes_both_survivor_family_applications() -> Non
     assert "fresh snapshot per retry" in normalized_row
     assert "both ports proved their exact dependency sets" in normalized_row
     assert "both survivor families passed this proof" in normalized
-    assert "yaml deletion remains pending" in normalized
+    assert "their yaml twins subsequently passed the task 6 deletion gates" in normalized
 
 
 def test_prompt_dependency_status_is_discoverable_without_promoting_yaml_or_survivors() -> None:
@@ -173,10 +173,9 @@ def test_prompt_dependency_status_is_discoverable_without_promoting_yaml_or_surv
         assert "verified iteration drain" in normalized
         assert "generic run watchdog" in normalized
         assert "both" in normalized and "parity" in normalized
-        assert "yaml deletion" in normalized and "pending" in normalized
 
 
-def test_both_survivor_family_gates_close_without_closing_yaml_deletion() -> None:
+def test_both_survivor_family_gates_and_yaml_retirement_are_closed() -> None:
     text = GAP_LIST.read_text(encoding="utf-8")
     rows = _table_after_heading(text, "## Gap decisions")
     decisions = {row["Gap ID"]: row for row in rows}
@@ -193,7 +192,8 @@ def test_both_survivor_family_gates_close_without_closing_yaml_deletion() -> Non
     ) in text
     normalized = " ".join(text.lower().replace("-", " ").split())
     assert "both survivor families have closed their family proof and promotion gates" in normalized
-    assert "yaml deletion remains pending for both families" in normalized
+    assert "both former yaml twins passed the task 6 reference" in normalized
+    assert "are retired" in normalized
 
 
 def test_gap_list_covers_the_observed_yaml_mechanics_without_expanding_scope() -> None:

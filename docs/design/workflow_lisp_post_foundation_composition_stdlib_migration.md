@@ -2823,7 +2823,7 @@ This post-foundation target succeeds when:
 - at least one real workflow family reaches strict, machine-computed
   `non_regressive=true` through `.orc`;
 - any YAML-primary replacement also passes `--require-promotable`; and
-- the verified-iteration drain
+- the historical verified-iteration YAML primary
   (`workflows/examples/verified_iteration_drain.yaml`) is translated to a
   `.orc` workflow family: the loop, deterministic command steps, conditional
   review gates, and enum verdict channels are expressed as typed `.orc`

@@ -11,7 +11,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-import yaml
 
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
@@ -28,7 +27,6 @@ from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 ROOT = Path(__file__).resolve().parents[1]
-YAML_WORKFLOW = ROOT / "workflows/examples/generic_run_watchdog.yaml"
 ORC_WORKFLOW = ROOT / "workflows/library/generic_run_watchdog/watchdog.orc"
 PORT_DESIGN = ROOT / "docs/plans/2026-07-18-generic-run-watchdog-orc-port-design.md"
 MIGRATION_INPUTS = ROOT / "workflows/examples/inputs/workflow_lisp_migrations"
@@ -468,102 +466,6 @@ def _run_watchdog_retry_resume_scenario(workspace: Path) -> dict[str, object]:
     }
 
 
-def test_watchdog_yaml_baseline_contract_is_frozen() -> None:
-    payload = YAML_WORKFLOW.read_bytes()
-    workflow = yaml.safe_load(payload)
-
-    assert hashlib.sha256(payload).hexdigest() == (
-        "797f02672508f70a1b5071b216a30946f5a78a98d9413cca25ed5fa167c07b85"
-    )
-    assert workflow["version"] == "2.14"
-    assert workflow["name"] == "generic-run-watchdog-v214"
-    assert workflow["context"] == {
-        "workflow_model": "gpt-5.4",
-        "workflow_effort": "high",
-    }
-    assert list(workflow["inputs"]) == [
-        "target_run_id",
-        "state_root",
-        "evidence_root",
-        "repair_result_target_path",
-        "max_stale_minutes",
-        "repair_provider",
-    ]
-    assert {
-        name: (contract.get("type"), contract.get("default"), contract.get("allowed"))
-        for name, contract in workflow["inputs"].items()
-    } == {
-        "target_run_id": ("string", None, None),
-        "state_root": ("relpath", "state/GENERIC-RUN-WATCHDOG", None),
-        "evidence_root": ("relpath", "artifacts/work/generic-run-watchdog", None),
-        "repair_result_target_path": (
-            "relpath",
-            "artifacts/work/generic-run-watchdog/repair-result.json",
-            None,
-        ),
-        "max_stale_minutes": ("integer", 60, None),
-        "repair_provider": ("enum", "codex", ["codex", "claude_opus"]),
-    }
-    assert {
-        name: (contract["type"], contract.get("allowed"))
-        for name, contract in workflow["outputs"].items()
-    } == {
-        "watch_status": (
-            "enum",
-            ["RUNNING_OK", "COMPLETED", "FAILED", "CRASHED", "STALLED", "UNKNOWN"],
-        ),
-        "repair_status": (
-            "enum",
-            [
-                "NO_ACTION",
-                "FIXED_AND_RESUMED",
-                "FIXED_AND_RELAUNCHED",
-                "PLAN_WRITTEN",
-                "BLOCKED",
-            ],
-        ),
-        "recovery_action": (
-            "enum",
-            ["NONE", "RESUME", "RELAUNCH", "RESTART", "DECLINED"],
-        ),
-        "watchdog_result_path": ("relpath", None),
-    }
-
-    probe, repair, publish = workflow["steps"]
-    assert [probe["id"], repair["id"], publish["id"]] == [
-        "probe_run_state",
-        "repair_run_failure",
-        "publish_watchdog_result",
-    ]
-    assert [field["name"] for field in probe["output_bundle"]["fields"]] == [
-        "watch_status",
-        "repair_required",
-        "recommended_recovery",
-        "evidence_bundle_path",
-        "repair_result_target_path",
-    ]
-    assert repair["provider"] == "${inputs.repair_provider}"
-    assert repair["timeout_sec"] == 7200
-    assert repair["when"]["compare"]["right"] == "YES"
-    assert repair["depends_on"]["required"] == ["${inputs.state_root}/watch.json"]
-    assert repair["depends_on"]["inject"]["mode"] == "content"
-    assert repair["depends_on"]["inject"]["position"] == "prepend"
-    assert [field["name"] for field in repair["output_bundle"]["fields"]] == [
-        "repair_status",
-        "fix_complexity",
-        "recovery_action",
-        "repair_report_path",
-        "plan_path",
-        "new_run_id",
-    ]
-    assert [field["name"] for field in publish["output_bundle"]["fields"]] == [
-        "watchdog_result_path",
-        "watch_status",
-        "repair_status",
-        "recovery_action",
-    ]
-
-
 def test_watchdog_orc_compiles_with_exact_six_input_four_output_contract() -> None:
     result = _compile_watchdog_orc()
     bundle = result.validated_bundles_by_name[ENTRY_WORKFLOW]
@@ -996,15 +898,18 @@ def test_watchdog_orc_resume_reuses_provider_and_publishes_once(tmp_path: Path) 
 
 
 def test_watchdog_post_promotion_both_branch_smoke_is_fresh(tmp_path: Path) -> None:
-    targets = json.loads((MIGRATION_INPUTS / "parity_targets.json").read_text())
-    target = next(
-        row
-        for row in targets["targets"]
-        if row["workflow_family"] == "generic_run_watchdog"
+    registry = json.loads(
+        (ROOT / "docs/workflow_lisp_route_readiness_registry.json").read_text()
     )
-    assert target["promotion_eligibility"] == {
-        "eligible_for_primary_surface": True,
-    }
+    route = next(
+        row
+        for row in registry["surfaces"]
+        if row["path"] == "workflows/library/generic_run_watchdog/watchdog.orc"
+    )
+    assert route["surface_kind"] == "library_workflow"
+    assert route["route_label"] == "wcc_default"
+    assert route["readiness_label"] == "promotion_eligible"
+    assert route["entry_workflow"] == ENTRY_WORKFLOW
 
     no_action = _run_watchdog_runtime_scenario(
         tmp_path / "no-action",

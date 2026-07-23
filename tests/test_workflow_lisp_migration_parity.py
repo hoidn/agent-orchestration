@@ -805,6 +805,37 @@ def test_load_parity_targets_rejects_authored_non_regressive(tmp_path: Path) -> 
         module.load_parity_targets(manifest_path)
 
 
+def test_load_parity_targets_accepts_checked_empty_manifest(tmp_path: Path) -> None:
+    module = _parity_module()
+    manifest_path = _write_json(
+        tmp_path / "parity_targets.json",
+        {
+            "schema_version": "workflow_lisp_migration_parity_targets.v1",
+            "targets": [],
+        },
+    )
+
+    assert module.load_parity_targets(manifest_path) == []
+
+
+def test_run_migration_parity_rejects_zero_selected_targets(tmp_path: Path) -> None:
+    module = _parity_module()
+    manifest_path = _write_json(
+        tmp_path / "parity_targets.json",
+        {
+            "schema_version": "workflow_lisp_migration_parity_targets.v1",
+            "targets": [],
+        },
+    )
+
+    with pytest.raises(ValueError, match="requires at least one selected target"):
+        module.run_migration_parity(
+            targets_file=manifest_path,
+            output_root=tmp_path / "parity",
+            repo_root=tmp_path,
+        )
+
+
 def test_load_parity_targets_rejects_duplicate_workflow_family(tmp_path: Path) -> None:
     module = _parity_module()
     payload = _valid_manifest_payload()
@@ -2687,110 +2718,40 @@ def test_run_migration_parity_preserves_unselected_targets_in_aggregate_index(
     ]
 
 
-def test_checked_in_verified_parity_target_has_complete_promoted_contract() -> None:
+def test_promoted_port_targets_are_retired_from_live_manifest() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
     payload = json.loads(
         (
-            Path(__file__).resolve().parents[1]
+            repo_root
             / "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
         ).read_text(encoding="utf-8")
     )
-    target = next(
-        entry
-        for entry in payload["targets"]
-        if entry["workflow_family"] == "verified_iteration_drain"
+    registry = json.loads(
+        (repo_root / "docs/workflow_lisp_route_readiness_registry.json").read_text(
+            encoding="utf-8"
+        )
     )
 
-    assert target["candidate"] == "workflows/library/verified_iteration_drain/drain.orc"
-    assert target["yaml_primary"] == "workflows/examples/verified_iteration_drain.yaml"
-    assert target["entry_workflow"] == "verified_iteration_drain/drain::drain"
-    assert target["promotion_eligibility"] == {
-        "eligible_for_primary_surface": True,
+    assert payload == {
+        "schema_version": "workflow_lisp_migration_parity_targets.v1",
+        "targets": [],
     }
-    assert target["readiness_label"] == "promotion_eligible"
-    assert target["lowering_route"] == "wcc_m4"
-    assert target["lowering_schema_version"] == 2
-    assert "required_family_evidence_roles" not in target
-    executable_roles = {
-        "compile",
-        "dry_run",
-        "smoke_or_integration",
-        "output_contract_parity",
-        "terminal_state_parity",
-        "artifact_parity",
-        "resume_parity",
+    promoted_paths = {
+        "workflows/library/verified_iteration_drain/drain.orc",
+        "workflows/library/generic_run_watchdog/watchdog.orc",
     }
-    assert set(target["evidence_commands"]) == executable_roles
-    assert len(executable_roles | {"shared_validation", "baseline_characterization"}) == 9
-    assert target["baseline_characterization"]["inputs"] == [
-        "target_design_path",
-        "check_commands_path",
-        "drain_state_root",
-        "artifact_work_root",
-        "stall_limit",
-        "worker_provider",
-        "worker_model",
-        "worker_effort",
-        "reviewer_provider",
-        "reviewer_model",
-        "reviewer_effort",
-    ]
-    assert target["baseline_characterization"]["outputs"] == [
-        "drain_status",
-        "drain_summary_path",
-    ]
-    assert target["provider_externs_file"].endswith("verified_iteration_drain.providers.json")
-    assert target["prompt_externs_file"].endswith("verified_iteration_drain.prompts.json")
-    assert target["command_boundaries_file"].endswith("verified_iteration_drain.commands.json")
-
-
-def test_checked_in_watchdog_parity_target_has_complete_promoted_contract() -> None:
-    payload = json.loads(
-        (
-            Path(__file__).resolve().parents[1]
-            / "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
-        ).read_text(encoding="utf-8")
+    promoted_rows = {
+        row["path"]: row
+        for row in registry["surfaces"]
+        if row["path"] in promoted_paths
+    }
+    assert set(promoted_rows) == promoted_paths
+    assert all(row["surface_kind"] == "library_workflow" for row in promoted_rows.values())
+    assert all(row["route_label"] == "wcc_default" for row in promoted_rows.values())
+    assert all(
+        row["readiness_label"] == "promotion_eligible"
+        for row in promoted_rows.values()
     )
-    target = next(
-        entry
-        for entry in payload["targets"]
-        if entry["workflow_family"] == "generic_run_watchdog"
-    )
-
-    assert target["candidate"] == "workflows/library/generic_run_watchdog/watchdog.orc"
-    assert target["yaml_primary"] == "workflows/examples/generic_run_watchdog.yaml"
-    assert target["entry_workflow"] == "generic_run_watchdog/watchdog::watchdog"
-    assert target["promotion_eligibility"] == {
-        "eligible_for_primary_surface": True,
-    }
-    assert target["readiness_label"] == "promotion_eligible"
-    assert target["lowering_route"] == "wcc_m4"
-    assert target["lowering_schema_version"] == 2
-    assert set(target["evidence_commands"]) == {
-        "compile",
-        "dry_run",
-        "smoke_or_integration",
-        "output_contract_parity",
-        "terminal_state_parity",
-        "artifact_parity",
-        "resume_parity",
-    }
-    assert target["baseline_characterization"]["inputs"] == [
-        "target_run_id",
-        "state_root",
-        "evidence_root",
-        "repair_result_target_path",
-        "max_stale_minutes",
-        "repair_provider",
-    ]
-    assert target["baseline_characterization"]["outputs"] == [
-        "watch_status",
-        "repair_status",
-        "recovery_action",
-        "watchdog_result_path",
-    ]
-    assert target["provider_externs_file"].endswith("generic_run_watchdog.providers.json")
-    assert target["prompt_externs_file"].endswith("generic_run_watchdog.prompts.json")
-    assert target["command_boundaries_file"].endswith("generic_run_watchdog.commands.json")
 
 
 def test_promoted_design_delta_target_is_retired_from_live_manifest_but_historical_report_is_preserved() -> None:
@@ -2801,10 +2762,7 @@ def test_promoted_design_delta_target_is_retired_from_live_manifest_but_historic
     )
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert [entry["workflow_family"] for entry in payload["targets"]] == [
-        "verified_iteration_drain",
-        "generic_run_watchdog",
-    ]
+    assert payload["targets"] == []
 
     historical_report_root = repo_root / "artifacts/work/review-parity-check"
     expected_hashes = {

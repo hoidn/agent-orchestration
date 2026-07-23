@@ -107,8 +107,8 @@ unclassified authored YAML/YML path are permitted.
 |---|---:|---:|---|---|---|
 | `delete_non_survivor_estate` | 100 | 53 | `pending` | none | Early independent deletion in dependency-ordered batches of at most 15 after zero unclassified active references and zero supported matching nonterminal top-level or nested consumers. |
 | `archive_design_delta_yaml_twin` | 7 | 10 | `pending` | `delete_non_survivor_estate` | Record each pre-delete blob identity in git history, verify the structured `.orc`, registry, parity, and drain-plan evidence, then delete; do not create a live archive copy. |
-| `port_verified_iteration` | 1 | 0 | `pending` | none | The dedicated `.orc` is promoted and new launches route to it; the queue remains pending only for Task 6 reference and supported-run deletion gates over the retained YAML twin. |
-| `port_generic_run_watchdog` | 1 | 0 | `pending` | none | The dedicated `.orc` is promoted and new launches route to it; the queue remains pending only for Task 6 reference and supported-run deletion gates over the retained YAML twin. |
+| `port_verified_iteration` | 1 | 0 | `complete` | none | The dedicated `.orc` is promoted and remains the new-launch route. The YAML twin passed the Task 6 reference and supported-run deletion gates and is retired. |
+| `port_generic_run_watchdog` | 1 | 0 | `complete` | none | The dedicated `.orc` is promoted and remains the new-launch route. The YAML twin passed the Task 6 reference and supported-run deletion gates and is retired. |
 | `hold_non_progress_step_back` | 1 | 0 | `pending` | none | No mutation until the step-back recovery owner records an explicit delete-or-port disposition; then requeue through a reviewed handoff update. |
 
 ### Task 1: Close the `.orc` language-gap list — ENABLING
@@ -208,8 +208,8 @@ incomplete. The Task 5 table below records subsequent family progress.
 
 | Family | Required promotion evidence | Family status |
 |---|---|---|
-| `verified_iteration_drain` | Dedicated `.orc` source; parity-target registration; passing typed parity report; promoted launch routing; fresh `.orc` workflow smoke; then reference and supported-run deletion gates. | **Promotion gates closed.** `.orc` is the primary launch route; final report: `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`. YAML remains present and executable until Task 6. |
-| `generic_run_watchdog` | Dedicated `.orc` source; parity-target registration; passing typed parity report; promoted launch routing; fresh `.orc` workflow smoke; then reference and supported-run deletion gates. | **Promotion gates closed.** `.orc` is the primary launch route; final report: `artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/generic_run_watchdog.json`. YAML remains present and executable until Task 6. |
+| `verified_iteration_drain` | Dedicated `.orc` source; parity-target registration; passing typed parity report; promoted launch routing; fresh `.orc` workflow smoke; then reference and supported-run deletion gates. | **Promotion gates closed; Task 6 retirement closed.** `.orc` is the primary launch route; final report: `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`. The former YAML twin is retired. |
+| `generic_run_watchdog` | Dedicated `.orc` source; parity-target registration; passing typed parity report; promoted launch routing; fresh `.orc` workflow smoke; then reference and supported-run deletion gates. | **Promotion gates closed; Task 6 retirement closed.** `.orc` is the primary launch route; final report: `artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/generic_run_watchdog.json`. The former YAML twin is retired. |
 
 For each row, use one reviewable promotion sequence:
 
@@ -230,16 +230,16 @@ launch, and fresh mocked-provider `.orc` smoke steps. The Task-5 implementation
 commits culminate in verified-drain promotion at `927447d4` and watchdog
 promotion at `e38b14de`. The final report paths remain recorded above, while
 the handoff binds each tracked `.orc` source, registry, parity manifest, family
-contract test, and Task-5 execution plan. Task 5 is complete. The unchanged
-YAML twins and their queue rows remain pending only for Task 6's reviewed
-reference and supported-run pre-deletion gates.
+contract test, and Task-5 execution plan. Task 5 is complete. Task 6
+subsequently closed the reviewed reference and supported-run pre-deletion gates
+and retired both YAML twins without regenerating the final promotion reports.
 
 ### Task 6: Execute the gated archive and deletion queues — CURRENT
 
 Task 6 is governed by
-`docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md`. Task 5 does
-not provide, replace, or pre-run Task 6's generic scanner and does not authorize
-either retained port source for deletion.
+`docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md`. Task 5 did
+not provide, replace, or pre-run Task 6's generic scanner or authorize either
+port-twin deletion; those Task 6 gates have now closed for both port queues.
 
 - [ ] Freeze an exact pre-edit scan over tracked repository references, working
   tree references, and the YAML import graph. Classify every reference as

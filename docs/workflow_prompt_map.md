@@ -9,7 +9,3 @@ Resolution rules:
 
 | Workflow | Step | Field | Authored Path | Resolved Path | Exists |
 | --- | --- | --- | --- | --- | --- |
-| `workflows/examples/generic_run_watchdog.yaml` | `RepairRunFailure` | `input_file` | `workflows/library/prompts/generic_run_watchdog/repair_run_failure.md` | `workflows/library/prompts/generic_run_watchdog/repair_run_failure.md` | yes |
-| `workflows/examples/verified_iteration_drain.yaml` | `DrainVerifiedIterations > ReviewDoneClaim` | `input_file` | `workflows/library/prompts/verified_iteration_drain/review_done.md` | `workflows/library/prompts/verified_iteration_drain/review_done.md` | yes |
-| `workflows/examples/verified_iteration_drain.yaml` | `DrainVerifiedIterations > ReviewIteration` | `input_file` | `workflows/library/prompts/verified_iteration_drain/review_iteration.md` | `workflows/library/prompts/verified_iteration_drain/review_iteration.md` | yes |
-| `workflows/examples/verified_iteration_drain.yaml` | `DrainVerifiedIterations > Work` | `input_file` | `workflows/library/prompts/verified_iteration_drain/work.md` | `workflows/library/prompts/verified_iteration_drain/work.md` | yes |

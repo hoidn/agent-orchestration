@@ -30,8 +30,8 @@ python -m orchestrator run workflows/library/lisp_frontend_design_delta/drain.or
 
 New verified-iteration launches use the promoted Workflow Lisp primary. Supply
 the target-owned design and check-command paths together with any desired
-provider/model overrides; the retained YAML twin is compatibility evidence,
-not the launch route for new runs.
+provider/model overrides. The historical YAML twin is retired; this `.orc`
+entry is the live family route.
 
 ```bash
 python -m orchestrator run workflows/library/verified_iteration_drain/drain.orc \
@@ -46,8 +46,8 @@ python -m orchestrator run workflows/library/verified_iteration_drain/drain.orc 
 ## Generic Run Watchdog Launch
 
 New watchdog launches use the promoted Workflow Lisp primary. Supply the
-target run id and any desired provider or path overrides; the retained YAML
-twin is compatibility evidence, not the launch route for new runs.
+target run id and any desired provider or path overrides. The historical YAML
+twin is retired; this `.orc` entry is the live family route.
 
 ```bash
 python -m orchestrator run workflows/library/generic_run_watchdog/watchdog.orc \
@@ -157,10 +157,8 @@ The prompt map reports missing paths; a missing path may indicate a stale exampl
 | Path | Status | DSL | Workflow Name | Purpose |
 | --- | --- | --- | --- | --- |
 | `workflows/library/generic_run_watchdog/watchdog.orc` | Workflow Lisp production primary; input-required | `2.15` | `generic_run_watchdog/watchdog::watchdog` | Promoted generic watchdog primary with exact clean, repair, retry/resume, artifact-lineage, and typed parity evidence. New launches use this `.orc` route; the final report is `artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/generic_run_watchdog.json`. |
-| `workflows/examples/generic_run_watchdog.yaml` | Compatibility/reference twin; retained until Task 6 deletion gate | `2.14` | `generic-run-watchdog-v214` | Retained executable YAML compatibility watchdog. Do not use it for new launches; Task 6 owns its reference and supported-run deletion gates. |
 | `workflows/library/lisp_frontend_design_delta/drain.orc` | Workflow Lisp production primary; reusable library; input-required | `2.14` | `lisp_frontend_design_delta/drain::drain` | Primary Design Delta target/baseline drain. Its route-readiness entry is `wcc_default` / `promotion_eligible` with preferred-current-guidance copy safety. The retained strict migration-parity report records the historical promotion decision; it is not a live parity target. Fresh promotion compile, dry-run, smoke, and parity evidence is recorded; Phase 3 Tasks 3.1–3.4 are complete, and Gates P3 and P4 are independently reviewed and satisfied while retaining the historical report. Task 4.1 stripped the Design-Delta-only parity lanes, and Task 4.2 retired the temporary G8 build serializer. Task 4.1 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The semantic-migration freeze is lifted. Current work selection and later-stage order are governed by `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`. |
 | `workflows/library/verified_iteration_drain/drain.orc` | Workflow Lisp production primary; input-required | `2.15` | `verified_iteration_drain/drain::drain` | Promoted verified-iteration primary with exact compile/runtime/parity evidence. New launches use this `.orc` route; the final typed parity report is `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`. |
-| `workflows/examples/verified_iteration_drain.yaml` | Compatibility/reference twin; retained until Task 6 deletion gate | `2.14` | `verified-iteration-drain` | Retained executable YAML compatibility surface for one verification cycle. Do not use it for new launches; Task 6 owns its reference and supported-run deletion gates. |
 | `workflows/examples/kiss_backlog_item.orc` | Workflow Lisp shared-validation example; input-required | `2.14` | `run-backlog-item` | Minimal `.orc` single-backlog-item stack: typed backlog item inputs, plan provider result, plan review/revise loop, implementation provider result, implementation review/fix loop, and final structured summary output. It compiles through shared validation and dry-runs through the `.orc` runtime bridge; it is a single-item authoring example, not a production queue drain or parity replacement for the mature YAML stacks. |
 | `workflows/examples/cycle_guard_demo.orc` | Historical Workflow Lisp migration surface; input-required | `2.14` | `cycle-guard-demo` | Preserved `.orc` surface from the cycle-guard migration tranche. Its certified command boundary and frozen historical contract/evidence remain useful migration context; it is not a live YAML-parity target or preferred authoring route. |
 | `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | Historical Workflow Lisp migration surface; input-required | `2.14` | `design-plan-impl-review-stack` | Preserved `.orc` surface for the call-based design->plan->implementation family, with typed provider/prompt extern bindings and frozen historical YAML contract/evidence. Inspect it for stack migration context; it is not a live YAML-parity target or the real-life-tested design-doc review/fix workflow. |

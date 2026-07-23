@@ -98,7 +98,10 @@ This item should not:
 
 ## Related Context
 
-- `workflows/examples/generic_run_watchdog.yaml`
+- `workflows/library/generic_run_watchdog/watchdog.orc`
+- `workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.providers.json`
+- `workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.prompts.json`
+- `workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.commands.json`
 - `workflows/library/prompts/generic_run_watchdog/repair_run_failure.md`
 - `state/KISS-EFFECTFUL-COMPOSITION/watchdog-20260530T001340Z-7nbh7e/watchdog-result.json`
 - `artifacts/work/KISS-EFFECTFUL-COMPOSITION/watchdog-20260530T001340Z-7nbh7e/repair-result.json`

@@ -9,8 +9,8 @@ The promoted authoring and launch surface is
 `workflows/library/verified_iteration_drain/drain.orc`, entry
 `verified_iteration_drain/drain::drain`. Its final typed parity report is
 `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`.
-The YAML twin remains executable only for compatibility/reference verification
-until the Stage 6 Task 6 reference and supported-run deletion gates pass.
+The historical YAML twin was retired after its Stage 6 Task 6 reference and
+supported-run deletion gates passed.
 
 ## Problem
 
@@ -138,10 +138,10 @@ only what was measured.
   three prompts below. No imports of other workflow files.
 
 Launch new runs through Workflow Lisp with the provider, prompt, and command
-extern manifests under
-`workflows/examples/inputs/workflow_lisp_migrations/`. The retained
-`workflows/examples/verified_iteration_drain.yaml` mirrors the public behavior
-for compatibility evidence; it is not the new-launch route.
+extern manifests under `workflows/examples/inputs/workflow_lisp_migrations/`.
+The deleted `workflows/examples/verified_iteration_drain.yaml` is a historical
+migration source only; the retained `.orc` workflow is the sole live family
+route.
 
 ### `workflows/library/scripts/prepare_verified_iteration.py`
 

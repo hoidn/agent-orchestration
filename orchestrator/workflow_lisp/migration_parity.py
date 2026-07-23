@@ -124,8 +124,8 @@ def load_parity_targets(path: Path) -> list[ParityTarget]:
     if payload.get("schema_version") != TARGETS_SCHEMA_VERSION:
         raise ValueError(f"expected schema_version {TARGETS_SCHEMA_VERSION}")
     raw_targets = payload.get("targets")
-    if not isinstance(raw_targets, list) or not raw_targets:
-        raise ValueError("targets must be a non-empty array")
+    if not isinstance(raw_targets, list):
+        raise ValueError("targets must be an array")
 
     manifest_sha256 = _sha256_file(path.resolve())
     targets: list[ParityTarget] = []
@@ -918,6 +918,8 @@ def run_migration_parity(
 ) -> dict[str, object]:
     evaluation_date = today or date.today()
     all_targets = load_parity_targets(targets_file)
+    if not all_targets:
+        raise ValueError("migration parity run requires at least one selected target")
     selected_target_names = (
         list(selected_targets)
         if selected_targets

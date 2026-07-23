@@ -243,8 +243,8 @@ def discover_required_orc_surfaces(repo_root: Path) -> set[str]:
     for path in (repo_root / "workflows/examples").glob("*.orc"):
         required.add(_repo_relative(path, repo_root))
 
-    design_delta_library = repo_root / "workflows/library/lisp_frontend_design_delta"
-    for path in design_delta_library.rglob("*.orc"):
+    workflow_library = repo_root / "workflows/library"
+    for path in workflow_library.glob("*/*.orc"):
         required.add(_repo_relative(path, repo_root))
 
     parity_targets_path = repo_root / PARITY_TARGETS_RELPATH

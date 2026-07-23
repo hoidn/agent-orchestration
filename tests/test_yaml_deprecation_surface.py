@@ -508,11 +508,6 @@ def test_author_routing_deep_yaml_guide_sections_are_compatibility_scoped(
 @pytest.mark.parametrize(
     ("heading", "route_scope"),
     (
-        (
-            "### [Generic Run Watchdog YAML Compatibility Twin]"
-            "(../workflows/examples/generic_run_watchdog.yaml)",
-            "`existing_yaml_compatibility`",
-        ),
         ("### [Workflow Examples Directory](../workflows/examples/)", "`reference_only`"),
     ),
 )
@@ -548,7 +543,7 @@ def test_author_routing_readme_and_catalog_select_registry_approved_orc() -> Non
         _assert_registry_approved_orc(selected_path)
 
 
-def test_verified_catalog_routes_new_launches_to_orc_and_retains_yaml_compatibility() -> None:
+def test_verified_catalog_routes_to_orc_and_retired_yaml_is_absent() -> None:
     document = _read_repository_text("workflows/README.md")
     rows = _markdown_table_rows(_markdown_section(document, "## Workflow Catalog"))
     rows_by_path = {row[0].strip("`"): row for row in rows[1:]}
@@ -556,11 +551,9 @@ def test_verified_catalog_routes_new_launches_to_orc_and_retains_yaml_compatibil
     yaml_path = "workflows/examples/verified_iteration_drain.yaml"
 
     assert rows_by_path[orc_path][1] == "Workflow Lisp production primary; input-required"
-    assert rows_by_path[yaml_path][1] == (
-        "Compatibility/reference twin; retained until Task 6 deletion gate"
-    )
+    assert yaml_path not in rows_by_path
     _assert_registry_approved_orc(orc_path)
-    assert (_REPOSITORY_ROOT / yaml_path).is_file()
+    assert not (_REPOSITORY_ROOT / yaml_path).exists()
 
     launch = _markdown_section(document, "## Verified-Iteration Drain Launch")
     assert "python -m orchestrator run workflows/library/verified_iteration_drain/drain.orc" in launch
@@ -571,7 +564,7 @@ def test_verified_catalog_routes_new_launches_to_orc_and_retains_yaml_compatibil
     assert "python -m orchestrator run workflows/examples/verified_iteration_drain.yaml" not in launch
 
 
-def test_watchdog_catalog_routes_new_launches_to_orc_and_retains_yaml_compatibility() -> None:
+def test_watchdog_catalog_routes_to_orc_and_retired_yaml_is_absent() -> None:
     document = _read_repository_text("workflows/README.md")
     rows = _markdown_table_rows(_markdown_section(document, "## Workflow Catalog"))
     rows_by_path = {row[0].strip("`"): row for row in rows[1:]}
@@ -579,11 +572,9 @@ def test_watchdog_catalog_routes_new_launches_to_orc_and_retains_yaml_compatibil
     yaml_path = "workflows/examples/generic_run_watchdog.yaml"
 
     assert rows_by_path[orc_path][1] == "Workflow Lisp production primary; input-required"
-    assert rows_by_path[yaml_path][1] == (
-        "Compatibility/reference twin; retained until Task 6 deletion gate"
-    )
+    assert yaml_path not in rows_by_path
     _assert_registry_approved_orc(orc_path)
-    assert (_REPOSITORY_ROOT / yaml_path).is_file()
+    assert not (_REPOSITORY_ROOT / yaml_path).exists()
 
     launch = _markdown_section(document, "## Generic Run Watchdog Launch")
     assert "python -m orchestrator run workflows/library/generic_run_watchdog/watchdog.orc" in launch
