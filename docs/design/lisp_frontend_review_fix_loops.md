@@ -102,8 +102,7 @@ The legacy plan phase was designed to keep the existing
 input materialization and initial `DraftPlan` step, then wrap review and
 revision in a `repeat_until` loop.
 
-The target shape mirrors
-`workflows/library/neurips_backlog_seeded_plan_phase.v214.yaml`:
+The target shape is:
 
 ```text
 MaterializePlanInputs
@@ -154,8 +153,7 @@ When `implementation_state == BLOCKED`, the phase should skip review and emit
 `implementation_state == COMPLETED`, it should enter an implementation
 review/fix loop.
 
-The target shape mirrors
-`workflows/library/neurips_backlog_implementation_phase.v214.yaml`:
+The target shape is:
 
 ```text
 MaterializeImplementationInputs

@@ -7931,25 +7931,6 @@ def test_project_lisp_frontend_done_review_requires_gap_fields_when_rejected(tmp
     assert "missing required rejection field" in result.stderr
 
 
-def test_implementation_review_checks_report_consumes_are_loop_safe():
-    workflow_paths = [
-        "workflows/library/neurips_backlog_implementation_phase.yaml",
-        "workflows/library/neurips_backlog_implementation_phase.v214.yaml",
-    ]
-
-    offenders = []
-    for relpath in workflow_paths:
-        workflow = yaml.safe_load((ROOT / relpath).read_text(encoding="utf-8"))
-        for step in _iter_workflow_steps(workflow.get("steps")):
-            if step.get("name") != "ReviewImplementation":
-                continue
-            for consume in step.get("consumes") or []:
-                if consume.get("artifact") == "checks_report" and consume.get("freshness", "any") != "any":
-                    offenders.append(f"{relpath}:{step.get('name')}:checks_report")
-
-    assert offenders == []
-
-
 def _next_selector_dir(workspace: Path) -> Path:
     call_selector_dirs = [
         pointer.parent

@@ -266,13 +266,13 @@ removed.
 
 ```yaml
 inline_glue_allowlist:
-  - workflow: workflows/library/neurips_selected_backlog_item.v214.yaml
-    step: AssertPlanApproved
+  - workflow: <repository-relative-workflow-path>
+    step: <step-name>
     class: assertion_gate
-    reason: legacy selected-item migration still normalizes plan gate state
-    replacement: PlanGateResult + match over APPROVED/BLOCKED
-    owner: dsl-v214-workflow-migration
-    expires_after: workflow_lisp_mvp_or_plan_gate_typed_result
+    reason: <why-the-inline-glue-remains-temporarily>
+    replacement: <typed-or-stdlib-replacement>
+    owner: <responsible-owner>
+    expires_after: <named-removal-gate>
 ```
 
 Do not allowlist inline glue only because it is inconvenient to migrate.

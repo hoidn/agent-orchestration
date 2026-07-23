@@ -10,22 +10,21 @@ shorter and removes several brittle authoring details from the workflow source.
 
 ## The Two Files
 
-Open these side by side:
+Read the Lisp MVP source alongside the historical comparison below:
 
 - Lisp MVP slice:
   [`tests/fixtures/workflow_lisp/valid/neurips_implementation_attempt.orc`](../tests/fixtures/workflow_lisp/valid/neurips_implementation_attempt.orc)
-- YAML equivalent slice:
-  [`workflows/library/neurips_backlog_implementation_phase.v214.yaml`](../workflows/library/neurips_backlog_implementation_phase.v214.yaml)
 
-The equivalent YAML slice is the implementation-attempt portion:
+The retired YAML equivalent was the implementation-attempt portion:
 
 - `ExecuteImplementation`
 - `SelectImplementationOutcome`
 - `PublishCompletedExecutionReport`
 - `PublishBlockedProgressReport`
 
-In the YAML file, that starts at `ExecuteImplementation` and ends at
-`PublishBlockedProgressReport`.
+That slice started at `ExecuteImplementation` and ended at
+`PublishBlockedProgressReport`; the comparison remains as migration history
+after retirement of the authored YAML source.
 
 ## What Changed
 

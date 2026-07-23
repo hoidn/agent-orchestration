@@ -420,11 +420,8 @@ forms are genuinely needed.
 The first migration target should be one workflow phase, not the whole backlog
 drain.
 
-Recommended target:
-
-```text
-workflows/library/neurips_backlog_implementation_phase.v214.yaml
-```
+The recommended target was the v2.14 NeurIPS backlog implementation phase,
+whose authored YAML source has since been retired.
 
 Reason:
 
