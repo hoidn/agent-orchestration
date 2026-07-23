@@ -1,12 +1,12 @@
 # YAML-to-Workflow-Lisp Gap List
 
-Status: Stage 6 Task 1 gate contract; both port queues retired in Task 6
+Status: Historical Stage 6 Task 1 gate contract; all three scoped YAML paths retired in Task 6
 
 This audit closes the language-gap list for exactly the two YAML workflows that
-received dedicated `.orc` ports and the former protected holdout, now requeued
-for deletion, in the content-addressed YAML-retirement handoff. It does not
-inventory the other deletion or Design Delta archive queues, and it does not
-authorize a workflow edit, port, promotion, or deletion.
+received dedicated `.orc` ports and the former protected holdout in the
+content-addressed YAML-retirement handoff. All three YAML paths are now
+historical identities: the two ports are promoted, the owner-directed holdout
+was deleted without a port, and Task 7 owns parser rejection/removal.
 
 The machine authority for queue membership is
 `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`. The behavioral
@@ -41,7 +41,7 @@ No owner waiver is recorded by this audit.
 |---|---|---|---|
 | `port_verified_iteration` | `port` | `workflows/examples/verified_iteration_drain.yaml` | Closed: family prompt-dependency parity, artifact lineage, typed parity, fresh `.orc` smoke, promoted launch routing, and the Stage 6 Task 6 reference and supported-run deletion gates all passed; the YAML source is retired. |
 | `port_generic_run_watchdog` | `port` | `workflows/examples/generic_run_watchdog.yaml` | Closed: family prompt-dependency parity, clean and repair branch behavior, artifact lineage, retry/resume reuse, typed parity, fresh `.orc` smoke, promoted launch routing, and the Stage 6 Task 6 reference and supported-run deletion gates all passed; the YAML source is retired. |
-| `hold_non_progress_step_back` | `delete` | `workflows/examples/non_progress_step_back_demo.yaml` | Owner Ollie selected DELETE, not port, at `2026-07-23T16:06:20-07:00`; deletion remains pending the unchanged zero-reference and supported-run-consumer checks, and no `.orc` port is planned. |
+| `hold_non_progress_step_back` | `delete` | `workflows/examples/non_progress_step_back_demo.yaml` | Closed: owner Ollie selected DELETE, not port, at `2026-07-23T16:06:20-07:00`; both unchanged reference and supported-run-consumer deletion gates passed, no `.orc` port was built, and the path remains only as historical queue identity. |
 
 ## Gap decisions
 
@@ -61,8 +61,8 @@ No owner waiver is recorded by this audit.
 | `watchdog.probe-and-publication` | `port_generic_run_watchdog` | probe `output_bundle`, optional repair bundle consumption, and final watchdog `output_bundle` | `implemented` | Keep the run probe and final durable publication as explicit external command boundaries with typed record contracts and path-safe results. The probe's clock and run-store reads remain visible effects. |
 | `watchdog.conditional-repair` | `port_generic_run_watchdog` | `when` over repair-required, provider repair, and deterministic no-action defaults | `implemented` | Use a typed repair/no-action union, effectful `if`, and a final typed projection. The provider result owns the repair decision; no report parsing controls routing. |
 | `watchdog.port-plan-and-parity` | `port_generic_run_watchdog` | dedicated `.orc` source and bounded translation plan | `implemented` | Closed by `workflows/library/generic_run_watchdog/watchdog.orc`, its `wcc_default` / `promotion_eligible` registry route, clean and repair branch runtime evidence, retry/resume reuse, and the promotable report at `artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/generic_run_watchdog.json`. |
-| `step-back.typed-routing` | `hold_non_progress_step_back` | command `output_bundle`, enum `match`, branch-local commands, and `set_scalar` | `implemented` | `command-result`, typed enum routing, pure values, and typed workflow returns cover the observed language mechanics, but Ollie's DELETE decision means no `.orc` port will be built. This remains capability evidence only and is not deletion eligibility. |
-| `step-back.owner-disposition` | `hold_non_progress_step_back` | the formerly protected recovery workflow required an explicit delete-or-port choice | `drop` | At `2026-07-23T16:06:20-07:00`, owner Ollie personally selected DELETE, not port; this reviewed handoff closes the owner-authority decision without waiving the existing reference or supported-run-consumer checks. |
+| `step-back.typed-routing` | `hold_non_progress_step_back` | command `output_bundle`, enum `match`, branch-local commands, and `set_scalar` | `implemented` | `command-result`, typed enum routing, pure values, and typed workflow returns cover the historical mechanics, but Ollie's DELETE decision means no `.orc` port was built. This remains capability evidence only. |
+| `step-back.owner-disposition` | `hold_non_progress_step_back` | the formerly protected recovery workflow required an explicit delete-or-port choice | `drop` | At `2026-07-23T16:06:20-07:00`, owner Ollie personally selected DELETE, not port; the subsequent reference and supported-run-consumer gates passed and the path is retired. |
 
 ## Gate contracts and closure boundaries
 
@@ -84,8 +84,8 @@ This generic implementation closure alone does not prove a survivor family.
 Both survivor families have now bound their exact inputs and deadlines,
 provider selection/argv, prompt and artifact behavior, run/resume behavior, and
 promotion reports. The two port YAML twins subsequently passed their reference
-and supported-root-consumer gates and are retired; Task 7 remains a separate
-parser gate for surviving YAML.
+and supported-root-consumer gates and are retired. No authored workflow YAML
+survives; Task 7 now owns rejection and parser removal.
 Dynamic provider selection remains separate and is already expressible by
 branching over a closed typed enum while each branch names a compiler-known
 extern.
@@ -126,17 +126,16 @@ results, not provider prose or process exit alone, control successful repair.
 
 ### `step-back-owner-disposition`
 
-The owner-authority decision is closed. At `2026-07-23T16:06:20-07:00`, Ollie
-personally selected DELETE, not port, and directed the held row to be requeued
-through this reviewed handoff. The unchanged queue ID is now pending deletion
-with no replacement. Deletion is eligible only after its existing
+The owner-authority and deletion decisions are closed. At
+`2026-07-23T16:06:20-07:00`, Ollie personally selected DELETE, not port, and
+directed the held row to be requeued through the reviewed handoff. Its existing
 zero-unclassified-active-reference and
-zero-supported-matching-nonterminal-consumer checks pass.
+zero-supported-matching-nonterminal-consumer checks subsequently passed, and
+the YAML path was deleted with no replacement.
 
-This handoff neither runs those checks nor deletes the YAML. The former
-holdout-specific working-tree fence is released for deletion purposes; the
-step-back mechanics remain recoverable from Git history and the recovery-plan
-documentation, while live retained or retired surfaces follow ordinary rules.
+The unchanged queue ID and YAML path remain historical identities. Step-back
+mechanics remain recoverable from Git history and the retained recovery-plan
+documentation; no `.orc` port is planned.
 
 ## Current capability evidence
 
@@ -170,8 +169,7 @@ documentation, while live retained or retired surfaces follow ordinary rules.
 The generic provider-policy, invocation-profile, and typed prompt-dependency
 prerequisites are available. Both survivor families have closed their family
 proof and promotion gates and now route new launches to their `.orc` primaries.
-Both former YAML twins passed the Task 6 reference and supported-run gates and
-are retired. `step-back-owner-disposition` is now closed by the owner DELETE
-decision; the unchanged holdout queue is requeued as pending deletion with no
-port, and its reference and supported-consumer gates remain open. No other
-unclassified gap remains in this three-queue scope.
+Both former port twins and the owner-directed holdout passed their Task 6
+reference and supported-run gates and are retired. No port was built for the
+holdout, no authored workflow YAML remains, and Task 7 now owns parser removal.
+No other unclassified gap remains in this three-queue scope.

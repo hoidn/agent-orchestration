@@ -730,7 +730,7 @@ def test_yaml_retirement_handoff_names_both_promoted_port_replacements() -> None
         }
 
 
-def test_non_progress_step_back_owner_delete_requeues_without_a_replacement() -> None:
+def test_non_progress_step_back_frozen_handoff_survives_live_retirement() -> None:
     handoff = _load_json(REUSE_INVENTORY)["yaml_retirement_handoff"]
     queue = next(
         queue
@@ -750,6 +750,9 @@ def test_non_progress_step_back_owner_delete_requeues_without_a_replacement() ->
     assert queue["run_consumer_gate"] == (
         "zero_supported_matching_nonterminal_consumers"
     )
+    assert not (
+        REPO_ROOT / "workflows/examples/non_progress_step_back_demo.yaml"
+    ).exists()
 
 
 def test_yaml_task_5_handoff_retains_both_retired_source_identities() -> None:
@@ -1021,7 +1024,11 @@ def test_yaml_estate_triage_projects_every_handoff_path_and_queue() -> None:
                 if queue["replacement"]["paths"]
                 else queue["replacement"]["rationale"]
             )
-            assert cells[3] == expected_replacement_or_rationale
+            if path == "workflows/examples/non_progress_step_back_demo.yaml":
+                assert "no `.orc` port was built" in cells[3]
+                assert "frozen historical queue identity" in cells[3]
+            else:
+                assert cells[3] == expected_replacement_or_rationale
             assert cells[4] == str(
                 sum(
                     record_id.startswith(f"internal-call:{path}:")
@@ -1029,11 +1036,18 @@ def test_yaml_estate_triage_projects_every_handoff_path_and_queue() -> None:
                 )
             )
             assert cells[5] == "git_history"
-            assert cells[6] == "pending"
-            assert cells[7] == "reference + supported-run-consumer"
+            if path == "workflows/examples/non_progress_step_back_demo.yaml":
+                assert cells[6] == "complete"
+                assert cells[7] == "retired"
+            else:
+                assert cells[6] == "pending"
+                assert cells[7] == "reference + supported-run-consumer"
 
     assert "YAML Workflow Estate Triage (DRAFT)" not in triage
     assert handoff["estate"]["normalized_path_sha256"] in triage
+    assert "all five queues are drained" in triage.lower()
+    assert "authored yaml/yml estate is empty" in triage.lower()
+    assert "task 7 is current and eligible but not implemented" in triage.lower()
 
 
 def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts() -> None:

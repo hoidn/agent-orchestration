@@ -9,34 +9,30 @@
 becomes the only authored workflow surface. Persisted run data and internal
 debug serialization are outside this program.
 
-**Current selector:** Task 6, execute the gated archive and deletion queues.
-Tasks 1-5 are complete; Task 4's reviewed implementation record is
+**Current selector:** Task 7, remove the user-facing YAML frontend. Tasks 1-6
+are complete; Task 4's reviewed implementation record is
 `docs/plans/2026-07-17-yaml-deprecation-surface-implementation-plan.md`. YAML
 remains `Legacy`: fresh YAML is still executable, and Task 7 still owns
 rejection and parser removal.
 
 **Architecture:** The content-addressed handoff in
 `docs/plans/2026-07-13-procedure-first-reuse-inventory.json` is the exact work
-list. It partitions every authored YAML/YML path into five queues: two ports,
-one owner-directed pending-delete row under the unchanged
+list. It partitions the original authored YAML/YML estate into five queues: two
+ports, one owner-directed delete row under the unchanged
 `hold_non_progress_step_back` queue ID, one Design Delta historical archive, and
-deletion of the remaining estate. Shared validation remains available to the
-`.orc` frontend and persisted-run compatibility after the YAML parser is
-removed.
+deletion of the remaining estate. All five queues are drained. Shared validation
+remains available to the `.orc` frontend and persisted-run compatibility after
+the YAML parser is removed.
 
 **Steering decision:** Retirement is deletion-first. The only workflows that
 receive new `.orc` ports are `verified_iteration_drain` and
 `generic_run_watchdog`. The seven demoted Design Delta YAML twins are preserved
 only through content-addressed git history before deletion. At
 `2026-07-23T16:06:20-07:00`, owner Ollie personally selected DELETE, not port,
-for the non-progress step-back workflow; the reviewed handoff requeues it as
-pending deletion with no replacement. It is not deleted until its existing
-reference and supported-run-consumer gates pass. Every other authored YAML/YML
-file is deleted after its applicable gates pass. The
-`delete_non_survivor_estate` queue is an early independent tranche: Stage 6 may
-execute it as soon as its own gates and reviews pass, without waiting for Tasks
-1–5 or either new port. The Design Delta archive remains ordered after that
-deletion queue.
+for the non-progress step-back workflow; the reviewed handoff requeued it for
+deletion with no replacement. Its reference and supported-run-consumer gates
+subsequently passed and the path is retired. Every deletion, archive, and port
+queue is now drained; Task 7 owns the still-unimplemented parser-removal gate.
 
 ## Entry gate
 
@@ -60,8 +56,9 @@ deletion queue.
 - Do not infer live or supported use from store-wide status totals. Deletion
   gates use match-scoped, supported-root scans of top-level and nested workflow
   consumers. Missing or unreadable status is nonterminal and fails closed.
-- The supported run-root scope is **pending adjudication** until an owner-bound
-  record closes it. Store-wide totals remain visible as non-gating hygiene.
+- The supported run-root scope and unsupported/abandoned matching-consumer
+  disposition are closed by the owner ruling recorded on 2026-07-23.
+  Store-wide totals remain visible as non-gating hygiene.
 - A deletion is not authorized by this plan alone. Its queue gate and the
   applicable Stage-6 owner or review boundary must be satisfied first; once
   those conditions pass, the deletion-first steering authorizes the independent
@@ -69,11 +66,9 @@ deletion queue.
 - The owner DELETE decision releases the step-back holdout-specific working-tree
   fence for deletion purposes. This handoff update itself does not modify the
   formerly fenced paths or adopt unrelated working-tree changes.
-- The repository-reference capture remains `pending_stage_6_scan` until the
-  requeued target's deletion transaction. Supported-root scope and the
-  unsupported/abandoned consumer disposition are closed by the owner ruling
-  recorded on 2026-07-23; a fresh target-match scan still gates deletion, so
-  the handoff contains no synthetic eligibility claim.
+- The final target's fresh repository-reference and supported-consumer checks
+  passed in its deletion transaction. The frozen handoff retains its capture
+  status and is not rewritten as synthetic execution state.
 
 ## Released holdout-specific working-tree fence
 
@@ -104,11 +99,11 @@ unclassified authored YAML/YML path are permitted.
 
 | Queue ID | Paths | Legacy rows | Status | Prerequisite queues | Disposition and gate |
 |---|---:|---:|---|---|---|
-| `delete_non_survivor_estate` | 100 | 53 | `pending` | none | Early independent deletion in dependency-ordered batches of at most 15 after zero unclassified active references and zero supported matching nonterminal top-level or nested consumers. |
-| `archive_design_delta_yaml_twin` | 7 | 10 | `pending` | `delete_non_survivor_estate` | Record each pre-delete blob identity in git history, verify the structured `.orc`, registry, parity, and drain-plan evidence, then delete; do not create a live archive copy. |
+| `delete_non_survivor_estate` | 100 | 53 | `complete` | none | Retired in dependency-ordered batches after the reference and supported-run-consumer gates passed. |
+| `archive_design_delta_yaml_twin` | 7 | 10 | `complete` | `delete_non_survivor_estate` | Pre-delete blob identities remain in git history; the replacement, registry, parity, and drain-plan gates passed and the YAML twins are retired. |
 | `port_verified_iteration` | 1 | 0 | `complete` | none | The dedicated `.orc` is promoted and remains the new-launch route. The YAML twin passed the Task 6 reference and supported-run deletion gates and is retired. |
 | `port_generic_run_watchdog` | 1 | 0 | `complete` | none | The dedicated `.orc` is promoted and remains the new-launch route. The YAML twin passed the Task 6 reference and supported-run deletion gates and is retired. |
-| `hold_non_progress_step_back` | 1 | 0 | `pending` | none | Owner Ollie selected DELETE, not port, at `2026-07-23T16:06:20-07:00`; no `.orc` port is planned, and deletion requires zero unclassified active references plus zero supported matching nonterminal top-level or nested consumers. |
+| `hold_non_progress_step_back` | 1 | 0 | `complete` | none | Owner Ollie selected DELETE, not port, at `2026-07-23T16:06:20-07:00`; no `.orc` port was built, both deletion gates passed, and the YAML path is retired. |
 
 ### Task 1: Close the `.orc` language-gap list — ENABLING
 
@@ -233,46 +228,38 @@ contract test, and Task-5 execution plan. Task 5 is complete. Task 6
 subsequently closed the reviewed reference and supported-run pre-deletion gates
 and retired both YAML twins without regenerating the final promotion reports.
 
-### Task 6: Execute the gated archive and deletion queues — CURRENT
+### Task 6: Execute the gated archive and deletion queues — COMPLETE
 
 Task 6 is governed by
 `docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md`. Task 5 did
 not provide, replace, or pre-run Task 6's generic scanner or authorize either
 port-twin deletion; those Task 6 gates have now closed for both port queues.
 
-- [ ] Freeze an exact pre-edit scan over tracked repository references, working
-  tree references, and the YAML import graph. Classify every reference as
-  active, historical, test/fixture, or documentation. Deletion requires zero
-  unclassified active references.
-- [ ] Adjudicate and bind the supported run roots. Query exact old workflow
-  identities and nested consumers. Deletion requires zero supported matching
-  nonterminal runs and call frames. Missing or unreadable status fails closed;
-  store-wide totals are disclosed but do not gate unrelated identities.
-- [ ] For `archive_design_delta_yaml_twin`, verify the exact seven paths from
-  the handoff, their existing `.orc` replacement, historical parity report,
-  and a pre-delete blob ID for each file. Git history is the archive; do not
-  persist a second live workflow bundle.
-- [ ] For `delete_non_survivor_estate`, delete in dependency order and in
-  batches of at most 15 paths. Remove or rewrite active imports, tests,
-  fixtures, and routing in the same reviewed tranche.
-- [ ] Process the owner-directed `hold_non_progress_step_back` deletion through
-  its reviewed pending-delete assignment only after the unchanged reference and
-  supported-run-consumer checks pass. This handoff does not mark either check or
-  the deletion complete.
-- [ ] After each tranche, preserve the frozen v1 inventory and regenerate the
-  checked Task-6 execution index and live projection, run narrow behavioral
-  tests, then run the broad suite in tmux.
+- [x] Classify each deletion transaction's tracked and working-tree references;
+  retain only explicitly historical references.
+- [x] Bind the five supported run roots and close every matching nonterminal
+  consumer through the owner's unsupported/abandoned disposition.
+- [x] Retire the exact seven `archive_design_delta_yaml_twin` paths after their
+  replacement, history, parity, and blob-identity gates passed.
+- [x] Drain `delete_non_survivor_estate` in dependency order and bounded batches,
+  removing live imports, tests, fixtures, and routing in the same transactions.
+- [x] Retire `hold_non_progress_step_back` after its owner DELETE decision and
+  unchanged reference and supported-run-consumer gates passed; no port was made.
+- [x] Preserve the frozen v1 inventory while closing all five queue projections
+  and running each batch's narrow checks. The proportionality ruling assigns the
+  one final broad comparison to Task 7's parser-removal candidate.
 
 Historical prose may still name deleted files. Retirement does not require
 zero textual history; it requires zero unclassified active references, exact
 queue reconciliation, preserved content identities, and passing runtime gates.
 
-### Task 7: Remove the user-facing YAML frontend — FINAL GATE
+### Task 7: Remove the user-facing YAML frontend — CURRENT / ELIGIBLE
 
-This task begins only after both ports are promoted, the owner-directed
-step-back deletion and every other queue are drained, all five queues reconcile
-to zero live authored YAML/YML paths, and Tasks 2–3 have made dashboard and
-`.orc` lowering independent of YAML parsing.
+Both ports are promoted, every deletion and archive queue is drained, all five
+queues reconcile to zero live authored YAML/YML paths, and Tasks 2–3 made
+dashboard and `.orc` lowering independent of YAML parsing. Task 7 is therefore
+eligible and current; none of its implementation checklist is claimed complete
+by the Task 6 closeout.
 
 - [ ] Replace fresh YAML/YML execution in run and resume commands with a clear
   `.orc`-required error.

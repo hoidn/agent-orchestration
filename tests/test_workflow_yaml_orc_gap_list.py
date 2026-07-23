@@ -220,7 +220,7 @@ def test_task_15_reconciliation_binds_three_prompts_and_drops_only_pointer_helpe
     assert pointer["Classification"] == "drop"
 
 
-def test_owner_delete_closes_step_back_decision_without_an_inferred_port() -> None:
+def test_owner_delete_and_deletion_close_without_an_inferred_port() -> None:
     text = GAP_LIST.read_text(encoding="utf-8")
     decisions = _table_after_heading(text, "## Gap decisions")
     queues = _table_after_heading(text, "## Queue reconciliation")
@@ -250,11 +250,14 @@ def test_owner_delete_closes_step_back_decision_without_an_inferred_port() -> No
     assert typed_routing["Classification"] == "implemented"
     assert queue["Disposition"] == "delete"
     assert "no .orc port" in queue_contract
+    assert "passed" in queue_contract
+    assert "historical queue identity" in queue_contract
     assert "reference" in queue["Decision gate"].lower()
     assert "supported" in queue["Decision gate"].lower()
     assert handoff["disposition"] == "delete"
     assert handoff["replacement"]["kind"] == "none"
     assert handoff["replacement"]["paths"] == []
+    assert "task 7 now owns parser removal" in normalized
     assert "if the owner later selects port" not in normalized
 
 
@@ -265,7 +268,7 @@ def _section(text: str, heading: str) -> str:
     return remainder if next_heading == -1 else remainder[:next_heading]
 
 
-def test_yaml_retirement_tasks_1_through_5_are_closed_and_task_6_is_current() -> None:
+def test_yaml_retirement_tasks_1_through_6_are_closed_and_task_7_is_current() -> None:
     program = YAML_RETIREMENT_PROGRAM.read_text(encoding="utf-8")
     task_1 = _section(program, "### Task 1: Close the `.orc` language-gap list — ENABLING")
     task_2 = _section(program, "### Task 2: Move dashboard structure reads to the typed surface — ENABLING")
@@ -274,6 +277,14 @@ def test_yaml_retirement_tasks_1_through_5_are_closed_and_task_6_is_current() ->
     task_5 = _section(
         program,
         "### Task 5: Build and promote exactly two `.orc` ports — COMPLETE",
+    )
+    task_6 = _section(
+        program,
+        "### Task 6: Execute the gated archive and deletion queues — COMPLETE",
+    )
+    task_7 = _section(
+        program,
+        "### Task 7: Remove the user-facing YAML frontend — CURRENT / ELIGIBLE",
     )
 
     assert task_1.count("- [x]") == 3
@@ -286,7 +297,13 @@ def test_yaml_retirement_tasks_1_through_5_are_closed_and_task_6_is_current() ->
     assert "- [ ]" not in task_4
     assert task_5.count("- [x]") == 6
     assert "- [ ]" not in task_5
-    assert "**Current selector:** Task 6" in program
+    assert task_6.count("- [x]") == 6
+    assert "- [ ]" not in task_6
+    assert task_7.count("- [ ]") == 5
+    assert "- [x]" not in task_7
+    assert "**Current selector:** Task 7" in program
+    assert "eligible and current" in task_7
+    assert "none of its implementation checklist is claimed complete" in task_7
     assert "PASS" in task_1
     assert "APPROVED" in task_1
     assert "PASS" in task_2

@@ -66,6 +66,11 @@ ORDERED_ROADMAP_PATHS = (
     "docs/design/workflow_lisp_provider_live_binding.md",
     "docs/design/workflow_lisp_language_server.md",
 )
+FINAL_YAML_HOLDOUT_PATHS = (
+    "workflows/examples/non_progress_step_back_demo.yaml",
+    "tests/test_workflow_non_progress_step_back_demo.py",
+    "workflows/library/scripts/write_workflow_non_progress_demo_inputs.py",
+)
 PROJECTION_ACCEPTANCE_OWNERS = {
     "201-205": (
         "tests/test_workflow_state_projection.py",
@@ -1131,12 +1136,8 @@ def test_yaml_retirement_program_uses_exact_handoff_queues_and_two_ports() -> No
         row = manifest_rows[queue_id]
         assert row[1] == path_count
         assert row[2] == legacy_count
-        expected_status = (
-            "complete"
-            if queue_id in {"port_verified_iteration", "port_generic_run_watchdog"}
-            else machine_status
-        )
-        assert row[3] == expected_status
+        assert machine_status == "pending"
+        assert row[3] == "complete"
 
     assert manifest_rows["delete_non_survivor_estate"][4] == "none"
     assert manifest_rows["archive_design_delta_yaml_twin"][4] == (
@@ -1152,8 +1153,8 @@ def test_yaml_retirement_program_uses_exact_handoff_queues_and_two_ports() -> No
     holdout_contract = _normalized_routing_text(holdout_row[5])
     assert "delete" in holdout_contract
     assert "no .orc port" in holdout_contract
-    assert "zero unclassified active references" in holdout_contract
-    assert "zero supported matching nonterminal" in holdout_contract
+    assert "both deletion gates passed" in holdout_contract
+    assert "retired" in holdout_contract
 
     task_5 = program.split("### Task 5:", 1)[1].split("### Task 6:", 1)[0]
     task_5_rows = [
@@ -1187,13 +1188,13 @@ def test_yaml_retirement_program_uses_exact_handoff_queues_and_two_ports() -> No
         "yaml and yml",
         "git history",
         "zero unclassified active references",
-        "zero supported matching nonterminal",
-        "pending adjudication",
-        "early independent",
+        "matching nonterminal consumer",
+        "all five queues are drained",
+        "task 7",
     ):
         assert contract_term in normalized
 
-    assert "`pending_stage_6_scan`" in program
+    assert "`pending_stage_6_scan`" not in program
     assert re.search(r"design delta \.?orc primary satisfies", normalized)
     assert "class delete example archive ungated" not in normalized
     assert "port vs absorb decision" not in normalized
@@ -1231,28 +1232,32 @@ def test_yaml_retirement_program_uses_exact_handoff_queues_and_two_ports() -> No
     assert "never stage, restore, rewrite, format, or delete" not in normalized_release
 
 
-def test_yaml_task_5_is_complete_and_routes_next_to_task_6() -> None:
+def test_yaml_task_6_is_complete_and_routes_next_to_task_7() -> None:
     program = (
         REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md"
     ).read_text(encoding="utf-8")
-    docs_index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
     normalized_program = _normalized_routing_text(program)
-    normalized_index = _normalized_routing_text(docs_index)
     task_5 = program.split("### Task 5:", 1)[1].split("### Task 6:", 1)[0]
     task_6 = program.split("### Task 6:", 1)[1].split("### Task 7:", 1)[0]
+    task_7 = program.split("### Task 7:", 1)[1].split(
+        "## Program completion contract", 1
+    )[0]
 
     assert "complete" in _normalized_routing_text(task_5[:200])
-    assert re.search(r"\bcurrent selector\b.{0,20}\btask 6\b", normalized_program)
+    assert re.search(r"\bcurrent selector\b.{0,20}\btask 7\b", normalized_program)
     assert "task 5 is complete" in normalized_program
-    assert "task 6" in normalized_index and "current" in normalized_index
-    assert "task 5" in normalized_index and "complete" in normalized_index
     assert "reference" in _normalized_routing_text(task_6)
     assert "supported run" in _normalized_routing_text(task_6)
+    assert task_6.count("- [x]") == 6
+    assert "- [ ]" not in task_6
+    assert task_7.count("- [ ]") == 5
+    assert "- [x]" not in task_7
+    assert "eligible and current" in _normalized_routing_text(task_7)
     assert "2026-07-17-yaml-retirement-task-6-execution-plan.md" in program
     assert "task 5 remains the current selector" not in normalized_program
 
 
-def test_yaml_task_6_current_selector_governing_plan_is_tracked() -> None:
+def test_yaml_task_6_completed_governing_plan_is_tracked() -> None:
     program = (
         REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md"
     ).read_text(encoding="utf-8")
@@ -1899,3 +1904,12 @@ def test_task_12_scope_is_functional_and_review_subject_is_frozen() -> None:
     for step in range(1, 7):
         assert f"- [x] **Step {step}:" in task_12
     assert "- [x] **Step 7:" in task_12
+
+
+def test_final_yaml_holdout_is_retired_and_authored_workflow_estate_is_empty() -> None:
+    assert all(not (REPO_ROOT / path).exists() for path in FINAL_YAML_HOLDOUT_PATHS)
+    assert sorted(
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in (REPO_ROOT / "workflows").rglob("*")
+        if path.is_file() and path.suffix.lower() in {".yaml", ".yml"}
+    ) == []

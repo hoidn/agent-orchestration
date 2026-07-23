@@ -114,6 +114,15 @@ This records routing and authority only. It does not delete the YAML, attest
 that either deletion gate passed, make Task 7 eligible, add a schema or evidence
 process, or authorize mutation of run state.
 
+## Completion Note
+
+The owner-directed final batch subsequently passed its fresh reference,
+five-root supported-consumer, and live-process checks and retired the YAML,
+its dedicated test, and its YAML-only input helper without mutating run stores.
+The authored workflow YAML/YML estate is empty, all Task 6 queue work is
+drained, and Task 7 is now current and eligible. This note does not claim any
+Task 7 parser-removal implementation.
+
 ## Supersession Boundary
 
 For Stage 6 queue execution this ruling supersedes the Task 6 execution plan's
