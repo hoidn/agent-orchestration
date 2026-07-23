@@ -604,27 +604,20 @@ def test_watchdog_catalog_routes_new_launches_to_orc_and_retains_yaml_compatibil
     assert "python -m orchestrator run workflows/examples/generic_run_watchdog.yaml" not in launch
 
 
-def test_author_routing_templates_default_to_orc_and_inventory_yaml_only() -> None:
+def test_author_routing_templates_expose_only_the_orc_starting_point() -> None:
     document = _read_repository_text("workflows/templates/README.md")
     rows = _markdown_table_rows(_markdown_section(document, "## Template Routes"))
     rows_by_purpose = {row[0]: row for row in rows[1:]}
 
+    assert set(rows_by_purpose) == {"New template"}
     new_author_path = _repository_path_for_link(
         "workflows/templates/README.md",
         _markdown_link_target(rows_by_purpose["New template"][1]),
     )
     _assert_registry_approved_orc(new_author_path)
 
-    compatibility_path = _markdown_link_target(
-        rows_by_purpose["Existing YAML inventory"][1]
-    )
-    assert compatibility_path == "autonomous_drain_with_work_instructions.v214.yaml"
-    assert rows_by_purpose["Existing YAML inventory"][2] == "Compatibility only"
-    assert (_REPOSITORY_ROOT / "workflows/templates" / compatibility_path).is_file()
 
-
-def test_author_routing_new_author_routes_never_select_frozen_yaml_template() -> None:
-    frozen_template = "autonomous_drain_with_work_instructions.v214.yaml"
+def test_author_routing_new_author_routes_never_select_yaml() -> None:
     route_sections = (
         _markdown_section(_read_repository_text("README.md"), "## Start Here"),
         _markdown_section(_read_repository_text("docs/index.md"), "## Fast Triage"),
@@ -648,7 +641,6 @@ def test_author_routing_new_author_routes_never_select_frozen_yaml_template() ->
     assert selected_new_author_paths.count("lisp_workflow_drafting_guide.md") == 1
     assert sum(path.endswith(".orc") for path in selected_new_author_paths) == 3
     assert not any(path.endswith((".yaml", ".yml")) for path in selected_new_author_paths)
-    assert frozen_template not in selected_new_author_paths
 
 
 def test_author_routing_lisp_guide_records_gap_instead_of_creating_yaml() -> None:

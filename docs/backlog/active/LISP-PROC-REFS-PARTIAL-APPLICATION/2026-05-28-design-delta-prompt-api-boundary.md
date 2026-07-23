@@ -3,7 +3,7 @@
 - Status: active
 - Created on: 2026-05-28
 - Plan: none yet
-- Associated workflow: `workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml`
+- Associated workflow: none; the legacy ProcRef YAML wrapper was retired during Stage 6
 
 ## Scope
 
@@ -89,9 +89,7 @@ Rationale:
 ## Suggested Work
 
 1. Inventory the current Lisp frontend drain stack:
-   - `workflows/examples/lisp_frontend_autonomous_drain.yaml`
    - `workflows/examples/lisp_frontend_design_delta_drain.yaml`
-   - `workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml`
    - `workflows/library/lisp_frontend_*`
    - `workflows/library/prompts/lisp_frontend_*`
 2. Classify each prompt as:
@@ -135,6 +133,3 @@ Rationale:
 - Shared prompts contain no ProcRef-specific examples unless they live in a
   ProcRef-specific prompt directory.
 - Focused loader/prompt tests pass.
-- A dry-run validation of
-  `workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml`
-  passes.

@@ -33,7 +33,6 @@ def test_workflow_local_claude_opus_aliases_use_stdin_prompt_delivery():
         "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml",
         "workflows/library/lisp_frontend_design_delta_plan_phase.v214.yaml",
         "workflows/library/lisp_frontend_design_delta_implementation_phase.v214.yaml",
-        "workflows/library/lisp_frontend_implementation_phase.v214.yaml",
         "workflows/library/neurips_backlog_implementation_phase.v214.yaml",
         "workflows/library/neurips_backlog_implementation_phase.yaml",
     ]

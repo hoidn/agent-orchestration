@@ -1,6 +1,6 @@
 # Lisp Frontend Review/Fix Loops
 
-Status: design draft
+Status: historical compatibility design; its YAML sources were retired during Stage 6
 
 ## Problem
 
@@ -66,7 +66,7 @@ exhaustion; YAML's terminal `REVISE` is a compatibility projection.
 
 ## Architecture Phase Shape
 
-`workflows/library/lisp_frontend_design_gap_architect.v214.yaml` should draft an
+The legacy architecture phase was designed to draft an
 implementation architecture, review it, and revise it until approved before
 emitting a work-item bundle for the downstream plan/implementation stack.
 
@@ -98,7 +98,7 @@ implementation phases.
 
 ## Plan Phase Shape
 
-`workflows/library/lisp_frontend_plan_phase.v214.yaml` should keep the existing
+The legacy plan phase was designed to keep the existing
 input materialization and initial `DraftPlan` step, then wrap review and
 revision in a `repeat_until` loop.
 
@@ -147,7 +147,7 @@ The phase output `plan_review_decision` must come from
 
 ## Implementation Phase Shape
 
-`workflows/library/lisp_frontend_implementation_phase.v214.yaml` should keep
+The legacy implementation phase was designed to keep
 the existing input materialization and initial `ExecuteImplementation` step.
 When `implementation_state == BLOCKED`, the phase should skip review and emit
 `implementation_review_decision = NOT_APPLICABLE`. When
@@ -213,7 +213,7 @@ artifact, not from the review decision output.
 
 ## Work-Item Terminal Routing
 
-`workflows/examples/lisp_frontend_autonomous_drain.yaml` must route the
+The legacy top-level drain was required to route the
 design-gap architecture result before invoking the work-item stack:
 
 ```text
@@ -227,7 +227,7 @@ RouteArchitectureStatus
     RecordInvalidDesignGapArchitecture reason=architecture_validation_invalid
 ```
 
-`workflows/library/lisp_frontend_work_item.v214.yaml` must also stop treating a
+The legacy work-item phase was also required to stop treating a
 returned implementation phase as automatically complete.
 
 The work-item workflow should route terminal state as follows:

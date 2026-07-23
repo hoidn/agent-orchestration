@@ -717,16 +717,6 @@ before adding or preserving the command boundary.
 **Keywords:** workflows, watchdog, run-monitoring, repair, resume, v2.14, yaml-compatibility
 **Use this when:** Operating or auditing the retained YAML watchdog before its Task 6 deletion gate; do not use it for new launches.
 
-### [Lisp Frontend Autonomous Drain](../workflows/examples/lisp_frontend_autonomous_drain.yaml)
-**Description:** v2.14 local drain for Lisp frontend MVP/full-design work. The selector can choose an active backlog item or identify an unimplemented design gap, draft an implementation architecture, and route the normalized work item through the plan/implementation stack without roadmap phase gating.
-**Keywords:** workflows, lisp-frontend, autonomous-drain, design-gap, backlog, v2.14
-**Use this when:** Running Lisp frontend implementation work from either explicit backlog items or design gaps discovered from the frontend specifications.
-
-### [Lisp Frontend ProcRef Delta Drain](../workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml)
-**Description:** Focused successor drain for the ProcRef / `bind-proc` delta. It uses the ProcRef design as the active target, passes the completed frontend specification as baseline context, and writes to a separate ProcRef state/plan namespace.
-**Keywords:** workflows, lisp-frontend, procref, bind-proc, autonomous-drain, design-delta, v2.14
-**Use this when:** Running the scoped ProcRef / partial-application implementation tranche without reopening the completed full frontend drain.
-
 ### [Managed Provider Jobs Demo](../workflows/examples/managed_provider_jobs_demo.yaml)
 **Route scope:** `existing_yaml_compatibility`
 **Copy role:** `not_new_author_template`

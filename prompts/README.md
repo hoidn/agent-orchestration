@@ -44,8 +44,6 @@ These prompt families were used by workflows run in the last two days, but they 
 
 These workflows were run in the last two days but do not contribute dedicated repo prompt files, so they are not represented in the canonical table:
 
-- [scalar_bookkeeping_demo.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/scalar_bookkeeping_demo.yaml)
-- [workflow_signature_demo.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/workflow_signature_demo.yaml)
 - [repeat_until_demo.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/repeat_until_demo.yaml)
 
 Excluded as non-canonical scratch/test run:

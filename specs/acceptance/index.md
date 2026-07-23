@@ -273,12 +273,12 @@ remains mapped as follows:
 ## DSL Evolution Rollout Crosswalk
 
 - Task 2 executable proof: `tests/test_loader_validation.py` and `tests/test_runtime_step_lifecycle.py`
-- Task 3 executable proof: `tests/test_typed_predicates.py`, `tests/test_conditional_execution.py`, `tests/test_observability_report.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/typed_predicate_routing.yaml`
-- Task 4 executable proof: `tests/test_scalar_bookkeeping.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_runtime_step_lifecycle.py`, and `workflows/examples/scalar_bookkeeping_demo.yaml`
+- Task 3 executable proof: `tests/test_typed_predicates.py`, `tests/test_conditional_execution.py`, and `tests/test_observability_report.py`
+- Task 4 executable proof: `tests/test_scalar_bookkeeping.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, and `tests/test_runtime_step_lifecycle.py`
 - Task 5 executable proof: `tests/test_control_flow_foundations.py`, `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, and `tests/test_retry_behavior.py`
 - Task 6 executable proof: `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_artifact_dataflow_integration.py`, and `tests/test_at65_loop_scoping.py`
-- Task 7 executable proof: `tests/test_loader_validation.py`, `tests/test_cli_safety.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_output_contract.py`, `tests/test_workflow_output_contract_integration.py`, and `workflows/examples/workflow_signature_demo.yaml`
-- Task 8 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, and `workflows/examples/structured_if_else_demo.yaml`
+- Task 7 executable proof: `tests/test_loader_validation.py`, `tests/test_cli_safety.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_output_contract.py`, and `tests/test_workflow_output_contract_integration.py`
+- Task 8 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_state_manager.py`, and `tests/test_resume_command.py`
 - Task 9 executable proof: `tests/test_structured_control_flow.py`, `tests/test_resume_command.py`, and `tests/test_observability_report.py`
 - Task 10 contract-boundary stability proof: `pytest tests/test_loader_validation.py -k "call or import or version" -v`, plus a forward-proof cross-check that each acceptance item 147-158 is mapped to Task 11 coverage below.
 - Task 10 -> Task 11 reusable-call proof map:
@@ -299,7 +299,7 @@ remains mapped as follows:
 | 158 | `tests/test_resume_command.py` and `tests/test_state_manager.py` coverage for call-frame identities, deferred export state, and operator-facing diagnostics |
 
 - Task 11 executable proof: `tests/test_subworkflow_calls.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_dependency_resolution.py`, `tests/test_dependency_injection.py`, `tests/test_prompt_contract_injection.py`, `tests/test_provider_execution.py`, `tests/test_provider_integration.py`, and `tests/test_secrets.py`
-- Task 12 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, and `workflows/examples/match_demo.yaml`
+- Task 12 executable proof: `tests/test_loader_validation.py` and `tests/test_structured_control_flow.py`
 - Task 13 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_resume_command.py`, and `workflows/examples/repeat_until_demo.yaml`
 - Task 15 executable proof: `tests/test_adjudicated_provider_loader.py`, `tests/test_adjudicated_provider_baseline.py`, `tests/test_adjudicated_provider_promotion.py`, `tests/test_adjudicated_provider_scoring.py`, `tests/test_adjudicated_provider_runtime.py`, and `tests/test_adjudicated_provider_outcomes.py`
 

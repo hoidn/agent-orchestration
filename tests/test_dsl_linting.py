@@ -501,7 +501,6 @@ def test_lint_does_not_warn_for_active_examples_using_preferred_relpath_boundary
     repo_root = _repo_root()
     loader = WorkflowLoader(repo_root)
     workflow_paths = [
-        "workflows/examples/workflow_signature_demo.yaml",
         "workflows/examples/library/repeat_until_review_loop.yaml",
         "workflows/library/review_fix_loop.yaml",
         "workflows/library/tracked_design_phase.yaml",

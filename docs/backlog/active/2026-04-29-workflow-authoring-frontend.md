@@ -3,7 +3,7 @@
 - Status: active
 - Created on: 2026-04-29
 - Plan: none yet
-- Associated workflow: `workflows/examples/lisp_frontend_autonomous_drain.yaml`
+- Associated workflow: none; the legacy YAML drain was retired during Stage 6
 
 ## Scope
 Design a better authoring frontend for complex orchestrator workflows while preserving the current YAML DSL as a compatibility and serialization target.
@@ -83,16 +83,10 @@ The clean architecture is:
 
 ## Workflow For This Work
 
-The Lisp frontend MVP/full-design work can now be driven by
-`workflows/examples/lisp_frontend_autonomous_drain.yaml`. This workflow is a
-local v2.14 sibling of the NeurIPS-style drain, but it intentionally does not
-use roadmap phase gating. Its selector can either choose an explicit active
-backlog item or identify an unimplemented portion of the Lisp frontend design,
-send that gap to a design-gap architecture drafter, and route the resulting
-work-item bundle through the same plan/implementation stack.
-
-Use this workflow when the next implementation target may reasonably come from
-the design docs rather than a pre-existing active backlog item.
+The former local v2.14 YAML drain for this work was retired during Stage 6.
+Select any future implementation work through the current roadmap and
+registry-approved Workflow Lisp routes rather than reviving that compatibility
+workflow.
 
 The first design pass should decide whether this frontend should wait for the AST/IR boundary or can land as a compiler that emits current YAML plus strict dry-run validation.
 
