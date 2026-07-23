@@ -154,6 +154,11 @@ document owns the answer.
 **Keywords:** workflow-lisp, roadmap, sequencing, parametric-types, procedure-first, refactoring, yaml-retirement
 **Use this when:** Choosing which remaining refactor or Workflow Lisp migration plan to execute next, or checking the required handoff gates between them.
 
+### [Workflow Lisp Evolution Follow-On Roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md)
+**Description:** Proposed, non-active E0-E5 follow-on program that starts with an external pure-expression proving experiment, separates neutral variant/trial substrate from code and prompt evolution, and leaves effectful mutation deferred behind a real sandbox and capability model.
+**Keywords:** workflow-lisp, evolution, variants, trials, genetic-search, prompt-evolution, roadmap
+**Use this when:** Reviewing the conditional E-series direction, including E0's non-blocking probe and the post-S8 substrate gates. Do not use it to select work; Stage 6 Task 6 remains current and no E-series manifest exists.
+
 ### [Procedure-First Reuse Contract](design/workflow_lisp_procedure_first_reuse_contract.md)
 **Description:** Accepted boundary and migration contract: workflows own durable public run/resume/invocation/publication identity, while typed procedures are the normal internal reuse unit with explicit lowering and caller-visible effects.
 **Keywords:** workflow-lisp, procedures, workflows, reuse, effects, lowering, migration
@@ -833,5 +838,5 @@ before adding or preserving the command boundary.
 
 ---
 
-*Last updated: April 2026*
+*Last updated: July 2026*
 *Style: detailed catalog with descriptions, keywords, and task-oriented navigation*
