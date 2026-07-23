@@ -2687,80 +2687,6 @@ def test_run_migration_parity_preserves_unselected_targets_in_aggregate_index(
     ]
 
 
-def test_design_plan_impl_stack_manifest_uses_defaulted_dry_run_and_procedure_first_evidence() -> None:
-    payload = json.loads(
-        (
-            Path(__file__).resolve().parents[1]
-            / "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
-        ).read_text(encoding="utf-8")
-    )
-    target = next(
-        entry for entry in payload["targets"] if entry["workflow_family"] == "design_plan_impl_stack"
-    )
-
-    dry_run_argv = target["evidence_commands"]["dry_run"]
-    assert dry_run_argv.count("--input") == 7
-    assert "brief_path=workflows/examples/inputs/major_project_brief.md" in dry_run_argv
-
-    loop_entry = next(
-        entry
-        for entry in target["deprecated_yaml_mechanics"]
-        if entry["mechanic"] == "full YAML review-revise loop with carried findings extraction"
-    )
-    assert loop_entry["replacement"] == (
-        "family-specific .orc design_plan_impl_stack parity route with typed "
-        "review decisions, validated artifacts, and reusable phase-state evidence"
-    )
-    stale = [
-        entry
-        for entry in target["deprecated_yaml_mechanics"]
-        if entry["mechanic"] == "full YAML review-revise loop with carried findings extraction"
-        and not entry.get("replacement")
-        and not entry.get("waiver")
-    ]
-    assert not stale
-
-    retained_run_command = [
-        "python",
-        "-m",
-        "pytest",
-        "tests/test_workflow_lisp_key_migrations.py",
-        "-k",
-        "tracked_plan_phase_retained_run_evidence_replays",
-        "-q",
-    ]
-    for role in (
-        "smoke_or_integration",
-        "terminal_state_parity",
-        "artifact_parity",
-        "resume_parity",
-    ):
-        assert target["evidence_commands"][role] == retained_run_command
-
-    assert target["evidence_commands"]["output_contract_parity"] == [
-        "python",
-        "-m",
-        "pytest",
-        "tests/test_workflow_lisp_key_migrations.py",
-        "tests/test_workflow_lisp_procedure_first_migrations.py",
-        "-k",
-        (
-            "tracked_plan_phase_retained_run_evidence_replays or "
-            "tracked_plan_phase_contract_matches_frozen_pre_migration_baseline"
-        ),
-        "-q",
-    ]
-
-    assert target["baseline_characterization"]["resume_behavior"] == [
-        (
-            "same-ID post-plan-draft default resume restores the validated prior boundary, "
-            "reuses design.draft, design.review, and plan.draft exactly once, and executes "
-            "plan.review, implementation.execute, and implementation.review exactly once"
-        )
-    ]
-    assert "resume-or-start reusable phase-state validation" not in json.dumps(target)
-
-
 def test_checked_in_verified_parity_target_has_complete_promoted_contract() -> None:
     payload = json.loads(
         (
@@ -2867,7 +2793,7 @@ def test_checked_in_watchdog_parity_target_has_complete_promoted_contract() -> N
     assert target["command_boundaries_file"].endswith("generic_run_watchdog.commands.json")
 
 
-def test_promoted_design_delta_target_is_retired_but_historical_report_is_preserved() -> None:
+def test_promoted_design_delta_target_is_retired_from_live_manifest_but_historical_report_is_preserved() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     manifest_path = (
         repo_root
@@ -2876,8 +2802,6 @@ def test_promoted_design_delta_target_is_retired_but_historical_report_is_preser
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert [entry["workflow_family"] for entry in payload["targets"]] == [
-        "cycle_guard_demo",
-        "design_plan_impl_stack",
         "verified_iteration_drain",
         "generic_run_watchdog",
     ]

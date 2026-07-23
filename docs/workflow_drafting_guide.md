@@ -493,12 +493,6 @@ If a workflow can be derailed by an unrelated commit landing in the same checkou
 
 Use `adjudicated_provider` for artifact-producing work where comparing multiple candidates is worth the extra runtime and audit state. Good fits include design drafts, report generation, structured analyses, and other deterministic-output steps where downstream workflow state should see only the selected artifact.
 
-For an existing YAML/YML workflow that already depends on this surface,
-`workflows/examples/adjudicated_provider_demo.yaml` is the retained runnable
-compatibility example for v2.11 behavior. Genuinely new adjudicated-provider
-work starts in the Workflow Lisp guide and selects a registry-approved `.orc`
-shape; do not copy the YAML demo as the basis of another family.
-
 Do not use it as a generic implementation or source-edit competition mechanism in V1. The first release promotes declared deterministic outputs only; arbitrary patch selection belongs in a separate workflow design.
 
 Keep the evaluator prompt reusable and small. Put task-specific rubric text in a concise evaluator rubric source when needed, and keep score-critical evidence bounded so packets are reviewable.

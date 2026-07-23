@@ -627,7 +627,7 @@ def test_registry_evidence_accepts_current_parity_target_selector(
                 _base_entry(
                     evidence=[
                         "workflows/examples/inputs/workflow_lisp_migrations/"
-                        "parity_targets.json::cycle_guard_demo"
+                        "parity_targets.json::verified_iteration_drain"
                     ]
                 )
             ],
@@ -765,7 +765,7 @@ def test_migration_target_identity_mismatch_codes(tmp_path: Path) -> None:
     target = next(
         target
         for target in targets
-        if target.workflow_family == "design_plan_impl_stack"
+        if target.workflow_family == "verified_iteration_drain"
     )
     target = replace(
         target,

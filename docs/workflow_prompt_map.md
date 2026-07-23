@@ -9,9 +9,6 @@ Resolution rules:
 
 | Workflow | Step | Field | Authored Path | Resolved Path | Exists |
 | --- | --- | --- | --- | --- | --- |
-| `workflows/examples/claude_basic.yaml` | `GenerateDocumentation` | `input_file` | `prompts/document_request.md` | `prompts/document_request.md` | no |
-| `workflows/examples/claude_with_model.yaml` | `CodeReview` | `input_file` | `prompts/review_code.md` | `prompts/review_code.md` | no |
-| `workflows/examples/claude_with_model.yaml` | `QuickCheck` | `input_file` | `prompts/quick_check.md` | `prompts/quick_check.md` | no |
 | `workflows/examples/dsl_follow_on_plan_impl_review_loop.yaml` | `DraftPlan` | `input_file` | `prompts/workflows/dsl_follow_on_plan_impl_loop/draft_plan.md` | `prompts/workflows/dsl_follow_on_plan_impl_loop/draft_plan.md` | yes |
 | `workflows/examples/dsl_follow_on_plan_impl_review_loop.yaml` | `ExecuteImplementation` | `input_file` | `prompts/workflows/dsl_follow_on_plan_impl_loop/implement_plan.md` | `prompts/workflows/dsl_follow_on_plan_impl_loop/implement_plan.md` | yes |
 | `workflows/examples/dsl_follow_on_plan_impl_review_loop.yaml` | `FixImplementation` | `input_file` | `prompts/workflows/dsl_follow_on_plan_impl_loop/fix_implementation.md` | `prompts/workflows/dsl_follow_on_plan_impl_loop/fix_implementation.md` | yes |

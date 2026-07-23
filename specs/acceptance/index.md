@@ -272,14 +272,14 @@ remains mapped as follows:
 
 ## DSL Evolution Rollout Crosswalk
 
-- Task 2 executable proof: `tests/test_loader_validation.py`, `tests/test_runtime_step_lifecycle.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/assert_gate_demo.yaml`
+- Task 2 executable proof: `tests/test_loader_validation.py` and `tests/test_runtime_step_lifecycle.py`
 - Task 3 executable proof: `tests/test_typed_predicates.py`, `tests/test_conditional_execution.py`, `tests/test_observability_report.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/typed_predicate_routing.yaml`
-- Task 4 executable proof: `tests/test_scalar_bookkeeping.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_runtime_step_lifecycle.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/scalar_bookkeeping_demo.yaml`
-- Task 5 executable proof: `tests/test_control_flow_foundations.py`, `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_retry_behavior.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/cycle_guard_demo.yaml`
+- Task 4 executable proof: `tests/test_scalar_bookkeeping.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_runtime_step_lifecycle.py`, and `workflows/examples/scalar_bookkeeping_demo.yaml`
+- Task 5 executable proof: `tests/test_control_flow_foundations.py`, `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, and `tests/test_retry_behavior.py`
 - Task 6 executable proof: `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_at65_loop_scoping.py`, and `workflows/examples/for_each_demo.yaml` dry-run verification
-- Task 7 executable proof: `tests/test_loader_validation.py`, `tests/test_cli_safety.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_output_contract.py`, `tests/test_workflow_output_contract_integration.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/workflow_signature_demo.yaml`
-- Task 8 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/structured_if_else_demo.yaml`
-- Task 9 executable proof: `tests/test_structured_control_flow.py`, `tests/test_resume_command.py`, `tests/test_observability_report.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/finally_demo.yaml`
+- Task 7 executable proof: `tests/test_loader_validation.py`, `tests/test_cli_safety.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_output_contract.py`, `tests/test_workflow_output_contract_integration.py`, and `workflows/examples/workflow_signature_demo.yaml`
+- Task 8 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, and `workflows/examples/structured_if_else_demo.yaml`
+- Task 9 executable proof: `tests/test_structured_control_flow.py`, `tests/test_resume_command.py`, `tests/test_observability_report.py`, and `workflows/examples/finally_demo.yaml`
 - Task 10 contract-boundary stability proof: `pytest tests/test_loader_validation.py -k "call or import or version" -v`, plus a forward-proof cross-check that each acceptance item 147-158 is mapped to Task 11 coverage below.
 - Task 10 -> Task 11 reusable-call proof map:
 
@@ -287,7 +287,7 @@ remains mapped as follows:
 | --- | --- |
 | 147 | `tests/test_subworkflow_calls.py` coverage bullet for caller/callee same-version rejection; verification command `pytest tests/test_subworkflow_calls.py tests/test_loader_validation.py tests/test_artifact_dataflow_integration.py tests/test_state_manager.py tests/test_resume_command.py -k "call or call_frame or resume" -v` |
 | 148 | `tests/test_subworkflow_calls.py` coverage bullet for typed `with:` binding against callee inputs; same Task 11 call-frame verification command |
-| 149 | `tests/test_subworkflow_calls.py` coverage bullet for caller-visible outputs surfacing as `steps.<CallStep>.artifacts.<name>`; `tests/test_workflow_examples_v0.py -k call_subworkflow -v`; dry-run `python -m orchestrator run workflows/examples/call_subworkflow_demo.yaml --dry-run` |
+| 149 | `tests/test_subworkflow_calls.py` coverage for caller-visible outputs surfacing as `steps.<CallStep>.artifacts.<name>` |
 | 150 | `tests/test_subworkflow_calls.py` coverage bullet for reusable-workflow rejection when DSL-managed write roots remain fixed instead of parameterized typed `relpath` inputs; same Task 11 call-frame verification command |
 | 151 | `tests/test_subworkflow_calls.py` coverage bullet for call-site rejection when required write-root inputs are missing or colliding; same Task 11 call-frame verification command |
 | 152 | Task 11 Step 2 coverage for source-relative asset resolution plus path-traversal rejection in `tests/test_dependency_resolution.py`, `tests/test_dependency_injection.py`, `tests/test_provider_execution.py`, `tests/test_provider_integration.py`, and `tests/test_secrets.py`; verification command `pytest tests/test_dependency_resolution.py tests/test_dependency_injection.py tests/test_prompt_contract_injection.py tests/test_provider_execution.py tests/test_provider_integration.py tests/test_secrets.py -k "asset or import or call or path or context" -v` |
@@ -295,13 +295,13 @@ remains mapped as follows:
 | 154 | `tests/test_subworkflow_calls.py` bullet for preserved callee-internal provenance plus `tests/test_state_manager.py` coverage for persisted export metadata; verified by the Task 11 call-frame verification command |
 | 155 | `tests/test_subworkflow_calls.py` bullet for private provider/artifact/context namespaces and callee-default isolation plus the Task 11 asset/import/path/context verification command |
 | 156 | `tests/test_subworkflow_calls.py`, `tests/test_artifact_dataflow_integration.py`, and `tests/test_state_manager.py` coverage for call-scoped `artifact_versions` / `artifact_consumes` / freshness bookkeeping; verified by the Task 11 call-frame verification command |
-| 157 | `tests/test_subworkflow_calls.py` and `tests/test_resume_command.py` coverage for deferred export until callee finalization completes plus suppression on finalization failure; verified by the Task 11 call-frame verification command, the `call_subworkflow_demo` run command, and `pytest tests/test_resume_command.py -k call_subworkflow_smoke -v` |
-| 158 | `tests/test_resume_command.py` and `tests/test_state_manager.py` coverage for call-frame identities, deferred export state, and operator-facing diagnostics, plus the `call_subworkflow_demo` run/resume commands |
+| 157 | `tests/test_subworkflow_calls.py` and `tests/test_resume_command.py` coverage for deferred export until callee finalization completes plus suppression on finalization failure; verified by the Task 11 call-frame verification command and `pytest tests/test_resume_command.py -k call_subworkflow_smoke -v` |
+| 158 | `tests/test_resume_command.py` and `tests/test_state_manager.py` coverage for call-frame identities, deferred export state, and operator-facing diagnostics |
 
-- Task 11 executable proof: `tests/test_subworkflow_calls.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_dependency_resolution.py`, `tests/test_dependency_injection.py`, `tests/test_prompt_contract_injection.py`, `tests/test_provider_execution.py`, `tests/test_provider_integration.py`, `tests/test_secrets.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/call_subworkflow_demo.yaml`
-- Task 12 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/match_demo.yaml`
-- Task 13 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_resume_command.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/repeat_until_demo.yaml`
-- Task 15 executable proof: `tests/test_adjudicated_provider_loader.py`, `tests/test_adjudicated_provider_baseline.py`, `tests/test_adjudicated_provider_promotion.py`, `tests/test_adjudicated_provider_scoring.py`, `tests/test_adjudicated_provider_runtime.py`, `tests/test_adjudicated_provider_outcomes.py`, `tests/test_workflow_examples_v0.py -k adjudicated`, and `workflows/examples/adjudicated_provider_demo.yaml` dry-run verification
+- Task 11 executable proof: `tests/test_subworkflow_calls.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_dependency_resolution.py`, `tests/test_dependency_injection.py`, `tests/test_prompt_contract_injection.py`, `tests/test_provider_execution.py`, `tests/test_provider_integration.py`, and `tests/test_secrets.py`
+- Task 12 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, and `workflows/examples/match_demo.yaml`
+- Task 13 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_resume_command.py`, and `workflows/examples/repeat_until_demo.yaml`
+- Task 15 executable proof: `tests/test_adjudicated_provider_loader.py`, `tests/test_adjudicated_provider_baseline.py`, `tests/test_adjudicated_provider_promotion.py`, `tests/test_adjudicated_provider_scoring.py`, `tests/test_adjudicated_provider_runtime.py`, and `tests/test_adjudicated_provider_outcomes.py`
 
 ## Future Acceptance (v1.2)
 

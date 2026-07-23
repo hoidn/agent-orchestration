@@ -60,9 +60,6 @@ Notes:
 
 New prototype workflows using deterministic file-based handoff contracts:
 
-- `workflows/examples/backlog_plan_execute_v0.yaml`
-  - Pattern: `docs/backlog -> select item -> draft plan -> execute plan -> optional review loop`.
-  - Deterministic handoff uses `expected_outputs` and `steps.<Step>.artifacts.<name>`.
 - `workflows/examples/test_fix_loop_v0.yaml`
   - Pattern: `run tests -> gate -> fix -> retry` with a max-cycle guard.
   - Gate uses artifact file `state/test_fail_count.txt` parsed as integer.

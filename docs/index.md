@@ -735,11 +735,6 @@ before adding or preserving the command boundary.
 **Keywords:** managed-jobs, provider, v2.13, audit, recovery, shim, yaml-compatibility
 **Use this when:** Maintaining or debugging an existing YAML/YML managed-jobs workflow; it is compatibility evidence, not a copyable new-author starting point.
 
-### [v0 Artifact-Contract Prototype Runbook](../workflows/examples/README_v0_artifact_contract.md)
-**Description:** Runbook for deterministic file-based handoff prototypes, including verification commands and known limits.  
-**Keywords:** runbook, artifact-contracts, deterministic-handoff, prototype  
-**Use this when:** Running or extending backlog/plan execute-review-fix prototypes.
-
 ### [Workflow Examples Directory](../workflows/examples/)
 **Route scope:** `reference_only`
 **Copy role:** `not_new_author_template`
