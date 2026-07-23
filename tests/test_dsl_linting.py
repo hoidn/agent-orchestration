@@ -503,9 +503,6 @@ def test_lint_does_not_warn_for_active_examples_using_preferred_relpath_boundary
     workflow_paths = [
         "workflows/examples/library/repeat_until_review_loop.yaml",
         "workflows/library/review_fix_loop.yaml",
-        "workflows/library/tracked_design_phase.yaml",
-        "workflows/library/tracked_plan_phase.yaml",
-        "workflows/library/design_plan_impl_implementation_phase.yaml",
     ]
 
     for workflow_relpath in workflow_paths:

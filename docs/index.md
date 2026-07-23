@@ -725,14 +725,6 @@ before adding or preserving the command boundary.
 **Keywords:** examples, reference-corpus, yaml-compatibility, workflow-lisp, retries, loops, dataflow
 **Use this when:** Inspecting historical or compatibility behavior. Select new-author examples through the route-readiness registry rather than treating the directory as a template source.
 
-### [NeurIPS Hybrid ResNet Plan/Implementation Workflow](../workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml)
-**Route scope:** `existing_yaml_compatibility`
-**Copy role:** `not_new_author_template`
-**New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
-**Description:** Input-required retained YAML compatibility workflow that loops over roadmap tranche selection from a supplied design and roadmap, then runs plan drafting/review and implementation/review for each selected tranche.
-**Keywords:** workflows, call, roadmap, design, tranche-selection, plan-review, implementation-review, yaml-compatibility
-**Use this when:** Maintaining or auditing this existing NeurIPS/Hybrid-ResNet route and its explicit roadmap, design, tranche, and ledger context; do not use it as a reusable template for new authoring.
-
 ### [PtychoPINN Backlog Plan Slice Loop (Downstream Reference)](../workflows/examples/ptychopinn_backlog_plan_slice_impl_review_loop.yaml)
 **Description:** Informative snapshot of a real downstream workflow copied from `PtychoPINN/workflows/agent_orchestration/backlog_plan_slice_impl_review_loop.yaml` at source commit `370f641fdf84` (copied March 3, 2026).  
 **Keywords:** downstream, ptychopinn, backlog, execute-review-loop, reference  

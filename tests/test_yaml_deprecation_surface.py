@@ -514,11 +514,6 @@ def test_author_routing_deep_yaml_guide_sections_are_compatibility_scoped(
             "`existing_yaml_compatibility`",
         ),
         ("### [Workflow Examples Directory](../workflows/examples/)", "`reference_only`"),
-        (
-            "### [NeurIPS Hybrid ResNet Plan/Implementation Workflow]"
-            "(../workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml)",
-            "`existing_yaml_compatibility`",
-        ),
     ),
 )
 def test_author_routing_docs_index_yaml_catalog_entries_are_not_copy_routes(
