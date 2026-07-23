@@ -1,0 +1,20 @@
+{
+  "claims_not_made": [
+    "Archived Task 2 attempts and their reviews or owner adoption are diagnostic only and do not govern or transfer to this fresh baseline.",
+    "This review is not personal owner adoption and does not authorize remediation or source, store, workflow, run-root, or repository mutation.",
+    "This review does not waive any mismatch in the bound candidate, ledger, raw broad evidence, normalization contract, failure signatures, or ownership partition."
+  ],
+  "issues": [],
+  "result": "approved",
+  "review_kind": "specification",
+  "reviewed_at": "2026-07-23T01:16:53-07:00",
+  "reviewer": {
+    "identity": "codex:/root/task2_spec_review_finalize"
+  },
+  "schema_version": "review.v1",
+  "subject": {
+    "kind": "implementation_failure_baseline",
+    "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-baseline/known-failure-baseline.json",
+    "sha256": "sha256:5068e5b98365c277715db28e21227290714cb3994b0a2535dddff3cd34c1e961"
+  }
+}

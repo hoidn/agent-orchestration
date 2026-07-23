@@ -2,25 +2,42 @@
   "claims_not_made": [
     "This ledger does not authorize deletion, owner action, or workflow execution."
   ],
-  "current_task": 3,
+  "current_task": 2,
   "last_transition": {
-    "evidence_bindings": [],
+    "evidence_bindings": [
+      {
+        "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/attestations/pre-implementation/broad-failure-baseline.json",
+        "sha256": "sha256:56c8ffc74b6d730c59be43bb8577357fe4644d984c0d2e8bfe205463b7c7795a"
+      },
+      {
+        "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-baseline/known-failure-baseline.json",
+        "sha256": "sha256:5068e5b98365c277715db28e21227290714cb3994b0a2535dddff3cd34c1e961"
+      },
+      {
+        "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/reviews/implementation-baseline-quality.json",
+        "sha256": "sha256:3b980a9a1158fda596eae52212c1eb9f6f9d1da6ff24373202859edc96f4c89a"
+      },
+      {
+        "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/reviews/implementation-baseline-specification.json",
+        "sha256": "sha256:229de4b7e4c440068e48a2906c73d095b54fa1e17346037751f652531cd18aa5"
+      }
+    ],
     "future_bindings": [],
-    "new_status": "complete",
+    "new_status": "in_progress",
     "old_status": "in_progress",
-    "prepared_at": "2026-07-23T16:30:21.735186+00:00",
+    "prepared_at": "2026-07-23T16:30:21.735185+00:00",
     "prior_generation_binding": {
-      "generation": 12,
+      "generation": 11,
       "output_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/execution-ledger.json",
-      "request_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/materialization-inputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000012-fb6561aa1025e85f81fdb83b18a8d614370f086a0516dded11082c9417cb0ca9.json",
-      "request_sha256": "sha256:ee86d1074cd8e8b950c802960edb496495b9b8ee529df27fc0b10eeff76991c7",
-      "snapshot_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/immutable-outputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000012-7396056d6ebaf1138976e3fc5176524db9cb5695b5f83d549a434ad27a518ebc.json",
-      "snapshot_sha256": "sha256:7396056d6ebaf1138976e3fc5176524db9cb5695b5f83d549a434ad27a518ebc"
+      "request_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/materialization-inputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000011-8afc258f81ed371edca1137ab157b8f9dc6374f2a0f31e63b7efab43a8f25a0b.json",
+      "request_sha256": "sha256:3b1e441352413b7e8871454f1518981a73a49448e84770eade1b0f153925ca64",
+      "snapshot_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/immutable-outputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000011-5a97c06e467cd2fd3e52a2d9b9129add659a74f8b9619a04a20e305ed4263bcd.json",
+      "snapshot_sha256": "sha256:5a97c06e467cd2fd3e52a2d9b9129add659a74f8b9619a04a20e305ed4263bcd"
     },
-    "step_number": 8,
+    "step_number": 7,
     "task_number": 2
   },
-  "normalized_ledger_sha256": "sha256:166db56c82b6980ced61c1f36eca0e10611a6e9c979e741c75cbfee05e175b00",
+  "normalized_ledger_sha256": "sha256:01836f7504fea3425057a37143e64e6e021c1060243e6c8ec026b94659f63bb3",
   "plan_binding": {
     "path": "docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md",
     "sha256": "sha256:20096b44d03017780394a6789c39705912da1909847ab3460a312c65dcb066fb"
@@ -50,7 +67,7 @@
       "total_step_count": 4
     },
     {
-      "completed_step_count": 8,
+      "completed_step_count": 7,
       "evidence_bindings": [
         {
           "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/attestations/pre-implementation/broad-failure-baseline.json",
@@ -89,7 +106,7 @@
           "sha256": "sha256:b46734b0ce2dee8c139a1248bd6d33dbde5a631fddeadf07eaa357fee66e7d4d"
         }
       ],
-      "status": "complete",
+      "status": "in_progress",
       "task_number": 2,
       "title": "Characterize, Adopt, And Freeze The Pre-Implementation Boundary",
       "total_step_count": 8
@@ -97,7 +114,7 @@
     {
       "completed_step_count": 0,
       "evidence_bindings": [],
-      "status": "in_progress",
+      "status": "pending",
       "task_number": 3,
       "title": "Extract Stable Generic State-Store Traversal",
       "total_step_count": 6

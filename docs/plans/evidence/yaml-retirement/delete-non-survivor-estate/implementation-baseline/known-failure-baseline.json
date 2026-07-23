@@ -1,0 +1,209 @@
+{
+  "broad_outcome_binding": {
+    "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-baseline/outcome.json",
+    "sha256": "sha256:ac83eea250ef4eca38d27ab3cf56bbb86a5173bd4fce4b861744db50d9b23411"
+  },
+  "candidate_binding": {
+    "candidate_path_set_sha256": "sha256:2d7964f4e8443869623447a316412d2589ac74aaffededc3563387c36f259fae",
+    "candidate_paths": [
+      {
+        "path": "docs/plans/2026-06-20-workflow-step-back-non-progress-recovery-plan.md",
+        "sha256": "sha256:9db000b1889c07156ccbf69cadae8a7cc3ea3993275f13e982d74778759b2684",
+        "size": 22714,
+        "state": "modified"
+      },
+      {
+        "path": "docs/plans/2026-07-01-workflow-audit-tier-fixes.md",
+        "sha256": "sha256:0e59fdcd45625f7f6b5985cb6a86692547e4a6b8d7c2a3335a809043c983cde3",
+        "size": 39821,
+        "state": "modified"
+      },
+      {
+        "path": "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/remaining-neurips-migration-experiment/migration_experiment_recommendation_report.md",
+        "sha256": "sha256:95ca608f11d58953ed39ca42881c18911f34c47b85481f391dddc75e957059a6",
+        "size": 3202,
+        "state": "modified"
+      },
+      {
+        "path": "docs/reports/2026-07-22-compelling-example-search-and-effectiveness-doubts.md",
+        "sha256": "sha256:1eaeac618ce7797e6f088cd4962f8718776f69b73f2347ee6f88075171e1c918",
+        "size": 12513,
+        "state": "added"
+      },
+      {
+        "path": "state/VERIFIED-ITERATION-DRAIN/iterations/22/checks-log.txt",
+        "sha256": "sha256:6ba015e073855b2c33aa7e6220fb7148bb528fd9fc0215b670c0411d8a1106e5",
+        "size": 8137,
+        "state": "modified"
+      },
+      {
+        "path": "tests/test_workflow_non_progress_step_back_demo.py",
+        "sha256": "sha256:ff8cf3f6d14136a2a93eb20da09841623d7cf8de4fb742fe65461fc06b20e46c",
+        "size": 2796,
+        "state": "modified"
+      },
+      {
+        "path": "workflows/examples/non_progress_step_back_demo.yaml",
+        "sha256": "sha256:8887b2c8d6d645cd5aed94a7b6121fdfebdae7dba25dd5105a8071bd0554fc25",
+        "size": 4735,
+        "state": "modified"
+      },
+      {
+        "path": "workflows/library/prompts/workflow_step_back/diagnose_non_progress.md",
+        "sha256": "sha256:56cc78c3f6c96fa4fe9945c14e7145ea66aab51a8e999c7e5d730b696b58fe06",
+        "size": 980,
+        "state": "modified"
+      }
+    ],
+    "evidence_root_exclusion": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate",
+    "head": "7681535835a6e0fb6d3f91df914794e344a4144a",
+    "head_tree": "05d0a946072d3955e7a310a4a88defd8b68f8803",
+    "index_sha256": "sha256:e5e676418b7a2e3415dd695cd79a16857773a52ff732fc1457857d029ab2fc09"
+  },
+  "claims_not_made": [
+    "This classification record does not authorize remediation or broaden candidate scope."
+  ],
+  "classification_summary": {
+    "external": 6,
+    "queue_owned": 0
+  },
+  "collection_binding": {
+    "argv": [
+      "pytest",
+      "--collect-only",
+      "-q"
+    ],
+    "cwd": ".",
+    "environment": {
+      "LC_ALL": "C.UTF-8",
+      "PYTEST_DEBUG_TEMPROOT": "/home/ollie/.cache/pytest-yaml-retirement-task2",
+      "PYTHONHASHSEED": "0"
+    },
+    "exit_binding": {
+      "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-baseline/collect.exit",
+      "sha256": "sha256:9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "size": 2
+    },
+    "log_binding": {
+      "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-baseline/collect.log",
+      "sha256": "sha256:31c76486caa263bb9eb62346293e1f4033482830487aa440c3489971aadd27eb",
+      "size": 810880
+    },
+    "node_id_count": 6713,
+    "node_id_list_sha256": "sha256:699892c351d42abcbb78ba5ae254f3b0eafdc06cc542aedbd31f9c1061b87a71",
+    "node_ids_binding": {
+      "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-baseline/collected-node-ids.txt",
+      "sha256": "sha256:6611e066a5f681fe8b3a73ecf712f4ea11d1d3568fd540d1c4ccbe0b204182b5",
+      "size": 810849
+    },
+    "parsed_exit": 0
+  },
+  "execution_ledger_binding": {
+    "byte_sha256": "sha256:5a97c06e467cd2fd3e52a2d9b9129add659a74f8b9619a04a20e305ed4263bcd",
+    "generation": 11,
+    "live_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/execution-ledger.json",
+    "request_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/materialization-inputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000011-8afc258f81ed371edca1137ab157b8f9dc6374f2a0f31e63b7efab43a8f25a0b.json",
+    "request_sha256": "sha256:3b1e441352413b7e8871454f1518981a73a49448e84770eade1b0f153925ca64",
+    "schema_version": "workflow_retirement_execution_ledger.v1",
+    "snapshot_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/immutable-outputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000011-5a97c06e467cd2fd3e52a2d9b9129add659a74f8b9619a04a20e305ed4263bcd.json",
+    "snapshot_sha256": "sha256:5a97c06e467cd2fd3e52a2d9b9129add659a74f8b9619a04a20e305ed4263bcd"
+  },
+  "failure_normalization": {
+    "normalized_contract_sha256": "sha256:c5e2c60287da469f5ef197f03d0fa66131fb147b586b0c0701a696e8ad1af019",
+    "ordered_transforms": [
+      "crlf_to_lf.v1",
+      "strip_ansi_csi.v1",
+      "repository_prefix.v1",
+      "pytest_managed_run_prefix.v1"
+    ],
+    "pytest_root_component": "ollie",
+    "pytest_session_parent": "/home/ollie/.cache/pytest-yaml-retirement-task2/pytest-of-ollie",
+    "pytest_temp_prefix_rule": "exact_pytest_managed_run_prefix.v1",
+    "pytest_temp_root_preflight_binding": {
+      "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-baseline/pytest-temp-root-preflight.json",
+      "sha256": "sha256:392db052adfc5745f7c05342d8777cf7c5cb76729d723c8c94918948de359048"
+    },
+    "pytest_version": "8.4.1",
+    "repository_root": "/home/ollie/Documents/agent-orchestration",
+    "schema_version": "broad_failure_payload_normalization.v1",
+    "system_temp_root": "/home/ollie/.cache/pytest-yaml-retirement-task2"
+  },
+  "failures": [
+    {
+      "authorized_remediation_scope": [],
+      "failure_payload_sha256": "sha256:8d877efdb8e07ca629129f91e47d58f9a7c7451a34dcb1a743571997bd1636e5",
+      "node_id": "tests/test_neurips_steered_backlog_runtime.py::test_neurips_steered_backlog_runtime_drafts_gap_item_and_continues_without_relaunch",
+      "outcome_kind": "failure",
+      "ownership_basis": [
+        "tests/test_neurips_steered_backlog_runtime.py"
+      ],
+      "ownership_class": "external"
+    },
+    {
+      "authorized_remediation_scope": [],
+      "failure_payload_sha256": "sha256:b394d5ec93f97257c53d2a93a42c0dbb2c8c2744461c040b146db6f3fa38d53c",
+      "node_id": "tests/test_provider_role_routing.py::test_design_delta_drain_defaults_route_work_to_codex_gpt54",
+      "outcome_kind": "failure",
+      "ownership_basis": [
+        "tests/test_provider_role_routing.py"
+      ],
+      "ownership_class": "external"
+    },
+    {
+      "authorized_remediation_scope": [],
+      "failure_payload_sha256": "sha256:b93528a5682591398ac75c74c767ea166129bef7c17596b35e6e3bf8773eb6f4",
+      "node_id": "tests/test_workflow_output_contract_integration.py::test_provider_valid_output_bundle_overrides_raw_nonzero_exit",
+      "outcome_kind": "failure",
+      "ownership_basis": [
+        "tests/test_workflow_output_contract_integration.py"
+      ],
+      "ownership_class": "external"
+    },
+    {
+      "authorized_remediation_scope": [],
+      "failure_payload_sha256": "sha256:b4b427b04fc99ca19ed73eba8ebf7dfe822163e8549bc7f0b820a03db730ec77",
+      "node_id": "tests/test_workflow_semantic_ir.py::test_compiled_bundle_semantic_ir_preserves_command_boundary_classification",
+      "outcome_kind": "failure",
+      "ownership_basis": [
+        "tests/test_workflow_semantic_ir.py"
+      ],
+      "ownership_class": "external"
+    },
+    {
+      "authorized_remediation_scope": [],
+      "failure_payload_sha256": "sha256:3286f02b00182c400d9341cd1148fb849341eaafb8e453868a6ca565de12d1f0",
+      "node_id": "tests/test_workflow_semantic_ir.py::test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys",
+      "outcome_kind": "failure",
+      "ownership_basis": [
+        "tests/test_workflow_semantic_ir.py"
+      ],
+      "ownership_class": "external"
+    },
+    {
+      "authorized_remediation_scope": [],
+      "failure_payload_sha256": "sha256:d383bc91f1a1c645edfbb624654774a74c774465410382b126d9f3debc377911",
+      "node_id": "tests/test_workflow_semantic_ir.py::test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence",
+      "outcome_kind": "failure",
+      "ownership_basis": [
+        "tests/test_workflow_semantic_ir.py"
+      ],
+      "ownership_class": "external"
+    }
+  ],
+  "normalized_failure_set_sha256": "sha256:c42916695e2f84271dd04c922bccfad46be44bb80bb0f066ba8f60248cb1cd4f",
+  "pytest_exit": {
+    "binding": {
+      "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-baseline/pytest.exit",
+      "sha256": "sha256:4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    "parsed_exit": 1
+  },
+  "schema_version": "broad_known_failure_baseline.v1",
+  "totals": {
+    "collected": 6713,
+    "errors": 0,
+    "failed": 6,
+    "passed": 6690,
+    "skipped": 17
+  }
+}

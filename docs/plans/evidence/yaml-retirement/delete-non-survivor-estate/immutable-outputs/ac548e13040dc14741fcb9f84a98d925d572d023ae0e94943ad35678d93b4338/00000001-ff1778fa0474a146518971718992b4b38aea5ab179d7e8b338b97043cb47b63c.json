@@ -1,0 +1,82 @@
+{
+  "baseline_binding": {
+    "candidate_path_set_sha256": "sha256:2d7964f4e8443869623447a316412d2589ac74aaffededc3563387c36f259fae",
+    "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-baseline/known-failure-baseline.json",
+    "schema_version": "broad_known_failure_baseline.v1",
+    "sha256": "sha256:5068e5b98365c277715db28e21227290714cb3994b0a2535dddff3cd34c1e961"
+  },
+  "claims_not_made": [
+    "Pending status alone is not owner adoption; this attestation does not authorize source, store, workflow, run-root, or repository mutation or out-of-scope remediation."
+  ],
+  "classification_summary": {
+    "external": 6,
+    "queue_owned": 0
+  },
+  "evidence_status": "pending_owner_confirmation",
+  "failure_set_binding": {
+    "failure_count": 6,
+    "normalized_failure_set_sha256": "sha256:c42916695e2f84271dd04c922bccfad46be44bb80bb0f066ba8f60248cb1cd4f"
+  },
+  "normalization_binding": {
+    "normalized_contract_sha256": "sha256:c5e2c60287da469f5ef197f03d0fa66131fb147b586b0c0701a696e8ad1af019",
+    "schema_version": "broad_failure_payload_normalization.v1"
+  },
+  "owner": null,
+  "owner_adoption": null,
+  "owner_confirmations": {
+    "classification_partition_confirmed": false,
+    "comparison_only_confirmed": false,
+    "confirmed_at": null,
+    "exact_failure_table_confirmed": false,
+    "no_out_of_scope_repair_confirmed": false,
+    "normalization_contract_confirmed": false,
+    "reviews_confirmed": false
+  },
+  "prepared_at": "2026-07-23T01:25:55-07:00",
+  "prepared_by": {
+    "identity": "Codex root session agent"
+  },
+  "quality_review_binding": {
+    "claims_not_made": [
+      "This binding preserves review bytes and does not authorize mutation."
+    ],
+    "immutable_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/immutable-reviews/aa4f0f1f78129fd5e0adcbd1c18bcd038fb5d10b1d21ae2f0ce87afc32f7d802/5068e5b98365c277715db28e21227290714cb3994b0a2535dddff3cd34c1e961/code_quality-3b980a9a1158fda596eae52212c1eb9f6f9d1da6ff24373202859edc96f4c89a.json",
+    "logical_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/reviews/implementation-baseline-quality.json",
+    "normalized_binding_sha256": "sha256:70c1f423575434b486352e6a8136393767f6fe991112f77ba000eadbf3464365",
+    "result": "approved",
+    "review_kind": "code_quality",
+    "reviewed_at": "2026-07-23T01:23:24-07:00",
+    "reviewer": {
+      "identity": "codex:/root/task2_quality_review_short"
+    },
+    "schema_version": "review_binding.v1",
+    "sha256": "sha256:3b980a9a1158fda596eae52212c1eb9f6f9d1da6ff24373202859edc96f4c89a",
+    "subject": {
+      "kind": "implementation_failure_baseline",
+      "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-baseline/known-failure-baseline.json",
+      "sha256": "sha256:5068e5b98365c277715db28e21227290714cb3994b0a2535dddff3cd34c1e961"
+    }
+  },
+  "schema_version": "broad_failure_baseline_attestation.v1",
+  "specification_review_binding": {
+    "claims_not_made": [
+      "This binding preserves review bytes and does not authorize mutation."
+    ],
+    "immutable_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/immutable-reviews/aa4f0f1f78129fd5e0adcbd1c18bcd038fb5d10b1d21ae2f0ce87afc32f7d802/5068e5b98365c277715db28e21227290714cb3994b0a2535dddff3cd34c1e961/specification-229de4b7e4c440068e48a2906c73d095b54fa1e17346037751f652531cd18aa5.json",
+    "logical_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/reviews/implementation-baseline-specification.json",
+    "normalized_binding_sha256": "sha256:51e29d1aaaeac8203a2ff44767a74b4fc82bdd4726c4246c9441de630d9ac8d4",
+    "result": "approved",
+    "review_kind": "specification",
+    "reviewed_at": "2026-07-23T01:16:53-07:00",
+    "reviewer": {
+      "identity": "codex:/root/task2_spec_review_finalize"
+    },
+    "schema_version": "review_binding.v1",
+    "sha256": "sha256:229de4b7e4c440068e48a2906c73d095b54fa1e17346037751f652531cd18aa5",
+    "subject": {
+      "kind": "implementation_failure_baseline",
+      "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-baseline/known-failure-baseline.json",
+      "sha256": "sha256:5068e5b98365c277715db28e21227290714cb3994b0a2535dddff3cd34c1e961"
+    }
+  }
+}
