@@ -14,8 +14,8 @@ Selection rule:
 | Prompt | Purpose | Used By / Chosen For | Notes |
 | --- | --- | --- | --- |
 | [repo_hygiene_review.md](/home/ollie/Documents/agent-orchestration/prompts/repo_hygiene_review.md) | Simple repo hygiene review looking for oversized modules, generated-file drift, brittle tests, and duplicated patterns. | Manual maintenance prompt. | This is the prompt that would have surfaced the need to refactor `orchestrator/workflow/executor.py`. |
-| [review.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/dsl_review_fix_loop/review.md) | Fresh principal-engineer review of a single design/ADR draft. | [dsl_review_first_fix_loop.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/dsl_review_first_fix_loop.yaml) | Smallest canonical “review-first” prompt in recent use. |
-| [fix.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/dsl_review_fix_loop/fix.md) | Apply the latest review directly to the ADR under review. | [dsl_review_first_fix_loop.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/dsl_review_first_fix_loop.yaml) | Minimal fix-loop companion to `review.md`. |
+| [review.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/dsl_review_fix_loop/review.md) | Fresh principal-engineer review of a single design/ADR draft. | Retained prompt reference. | Small “review-first” prompt for manual reuse or migration comparison. |
+| [fix.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/dsl_review_fix_loop/fix.md) | Apply the latest review directly to the ADR under review. | Retained prompt reference. | Minimal fix-loop companion to `review.md`. |
 | [design_template.md](/home/ollie/Documents/agent-orchestration/docs/templates/design_template.md) | Shared design-document structure for design -> plan -> implementation workflows, with optional sections for modularity, contracts, invariants, verification, and handoff. | Read by the design drafting prompts in [tracked_design_phase.yaml](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_design_phase.yaml) and [tracked_big_design_phase.yaml](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_big_design_phase.yaml) when present in the target checkout. | Stored under `docs/templates/` so already-running workflows can pick it up through prompt instructions without requiring new YAML asset wiring. |
 | [draft_design.md](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/design_plan_impl_stack_v2_call/draft_design.md) | Draft a design / ADR from a brief with explicit contracts, invariants, and sequencing constraints. | [tracked_design_phase.yaml](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_design_phase.yaml) | Canonical current design-drafting prompt, bundled with the reusable callee. |
 | [review_design.md](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/design_plan_impl_stack_v2_call/review_design.md) | Structured design review with tracked findings and scope classification. | [tracked_design_phase.yaml](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_design_phase.yaml) | Chosen because it upgrades plain markdown review into tracked JSON findings with blocking-vs-followup scope. |
@@ -34,7 +34,7 @@ Selection rule:
 These prompt families were used by workflows run in the last two days, but they are intentionally not indexed as separate canonical entries because the files above are newer and/or structurally stronger.
 
 - [dsl_follow_on_plan_impl_loop/](/home/ollie/Documents/agent-orchestration/prompts/workflows/dsl_follow_on_plan_impl_loop)
-  Reason: older markdown-only follow-on plan/implementation loop prompts used by [dsl_follow_on_plan_impl_review_loop.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/dsl_follow_on_plan_impl_review_loop.yaml). Superseded by the call-stack family above for plan and implementation phases.
+  Reason: older markdown-only follow-on plan/implementation loop prompts retained for comparison. Superseded by the call-stack family above for plan and implementation phases.
 - [dsl_follow_on_plan_impl_loop_v2/](/home/ollie/Documents/agent-orchestration/prompts/workflows/dsl_follow_on_plan_impl_loop_v2)
   Reason: structured-v2 rewrite, but still an intermediate step between the older monolith and the current call-based stack.
 - [dsl_follow_on_plan_impl_loop_v2_call/](/home/ollie/Documents/agent-orchestration/workflows/library/prompts/dsl_follow_on_plan_impl_loop_v2_call)
@@ -46,7 +46,6 @@ These workflows were run in the last two days but do not contribute dedicated re
 
 - [scalar_bookkeeping_demo.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/scalar_bookkeeping_demo.yaml)
 - [workflow_signature_demo.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/workflow_signature_demo.yaml)
-- [finally_demo.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/finally_demo.yaml)
 - [repeat_until_demo.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/repeat_until_demo.yaml)
 
 Excluded as non-canonical scratch/test run:

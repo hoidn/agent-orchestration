@@ -64,8 +64,8 @@ Verified implementation behavior this design builds on (2026-07-10 checkout):
   "one step vs N steps" does not change what the provider actually executes.
 - **Cross-step session chaining already exists in YAML v2.10.**
   `provider_session: {mode: resume, session_id_from: <artifact>}` with
-  loader-time validation (`orchestrator/loader.py:4004-4043`) and a runnable
-  example (`workflows/examples/dsl_review_first_fix_loop_provider_session.yaml`).
+  loader-time validation (`orchestrator/loader.py:4004-4043`) and provider-session
+  test coverage.
   This design deliberately does not extend that YAML surface (see Non-Goals).
 - **Per-invocation contract suppression exists.**
   `PromptComposer.apply_output_contract_prompt_suffix` skips the contract

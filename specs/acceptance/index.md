@@ -276,10 +276,10 @@ remains mapped as follows:
 - Task 3 executable proof: `tests/test_typed_predicates.py`, `tests/test_conditional_execution.py`, `tests/test_observability_report.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/typed_predicate_routing.yaml`
 - Task 4 executable proof: `tests/test_scalar_bookkeeping.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_runtime_step_lifecycle.py`, and `workflows/examples/scalar_bookkeeping_demo.yaml`
 - Task 5 executable proof: `tests/test_control_flow_foundations.py`, `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, and `tests/test_retry_behavior.py`
-- Task 6 executable proof: `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_at65_loop_scoping.py`, and `workflows/examples/for_each_demo.yaml` dry-run verification
+- Task 6 executable proof: `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_artifact_dataflow_integration.py`, and `tests/test_at65_loop_scoping.py`
 - Task 7 executable proof: `tests/test_loader_validation.py`, `tests/test_cli_safety.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_output_contract.py`, `tests/test_workflow_output_contract_integration.py`, and `workflows/examples/workflow_signature_demo.yaml`
 - Task 8 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, and `workflows/examples/structured_if_else_demo.yaml`
-- Task 9 executable proof: `tests/test_structured_control_flow.py`, `tests/test_resume_command.py`, `tests/test_observability_report.py`, and `workflows/examples/finally_demo.yaml`
+- Task 9 executable proof: `tests/test_structured_control_flow.py`, `tests/test_resume_command.py`, and `tests/test_observability_report.py`
 - Task 10 contract-boundary stability proof: `pytest tests/test_loader_validation.py -k "call or import or version" -v`, plus a forward-proof cross-check that each acceptance item 147-158 is mapped to Task 11 coverage below.
 - Task 10 -> Task 11 reusable-call proof map:
 

@@ -63,9 +63,6 @@ Some workflows declare required typed inputs. For those, pass fixture inputs exp
 ```bash
 python -m orchestrator run workflows/examples/workflow_signature_demo.yaml \
   --dry-run --input task_path=workflows/examples/inputs/demo-task.md
-
-python -m orchestrator run workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml \
-  --dry-run --input upstream_state_path=workflows/examples/inputs/dsl-follow-on-upstream-completed-state.json
 ```
 
 ## Which Example Should I Copy?
@@ -190,21 +187,11 @@ The prompt map reports missing paths; a missing path may indicate a stale exampl
 | `workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml` | Reusable call-based; input-required | `2.7` | `neurips-hybrid-resnet-tranche-drain-plan-impl-review` | Loops over roadmap tranche selection from supplied design + roadmap inputs, then reuses the roadmap-seeded plan phase and implementation review/fix phase for each selected tranche. |
 | `workflows/examples/neurips_steered_backlog_drain.yaml` | Downstream reference; reusable call-based; input-required | `2.14` | `neurips-steered-backlog-drain-v214` | Canonical steered backlog drain wrapper copied from PtychoPINN: builds a raw backlog manifest, applies a deterministic roadmap gate that emits the eligible manifest used by selection/execution, recovers in-progress items, drafts missing authorized backlog items, and calls the same-version v2.14 NeurIPS selected-item stack. Malformed non-selected active items are excluded with diagnostics instead of crashing selection. A selected item's validated block is recorded and skipped on the next selector pass rather than stopping the whole drain. Provider-role inputs can route implementation execute/review/fix steps; the top-level wrapper defaults implementation execute to Claude Opus and review/fix to Codex. |
 | `workflows/examples/neurips_steered_backlog_drain.legacy.yaml` | Legacy or migration; input-required | `2.7` | `neurips-steered-backlog-drain` | Legacy copy of the pre-v2.14 top-level NeurIPS drain, retained as the old-stack comparison surface for equivalence tests. Do not use it as the normal authoring target. |
-| `workflows/examples/dsl_follow_on_plan_impl_review_loop.yaml` | Legacy or migration | `1.4` | `dsl-follow-on-plan-impl-review-loop` | Waits for the active DSL ADR review loop to finish, drafts an implementation plan from the ADR, then runs bounded plan and implementation review/fix loops. |
-| `workflows/examples/dsl_follow_on_plan_impl_review_loop_v2.yaml` | Current structured; input-required | `2.7` | `dsl-follow-on-plan-impl-review-loop-v2` | Structured rewrite of the follow-on workflow using typed `inputs`/`outputs`, stable step `id`s, `match`, and `repeat_until`, while leaving the `1.4` version in place for comparison. |
-| `workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml` | Reusable call-based; input-required | `2.7` | `dsl-follow-on-plan-impl-review-loop-v2-call` | Modular follow-on rewrite: a small parent workflow waits for upstream completion, then `call`s reusable plan and implementation phase subworkflows and exports their declared outputs directly. |
-| `workflows/examples/dsl_tracked_plan_review_loop.yaml` | Legacy or migration | `1.4` | `dsl-tracked-plan-review-loop` | Plan-only example showing stable finding tracking: fresh review plus open-findings reconciliation, targeted revision, and cycle-specific JSON review artifacts. |
-| `workflows/examples/dsl_review_first_fix_loop.yaml` | Legacy or migration | `1.4` | `dsl-review-first-fix-loop` | Review-first Codex loop: review the DSL ADR, fix against consumed review feedback, repeat until no `## High` section remains. |
-| `workflows/examples/dsl_review_first_fix_loop_provider_session.yaml` | Legacy or migration | `2.10` | `dsl-review-first-fix-loop-provider-session` | Provider-session migration example: fresh review-session creation, runtime-owned session-handle publication, review gating, and resume-based fix steps without hard-coded shell `codex exec resume ...` glue. |
-| `workflows/examples/env_literal.yaml` | Legacy or migration | `1.1` | _(unnamed)_ | Demonstrates literal `env` semantics, including loop variables that are not substituted inside `env`. |
-| `workflows/examples/finally_demo.yaml` | Current canonical | `2.3` | `finally-demo` | Demonstrates top-level `finally`, resume-safe cleanup bookkeeping, and workflow outputs deferred until cleanup succeeds. |
 | `workflows/examples/match_demo.yaml` | Current canonical | `2.6` | `match-demo` | Demonstrates top-level structured `match`, exhaustive enum case coverage, and case outputs materialized onto the statement node. |
 | `workflows/examples/managed_provider_jobs_demo.yaml` | Current canonical | `2.13` | `managed-provider-jobs-demo` | Demonstrates a managed provider step that intercepts a local training launch, writes managed-job audit/recovery state, and routes on the managed completion outcome. |
 | `workflows/examples/repeat_until_demo.yaml` | Current canonical; reusable call-based | `2.7` | `repeat-until-demo` | Demonstrates post-test `repeat_until` with loop-frame outputs, nested `call` + `match` body composition, and resume-safe iteration/condition bookkeeping. |
 | `workflows/examples/score_gate_demo.yaml` | Current canonical | `2.8` | `score-gate-demo` | Demonstrates the `score` predicate helper for benchmark thresholds plus score-band routing through top-level structured control. |
-| `workflows/examples/for_each_demo.yaml` | Legacy or migration | `1.1` | _(unnamed)_ | Demonstrates `for_each` with `items_from`, aliases, and JSON dot-path array selection. |
 | `workflows/examples/generic_task_plan_execute_review_loop.yaml` | Legacy or migration | `1.4` | `generic-task-plan-execute-review-loop` | Full task workflow with plan, execution, checks, review, fix, and bounded cycles. |
-| `workflows/examples/injection_demo.yaml` | Legacy or migration; prompt asset issue | `1.1.1` | _(unnamed)_ | Demonstrates dependency injection modes and placement behavior for provider prompts. |
 | `workflows/examples/observability_runtime_config_demo.yaml` | Legacy or migration | `1.3` | `observability_runtime_config_demo` | Shows runtime observability flags without adding observability syntax to the DSL. |
 | `workflows/examples/output_capture_demo.yaml` | Legacy or migration | `1.1` | `output_capture_demo` | Demonstrates `text`, `lines`, and `json` capture modes plus tee behavior. |
 | `workflows/examples/prompt_audit_demo.yaml` | Legacy or migration; prompt asset issue | `1.1.1` | _(unnamed)_ | Demonstrates prompt audit files emitted by `--debug` for argv and stdin providers. |
@@ -224,7 +211,6 @@ The prompt map reports missing paths; a missing path may indicate a stale exampl
 
 The generated prompt map is the source for exact missing-file rows. Current classifications:
 
-- `workflows/examples/injection_demo.yaml`: stale example assets under root `prompts/`; the workflow now validates structurally, but the prompt files are not part of the current prompt catalog.
 - `workflows/examples/prompt_audit_demo.yaml`: mixed case; `prompts/implement.md` is generated at runtime by `PreparePrompt`, while `prompts/analyze.md` is a stale example asset.
 - `workflows/examples/ptychopinn_backlog_plan_slice_impl_review_loop.yaml`: external downstream snapshot; references downstream `prompts/workflows/backlog_plan_loop/*` assets not included in this repo snapshot.
 - `workflows/examples/retry_demo.yaml`: stale example asset `test_prompt.txt`; keep as a retry schema example unless runnable provider prompt content becomes necessary.
@@ -233,8 +219,6 @@ The generated prompt map is the source for exact missing-file rows. Current clas
 
 | Path | DSL | Workflow Name | Purpose |
 | --- | --- | --- | --- |
-| `workflows/library/follow_on_plan_phase.yaml` | `2.7` | `follow-on-plan-phase` | Reusable plan-phase subworkflow for the modular follow-on example: draft plan, run structured plan review/revise loop, and ship its bundled prompt assets from `workflows/library/prompts/dsl_follow_on_plan_impl_loop_v2_call/`. |
-| `workflows/library/follow_on_implementation_phase.yaml` | `2.7` | `follow-on-implementation-phase` | Reusable implementation-phase subworkflow for the modular follow-on example: execute plan work, run structured implementation review/fix loop, and ship its bundled prompt assets from `workflows/library/prompts/dsl_follow_on_plan_impl_loop_v2_call/`. |
 | `workflows/library/backlog_item_design_plan_impl_stack.yaml` | `2.7` | `backlog-item-design-plan-impl-stack` | Per-item reusable stack for the priority backlog driver: run design, plan, and implementation phases, convert any phase failure into a terminal item outcome, and export item summary/report paths. |
 | `workflows/library/seeded_design_plan_impl_stack.yaml` | `2.7` | `seeded-design-plan-impl-stack` | Reusable seeded stack: review/revise an existing design candidate, review/revise an existing plan candidate, then run the generic implementation review/fix phase. |
 | `workflows/library/major_project_roadmap_phase.yaml` | `2.7` | `major-project-roadmap-phase` | Reusable roadmap phase for broad project briefs: drafts, validates, reviews, and revises a project roadmap plus ordered tranche manifest before tranche execution. |
@@ -294,7 +278,6 @@ Compact v2.14 authoring pattern:
 - Use `variant_output` only when field availability truly depends on a discriminant, and move always-present fields into `shared_fields`.
 
 The original `2.7` workflows remain in place as the migration baseline and as the legacy comparison surface for behavioral-equivalence oracles. They are not deprecated by this tranche; a later removal decision is out of scope.
-| `workflows/library/depends_on_inject_imported_review.yaml` | `2.7` | `depends-on-inject-imported-review` | Library workflow for the imported-injection example: prepends workflow-source rubric assets, then injects a caller-produced runtime manifest into the provider prompt before exporting an enum review decision. |
 | `workflows/library/review_fix_loop.yaml` | `2.5` | `review-fix-loop` | Minimal reusable call demo library. |
 | `workflows/library/revision_study_design_plan_impl_stack.yaml` | `2.7` | `revision-study-design-plan-impl-stack` | Specialized call-based revision-study workflow: treats a human revision design seed as read-only, produces an approved derived design, drafts/reviews a plan, then executes/reviews implementation using bundled prompts under `workflows/library/prompts/revision_study_stack/`. Read it with its imported phase workflows and prompt directory when the generic adapter is not enough, then adapt and revalidate rather than copying it directly. |
 | `workflows/library/revision_study_design_plan_impl_monolith.yaml` | `2.7` | `revision-study-design-plan-impl-monolith` | No-import revision-study fallback for portability or debugging when adapting the call-based import tree is not practical. Keep behavior aligned with the call-based stack; do not use it as the normal authoring target. |
