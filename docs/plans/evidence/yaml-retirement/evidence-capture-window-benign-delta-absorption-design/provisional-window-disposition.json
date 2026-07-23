@@ -1,0 +1,14 @@
+{
+  "schema_version": "evidence_capture_window_bootstrap_disposition.v1",
+  "window_id": "yaml-retirement-task-03-20260723T074349Z",
+  "replacement_window_id": "yaml-retirement-task-03-20260723T180309Z",
+  "disposition": "archive_preimplementation_window_with_incomplete_scope",
+  "recorded_at": "2026-07-23T18:03:09.309443+00:00",
+  "evidence_generated": false,
+  "reason": "The first specification review found that the provisional window omitted the prospective controller implementation and owning-test paths. No Task 3 capture evidence had been generated. The incomplete row was closed and replaced before design approval.",
+  "claims_not_made": [
+    "This bootstrap disposition does not approve the proposed design or implementation.",
+    "This bootstrap disposition does not authorize a commit, evidence mutation, workflow execution, deletion, or owner attestation.",
+    "This bootstrap disposition is not a precedent for changing an adopted open window's scope."
+  ]
+}
