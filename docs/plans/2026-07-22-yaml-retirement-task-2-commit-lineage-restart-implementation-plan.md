@@ -544,13 +544,61 @@ committed files, and all protected bytes unchanged.
   `docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md`
 - Modify: `docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/execution-ledger.json`
 
+Execution disposition for the final fresh capture:
+
+- The exact owner-adopted attempt captured at
+  `1c3d4fc4a2ab0d083ca63f152ac1f89324ab609b` is preserved by the immutable
+  archive ref
+  `refs/archive/yaml-retirement/task2-attempt-20260722T233938`, which resolves
+  to reconstructable sibling commit
+  `9effc8cba699c4864294a5dd2c9b82e5407e811f`. The later ordinary documentation
+  commit `61de28ccfd75b2c374c948ae753298edf67060a0` invalidated that attempt's
+  main-line predecessor before it could land. The archived adoption is
+  historical and non-transferable; it does not satisfy the replacement
+  capture's owner boundary.
+- Land the generic workspace-baseline transition prerequisite as its own
+  reviewed commit on top of the real main-line HEAD, restore the live ledger
+  to the committed generation-5 snapshot, and delete only the replacement
+  attempt's already-archived untracked source files before recapture. The
+  compact disposition under
+  `task-2-commit-lineage-restart/post-1c3-concurrent-attempt/` records why no
+  additional recovery implementation or review class was built.
+- The eight protected paths remain byte-bound without adding a redundant
+  eighth `protected_paths` row. The seven paths named by the governing capture
+  command retain their explicit protected-row duplicates; all eight paths,
+  including the later-observed untracked report, are already exact
+  `dirty_entries` and broad-candidate rows. The ambient report is therefore
+  protected by the same live byte/mode/status checks and remains outside the
+  allowed commit set.
+- The unique bootstrap-to-workspace transition adopts the selected baseline's
+  exact HEAD/index while preserving every inherited dirty/protected row
+  semantically. Only a newly observed exact `??` untracked dirty row may extend
+  that set; tracked drift, inherited-row drift, and later workspace-baseline
+  replacement still fail closed.
+- The complete first-boundary durable authority is the two immutable ordered
+  `review.v1` records plus the immutable generation-13
+  `workflow_retirement_execution_ledger.v1` snapshot. The ledger already binds
+  the reviewed `broad_known_failure_baseline.v1` subject, so the v1 durable
+  schema catalog is not expanded and historical bootstrap-control
+  reconstruction remains byte-compatible.
+- The broad baseline inside the archived attempt remains only the historical
+  comparison boundary it claims to be. Its normalized six-row failure set may
+  be used to detect deviation, but neither its owner adoption nor its
+  completion state transfers to the replacement capture. The prerequisite
+  patch below changes only repository commit-control machinery and its tests;
+  it does not change workflow, provider, runtime, or queue behavior. Later
+  broad totals may therefore include the added controller tests while the
+  replacement attempt still recaptures and independently adopts its own exact
+  baseline.
+
 - [ ] **Step 1: Recapture Task 2 Steps 1–5 at the real HEAD**
 
 Run the governing plan's exact `capture-workspace-baseline`,
 `validate-workspace-baseline`, `build-non-target-sources`,
 `validate-non-target-sources`, and `materialize-query` commands. Require the new
 workspace baseline's `head` to equal current HEAD, the same eight protected
-rows, ten non-target sources, 100 sorted query paths, and path-list digest
+paths represented as described above, ten non-target sources, 100 sorted query
+paths, and path-list digest
 `sha256:2b4cdaf11ce8570c35cde84987ef73a0a51e985d1d8e3588443a16b8ebac2b63`.
 Run both exact handoff selectors and cached/unstaged diff checks.
 

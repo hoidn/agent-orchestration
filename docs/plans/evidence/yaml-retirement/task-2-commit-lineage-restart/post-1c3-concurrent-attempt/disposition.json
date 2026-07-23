@@ -1,0 +1,71 @@
+{
+  "archive_binding": {
+    "archive_commit": "9effc8cba699c4864294a5dd2c9b82e5407e811f",
+    "archive_commit_path_count": 41,
+    "archive_commit_path_set_sha256": "sha256:bd3793200fd990551236f7ab135fd9cd94060e2c12f4747624e55e68bda82e75",
+    "archive_ref": "refs/archive/yaml-retirement/task2-attempt-20260722T233938",
+    "archive_tree": "06b158aa4eb7b27b2c4bad29aea0a9594ae3ef09",
+    "attempt_evidence_path_count": 38,
+    "attempt_evidence_path_set_sha256": "sha256:e735182f70ccf6d202a6bbab9318c0835fe5f24f71fc46236ea71346055306d8",
+    "control_sha256": "sha256:12572f1de0b4c6f783a98b9d19c5b9516352853520765d006fb9a7d245d41587",
+    "transaction_id": "9bb59f3c49321fc1df6cc235883f596c265f168e11e048ffd6dd5b9d6b3650af"
+  },
+  "attempt_binding": {
+    "attestation_sha256": "sha256:10e4778bc8581c05ddadb45531ef3598cb1d7a595ae758a417669bbedd1b2bc6",
+    "captured_head": "1c3d4fc4a2ab0d083ca63f152ac1f89324ab609b",
+    "ledger_sha256": "sha256:c347e67a9cda78c982e33887133a6eb2294b8ff778132a43789385939b312dcb",
+    "owner_adopted_at": "2026-07-22T23:39:38.123011-07:00",
+    "workspace_baseline_sha256": "sha256:c843353c95ea3c20c6f2ee7b614eb7eb4a98e3ba75235e6cf31882c2e154304c"
+  },
+  "claims_not_made": [
+    "The archived owner adoption remains historical and cannot satisfy a replacement Task 2 attempt.",
+    "The archive ref is preservation evidence; it does not place the archived controlled commit on the main first-parent execution lineage.",
+    "This record does not claim Task 2 completion or authorize Task 3 source mutation."
+  ],
+  "disposition": "retain_exact_owner_adopted_attempt_by_commit_and_restart_after_concurrent_commit",
+  "execution_choices": [
+    "Retain the exact adopted attempt and its reconstructable control as one immutable Git commit instead of copying the same 38 evidence files into another repository directory.",
+    "Land only the independently reviewed generic controller prerequisite, restore the live ledger to committed generation 5, and restart Task 2 at the new real HEAD.",
+    "Use this compact record instead of adding another reusable recovery class for a process incident."
+  ],
+  "governing_plan_binding": {
+    "path": "docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md",
+    "sha256": "sha256:20096b44d03017780394a6789c39705912da1909847ab3460a312c65dcb066fb"
+  },
+  "incident": {
+    "committed_at_head": "61de28ccfd75b2c374c948ae753298edf67060a0",
+    "committed_tree": "8c47deeadc54971bd34a3674cdaf2b90395954e6",
+    "observed_at": "2026-07-23T00:17:24-07:00",
+    "parent": "1c3d4fc4a2ab0d083ca63f152ac1f89324ab609b",
+    "path_count": 2,
+    "paths": [
+      {
+        "path": "docs/index.md",
+        "sha256": "sha256:75a87d47573944ee8ae8ad6eba8772ac5ef82c4b5677792d8690df4f1486b4c0",
+        "size": 90996
+      },
+      {
+        "path": "docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md",
+        "sha256": "sha256:bf44bac099808bcd3016aff683463838635df884740a11a8d09dca5fc187c37f",
+        "size": 47666
+      }
+    ],
+    "reason": "concurrent_documentation_commit_after_fresh_capture_and_owner_adoption_before_main_lineage_update",
+    "subject": "Draft Workflow Lisp evolution follow-on roadmap"
+  },
+  "ledger_restoration": {
+    "live_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/execution-ledger.json",
+    "restore_before_replacement_capture": true,
+    "restored_committed_sha256": "sha256:19ed4c66ec8d5ae08583325c2e4acc416b3b3b9bc8b465957835599287f76e4a"
+  },
+  "normalized_disposition_sha256": "sha256:59bf8e82be9a0f162293f42050d06d8b5b6ca24b99e4726200fced4d1a6e9c29",
+  "recorded_at": "2026-07-23T00:17:24-07:00",
+  "recorded_by": {
+    "identity": "Codex root session agent"
+  },
+  "schema_version": "task_2_minimal_attempt_disposition.v1",
+  "skipped_or_collapsed_steps": [
+    "No new recovery implementation, validator schema, or additional durable review pair was created.",
+    "The reconstructable sibling commit was retained as historical preservation evidence and was not merged around the newer main-line commit."
+  ]
+}

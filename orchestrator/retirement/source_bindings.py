@@ -964,6 +964,18 @@ def _validate_workspace_shape(record: Mapping[str, Any], *, bootstrap: bool) -> 
         != sorted({entry["path"] for entry in entries})
         or [entry["path"] for entry in protected]
         != sorted({entry["path"] for entry in protected})
+        or (
+            not index_invalid
+            and any(
+                entry["index_entries"]
+                != [
+                    row
+                    for row in index
+                    if row["path"] == entry["path"]
+                ]
+                for entry in [*entries, *protected]
+            )
+        )
     ):
         issues.append(SourceBindingIssue("workspace_entry_partition_invalid"))
     if entries_valid and not status_invalid:
@@ -2525,6 +2537,7 @@ def _require_live_inherited_workspace_baseline(
     *,
     base_head: str,
     allowed_paths: Sequence[str],
+    validate_live_state: bool = True,
 ) -> dict[str, Any]:
     try:
         path = binding["path"]
@@ -2550,22 +2563,23 @@ def _require_live_inherited_workspace_baseline(
         "workspace_baseline.v1",
     }:
         raise SourceBindingError("workspace_baseline_inheritance_invalid")
-    try:
-        prior_trailers = _prior_trailers(root, record["head"], base_head)
-        prior_paths = _prior_control_paths(root, prior_trailers)
-    except (KeyError, SourceBindingError) as exc:
-        raise SourceBindingError(
-            "workspace_baseline_inheritance_invalid"
-        ) from exc
-    if _bound_workspace_issues(
-        root,
-        binding,
-        expected_schema=schema,
-        allowed_additions=allowed_paths,
-        committed_head=base_head,
-        committed_paths=prior_paths,
-    ):
-        raise SourceBindingError("workspace_baseline_inheritance_invalid")
+    if validate_live_state:
+        try:
+            prior_trailers = _prior_trailers(root, record["head"], base_head)
+            prior_paths = _prior_control_paths(root, prior_trailers)
+        except (KeyError, SourceBindingError) as exc:
+            raise SourceBindingError(
+                "workspace_baseline_inheritance_invalid"
+            ) from exc
+        if _bound_workspace_issues(
+            root,
+            binding,
+            expected_schema=schema,
+            allowed_additions=allowed_paths,
+            committed_head=base_head,
+            committed_paths=prior_paths,
+        ):
+            raise SourceBindingError("workspace_baseline_inheritance_invalid")
     return record
 
 
@@ -2597,17 +2611,140 @@ def _require_workspace_baseline_transition(
         raise SourceBindingError("workspace_baseline_transition_invalid")
 
 
+def _workspace_entry_without_status_coordinates(
+    row: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in row.items()
+        if key not in {"status_row_ids", "normalized_entry_sha256"}
+    }
+
+
+def _workspace_status_without_coordinate(
+    row: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {key: value for key, value in row.items() if key != "row_id"}
+
+
+def _referenced_workspace_statuses(
+    entry: Mapping[str, Any],
+    status_by_id: Mapping[str, Mapping[str, Any]],
+) -> list[dict[str, Any]] | None:
+    row_ids = entry.get("status_row_ids")
+    if not isinstance(row_ids, list) or any(
+        not isinstance(row_id, str) or row_id not in status_by_id
+        for row_id in row_ids
+    ):
+        return None
+    return [
+        _workspace_status_without_coordinate(status_by_id[row_id])
+        for row_id in row_ids
+    ]
+
+
 def _workspace_baseline_rows_preserved(
     inherited: Mapping[str, Any], selected: Mapping[str, Any]
 ) -> bool:
-    selected_protected = selected.get("protected_paths", [])
-    return (
-        selected.get("dirty_entries") == inherited.get("dirty_entries")
-        and isinstance(selected_protected, list)
-        and all(
-            row in selected_protected
-            for row in inherited.get("protected_paths", [])
+    inherited_dirty = {
+        row["path"]: row
+        for row in inherited.get("dirty_entries", [])
+        if isinstance(row, Mapping) and isinstance(row.get("path"), str)
+    }
+    selected_dirty = {
+        row["path"]: row
+        for row in selected.get("dirty_entries", [])
+        if isinstance(row, Mapping) and isinstance(row.get("path"), str)
+    }
+    if len(inherited_dirty) != len(inherited.get("dirty_entries", [])) or len(
+        selected_dirty
+    ) != len(selected.get("dirty_entries", [])):
+        return False
+    if not set(inherited_dirty) <= set(selected_dirty):
+        return False
+    inherited_status = {
+        row["row_id"]: row
+        for row in inherited.get("status_rows", [])
+        if isinstance(row, Mapping) and isinstance(row.get("row_id"), str)
+    }
+    selected_status = {
+        row["row_id"]: row
+        for row in selected.get("status_rows", [])
+        if isinstance(row, Mapping) and isinstance(row.get("row_id"), str)
+    }
+    if len(inherited_status) != len(
+        inherited.get("status_rows", [])
+    ) or len(selected_status) != len(selected.get("status_rows", [])):
+        return False
+    if any(
+        _workspace_entry_without_status_coordinates(inherited_dirty[path])
+        != _workspace_entry_without_status_coordinates(selected_dirty[path])
+        or _referenced_workspace_statuses(
+            inherited_dirty[path], inherited_status
         )
+        != _referenced_workspace_statuses(selected_dirty[path], selected_status)
+        for path in inherited_dirty
+    ):
+        return False
+
+    for path in set(selected_dirty) - set(inherited_dirty):
+        entry = selected_dirty[path]
+        row_ids = entry.get("status_row_ids")
+        if (
+            entry.get("index_entries") != []
+            or not isinstance(row_ids, list)
+            or len(row_ids) != 1
+            or row_ids[0] not in selected_status
+        ):
+            return False
+        status = selected_status[row_ids[0]]
+        if (
+            status.get("status") != "??"
+            or status.get("path") != path
+            or status.get("source_path") is not None
+            or status.get("path_operands") != [path]
+        ):
+            return False
+
+    inherited_status_rows = [
+        _workspace_status_without_coordinate(row)
+        for row in inherited.get("status_rows", [])
+        if isinstance(row, Mapping)
+    ]
+    selected_status_rows = [
+        _workspace_status_without_coordinate(row)
+        for row in selected.get("status_rows", [])
+        if isinstance(row, Mapping)
+    ]
+    if len(inherited_status_rows) != len(inherited.get("status_rows", [])) or any(
+        row not in selected_status_rows for row in inherited_status_rows
+    ):
+        return False
+
+    selected_protected = {
+        row["path"]: row
+        for row in selected.get("protected_paths", [])
+        if isinstance(row, Mapping) and isinstance(row.get("path"), str)
+    }
+    inherited_protected = {
+        row["path"]: row
+        for row in inherited.get("protected_paths", [])
+        if isinstance(row, Mapping) and isinstance(row.get("path"), str)
+    }
+    return len(selected_protected) == len(
+        selected.get("protected_paths", [])
+    ) and len(inherited_protected) == len(
+        inherited.get("protected_paths", [])
+    ) and set(inherited_protected) <= set(selected_protected) and all(
+        _workspace_entry_without_status_coordinates(inherited_protected[path])
+        == _workspace_entry_without_status_coordinates(selected_protected[path])
+        and _referenced_workspace_statuses(
+            inherited_protected[path], inherited_status
+        )
+        == _referenced_workspace_statuses(
+            selected_protected[path], selected_status
+        )
+        for path in inherited_protected
     )
 
 
@@ -2627,15 +2764,23 @@ def _validate_precommit_workspace_baseline_selection(
     inherited_binding = _latest_controlled_workspace_baseline_binding(
         root, base_head
     )
+    selected_is_new = _tree_entry(root, base_head, selected_path) is None
     inherited_record: dict[str, Any] | None = None
     if inherited_binding is not None:
+        one_time_workspace_adoption = (
+            selected_is_new
+            and inherited_binding.get("schema_version")
+            == "bootstrap_workspace_baseline.v1"
+            and baseline_binding.get("schema_version")
+            == "workspace_baseline.v1"
+        )
         inherited_record = _require_live_inherited_workspace_baseline(
             root,
             inherited_binding,
             base_head=base_head,
             allowed_paths=allowed_paths,
+            validate_live_state=not one_time_workspace_adoption,
         )
-    selected_is_new = _tree_entry(root, base_head, selected_path) is None
     if selected_is_new:
         if new_candidates != [dict(baseline_binding)]:
             raise SourceBindingError("workspace_baseline_candidate_set_invalid")
@@ -2655,6 +2800,14 @@ def _validate_precommit_workspace_baseline_selection(
             ) from exc
         if not _workspace_baseline_rows_preserved(
             inherited_record, selected_record
+        ):
+            raise SourceBindingError("workspace_baseline_inheritance_invalid")
+        if _bound_workspace_issues(
+            root,
+            baseline_binding,
+            expected_schema="workspace_baseline.v1",
+            allowed_additions=allowed_paths,
+            committed_head=base_head,
         ):
             raise SourceBindingError("workspace_baseline_inheritance_invalid")
 
@@ -2949,6 +3102,8 @@ def _reconstruct_precommit_control(root: Path, commit: str) -> tuple[dict[str, A
         raise SourceBindingError("durable_authority_reconstruction_invalid")
     authority_digest = _set_digest(authorities)
     dirty_paths = {row["path"] for row in baseline["dirty_entries"]}
+    if set(allowed_paths) & dirty_paths:
+        raise SourceBindingError("allowed_path_intersects_baseline")
     pre_index = [row for row in _tree_entries(root, parent) if row["path"] not in dirty_paths]
     pre_index.extend(row for row in baseline["index_entries"] if row["path"] in dirty_paths)
     pre_index.sort(key=lambda row: (row["path"], row["stage"], row["mode"], row["oid"]))

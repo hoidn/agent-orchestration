@@ -314,6 +314,35 @@ def test_workspace_cli_emits_issue_envelope_for_shape_invalid_json(
     assert json.loads(completed.stdout)["status"] == "rejected"
 
 
+def test_workspace_shape_rejects_dirty_entry_index_projection_mismatch(
+    repository: Path,
+) -> None:
+    (repository / "tracked.txt").write_text("dirty tracked bytes\n")
+    baseline = capture_workspace_baseline(repository)
+    dirty_entry = baseline["dirty_entries"][0]
+    assert dirty_entry["index_entries"] == [
+        row
+        for row in baseline["index_entries"]
+        if row["path"] == dirty_entry["path"]
+    ]
+    assert dirty_entry["index_entries"]
+
+    dirty_entry["index_entries"] = []
+    dirty_entry["normalized_entry_sha256"] = _canonical_sha256(
+        dirty_entry, exclude={"normalized_entry_sha256"}
+    )
+    baseline["dirty_entry_set_sha256"] = _set_digest(
+        baseline["dirty_entries"]
+    )
+    baseline["normalized_baseline_sha256"] = _canonical_sha256(
+        baseline, exclude={"normalized_baseline_sha256"}
+    )
+
+    assert "workspace_entry_partition_invalid" in {
+        issue.code for issue in validate_workspace_record_shape(baseline)
+    }
+
+
 def test_workspace_baseline_closes_index_dirty_protected_and_bootstrap_rows(
     repository: Path,
 ) -> None:
@@ -1786,6 +1815,11 @@ def test_precommit_builder_rejects_new_baseline_candidate_with_inherited_selecti
 def _prepare_bootstrap_to_workspace_replacement(
     repository: Path, *, workspace_drift: str | None
 ) -> tuple[Path, Path, Path, Path, list[str]]:
+    added_dirty_path = repository / "000-new-dirty.txt"
+    if workspace_drift == "new_tracked":
+        added_dirty_path.write_text("clean tracked bytes\n")
+        _git(repository, "add", "--", added_dirty_path.name)
+        _git(repository, "commit", "-qm", "seed tracked dirty-extension fixture")
     bound_path = repository / "tracked.txt"
     bound_path.write_text("inherited dirty bytes\n")
     inherited_baseline_path = _commit_initial_controlled_baseline(
@@ -1797,6 +1831,14 @@ def _prepare_bootstrap_to_workspace_replacement(
         bound_path.unlink()
     elif workspace_drift == "mode":
         bound_path.chmod(0o755)
+    elif workspace_drift == "new_untracked":
+        committed_path = repository / "committed-after-bootstrap.txt"
+        committed_path.write_text("ordinary committed evolution\n")
+        _git(repository, "add", "--", committed_path.name)
+        _git(repository, "commit", "-qm", "ordinary evolution before adoption")
+        added_dirty_path.write_text("new untracked bytes\n")
+    elif workspace_drift == "new_tracked":
+        added_dirty_path.write_text("new tracked dirty bytes\n")
     elif workspace_drift is not None:
         raise AssertionError(workspace_drift)
     replacement_baseline_path = repository / "replacement-baseline.json"
@@ -2077,6 +2119,231 @@ def test_precommit_builder_allows_bootstrap_to_workspace_replacement_with_preser
         expected_commit_subject="Replacement retirement test commit",
         reconstruct=True,
     ) == []
+
+
+def test_precommit_builder_allows_bootstrap_to_workspace_untracked_dirty_extension(
+    repository: Path,
+) -> None:
+    (
+        inherited_baseline_path,
+        replacement_baseline_path,
+        authority_path,
+        _allowed_path,
+        allowed,
+    ) = _prepare_bootstrap_to_workspace_replacement(
+        repository, workspace_drift="new_untracked"
+    )
+    inherited = json.loads(inherited_baseline_path.read_text())
+    replacement = json.loads(replacement_baseline_path.read_text())
+    inherited_dirty = {row["path"]: row for row in inherited["dirty_entries"]}
+    replacement_dirty = {row["path"]: row for row in replacement["dirty_entries"]}
+
+    assert set(replacement_dirty) == {*inherited_dirty, "000-new-dirty.txt"}
+    assert replacement_dirty["000-new-dirty.txt"]["status_row_ids"] == [
+        "status-00000001"
+    ]
+    assert next(
+        row
+        for row in replacement["status_rows"]
+        if row["path"] == "000-new-dirty.txt"
+    )["status"] == "??"
+    assert inherited_dirty["tracked.txt"]["content_binding"] == (
+        replacement_dirty["tracked.txt"]["content_binding"]
+    )
+    assert inherited_dirty["tracked.txt"]["status_row_ids"] == [
+        "status-00000001"
+    ]
+    assert replacement_dirty["tracked.txt"]["status_row_ids"] == [
+        "status-00000002"
+    ]
+    assert replacement["head"] == _git(repository, "rev-parse", "HEAD")
+    assert replacement["index_entries"] != inherited["index_entries"]
+    assert "000-new-dirty.txt" not in allowed
+
+    receipt = build_precommit_control(
+        repository,
+        allowed_paths=allowed,
+        durable_authority_paths=[authority_path.name],
+        commit_subject="Untracked extension retirement test commit",
+        workspace_baseline=replacement_baseline_path.name,
+    )
+    shutil.rmtree((repository / receipt["control_path"]).parent)
+
+
+def test_reconstruction_allows_bootstrap_to_workspace_untracked_dirty_extension(
+    repository: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (
+        _inherited_baseline_path,
+        replacement_baseline_path,
+        authority_path,
+        _allowed_path,
+        allowed,
+    ) = _prepare_bootstrap_to_workspace_replacement(
+        repository, workspace_drift="new_untracked"
+    )
+    monkeypatch.setattr(
+        retirement_source_bindings,
+        "_validate_precommit_workspace_baseline_selection",
+        lambda *args, **kwargs: None,
+    )
+    receipt = build_precommit_control(
+        repository,
+        allowed_paths=allowed,
+        durable_authority_paths=[authority_path.name],
+        commit_subject="Forged untracked extension retirement test commit",
+        workspace_baseline=replacement_baseline_path.name,
+    )
+    control_path = repository / receipt["control_path"]
+    _commit_prepared_control(repository, json.loads(control_path.read_text()))
+    shutil.rmtree(control_path.parent)
+
+    assert validate_commit_boundary(
+        repository,
+        expected_commit_subject=(
+            "Forged untracked extension retirement test commit"
+        ),
+        reconstruct=True,
+    ) == []
+
+
+def test_reconstruction_rejects_untracked_dirty_extension_committed_as_allowed_path(
+    repository: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (
+        _inherited_baseline_path,
+        replacement_baseline_path,
+        authority_path,
+        _allowed_path,
+        allowed,
+    ) = _prepare_bootstrap_to_workspace_replacement(
+        repository, workspace_drift="new_untracked"
+    )
+    dirty_path = "000-new-dirty.txt"
+    allowed.append(dirty_path)
+    _git(repository, "add", "--", dirty_path)
+
+    class _IntersectionBlindSet(set[str]):
+        def __and__(self, other: object) -> set[str]:
+            return set()
+
+    monkeypatch.setattr(
+        retirement_source_bindings,
+        "_validate_precommit_workspace_baseline_selection",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        retirement_source_bindings,
+        "_bound_workspace_issues",
+        lambda *args, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        retirement_source_bindings,
+        "set",
+        lambda values=(): _IntersectionBlindSet(values),
+        raising=False,
+    )
+    receipt = build_precommit_control(
+        repository,
+        allowed_paths=allowed,
+        durable_authority_paths=[authority_path.name],
+        commit_subject="Forged committed dirty extension retirement test commit",
+        workspace_baseline=replacement_baseline_path.name,
+    )
+    control_path = repository / receipt["control_path"]
+    monkeypatch.undo()
+    _commit_prepared_control(repository, json.loads(control_path.read_text()))
+    shutil.rmtree(control_path.parent)
+
+    assert validate_commit_boundary(
+        repository,
+        expected_commit_subject=(
+            "Forged committed dirty extension retirement test commit"
+        ),
+        reconstruct=True,
+    ) == [
+        SourceBindingIssue(
+            "commit_reconstruction_failed",
+            detail="allowed_path_intersects_baseline",
+        )
+    ]
+
+
+def test_bootstrap_to_workspace_replacement_rejects_reassociated_status_row(
+    repository: Path,
+) -> None:
+    (
+        _inherited_baseline_path,
+        replacement_baseline_path,
+        authority_path,
+        _allowed_path,
+        allowed,
+    ) = _prepare_bootstrap_to_workspace_replacement(
+        repository, workspace_drift="new_untracked"
+    )
+    replacement = json.loads(replacement_baseline_path.read_text())
+    tracked = next(
+        row for row in replacement["dirty_entries"] if row["path"] == "tracked.txt"
+    )
+    tracked["status_row_ids"] = ["status-00000001"]
+    tracked["normalized_entry_sha256"] = _canonical_sha256(
+        tracked, exclude={"normalized_entry_sha256"}
+    )
+    replacement["dirty_entry_set_sha256"] = _set_digest(
+        replacement["dirty_entries"]
+    )
+    replacement["normalized_baseline_sha256"] = _canonical_sha256(
+        replacement, exclude={"normalized_baseline_sha256"}
+    )
+    assert validate_workspace_record_shape(replacement) == []
+    replacement_baseline_path.write_text(
+        json.dumps(replacement, sort_keys=True) + "\n"
+    )
+    _git(repository, "add", "--", replacement_baseline_path.name)
+
+    with pytest.raises(
+        SourceBindingError,
+        match="workspace_baseline_inheritance_invalid",
+    ):
+        build_precommit_control(
+            repository,
+            allowed_paths=allowed,
+            durable_authority_paths=[authority_path.name],
+            commit_subject="Invalid reassociated status retirement test commit",
+            workspace_baseline=replacement_baseline_path.name,
+        )
+
+
+def test_bootstrap_to_workspace_replacement_rejects_new_tracked_dirty_row(
+    repository: Path,
+) -> None:
+    (
+        _inherited_baseline_path,
+        replacement_baseline_path,
+        authority_path,
+        _allowed_path,
+        allowed,
+    ) = _prepare_bootstrap_to_workspace_replacement(
+        repository, workspace_drift="new_tracked"
+    )
+    replacement = json.loads(replacement_baseline_path.read_text())
+    assert next(
+        row
+        for row in replacement["status_rows"]
+        if row["path"] == "000-new-dirty.txt"
+    )["status"] == " M"
+
+    with pytest.raises(
+        SourceBindingError,
+        match="workspace_baseline_inheritance_invalid",
+    ):
+        build_precommit_control(
+            repository,
+            allowed_paths=allowed,
+            durable_authority_paths=[authority_path.name],
+            commit_subject="Invalid tracked extension retirement test commit",
+            workspace_baseline=replacement_baseline_path.name,
+        )
 
 
 def test_bootstrap_to_workspace_replacement_may_extend_protected_rows(
