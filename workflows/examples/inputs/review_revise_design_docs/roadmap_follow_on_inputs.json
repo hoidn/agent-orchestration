@@ -1,0 +1,17 @@
+{
+  "target_doc": "docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md",
+  "context_docs": [
+    "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md",
+    "docs/design/workflow_lisp_frontend_specification.md",
+    "docs/design/workflow_lisp_procedure_first_reuse_contract.md",
+    "docs/superpowers/specs/2026-07-22-workflow-lisp-evolution-substrate-and-feature-design.md"
+  ],
+  "review_focus": "Review this follow-on roadmap broadly, not only for correctness. Judge: (1) Direction — does each stage genuinely advance the intended evolution recorded in the context documents (procedure-first authoring, typed effect-visible substrate, deletion-first estate reduction), or does it drift into work that merely accompanies it? Name any stage whose contribution to the stated direction you cannot articulate. (2) Architecture quality — are stage boundaries load-bearing (each stage leaves the system coherent and shippable), are dependencies between stages real and acyclic, and do proposed mechanisms reuse existing substrate (stdlib, parity kernel, evidence machinery) rather than inventing parallel machinery? (3) Debt — identify where the plan creates or entrenches debt: permanent recovery/compatibility surfaces for one-off situations, verification or evidence obligations disproportionate to what they protect, ceremony imposed on authors that the compiler could own, and retained legacy surfaces without a named retirement path. (4) Proportionality — flag any stage whose process cost (reviews, attestations, gates) is out of scale with its product effect. (5) Omissions — name work the direction requires that the roadmap does not schedule. Ground every finding in a specific section of the target document; do not restate the document's own claims as findings.",
+  "checks_report": "artifacts/work/roadmap-follow-on-review/no-automated-checks.md",
+  "review_report_target_path": "artifacts/review/roadmap-follow-on/review.md",
+  "revision_report_target_path": "artifacts/work/roadmap-follow-on-review/revision.md",
+  "review_model": "claude-fable-5",
+  "review_effort": "high",
+  "fix_model": "gpt-5.6-sol",
+  "fix_effort": "high"
+}

@@ -281,7 +281,7 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
         "type": "list",
         "items": {
             "type": "relpath",
-            "under": "docs/design",
+            "under": "docs",
             "must_exist_target": True,
         },
     }
@@ -340,27 +340,20 @@ def test_review_revise_design_docs_runtime_private_collection_lane(tmp_path: Pat
         "type": "list",
         "items": {
             "type": "relpath",
-            "under": "docs/design",
+            "under": "docs",
             "must_exist_target": True,
         },
     }
-    assert helper.authored_mapping["inputs"]["inputs__context_docs"] == {
-        "kind": "collection",
-        "type": "list",
-        "items": {
-            "type": "relpath",
-            "under": "docs/design",
-            "must_exist_target": True,
-        },
-    }
+    # The subject record is the sole owner of target/context docs; the inputs
+    # record no longer duplicates them into a second collection lane.
+    assert "inputs__context_docs" not in helper.authored_mapping["inputs"]
+    assert "inputs__target_doc" not in helper.authored_mapping["inputs"]
     assert helper_step["provider"] == "codex"
     assert "consumes" not in helper_step
     assert review_call["with"]["completed__context_docs"]["ref"].endswith(
         ".artifacts.state__completed__context_docs"
     )
-    assert review_call["with"]["inputs__context_docs"]["ref"].endswith(
-        ".artifacts.state__inputs__context_docs"
-    )
+    assert "inputs__context_docs" not in review_call["with"]
 
 
 def test_generic_defproc_workflow_body_compiles_to_validated_bundle(tmp_path: Path) -> None:

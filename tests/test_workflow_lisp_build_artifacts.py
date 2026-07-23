@@ -2689,7 +2689,9 @@ def test_build_artifacts_emit_private_artifact_catalog(tmp_path: Path) -> None:
         request_cls(
             source_path=REPO_ROOT / "workflows" / "examples" / "review_revise_design_docs.orc",
             source_roots=(REPO_ROOT / "workflows" / "examples",),
-            entry_workflow="review-revise-design-docs",
+            # Selection-free: entry-bootstrap allowances flow through the
+            # exports branch; named selection is gated to entry/drain names.
+            entry_workflow=None,
             provider_externs_path=(
                 REPO_ROOT / "workflows" / "examples" / "inputs" / "review_revise_design_docs" / "providers.json"
             ),
@@ -2716,7 +2718,9 @@ def test_semantic_ir_private_artifact_catalog_bridge(tmp_path: Path) -> None:
         request_cls(
             source_path=REPO_ROOT / "workflows" / "examples" / "review_revise_design_docs.orc",
             source_roots=(REPO_ROOT / "workflows" / "examples",),
-            entry_workflow="review-revise-design-docs",
+            # Selection-free: entry-bootstrap allowances flow through the
+            # exports branch; named selection is gated to entry/drain names.
+            entry_workflow=None,
             provider_externs_path=(
                 REPO_ROOT / "workflows" / "examples" / "inputs" / "review_revise_design_docs" / "providers.json"
             ),

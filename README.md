@@ -298,7 +298,6 @@ Validate the generic typed review/revise example:
 ```bash
 python -m orchestrator compile \
   workflows/examples/review_revise_design_docs.orc \
-  --entry-workflow review_revise_design_docs::review-revise-design-docs \
   --provider-externs-file workflows/examples/inputs/review_revise_design_docs/providers.json \
   --prompt-externs-file workflows/examples/inputs/review_revise_design_docs/prompts.json
 ```

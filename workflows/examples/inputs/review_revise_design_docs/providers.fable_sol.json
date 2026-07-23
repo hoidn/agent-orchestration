@@ -1,0 +1,4 @@
+{
+  "providers.design-docs.review": "claude_unrestricted_workspace",
+  "providers.design-docs.fix": "codex_unrestricted_workspace"
+}
