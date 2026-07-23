@@ -39,6 +39,8 @@ Use these labels:
 - Compiler-hidden generated values still need explicit ownership.
 - Machine-computed gates are stronger than prose approval.
 - Per-step decisions and terminal workflow outcomes are distinct state layers.
+- Fail-closed refusals name the rule that refused; authority never keys on
+  identifier spelling.
 
 ## Design Review Practices To Retain
 
@@ -507,6 +509,32 @@ The frontend must preserve the project's deterministic workflow model:
 
 The frontend may make workflows more composable, but it must not make execution
 less inspectable or less deterministic.
+
+## 28. Refusals Must Name Their Rule
+
+Status: `frontend and runtime requirement`
+
+Fail-closed is only trustworthy when it is diagnosable. Three rules:
+
+- Every compiler or runtime decision that denies, disables, or withholds a
+  capability emits a coded diagnostic naming the rule it applied and the
+  value it rejected. A silent `return {}`/`None` on a denial path is a
+  defect, not caution: the author then debugs the downstream consequence
+  instead of reading the decision (2026-07-23: a three-name entry-bootstrap
+  allowlist denying silently cost a ninety-minute bisect against a
+  misleading `workflow_signature_mismatch`).
+- Authority never keys on identifier spelling. Gates key on declared
+  semantic properties — exported, context-typed, effect-bearing — not on
+  workflow or module names. A temporarily necessary name key must announce
+  itself in its diagnostic and carry a pointer to its replacement rule.
+- When a gate that could have legalized a failing construct was consulted
+  and declined, its denial attaches to the eventual error as a secondary
+  note, so consequence-shaped errors carry their decision-shaped cause.
+
+This principle adds diagnostics, not process: no registries, audits, or
+review ceremonies follow from it. New denial paths comply on introduction;
+existing silent paths are fixed when touched or when they cost someone a
+debugging session.
 
 ## Relationship To Normative Specs
 
