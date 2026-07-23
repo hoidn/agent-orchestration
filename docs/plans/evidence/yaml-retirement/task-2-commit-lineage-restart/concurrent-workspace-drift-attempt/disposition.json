@@ -1,0 +1,62 @@
+{
+  "attempt_binding": {
+    "archive_root": "docs/plans/evidence/yaml-retirement/task-2-commit-lineage-restart/concurrent-workspace-drift-attempt/failed-attempt",
+    "attestation_sha256": "sha256:1b8bd3c7f552d2de7ecbabdd3713af73bea1b8434d2967ea4ad2a7a82f056ee2",
+    "captured_head": "3801765c3cf73bdad22ced99cd9a3ca8597d92eb",
+    "ledger_sha256": "sha256:9a2f2b99798b185dc32cff3dd3fd1f9fe6be111aa80b08a2a52808bd24cfd33f",
+    "normalized_tree_sha256": "sha256:c389ec53d185ed28f9aff2aa70f989b160d5337e978090f6ae81e6fff8dd7e3e",
+    "owner_adopted_at": "2026-07-22T16:56:50-07:00",
+    "path_count": 38,
+    "workspace_baseline_sha256": "sha256:fa6710e8e373214b42faa9a21771caa92c8fe3e162bbeb10b9b594be7263622e"
+  },
+  "claims_not_made": [
+    "This disposition grants no authority to modify, stage, archive, or commit either concurrent user-owned path.",
+    "The archived owner adoption remains historical and cannot satisfy a replacement Task 2 attempt.",
+    "This record does not claim Task 2 completion or authorize any Task 3 source mutation."
+  ],
+  "corrective_plan_binding": {
+    "path": "docs/plans/2026-07-22-yaml-retirement-task-2-commit-lineage-restart-implementation-plan.md",
+    "sha256": "sha256:edb0cdd80d0f1cafe6a2372355f34face691b20a4e66eadeb08b83354a3a240b"
+  },
+  "disposition": "archive_owner_adopted_uncommitted_attempt_after_concurrent_workspace_drift",
+  "execution_choices": [
+    "Preserve the exact adopted attempt bytes, restore only the committed ledger singleton, and restart Task 2 against the later ambient workspace state.",
+    "Use this compact evidence-only disposition instead of adding a reusable recovery implementation for this process incident."
+  ],
+  "governing_plan_binding": {
+    "path": "docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md",
+    "sha256": "sha256:20096b44d03017780394a6789c39705912da1909847ab3460a312c65dcb066fb"
+  },
+  "incident": {
+    "observed_at": "2026-07-22T17:13:43-07:00",
+    "reason": "concurrent_workspace_change_after_fresh_capture_and_owner_adoption_before_controlled_commit",
+    "rows": [
+      {
+        "lstat_mode": 436,
+        "mtime": "2026-07-22T17:06:08.630900955-07:00",
+        "path": "docs/design/README.md",
+        "sha256": "sha256:c720566f9a78e5472046f1fcf2d371a369d7dec7a825ebe48e59eac1260baa8d",
+        "size": 21742,
+        "status": " M"
+      },
+      {
+        "lstat_mode": 436,
+        "mtime": "2026-07-22T17:07:49.508347393-07:00",
+        "path": "docs/superpowers/specs/2026-07-22-workflow-lisp-evolution-substrate-and-feature-design.md",
+        "sha256": "sha256:a32270cb6ebfb85802f19fd4735b63d8760f889b37b11a2002fd7c7a6d9dc2a5",
+        "size": 58138,
+        "status": "??"
+      }
+    ]
+  },
+  "ledger_restoration": {
+    "live_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/execution-ledger.json",
+    "restored_committed_sha256": "sha256:19ed4c66ec8d5ae08583325c2e4acc416b3b3b9bc8b465957835599287f76e4a"
+  },
+  "normalized_disposition_sha256": "sha256:86ace64d81815e979ba721a2cc65a3e66ab565f6f4551167289047b657c35223",
+  "schema_version": "task_2_minimal_attempt_disposition.v1",
+  "skipped_or_collapsed_steps": [
+    "No new recovery class, production validator, hardening, schema generalization, or additional review pair was created.",
+    "The invalid single-commit route was abandoned at the controller failure without weakening or bypassing the controller."
+  ]
+}

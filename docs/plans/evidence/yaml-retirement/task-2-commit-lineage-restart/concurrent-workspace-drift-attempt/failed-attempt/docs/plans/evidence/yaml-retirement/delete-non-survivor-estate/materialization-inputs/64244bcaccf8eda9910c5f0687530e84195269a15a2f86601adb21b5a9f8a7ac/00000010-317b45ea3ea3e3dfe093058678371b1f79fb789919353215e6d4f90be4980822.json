@@ -1,0 +1,232 @@
+{
+  "claims_not_made": [
+    "This request does not authorize owner action or source mutation."
+  ],
+  "expected_input_set_sha256": "sha256:c2a0d4fdf3336b43cfd618310512504360e6b6c1ac25d61e714821fc15beb433",
+  "generation": 10,
+  "input_bindings": [
+    {
+      "path": "docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md",
+      "role": "approved_plan",
+      "schema_version": null,
+      "sha256": "sha256:20096b44d03017780394a6789c39705912da1909847ab3460a312c65dcb066fb",
+      "size": 334357
+    }
+  ],
+  "normalized_request_sha256": "sha256:317b45ea3ea3e3dfe093058678371b1f79fb789919353215e6d4f90be4980822",
+  "output_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/execution-ledger.json",
+  "parameters": {
+    "record": {
+      "claims_not_made": [
+        "This ledger does not authorize deletion, owner action, or workflow execution."
+      ],
+      "current_task": 2,
+      "last_transition": {
+        "evidence_bindings": [],
+        "future_bindings": [],
+        "new_status": "in_progress",
+        "old_status": "in_progress",
+        "prepared_at": "2026-07-22T23:18:26.117667+00:00",
+        "prior_generation_binding": {
+          "generation": 9,
+          "output_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/execution-ledger.json",
+          "request_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/materialization-inputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000009-4aba1e3c995068275066959595019d37c65c560fffa02f397397160e3e1da02e.json",
+          "request_sha256": "sha256:910f34d83945407341d2ed1a40c31dbc35cadc230c0603c4548bcff509d1fcaf",
+          "snapshot_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/immutable-outputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000009-054fb96551bdc911c95eb9154fcb7e1110dbf13725974b2695c97753e4f250d6.json",
+          "snapshot_sha256": "sha256:054fb96551bdc911c95eb9154fcb7e1110dbf13725974b2695c97753e4f250d6"
+        },
+        "step_number": 5,
+        "task_number": 2
+      },
+      "normalized_ledger_sha256": "sha256:7da58107e7eeb9d7652e3ec3c4f08a220611063dfe15698950ec208ad0d7d4c9",
+      "plan_binding": {
+        "path": "docs/plans/2026-07-17-yaml-retirement-task-6-execution-plan.md",
+        "sha256": "sha256:20096b44d03017780394a6789c39705912da1909847ab3460a312c65dcb066fb"
+      },
+      "schema_version": "workflow_retirement_execution_ledger.v1",
+      "task_count": 17,
+      "tasks": [
+        {
+          "completed_step_count": 4,
+          "evidence_bindings": [
+            {
+              "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-commits/task-01-bootstrap/quality-review.json",
+              "sha256": "sha256:44abc2cac11127c24b892734b8c27c4d3df22890b7e5fc014386ee2da4a05a37"
+            },
+            {
+              "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-commits/task-01-bootstrap/specification-review.json",
+              "sha256": "sha256:5728519d747dda3560fdae81862b246141688d3f65bf54c915314823b2abfbf3"
+            },
+            {
+              "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-commits/task-01-bootstrap/subject.json",
+              "sha256": "sha256:8a956d6cc8e0565b6f6eaf62e55fec71af657c5840980366135f88a9ec7d2c9b"
+            }
+          ],
+          "status": "complete",
+          "task_number": 1,
+          "title": "Bootstrap The Generic Broad-Evidence Foundation",
+          "total_step_count": 4
+        },
+        {
+          "completed_step_count": 5,
+          "evidence_bindings": [
+            {
+              "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/immutable-outputs/698609d626554ce589e713e17e23962bc223bac7120a4d219ecb7f235f1b673b/00000001-0ba8f528653e384623be4919a8a0fa2fff0d7fb286d2057605e3897a7e4874a0.json",
+              "sha256": "sha256:0ba8f528653e384623be4919a8a0fa2fff0d7fb286d2057605e3897a7e4874a0"
+            },
+            {
+              "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/materialization-inputs/698609d626554ce589e713e17e23962bc223bac7120a4d219ecb7f235f1b673b/00000001-a6c3792f0956f974e01359039fbca7ad44359e6d85aa6cc1b8f9c2b0dc38991e.json",
+              "sha256": "sha256:fe9c879671197ab5c0dc6b6589d2b7f51fa7581236426976c259c3e035bb330e"
+            },
+            {
+              "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/non-target-queue-sources.json",
+              "sha256": "sha256:fc84bc8c17c76fc6daaf5da8bfadd6ed11dbbce7fc12676f64526aee580635ad"
+            },
+            {
+              "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/query.json",
+              "sha256": "sha256:0ba8f528653e384623be4919a8a0fa2fff0d7fb286d2057605e3897a7e4874a0"
+            },
+            {
+              "path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/workspace-baseline.json",
+              "sha256": "sha256:fa6710e8e373214b42faa9a21771caa92c8fe3e162bbeb10b9b594be7263622e"
+            }
+          ],
+          "status": "in_progress",
+          "task_number": 2,
+          "title": "Characterize, Adopt, And Freeze The Pre-Implementation Boundary",
+          "total_step_count": 8
+        },
+        {
+          "completed_step_count": 0,
+          "evidence_bindings": [],
+          "status": "pending",
+          "task_number": 3,
+          "title": "Extract Stable Generic State-Store Traversal",
+          "total_step_count": 6
+        },
+        {
+          "completed_step_count": 0,
+          "evidence_bindings": [],
+          "status": "pending",
+          "task_number": 4,
+          "title": "Add Generic `workflow_file` Top-Level And Nested Consumer Scanning",
+          "total_step_count": 6
+        },
+        {
+          "completed_step_count": 0,
+          "evidence_bindings": [],
+          "status": "pending",
+          "task_number": 5,
+          "title": "Add The Generic Repository Reference And Import-Graph Scanner",
+          "total_step_count": 6
+        },
+        {
+          "completed_step_count": 0,
+          "evidence_bindings": [],
+          "status": "pending",
+          "task_number": 6,
+          "title": "Implement Closed Evidence, Execution-Index, And Batch Validators",
+          "total_step_count": 7
+        },
+        {
+          "completed_step_count": 0,
+          "evidence_bindings": [],
+          "status": "pending",
+          "task_number": 7,
+          "title": "Materialize And Review The Exact Seven-Batch Assignment",
+          "total_step_count": 8
+        },
+        {
+          "completed_step_count": 0,
+          "evidence_bindings": [],
+          "status": "pending",
+          "task_number": 8,
+          "title": "Prepare And Obtain Owner Root-Scope Adoption",
+          "total_step_count": 5
+        },
+        {
+          "completed_step_count": 0,
+          "evidence_bindings": [],
+          "status": "pending",
+          "task_number": 9,
+          "title": "Capture Per-Root Scans And Obtain Per-Root Attestations",
+          "total_step_count": 5
+        },
+        {
+          "completed_step_count": 0,
+          "evidence_bindings": [],
+          "status": "pending",
+          "task_number": 10,
+          "title": "Execute Batch 1 (15 Paths)",
+          "total_step_count": 13
+        },
+        {
+          "completed_step_count": 0,
+          "evidence_bindings": [],
+          "status": "pending",
+          "task_number": 11,
+          "title": "Execute Batch 2 (15 Paths)",
+          "total_step_count": 13
+        },
+        {
+          "completed_step_count": 0,
+          "evidence_bindings": [],
+          "status": "pending",
+          "task_number": 12,
+          "title": "Execute Batch 3 (10 Paths)",
+          "total_step_count": 13
+        },
+        {
+          "completed_step_count": 0,
+          "evidence_bindings": [],
+          "status": "pending",
+          "task_number": 13,
+          "title": "Resolve And Execute Batch 4 (15 Paths)",
+          "total_step_count": 13
+        },
+        {
+          "completed_step_count": 0,
+          "evidence_bindings": [],
+          "status": "pending",
+          "task_number": 14,
+          "title": "Resolve And Execute Batch 5 (15 Paths)",
+          "total_step_count": 13
+        },
+        {
+          "completed_step_count": 0,
+          "evidence_bindings": [],
+          "status": "pending",
+          "task_number": 15,
+          "title": "Resolve And Execute Batch 6 (15 Paths)",
+          "total_step_count": 13
+        },
+        {
+          "completed_step_count": 0,
+          "evidence_bindings": [],
+          "status": "pending",
+          "task_number": 16,
+          "title": "Resolve And Execute Batch 7 (15 Paths)",
+          "total_step_count": 13
+        },
+        {
+          "completed_step_count": 0,
+          "evidence_bindings": [],
+          "status": "pending",
+          "task_number": 17,
+          "title": "Close The Queue And Hand Off The Archive Queue",
+          "total_step_count": 6
+        }
+      ]
+    }
+  },
+  "prior_generation_binding": {
+    "generation": 9,
+    "output_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/execution-ledger.json",
+    "request_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/materialization-inputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000009-4aba1e3c995068275066959595019d37c65c560fffa02f397397160e3e1da02e.json",
+    "request_sha256": "sha256:910f34d83945407341d2ed1a40c31dbc35cadc230c0603c4548bcff509d1fcaf",
+    "snapshot_path": "docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/immutable-outputs/64244bcaccf8eda9910c5f0687530e84195269a15a2f86601adb21b5a9f8a7ac/00000009-054fb96551bdc911c95eb9154fcb7e1110dbf13725974b2695c97753e4f250d6.json",
+    "snapshot_sha256": "sha256:054fb96551bdc911c95eb9154fcb7e1110dbf13725974b2695c97753e4f250d6"
+  },
+  "record_kind": "execution-ledger",
+  "schema_version": "retirement_materialization_request.v1"
+}
