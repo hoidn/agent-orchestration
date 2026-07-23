@@ -234,16 +234,27 @@ def test_owner_delete_closes_step_back_decision_without_an_inferred_port() -> No
         row for row in queues if row["Queue ID"] == "hold_non_progress_step_back"
     )
     normalized = " ".join(text.lower().split())
+    owner_authority = " ".join(
+        owner_decision["Gate or authority"].lower().replace("`", "").split()
+    )
+    queue_contract = " ".join(
+        queue["Decision gate"].lower().replace("`", "").split()
+    )
+    handoff = _handoff_queues()["hold_non_progress_step_back"]
 
     assert owner_decision["Classification"] == "drop"
     assert "hold_non_progress_step_back" in owner_decision["Applies to"]
-    assert "2026-07-23t16:06:20-07:00" in owner_decision["Gate or authority"].lower()
-    assert "delete" in owner_decision["Gate or authority"].lower()
-    assert "port" in owner_decision["Gate or authority"].lower()
+    assert "2026-07-23t16:06:20-07:00" in owner_authority
+    assert "selected delete, not port" in owner_authority
+    assert "port, not delete" not in owner_authority
     assert typed_routing["Classification"] == "implemented"
     assert queue["Disposition"] == "delete"
+    assert "no .orc port" in queue_contract
     assert "reference" in queue["Decision gate"].lower()
     assert "supported" in queue["Decision gate"].lower()
+    assert handoff["disposition"] == "delete"
+    assert handoff["replacement"]["kind"] == "none"
+    assert handoff["replacement"]["paths"] == []
     assert "if the owner later selects port" not in normalized
 
 

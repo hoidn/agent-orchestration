@@ -563,16 +563,16 @@ provenance, not fresh parity evidence.
 Every machine-handoff queue is `pending`. The unchanged
 `hold_non_progress_step_back` queue ID now carries disposition `delete` and
 replacement kind `none`; the owner decision closes only the delete-or-port
-choice and does not perform the deletion. Task 7 deliberately defers the actual
-reference and run-consumer captures to Stage 6: the reference capture is
-`pending_stage_6_scan`, and supported-root scope is `pending_adjudication`.
-A later deletion/archive requires zero unclassified
-active repository references and zero match-scoped supported nonterminal run or
-nested call-frame consumers. Missing/unreadable status fails closed. Unrelated
-store-wide nonterminal totals remain disclosed hygiene rather than gating
-counts. The planning probe's 84 `running`/`suspended` labels are recorded only
-as hygiene pending supported-root adjudication; they are not characterized as
-live or supported. Repository scans also make no claim about unknown downstream
+choice and does not perform the deletion. The reference capture remains
+`pending_stage_6_scan`. Supported-root scope and the unsupported/abandoned
+consumer disposition are closed by the owner ruling recorded on 2026-07-23,
+while a fresh target-match scan still gates deletion. A later
+deletion/archive requires zero unclassified active repository references and
+zero match-scoped supported nonterminal run or nested call-frame consumers.
+Missing/unreadable status fails closed. Unrelated store-wide nonterminal totals
+remain disclosed hygiene rather than gating counts. The planning probe's 84
+`running`/`suspended` labels remain hygiene and are not characterized as live
+or supported. Repository scans also make no claim about unknown downstream
 clones.
 
 The checked human projection is

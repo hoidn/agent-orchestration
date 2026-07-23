@@ -69,10 +69,11 @@ deletion queue.
 - The owner DELETE decision releases the step-back holdout-specific working-tree
   fence for deletion purposes. This handoff update itself does not modify the
   formerly fenced paths or adopt unrelated working-tree changes.
-- Task 7's handoff intentionally defers the repository-reference capture and
-  supported-root run-consumer scan to Stage 6. Their machine statuses remain
-  `pending_stage_6_scan` and `pending_adjudication`; the handoff contains no
-  synthetic eligibility claim.
+- The repository-reference capture remains `pending_stage_6_scan` until the
+  requeued target's deletion transaction. Supported-root scope and the
+  unsupported/abandoned consumer disposition are closed by the owner ruling
+  recorded on 2026-07-23; a fresh target-match scan still gates deletion, so
+  the handoff contains no synthetic eligibility claim.
 
 ## Released holdout-specific working-tree fence
 

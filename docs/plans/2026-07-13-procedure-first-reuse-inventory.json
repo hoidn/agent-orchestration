@@ -576,8 +576,8 @@
       "normalized_records_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "run_consumer_scan_contract": {
-      "capture_status": "hygiene_only_pending_scope_adjudication",
-      "root_scope_status": "pending_adjudication",
+      "capture_status": "owner_disposition_recorded_in_proportionality_ruling",
+      "root_scope_status": "owner_bound_complete",
       "matching_scope": "exact queue source paths, including nested call-frame ownership",
       "missing_or_unreadable_status": "nonterminal",
       "gate_fields": [

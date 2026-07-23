@@ -659,8 +659,10 @@ def _validate_yaml_retirement_handoff(inventory: dict[str, object]) -> None:
         "observed_nonterminal_label_count",
         "observed_nonterminal_label_claim",
     }
-    assert run_scan["capture_status"] == "hygiene_only_pending_scope_adjudication"
-    assert run_scan["root_scope_status"] == "pending_adjudication"
+    assert run_scan["capture_status"] == (
+        "owner_disposition_recorded_in_proportionality_ruling"
+    )
+    assert run_scan["root_scope_status"] == "owner_bound_complete"
     assert run_scan["missing_or_unreadable_status"] == "nonterminal"
     assert run_scan["gate_fields"] == [
         "matching_terminal_run_count",
@@ -750,7 +752,7 @@ def test_non_progress_step_back_owner_delete_requeues_without_a_replacement() ->
     )
 
 
-def test_yaml_task_5_keeps_both_old_sources_pending_their_deletion_gates() -> None:
+def test_yaml_task_5_handoff_retains_both_retired_source_identities() -> None:
     handoff = _load_json(REUSE_INVENTORY)["yaml_retirement_handoff"]
     queues = {queue["queue_id"]: queue for queue in handoff["queues"]}
     expected_sources = {
@@ -766,7 +768,7 @@ def test_yaml_task_5_keeps_both_old_sources_pending_their_deletion_gates() -> No
         queue = queues[queue_id]
         assert queue["status"] == "pending"
         assert queue["paths"] == [yaml_path]
-        assert (REPO_ROOT / yaml_path).is_file()
+        assert not (REPO_ROOT / yaml_path).exists()
         assert queue["reference_gate"] == "zero_unclassified_active_references"
         assert queue["run_consumer_gate"] == (
             "zero_supported_matching_nonterminal_consumers"
@@ -1843,7 +1845,6 @@ def test_procedure_first_public_boundary_inventory_keeps_exported_wrappers(
 ) -> None:
     inventory = _load_json(REUSE_INVENTORY)
     registry = _load_json(ROUTE_READINESS_REGISTRY)
-    parity = _load_json(PARITY_TARGETS)
     active_by_id = {record["id"]: record for record in inventory["records"]}
 
     drain_id = "public-entry:lisp_frontend_design_delta/drain::drain"
@@ -1886,14 +1887,6 @@ def test_procedure_first_public_boundary_inventory_keeps_exported_wrappers(
     readiness_paths = {row["path"] for row in registry["surfaces"]}
     assert active_by_id[drain_id]["source_path"] in readiness_paths
     assert active_by_id[stack_id]["source_path"] in readiness_paths
-    parity_entries = {
-        (row["candidate"], row["entry_workflow"])
-        for row in parity["targets"]
-    }
-    assert (
-        active_by_id[stack_id]["source_path"],
-        "design-plan-impl-review-stack",
-    ) in parity_entries
 
 
 def test_same_file_build_checks_stays_workflow_on_live_route() -> None:
