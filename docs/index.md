@@ -717,14 +717,6 @@ before adding or preserving the command boundary.
 **Keywords:** workflows, watchdog, run-monitoring, repair, resume, v2.14, yaml-compatibility
 **Use this when:** Operating or auditing the retained YAML watchdog before its Task 6 deletion gate; do not use it for new launches.
 
-### [Managed Provider Jobs Demo](../workflows/examples/managed_provider_jobs_demo.yaml)
-**Route scope:** `existing_yaml_compatibility`
-**Copy role:** `not_new_author_template`
-**New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
-**Description:** Retained v2.13 YAML compatibility demo showing `managed_jobs` on a provider step, a local managed training launch, runtime-owned audit/recovery state, and managed outcome routing to review/fix steps.
-**Keywords:** managed-jobs, provider, v2.13, audit, recovery, shim, yaml-compatibility
-**Use this when:** Maintaining or debugging an existing YAML/YML managed-jobs workflow; it is compatibility evidence, not a copyable new-author starting point.
-
 ### [Workflow Examples Directory](../workflows/examples/)
 **Route scope:** `reference_only`
 **Copy role:** `not_new_author_template`

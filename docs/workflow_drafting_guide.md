@@ -177,9 +177,8 @@ For v2.10 provider-session steps, treat the session handle as runtime-owned data
 
 Use `managed_jobs` when an existing YAML/YML workflow has a provider that may
 launch long-running local, Slurm, or training-style jobs that must be audited,
-recovered, and resumed without relaunching the provider. The retained
-`workflows/examples/managed_provider_jobs_demo.yaml` is a compatibility example
-for that v2.13 surface. Genuinely new authoring starts in the
+recovered, and resumed without relaunching the provider. Provider-job tests
+cover that v2.13 surface. Genuinely new authoring starts in the
 [Workflow Lisp drafting guide](lisp_workflow_drafting_guide.md) and selects a
 registry-approved `.orc` example whose typed shape fits.
 

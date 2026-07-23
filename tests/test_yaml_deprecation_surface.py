@@ -513,11 +513,6 @@ def test_author_routing_deep_yaml_guide_sections_are_compatibility_scoped(
             "(../workflows/examples/generic_run_watchdog.yaml)",
             "`existing_yaml_compatibility`",
         ),
-        (
-            "### [Managed Provider Jobs Demo]"
-            "(../workflows/examples/managed_provider_jobs_demo.yaml)",
-            "`existing_yaml_compatibility`",
-        ),
         ("### [Workflow Examples Directory](../workflows/examples/)", "`reference_only`"),
         (
             "### [NeurIPS Hybrid ResNet Plan/Implementation Workflow]"
