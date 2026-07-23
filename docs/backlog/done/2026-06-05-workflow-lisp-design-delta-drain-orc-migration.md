@@ -1,9 +1,14 @@
 # Backlog Item: Migrate Lisp Frontend Design Delta Drain To Workflow Lisp
 
-- Status: active
+- Status: completed
 - Created on: 2026-06-05
 - Priority: P2
 - Plan: none yet
+
+Completed by the promoted
+`workflows/library/lisp_frontend_design_delta/drain.orc` route and the Stage 6
+archive of its authored YAML predecessors. The body below is retained as the
+historical migration request and parity contract.
 
 ## Problem
 

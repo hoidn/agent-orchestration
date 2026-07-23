@@ -10,38 +10,6 @@ from orchestrator.workflow.signatures import bind_workflow_inputs
 from tests.workflow_bundle_helpers import bundle_context_dict
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-def test_workflow_local_claude_opus_aliases_use_stdin_prompt_delivery():
-    workflow_paths = [
-        "workflows/examples/lisp_frontend_design_delta_drain.yaml",
-        "workflows/library/lisp_frontend_design_delta_done_review.v214.yaml",
-        "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml",
-        "workflows/library/lisp_frontend_design_delta_plan_phase.v214.yaml",
-        "workflows/library/lisp_frontend_design_delta_implementation_phase.v214.yaml",
-    ]
-
-    for relpath in workflow_paths:
-        workflow = yaml.safe_load((REPO_ROOT / relpath).read_text(encoding="utf-8"))
-        provider = workflow["providers"]["claude_opus"]
-
-        assert provider["input_mode"] == "stdin", relpath
-        assert "${PROMPT}" not in " ".join(provider["command"]), relpath
-
-
-def test_design_delta_drain_defaults_route_work_to_codex_gpt54():
-    workflow = yaml.safe_load(
-        (REPO_ROOT / "workflows/examples/lisp_frontend_design_delta_drain.yaml").read_text(encoding="utf-8")
-    )
-
-    assert workflow["inputs"]["design_gap_draft_provider"]["default"] == "codex"
-    assert workflow["inputs"]["design_gap_draft_model"]["default"] == "gpt-5.4"
-    assert workflow["inputs"]["implementation_execute_provider"]["default"] == "codex"
-    assert workflow["inputs"]["implementation_review_provider"]["default"] == "codex"
-    assert workflow["inputs"]["done_review_provider"]["default"] == "codex"
-
-
 def _write_workflow(workspace: Path, payload: dict) -> Path:
     path = workspace / "workflow.yaml"
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")

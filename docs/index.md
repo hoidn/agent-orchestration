@@ -19,7 +19,7 @@ Informative guidance and mental models live in `docs/`.
 | Choose a design doc | [Design Documentation Index](design/README.md) | Groups current contracts, migration guidance, frontend direction, and deferred work. |
 | Author new workflows | [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) | Preferred `.orc` authoring route, availability guidance, and typed-contract patterns. |
 | Maintain existing YAML workflows | [Workflow Drafting Guide](workflow_drafting_guide.md) | Legacy compatibility guidance for preserving, debugging, or migrating an existing YAML/YML surface. |
-| Start or adapt the current target-design / design-gap drain | [Design Delta drain `.orc`](../workflows/library/lisp_frontend_design_delta/drain.orc) | Promoted Workflow Lisp primary for the Design Delta family; its YAML twin remains compatibility/reference material until the Stage 6 archive gate. |
+| Start or adapt the current target-design / design-gap drain | [Design Delta drain `.orc`](../workflows/library/lisp_frontend_design_delta/drain.orc) | Promoted Workflow Lisp primary for the Design Delta family; the authored YAML family is archived and the historical promotion report remains preserved. |
 | Keep new docs discoverable | [Documentation Conventions](documentation_conventions.md) | Status, authority, evidence, and copy-safety checklist. |
 | Copy a workflow example | [Workflow Index](../workflows/README.md) | Catalog status and copy-safe run commands. |
 

@@ -4,7 +4,6 @@ plan_path: ""
 check_commands:
   - python -m pytest tests/test_lisp_frontend_autonomous_drain_runtime.py -k "pointer or materialize or expected_outputs or call"
   - python -m pytest tests/test_workflow_lisp_design_delta_smoke.py::test_design_delta_parent_drain_smoke_compiles_production_entry tests/test_workflow_lisp_pure_projection_runtime.py::test_provider_bundle_path_projection_exports_generated_bundle_path tests/test_workflow_lisp_projection_dual_run.py::test_projection_dual_run_emits_declared_report_and_passes_all_vectors tests/test_workflow_lisp_view_dual_run.py::test_view_dual_run_emits_declared_report_and_passes_all_vectors tests/test_workflow_lisp_entry_publication.py::test_entry_publication_role_metadata_can_drive_exact_target_binding tests/test_workflow_lisp_resource_stdlib.py::test_stdlib_finalize_selected_item_executes_promoted_route_with_runtime_native_transition_and_view -q
-  - python -m orchestrator run workflows/examples/lisp_frontend_design_delta_drain.yaml --dry-run --input steering_path=docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/work_instructions.md --input target_design_path=docs/design/workflow_lisp_unified_frontend_design.md --input baseline_design_path=docs/design/workflow_lisp_frontend_specification.md
 prerequisites:
   - 2026-06-05-workflow-lisp-design-delta-drain-orc-migration
 related_target_designs:
@@ -58,7 +57,8 @@ Pointer files may remain only as explicitly declared boundary surfaces:
 - public/publication artifacts whose contract intentionally exposes a file;
 - provider write-target materializations when no typed output-target substrate
   exists yet;
-- low-level YAML compatibility while YAML remains primary.
+- explicitly declared compatibility boundaries still consumed by the promoted
+  `.orc` route.
 
 ## Scope
 
@@ -66,7 +66,7 @@ Inventory and retire pointer-file use from the Workflow Lisp Design Delta
 family and its immediate runtime-native authoring path:
 
 - `workflows/library/lisp_frontend_design_delta/*.orc`;
-- `workflows/library/lisp_frontend_design_delta_*.v214.yaml`;
+- `workflows/library/lisp_frontend_design_delta/*.orc`;
 - Design Delta migration fixtures under `tests/fixtures/workflow_lisp/`;
 - helper scripts that read/write pointer files as internal semantic state;
 - tests that assume authored roots instead of typed/call-local contracts.
@@ -77,13 +77,14 @@ For each pointer-file use, classify it as:
 - provider/output-target compatibility to replace with typed output contracts;
 - publication/bridge boundary to keep temporarily with owner and retirement
   condition;
-- YAML-primary compatibility outside this item's deletion scope.
+- archived-YAML comparison evidence that remains historical rather than live.
 
 ## Non-Goals
 
 - Do not delete all pointer files globally.
 - Do not redesign artifact lineage from scratch.
-- Do not remove current YAML primary behavior before parity evidence exists.
+- Do not weaken preserved public behavior merely because the YAML baseline is
+  now archived.
 - Do not replace pointer files with opaque Python helper state.
 - Do not make parity depend on reproducing YAML's internal pointer-file layout
   or update order.
@@ -113,7 +114,7 @@ For each pointer-file use, classify it as:
 - Resource transitions and resume/checkpoint behavior do not require authored
   pointer files.
 - Remaining pointer files are limited to declared public/legacy boundary
-  surfaces or YAML-primary compatibility.
+  surfaces.
 - Tests cover call-local write-root isolation without assuming old authored
   pointer roots.
 - Migration parity compares typed/public behavior, not pointer-file mechanics.
@@ -125,6 +126,6 @@ For each pointer-file use, classify it as:
 - `docs/design/workflow_lisp_key_migration_parity_architecture.md`
 - `docs/backlog/done/2026-05-09-dsl-v214-pointer-authority-clarification.md`
 - `docs/backlog/active/2026-02-28-dsl-pointer-ownership-invariants.md`
-- `workflows/examples/lisp_frontend_design_delta_drain.yaml`
 - `workflows/library/lisp_frontend_design_delta/`
-- `workflows/library/lisp_frontend_design_delta_*.v214.yaml`
+- Historical YAML predecessors are preserved by Git history and the promotion
+  report, not as live authored workflows.

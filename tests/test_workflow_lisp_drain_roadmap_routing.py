@@ -1677,7 +1677,7 @@ def test_task_4_3_closeout_guard_rejects_weakened_or_contradictory_state(
         _assert_task_4_3_closeout_state(mutated_state, "mutated Task 4.3 state")
 
 
-def test_design_delta_primary_and_archive_deferral_remain_routed() -> None:
+def test_design_delta_primary_remains_routed_after_yaml_archive() -> None:
     orc_path = "workflows/library/lisp_frontend_design_delta/drain.orc"
     yaml_path = "workflows/examples/lisp_frontend_design_delta_drain.yaml"
     workflow_catalog_path = REPO_ROOT / "workflows" / "README.md"
@@ -1688,21 +1688,7 @@ def test_design_delta_primary_and_archive_deferral_remain_routed() -> None:
     assert orc_path in preferred
     assert yaml_path not in preferred
     assert "Primary" in _markdown_table_row(workflow_catalog_path, orc_path)
-    assert "Compatibility" in _markdown_table_row(workflow_catalog_path, yaml_path)
-
-    triage_path = REPO_ROOT / "docs" / "workflow_yaml_estate_triage.md"
-    triage_row = _markdown_table_row(triage_path, yaml_path)
-    triage_cells = [cell.strip() for cell in triage_row.strip().strip("|").split("|")]
-    assert triage_cells == [
-        yaml_path,
-        "archive_design_delta_yaml_twin",
-        "archive",
-        orc_path,
-        "6",
-        "git_history",
-        "pending",
-        "reference + supported-run-consumer",
-    ]
+    assert yaml_path not in workflow_catalog
 
     migration_record = (
         REPO_ROOT

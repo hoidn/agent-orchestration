@@ -1373,44 +1373,6 @@ def test_design_delta_library_yaml_effect_adapter_rows_retire_with_twins() -> No
             required_evidence |= promoted_evidence
         assert required_evidence <= set(record["evidence_paths"])
 
-    expected_imports = {
-        "workflows/library/lisp_frontend_design_delta_done_review.v214.yaml": {
-            "design_gap_architect": (
-                "./lisp_frontend_design_delta_design_gap_architect.v214.yaml"
-            ),
-            "work_item": "./lisp_frontend_design_delta_work_item.v214.yaml",
-        },
-        "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml": {
-            "plan_phase": "./lisp_frontend_design_delta_plan_phase.v214.yaml",
-            "implementation_phase": (
-                "./lisp_frontend_design_delta_implementation_phase.v214.yaml"
-            ),
-        },
-        "workflows/library/lisp_frontend_work_item.v214.yaml": {
-            "plan_phase": "./lisp_frontend_plan_phase.v214.yaml",
-            "implementation_phase": "./lisp_frontend_implementation_phase.v214.yaml",
-        },
-    }
-    for source_path, imports in expected_imports.items():
-        document = yaml.safe_load((REPO_ROOT / source_path).read_text(encoding="utf-8"))
-        assert document["imports"] == imports
-
-        calls: list[str] = []
-
-        def collect_calls(value: object) -> None:
-            if isinstance(value, dict):
-                for key, child in value.items():
-                    if key == "call":
-                        calls.append(child)
-                    collect_calls(child)
-            elif isinstance(value, list):
-                for child in value:
-                    collect_calls(child)
-
-        collect_calls(document["steps"])
-        assert calls == list(imports)
-
-
 def _tracked_design_phase_proposed_inline_source(old_source: bytes) -> bytes:
     source = old_source.decode("utf-8")
     replacements = (

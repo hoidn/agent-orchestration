@@ -89,7 +89,7 @@ Rationale:
 ## Suggested Work
 
 1. Inventory the current Lisp frontend drain stack:
-   - `workflows/examples/lisp_frontend_design_delta_drain.yaml`
+   - `workflows/library/lisp_frontend_design_delta/drain.orc`
    - `workflows/library/lisp_frontend_*`
    - `workflows/library/prompts/lisp_frontend_*`
 2. Classify each prompt as:

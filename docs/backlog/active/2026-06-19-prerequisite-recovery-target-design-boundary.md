@@ -18,9 +18,10 @@ routes:
 The classifier prompt describes `PREREQUISITE_GAP_REQUIRED` as a missing
 prerequisite capability or gap. But the recovery revision prompt currently says
 that this route should update the consumed target design enough to add or
-decompose the prerequisite gap. The YAML workflow also routes
+decompose the prerequisite gap. The archived YAML predecessor routed
 `PREREQUISITE_GAP_REQUIRED` through `ReviseBlockedDesignGap` and the blocked
-target-design revision review path.
+target-design revision review path; the current `.orc` primary must not preserve
+that ambiguity.
 
 That makes sequencing work look like architecture work. It risks polluting
 target design documents with transient backlog state, stale run assumptions, or
@@ -86,8 +87,8 @@ escalate to that route with evidence.
 
 ## Related Context
 
-- `workflows/examples/lisp_frontend_design_delta_drain.yaml`
+- `workflows/library/lisp_frontend_design_delta/drain.orc`
 - `workflows/library/prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md`
 - `workflows/library/prompts/lisp_frontend_design_delta_work_item/revise_prior_blocked_design_gap.md`
 - `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/work_instructions.md`
-- `docs/backlog/active/2026-06-05-workflow-lisp-design-delta-drain-orc-migration.md`
+- `docs/backlog/done/2026-06-05-workflow-lisp-design-delta-drain-orc-migration.md`

@@ -10,6 +10,16 @@
 
 **Drafted:** 2026-07-07 against commit `169711aa`. The parametric feasibility gates (capability plan Tasks 2, 3, 7, 9 — see `docs/plans/2026-07-06-parametric-type-system-capability-plan.md`) are complete and green at drafting time; the then-current drain-region files (`lowering/phase_drain.py`, `lowering/drain_terminal.py`, `typecheck_calls.py`, `wcc/defunctionalize.py`) were committed and clean. This sentence is a historical snapshot, not a current owner map.
 
+## Current authority and archive status (2026-07-23)
+
+The promoted Workflow Lisp entry
+`workflows/library/lisp_frontend_design_delta/drain.orc` remains the current
+Design Delta production and authoring surface. The Stage 6 archive transaction
+retires the authored compatibility YAML parent and its six imported library
+twins. Git history and the preserved historical promotion report remain the
+archive authority. Dated statements below that say the YAML twins remain
+present describe their historical gate state and are intentionally preserved.
+
 ## Relationship to prior plans
 
 - `docs/plans/2026-07-06-backlog-drain-generic-migration-plan.md` is the detailed Phase-B draft for the migration. **This plan supersedes its sequencing**: its Tasks 1–6 and 8 are incorporated as Phase 1 below (with amendments noted per task); its Task 7 (intrinsic retirement) is re-gated as Phase 2 here. Its Anchor Map, Known Feasibility Gaps G1–G5, and body skeletons remain authoritative *inputs* — execute body-authoring detail from there, gates and sequencing from here. On conflict between the two plans, this plan governs.
