@@ -605,6 +605,19 @@ The coordinator resolves races as follows:
 | required mirror loss before directive | cancel/join both members; fail the group |
 | mirror loss after validated directive | record evidence; preserve the already-selected control path |
 
+Completion and cancellation that occur within one process-poll interval do
+not have a portable wall-clock ordering. The executor therefore uses the
+first zero-time completion probe after a newly latched cancellation as the
+linearization point. A newly observed cancellation skips the ordinary wait
+slice and forces that probe immediately. If the probe observes completion,
+the natural result remains authoritative, including a natural nonzero
+failure. If the probe observes the leader still incomplete, the executor
+immediately attempts cancellation, which becomes authoritative only when
+application is proved. Signal success cannot override natural completion
+already observed by that zero-time probe. This observable rule preserves
+fail-closed natural-failure precedence when physical ordering cannot be
+reconstructed.
+
 Every group invocation receives a control object so sibling failure and the
 whole-step deadline can cancel and join the supervisor or active resume turn.
 Provider calls outside a group may omit one and retain their existing
