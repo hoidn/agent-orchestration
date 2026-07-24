@@ -42,9 +42,8 @@ The bound amendment supersedes commit `afd0fec5` as current implementation
 authority. The historical simulation does not override the accepted
 observable cancellation linearization or the narrower resume-boundary rule.
 
-**Status:** Execution in progress. Tasks 1-2 are complete. Task 3 activated the
-accepted stop/revise branch; the amendment is accepted and Task 1R is next.
-Task 3 remains pending on Task 1R and its ordered code reviews.
+**Status:** Execution in progress. Tasks 1-3 and the evidence-driven Task 1R
+amendment are complete. The real resume-boundary gate passed; Task 4 is next.
 
 **Plan-review evidence:** Independent specification/sequence review: `PASS`.
 Independent path/selector/shell-order audit: `PASS` for the pre-amendment plan.
@@ -406,23 +405,23 @@ codec-owned fact needed by the revised gate.
 - Modify: `tests/test_provider_execution_control.py`
 - Test: `tests/test_provider_execution.py`
 
-- [ ] Write RED tests proving `resume_boundary_seen` defaults to false,
+- [x] Write RED tests proving `resume_boundary_seen` defaults to false,
   remains false for identity alone and for nested/suffixed/status-like
   lookalikes, becomes true only when the top-level `type` is exactly
   `turn.started` after unique identity and before an exact terminal event, and
   is not applied retroactively when `turn.started` precedes identity. Cover
   split, coalesced, duplicate-marker, and EOF-tail input.
-- [ ] Add both-direction snapshot tests proving the observation stays true
+- [x] Add both-direction snapshot tests proving the observation stays true
   after later invalid/ambiguous identity or terminal input. Prove exact
   `turn.failed` before and after the marker sets `terminal_seen`, durably
   fails the transport, and remains nonpromotable even when the child exits
   zero. Prove codecs without a validated marker retain the false default and
   expose no structural resume-boundary-observation capability.
-- [ ] Add control-copy tests proving both `control.session_snapshot` and
+- [x] Add control-copy tests proving both `control.session_snapshot` and
   `ProviderCancellationResult.final_session_snapshot` preserve the codec-owned
   observation. Do not put deadline or active-versus-clean branch policy in the
   codec/control layer; Task 8 owns those coordinator tests.
-- [ ] Run all new RED tests:
+- [x] Run all new RED tests:
 
   ```bash
   pytest -q \
@@ -434,13 +433,13 @@ codec-owned fact needed by the revised gate.
 
   Confirm the assertions fail for the intended missing observation,
   propagation, capability, and failed-turn contracts.
-- [ ] Implement the smallest accumulator change. Validate each event's
+- [x] Implement the smallest accumulator change. Validate each event's
   identity fields before considering its exact top-level `type`; do not infer
   readiness from provider names, event suffixes, terminal state, or successful
   parsing alone. Expose a generic codec capability query for later static and
   runtime validation, and copy the new field at every explicit snapshot-copy
   boundary.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   PYTHONWARNINGS=error pytest -q \
@@ -450,9 +449,9 @@ codec-owned fact needed by the revised gate.
     -k 'session or identity or resume_boundary or codex_jsonl'
   ```
 
-- [ ] Run:
+- [x] Run:
   `pytest --collect-only -q tests/test_provider_session_transport.py tests/test_provider_execution_control.py tests/test_provider_execution.py`.
-- [ ] Run the full adjacent warning-strict suite without a selector:
+- [x] Run the full adjacent warning-strict suite without a selector:
 
   ```bash
   PYTHONWARNINGS=error pytest -q \
@@ -461,9 +460,16 @@ codec-owned fact needed by the revised gate.
     tests/test_provider_execution.py
   ```
 
-- [ ] Rerun Task 1 specification review and then quality review on the exact
+- [x] Rerun Task 1 specification review and then quality review on the exact
   amendment, resolve findings, and commit:
   `Track provider resume-boundary observations`.
+
+**Task 1R evidence (2026-07-23):** RED produced 14 intended missing-contract
+failures, followed by one intended identity-precedence failure. Implementation
+`16fa0ab9` passed 23 targeted tests with 152 deselected, 89 warning-strict
+focused tests with 86 deselected, collection of 175 tests, and the full
+warning-strict adjacent suite of 175 tests. Ordered independent verdicts:
+`SPEC_COMPLIANT`; `APPROVED`.
 
 ### Task 2: Generic Cancellable Provider Execution
 
@@ -534,35 +540,48 @@ no session id, prompt, raw event, raw output, or response content.
 `turn.started` makes an attempt eligible; only this successful
 exact-identity resume proves the real boundary.
 
-- [ ] Complete Task 1R and both of its ordered reviews before changing the
+- [x] Complete Task 1R and both of its ordered reviews before changing the
   Task 3 gate.
-- [ ] Amend the E2E test so its active-turn wait requires one immutable
+- [x] Amend the E2E test so its active-turn wait requires one immutable
   snapshot with `status == "unique"`, one id,
   `resume_boundary_seen is True`, and `terminal_seen is False` before either
   applicable deadline. Identity-only `thread.started` must not release the
   wait.
-- [ ] Keep the existing temporary-Git-repository, builtin fresh/resume
+- [x] Keep the existing temporary-Git-repository, builtin fresh/resume
   commands, owned process-boundary proof, exact-identity check, and non-empty
   normalized assistant-result assertions. After cancellation and capture
   join, require the final killed-turn snapshot to retain the same unique
   identity and `resume_boundary_seen is True` while
   `terminal_seen is False`.
-- [ ] Run:
+- [x] Run:
   `pytest --collect-only -q tests/e2e/test_e2e_codex_provider_session_control.py`.
-- [ ] Run it in tmux:
+- [x] Run it in tmux:
   `ORCHESTRATE_E2E=1 pytest -q tests/e2e/test_e2e_codex_provider_session_control.py::test_real_codex_thread_identity_cancel_and_resume -s`.
-- [ ] If the real provider cannot expose unique identity plus the exact
+- [x] If the real provider cannot expose unique identity plus the exact
   preterminal readiness marker, reaches either deadline first, cannot prove
   the complete owned boundary, or cannot resume the killed turn under the
   exact identity, stop Stage 7 before Tasks 4-15 and return to the design's
   stop/revise branch. Do not weaken the assertion or substitute fixture
   evidence.
-- [ ] If green, record only the command, exit, installed provider version, and
+- [x] If green, record only the command, exit, installed provider version, and
   structural event types/booleans; do not persist the identity, prompt, raw
   events/output, or response content.
-- [ ] Rerun Task 3 specification review and then quality review on the exact
+- [x] Rerun Task 3 specification review and then quality review on the exact
   revised test and bound Task 1R behavior, resolve findings, and commit:
   `Prove real provider resume boundary`.
+
+**Task 3 evidence (2026-07-23):** Installed provider:
+`codex-cli 0.145.0`. The private-tmux command executed the exact test node
+with `ORCHESTRATE_E2E=1`, `PYTHONWARNINGS=error`, `-q`, `-s`, disabled pytest
+traceback/summary/capture/cache output, and retained its output only in shell
+memory. Result: `1 passed`; pytest exit `0`; sanitized gate exit `0`; private
+socket removed. Structural facts proved by the passing assertions: exact
+`turn.started` resume-boundary observation true while identity was unique and
+terminal false; TERM sent; leader reaped; owned PGID empty; capture and
+execution joined; cancellation proof complete; same opaque identity resumed;
+resume terminal true; normal/promotable result; non-empty normalized assistant
+output. No identity, prompt, raw event/output, or response content was
+persisted. Ordered independent verdicts: `SPEC_COMPLIANT`; `APPROVED`.
 
 ### Task 4: Observation-Only Pane Lifecycle
 

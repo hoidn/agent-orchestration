@@ -67,12 +67,18 @@ def _start_controlled_execution(
     return thread, outcome
 
 
-def _wait_for_preterminal_identity(
+def _wait_for_preterminal_resume_boundary(
     control: ProviderExecutionControl,
+    *,
+    deadline: float,
 ) -> str:
-    deadline = time.monotonic() + _IDENTITY_TIMEOUT_SEC
     while time.monotonic() < deadline:
         snapshot = control.session_snapshot
+        if snapshot is not None and snapshot.terminal_seen:
+            pytest.fail(
+                "Codex reached a terminal event before active "
+                "resume-boundary cancellation"
+            )
         if snapshot is not None and snapshot.status in {"ambiguous", "invalid"}:
             pytest.fail(
                 "Codex exposed an unusable preterminal session identity: "
@@ -83,18 +89,19 @@ def _wait_for_preterminal_identity(
             and snapshot is not None
             and snapshot.status == "unique"
             and len(snapshot.session_ids) == 1
+            and snapshot.resume_boundary_seen is True
             and not snapshot.terminal_seen
         ):
             return snapshot.session_ids[0]
         if control.terminal_result is not None:
             pytest.fail(
-                "Codex completed before exposing one canonical preterminal "
-                "session identity"
+                "Codex completed before exposing one canonical identity at "
+                "the preterminal resume boundary"
             )
         time.sleep(0.01)
     pytest.fail(
-        "Codex did not expose one canonical preterminal session identity "
-        f"within {_IDENTITY_TIMEOUT_SEC:.0f} seconds"
+        "Codex did not expose one canonical identity at the active "
+        "resume boundary before its deadline"
     )
 
 
@@ -187,19 +194,32 @@ def test_real_codex_thread_identity_cancel_and_resume(tmp_path: Path) -> None:
             ),
             timeout_sec=_EXECUTION_TIMEOUT_SEC,
         )
-        assert fresh_error is None
+        if fresh_error is not None:
+            pytest.fail("Codex fresh invocation preparation failed")
         assert fresh_invocation is not None
         assert fresh_invocation.command_variant == "fresh_command"
 
         fresh_control = ProviderExecutionControl()
+        active_boundary_deadline = time.monotonic() + min(
+            _IDENTITY_TIMEOUT_SEC,
+            float(_EXECUTION_TIMEOUT_SEC),
+        )
         fresh_thread, fresh_outcome = _start_controlled_execution(
             executor,
             fresh_invocation,
             fresh_control,
             cwd=workspace,
         )
-        session_id = _wait_for_preterminal_identity(fresh_control)
+        session_id = _wait_for_preterminal_resume_boundary(
+            fresh_control,
+            deadline=active_boundary_deadline,
+        )
 
+        if time.monotonic() >= active_boundary_deadline:
+            pytest.fail(
+                "Codex active resume-boundary deadline expired before "
+                "cancellation"
+            )
         cancelled = fresh_control.cancel_and_reap(
             grace=_CANCELLATION_GRACE_SEC,
         )
@@ -219,11 +239,19 @@ def test_real_codex_thread_identity_cancel_and_resume(tmp_path: Path) -> None:
         assert cancelled.proof_complete is True
         assert cancelled.final_session_snapshot is not None
         assert cancelled.final_session_snapshot.status == "unique"
-        assert cancelled.final_session_snapshot.session_ids == (session_id,)
+        if cancelled.final_session_snapshot.session_ids != (session_id,):
+            pytest.fail(
+                "Cancelled Codex turn did not retain the selected opaque "
+                "session identity"
+            )
+        assert cancelled.final_session_snapshot.resume_boundary_seen is True
         assert cancelled.final_session_snapshot.terminal_seen is False
         assert fresh_result.classification == "cancelled_provisional"
         assert fresh_result.is_promotable is False
-        assert fresh_result.provider_session is None
+        if fresh_result.provider_session is not None:
+            pytest.fail(
+                "Cancelled Codex turn exposed promotable session metadata"
+            )
 
         resume_invocation, resume_error = executor.prepare_invocation(
             "codex",
@@ -240,10 +268,15 @@ def test_real_codex_thread_identity_cancel_and_resume(tmp_path: Path) -> None:
             ),
             timeout_sec=_EXECUTION_TIMEOUT_SEC,
         )
-        assert resume_error is None
+        if resume_error is not None:
+            pytest.fail("Codex resume invocation preparation failed")
         assert resume_invocation is not None
         assert resume_invocation.command_variant == "resume_command"
-        assert session_id in resume_invocation.command
+        if session_id not in resume_invocation.command:
+            pytest.fail(
+                "Codex resume command did not contain the selected opaque "
+                "session identity"
+            )
 
         resume_control = ProviderExecutionControl()
         resume_thread, resume_outcome = _start_controlled_execution(
@@ -269,16 +302,23 @@ def test_real_codex_thread_identity_cancel_and_resume(tmp_path: Path) -> None:
         assert resume_terminal.proof_complete is True
         assert resume_terminal.final_session_snapshot is not None
         assert resume_terminal.final_session_snapshot.status == "unique"
-        assert resume_terminal.final_session_snapshot.session_ids == (
-            session_id,
-        )
+        if resume_terminal.final_session_snapshot.session_ids != (session_id,):
+            pytest.fail(
+                "Resumed Codex turn did not retain the selected opaque "
+                "session identity"
+            )
         assert resume_terminal.final_session_snapshot.terminal_seen is True
         assert resume_result.classification == "normal"
         assert resume_result.exit_code == 0
-        assert resume_result.error is None
+        if resume_result.error is not None:
+            pytest.fail("Resumed Codex turn returned a provider error")
         assert resume_result.is_promotable is True
         assert resume_result.provider_session is not None
-        assert resume_result.provider_session["session_id"] == session_id
+        if resume_result.provider_session["session_id"] != session_id:
+            pytest.fail(
+                "Resumed Codex result did not match the selected opaque "
+                "session identity"
+            )
         assert resume_result.stdout.strip()
         assert resume_result.provider_session["normalized_stdout"].strip()
         assert not (workspace / ".orchestrate").exists()
