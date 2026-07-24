@@ -90,12 +90,13 @@ def _write_run_state(
     workflow_file: str,
     status: str,
     steps: dict[str, object] | None = None,
+    schema_version: str = StateManager.SCHEMA_VERSION,
     updated_at: str = "2026-07-23T12:00:00+00:00",
 ) -> Path:
     run_root = workspace / ".orchestrate" / "runs" / run_id
     run_root.mkdir(parents=True)
     state = {
-        "schema_version": StateManager.SCHEMA_VERSION,
+        "schema_version": schema_version,
         "run_id": run_id,
         "workflow_file": workflow_file,
         "workflow_checksum": "sha256:retired-source",
@@ -108,6 +109,14 @@ def _write_run_state(
     state_path = run_root / "state.json"
     state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
     return state_path
+
+
+def _run_tree_snapshot(run_root: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(run_root).as_posix(): path.read_bytes()
+        for path in run_root.rglob("*")
+        if path.is_file()
+    }
 
 
 def test_run_rejects_non_orc_before_creating_state(
@@ -149,6 +158,7 @@ def test_completed_legacy_resume_is_state_only_noop_when_source_is_missing(
         run_id="completed-legacy",
         workflow_file="retired.yaml",
         status="completed",
+        schema_version="1.1.1",
     )
     monkeypatch.chdir(tmp_path)
 
@@ -172,18 +182,21 @@ def test_resume_rejects_executable_legacy_runs_with_orc_required(
     status: str,
     force_restart: bool,
 ) -> None:
-    _write_run_state(
+    state_path = _write_run_state(
         tmp_path,
         run_id="legacy-execution",
         workflow_file="retired.YAML",
         status=status,
     )
+    run_root = state_path.parent
+    before = _run_tree_snapshot(run_root)
     monkeypatch.chdir(tmp_path)
 
     result = resume_workflow("legacy-execution", force_restart=force_restart)
 
     assert result == 1
     assert ".orc required" in capsys.readouterr().err
+    assert _run_tree_snapshot(run_root) == before
 
 
 def test_force_restart_orc_without_process_metadata_uses_frontend_build(
