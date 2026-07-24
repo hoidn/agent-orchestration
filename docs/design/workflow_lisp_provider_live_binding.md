@@ -1,6 +1,7 @@
 # Workflow Lisp Provider Live Binding
 
-- **Status:** accepted design; implementation in progress
+- **Status:** accepted design with owner amendment (2026-07-24, recorded
+  peer messaging) pending amendment review; implementation in progress
 - **Kind:** feature / provider observation, bounded concurrency, and
   turn-boundary supervision architecture
 - **Owner:** Workflow Lisp frontend + provider runtime
@@ -9,7 +10,7 @@
   `SPEC_COMPLIANT`, quality `APPROVED`, and behavior simulation `PASS` on
   2026-07-23
 - **Created:** 2026-07-13
-- **Last material update:** 2026-07-23
+- **Last material update:** 2026-07-24
 - **Related docs / plans:**
   - `docs/design/workflow_lisp_frontend_specification.md`
   - `docs/design/workflow_lisp_executable_ir.md`
@@ -53,6 +54,11 @@ This revision follows the roadmap's adverse-T3 stop/revise path. It adds:
    readiness marker were observed. Either path performs exactly one resume
    turn with the guidance. Only the selected completed turn's validated
    bundle can become the worker result.
+
+4. **Recorded peer messaging (owner amendment, 2026-07-24).** Declared
+   members may send free-form text to each other through a runtime-recorded
+   channel with explicitly turn-boundary delivery semantics; see the
+   amendment section under the Decision.
 
 The runtime interprets only the directive discriminant. It never interprets
 the guidance, pane text, or provider stdout as workflow data.
@@ -180,11 +186,14 @@ feeding terminal-rendered bytes into strict provider metadata parsers.
 
 ### Non-Goals
 
-- ordinary TTY `send-keys` as control;
+- same-turn steering through any input channel, and unrecorded direct
+  `send-keys` by member agents to raw pane ids;
 - provider-native duplex protocols such as Codex app-server or Claude
   stream-json;
 - more than one steering directive or more than one resume turn;
-- bidirectional or N-member supervision;
+- N-member directive supervision in v1 (recorded peer messaging and static
+  N-member composition are v1.1 scope under the 2026-07-24 owner
+  amendment);
 - dynamic member counts;
 - effectful settlement bodies;
 - durable live handles or durable provider-native session reuse;
@@ -218,10 +227,46 @@ runtime-mediated, typed turn-boundary directive.
   workflow-state/result commit; and
 - a validated pure settlement expression determines the form's final value.
 
+### Recorded peer messaging (owner amendment, 2026-07-24)
+
+The adverse T3a result rejected *same-turn* steering; it did not test or
+reject free-form message passing with turn-boundary delivery, which is the
+capability the owner originally requested. This amendment restores it in
+recorded form:
+
+- Any declared member of a live group may send free-form UTF-8 text to
+  another declared member, addressed by binding name, never by raw pane id.
+- Members send through a runtime-owned command surface (working name:
+  `orchestrator peer-send <binding> <message>`), invoked through the
+  member's ordinary shell tool. The runtime appends the message to the
+  receiving attempt's injected-message ledger and then delivers it into the
+  target session's input mechanism; whether delivery uses `send-keys`
+  against the runtime-owned pane or the session transport's input channel
+  is a runtime-owned detail.
+- Delivery semantics are explicitly turn-boundary: a message reaches the
+  receiving agent when its client next consumes queued input. No same-turn
+  claim is made anywhere; the T3a evidence stands unweakened.
+- Every injected message is evidence: sender binding, receiver binding,
+  verbatim content, and send timestamp are recorded beside the receiving
+  attempt's prompt-dependency snapshot, so "what did this agent see"
+  remains answerable after the fact.
+- The single-writer coordinator serializes message deliveries with
+  directive processing; concurrent senders queue.
+- Messaging never cancels, resumes, or settles a member. The `STEER`
+  resume path remains the only forcing move.
+
+Phasing: the two-member worker/supervisor directive form remains the v1
+execution tranche exactly as specified above. Recorded peer messaging and
+static N-member composition (declared member lists; dynamic counts stay
+excluded) are the v1.1 tranche, layered on the same coordinator, pane, and
+evidence machinery.
+
 ### Alternatives rejected
 
 1. **Ordinary `send-keys` same-turn steering.** Rejected by the T3a behavior
-   probe.
+   probe. This rejection covers only the same-turn framing; free-form
+   messaging with turn-boundary delivery is in scope through the 2026-07-24
+   owner amendment above.
 2. **Client-owned Escape/interruption.** Rejected because the observed client
    acknowledgement did not terminate the prior tool process.
 3. **Wait for the worker to complete and always steer afterward.** Safe, but
