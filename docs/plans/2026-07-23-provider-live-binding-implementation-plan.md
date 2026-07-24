@@ -881,15 +881,15 @@ Fresh verification passed 86 runtime/resume tests, 121 attempt/state tests,
 - Test: `tests/test_resume_command.py`
 - Test: `tests/test_at68_resume_force_restart.py`
 
-- [ ] Write RED tests for crash after `current_step` and before group terminal
+- [x] Write RED tests for crash after `current_step` and before group terminal
   commit, visit-qualified running evidence, sticky
   `provider_supervision_interrupted_visit_quarantined`, exact current-step
   clearance, older-result preservation, no ordinary-resume provider launch,
   repeated ordinary-resume failure, and explicit force-restart/new-run escape.
-- [ ] Add a live-coordinator authored retry test proving retry is allowed only
+- [x] Add a live-coordinator authored retry test proving retry is allowed only
   after all members and capture work are joined and the failed visit is
   durable.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q \
@@ -898,12 +898,28 @@ Fresh verification passed 86 runtime/resume tests, 121 attempt/state tests,
     tests/test_at68_resume_force_restart.py \
     -k 'supervision or quarantine or force_restart'
   ```
-- [ ] Implement pre-restart-index quarantine and sticky routing without
+- [x] Implement pre-restart-index quarantine and sticky routing without
   durable session/pane reuse or a state-schema bump.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_provider_supervision_resume.py tests/test_resume_command.py tests/test_at68_resume_force_restart.py -k 'supervision or quarantine or force_restart'`.
-- [ ] Complete specification review, quality review, and commit:
+- [x] Complete specification review, quality review, and commit:
   `Quarantine interrupted provider supervision visits`.
+
+**Task 9 evidence (2026-07-24):** RED coverage first exposed the missing
+provider-supervision detector, atomic quarantine writer, and sticky CLI
+route; the live-coordinator retry characterization confirmed that Task 8
+already joins all members and capture work before durable failed-visit
+publication. The implementation creates visit-bound `running`/`pending`
+metadata before `current_step`, panes, attempts, or providers; quarantines
+only an exact running supervision visit without an exact terminal result; and
+preserves older results while clearing only the matching current visit.
+Review-driven tests closed one-sided projection/type fail-open behavior,
+missing projection identity, positive non-boolean visit qualification, and
+post-commit secondary-metadata failure authority. Fresh verification passed
+169 affected runtime/resume/CLI tests, 121 attempt/state tests, and 53
+provider-control/execution selectors. Ordered verdicts:
+`TASK9_METADATA_SPEC_APPROVED`, `TASK9_RESUME_SPEC_APPROVED`, then
+`TASK9_METADATA_QUALITY_APPROVED` and `TASK9_RESUME_QUALITY_APPROVED`.
 
 ## Phase 3 — Workflow Lisp Target 2.16
 

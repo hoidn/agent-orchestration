@@ -1880,6 +1880,120 @@ class WorkflowExecutor:
         )
         self._active_provider_sessions[step_name] = visit_info
 
+    def _provider_supervision_visit_metadata_path(
+        self,
+        step: RuntimeStepInput,
+        visit_count: int,
+    ) -> Optional[Path]:
+        """Return the metadata path inside the compiler-owned visit root."""
+        if (
+            not isinstance(step, RuntimeStep)
+            and getattr(self, "executable_ir", None) is None
+        ):
+            return None
+        if (
+            self._execution_kind_for_step(step)
+            is not ExecutableNodeKind.PROVIDER_SUPERVISION
+        ):
+            return None
+        node = self._executable_node_for_step(step)
+        config = getattr(node, "execution_config", None)
+        if not isinstance(config, ProviderSupervisionStepConfig):
+            return None
+        evidence_template = config.paths.worker_fresh.evidence_relpath
+        visit_root_template, separator, _member_path = (
+            evidence_template.partition("/members/")
+        )
+        if (
+            separator != "/members/"
+            or visit_root_template.count("{visit}") != 1
+        ):
+            raise ValueError(
+                "provider supervision visit metadata path is invalid"
+            )
+        relative_root = Path(
+            visit_root_template.replace("{visit}", str(visit_count))
+        )
+        run_root = Path(self.state_manager.run_root).resolve()
+        metadata_path = (run_root / relative_root / "metadata.json").resolve()
+        if metadata_path == run_root or run_root not in metadata_path.parents:
+            raise ValueError(
+                "provider supervision visit metadata path escapes run root"
+            )
+        return metadata_path
+
+    def _prepare_provider_supervision_visit(
+        self,
+        step: RuntimeStepInput,
+        *,
+        step_name: str,
+        step_id: str,
+        visit_count: int,
+    ) -> None:
+        """Create running visit evidence before current_step or provider activity."""
+        metadata_path = self._provider_supervision_visit_metadata_path(
+            step,
+            visit_count,
+        )
+        if metadata_path is None:
+            return
+        if metadata_path.exists():
+            raise ValueError(
+                "provider supervision visit metadata preimage exists"
+            )
+        self.state_manager.write_runtime_sidecar_json(
+            metadata_path,
+            {
+                "run_id": self.state_manager.run_id,
+                "step_name": step_name,
+                "step_id": step_id,
+                "visit_count": visit_count,
+                "status": "running",
+                "publication_state": "pending",
+            },
+        )
+
+    def _update_provider_supervision_visit_metadata(
+        self,
+        step: RuntimeStepInput,
+        *,
+        step_name: str,
+        step_id: str,
+        visit_count: int,
+        status: str,
+        publication_state: str,
+    ) -> Optional[Path]:
+        """Update secondary visit evidence only when its identity is exact."""
+        metadata_path = self._provider_supervision_visit_metadata_path(
+            step,
+            visit_count,
+        )
+        if metadata_path is None:
+            return None
+        metadata = self.state_manager.read_runtime_sidecar_json(metadata_path)
+        if not isinstance(metadata, dict):
+            return None
+        expected = {
+            "step_name": step_name,
+            "step_id": step_id,
+            "visit_count": visit_count,
+        }
+        if any(metadata.get(key) != value for key, value in expected.items()):
+            raise ValueError(
+                "provider supervision visit metadata identity changed"
+            )
+        metadata.update(
+            {
+                "status": status,
+                "publication_state": publication_state,
+            }
+        )
+        self.state_manager.write_runtime_sidecar_json(
+            metadata_path,
+            metadata,
+        )
+        return metadata_path
+
     def _active_provider_session(self, step_name: str) -> Optional[Dict[str, Any]]:
         """Return the current provider-session visit metadata for one top-level step."""
         session_info = self._active_provider_sessions.get(step_name)
@@ -1983,6 +2097,87 @@ class WorkflowExecutor:
                 "visit_count": visit_count,
                 "metadata_path": str(metadata_path),
                 "transport_spool_path": str(transport_spool_path),
+                "metadata_synthesized": metadata_synthesized,
+            },
+        }
+        self.state_manager.fail_run(
+            error,
+            clear_current_step=True,
+            expected_step_id=step_id,
+            expected_visit_count=visit_count,
+        )
+        persisted = self.state_manager.load().to_dict()
+        persisted["status"] = "failed"
+        return persisted
+
+    def _quarantine_provider_supervision_resume_guard(
+        self,
+        state: Dict[str, Any],
+        guard: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Atomically quarantine one exact interrupted live-group visit."""
+        step_name = guard["step_name"]
+        step_id = guard["step_id"]
+        visit_count = guard["visit_count"]
+        node_id = guard.get("node_id", step_id)
+        from urllib.parse import quote
+
+        encoded_node_id = quote(str(node_id), safe="-._")
+        metadata_path = (
+            Path(self.state_manager.run_root)
+            / "provider-supervision"
+            / encoded_node_id
+            / "visits"
+            / str(visit_count)
+            / "metadata.json"
+        ).resolve()
+        metadata_synthesized = not metadata_path.exists()
+        metadata = (
+            self.state_manager.read_runtime_sidecar_json(metadata_path)
+            if not metadata_synthesized
+            else {}
+        )
+        assert isinstance(metadata, dict)
+        expected = {
+            "step_name": step_name,
+            "step_id": step_id,
+            "visit_count": visit_count,
+        }
+        if not metadata_synthesized and any(
+            metadata.get(key) != value
+            for key, value in expected.items()
+        ):
+            return self._fail_resume_state_integrity(
+                "provider_supervision_resume_state_integrity_error",
+                "Provider-supervision visit metadata identity is invalid.",
+                {
+                    **expected,
+                    "metadata_path": str(metadata_path),
+                },
+            )
+        metadata.update(
+            {
+                "run_id": self.state_manager.run_id,
+                "node_id": node_id,
+                **expected,
+                "status": "interrupted",
+                "publication_state": "quarantined_interrupted_visit",
+                "metadata_synthesized": metadata_synthesized,
+            }
+        )
+        self.state_manager.write_runtime_sidecar_json(
+            metadata_path,
+            metadata,
+        )
+
+        error = {
+            "type": "provider_supervision_interrupted_visit_quarantined",
+            "message": (
+                "An interrupted provider-supervision visit was quarantined."
+            ),
+            "context": {
+                **expected,
+                "metadata_path": str(metadata_path),
                 "metadata_synthesized": metadata_synthesized,
             },
         }
@@ -2653,6 +2848,44 @@ class WorkflowExecutor:
                         str(session_guard.get("message", "Provider-session resume state is invalid.")),
                         context,
                     )
+            supervision_guard = (
+                self.resume_planner.detect_interrupted_provider_supervision_visit(
+                    state,
+                    projection=self.projection,
+                )
+            )
+            if supervision_guard is not None:
+                if supervision_guard.get("kind") == "existing_quarantine":
+                    state["status"] = "failed"
+                    return state
+                if supervision_guard.get("kind") == "quarantine":
+                    return self._quarantine_provider_supervision_resume_guard(
+                        state,
+                        supervision_guard,
+                    )
+                if supervision_guard.get("kind") == "integrity_error":
+                    context = supervision_guard.get("context")
+                    if not isinstance(context, dict):
+                        context = {
+                            "step_name": supervision_guard.get("step_name"),
+                            "step_id": supervision_guard.get("step_id"),
+                            "visit_count": supervision_guard.get(
+                                "visit_count"
+                            ),
+                        }
+                    return self._fail_resume_state_integrity(
+                        "provider_supervision_resume_state_integrity_error",
+                        str(
+                            supervision_guard.get(
+                                "message",
+                                (
+                                    "Provider-supervision resume state is "
+                                    "invalid."
+                                ),
+                            )
+                        ),
+                        context,
+                    )
         state.pop('error', None)
         if state.get('status') != 'running':
             self.state_manager.update_status('running')
@@ -3263,6 +3496,12 @@ class WorkflowExecutor:
 
                 if isinstance(visit_count, int):
                     self._prepare_provider_session_visit(
+                        step,
+                        step_name=identity.name,
+                        step_id=identity.step_id,
+                        visit_count=visit_count,
+                    )
+                    self._prepare_provider_supervision_visit(
                         step,
                         step_name=identity.name,
                         step_id=identity.step_id,
@@ -9144,6 +9383,27 @@ class WorkflowExecutor:
                 else None
             ),
         )
+        if (
+            isinstance(visit_count, int)
+            and isinstance(expected_step_id, str)
+        ):
+            try:
+                self._update_provider_supervision_visit_metadata(
+                    step,
+                    step_name=step_name,
+                    step_id=expected_step_id,
+                    visit_count=visit_count,
+                    status=str(finalized.get("status", "failed")),
+                    publication_state="committed_terminal_result",
+                )
+            except (OSError, TypeError, ValueError) as exc:
+                logger.warning(
+                    (
+                        "Provider-supervision terminal metadata update failed "
+                        "after authoritative state commit: %s"
+                    ),
+                    exc,
+                )
         self._emit_step_summary(step_name, step, finalized)
         return finalized
 

@@ -3202,3 +3202,207 @@ def test_real_binding_rejects_unusable_native_resume_result(
     assert len(persisted.provider_attempt_allocations) == 3
     assert len(requests["worker_resume"]) == 1
     assert not fresh_path.exists()
+
+
+def test_live_coordinator_authored_retry_waits_for_durable_failed_visit_and_uses_fresh_identities(
+    tmp_path: Path,
+) -> None:
+    class _RetryBindings(_EarlyArbitrationBindings):
+        def __init__(self) -> None:
+            super().__init__(
+                tmp_path,
+                directive={"variant": "INVALID"},
+                worker_completes_naturally=False,
+            )
+            self.durable_failed_visits: list[int] = []
+            self.active_visit = 1
+            self.requests_by_visit: dict[
+                int,
+                dict[str, ProviderSupervisionMemberRequest],
+            ] = {}
+
+        def derive_turn_bindings(
+            self,
+            *,
+            config: Any,
+            visit_count: int,
+        ) -> dict[str, ProviderSupervisionTurnBinding]:
+            assert visit_count == self.active_visit
+            turns = super().derive_turn_bindings(
+                config=config,
+                visit_count=visit_count,
+            )
+            return {
+                role: replace(
+                    turn,
+                    runtime_step_id=(
+                        f"{turn.runtime_step_id}:visit:{visit_count}"
+                    ),
+                    evidence_path=(
+                        self.tmp_path
+                        / f"visit-{visit_count}"
+                        / role
+                        / "evidence.json"
+                    ),
+                    provisional_bundle_path=(
+                        self.tmp_path
+                        / f"visit-{visit_count}"
+                        / role
+                        / "provisional.json"
+                    ),
+                )
+                for role, turn in turns.items()
+            }
+
+        def open_observation(
+            self,
+            turn: ProviderSupervisionTurnBinding,
+        ) -> ProviderSupervisionObservationBinding:
+            observation = super().open_observation(turn)
+            return replace(
+                observation,
+                target=f"{observation.target}:visit:{self.active_visit}",
+            )
+
+        def allocate_attempt(
+            self,
+            *,
+            turn: ProviderSupervisionTurnBinding,
+            prompt: str,
+        ) -> ProviderSupervisionAttemptBinding:
+            attempt = super().allocate_attempt(turn=turn, prompt=prompt)
+            return replace(
+                attempt,
+                scope_key=f"{attempt.scope_key}:visit:{self.active_visit}",
+                snapshot_key=(
+                    f"{attempt.snapshot_key}:visit:{self.active_visit}"
+                ),
+            )
+
+        def create_control(
+            self,
+            turn: ProviderSupervisionTurnBinding,
+        ) -> _ScriptedControl:
+            control = super().create_control(turn)
+            if turn.turn_role == "worker_fresh":
+                control.session_snapshot = _snapshot(
+                    session_ids=(f"session-{self.active_visit}",),
+                )
+            return control
+
+        def execute_member(
+            self,
+            request: ProviderSupervisionMemberRequest,
+        ) -> ProviderExecutionResult:
+            visit = self.active_visit
+            self.requests_by_visit.setdefault(visit, {})[
+                request.turn.turn_role
+            ] = request
+            self._record(f"visit:{visit}:{request.turn.turn_role}:launch")
+            result = super().execute_member(request)
+            if (
+                request.turn.turn_role == "worker_fresh"
+                and self.worker_completes_naturally
+            ):
+                terminal_snapshot = _snapshot(
+                    session_ids=(f"session-{visit}",),
+                    terminal_seen=True,
+                )
+                request.control.session_snapshot = terminal_snapshot
+                request.control.terminal_result = _natural_proof(
+                    snapshot=terminal_snapshot,
+                )
+            self._record(f"visit:{visit}:{request.turn.turn_role}:joined")
+            return result
+
+        def failure_result(self, *, code: str, message: str) -> dict[str, Any]:
+            failed_requests = self.requests_by_visit[self.active_visit]
+            assert set(failed_requests) == {
+                "worker_fresh",
+                "supervisor_directive",
+            }
+            assert not self._active_roles
+            for request in failed_requests.values():
+                proof = request.control.terminal_result
+                assert request.control.execution_done.is_set()
+                assert proof is not None
+                assert proof.capture_threads_joined is True
+                assert proof.execution_joined is True
+                assert proof.proof_complete is True
+            result = super().failure_result(code=code, message=message)
+            assert self.events[-1] == "failure_result"
+            assert f"failure_active:0" in self.events
+            self.durable_failed_visits.append(self.active_visit)
+            self._record(f"visit:{self.active_visit}:durable_failed")
+            return result
+
+        def finalize_settlement(self, **kwargs: Any) -> dict[str, Any]:
+            assert self.durable_failed_visits == [1]
+            self._record("retry_after_durable_failed_visit")
+            return super().finalize_settlement(**kwargs)
+
+    bindings = _RetryBindings()
+    first = ProviderSupervisionCoordinator(bindings).run(
+        _coordinator_config(),
+        step_name="Live",
+        visit_count=1,
+    )
+
+    assert first["status"] == "failed"
+    failed_commit_index = bindings.events.index("visit:1:durable_failed")
+    assert (
+        bindings.events.index("visit:1:worker_fresh:joined")
+        < failed_commit_index
+    )
+    assert (
+        bindings.events.index("visit:1:supervisor_directive:joined")
+        < failed_commit_index
+    )
+
+    bindings.active_visit = 2
+    bindings.directive = {"variant": "CONTINUE"}
+    bindings.worker_completes_naturally = True
+    second = ProviderSupervisionCoordinator(bindings).run(
+        _coordinator_config(),
+        step_name="Live",
+        visit_count=2,
+    )
+
+    assert second["status"] == "completed"
+    assert "retry_after_durable_failed_visit" in bindings.events
+    second_launch_index = min(
+        bindings.events.index("visit:2:worker_fresh:launch"),
+        bindings.events.index("visit:2:supervisor_directive:launch"),
+    )
+    assert failed_commit_index < second_launch_index
+
+    first_requests = bindings.requests_by_visit[1]
+    retry_requests = bindings.requests_by_visit[2]
+    for role in ("worker_fresh", "supervisor_directive"):
+        first_request = first_requests[role]
+        retry_request = retry_requests[role]
+        assert first_request.turn.runtime_step_id != (
+            retry_request.turn.runtime_step_id
+        )
+        assert first_request.turn.evidence_path != (
+            retry_request.turn.evidence_path
+        )
+        assert first_request.attempt.scope_key != (
+            retry_request.attempt.scope_key
+        )
+        assert first_request.attempt.snapshot_key != (
+            retry_request.attempt.snapshot_key
+        )
+        assert first_request.observation is not None
+        assert retry_request.observation is not None
+        assert first_request.observation.target != (
+            retry_request.observation.target
+        )
+        assert (
+            retry_request.invocation.materialize().session_request
+            is None
+        )
+    assert (
+        first_requests["worker_fresh"].control.session_snapshot.session_ids
+        != retry_requests["worker_fresh"].control.session_snapshot.session_ids
+    )

@@ -45,6 +45,9 @@ from orchestrator.workflow_lisp.wcc.route import (
 
 logger = logging.getLogger(__name__)
 PROVIDER_SESSION_QUARANTINE_ERROR = "provider_session_interrupted_visit_quarantined"
+PROVIDER_SUPERVISION_QUARANTINE_ERROR = (
+    "provider_supervision_interrupted_visit_quarantined"
+)
 
 
 @dataclass(frozen=True)
@@ -482,7 +485,11 @@ def resume_workflow(
 
         if (
             isinstance(state.error, dict)
-            and state.error.get("type") == PROVIDER_SESSION_QUARANTINE_ERROR
+            and state.error.get("type")
+            in {
+                PROVIDER_SESSION_QUARANTINE_ERROR,
+                PROVIDER_SUPERVISION_QUARANTINE_ERROR,
+            }
         ):
             print(f"Error: {state.error.get('message')}", file=sys.stderr)
             context = state.error.get("context", {})
@@ -631,7 +638,14 @@ def resume_workflow(
 
         final_status = result.get('status', 'unknown')
         run_error = result.get('error') if isinstance(result, dict) else None
-        if isinstance(run_error, dict) and run_error.get("type") == PROVIDER_SESSION_QUARANTINE_ERROR:
+        if (
+            isinstance(run_error, dict)
+            and run_error.get("type")
+            in {
+                PROVIDER_SESSION_QUARANTINE_ERROR,
+                PROVIDER_SUPERVISION_QUARANTINE_ERROR,
+            }
+        ):
             print(f"Error: {run_error.get('message')}", file=sys.stderr)
             context = run_error.get("context", {})
             if isinstance(context, dict):

@@ -10,6 +10,7 @@ import threading
 import time
 from dataclasses import replace
 from types import SimpleNamespace
+from types import MappingProxyType
 from unittest.mock import patch, MagicMock
 import hashlib
 
@@ -27,6 +28,12 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.call_frame_state import _CallFrameStateManager
 from orchestrator.workflow.executor_runtime import CallFrameStateManager
 from orchestrator.workflow.resume_planner import ResumePlanner
+from orchestrator.workflow.executable_ir import ExecutableNodeKind, WorkflowRegion
+from orchestrator.workflow.state_projection import (
+    CompatibilityNodeProjection,
+    CompatibilityStepDefinition,
+    WorkflowStateProjection,
+)
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from orchestrator.workflow_lisp.wcc.route import LoweringRoute, workflow_lisp_context_with_lowering_schema
 from tests.workflow_bundle_helpers import bundle_context_dict
@@ -3964,3 +3971,465 @@ def test_at4_resume_displays_progress_information(temp_workspace, partial_run_st
     assert "Resuming run test-run-123" in captured.out
     assert "Completed steps: Step1" in captured.out
     assert "Pending steps: Step2" in captured.out
+
+
+def _provider_supervision_resume_projection(
+    report_kind: str = ExecutableNodeKind.PROVIDER_SUPERVISION.value,
+) -> WorkflowStateProjection:
+    entry = CompatibilityNodeProjection(
+        node_id="root.live",
+        step_id="root.live",
+        presentation_key="Live",
+        display_name="Live",
+        region=WorkflowRegion.BODY,
+        compatibility_index=0,
+        step_definition=CompatibilityStepDefinition(
+            report_kind=report_kind,
+        ),
+    )
+    return WorkflowStateProjection(
+        entries_by_node_id=MappingProxyType({"root.live": entry}),
+        node_id_by_compatibility_index=MappingProxyType({0: "root.live"}),
+        compatibility_index_by_node_id=MappingProxyType({"root.live": 0}),
+        presentation_key_by_node_id=MappingProxyType({"root.live": "Live"}),
+        node_id_by_step_id=MappingProxyType({"root.live": "root.live"}),
+    )
+
+
+def _provider_supervision_resume_executor(
+    workspace: Path,
+    *,
+    run_id: str,
+) -> tuple[WorkflowExecutor, StateManager]:
+    from orchestrator.workflow.lowering import build_loaded_workflow_bundle
+    from orchestrator.workflow.surface_ast import (
+        SurfaceStep,
+        SurfaceStepCommonConfig,
+        SurfaceStepKind,
+        SurfaceWorkflow,
+        WorkflowProvenance,
+    )
+    from tests.test_provider_supervision_ir import (
+        _provider_supervision_config,
+    )
+
+    workflow_path = workspace / f"{run_id}.orc"
+    workflow_path.write_text(
+        "; generated interrupted provider-supervision workflow\n",
+        encoding="utf-8",
+    )
+    surface = SurfaceWorkflow(
+        version="2.15",
+        name="generated-live",
+        steps=(
+            SurfaceStep(
+                name="Live",
+                step_id="root.live",
+                kind=SurfaceStepKind.PROVIDER_SUPERVISION,
+                common=SurfaceStepCommonConfig(timeout_sec=60),
+                provider_supervision=_provider_supervision_config(),
+            ),
+        ),
+        provenance=WorkflowProvenance(
+            workflow_path=workflow_path,
+            source_root=workspace,
+            frontend_kind="workflow_lisp",
+        ),
+    )
+    manager = StateManager(workspace, run_id=run_id)
+    manager.initialize(workflow_path.name)
+    return (
+        WorkflowExecutor(
+            build_loaded_workflow_bundle(surface, imports={}),
+            workspace,
+            manager,
+            step_heartbeat_interval_sec=0,
+        ),
+        manager,
+    )
+
+
+@pytest.mark.parametrize(
+    ("persisted_result", "expected_kind"),
+    [
+        (
+            {
+                "status": "completed",
+                "step_id": "root.live",
+                "visit_count": 1,
+                "output": "older visit",
+            },
+            "quarantine",
+        ),
+        (
+            {
+                "status": "completed",
+                "step_id": "root.live",
+                "visit_count": 2,
+                "output": "exact current visit",
+            },
+            None,
+        ),
+        (
+            {
+                "status": "completed",
+                "step_id": "root.other",
+                "visit_count": 2,
+                "output": "different terminal identity",
+            },
+            "quarantine",
+        ),
+    ],
+)
+def test_provider_supervision_resume_guard_requires_exact_visit_terminal_result(
+    persisted_result: dict,
+    expected_kind: str | None,
+) -> None:
+    state = {
+        "status": "running",
+        "steps": {"Live": persisted_result},
+        "current_step": {
+            "name": "Live",
+            "index": 0,
+            "type": ExecutableNodeKind.PROVIDER_SUPERVISION.value,
+            "status": "running",
+            "step_id": "root.live",
+            "visit_count": 2,
+        },
+    }
+
+    guard = ResumePlanner().detect_interrupted_provider_supervision_visit(
+        state,
+        projection=_provider_supervision_resume_projection(),
+    )
+
+    assert (guard or {}).get("kind") == expected_kind
+
+
+@pytest.mark.parametrize("terminal_visit_count", [True, 1.0, 0, -1])
+def test_provider_supervision_resume_guard_rejects_malformed_terminal_result_visit(
+    terminal_visit_count: object,
+) -> None:
+    state = {
+        "status": "running",
+        "steps": {
+            "Live": {
+                "status": "completed",
+                "step_id": "root.live",
+                "visit_count": terminal_visit_count,
+            },
+        },
+        "current_step": {
+            "name": "Live",
+            "index": 0,
+            "type": ExecutableNodeKind.PROVIDER_SUPERVISION.value,
+            "status": "running",
+            "step_id": "root.live",
+            "visit_count": 1,
+        },
+    }
+
+    guard = ResumePlanner().detect_interrupted_provider_supervision_visit(
+        state,
+        projection=_provider_supervision_resume_projection(),
+    )
+
+    assert (guard or {}).get("kind") == "quarantine"
+
+
+@pytest.mark.parametrize("current_visit_count", [True, 1.0, 0, -1])
+def test_provider_supervision_resume_guard_rejects_invalid_current_visit(
+    current_visit_count: object,
+) -> None:
+    state = {
+        "status": "running",
+        "steps": {},
+        "current_step": {
+            "name": "Live",
+            "index": 0,
+            "type": ExecutableNodeKind.PROVIDER_SUPERVISION.value,
+            "status": "running",
+            "step_id": "root.live",
+            "visit_count": current_visit_count,
+        },
+    }
+
+    guard = ResumePlanner().detect_interrupted_provider_supervision_visit(
+        state,
+        projection=_provider_supervision_resume_projection(),
+    )
+
+    assert (guard or {}).get("kind") == "integrity_error"
+
+
+@pytest.mark.parametrize(
+    ("current_type", "projected_kind"),
+    [
+        (
+            ExecutableNodeKind.PROVIDER_SUPERVISION.value,
+            ExecutableNodeKind.PROVIDER.value,
+        ),
+        (
+            ExecutableNodeKind.PROVIDER.value,
+            ExecutableNodeKind.PROVIDER_SUPERVISION.value,
+        ),
+    ],
+)
+def test_provider_supervision_resume_guard_requires_exact_projected_node_type(
+    current_type: str,
+    projected_kind: str,
+) -> None:
+    state = {
+        "status": "running",
+        "steps": {},
+        "current_step": {
+            "name": "Live",
+            "index": 0,
+            "type": current_type,
+            "status": "running",
+            "step_id": "root.live",
+            "visit_count": 2,
+        },
+    }
+
+    guard = ResumePlanner().detect_interrupted_provider_supervision_visit(
+        state,
+        projection=_provider_supervision_resume_projection(projected_kind),
+    )
+
+    assert (guard or {}).get("kind") == "integrity_error"
+
+
+def test_provider_supervision_resume_guard_rejects_missing_projection_entry() -> None:
+    state = {
+        "status": "running",
+        "steps": {},
+        "current_step": {
+            "name": "Missing Live",
+            "index": 1,
+            "type": ExecutableNodeKind.PROVIDER_SUPERVISION.value,
+            "status": "running",
+            "step_id": "root.missing-live",
+            "visit_count": 1,
+        },
+    }
+
+    guard = ResumePlanner().detect_interrupted_provider_supervision_visit(
+        state,
+        projection=_provider_supervision_resume_projection(),
+    )
+
+    assert (guard or {}).get("kind") == "integrity_error"
+
+
+def test_provider_supervision_quarantine_atomically_clears_exact_visit_and_preserves_older_result(
+    temp_workspace: Path,
+) -> None:
+    manager = StateManager(
+        temp_workspace,
+        run_id="provider-supervision-interrupted-visit",
+    )
+    (temp_workspace / "workflow.orc").write_text(
+        "; provider-supervision quarantine fixture\n",
+        encoding="utf-8",
+    )
+    manager.initialize("workflow.orc")
+    older_result = {
+        "status": "completed",
+        "step_id": "root.live",
+        "visit_count": 1,
+        "output": "older visit remains authoritative",
+    }
+    assert manager.state is not None
+    manager.state.status = "running"
+    manager.state.steps = {"Live": dict(older_result)}
+    manager.state.step_visits = {"Live": 2}
+    manager.state.current_step = {
+        "name": "Live",
+        "index": 0,
+        "type": ExecutableNodeKind.PROVIDER_SUPERVISION.value,
+        "status": "running",
+        "step_id": "root.live",
+        "visit_count": 2,
+    }
+    manager._write_state()
+    metadata_path = (
+        manager.run_root
+        / "provider-supervision"
+        / "root.live"
+        / "visits"
+        / "2"
+        / "metadata.json"
+    )
+    manager.write_runtime_sidecar_json(
+        metadata_path,
+        {
+            "step_name": "Live",
+            "step_id": "root.live",
+            "visit_count": 2,
+            "status": "running",
+            "publication_state": "pending",
+        },
+    )
+    executor = WorkflowExecutor.__new__(WorkflowExecutor)
+    executor.state_manager = manager
+
+    result = executor._quarantine_provider_supervision_resume_guard(
+        manager.load().to_dict(),
+        {
+            "kind": "quarantine",
+            "step_name": "Live",
+            "step_id": "root.live",
+            "visit_count": 2,
+        },
+    )
+
+    persisted = manager.load()
+    assert result["status"] == "failed"
+    assert persisted.status == "failed"
+    assert persisted.current_step is None
+    assert persisted.steps["Live"] == older_result
+    assert persisted.error["type"] == (
+        "provider_supervision_interrupted_visit_quarantined"
+    )
+    assert persisted.error["context"]["step_id"] == "root.live"
+    assert persisted.error["context"]["visit_count"] == 2
+    assert persisted.error["context"]["metadata_path"] == str(metadata_path)
+    metadata = manager.read_runtime_sidecar_json(metadata_path)
+    assert metadata is not None
+    assert metadata["status"] == "interrupted"
+    assert metadata["publication_state"] == "quarantined_interrupted_visit"
+
+    repeated = ResumePlanner().detect_interrupted_provider_supervision_visit(
+        persisted.to_dict(),
+        projection=_provider_supervision_resume_projection(),
+    )
+    assert repeated == {
+        "kind": "existing_quarantine",
+        "error": persisted.error,
+    }
+
+
+def test_direct_resume_quarantines_before_restart_or_launch_and_stays_sticky(
+    temp_workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor, manager = _provider_supervision_resume_executor(
+        temp_workspace,
+        run_id="provider-supervision-direct-interruption",
+    )
+    older_result = {
+        "status": "completed",
+        "step_id": "root.live",
+        "visit_count": 1,
+        "output": "older visit remains authoritative",
+    }
+    assert manager.state is not None
+    manager.state.status = "running"
+    manager.state.steps = {"Live": dict(older_result)}
+    manager.state.step_visits = {"Live": 2}
+    manager.state.current_step = {
+        "name": "Live",
+        "index": 0,
+        "type": ExecutableNodeKind.PROVIDER_SUPERVISION.value,
+        "status": "running",
+        "step_id": "root.live",
+        "visit_count": 2,
+    }
+    manager._write_state()
+    metadata_path = (
+        manager.run_root
+        / "provider-supervision"
+        / "root.live"
+        / "visits"
+        / "2"
+        / "metadata.json"
+    )
+    manager.write_runtime_sidecar_json(
+        metadata_path,
+        {
+            "step_name": "Live",
+            "step_id": "root.live",
+            "visit_count": 2,
+            "status": "running",
+            "publication_state": "pending",
+        },
+    )
+    restart_calls: list[str] = []
+    provider_calls: list[str] = []
+
+    def unexpected_restart(*_args, **_kwargs):
+        restart_calls.append("restart")
+        raise AssertionError("quarantine must precede restart planning")
+
+    def unexpected_provider(*_args, **_kwargs):
+        provider_calls.append("provider")
+        raise AssertionError("ordinary resume must not launch a provider")
+
+    monkeypatch.setattr(
+        executor.resume_planner,
+        "determine_restart_node_id",
+        unexpected_restart,
+    )
+    monkeypatch.setattr(
+        executor,
+        "_execute_provider_supervision",
+        unexpected_provider,
+    )
+
+    first = executor.execute(resume=True)
+    after_first = manager.load()
+    first_error = json.loads(json.dumps(after_first.error))
+
+    assert first["status"] == "failed"
+    assert first_error["type"] == (
+        "provider_supervision_interrupted_visit_quarantined"
+    )
+    assert after_first.current_step is None
+    assert after_first.step_visits == {"Live": 2}
+    assert after_first.steps["Live"] == older_result
+    assert restart_calls == []
+    assert provider_calls == []
+
+    second = executor.execute(resume=True)
+    after_second = manager.load()
+
+    assert second["status"] == "failed"
+    assert after_second.error == first_error
+    assert after_second.current_step is None
+    assert after_second.step_visits == {"Live": 2}
+    assert after_second.steps["Live"] == older_result
+    assert restart_calls == []
+    assert provider_calls == []
+
+
+def test_resume_cli_sticky_provider_supervision_quarantine_fails_before_executor(
+    temp_workspace: Path,
+    sample_workflow,
+) -> None:
+    workflow_path, _checksum = sample_workflow
+    run_id = "provider-supervision-sticky-quarantine"
+    manager = StateManager(temp_workspace, run_id=run_id)
+    manager.initialize(str(workflow_path))
+    assert manager.state is not None
+    manager.state.status = "failed"
+    manager.state.error = {
+        "type": "provider_supervision_interrupted_visit_quarantined",
+        "message": "An interrupted provider-supervision visit was quarantined.",
+        "context": {
+            "step_name": "Live",
+            "step_id": "root.live",
+            "visit_count": 2,
+            "metadata_path": "provider-supervision/root.live/visits/2/metadata.json",
+        },
+    }
+    manager._write_state()
+
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+        "orchestrator.cli.commands.resume.WorkflowExecutor",
+        side_effect=AssertionError("sticky quarantine must precede provider launch"),
+    ) as executor:
+        result = resume_workflow(run_id=run_id, force_restart=False)
+
+    assert result == 1
+    executor.assert_not_called()

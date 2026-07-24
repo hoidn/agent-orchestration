@@ -1082,8 +1082,47 @@ def test_workflow_executor_persists_provider_supervision_current_step_before_run
 
     events: list[str] = []
     events_lock = threading.Lock()
+    metadata_path = (
+        manager.run_root
+        / "provider-supervision"
+        / "root.live"
+        / "visits"
+        / "1"
+        / "metadata.json"
+    )
+
+    def assert_running_visit_metadata() -> None:
+        metadata = manager.read_runtime_sidecar_json(metadata_path)
+        assert metadata is not None
+        assert {
+            key: metadata.get(key)
+            for key in (
+                "step_name",
+                "step_id",
+                "visit_count",
+                "status",
+                "publication_state",
+            )
+        } == {
+            "step_name": "Live",
+            "step_id": "root.live",
+            "visit_count": 1,
+            "status": "running",
+            "publication_state": "pending",
+        }
+
+    original_start_step = manager.start_step
+
+    def checked_start_step(*args: Any, **kwargs: Any) -> None:
+        assert manager.load().current_step is None
+        assert_running_visit_metadata()
+        events.append("metadata_before_current_step")
+        original_start_step(*args, **kwargs)
+
+    monkeypatch.setattr(manager, "start_step", checked_start_step)
 
     def assert_persisted_current_step(event: str) -> None:
+        assert_running_visit_metadata()
         persisted = json.loads(
             manager.state_file.read_text(encoding="utf-8")
         )
@@ -1167,6 +1206,7 @@ def test_workflow_executor_persists_provider_supervision_current_step_before_run
 
     assert state["status"] == "completed"
     assert state["steps"]["Live"]["status"] == "completed"
+    assert events[0] == "metadata_before_current_step"
     assert events.count("pane") == 2
     assert events.count("attempt") == 2
     assert events.count("provider") == 2
@@ -1277,6 +1317,56 @@ def test_provider_supervision_pending_consumes_share_one_terminal_state_write(
     }
     assert persisted.artifact_consumes["__global__"] == {
         "input_artifact": 3,
+    }
+
+
+def test_provider_supervision_terminal_metadata_failure_does_not_override_atomic_result(
+    tmp_path: Path,
+) -> None:
+    workflow = tmp_path / "workflow.orc"
+    workflow.write_text("; generated test workflow\n", encoding="utf-8")
+    manager = StateManager(
+        tmp_path,
+        run_id="provider-supervision-terminal-metadata-failure",
+    )
+    manager.initialize("workflow.orc")
+    manager.update_control_flow_counters(0, {"Live": 1})
+    manager.start_step(
+        "Live",
+        0,
+        "provider_supervision",
+        step_id="root.live",
+        visit_count=1,
+    )
+    state = manager.load().to_dict()
+    executor = _atomic_finalizer_executor(tmp_path, manager)
+
+    def fail_terminal_metadata(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError("terminal metadata is unwritable")
+
+    executor._update_provider_supervision_visit_metadata = (  # type: ignore[method-assign]
+        fail_terminal_metadata
+    )
+
+    result = WorkflowExecutor._finalize_provider_supervision_settlement(
+        executor,
+        {"name": "Live", "step_id": "root.live"},
+        state,
+        step_name="Live",
+        result={
+            "status": "completed",
+            "exit_code": 0,
+            "duration_ms": 1,
+            "artifacts": {"__result__": "selected"},
+        },
+    )
+
+    persisted = manager.load()
+    assert result["status"] == "completed"
+    assert persisted.current_step is None
+    assert persisted.steps["Live"]["status"] == "completed"
+    assert persisted.steps["Live"]["artifacts"] == {
+        "__result__": "selected",
     }
 
 

@@ -235,3 +235,46 @@ def test_at68_resume_without_force_restart_validates_checksum(temp_workspace, ex
 
     # Should fail with exit code 1 due to checksum validation
     assert result == 1
+
+
+def test_at68_force_restart_crosses_provider_supervision_quarantine(
+    temp_workspace,
+    existing_run_state,
+):
+    old_run_id, _old_state_dir = existing_run_state
+    manager = StateManager(temp_workspace, run_id=old_run_id)
+    state = manager.load()
+    state.status = "failed"
+    state.error = {
+        "type": "provider_supervision_interrupted_visit_quarantined",
+        "message": "An interrupted provider-supervision visit was quarantined.",
+        "context": {
+            "step_id": "root.live",
+            "visit_count": 2,
+        },
+    }
+    manager.state = state
+    manager._write_state()
+
+    with patch("uuid.uuid4", return_value=MagicMock(hex="fresh-after-quarantine")), patch(
+        "orchestrator.cli.commands.resume.WorkflowExecutor"
+    ) as mock_executor_type, patch("os.getcwd", return_value=str(temp_workspace)):
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = {
+            "status": "completed",
+            "steps": {},
+        }
+        mock_executor_type.return_value = mock_executor
+
+        result = resume_workflow(
+            run_id=old_run_id,
+            repair=False,
+            force_restart=True,
+        )
+
+    assert result == 0
+    assert mock_executor_type.call_args.kwargs["state_manager"].run_id == (
+        "fresh-after-quarantine"
+    )
+    mock_executor.execute.assert_called_once()
+    assert mock_executor.execute.call_args.kwargs["resume"] is False
