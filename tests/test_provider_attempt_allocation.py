@@ -1237,6 +1237,246 @@ def test_provider_attempt_scope_is_closed_canonical_and_full_sha256_keyed(
     assert scope.key == "sha256:" + hashlib.sha256(expected_bytes).hexdigest()
 
 
+def test_provider_attempt_scope_legacy_six_field_bytes_remain_exact() -> None:
+    payload = {
+        "run_id": "compat-run",
+        "resume_scope": {
+            "root_workflow_file": "workflow.orc",
+            "call_frame_ids": [],
+        },
+        "runtime_step_id": "root.Provider",
+        "enclosing_step": {
+            "step_name": "Provider",
+            "step_id": "root.Provider",
+            "visit_count": 7,
+        },
+        "loop_iteration": None,
+        "adjudication_subject": None,
+    }
+    expected = (
+        b'{"adjudication_subject":null,"enclosing_step":{"step_id":"root.Provider",'
+        b'"step_name":"Provider","visit_count":7},"loop_iteration":null,'
+        b'"resume_scope":{"call_frame_ids":[],"root_workflow_file":"workflow.orc"},'
+        b'"run_id":"compat-run","runtime_step_id":"root.Provider"}'
+    )
+
+    scope = _attempt_module().ProviderAttemptScope.from_dict(payload)
+
+    assert set(scope.to_dict()) == {
+        "run_id",
+        "resume_scope",
+        "runtime_step_id",
+        "enclosing_step",
+        "loop_iteration",
+        "adjudication_subject",
+    }
+    assert scope.canonical_bytes() == expected
+    assert scope.key == (
+        "sha256:c8f414f3844ef77aad66c40c60868799ec4d05cd9e9d0a17b1e009ed23867ffb"
+    )
+
+
+def test_provider_attempt_scope_prefix_like_legacy_ids_remain_opaque_and_canonical(
+    tmp_path: Path,
+) -> None:
+    attempts = _attempt_module()
+    root = _prepare_direct_scope_root(
+        tmp_path,
+        run_id="legacy-prefix-like-runtime-step",
+    )
+    base = attempts.ProviderAttemptScope.from_dict(
+        _direct_scope_payload(root)
+    )
+    qualified = attempts.derive_provider_attempt_member_turn_scope(
+        base,
+        member_id="worker",
+        turn_ordinal=0,
+    )
+    legacy_runtime_step_ids = (
+        "provider_attempt_member_turn.v1:not*base64",
+        qualified.runtime_step_id + "=",
+    )
+
+    for runtime_step_id in legacy_runtime_step_ids:
+        payload = _direct_scope_payload(root)
+        payload["runtime_step_id"] = runtime_step_id
+        payload["enclosing_step"]["step_id"] = runtime_step_id
+        assert root.state is not None
+        root.state.current_step["step_id"] = runtime_step_id
+        expected = json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+
+        scope = attempts.ProviderAttemptScope.from_dict(payload)
+        attempts.validate_provider_attempt_scope(
+            scope,
+            attempts.resolve_aggregate_run_owner(root),
+        )
+
+        assert scope.to_dict() == payload
+        assert scope.canonical_bytes() == expected
+        assert scope.runtime_step_id == runtime_step_id
+
+
+def test_provider_attempt_member_turn_scopes_are_distinct_closed_allocations(
+    tmp_path: Path,
+) -> None:
+    attempts = _attempt_module()
+    root = _prepare_direct_scope_root(tmp_path, run_id="member-turn-distinct")
+    root.update_control_flow_counters(1, {"Provider": 1})
+    root.start_step("Provider", 0, "provider", "ProviderStep", 1)
+    base = attempts.ProviderAttemptScope.from_dict(_direct_scope_payload(root))
+
+    scopes = [
+        attempts.derive_provider_attempt_member_turn_scope(
+            base,
+            member_id="worker/a",
+            turn_ordinal=0,
+        ),
+        attempts.derive_provider_attempt_member_turn_scope(
+            base,
+            member_id="worker%2Fa",
+            turn_ordinal=0,
+        ),
+        attempts.derive_provider_attempt_member_turn_scope(
+            base,
+            member_id="worker/a",
+            turn_ordinal=1,
+        ),
+        attempts.derive_provider_attempt_member_turn_scope(
+            base,
+            member_id="supervisor-\N{GREEK SMALL LETTER ALPHA}",
+            turn_ordinal=0,
+        ),
+    ]
+
+    for scope in scopes:
+        attempts.validate_provider_attempt_scope(
+            scope,
+            attempts.resolve_aggregate_run_owner(root),
+        )
+        assert set(scope.to_dict()) == set(base.to_dict())
+        assert scope.to_dict()["enclosing_step"] == base.to_dict()["enclosing_step"]
+        assert root.allocate_provider_attempt(scope) == 1
+
+    assert len({scope.runtime_step_id for scope in scopes}) == len(scopes)
+    assert len({scope.canonical_bytes() for scope in scopes}) == len(scopes)
+    assert len({scope.key for scope in scopes}) == len(scopes)
+    persisted = json.loads(root.state_file.read_bytes())
+    assert set(persisted["provider_attempt_allocations"]) == {
+        scope.key for scope in scopes
+    }
+    assert all(
+        set(entry["scope"]) == set(base.to_dict())
+        for entry in persisted["provider_attempt_allocations"].values()
+    )
+
+
+@pytest.mark.parametrize(
+    ("member_id", "turn_ordinal"),
+    [
+        ("", 0),
+        ("worker", -1),
+        ("worker", True),
+        ("worker", "0"),
+    ],
+)
+def test_provider_attempt_member_turn_scope_rejects_invalid_components(
+    tmp_path: Path,
+    member_id: object,
+    turn_ordinal: object,
+) -> None:
+    attempts = _attempt_module()
+    root = _prepare_direct_scope_root(tmp_path, run_id="member-turn-invalid")
+    base = attempts.ProviderAttemptScope.from_dict(_direct_scope_payload(root))
+
+    with pytest.raises((TypeError, ValueError)):
+        attempts.derive_provider_attempt_member_turn_scope(
+            base,
+            member_id=member_id,
+            turn_ordinal=turn_ordinal,
+        )
+
+
+def test_provider_attempt_member_turn_scope_rejects_nested_qualifier(
+    tmp_path: Path,
+) -> None:
+    attempts = _attempt_module()
+    root = _prepare_direct_scope_root(tmp_path, run_id="member-turn-malformed")
+    base_payload = _direct_scope_payload(root)
+    base = attempts.ProviderAttemptScope.from_dict(base_payload)
+    qualified = attempts.derive_provider_attempt_member_turn_scope(
+        base,
+        member_id="worker",
+        turn_ordinal=0,
+    )
+
+    with pytest.raises(ValueError, match="already qualified"):
+        attempts.derive_provider_attempt_member_turn_scope(
+            qualified,
+            member_id="nested",
+            turn_ordinal=0,
+        )
+
+
+def test_provider_attempt_member_turn_scope_preserves_loop_validation(
+    tmp_path: Path,
+) -> None:
+    attempts = _attempt_module()
+    root = _prepare_direct_scope_root(tmp_path, run_id="member-turn-loop")
+    assert root.state is not None
+    root.state.step_visits = {"Loop": 2}
+    root.state.current_step = {
+        "name": "Loop",
+        "step_id": "LoopStep",
+        "visit_count": 2,
+    }
+    root.state.for_each["Loop"] = ForEachState(
+        items=[0, 1, 2, 3],
+        current_index=3,
+    )
+    payload = _direct_scope_payload(root)
+    payload["runtime_step_id"] = "LoopStep#3.NestedProvider"
+    payload["enclosing_step"] = {
+        "step_name": "Loop",
+        "step_id": "LoopStep",
+        "visit_count": 2,
+    }
+    payload["loop_iteration"] = {
+        "kind": "for_each",
+        "loop_step_id": "LoopStep",
+        "iteration": 3,
+    }
+    base = attempts.ProviderAttemptScope.from_dict(payload)
+    qualified = attempts.derive_provider_attempt_member_turn_scope(
+        base,
+        member_id="worker",
+        turn_ordinal=0,
+    )
+
+    attempts.validate_provider_attempt_scope(
+        qualified,
+        attempts.resolve_aggregate_run_owner(root),
+    )
+
+    wrong_payload = dict(payload)
+    wrong_payload["runtime_step_id"] = "LoopStep#2.NestedProvider"
+    wrong_base = attempts.ProviderAttemptScope.from_dict(wrong_payload)
+    wrong_qualified = attempts.derive_provider_attempt_member_turn_scope(
+        wrong_base,
+        member_id="worker",
+        turn_ordinal=0,
+    )
+    with pytest.raises(ValueError, match="runtime_step_id"):
+        attempts.validate_provider_attempt_scope(
+            wrong_qualified,
+            attempts.resolve_aggregate_run_owner(root),
+        )
+
+
 @pytest.mark.parametrize("shape", ["direct", "for_each", "repeat_until", "candidate"])
 def test_provider_attempt_scope_validates_supported_runtime_shapes(
     tmp_path: Path,

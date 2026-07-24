@@ -70,6 +70,7 @@ from .executable_ir import (
     MatchCaseMarkerNode,
     MatchJoinNode,
     NodeResultAddress,
+    ProviderSupervisionStepConfig,
     RepeatUntilFrameNode,
     WorkflowInputAddress,
 )
@@ -123,6 +124,12 @@ from .prompt_dependency_evidence import (
 from .provider_attempts import (
     ProviderAttemptScope,
     resolve_aggregate_run_owner,
+)
+from .provider_supervision.bindings import (
+    WorkflowProviderSupervisionBindings,
+)
+from .provider_supervision.coordinator import (
+    ProviderSupervisionCoordinator,
 )
 from .references import (
     MaterializeViewBindingReference,
@@ -3384,6 +3391,8 @@ class WorkflowExecutor:
             return 'structured_match_join'
         if execution_kind is ExecutableNodeKind.PROVIDER:
             return 'provider'
+        if execution_kind is ExecutableNodeKind.PROVIDER_SUPERVISION:
+            return 'provider_supervision'
         if execution_kind is ExecutableNodeKind.ADJUDICATED_PROVIDER:
             return 'adjudicated_provider'
         if execution_kind is ExecutableNodeKind.COMMAND:
@@ -3993,6 +4002,7 @@ class WorkflowExecutor:
         *,
         succeeded: bool,
         runtime_step_id: Optional[str] = None,
+        persist: bool = True,
     ) -> None:
         """Commit or discard pending consumes once a step has settled."""
         self.dataflow_manager.finalize_consumes(
@@ -4001,6 +4011,7 @@ class WorkflowExecutor:
             state,
             runtime_step_id=runtime_step_id,
             succeeded=succeeded,
+            persist=persist,
         )
 
     def _substitute_path_template(
@@ -4485,6 +4496,13 @@ class WorkflowExecutor:
                 self._execute_provider(step, state),
             )
 
+        if execution_kind is ExecutableNodeKind.PROVIDER_SUPERVISION:
+            return self._execute_provider_supervision(
+                step,
+                state,
+                step_name=step_name,
+            )
+
         if execution_kind is ExecutableNodeKind.COMMAND:
             return self._execute_top_level_publish_and_persist(
                 step,
@@ -4617,6 +4635,20 @@ class WorkflowExecutor:
                 runtime_step_id=runtime_step_id,
                 step_name_override=step_name_override,
             )
+        elif execution_kind is ExecutableNodeKind.PROVIDER_SUPERVISION:
+            result = {
+                "status": "failed",
+                "exit_code": 2,
+                "error": {
+                    "type": (
+                        "provider_supervision_nested_atomicity_unavailable"
+                    ),
+                    "message": (
+                        "provider supervision requires a top-level atomic "
+                        "settlement finalizer"
+                    ),
+                },
+            }
         else:
             result = {"status": "skipped", "exit_code": 0, "skipped": True}
 
@@ -8938,6 +8970,182 @@ class WorkflowExecutor:
         state_context = state.get('context')
         context = {'context': state_context} if isinstance(state_context, dict) and state_context else {}
         return self._execute_provider_with_context(step, context, state)
+
+    def _require_provider_supervision_observation_manager(
+        self,
+    ) -> ProviderObservationManager:
+        """Return the load-bearing run manager required by a live group."""
+
+        manager = self.provider_observation_manager
+        if manager is not None:
+            return manager
+        manager = ProviderObservationManager(Path(self.state_manager.run_root))
+        self.provider_observation_manager = manager
+        self.provider_executor.observation_manager = manager
+        self._owns_provider_observation_manager = True
+        return manager
+
+    def _execute_provider_supervision(
+        self,
+        step: RuntimeStepInput,
+        state: Dict[str, Any],
+        *,
+        step_name: str,
+        runtime_step_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Execute one closed group through the serial CONTINUE coordinator."""
+
+        if not callable(
+            getattr(
+                self.state_manager,
+                "finalize_step_with_dataflow",
+                None,
+            )
+        ):
+            raise RuntimeError(
+                "provider_supervision_atomic_finalizer_unavailable"
+            )
+        node = self._executable_node_for_step(step)
+        config = getattr(node, "execution_config", None)
+        if not isinstance(config, ProviderSupervisionStepConfig):
+            return self._persist_step_result(
+                state,
+                step_name,
+                step,
+                self._contract_violation_result(
+                    "Provider supervision execution failed",
+                    {"reason": "typed_provider_supervision_config_missing"},
+                ),
+                phase_hint="pre_execution",
+                class_hint="contract_violation",
+                retryable_hint=False,
+            )
+        visits = state.get("step_visits", {})
+        visit_count = (
+            visits.get(step_name)
+            if isinstance(visits, dict)
+            else None
+        )
+        if not isinstance(visit_count, int) or visit_count <= 0:
+            return self._persist_step_result(
+                state,
+                step_name,
+                step,
+                self._contract_violation_result(
+                    "Provider supervision execution failed",
+                    {"reason": "provider_supervision_visit_missing"},
+                ),
+                phase_hint="pre_execution",
+                class_hint="contract_violation",
+                retryable_hint=False,
+            )
+        bindings = WorkflowProviderSupervisionBindings(
+            self,
+            step=step,
+            state=state,
+            config=config,
+            step_name=step_name,
+            runtime_step_id=runtime_step_id or config.node_id,
+        )
+        return ProviderSupervisionCoordinator(bindings).run_continue(
+            config,
+            step_name=step_name,
+            visit_count=visit_count,
+        )
+
+    def _finalize_provider_supervision_settlement(
+        self,
+        step: RuntimeStepInput,
+        state: Dict[str, Any],
+        *,
+        step_name: str,
+        result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Commit one group result and its dataflow through one finalizer."""
+
+        publish_error = self._record_published_artifacts(
+            step,
+            step_name,
+            result,
+            state,
+            persist=False,
+        )
+        if publish_error is not None:
+            result = publish_error
+        finalized = self._attach_outcome(step, result)
+        finalized.setdefault("name", step_name)
+        finalized.setdefault("step_id", self._step_id(step))
+        step_visits = state.get("step_visits", {})
+        visit_count = (
+            step_visits.get(step_name)
+            if isinstance(step_visits, dict)
+            else None
+        )
+        if isinstance(visit_count, int):
+            finalized.setdefault("visit_count", visit_count)
+        state.setdefault("steps", {})[step_name] = finalized
+        self._finalize_consumes(
+            step,
+            step_name,
+            state,
+            succeeded=finalized.get("status") == "completed",
+            persist=False,
+        )
+        artifact_versions = state.get("artifact_versions", {})
+        artifact_consumes = state.get("artifact_consumes", {})
+        private_artifact_versions = state.get(
+            "private_artifact_versions",
+            {},
+        )
+        private_artifact_consumes = state.get(
+            "private_artifact_consumes",
+            {},
+        )
+        current_step = self.state_manager.load().current_step
+        expected_step_id = finalized.get("step_id")
+        if (
+            not isinstance(current_step, Mapping)
+            or current_step.get("name") != step_name
+            or current_step.get("step_id") != expected_step_id
+            or current_step.get("visit_count") != visit_count
+            or current_step.get("type") != "provider_supervision"
+            or current_step.get("status") != "running"
+        ):
+            raise ValueError(
+                "provider supervision current_step changed before atomic settlement"
+            )
+        self.state_manager.finalize_step_with_dataflow(
+            step_name,
+            self._to_step_result(finalized, step_name),
+            artifact_versions=(
+                artifact_versions
+                if isinstance(artifact_versions, dict)
+                else {}
+            ),
+            artifact_consumes=(
+                artifact_consumes
+                if isinstance(artifact_consumes, dict)
+                else {}
+            ),
+            private_artifact_versions=(
+                private_artifact_versions
+                if isinstance(private_artifact_versions, dict)
+                else {}
+            ),
+            private_artifact_consumes=(
+                private_artifact_consumes
+                if isinstance(private_artifact_consumes, dict)
+                else {}
+            ),
+            expected_step_id=finalized.get("step_id"),
+            expected_visit_count=(
+                visit_count
+                if isinstance(visit_count, int)
+                else None
+            ),
+        )
+        self._emit_step_summary(step_name, step, finalized)
+        return finalized
 
     def _execute_command(self, step: RuntimeStepInput, state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute command step without loop context."""

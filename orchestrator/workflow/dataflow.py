@@ -552,6 +552,7 @@ class DataflowManager:
         *,
         runtime_step_id: Optional[str] = None,
         succeeded: bool,
+        persist: bool = True,
     ) -> None:
         """Commit or discard pending consume bookkeeping after the step settles."""
         resolved_consumes = state.get("_resolved_consumes", {})
@@ -593,7 +594,7 @@ class DataflowManager:
                 global_consumes[artifact_name] = selected_version
                 state_changed = True
 
-        if state_changed:
+        if state_changed and persist:
             self.persist_state(state)
 
     def write_consume_bundle(

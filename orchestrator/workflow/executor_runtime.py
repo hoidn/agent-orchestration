@@ -204,6 +204,7 @@ class LoopRuntime(Protocol):
         *,
         succeeded: bool,
         runtime_step_id: Optional[str] = None,
+        persist: bool = True,
     ) -> None: ...
 
     def _implicit_typed_transfer_for_result(

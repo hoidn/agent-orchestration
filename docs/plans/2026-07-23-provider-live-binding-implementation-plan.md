@@ -759,35 +759,35 @@ review verdicts: `TASK6_SPEC_APPROVED`, then `TASK6_QUALITY_APPROVED`.
 - Test: `tests/test_provider_attempt_allocation.py`
 - Test: `tests/test_state_manager.py`
 
-- [ ] Write RED tests proving concurrent wall-clock overlap, immutable member
+- [x] Write RED tests proving concurrent wall-clock overlap, immutable member
   requests, coordinator-only `StateManager` access, unique member paths,
   `current_step` publication before panes/processes/attempts, distinct
   attempts/snapshots, exact directive key validation, `CONTINUE` selection,
   and one `finalize_step_with_dataflow`-equivalent commit.
-- [ ] Prove both initial panes are allocated before prompt composition, the
+- [x] Prove both initial panes are allocated before prompt composition, the
   supervisor receives only the worker's process-local observation target plus
   structural injection metadata, and both member output contracts bind their
   own provisional paths.
-- [ ] Add both-direction business-bundle tests: `CONTINUE` requires a valid
+- [x] Add both-direction business-bundle tests: `CONTINUE` requires a valid
   fresh bundle; an invalid/missing fresh bundle fails with no publication.
-- [ ] Add both-direction compatibility tests proving an existing six-field
+- [x] Add both-direction compatibility tests proving an existing six-field
   persisted `ProviderAttemptScope` remains accepted and canonical; new
   member/turn scopes cannot collide with each other; and existing direct,
   loop, adjudication, and call-frame scopes serialize unchanged under state
   schema 2.1.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_provider_supervision_runtime.py -k 'continue or single_writer or settlement'`.
-- [ ] Implement the serial coordinator and member thread boundary using the
+- [x] Implement the serial coordinator and member thread boundary using the
   existing output-contract validators and deterministic runtime-step/attempt
   identities. Member
   threads may call only low-level provider execution and append member-local
   evidence.
-- [ ] Keep supervisor and worker panes alive through directive arbitration.
+- [x] Keep supervisor and worker panes alive through directive arbitration.
   Initial pane loss before the directive is load-bearing; later mirror loss is
   evidence-only.
-- [ ] Settle the pure expression and selected attempt/result/artifact dataflow
+- [x] Settle the pure expression and selected attempt/result/artifact dataflow
   in one state transaction.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q \
@@ -796,8 +796,19 @@ review verdicts: `TASK6_SPEC_APPROVED`, then `TASK6_QUALITY_APPROVED`.
     -k 'provider_supervision or continue or single_writer or settlement or attempt_scope'
   pytest -q tests/test_state_manager.py -k 'finalize_step_with_dataflow'
   ```
-- [ ] Complete specification review, quality review, and commit:
+- [x] Complete specification review, quality review, and commit:
   `Coordinate provider supervision CONTINUE path`.
+
+**Task 7 evidence (2026-07-24):** The runtime RED first failed because the
+coordinator and workflow-owned bindings did not exist. Review-driven coverage
+then closed legacy qualifier-prefix compatibility, directive persistence,
+prompt-suffix ordering, concrete missing/invalid-bundle rejection, both pane
+loss boundaries, and the production `WorkflowExecutor.execute()` cursor
+ordering proof. Fresh verification passed 41 focused Task 7 selectors, all
+146 affected runtime/attempt/state tests, 27 adjacent dataflow tests, and 6
+executor characterizations. Ordered final verdicts:
+`TASK7_SPEC_APPROVED`, then `TASK7_BINDINGS_QUALITY_APPROVED` and
+`TASK7_INTEGRATION_QUALITY_APPROVED`.
 
 ### Task 8: STEER, Result Authority, And Race Closure
 

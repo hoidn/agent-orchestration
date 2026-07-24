@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 from dataclasses import dataclass
 import hashlib
 import json
@@ -39,6 +41,87 @@ def _ordinary_integer(value: Any, field: str, *, minimum: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
         raise ValueError(f"{field} must be an integer >= {minimum}")
     return value
+
+
+_MEMBER_TURN_RUNTIME_STEP_PREFIX = "provider_attempt_member_turn.v1:"
+_MEMBER_TURN_KEYS = {
+    "member_id",
+    "runtime_step_id",
+    "turn_ordinal",
+}
+
+
+def _encode_member_turn_runtime_step_id(
+    *,
+    runtime_step_id: str,
+    member_id: str,
+    turn_ordinal: int,
+) -> str:
+    payload = json.dumps(
+        {
+            "member_id": member_id,
+            "runtime_step_id": runtime_step_id,
+            "turn_ordinal": turn_ordinal,
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("ascii")
+    encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    return _MEMBER_TURN_RUNTIME_STEP_PREFIX + encoded
+
+
+def _decode_member_turn_runtime_step_id(
+    value: str,
+) -> tuple[str, tuple[str, int] | None]:
+    if not value.startswith(_MEMBER_TURN_RUNTIME_STEP_PREFIX):
+        return value, None
+    encoded = value[len(_MEMBER_TURN_RUNTIME_STEP_PREFIX) :]
+    try:
+        padded = encoded + "=" * (-len(encoded) % 4)
+        decoded = base64.b64decode(
+            padded,
+            altchars=b"-_",
+            validate=True,
+        ).decode("ascii")
+        payload = json.loads(decoded)
+        node = _closed_mapping(
+            payload,
+            _MEMBER_TURN_KEYS,
+            "provider attempt member-turn qualifier",
+        )
+        runtime_step_id = _nonempty_string(
+            node["runtime_step_id"],
+            "provider attempt member-turn runtime_step_id",
+        )
+        member_id = _nonempty_string(
+            node["member_id"],
+            "provider attempt member-turn member_id",
+        )
+        turn_ordinal = _ordinary_integer(
+            node["turn_ordinal"],
+            "provider attempt member-turn turn_ordinal",
+            minimum=0,
+        )
+    except (
+        binascii.Error,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        TypeError,
+        ValueError,
+    ):
+        return value, None
+    canonical = _encode_member_turn_runtime_step_id(
+        runtime_step_id=runtime_step_id,
+        member_id=member_id,
+        turn_ordinal=turn_ordinal,
+    )
+    if value != canonical:
+        return value, None
+    _, nested_qualifier = _decode_member_turn_runtime_step_id(runtime_step_id)
+    if nested_qualifier is not None:
+        raise ValueError("provider attempt member-turn qualifier cannot be nested")
+    return runtime_step_id, (member_id, turn_ordinal)
 
 
 @dataclass(frozen=True)
@@ -164,10 +247,15 @@ class ProviderAttemptScope:
         )
         loop_node = node["loop_iteration"]
         adjudication_node = node["adjudication_subject"]
+        runtime_step_id = _nonempty_string(
+            node["runtime_step_id"],
+            "runtime_step_id",
+        )
+        _decode_member_turn_runtime_step_id(runtime_step_id)
         return cls(
             run_id=_nonempty_string(node["run_id"], "run_id"),
             resume_scope=resume_scope,
-            runtime_step_id=_nonempty_string(node["runtime_step_id"], "runtime_step_id"),
+            runtime_step_id=runtime_step_id,
             enclosing_step=EnclosingStep.from_dict(node["enclosing_step"]),
             loop_iteration=(
                 None if loop_node is None else LoopIteration.from_dict(loop_node)
@@ -209,6 +297,36 @@ class ProviderAttemptScope:
     @property
     def key(self) -> str:
         return "sha256:" + hashlib.sha256(self.canonical_bytes()).hexdigest()
+
+
+def derive_provider_attempt_member_turn_scope(
+    base_scope: ProviderAttemptScope,
+    *,
+    member_id: str,
+    turn_ordinal: int,
+) -> ProviderAttemptScope:
+    """Derive one injective member-turn scope without changing persisted shape."""
+
+    if not isinstance(base_scope, ProviderAttemptScope):
+        raise TypeError("ProviderAttemptScope required")
+    runtime_step_id, qualifier = _decode_member_turn_runtime_step_id(
+        base_scope.runtime_step_id
+    )
+    if qualifier is not None:
+        raise ValueError("provider attempt scope is already qualified")
+    member = _nonempty_string(member_id, "provider attempt member_id")
+    turn = _ordinary_integer(
+        turn_ordinal,
+        "provider attempt turn_ordinal",
+        minimum=0,
+    )
+    payload = base_scope.to_dict()
+    payload["runtime_step_id"] = _encode_member_turn_runtime_step_id(
+        runtime_step_id=runtime_step_id,
+        member_id=member,
+        turn_ordinal=turn,
+    )
+    return ProviderAttemptScope.from_dict(payload)
 
 
 def _ordinary_absolute(path: Any) -> Path:
@@ -386,17 +504,20 @@ def validate_provider_attempt_scope(
         if any(current_step.get(key) != value for key, value in expected.items()):
             raise ValueError("current_step contradicts provider attempt scope")
 
+    topology_runtime_step_id, _member_turn = _decode_member_turn_runtime_step_id(
+        scope.runtime_step_id
+    )
     loop = scope.loop_iteration
     if loop is None:
-        if scope.runtime_step_id != enclosing.step_id:
+        if topology_runtime_step_id != enclosing.step_id:
             raise ValueError("direct provider runtime step contradicts enclosing step")
         return
     if loop.loop_step_id != enclosing.step_id:
         raise ValueError("loop step identity contradicts enclosing step")
     runtime_prefix = f"{loop.loop_step_id}#{loop.iteration}."
     if (
-        not scope.runtime_step_id.startswith(runtime_prefix)
-        or not scope.runtime_step_id[len(runtime_prefix):]
+        not topology_runtime_step_id.startswith(runtime_prefix)
+        or not topology_runtime_step_id[len(runtime_prefix):]
     ):
         raise ValueError(
             "loop runtime_step_id contradicts canonical iteration projection"
