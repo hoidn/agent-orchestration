@@ -249,7 +249,8 @@ steps:
                 "exit_code": 0,
                 "duration_ms": 7,
                 "output": "ok",
-            }
+            },
+            "StepB": {"status": "pending"},
         },
     }
     state_file = run_dir / "state.json"
@@ -271,7 +272,9 @@ steps:
     assert persisted["context"]["status_reconciled_reason"] == "stale_running_without_current_step"
 
 
-def test_report_json_includes_advisory_lint_warnings(tmp_path, capsys, monkeypatch):
+def test_report_json_does_not_reopen_authored_source_for_lint(
+    tmp_path, capsys, monkeypatch
+):
     monkeypatch.chdir(tmp_path)
     runs_root = tmp_path / ".orchestrate" / "runs"
     run_id = "20260227T000006Z-ffffff"
@@ -295,10 +298,13 @@ steps:
 
     assert result == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["lint"]["warnings"][0]["code"] == "shell-gate-to-assert"
+    assert "lint" not in payload
+    assert "state-only" in payload["run"]["report_warning"]
 
 
-def test_report_markdown_appends_advisory_lint_section(tmp_path, capsys, monkeypatch):
+def test_report_markdown_identifies_state_only_projection(
+    tmp_path, capsys, monkeypatch
+):
     monkeypatch.chdir(tmp_path)
     runs_root = tmp_path / ".orchestrate" / "runs"
     run_id = "20260227T000007Z-gggggg"
@@ -322,8 +328,8 @@ steps:
 
     assert result == 0
     out = capsys.readouterr().out
-    assert "## Advisory Lint" in out
-    assert "CheckReady" in out
+    assert "## Advisory Lint" not in out
+    assert "state-only report" in out
 
 
 def test_report_markdown_surfaces_provider_session_quarantine_context(tmp_path, capsys, monkeypatch):

@@ -19,7 +19,6 @@ from orchestrator.dashboard.models import (
     FileReference,
     RunRecord,
 )
-from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow.persisted_surface import PersistedWorkflowSurfaceGraph
 from orchestrator.observability.report import build_status_snapshot, derive_status_projection
@@ -148,45 +147,34 @@ class RunProjector:
         if not isinstance(workflow_file, str) or not workflow_file:
             return None, None, "state missing workflow_file"
         workflow_path = Path(workflow_file)
-        is_compiled = workflow_path.suffix == ".orc"
+        is_compiled = workflow_path.suffix.lower() == ".orc"
+        if not is_compiled:
+            return (
+                None,
+                None,
+                "legacy authored workflow metadata is retired; "
+                "showing state-only dashboard projection",
+            )
         try:
-            if is_compiled:
-                candidate = (
-                    workflow_path
-                    if workflow_path.is_absolute()
-                    else run.workspace.root / workflow_path
-                )
-                resolved = candidate.resolve(strict=False)
-                try:
-                    resolved.relative_to(run.workspace.root.resolve(strict=False))
-                except ValueError:
-                    return None, None, f"workflow file is outside workspace: {workflow_file}"
-            elif workflow_path.is_absolute():
-                resolved = workflow_path.resolve(strict=False)
-                try:
-                    resolved.relative_to(run.workspace.root)
-                except ValueError:
-                    return None, None, f"workflow file is outside workspace: {workflow_file}"
-            else:
-                ref = resolver.workspace_ref(workflow_file)
-                if ref.status != "ok":
-                    return None, None, f"workflow file is not readable: {workflow_file}"
-                resolved = ref.absolute_path
+            candidate = (
+                workflow_path
+                if workflow_path.is_absolute()
+                else run.workspace.root / workflow_path
+            )
+            resolved = candidate.resolve(strict=False)
+            try:
+                resolved.relative_to(run.workspace.root.resolve(strict=False))
+            except ValueError:
+                return None, None, f"workflow file is outside workspace: {workflow_file}"
         except (OSError, RuntimeError, UnsafePathError) as exc:
             return None, None, f"workflow file is unsafe: {exc}"
 
         try:
-            if is_compiled:
-                workflow = load_persisted_compiled_workflow_surface(
-                    workspace_root=run.workspace.root,
-                    workflow_path=resolved,
-                    state=state,
-                )
-            else:
-                workflow = WorkflowLoader(
-                    run.workspace.root,
-                    emit_yaml_deprecation_warning=False,
-                ).load_bundle(resolved)
+            workflow = load_persisted_compiled_workflow_surface(
+                workspace_root=run.workspace.root,
+                workflow_path=resolved,
+                state=state,
+            )
         except Exception as exc:
             return None, None, f"failed to load workflow metadata: {exc}"
         workflow_name = getattr(workflow, "entry_workflow", None)

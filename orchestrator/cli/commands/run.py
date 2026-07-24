@@ -11,8 +11,6 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from argparse import Namespace
 
-from orchestrator.loader import WorkflowLoader
-from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
@@ -324,45 +322,39 @@ def run_workflow(args: Namespace) -> int:
 
         # Load workflow
         workflow_path = Path(args.workflow).resolve()
+        if workflow_path.suffix.lower() != ".orc":
+            logger.error(
+                ".orc required: authored workflows must use the Workflow Lisp frontend"
+            )
+            return 1
         if not workflow_path.exists():
             logger.error(f"Workflow file not found: {workflow_path}")
             return 1
 
         frontend_build = None
-        if workflow_path.suffix == ".orc":
-            try:
-                frontend_build = build_frontend_bundle(
-                    FrontendBuildRequest(
-                        source_path=workflow_path,
-                        source_roots=tuple(Path(path) for path in (getattr(args, "source_root", None) or ())),
-                        entry_workflow=getattr(args, "entry_workflow", None),
-                        provider_externs_path=Path(args.provider_externs_file).resolve()
-                        if getattr(args, "provider_externs_file", None) else None,
-                        prompt_externs_path=Path(args.prompt_externs_file).resolve()
-                        if getattr(args, "prompt_externs_file", None) else None,
-                        imported_workflow_bundles_path=Path(args.imported_workflow_bundles_file).resolve()
-                        if getattr(args, "imported_workflow_bundles_file", None) else None,
-                        command_boundaries_path=Path(args.command_boundaries_file).resolve()
-                        if getattr(args, "command_boundaries_file", None) else None,
-                        emit_debug_yaml=bool(getattr(args, "emit_debug_yaml", False)),
-                        workspace_root=workspace,
-                    )
+        try:
+            frontend_build = build_frontend_bundle(
+                FrontendBuildRequest(
+                    source_path=workflow_path,
+                    source_roots=tuple(Path(path) for path in (getattr(args, "source_root", None) or ())),
+                    entry_workflow=getattr(args, "entry_workflow", None),
+                    provider_externs_path=Path(args.provider_externs_file).resolve()
+                    if getattr(args, "provider_externs_file", None) else None,
+                    prompt_externs_path=Path(args.prompt_externs_file).resolve()
+                    if getattr(args, "prompt_externs_file", None) else None,
+                    imported_workflow_bundles_path=Path(args.imported_workflow_bundles_file).resolve()
+                    if getattr(args, "imported_workflow_bundles_file", None) else None,
+                    command_boundaries_path=Path(args.command_boundaries_file).resolve()
+                    if getattr(args, "command_boundaries_file", None) else None,
+                    emit_debug_yaml=bool(getattr(args, "emit_debug_yaml", False)),
+                    workspace_root=workspace,
                 )
-            except LispFrontendCompileError as e:
-                for diagnostic in e.diagnostics:
-                    logger.error(render_diagnostic(diagnostic))
-                return 2
-            workflow = frontend_build.validated_bundle
-        else:
-            logger.info(f"Loading workflow: {workflow_path}")
-            loader = WorkflowLoader(workspace)
-            try:
-                workflow = loader.load_bundle(workflow_path)
-            except WorkflowValidationError as e:
-                # Print validation errors to stderr
-                for error in e.errors:
-                    logger.error(f"Validation error: {error.message}")
-                return e.exit_code
+            )
+        except LispFrontendCompileError as e:
+            for diagnostic in e.diagnostics:
+                logger.error(render_diagnostic(diagnostic))
+            return 2
+        workflow = frontend_build.validated_bundle
         bundle = loaded_workflow_bundle(workflow)
         # Determine processed directory
         if bundle is not None:

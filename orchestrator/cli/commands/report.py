@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from orchestrator.loader import WorkflowLoader
-from orchestrator.observability.report import build_status_snapshot, render_status_markdown
-from orchestrator.workflow.linting import lint_workflow, render_lint_markdown
+from orchestrator.observability.report import (
+    _load_typed_terminal_observability_summary,
+    derive_status_projection,
+    render_status_markdown,
+)
+from orchestrator.runtime_observability import compute_active_runtime
 
 
 def _latest_run_dir(runs_root: Path) -> Optional[Path]:
@@ -34,55 +38,150 @@ def _resolve_run_dir(run_id: Optional[str], runs_root: Path) -> Optional[Path]:
 def _state_only_snapshot(
     state: dict[str, Any],
     run_dir: Path,
-    *,
-    load_error: str,
 ) -> dict[str, Any]:
-    """Build a minimal report snapshot when the workflow definition is unavailable."""
+    """Build a report exclusively from persisted run state and run-owned evidence."""
+
+    def result_status(value: Any) -> str:
+        if isinstance(value, Mapping):
+            status = value.get("status")
+            if isinstance(status, str):
+                return status
+            if value.get("skipped"):
+                return "skipped"
+            exit_code = value.get("exit_code")
+            if exit_code == 0:
+                return "completed"
+            if isinstance(exit_code, int):
+                return "failed"
+            child_statuses = [
+                result_status(child)
+                for child in value.values()
+                if isinstance(child, (Mapping, list))
+            ]
+            if "failed" in child_statuses:
+                return "failed"
+            if "running" in child_statuses:
+                return "running"
+            if child_statuses and all(
+                status in {"completed", "skipped"} for status in child_statuses
+            ):
+                return "completed"
+        elif isinstance(value, list):
+            child_statuses = [result_status(child) for child in value]
+            if "failed" in child_statuses:
+                return "failed"
+            if "running" in child_statuses:
+                return "running"
+            if child_statuses and all(
+                status in {"completed", "skipped"} for status in child_statuses
+            ):
+                return "completed"
+        return "pending"
+
+    def step_entry(name: str, value: Any) -> dict[str, Any]:
+        payload = value if isinstance(value, Mapping) else {}
+        raw_preview = payload.get("output")
+        if raw_preview is None:
+            raw_preview = payload.get("text")
+        preview = str(raw_preview) if raw_preview is not None else ""
+        if len(preview) > 200:
+            preview = preview[:197] + "..."
+        return {
+            "name": name,
+            "step_id": payload.get("step_id"),
+            "kind": payload.get("type") or "unknown",
+            "status": result_status(value),
+            "input": {},
+            "output": {
+                "exit_code": payload.get("exit_code"),
+                "duration_ms": payload.get("duration_ms"),
+                "output_preview": preview,
+                "artifacts": (
+                    payload.get("artifacts")
+                    if isinstance(payload.get("artifacts"), Mapping)
+                    else {}
+                ),
+                "error": payload.get("error"),
+                "outcome": payload.get("outcome"),
+            },
+        }
+
+    raw_steps = state.get("steps")
+    steps = (
+        [step_entry(str(name), value) for name, value in raw_steps.items()]
+        if isinstance(raw_steps, Mapping)
+        else []
+    )
     current_step = (
         state.get("current_step")
         if isinstance(state.get("current_step"), dict)
         else None
     )
-    steps = []
     if isinstance(current_step, dict):
-        steps.append(
-            {
-                "name": current_step.get("name") or current_step.get("step_id") or "current_step",
-                "step_id": current_step.get("step_id"),
-                "kind": current_step.get("type") or "unknown",
-                "status": current_step.get("status") or "unknown",
-                "input": {},
-                "output": {},
-            }
+        current_name = str(
+            current_step.get("name")
+            or current_step.get("step_id")
+            or "current_step"
         )
-    status = str(state.get("status") or "unknown")
-    return {
-        "run": {
-            "run_id": state.get("run_id"),
-            "status": status,
-            "workflow_file": state.get("workflow_file"),
-            "started_at": state.get("started_at"),
-            "updated_at": state.get("updated_at"),
-            "run_root": str(run_dir),
-            "persisted_status": status,
-            "display_status": status,
-            "display_status_reason": "state_only_report",
-            "error": state.get("error") if isinstance(state.get("error"), dict) else None,
-            "report_warning": (
-                "Workflow definition could not be loaded for report projection; "
-                f"showing state-only report: {load_error}"
-            ),
-        },
-        "progress": {
-            "total": len(steps),
-            "completed": 0,
-            "running": 0,
-            "failed": sum(1 for step in steps if step.get("status") == "failed"),
-            "pending": 0,
-            "skipped": 0,
-        },
-        "steps": steps,
+        existing = next((step for step in steps if step["name"] == current_name), None)
+        if existing is None:
+            existing = step_entry(current_name, current_step)
+            steps.append(existing)
+        existing["status"] = current_step.get("status") or "running"
+
+    status_projection = derive_status_projection(state, steps)
+    display_status = str(status_projection["display_status"])
+    progress = {
+        "total": len(steps),
+        "completed": sum(1 for step in steps if step["status"] == "completed"),
+        "running": sum(1 for step in steps if step["status"] == "running"),
+        "failed": sum(1 for step in steps if step["status"] == "failed"),
+        "pending": sum(1 for step in steps if step["status"] == "pending"),
+        "skipped": sum(1 for step in steps if step["status"] == "skipped"),
     }
+    if display_status == "completed":
+        progress["running"] = 0
+        progress["failed"] = 0
+        progress["pending"] = 0
+        progress["completed"] = progress["total"] - progress["skipped"]
+    elif display_status == "failed":
+        progress["running"] = 0
+
+    run_payload: dict[str, Any] = {
+        "run_id": state.get("run_id"),
+        "status": display_status,
+        "workflow_file": state.get("workflow_file"),
+        "started_at": state.get("started_at"),
+        "updated_at": state.get("updated_at"),
+        "run_root": str(run_dir),
+        "transition_count": state.get("transition_count", 0),
+        "persisted_status": status_projection["persisted_status"],
+        "display_status": display_status,
+        "display_status_reason": status_projection["display_status_reason"],
+        "report_warning": (
+            "Authored workflow definitions are not loaded for report projection; "
+            "showing a state-only report."
+        ),
+    }
+    status_reason = status_projection["display_status_reason"]
+    if status_reason:
+        run_payload["status_reason"] = status_reason
+    if isinstance(state.get("bound_inputs"), Mapping):
+        run_payload["bound_inputs"] = state["bound_inputs"]
+    if isinstance(state.get("workflow_outputs"), Mapping):
+        run_payload["workflow_outputs"] = state["workflow_outputs"]
+    if isinstance(state.get("finalization"), Mapping) and state["finalization"]:
+        run_payload["finalization"] = state["finalization"]
+    if isinstance(state.get("error"), Mapping):
+        run_payload["error"] = state["error"]
+    typed_terminal_summary = _load_typed_terminal_observability_summary(run_dir)
+    if typed_terminal_summary is not None:
+        run_payload["observability_summaries"] = {
+            "typed_terminal": typed_terminal_summary,
+        }
+    run_payload.update(compute_active_runtime(state))
+
+    return {"run": run_payload, "progress": progress, "steps": steps}
 
 
 def report_workflow(
@@ -105,36 +204,7 @@ def report_workflow(
         print(f"Error: failed to load state: {exc}", file=sys.stderr)
         return 1
 
-    workflow_file = state.get("workflow_file")
-    if not isinstance(workflow_file, str) or not workflow_file:
-        print("Error: state missing workflow_file", file=sys.stderr)
-        return 1
-
-    workflow_path = Path(workflow_file)
-    if not workflow_path.is_absolute():
-        workflow_path = Path.cwd() / workflow_path
-
-    if not workflow_path.exists():
-        print(f"Error: workflow file not found: {workflow_path}", file=sys.stderr)
-        return 1
-
-    load_error: Optional[str] = None
-    try:
-        workflow = WorkflowLoader(
-            Path.cwd(),
-            emit_yaml_deprecation_warning=False,
-        ).load_bundle(workflow_path)
-    except Exception as exc:
-        workflow = None
-        load_error = str(exc)
-
-    lint_warnings = lint_workflow(workflow) if workflow is not None else []
-    if workflow is None:
-        snapshot = _state_only_snapshot(state, run_dir, load_error=load_error or "unknown")
-    else:
-        snapshot = build_status_snapshot(workflow, state, run_dir)
-    if lint_warnings:
-        snapshot["lint"] = {"warnings": lint_warnings}
+    snapshot = _state_only_snapshot(state, run_dir)
     run_snapshot = snapshot.get("run", {})
     original_status = state.get("status")
     derived_status = run_snapshot.get("status")
@@ -163,8 +233,6 @@ def report_workflow(
         report_warning = snapshot.get("run", {}).get("report_warning")
         if isinstance(report_warning, str) and report_warning:
             rendered = f"{rendered.rstrip()}\n\n> {report_warning}\n"
-        if lint_warnings:
-            rendered = f"{rendered.rstrip()}\n\n{render_lint_markdown(lint_warnings)}\n"
 
     if output:
         output_path = Path(output)

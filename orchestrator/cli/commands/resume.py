@@ -9,7 +9,6 @@ import sys
 from dataclasses import dataclass
 
 from orchestrator.state import StateManager
-from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
     workflow_boundary_projection,
@@ -28,7 +27,6 @@ from orchestrator.workflow.resume_projection_integrity import (
 from orchestrator.workflow.provider_attempts import (
     enable_provider_attempt_coordination_for_bundle,
 )
-from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.monitor.process import (
     process_start_time_token,
     read_process_metadata,
@@ -39,7 +37,6 @@ from orchestrator.runtime_observability import close_executor_session, open_exec
 from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 from orchestrator.workflow_lisp.wcc.route import (
-    LOWERING_SCHEMA_WCC,
     effective_persisted_lowering_schema_for_orc,
     lowering_route_for_schema,
     workflow_lisp_context_with_lowering_schema,
@@ -203,24 +200,13 @@ def _load_resume_workflow_bundle(
     persisted_lowering_schema: int | None = None,
     force_restart: bool = False,
 ) -> ResumeWorkflowBundle:
-    if workflow_path.suffix != ".orc":
-        loader = WorkflowLoader(
-            workspace_dir,
-            emit_yaml_deprecation_warning=False,
+    if workflow_path.suffix.lower() != ".orc":
+        raise ValueError(
+            ".orc required: authored workflows must use the Workflow Lisp frontend"
         )
-        return ResumeWorkflowBundle(bundle=loader.load_bundle(workflow_path))
 
     metadata = read_process_metadata(run_root)
     argv = metadata.argv if metadata is not None else ()
-    if force_restart and metadata is None:
-        loader = WorkflowLoader(
-            workspace_dir,
-            emit_yaml_deprecation_warning=False,
-        )
-        return ResumeWorkflowBundle(
-            bundle=loader.load_bundle(workflow_path),
-            lowering_schema_version=LOWERING_SCHEMA_WCC,
-        )
 
     def first_path(flag: str) -> Optional[Path]:
         values = _argv_option_values(argv, flag)
@@ -245,7 +231,6 @@ def _load_resume_workflow_bundle(
             imported_workflow_bundles_path=first_path("--imported-workflow-bundles-file"),
             command_boundaries_path=first_path("--command-boundaries-file"),
             emit_debug_yaml=_argv_has_flag(argv, "--emit-debug-yaml"),
-            emit_yaml_deprecation_warning=False,
             workspace_root=workspace_dir,
             lowering_route=(
                 None
@@ -388,6 +373,20 @@ def resume_workflow(
     observability: Optional[Dict[str, Any]] = None
 
     workflow_path = Path(workflow_file)
+    workflow_suffix = workflow_path.suffix.lower()
+    if (
+        workflow_suffix in {".yaml", ".yml"}
+        and state.status == "completed"
+        and not force_restart
+    ):
+        print(f"Run {run_id} has already completed successfully")
+        return 0
+    if workflow_suffix != ".orc":
+        print(
+            "Error: .orc required: authored workflows must use the Workflow Lisp frontend",
+            file=sys.stderr,
+        )
+        return 1
     if not workflow_path.exists():
         # Try relative to current directory
         workflow_path = Path.cwd() / workflow_file
@@ -399,7 +398,7 @@ def resume_workflow(
     workspace_dir = Path.cwd()
     persisted_lowering_schema = (
         effective_persisted_lowering_schema_for_orc(state.context)
-        if workflow_path.suffix == ".orc"
+        if workflow_path.suffix.lower() == ".orc"
         else None
     )
     try:
@@ -423,16 +422,13 @@ def resume_workflow(
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
-    except WorkflowValidationError as e:
-        print(f"Error loading workflow: {e}", file=sys.stderr)
-        return 2
     except Exception as e:
         print(f"Error loading workflow: {e}", file=sys.stderr)
         return 1
 
     if (
         not force_restart
-        and workflow_path.suffix == ".orc"
+        and workflow_path.suffix.lower() == ".orc"
         and persisted_lowering_schema is not None
         and candidate_lowering_schema is not None
         and persisted_lowering_schema != candidate_lowering_schema

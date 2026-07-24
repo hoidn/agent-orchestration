@@ -11,7 +11,6 @@ import yaml
 
 from orchestrator.dashboard.projection import RunProjector
 from orchestrator.dashboard.scanner import RunScanner
-from orchestrator.workflow.surface_ast import SurfaceStepKind
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -32,7 +31,9 @@ def _scan_one(workspace: Path):
     return RunScanner([workspace]).scan().runs[0]
 
 
-def test_projector_uses_workflow_metadata_and_keeps_display_status_separate(tmp_path: Path):
+def test_projector_uses_legacy_state_only_and_keeps_display_status_separate(
+    tmp_path: Path,
+):
     workflow_path = _write_yaml(
         tmp_path / "workflows" / "flow.yaml",
         {
@@ -51,23 +52,28 @@ def test_projector_uses_workflow_metadata_and_keeps_display_status_separate(tmp_
         "workflow_file": str(workflow_path.relative_to(tmp_path)),
         "started_at": "2026-04-13T12:00:00+00:00",
         "updated_at": stale_updated.isoformat(),
-        "steps": {"Prep": {"status": "completed", "exit_code": 0}},
+        "steps": {
+            "Prep": {"status": "completed", "exit_code": 0},
+            "Draft": {"status": "pending"},
+        },
     }
     state_path = _write_state(tmp_path, "run1", state)
     before = state_path.read_text(encoding="utf-8")
 
     detail = RunProjector().project_detail(_scan_one(tmp_path))
 
-    assert detail.row.workflow_name == "dashboard-flow"
+    assert detail.row.workflow_name is None
     assert detail.row.persisted_status == "running"
     assert detail.row.display_status == "failed"
     assert detail.row.display_status_reason == "stale_running_without_current_step"
     assert [step.name for step in detail.steps] == ["Prep", "Draft"]
-    assert detail.steps[0].kind == "command"
+    assert detail.steps[0].kind == "unknown"
+    assert detail.degraded is True
+    assert any("legacy authored workflow" in warning for warning in detail.warnings)
     assert state_path.read_text(encoding="utf-8") == before
 
 
-def test_projector_carries_loaded_typed_workflow_surface_for_dashboard_consumers(
+def test_projector_does_not_reopen_legacy_typed_workflow_surface(
     tmp_path: Path,
 ):
     workflow_path = _write_yaml(
@@ -96,15 +102,15 @@ def test_projector_carries_loaded_typed_workflow_surface_for_dashboard_consumers
             "run_id": "run1",
             "status": "completed",
             "workflow_file": str(workflow_path.relative_to(tmp_path)),
+            "steps": {"VisitItems": {"status": "completed"}},
         },
     )
 
     detail = RunProjector().project_detail(_scan_one(tmp_path))
 
-    assert detail.workflow_structure is not None
-    assert detail.workflow_structure.surface.name == "typed-dashboard-flow"
-    assert detail.workflow_structure.surface.steps[0].kind is SurfaceStepKind.FOR_EACH
-    assert detail.workflow_structure.surface.steps[0].for_each_steps[0].kind is SurfaceStepKind.COMMAND
+    assert detail.workflow_structure is None
+    assert detail.degraded is True
+    assert [step.name for step in detail.steps] == ["VisitItems"]
 
 
 def test_projector_persisted_yaml_read_emits_no_authoring_deprecation(
@@ -135,8 +141,9 @@ def test_projector_persisted_yaml_read_emits_no_authoring_deprecation(
     ):
         detail = RunProjector().project_detail(_scan_one(tmp_path))
 
-    assert detail.row.workflow_name == "persisted-dashboard-flow"
-    assert detail.workflow_structure is not None
+    assert detail.row.workflow_name is None
+    assert detail.workflow_structure is None
+    assert detail.degraded is True
     assert [
         record
         for record in caplog.records
@@ -208,7 +215,7 @@ def test_projector_exposes_elapsed_current_step_start_and_heartbeat_separately(
     assert detail.row.heartbeat_age_seconds == 60
 
 
-def test_projector_falls_back_to_state_only_when_workflow_file_is_unsafe(tmp_path: Path):
+def test_projector_does_not_resolve_legacy_workflow_path(tmp_path: Path):
     outside = tmp_path.parent / "outside-workflow.yaml"
     state = {
         "run_id": "run2",
@@ -227,7 +234,8 @@ def test_projector_falls_back_to_state_only_when_workflow_file_is_unsafe(tmp_pat
     assert detail.row.workflow_name is None
     assert [step.name for step in detail.steps] == ["A", "B"]
     assert detail.row.failure_summary == "boom"
-    assert any("workflow file is outside workspace" in warning for warning in detail.warnings)
+    assert any("legacy authored workflow" in warning for warning in detail.warnings)
+    assert not any("outside workspace" in warning for warning in detail.warnings)
 
 
 def test_projector_represents_parse_failures_as_rows(tmp_path: Path):
