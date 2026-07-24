@@ -13,12 +13,12 @@ Informative guidance and mental models live in `docs/`.
 | Find normative runtime behavior | [Master Spec](../specs/index.md) | Specs win when docs disagree. |
 | Check whether a workflow surface is implemented, partial, future, or legacy | [Capability Status Matrix](capability_status_matrix.md) | Status and copy-safety routing for common DSL and Workflow Lisp surfaces. |
 | Check which suites count toward stdlib migration verification and which builtin stdlib modules are landed versus compatibility-only | [Workflow Lisp Verification Gate](workflow_lisp_g6_verification_gate.json) | Checked-in gate manifest for counted suites, builtin stdlib inventory, and routing metadata. |
-| Check the Stage-6 queue for a user-facing YAML/YML workflow | [YAML Workflow Estate Triage](workflow_yaml_estate_triage.md) | Exact human-readable projection of the content-addressed five-queue handoff covering every authored `workflows/**/*.yaml` and `workflows/**/*.yml` path. |
+| Review the retired YAML/YML workflow estate | [YAML Workflow Estate Triage](workflow_yaml_estate_triage.md) | Frozen historical projection of the content-addressed five-queue handoff; all queues are drained and the authored workflow estate is empty. |
 | Check the current Workflow Lisp pure-expression, projection, materialized-view, resource-transition, or stdlib phase/drain surface | [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md) | Documents the closed operator set, computed-`if` proof boundary, generated `pure_projection` / `materialize_view` runtime surfaces, the declared/runtime-native `resource-transition` lane, and the `phase-scope` / `finalize-selected-item` / `backlog-drain` stdlib contract. |
 | Check whether imported generic helpers can compose constrained `match`, imported transitions/resources, and `materialize-view` through ordinary specialization | [Capability Status Matrix](capability_status_matrix.md) | Routes to the landed G5A proof surface and its owning evidence lanes. |
 | Choose a design doc | [Design Documentation Index](design/README.md) | Groups current contracts, migration guidance, frontend direction, and deferred work. |
 | Author new workflows | [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) | Preferred `.orc` authoring route, availability guidance, and typed-contract patterns. |
-| Maintain existing YAML workflows | [Workflow Drafting Guide](workflow_drafting_guide.md) | Legacy compatibility guidance for preserving, debugging, or migrating an existing YAML/YML surface. |
+| Interpret historical YAML workflows | [Workflow Drafting Guide](workflow_drafting_guide.md) | Retired-frontend reference for translating historical YAML/YML semantics into `.orc`; authored YAML can no longer be run or resumed. |
 | Start or adapt the current target-design / design-gap drain | [Design Delta drain `.orc`](../workflows/library/lisp_frontend_design_delta/drain.orc) | Promoted Workflow Lisp primary for the Design Delta family; the authored YAML family is archived and the historical promotion report remains preserved. |
 | Keep new docs discoverable | [Documentation Conventions](documentation_conventions.md) | Status, authority, evidence, and copy-safety checklist. |
 | Copy a workflow example | [Workflow Index](../workflows/README.md) | Catalog status and copy-safe run commands. |
@@ -39,7 +39,7 @@ These are the highest-impact terminology and contract confusions.
 | Migration promotion | "If a `.orc` workflow compiles and dry-runs, it can replace the YAML primary." | Promotion requires computed parity evidence for output contracts, terminal states, artifacts, resume/reuse behavior, accepted differences, and deprecated mechanics. | [Workflow Lisp Key Migration Parity Architecture](design/workflow_lisp_key_migration_parity_architecture.md), [Workflow Language Design Principles](design/workflow_language_design_principles.md), [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) |
 | Inline command glue | "Python and shell commands should either be banned entirely or accepted as normal workflow authoring." | Command steps are allowed for external tools and certified adapters. Hidden workflow semantics in inline Python/shell, ad hoc JSON rewrites, pointer-as-state, or report parsing are migration debt and need typed procedures, certified command adapters, or runtime-native effects. | [Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md), [Workflow Drafting Guide](workflow_drafting_guide.md) |
 | Adjudicated provider output | "The best candidate's stdout becomes the step output." | `adjudicated_provider` scores output-valid candidates, promotes only declared deterministic outputs, and suppresses candidate/evaluator stdout from normal step output state. | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Step IO](../specs/io.md) |
-| Managed provider jobs | "Managed training jobs should be encoded as manual guard and recovery command steps." | For retained YAML compatibility workflows, `managed_jobs` is a v2.13 provider-step modifier: YAML declares policy, watch roots, backend, poll budget, and managed outcome routes, while runtime-owned guard, shim, audit, recovery, and resumable state replace hand-authored recovery glue. New authoring starts in Workflow Lisp. | [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md), [Legacy Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md) |
+| Managed provider jobs | "Managed training jobs should be encoded as manual guard and recovery command steps." | `managed_jobs` remains a v2.13 runtime modifier documented for historical lowered workflows: policy, watch roots, backend, poll budget, and managed outcome routes let runtime-owned guard, shim, audit, recovery, and resumable state replace hand-authored recovery glue. Runnable authoring starts in Workflow Lisp and must use an implemented `.orc` lowering surface. | [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md), [Historical Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md) |
 | Structured result channel | "JSON printed to stdout counts as a provider/command structured result." | Results travel only as validated bundles at runtime-bound output locations (`output_bundle.path` / `variant_output.path`); wrong-path writes fail closed; stdout/stderr are observability evidence, never a result channel. The declared return type is the contract; the bound-path bundle is the sanctioned transport behind it. | [Workflow Lisp Runtime Migration Foundation](design/workflow_lisp_runtime_migration_foundation.md), [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md), [Step IO](../specs/io.md) |
 
 ---
@@ -98,8 +98,8 @@ document owns the answer.
 - Check [DSL](../specs/dsl.md), [Step IO](../specs/io.md), and
   [Providers](../specs/providers.md) for normative behavior.
 - Use [Prompt Index](../prompts/README.md) when provider prompts are involved.
-- Use [Workflow Drafting Guide](workflow_drafting_guide.md) only to maintain,
-  debug, or migrate an existing YAML/YML workflow.
+- Use [Workflow Drafting Guide](workflow_drafting_guide.md) only to interpret
+  or translate historical YAML/YML source; the retired frontend cannot execute it.
 
 ### When Reviewing Plans Or Backlog Drains
 
@@ -135,9 +135,9 @@ document owns the answer.
 **Use this when:** You want email alerts for workflow completion or failures across one or more repositories.
 
 ### [Workflow Drafting Guide](workflow_drafting_guide.md)
-**Description:** Legacy compatibility guidance for preserving or migrating existing YAML/YML workflows, including prompt/runtime/flow contract separation, deterministic handoff patterns, managed-provider job conventions, and special-case guidance for workflows with DSL-level git rollback/checkpoint behavior.
-**Keywords:** legacy, compatibility, yaml, migration, prompts, contracts, deterministic-handoff, managed-jobs, gates, git
-**Use this when:** You are maintaining, debugging, or migrating an existing YAML/YML workflow; start new authoring in the Workflow Lisp guide.
+**Description:** Historical YAML/YML translation reference covering prompt/runtime/flow contract separation, deterministic handoff patterns, managed-provider job conventions, and special-case git rollback/checkpoint mechanics.
+**Keywords:** retired-frontend, historical, yaml, migration, prompts, contracts, deterministic-handoff, managed-jobs, gates, git
+**Use this when:** You are interpreting or translating historical YAML/YML source; use the Workflow Lisp guide for every runnable workflow.
 
 ### [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
 **Description:** Lisp-first authoring guidance for `.orc` workflows, focused on typed procedures, structured results, semantic/executable authority boundaries, current contract navigation, and avoiding YAML-shaped Lisp.
@@ -147,7 +147,7 @@ document owns the answer.
 ### [Work Definition Model](work_definition_model.md)
 **Description:** Plain model separating semantic invariants, procedural work instructions, bounded work items, workflow mechanics, and run evidence.
 **Keywords:** work-definition, semantics, work-instructions, workflow-mechanics, evidence
-**Use this when:** Deciding whether content belongs in specs/design docs, body-of-work instructions, work items, workflow YAML, or run artifacts.
+**Use this when:** Deciding whether content belongs in specs/design docs, body-of-work instructions, work items, workflow source, or run artifacts.
 
 ### [Procedure-First Roadmap Execution Sequence](plans/2026-07-09-procedure-first-roadmap-execution-sequence.md)
 **Description:** Governing cross-plan work order for closing the active refactors, executing the parametric drain migration and retirement gates, designing and implementing broader procedure-first reuse, resuming YAML authoring-surface retirement, and finally delivering provider live binding and the `.orc` language server (Stages 7-8).
@@ -157,7 +157,7 @@ document owns the answer.
 ### [Workflow Lisp Evolution Follow-On Roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md)
 **Description:** Proposed, non-active E0-E5 follow-on program that starts with an external pure-expression proving experiment, separates neutral variant/trial substrate from code and prompt evolution, and leaves effectful mutation deferred behind a real sandbox and capability model.
 **Keywords:** workflow-lisp, evolution, variants, trials, genetic-search, prompt-evolution, roadmap
-**Use this when:** Reviewing the conditional E-series direction, including E0's non-blocking probe and the post-S8 substrate gates. Do not use it to select work; Stage 6 Task 6 remains current and no E-series manifest exists.
+**Use this when:** Reviewing the conditional E-series direction, including E0's non-blocking probe and the post-S8 substrate gates. Do not use it to select work; Stage 6 Task 7 final verification remains current and no E-series manifest exists.
 
 ### [Procedure-First Reuse Contract](design/workflow_lisp_procedure_first_reuse_contract.md)
 **Description:** Accepted boundary and migration contract: workflows own durable public run/resume/invocation/publication identity, while typed procedures are the normal internal reuse unit with explicit lowering and caller-visible effects.
@@ -205,9 +205,9 @@ document owns the answer.
 **Use this when:** Reviewing the completed family-wave classifications, retention decisions, exact evidence, or Stage-6 handoff; do not re-execute it as the live selector.
 
 ### [User-Facing YAML Retirement Program](plans/2026-07-07-yaml-retirement-program.md)
-**Description:** Current Stage-6 selector at Task 6. Tasks 1-5 are complete, both dedicated `.orc` ports route new launches to Workflow Lisp, and both unchanged YAML twins remain pending Task 6's reviewed reference and supported-run deletion gates. YAML remains `Legacy`, and Task 7 fresh-YAML rejection and parser removal are incomplete. Deletion-first retirement keeps exactly two promoted `.orc` ports, one protected holdout queue, one Design Delta history-backed archive queue, and one early independent deletion queue.
-**Keywords:** yaml, yml, retirement, current-selector, deletion-first, orc
-**Use this when:** Executing Stage 6 Task 6 under the [reviewed deletion execution plan](plans/2026-07-17-yaml-retirement-task-6-execution-plan.md), or checking the completed two-port handoff and still-pending deletion gates.
+**Description:** Stage-6 retirement program in Task 7 final verification. All five deletion/archive queues are drained, the authored YAML/YML workflow estate is empty, both `.orc` ports are promoted, fresh non-`.orc` execution rejects before state creation, and the production YAML parser and PyYAML dependency are removed.
+**Keywords:** yaml, yml, retirement, final-verification, deletion-first, orc
+**Use this when:** Running the final Task-7 broad/review gates or reviewing the completed deletion queues and ORC-only frontend contract.
 
 ### [YAML-Retirement Task 2 Commit-Lineage Restart Design](plans/2026-07-22-yaml-retirement-task-2-commit-lineage-restart-design.md)
 **Description:** Accepted corrective design for preserving an owner-adopted but uncommitted Task 2 attempt whose workspace predecessor was invalidated, restoring its tracked ledger, and restarting from a commit-aligned baseline without transferring the archived adoption.
@@ -220,19 +220,19 @@ document owns the answer.
 **Use this when:** Executing or auditing the corrective recovery sequence for the owner-adopted uncommitted Task 2 attempt. It remains subordinate to the Stage-6 Task-6 plan and does not reorder the roadmap.
 
 ### [YAML-to-Workflow-Lisp Gap List](workflow_yaml_orc_gap_list.md)
-**Description:** Completed Stage-6 Task-1 contract reconciling the two `.orc` port queues and protected holdout into implemented mechanics, named fail-closed gates, and one YAML-only `drop`; specification PASS and quality APPROVED.
+**Description:** Completed Stage-6 Task-1 contract that governed the two promoted `.orc` ports and the owner-dispositioned holdout through their now-complete fail-closed gates; specification PASS and quality APPROVED.
 **Keywords:** yaml, orc, retirement, gap-list, completed, provider-policy, parity
 **Use this when:** Designing either retained `.orc` port, checking its still-binding provider/prompt/parity gates, or reviewing why the protected holdout remains owner-gated.
 
 ### [Workflow Lisp Provider Prompt Dependencies](plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md)
-**Description:** Implemented generic functional contract for typed required and optional exact relpaths on `provider-result`, deterministic bounded content injection, one immutable per-attempt snapshot, crash-durable attempt allocation, and content-free evidence. Runtime plan remains topology-only and evidence is non-authoritative. YAML content mode remains Legacy with stable-success compatibility and fresh-per-retry behavior. `verified_iteration_drain` and `generic_run_watchdog` have both closed their family parity and promotion gates, with final reports under `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/` and `artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/`; YAML deletion remains pending.
+**Description:** Implemented generic functional contract for typed required and optional exact relpaths on `provider-result`, deterministic bounded content injection, one immutable per-attempt snapshot, crash-durable attempt allocation, and content-free evidence. Runtime plan remains topology-only and evidence is non-authoritative. The retired YAML twins supplied historical parity evidence for the promoted `verified_iteration_drain` and `generic_run_watchdog` `.orc` routes before deletion.
 **Keywords:** workflow-lisp, provider, prompt-dependencies, relpath, snapshot, retry, evidence
 **Use this when:** Authoring or reviewing `.orc` provider calls that must receive workspace file contents, or auditing the completed survivor-family prompt-dependency parity proofs.
 
 ### [YAML Deprecation Surface Design](plans/2026-07-17-yaml-deprecation-surface-design.md)
-**Description:** Implemented Stage-6 Task-4 design for one structured warning per fresh YAML/YML root load, explicit persisted-read suppression including `.orc` rebuild dependencies, and `.orc`-first author/template routing without YAML rejection.
-**Keywords:** yaml, deprecation, warning, fresh-load, persisted-resume, task-4
-**Use this when:** Reviewing the implemented advisory YAML deprecation boundary or its preserved Task-7 non-goals while executing Task 6.
+**Description:** Historical Stage-6 Task-4 advisory design, superseded by Task 7's ORC-only rejection and parser removal. It records the transition boundary but is not current runtime behavior.
+**Keywords:** yaml, deprecation, historical, warning, retired-frontend, task-4
+**Use this when:** Reviewing the temporary advisory phase that preceded final YAML frontend retirement.
 
 ### [Tracked-Design Phase Identity-Retirement Plan](plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md)
 **Description:** Completed bounded eligibility decision for Migration Waves Task 2 Step 1. The generic scanner found 26 supported old-identity consumers in the retained pilot store, so the callee remains a workflow and its row is retained as `effect-adapter`; no source, YAML, remap, or cross-source-resume change occurred.
@@ -284,11 +284,11 @@ document owns the answer.
 **Keywords:** procedure-first, inventory, migration, effect-adapter, legacy-retire, public-boundary
 **Use this when:** Selecting a concrete migration family or checking why a call site is migrated, retained, or routed to YAML retirement.
 
-**Component-plan routing:** The refactoring, drain/G8 retirement, Stage-4 design, native returns, typed guidance, resolved-effect substrate, identity prerequisites, [tracked-plan pilot](plans/2026-07-13-procedure-first-pilot-plan.md), and [resume projection-integrity hardening implementation](plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md) are complete. The hardening design/specification/planning commits remain `1cd60767`, `52e2b05f`, `00135832`, and `26a5d3db`; runtime implementation and its reviewed gate closed at `fdf1e06b`. **The [procedure-first migration waves implementation plan](plans/2026-07-13-procedure-first-migration-waves-plan.md) is historical complete. Task 1 rebaselined at `4983afff` plus `fa16bcf0`; Task 2 completed at `daff694c`: Step 1's [tracked-design identity decision](plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md) and Step 2's [implementation-phase identity decision](plans/2026-07-16-design-plan-impl-implementation-phase-identity-retirement-plan.md) retained 26- and 24-consumer boundaries, while Step 3's [same-file strict-compatibility decision](plans/2026-07-16-same-file-build-checks-identity-retirement-plan.md) retained the live route. Task 3's [exported-workflow retention decision](plans/2026-07-16-design-delta-exported-workflow-retention-plan.md) retained seven calls. Task 4 closed at `c9687539`, `26d9ecd0`, and `848ceb52`. Task 5 retained 4 + 6 + 9 + 2 = 21 calls under the [finalizer-projection](plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md), [blocked-recovery](plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md), [phase-orchestration](plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md), and [completed-finalization](plans/2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md) decisions. Task 6's [drain-builder checkpoint-retention decision](plans/2026-07-16-design-delta-drain-builder-checkpoint-retention-plan.md) retained its sole private builder call; Task 6 is complete. Task 7 handed all 63 legacy-retire rows to Stage 6 at `7e6adc36`. Task 8 sealed 565 passed/6 skipped focused, 36 passed routing, and 4992 passed/17 skipped with six established unrelated broad failures adjudicated as four digest-exact plus two logger-location-only; specification PASS and quality APPROVED closed the wave. The final inventory is 0 procedure candidates, 32 effect adapters, 63 legacy-retire rows, 13 public entries, and one history row, so procedure-first adoption is not universal.** Stage 6 YAML retirement Tasks 1-5 are complete; YAML retirement Task 6 is current under the [reviewed deletion execution plan](plans/2026-07-17-yaml-retirement-task-6-execution-plan.md). YAML remains `Legacy`, and Task 7 parser removal is incomplete. Its owner is the [YAML retirement program](plans/2026-07-07-yaml-retirement-program.md), followed by [provider live binding](design/workflow_lisp_provider_live_binding.md) and the [language server](design/workflow_lisp_language_server.md). The early independent deletion queue remains fail-closed on its pending reference and supported-root scans. The completed pilot remains one narrow evidence-only exception. The [Stage-0 activation plan](plans/2026-07-09-procedure-first-roadmap-activation-plan.md) is historical activation evidence.
+**Component-plan routing:** The refactoring, drain/G8 retirement, Stage-4 design, native returns, typed guidance, resolved-effect substrate, identity prerequisites, [tracked-plan pilot](plans/2026-07-13-procedure-first-pilot-plan.md), and [resume projection-integrity hardening implementation](plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md) are complete. The hardening design/specification/planning commits remain `1cd60767`, `52e2b05f`, `00135832`, and `26a5d3db`; runtime implementation and its reviewed gate closed at `fdf1e06b`. **The [procedure-first migration waves implementation plan](plans/2026-07-13-procedure-first-migration-waves-plan.md) is historical complete. Task 1 rebaselined at `4983afff` plus `fa16bcf0`; Task 2 completed at `daff694c`: Step 1's [tracked-design identity decision](plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md) and Step 2's [implementation-phase identity decision](plans/2026-07-16-design-plan-impl-implementation-phase-identity-retirement-plan.md) retained 26- and 24-consumer boundaries, while Step 3's [same-file strict-compatibility decision](plans/2026-07-16-same-file-build-checks-identity-retirement-plan.md) retained the live route. Task 3's [exported-workflow retention decision](plans/2026-07-16-design-delta-exported-workflow-retention-plan.md) retained seven calls. Task 4 closed at `c9687539`, `26d9ecd0`, and `848ceb52`. Task 5 retained 4 + 6 + 9 + 2 = 21 calls under the [finalizer-projection](plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md), [blocked-recovery](plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md), [phase-orchestration](plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md), and [completed-finalization](plans/2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md) decisions. Task 6's [drain-builder checkpoint-retention decision](plans/2026-07-16-design-delta-drain-builder-checkpoint-retention-plan.md) retained its sole private builder call; Task 6 is complete. Task 7 handed all 63 legacy-retire rows to Stage 6 at `7e6adc36`. Task 8 sealed 565 passed/6 skipped focused, 36 passed routing, and 4992 passed/17 skipped with six established unrelated broad failures adjudicated as four digest-exact plus two logger-location-only; specification PASS and quality APPROVED closed the wave. The final inventory is 0 procedure candidates, 32 effect adapters, 63 legacy-retire rows, 13 public entries, and one history row, so procedure-first adoption is not universal.** Stage 6 YAML retirement Tasks 1-6 are complete and Task 7's ORC-only frontend, parser removal, focused gate, and smoke are implemented; the final scoped broad comparison and independent reviews are current. Its owner is the [YAML retirement program](plans/2026-07-07-yaml-retirement-program.md), followed only when the owner schedules [provider live binding](design/workflow_lisp_provider_live_binding.md) and the [language server](design/workflow_lisp_language_server.md). The completed pilot remains one narrow evidence-only exception. The [Stage-0 activation plan](plans/2026-07-09-procedure-first-roadmap-activation-plan.md) is historical activation evidence.
 
-**Current selector:** Stage 6 YAML retirement Task 6 is current; Tasks 1-5 are complete. YAML remains `Legacy`; Task 7 parser removal is incomplete.
+**Current selector:** Stage 6 YAML retirement Task 7 final verification is current; Tasks 1-6 and the Task-7 implementation/smoke/focused gates are complete.
 
-**Current procedure-first substrate:** Native returns, typed guidance, the resolved-effect substrate, identity prerequisites, match-scoped scanner/record support, one reviewed internal pilot, generic resume projection-integrity hardening, and the bounded migration wave are implemented and gated. The wave intentionally retains 32 effect adapters and therefore does not establish universal procedure-first conversion. Its 63 YAML legacy rows now belong to the current Stage-6 retirement program; provider live binding and the language server remain later work.
+**Current procedure-first substrate:** Native returns, typed guidance, the resolved-effect substrate, identity prerequisites, match-scoped scanner/record support, one reviewed internal pilot, generic resume projection-integrity hardening, and the bounded migration wave are implemented and gated. The wave intentionally retains 32 effect adapters and therefore does not establish universal procedure-first conversion. Its 63 YAML legacy rows have completed the Stage-6 deletion queues; provider live binding and the language server remain later work.
 
 ### [Workflow Lisp Autonomous Drain Work Instructions](plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/work_instructions.md)
 **Description:** Procedural prescriptions for the active Workflow Lisp autonomous drain body of work, including objective, source material, work order, constraints, documentation expectations, completion target, and out-of-scope boundaries.
@@ -301,7 +301,7 @@ document owns the answer.
 **Use this when:** Launching or reviewing the local NeurIPS-style workflow for DSL v2.14 materialization and variants.
 
 ### [Verified-Iteration Drain](design/verified_iteration_drain.md)
-**Description:** Implemented verified-iteration drain whose promoted Workflow Lisp primary runs a single fused-session select/plan/implement/verify loop and treats the repo, git history, and check exit codes as sole authority. New launches use `workflows/library/verified_iteration_drain/drain.orc`; the YAML twin remains compatibility/reference evidence until Task 6 deletion gates pass.
+**Description:** Implemented verified-iteration drain whose promoted Workflow Lisp primary runs a single fused-session select/plan/implement/verify loop and treats the repo, git history, and check exit codes as sole authority. New launches use `workflows/library/verified_iteration_drain/drain.orc`; its retired YAML twin survives only in history and parity evidence.
 **Keywords:** drain, workflow-lisp, repeat_until, repo-as-truth, verified-iteration
 **Use this when:** Launching or adapting the promoted verified-iteration `.orc` loop alongside (not replacing) the `lisp_frontend_*` drain family.
 
@@ -524,18 +524,13 @@ document owns the answer.
 **Keywords:** neurips, oracle, behavior-matrix, phase-0, fixtures
 **Use this when:** Reviewing what the new oracle suites are expected to lock down.
 
-### [Workflow Prompt Map](workflow_prompt_map.md)
-**Description:** Exhaustive generated map of workflow provider prompt sources, including `input_file`, `asset_file`, and `asset_depends_on` resolution and missing-file status.  
-**Keywords:** workflows, prompts, input_file, asset_file, prompt-assets  
-**Use this when:** You need to find which prompt files a workflow step uses or audit missing/stale prompt references.
-
 ### [Workflow Lisp G6 Verification Gate](workflow_lisp_g6_verification_gate.json)
 **Description:** Checked-in verification-gate manifest naming the G6-counted suites, builtin stdlib inventory, and later-tranche routing for unfinished stdlib migration material.  
 **Keywords:** workflow-lisp, g6, verification-gate, stdlib, routing  
 **Use this when:** You need the authoritative counted-lane definition for G5B/G6 verification or want to confirm whether a builtin stdlib module is `landed`, `stub`, or `pending`.
 
 ### [Slide Decks](slides/README.md)
-**Description:** Source-controlled teaching slides for workflow and DSL concepts, including the Ralph workflow YAML semantics and prompt-injection example.
+**Description:** Source-controlled teaching slides for workflow and DSL concepts, including a historical Ralph YAML-semantics example and prompt-injection material.
 **Keywords:** slides, teaching, yaml, prompt-injection, ralph
 **Use this when:** You want a short presentation-style explanation of a workflow concept.
 
@@ -554,20 +549,21 @@ If your immediate goal is to write or revise a workflow, use this read order:
 
 2. [Workflow DSL and Control Flow](../specs/dsl.md)
    Why: this is the authoritative shared runtime/control-flow contract and the
-   compatibility contract for the retained YAML frontend.
+   historical DSL-version contract lowered from runnable `.orc` source.
 
 3. [Variable Model and Substitution](../specs/variables.md), [Dependencies and Injection](../specs/dependencies.md), and [Providers and Prompt Delivery](../specs/providers.md)
    Why: these three specs cover the authoring details that most often cause broken workflows: substitution rules, dependency injection behavior, and what providers actually receive.
 
-4. [Prompt Index](../prompts/README.md), [Workflow Index](../workflows/README.md), [Workflow Prompt Map](workflow_prompt_map.md), plus a registry-approved `.orc` example under [workflows/examples/](../workflows/examples/)
-   Why: use the prompt catalog, exhaustive prompt map, and copy-safe Workflow
-   Lisp examples rather than copying legacy or migration-only YAML patterns.
+4. [Prompt Index](../prompts/README.md), [Workflow Index](../workflows/README.md),
+   plus a registry-approved `.orc` example under [workflows/examples/](../workflows/examples/)
+   Why: use the prompt catalog and copy-safe Workflow Lisp examples rather than
+   copying historical YAML patterns.
 
 Minimum rule of thumb: if you have only read `docs/index.md`, you can find the
 docs; if you have read the four items above, you can usually write an effective
-`.orc` workflow without extra repo archaeology. For an existing YAML/YML file,
-use the [legacy compatibility guide](workflow_drafting_guide.md) and preserve
-its authority until the applicable migration or retirement gate closes.
+`.orc` workflow without extra repo archaeology. For historical YAML/YML source,
+use the [retired-frontend reference](workflow_drafting_guide.md) to translate
+its semantics; do not try to execute or resume it.
 
 For new DSL surfaces, macro systems, frontend languages, or reusable workflow
 families, also read [Workflow Language Design Principles](design/workflow_language_design_principles.md)
@@ -592,9 +588,9 @@ before adding or preserving the command boundary.
 **Use this when:** Diagnosing run behavior and state transitions.
 
 ### [Workflow Drafting Guide](workflow_drafting_guide.md)
-**Description:** Legacy YAML/YML compatibility patterns focused on deterministic handoff and high-signal control-flow gates.
-**Keywords:** legacy, compatibility, yaml, migration, output-contracts, loop-patterns
-**Use this when:** Preserving, debugging, or migrating an existing YAML/YML workflow; do not use it as the new-author start.
+**Description:** Historical YAML/YML translation patterns focused on deterministic handoff and high-signal control-flow gates.
+**Keywords:** retired-frontend, historical, yaml, migration, output-contracts, loop-patterns
+**Use this when:** Interpreting or translating retired YAML/YML source; do not use it as a runnable authoring guide.
 
 ### [Local Workflow Steering](steering.md)
 **Description:** Current local steering for the DSL v2.14 backlog-drain run, including selectable and deferred roadmap phases.  
@@ -611,7 +607,7 @@ before adding or preserving the command boundary.
 ### [Workflow DSL and Control Flow](../specs/dsl.md)
 **Description:** Full workflow schema and control-flow semantics, including version-gated fields and mutual exclusivity rules.  
 **Keywords:** dsl, schema, steps, goto, for_each, artifacts  
-**Use this when:** Validating field-level behavior, shared runtime semantics, or the retained YAML compatibility contract.
+**Use this when:** Validating field-level behavior, shared runtime semantics, or historical lowered DSL-version behavior.
 
 ### [Variable Model and Substitution](../specs/variables.md)
 **Description:** Variable namespaces, substitution locations, escapes, and undefined-variable failure semantics.  
@@ -713,9 +709,9 @@ before adding or preserving the command boundary.
 **Route scope:** `reference_only`
 **Copy role:** `not_new_author_template`
 **New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
-**Description:** Reference corpus of retained YAML compatibility workflows plus Workflow Lisp examples; individual route-readiness metadata determines `.orc` copy safety.
-**Keywords:** examples, reference-corpus, yaml-compatibility, workflow-lisp, retries, loops, dataflow
-**Use this when:** Inspecting historical or compatibility behavior. Select new-author examples through the route-readiness registry rather than treating the directory as a template source.
+**Description:** Reference corpus of Workflow Lisp examples and their checked-in inputs; individual route-readiness metadata determines `.orc` copy safety.
+**Keywords:** examples, reference-corpus, workflow-lisp, retries, loops, dataflow
+**Use this when:** Inspecting `.orc` behavior. Select new-author examples through the route-readiness registry rather than treating every example as a template.
 
 ## Testing and Validation
 
