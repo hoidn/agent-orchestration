@@ -152,6 +152,11 @@ class ProviderExecutionControl:
         with self._condition:
             return self._cancellation_reason
 
+    def cancellation_was_applied_before_completion(self) -> bool:
+        """Return whether the executor successfully applied cancellation."""
+        with self._condition:
+            return self._cancellation_applied_before_completion
+
     @property
     def session_snapshot(self) -> SessionIdentitySnapshot | None:
         with self._condition:

@@ -63,6 +63,7 @@ class ProviderExecutor:
 
     _CONTROL_WAIT_SLICE_SEC = 0.01
     _CONTROL_CAPTURE_FAILURE_GRACE_SEC = 0.2
+    _CONTROL_STDIN_FAILURE_GRACE_SEC = 0.2
     _CONTROL_TIMEOUT_GRACE_SEC = 2.0
 
     def __init__(self, workspace: Path, registry: ProviderRegistry, secrets_manager: Optional[SecretsManager] = None):
@@ -567,6 +568,12 @@ class ProviderExecutor:
             Tuple[bool, Optional[str]],
         ] = {}
         capture_outcome_lock = threading.Lock()
+        stdin_threads: List[threading.Thread] = []
+        stdin_outcomes: Dict[
+            str,
+            Tuple[bool, Optional[str]],
+        ] = {}
+        stdin_outcome_lock = threading.Lock()
         try:
             return self._run_bound_controlled_invocation(
                 invocation=invocation,
@@ -583,11 +590,15 @@ class ProviderExecutor:
                 capture_threads=capture_threads,
                 capture_outcomes=capture_outcomes,
                 capture_outcome_lock=capture_outcome_lock,
+                stdin_threads=stdin_threads,
+                stdin_outcomes=stdin_outcomes,
+                stdin_outcome_lock=stdin_outcome_lock,
             )
         except Exception as exc:
             return self._fail_bound_controlled_invocation(
                 invocation=invocation,
                 process=process,
+                stdin_input=stdin_input,
                 start_time=start_time,
                 control=control,
                 accumulator=accumulator,
@@ -597,6 +608,9 @@ class ProviderExecutor:
                 capture_threads=capture_threads,
                 capture_outcomes=capture_outcomes,
                 capture_outcome_lock=capture_outcome_lock,
+                stdin_threads=stdin_threads,
+                stdin_outcomes=stdin_outcomes,
+                stdin_outcome_lock=stdin_outcome_lock,
                 error=exc,
             )
 
@@ -764,15 +778,11 @@ class ProviderExecutor:
         capture_threads: List[threading.Thread],
         capture_outcomes: Dict[str, Tuple[bool, Optional[str]]],
         capture_outcome_lock: Any,
+        stdin_threads: List[threading.Thread],
+        stdin_outcomes: Dict[str, Tuple[bool, Optional[str]]],
+        stdin_outcome_lock: Any,
     ) -> ProviderExecutionResult:
         """Run capture, wait, transport finalization, and boundary recording."""
-        if stdin_input is not None and process.stdin is not None:
-            try:
-                process.stdin.write(stdin_input)
-                process.stdin.close()
-            except BrokenPipeError:
-                pass
-
         stdout_callback: Optional[Callable[[bytes], None]] = None
         if accumulator is not None:
             stdout_callback = self._build_session_stdout_callback(
@@ -815,8 +825,25 @@ class ProviderExecutor:
             daemon=True,
         )
         capture_threads.extend((stdout_thread, stderr_thread))
+        stdin_thread: threading.Thread | None = None
+        if stdin_input is not None:
+            stdin_thread = threading.Thread(
+                target=self._write_controlled_stdin,
+                args=(process.stdin, stdin_input),
+                kwargs={
+                    "stdin_outcomes": stdin_outcomes,
+                    "stdin_outcome_lock": stdin_outcome_lock,
+                    "control": control,
+                },
+                name=f"provider-stdin-{process.pid}",
+                daemon=True,
+            )
+            stdin_threads.append(stdin_thread)
+
         stdout_thread.start()
         stderr_thread.start()
+        if stdin_thread is not None:
+            stdin_thread.start()
 
         exit_code, timed_out = self._wait_for_controlled_process(
             process=process,
@@ -825,6 +852,9 @@ class ProviderExecutor:
         )
 
         control.record_leader_reaped(exit_code)
+        for thread in stdin_threads:
+            if thread.ident is not None:
+                thread.join()
         stdout_thread.join()
         stderr_thread.join()
         capture_threads_joined = (
@@ -876,13 +906,19 @@ class ProviderExecutor:
             capture_outcomes,
             capture_outcome_lock,
         )
+        stdin_errors = self._stdin_outcome_errors(
+            stdin_required=stdin_input is not None,
+            stdin_outcomes=stdin_outcomes,
+            stdin_outcome_lock=stdin_outcome_lock,
+        )
+        boundary_errors = [*stdin_errors, *capture_errors]
         boundary = control.record_execution_boundary(
             capture_threads_joined=capture_threads_joined,
             final_identity_valid=final_identity_valid,
             transport_failed=natural_result.error is not None,
             boundary_error=(
-                "; ".join(capture_errors)
-                if capture_errors
+                "; ".join(boundary_errors)
+                if boundary_errors
                 else None
             ),
         )
@@ -984,6 +1020,7 @@ class ProviderExecutor:
         *,
         invocation: ProviderInvocation,
         process: subprocess.Popen,
+        stdin_input: Optional[bytes],
         start_time: float,
         control: ProviderExecutionControl,
         accumulator: CodexExecJsonlAccumulator | None,
@@ -993,6 +1030,9 @@ class ProviderExecutor:
         capture_threads: List[threading.Thread],
         capture_outcomes: Dict[str, Tuple[bool, Optional[str]]],
         capture_outcome_lock: Any,
+        stdin_threads: List[threading.Thread],
+        stdin_outcomes: Dict[str, Tuple[bool, Optional[str]]],
+        stdin_outcome_lock: Any,
         error: Exception,
     ) -> ProviderExecutionResult:
         """Fail closed after bind while preserving executor-owned wait."""
@@ -1007,9 +1047,30 @@ class ProviderExecutor:
         )
         control.record_leader_reaped(exit_code)
 
+        for thread in stdin_threads:
+            if thread.ident is not None:
+                thread.join()
         for thread in capture_threads:
             if thread.ident is not None:
                 thread.join()
+
+        stdin_close_error: str | None = None
+        if (
+            process.stdin is not None
+            and not getattr(process.stdin, "closed", False)
+        ):
+            try:
+                process.stdin.close()
+            except BrokenPipeError:
+                if not control.cancellation_was_applied_before_completion():
+                    stdin_close_error = (
+                        "stdin writer failed (BrokenPipeError) while closing"
+                    )
+            except BaseException as exc:
+                stdin_close_error = (
+                    "stdin writer failed while closing "
+                    f"({type(exc).__name__}): {exc}"
+                )
 
         for pipe, buffer in (
             (process.stdout, stdout_buf),
@@ -1038,11 +1099,18 @@ class ProviderExecutor:
 
         boundary_errors = [
             f"provider execution failed after bind: {error}",
+            *self._stdin_outcome_errors(
+                stdin_required=stdin_input is not None,
+                stdin_outcomes=stdin_outcomes,
+                stdin_outcome_lock=stdin_outcome_lock,
+            ),
             *self._capture_outcome_errors(
                 capture_outcomes,
                 capture_outcome_lock,
             ),
         ]
+        if stdin_close_error is not None:
+            boundary_errors.append(stdin_close_error)
         boundary = control.record_execution_boundary(
             capture_threads_joined=all(
                 not thread.is_alive()
@@ -1124,6 +1192,72 @@ class ProviderExecutor:
             process.wait(timeout=2)
         except subprocess.TimeoutExpired:
             pass
+
+    def _write_controlled_stdin(
+        self,
+        pipe: Optional[Any],
+        stdin_input: bytes,
+        *,
+        stdin_outcomes: Dict[
+            str,
+            Tuple[bool, Optional[str]],
+        ],
+        stdin_outcome_lock: Any,
+        control: ProviderExecutionControl,
+    ) -> None:
+        """Deliver controlled stdin without blocking the executor arbiter."""
+        failure: str | None = None
+        try:
+            if pipe is None:
+                raise RuntimeError("provider stdin pipe is unavailable")
+            written = pipe.write(stdin_input)
+            if written != len(stdin_input):
+                raise OSError(
+                    "provider stdin writer completed a short write "
+                    f"({written!r} of {len(stdin_input)} bytes)"
+                )
+        except BrokenPipeError as exc:
+            if not control.cancellation_was_applied_before_completion():
+                failure = (
+                    "stdin writer failed "
+                    f"(BrokenPipeError): {exc}"
+                )
+        except BaseException as exc:
+            failure = (
+                "stdin writer failed "
+                f"({type(exc).__name__}): {exc}"
+            )
+        finally:
+            if pipe is not None:
+                try:
+                    pipe.close()
+                except BrokenPipeError as exc:
+                    if (
+                        failure is None
+                        and not control.cancellation_was_applied_before_completion()
+                    ):
+                        failure = (
+                            "stdin writer failed while closing "
+                            f"(BrokenPipeError): {exc}"
+                        )
+                except BaseException as exc:
+                    if failure is None:
+                        failure = (
+                            "stdin writer failed while closing "
+                            f"({type(exc).__name__}): {exc}"
+                        )
+
+            with stdin_outcome_lock:
+                stdin_outcomes["stdin"] = (
+                    failure is None,
+                    failure,
+                )
+
+        if failure is not None:
+            control.request_cancel(
+                reason="stdin_writer_failure",
+                grace=self._CONTROL_STDIN_FAILURE_GRACE_SEC,
+            )
 
     def _capture_pipe(
         self,
@@ -1246,6 +1380,28 @@ class ProviderExecutor:
                     or f"{stream_name} capture worker failed"
                 )
         return errors
+
+    @staticmethod
+    def _stdin_outcome_errors(
+        *,
+        stdin_required: bool,
+        stdin_outcomes: Dict[
+            str,
+            Tuple[bool, Optional[str]],
+        ],
+        stdin_outcome_lock: Any,
+    ) -> List[str]:
+        """Return the explicit owned-writer failure, if any."""
+        if not stdin_required:
+            return []
+        with stdin_outcome_lock:
+            outcome = stdin_outcomes.get("stdin")
+        if outcome is None:
+            return ["stdin writer did not report an outcome"]
+        succeeded, failure = outcome
+        if succeeded:
+            return []
+        return [failure or "stdin writer failed"]
 
     def _stream_pipe(
         self,

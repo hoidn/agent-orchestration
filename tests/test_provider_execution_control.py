@@ -249,6 +249,281 @@ def test_prebind_cancellation_cannot_promote_an_already_exited_provider(
     )
 
 
+@pytest.mark.parametrize("cancel_timing", ["bound", "prebind"])
+def test_large_unread_controlled_stdin_cannot_block_cancellation(
+    executor: ProviderExecutor,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cancel_timing: str,
+) -> None:
+    real_popen = subprocess.Popen
+    processes: list[subprocess.Popen] = []
+    wait_thread_ids: list[int] = []
+    writer_threads: list[threading.Thread] = []
+    spawn_entered = threading.Event()
+    allow_spawn = threading.Event()
+    stdin_write_entered = threading.Event()
+    ready_path = tmp_path / f"stdin-{cancel_timing}.ready"
+
+    def _recording_popen(*args: Any, **kwargs: Any) -> subprocess.Popen:
+        spawn_entered.set()
+        assert allow_spawn.wait(timeout=5)
+        process = real_popen(*args, **kwargs)
+        processes.append(process)
+        _wait_until(
+            ready_path.exists,
+            message="stdin-resistant provider did not become ready",
+        )
+        real_wait = process.wait
+        real_stdin = process.stdin
+        assert real_stdin is not None
+
+        class _RecordingStdin:
+            @property
+            def closed(self) -> bool:
+                return real_stdin.closed
+
+            def write(self, data: bytes) -> int:
+                writer_threads.append(threading.current_thread())
+                stdin_write_entered.set()
+                return real_stdin.write(data)
+
+            def close(self) -> None:
+                real_stdin.close()
+
+            def __getattr__(self, name: str) -> Any:
+                return getattr(real_stdin, name)
+
+        def _wait(*wait_args: Any, **wait_kwargs: Any) -> int:
+            wait_thread_ids.append(threading.get_ident())
+            return real_wait(*wait_args, **wait_kwargs)
+
+        process.stdin = _RecordingStdin()  # type: ignore[assignment]
+        process.wait = _wait  # type: ignore[method-assign]
+        return process
+
+    monkeypatch.setattr(
+        "orchestrator.providers.executor.subprocess.Popen",
+        _recording_popen,
+    )
+    script = (
+        "import pathlib, signal, sys, time; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "sys.stdout.buffer.write(b'partial-stdout'); sys.stdout.flush(); "
+        "sys.stderr.buffer.write(b'partial-stderr'); sys.stderr.flush(); "
+        f"pathlib.Path({str(ready_path)!r}).write_text('ready'); "
+        "time.sleep(30)"
+    )
+    control = ProviderExecutionControl()
+    control._FINALIZATION_TIMEOUT_SEC = 0.5
+    invocation = ProviderInvocation(
+        command=[sys.executable, "-c", script],
+        input_mode=InputMode.STDIN,
+        prompt="x" * (6 * 1024 * 1024),
+        timeout_sec=None,
+    )
+    if cancel_timing == "bound":
+        allow_spawn.set()
+    execution_thread, execution_box = _start_execution(
+        executor,
+        invocation,
+        control,
+    )
+    assert spawn_entered.wait(timeout=5)
+
+    cancellation_box: dict[str, Any] = {}
+    cancellation_thread = threading.Thread(
+        target=lambda: cancellation_box.setdefault(
+            "result",
+            control.cancel_and_reap(grace=0.1),
+        ),
+        daemon=True,
+    )
+    if cancel_timing == "prebind":
+        cancellation_thread.start()
+        _wait_until(
+            lambda: control.cancellation_requested,
+            message="pre-bind stdin cancellation did not latch",
+        )
+        allow_spawn.set()
+    else:
+        assert stdin_write_entered.wait(timeout=5)
+        cancellation_thread.start()
+
+    cancellation_thread.join(timeout=2)
+    automatic_cleanup = (
+        not cancellation_thread.is_alive()
+        and not execution_thread.is_alive()
+    )
+    if not automatic_cleanup:
+        for process in processes:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    cancellation_thread.join(timeout=5)
+    execution_result = _join_execution(execution_thread, execution_box)
+
+    assert automatic_cleanup is True
+    assert not cancellation_thread.is_alive()
+    assert stdin_write_entered.is_set()
+    terminal = cancellation_box["result"]
+    assert terminal.disposition == "cancelled"
+    assert terminal.leader_reaped is True
+    assert terminal.pgid_empty is True
+    assert terminal.capture_threads_joined is True
+    assert terminal.execution_joined is True
+    assert terminal.proof_complete is True
+    assert terminal.term_sent is True
+    assert terminal.kill_sent is True
+    assert execution_result.classification == "cancelled_provisional"
+    assert execution_result.raw_stdout == b"partial-stdout"
+    assert execution_result.stderr == b"partial-stderr"
+    assert wait_thread_ids
+    assert set(wait_thread_ids) == {execution_thread.ident}
+    assert len(writer_threads) == 1
+    assert writer_threads[0] is not execution_thread
+    assert writer_threads[0].is_alive() is False
+    assert processes[0].stdin is not None
+    assert processes[0].stdin.closed is True
+    with pytest.raises(ProcessLookupError):
+        os.killpg(processes[0].pid, 0)
+    assert control.cancel_and_reap(grace=0.01) is terminal
+
+
+@pytest.mark.parametrize(
+    "failure_kind",
+    ["runtime", "preapply_broken_pipe"],
+)
+def test_unexpected_controlled_stdin_writer_failure_fails_boundary(
+    executor: ProviderExecutor,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_kind: str,
+) -> None:
+    real_popen = subprocess.Popen
+    processes: list[subprocess.Popen] = []
+    wait_thread_ids: list[int] = []
+    writer_threads: list[threading.Thread] = []
+    spawn_entered = threading.Event()
+    allow_spawn = threading.Event()
+    writer_failed = threading.Event()
+    stdin_closed = threading.Event()
+    ready_path = tmp_path / f"stdin-writer-{failure_kind}.ready"
+
+    def _failing_stdin_popen(
+        *args: Any,
+        **kwargs: Any,
+    ) -> subprocess.Popen:
+        spawn_entered.set()
+        assert allow_spawn.wait(timeout=5)
+        process = real_popen(*args, **kwargs)
+        processes.append(process)
+        _wait_until(
+            ready_path.exists,
+            message="stdin-failure provider did not become ready",
+        )
+        real_wait = process.wait
+        real_stdin = process.stdin
+        assert real_stdin is not None
+
+        class _FailingStdin:
+            @property
+            def closed(self) -> bool:
+                return real_stdin.closed
+
+            def write(self, data: bytes) -> int:
+                writer_threads.append(threading.current_thread())
+                writer_failed.set()
+                if failure_kind == "preapply_broken_pipe":
+                    raise BrokenPipeError(
+                        "stdin broke before cancellation signal"
+                    )
+                raise RuntimeError("stdin writer exploded")
+
+            def close(self) -> None:
+                stdin_closed.set()
+                real_stdin.close()
+
+            def __getattr__(self, name: str) -> Any:
+                return getattr(real_stdin, name)
+
+        def _wait(*wait_args: Any, **wait_kwargs: Any) -> int:
+            wait_thread_ids.append(threading.get_ident())
+            if (
+                failure_kind == "preapply_broken_pipe"
+                and wait_kwargs.get("timeout") == 0
+            ):
+                assert writer_failed.wait(timeout=5)
+            return real_wait(*wait_args, **wait_kwargs)
+
+        process.stdin = _FailingStdin()  # type: ignore[assignment]
+        process.wait = _wait  # type: ignore[method-assign]
+        return process
+
+    monkeypatch.setattr(
+        "orchestrator.providers.executor.subprocess.Popen",
+        _failing_stdin_popen,
+    )
+    script = (
+        "import pathlib, signal, sys, time; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "sys.stdout.buffer.write(b'partial-stdout'); sys.stdout.flush(); "
+        "sys.stderr.buffer.write(b'partial-stderr'); sys.stderr.flush(); "
+        f"pathlib.Path({str(ready_path)!r}).write_text('ready'); "
+        "time.sleep(30)"
+    )
+    control = ProviderExecutionControl()
+    invocation = ProviderInvocation(
+        command=[sys.executable, "-c", script],
+        input_mode=InputMode.STDIN,
+        prompt="prompt",
+        timeout_sec=None,
+    )
+    if failure_kind == "runtime":
+        allow_spawn.set()
+    execution_thread, execution_box = _start_execution(
+        executor,
+        invocation,
+        control,
+    )
+    assert spawn_entered.wait(timeout=5)
+    if failure_kind == "preapply_broken_pipe":
+        assert control.state == "NEW"
+        control.request_cancel(reason="external", grace=0.1)
+        allow_spawn.set()
+    execution_result = _join_execution(execution_thread, execution_box)
+    terminal = control.terminal_result
+
+    assert terminal is not None
+    assert terminal.disposition == "boundary_failed"
+    assert terminal.leader_reaped is True
+    assert terminal.pgid_empty is True
+    assert terminal.capture_threads_joined is True
+    assert terminal.execution_joined is True
+    assert terminal.proof_complete is False
+    assert terminal.term_sent is True
+    assert terminal.kill_sent is True
+    expected_failure = (
+        "stdin broke before cancellation signal"
+        if failure_kind == "preapply_broken_pipe"
+        else "stdin writer exploded"
+    )
+    assert expected_failure in (terminal.error or "")
+    assert execution_result.classification == "failed"
+    assert execution_result.raw_stdout == b"partial-stdout"
+    assert execution_result.stderr == b"partial-stderr"
+    assert stdin_closed.is_set()
+    assert wait_thread_ids
+    assert set(wait_thread_ids) == {execution_thread.ident}
+    assert len(writer_threads) == 1
+    assert writer_threads[0] is not execution_thread
+    assert writer_threads[0].is_alive() is False
+    with pytest.raises(ProcessLookupError):
+        os.killpg(processes[0].pid, 0)
+    assert control.cancel_and_reap(grace=0.01) is terminal
+
+
 def test_spawn_failure_terminalizes_an_unbound_control(
     executor: ProviderExecutor,
     tmp_path: Path,
