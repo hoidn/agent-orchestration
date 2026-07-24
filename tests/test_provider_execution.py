@@ -986,17 +986,20 @@ class TestProviderExecutor:
             if pipe is None:
                 return
             output = out_stream.buffer if hasattr(out_stream, "buffer") else out_stream
-            while True:
-                chunk = pipe.read(4096)
-                if not chunk:
-                    break
-                buffer.extend(chunk)
-                time.sleep(1.2)
-                try:
-                    output.write(chunk)
-                    output.flush()
-                except Exception:
-                    pass
+            try:
+                while True:
+                    chunk = pipe.read(4096)
+                    if not chunk:
+                        break
+                    buffer.extend(chunk)
+                    time.sleep(1.2)
+                    try:
+                        output.write(chunk)
+                        output.flush()
+                    except Exception:
+                        pass
+            finally:
+                pipe.close()
 
         with patch.object(self.executor, "_stream_pipe", side_effect=_slow_stream_pipe):
             result = self.executor.execute(invocation, stream_output=True)
