@@ -40,9 +40,10 @@ design, or the runtime specifications.
 - `docs/design/workflow_lisp_language_server.md` owns the `.orc` language
   server contract implemented by Stage 8 (added by the 2026-07-13
   amendments).
-- `docs/design/workflow_lisp_provider_live_binding.md` owns the tmux-hosted
-  provider transport and `with-live-providers` contract implemented by
-  Stage 7 (added by the second 2026-07-13 amendment).
+- `docs/design/workflow_lisp_provider_live_binding.md` owns the
+  observation-only provider-pane and bounded `with-live-providers`
+  supervision contract implemented by Stage 7 (added by the second
+  2026-07-13 amendment).
 - The component execution plans named below govern their own tasks and checks.
 
 If these work instructions disagree with a semantic design or normative spec,
@@ -96,7 +97,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-16-same-file-build-checks-identity-retirement-plan.md` | Complete by fail-closed route-eligibility stop. The containing route is live/current and therefore requires strict compatibility; the source stayed unchanged and the row moved to `effect-adapter` even though known-store scans found zero matching consumers. This was not a competing roadmap selector and authorized no run or owner gate. |
 | `2026-07-16-design-delta-exported-workflow-retention-plan.md` | Complete after specification PASS and quality APPROVED. Seven calls remain active `effect-adapter` because their five unique callees are exported CLI-selectable workflows that cannot use reviewed internal retirement; five separate public-boundary records make that negative explicit. No source/run mutation or store/owner gate occurred. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
-| `2026-07-07-yaml-retirement-program.md` | Stage 6 complete. Tasks 1-7 are complete: all five queues are drained, exactly the two specified `.orc` ports are primary, no authored workflow YAML/YML remains, fresh execution is ORC-only, and the user-facing loader and project PyYAML dependency are absent. The 1,020-passed/5-skipped focused gate, fresh non-mutating `.orc` smoke, scoped broad comparison with zero new failures against the owner-adopted baseline, and ordered specification PASS/quality APPROVED reviews closed the stage at `d9baa120`. Stage 7 has not started and awaits an owner-scheduled design review. |
+| `2026-07-07-yaml-retirement-program.md` | Stage 6 complete. Tasks 1-7 are complete: all five queues are drained, exactly the two specified `.orc` ports are primary, no authored workflow YAML/YML remains, fresh execution is ORC-only, and the user-facing loader and project PyYAML dependency are absent. The 1,020-passed/5-skipped focused gate, fresh non-mutating `.orc` smoke, scoped broad comparison with zero new failures against the owner-adopted baseline, and ordered specification PASS/quality APPROVED reviews closed the stage at `d9baa120`. Stage 7 has an accepted design; its implementation selector remains gated on a reviewed plan. |
 | `2026-07-23-refusal-diagnosability-fixes-plan.md` | Queued small fix; not a competing selector. Applies design principle 28 (refusals name their rule) to the entry-bootstrap name-allowlist gate: denial diagnostic, declared-property rule replacing the name key, and promoted-route identity non-drift verification. Execute after the current YAML-retirement task or opportunistically between capture windows. |
 
 ## Concrete Execution Sequence
@@ -249,8 +250,9 @@ gate, and passed a fresh non-mutating `.orc` dry-run smoke. Its final scoped
 broad comparison recorded 6,386 passed, 15 skipped, and the four exact retained
 owner-baseline failures with zero new failures; ordered independent review
 returned specification PASS and quality APPROVED at `d9baa120`. Stage 6 is
-complete. Stage 7 provider live binding has not started and begins only when
-the owner schedules its design review; the language server remains later.
+complete. Stage 7 provider live binding has an accepted design; its
+implementation remains gated on a reviewed execution plan, and the language
+server remains later.
 
 The completed Phase 1 execution order was:
 
@@ -431,8 +433,8 @@ compatibility or a family migration wave.
 ### Stage 5: Implement Procedure-First Reuse In Waves
 
 The procedure-first migration wave and Stage 6 YAML retirement are complete.
-Stage 7 provider live binding has not started and awaits an owner-scheduled
-design review.
+Stage 7 provider live binding has an accepted design; no implementation
+selector is active until its execution plan passes review.
 
 Execute only accepted plans, in this order:
 
@@ -543,7 +545,8 @@ is empty, the focused gate passed 1,020 tests with 5 skipped, and a fresh
 comparison matched the owner-adopted baseline with zero new failures, and both
 independent reviews approved the final product tree at `d9baa120`. Provider
 live binding and the `.orc` language server remain next, in that order, but
-Stage 7 begins only when the owner schedules its design review.
+Stage 7 has an accepted design and remains implementation-gated on a reviewed
+execution plan.
 
 Use the procedure-first model as the target authoring architecture. The
 2026-07-14 steering amendment to
@@ -590,52 +593,75 @@ classifies that unit as a procedure candidate.
 ### Stage 7: Deliver Provider Live Binding
 
 Stage 7 (added by the second 2026-07-13 amendment) implements
-`docs/design/workflow_lisp_provider_live_binding.md`: tmux-hosted provider
-invocations with a 1:1 invocation-to-pane invariant as the default transport,
-and `with-live-providers`, a call-site structured-concurrency form that runs
-N provider calls concurrently inside one atomic step, injects declared
-peers' live tmux targets into member prompts, and settles by last-expression
-dataflow while member agents interact free-form through their own tools.
+`docs/design/workflow_lisp_provider_live_binding.md`. The adverse pre-plan T3a
+probe closed the original direct `send-keys` design: installed clients queued
+ordinary input, while client-owned interruption left prior tool work live. The
+2026-07-23 revision therefore keeps the provider pipe/JSONL transports
+authoritative, attempts one observation-only pane per invocation, and defines
+`with-live-providers` v1 as exactly one worker plus one supervisor inside one
+workflow-state/result boundary. The supervisor observes the worker and returns
+the prelude `ProviderSteeringDirective` union. `CONTINUE` selects the fresh
+worker turn; `STEER` reaps the runtime-owned process group and performs one
+validated provider-session resume turn with free-form guidance plus a fresh
+typed output contract.
+
+**Current Stage 7 status:** the revised design passed independent
+specification and quality review on 2026-07-23. Implementation remains gated
+only on a reviewed component execution plan.
 
 It precedes the language server deliberately: it changes the authoring
-language and the provider transport, and Stage 8's
+language and provider execution/observation contracts, and Stage 8's
 ship-against-the-settled-estate rationale requires those changes to land
 first.
 
 Entry conditions:
 
 1. The live-binding design has passed independent design review, with the
-   T3 steering-viability probe outcome folded into the design first; an
-   adverse probe routes to the design's stop/revise criteria (turn-boundary
-   steering) before any planning.
+   adverse T3a outcome and the reviewed turn-boundary revision folded into the
+   accepted design before planning.
 2. A component execution plan exists under `docs/plans/` following the
    design's four-phase implementation handoff.
 
 Execution follows the design's phases:
 
-1. Pane transport behind a flag plus the pipe-vs-pane compatibility suite
-   (feasibility item T1). Independently valuable observability; may be
-   closed as its own tranche.
-2. `provider_group` executable node and concurrent member runtime with
-   settlement, grace, and termination semantics (feasibility item T2).
-3. Frontend surface: `with-live-providers`, binding typecheck and
-   `LiveBindingEffect`, lowering with source-map entries, prompt-composer
-   binding injection with prompt-audit flags.
-4. Steering viability (`interactive_input` template capability, T3), the
-   real-CLI end-to-end smoke, spec deltas, and the transport default flip.
+1. Observation/cancellation substrate: observation mirror behind a flag,
+   shared real-shape session codec, cancellable process-group control, T1
+   non-interference, and an early real Codex identity → cancel/owned-PGID →
+   resume spike. A failed real boundary stops Stage 7 before group/frontend
+   implementation.
+2. `provider_supervision.v1` executable node and single-writer coordinator:
+   immutable concurrent member execution, `ProviderSteeringDirective`
+   arbitration, one bounded resume turn, attempt/evidence ownership, atomic
+   state/result publication, interrupted-visit quarantine, and T2/T3b
+   fixtures.
+3. Frontend surface: two-member `with-live-providers`,
+   `LiveSupervisionEffect`, reserved prelude directive union,
+   post-specialization member extraction, WCC/schema-2 carriage,
+   pure-settlement lowering, source maps, and target DSL 2.16.
+4. Capability promotion and integration: structural
+   `session_support.turn_boundary_resume`, the real supervisor/worker T3b
+   smoke, spec deltas, default observation enablement, capability matrix, and
+   authoring/docs updates.
 
 Gate S7 (the design's success criteria):
 
-- the compatibility suite is green and the transport default is flipped
-  with fresh evidence; T1-T3 outcomes are recorded;
-- all of the design's verification-strategy checks pass with fresh output,
-  including the fixture-agent interaction proofs and the real-CLI smoke;
-- single-member equivalence is proven at IR and behavior level;
+- the observation non-interference suite is green for ordinary, streaming,
+  session, adjudicated, and managed-provider invocation paths, and ordinary
+  mirror failure degrades observability rather than provider results;
+- the phase-1 real Codex boundary and final real supervisor/worker smoke both
+  pass, with canonical preterminal identity, owned-PGID cancellation proof,
+  joined capture/executor work, and a corrected resumed typed result;
+- T2 proves the group coordinator is the only workflow-state writer and all
+  coordinator event orderings produce one selected-result/state outcome;
+- both-direction directive, result-authority, crash-quarantine, attempt,
+  frontend, WCC, IR, checkpoint, and end-to-end checks pass with fresh output;
 - spec deltas are landed and the capability matrix and documentation
   routing reflect implemented status.
 
-Scope guard: Stage 7 covers only the design's v1. Cross-run binding,
-multi-step members, typed steering vocabularies, event-driven wake-ups, and
+Scope guard: Stage 7 covers only the revised design's v1. Provider-native
+duplex protocols, more than one steering turn, N-member/bidirectional
+supervision, effectful settlement, multi-step members, cross-run binding,
+filesystem rollback, stronger process containment, and general
 background/join primitives are excluded; each requires its own design
 treatment and an explicit amendment to this roadmap.
 
@@ -744,8 +770,8 @@ This roadmap sequence is complete when:
 - YAML retirement proceeds against the procedure-first model rather than
   recreating reusable workflow wrappers;
 - provider live binding v1 has shipped through Gate S7, with the
-  pane-transport compatibility evidence and the fixture-agent interaction
-  proofs recorded;
+  observation non-interference evidence and the fixture/real
+  supervisor-turn-boundary proofs recorded;
 - the `.orc` language server v1 has shipped through Gate S8, with editor
   diagnostics proven at parity with the CLI compile path.
 

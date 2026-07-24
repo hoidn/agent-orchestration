@@ -1,655 +1,996 @@
 # Workflow Lisp Provider Live Binding
 
-- **Status:** proposed
-- **Kind:** feature / provider transport and frontend concurrency architecture
-  decision
+- **Status:** accepted
+- **Kind:** feature / provider observation, bounded concurrency, and
+  turn-boundary supervision architecture
 - **Owner:** Workflow Lisp frontend + provider runtime
-- **Reviewers:** pending independent design review; direction resolved with
-  the user on 2026-07-13 through two clarification rounds (worker is an
-  in-workflow provider invocation hosted in tmux; control path is tmux
-  send-keys; no runtime polling — agents interact whenever they choose;
-  free-form steering; always-on tmux hosting with a 1:1
-  invocation-to-pane invariant; post-hoc call-site composition over
-  already-defined procedures; last-expression settlement semantics)
+- **Review:** independent specification PASS and quality APPROVED on
+  2026-07-23
 - **Created:** 2026-07-13
-- **Last material update:** 2026-07-13
+- **Last material update:** 2026-07-23
 - **Related docs / plans:**
-  - `docs/design/workflow_lisp_frontend_specification.md` (parent language
-    contract)
-  - `docs/design/workflow_language_design_principles.md` (explicit-effect
-    direction this design deliberately and visibly relaxes at one point)
-  - `docs/design/workflow_lisp_provider_prompt_queue.md` (sibling proposal:
-    static multi-turn on one session; adjacent but orthogonal — see Context)
-  - `docs/design/workflow_lisp_proc_refs_partial_application.md` (precedent
-    for call-site composition over already-defined procedures)
-  - `docs/design/workflow_lisp_unified_frontend_design.md` (deferred
-    runtime-surfaces gate: no runtime procedure values — this form is
-    compile-time static composition)
-  - `docs/design/workflow_lisp_lexical_execution_checkpoints.md` (checkpoint
-    identity and resume policy authority)
-  - `specs/providers.md`, `specs/io.md`, `specs/index.md` (the
-    concurrency-out-of-scope statements this design narrowly amends),
-    `specs/examples/multi-agent-inbox.md` (existing sanctioned coordination
-    pattern, which remains valid and complementary)
-- **Implementation target:** scheduled as Stage 7 of
-  `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md` by
-  its second 2026-07-13 amendment, ahead of the language server's final
-  Stage 8; implementation start remains gated on independent design review
-  acceptance (including the T3 steering-viability probe) and on the
-  sequence reaching Stage 7
+  - `docs/design/workflow_lisp_frontend_specification.md`
+  - `docs/design/workflow_lisp_executable_ir.md`
+  - `docs/design/workflow_lisp_provider_prompt_queue.md`
+  - `docs/design/workflow_lisp_lexical_execution_checkpoints.md`
+  - `docs/design/workflow_lisp_native_transportable_returns.md`
+  - `docs/plans/2026-07-23-provider-live-binding-t3-behavior-simulation.md`
+  - `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
+  - `specs/providers.md`, `specs/io.md`, `specs/state.md`,
+    `specs/versioning.md`, and `specs/observability.md`
+- **Implementation target:** Stage 7 of the procedure-first roadmap after a
+  reviewed execution plan exists
 
 ## Summary
 
-There is no way for one provider agent to observe and steer another provider
-agent's live work. Coordination today is file-based and turn-based: filesystem
-queues between agents, and cross-run watchdogs that read persisted run state
-and act only through resume/relaunch. A supervisor cannot course-correct a
-long agentic invocation mid-flight, answer its interactive prompts, or pair
-two agents on one task.
+One provider invocation cannot currently observe another provider invocation
+while both are active, and the only runtime-owned intervention is timeout
+termination. The first version of this design proposed ordinary tmux
+`send-keys` as same-turn steering. Fresh T3 probes disproved that premise:
+Claude queued the message until after the original answer, and Codex required
+an explicit interrupt that left the prior tool process running.
 
-This design adds two capabilities:
+This revision follows the roadmap's adverse-T3 stop/revise path. It adds:
 
-1. **tmux-hosted provider invocations** — the provider executor launches
-   every invocation inside its own tmux pane on a run-scoped private socket,
-   with a strict 1:1 invocation-to-pane invariant. The pane is the live,
-   addressable identity of a running invocation, whether or not anything
-   binds to it.
-2. **`with-live-providers`** — a call-site structured-concurrency form that
-   composes N already-defined provider calls into **one atomic runtime
-   step** whose member invocations run concurrently. A member may declare
-   `:tmux-binding-of` a sibling, which injects the sibling's live tmux
-   target (plus a standard interaction preamble) into its prompt the way
-   input contracts are injected today. All interaction is then performed by
-   the member agents themselves through their ordinary tool use
-   (`capture-pane`, `send-keys`) — free-form, at moments they choose. The
-   runtime mediates none of it. The form's value follows last-expression
-   semantics: the body consumes whichever member results it needs, and
-   settlement policy becomes ordinary dataflow.
+1. **One live observation pane per provider invocation.** Existing provider
+   pipes and structured transports remain authoritative. A run-scoped tmux
+   pane mirrors normalized live output for observation only, so tmux cannot
+   alter result bytes, session JSONL, or exit handling.
+2. **`with-live-providers`.** The v1 form composes exactly one worker and one
+   supervisor as one executable node with one atomic workflow-state/result
+   commit. The supervisor observes the worker's pane and returns a
+   compiler-owned, validated directive:
+   `CONTINUE` or `STEER` with free-form guidance.
+3. **One bounded turn-boundary correction.** `CONTINUE` accepts the active
+   worker turn. `STEER` requires a unique provider session id, terminates and
+   reaps the runtime-owned worker process group, and performs exactly one
+   resume turn with the guidance. Only the selected completed turn's validated
+   bundle can become the worker result.
+
+The runtime interprets only the directive discriminant. It never interprets
+the guidance, pane text, or provider stdout as workflow data.
 
 ## Context And Authority
 
-Verified implementation behavior this design builds on (2026-07-13 checkout):
+Verified current behavior this design builds on:
 
-- **The step loop is strictly serial.** The executor advances one node at a
-  time in a single-threaded cursor loop
-  (`orchestrator/workflow/executor.py:2680`). No DSL surface offers parallel
-  steps; `specs/index.md` explicitly lists concurrency, parallel blocks, and
-  event-driven triggers as out of scope. This design confines all
-  concurrency **inside one executable node** and leaves the cursor serial.
-- **Side-band threads during a blocking step are established practice.** The
-  executor already runs a heartbeat thread while a step executes
-  (`executor.py:3237-3251`), the live-notes observer polls in a background
-  thread (`orchestrator/observability/live_notes.py:82-91`), and streaming
-  mode tees provider output through reader threads
-  (`orchestrator/providers/executor.py:423`, `_capture_pipe`). Concurrent
-  member invocations inside one node are an extension of this precedent, not
-  a new runtime paradigm.
-- **The runtime already has tmux affinity — for reading.** Live-agent-notes
-  resolves a tmux pane by pid descent and reads it via
-  `tmux capture-pane -p -J` (`live_notes.py:184-218`, `:271`), and
-  `monitor_process.json` records the orchestrator's own tmux identity
-  (`orchestrator/monitor/process.py`). The observe half of live interaction
-  exists; no send path exists anywhere.
-- **Provider invocations are exec-per-turn subprocesses** run with pipes and
-  blocking waits, timeout-killed via a process-tree kill
-  (`providers/executor.py:399`, `_terminate_process_tree`). Session
-  transports append masked output chunks to a spool file with per-chunk
-  flush (`providers/executor.py:692`, `_append_masked_transport`), and codex
-  JSONL metadata is parsed in-flight from the stdout callback
-  (`providers/executor.py:748`, `_stream_codex_jsonl_chunk`). Pane hosting
-  must preserve these contracts (feasibility item T1).
-- **Multi-invocation atomic nodes are an established family:**
-  `adjudicated_provider` (v2.11), the `managed_jobs` guard (v2.13), and the
-  proposed prompt-queue turn loop. This form is the first member whose
-  internal invocations run concurrently rather than sequentially.
-- **Call-site composition over existing procedures has a precedent:**
-  compile-time ProcRefs and `bind-proc` compose already-defined procedures
-  without runtime procedure values. `with-live-providers` follows the same
-  post-hoc composition philosophy.
-- **External live state has a ruling.** The prompt-queue design fixed that
-  provider-side session persistence is external, non-content-addressed
-  state: nothing in a run may treat it as durable workflow state, and
-  interrupted work replays fresh. A live tmux pane is the same class of
-  state; this design inherits that ruling (atomic form, fresh replay).
-- **Effect atoms and their threading path are enumerated** in
-  `orchestrator/workflow_lisp/effects.py` (`UsesProviderEffect`,
-  `MovesResourceEffect`, union at `:109`); a new atom threads through
-  typecheck effects, lowering, the executable IR, executor dispatch,
-  checkpoint policy, and the source map.
-- **Relationship to prompt-queue:** orthogonal. The queue drives N
-  sequential *turns* (separate processes) against one persisted session,
-  with the runtime owning the turn loop. Live binding operates *within*
-  invocations: each member is still one exec-per-turn process; steering
-  happens at the TTY of a live process, not by injecting protocol turns. The
-  queue's persistent-process-transport non-goal (turn protocols over a
-  long-lived transport) remains untouched.
+- The workflow cursor is serial. Concurrency must remain inside one executable
+  node.
+- `ProviderExecutor` has distinct ordinary, streaming, and session JSONL
+  execution paths. Their raw stdout, stderr, exit, timeout, and metadata
+  behavior is authoritative.
+- Current provider `STDIN` mode delivers one initial prompt and closes stdin.
+  It is not a live-input capability.
+- The builtin Codex templates already declare session fresh/resume commands
+  and the metadata mode intended for strict session parsing. The current
+  parser is incompatible with the installed real event shape, so the shared
+  codec repair remains a T1 prerequisite. Other templates may omit session
+  support.
+- `StateManager` already serializes its own mutations. The remaining
+  concurrency issue is `WorkflowExecutor` ownership: its current step,
+  dataflow, provider attempts, sessions, artifacts, and evidence are not
+  reentrant.
+- Executable IR currently has no provider-group node. Workflow Lisp lowering
+  must introduce one through the ordinary WCC/schema-2 route; a
+  surface-specific direct lowerer is not permitted.
+- The only runtime pure-expression language is the validated
+  `pure_projection` payload. An arbitrary effectful last expression cannot
+  execute inside one atomic group node.
+- Provider-side sessions and live panes are external, non-content-addressed
+  state. They cannot be resume authority.
 
-Ambiguity resolved by this design: whether live agent-to-agent interaction is
-runtime-mediated (observe/send effect forms, runtime polling) or
-agent-mediated (the runtime provides hosting, wiring, and lifecycle; agents
-interact through their own tools). This design fixes it as **agent-mediated**.
+### T3a observed outcome
+
+The pre-plan probe is closed as adverse for direct TTY steering:
+
+- Claude interactive input submitted during a running tool was processed
+  only after the original response.
+- Codex ordinary input was explicitly queued for after the next tool call.
+- Codex Escape plus a new message created an interrupt/new-turn transition,
+  while the prior shell tool remained alive in the background.
+- `codex exec`, `claude -p`, and the current executor's `STDIN` mode are
+  one-turn transports.
+- A real installed-Codex JSONL invocation emitted
+  `thread.started.thread_id` before `turn.started`, then
+  `item.completed`, and finally `turn.completed`. The current parser looks
+  only for `session_id` and treats any `*.completed` event as terminal, so
+  real-shape canonical identity extraction and exact turn-terminal detection
+  are T1 prerequisites.
+
+Therefore ordinary `send-keys` is not steering capability, and client-owned
+interrupt acknowledgement is not process-quiescence proof. The detailed
+trace and compared alternatives live in the T3 behavior-simulation report.
 
 ## Problem
 
-- A long agentic provider invocation is a black box until it exits. The only
-  intervention today is timeout-kill; the only supervision is post-hoc (next
-  step reads its output) or cross-run (watchdog reads `state.json` and can
-  merely resume/relaunch). Mid-flight course correction, answering a
-  worker's interactive prompt, and live pair-work between two agents are all
-  inexpressible.
-- The ingredients exist but are disconnected: panes can be read
-  (live-notes), spools can be tailed, agents have shell tools that can run
-  `tmux send-keys` — but there is no hosting invariant that gives every
-  invocation an addressable pane, no declaration that tells one provider
-  where its peer lives, and no execution shape that lets two provider steps
-  be in flight at once.
-- This needs a design-level decision because it changes the provider
-  transport globally (always-on pane hosting), introduces bounded
-  concurrency into a deliberately serial runtime, and deliberately relaxes
-  strict input-explicitness for steered invocations — each of which must be
-  bounded by contract rather than emerging ad hoc.
+The system needs a truthful way for a supervisor provider to:
+
+- see another invocation's progress while it is active;
+- decide whether the current turn should continue or be corrected;
+- deliver free-form corrective guidance without inventing a provider-specific
+  UI-key contract;
+- prevent an interrupted turn and its replacement from both remaining active;
+  and
+- preserve one typed, validated result and one atomic workflow-state/result
+  boundary.
+
+The mechanism must also avoid making the workflow executor reentrant or
+feeding terminal-rendered bytes into strict provider metadata parsers.
 
 ## Goals And Non-Goals
 
-Goals:
+### Goals
 
-1. Every provider invocation runs in its own addressable tmux pane (1:1,
-   never shared, never reused), uniformly, bound or not.
-2. A call-site form composes already-defined provider calls so their
-   invocations run concurrently inside one atomic step, with declared
-   peer-binding injections — no special authoring inside the composed
-   procedures.
-3. Interaction is free-form and agent-driven; the runtime performs no
-   per-interaction mediation and imposes no polling cadence.
-4. Settlement is last-expression dataflow: the body decides which member
-   results matter; the scope terminates stragglers on exit with recorded
-   evidence.
-5. The steering relationship is visible in the composition's type/effect
-   surface, and every member's pane transcript is persisted evidence.
-6. Mechanics are structural: no branching on workflow, provider, family, or
-   domain names.
-7. A single-member, binding-free form is behaviorally equivalent to the
-   plain invocation.
+1. Every provider invocation attempts one addressable live observation pane
+   by default; the live-supervision form requires it, while ordinary calls
+   degrade to their unchanged provider path if observation is unavailable.
+2. A Workflow Lisp form composes one worker and one supervisor concurrently
+   after both calls specialize to eligible provider operations.
+3. The supervisor can return one validated free-form steering directive.
+4. A steered worker resumes the same provider session only after the prior
+   process leader is reaped, its runtime-owned process group is empty, and
+   its executor future and capture threads are joined.
+5. One coordinator owns all workflow state, checkpoint, dataflow, attempt,
+   artifact, and final-result mutations.
+6. Results travel only through typed validated bundles. Pane text,
+   transcripts, and stdout remain evidence.
+7. The form is one atomic workflow-state/result boundary; controller
+   interruption quarantines the visit before any later provider launch.
+8. Mechanics are structural and never branch on provider, workflow, family,
+   module, or domain names.
 
-Non-Goals (intentionally excluded):
+### Non-Goals
 
-- **Runtime-mediated interaction.** No observe/send effect forms, no
-  runtime polling loops, no runtime interpretation of steering content.
-- **DAG-level parallelism.** No concurrent steps, branches, or background
-  step primitives; concurrency exists only inside `with-live-providers`.
-- **Event-driven runtime.** The executor never waits on output events; the
-  member agents own their reaction timing.
-- **Live handles as values.** Tmux targets never escape the scope — not
-  into results, artifacts, state, or later steps.
-- **Mid-scope checkpointing or partial resume.** The form is atomic; an
-  interrupted form re-executes fresh with new panes (inherited external-
-  state ruling).
-- **Cross-run binding.** Binding to another run's panes stays deferred; the
-  watchdog pattern remains the cross-run layer.
-- **Turn-protocol transport changes.** Members remain single exec-per-turn
-  invocations; this design does not create persistent turn transports and
-  does not overlap the prompt-queue surface.
-- **Typed steering vocabularies.** Free-form is the point (user decision);
-  a constrained command union can be layered later as prompt guidance
-  without changing this contract.
-- **Multi-step members in v1.** A member is one provider invocation (see
-  Design Details); composing whole multi-step procedures concurrently is a
-  recorded future extension.
+- ordinary TTY `send-keys` as control;
+- provider-native duplex protocols such as Codex app-server or Claude
+  stream-json;
+- more than one steering directive or more than one resume turn;
+- bidirectional or N-member supervision;
+- dynamic member counts;
+- effectful settlement bodies;
+- durable live handles or durable provider-native session reuse;
+- partial group checkpointing or member-level workflow resume;
+- cross-run binding;
+- general background launch/join primitives;
+- multi-step member procedures; and
+- a YAML authoring surface;
+- filesystem transactionality or rollback of member workspace writes; and
+- process containment stronger than the runtime-owned POSIX process group;
+  cgroup, PID-namespace, detached-child, and remote-work containment require
+  a separate design.
 
 ## Decision
 
-Add pane hosting as the provider executor's default transport, and add a
-`with-live-providers` structured-concurrency binding form.
+Retain the `with-live-providers` name but narrow v1 to a two-member,
+one-direction supervision form. Use an observation-only pane mirror and a
+runtime-mediated, typed turn-boundary directive.
 
-- **Chosen approach:** always-on tmux hosting with a 1:1 invocation↔pane
-  invariant; post-hoc call-site composition over existing provider
-  procedures; prompt-injected peer bindings (a fourth member of the existing
-  injection family); agent-mediated free-form interaction; last-expression
-  settlement with scope-exit termination of unreferenced members; one atomic
-  node with fresh-replay resume.
-- **Alternatives rejected:**
-  - *Runtime observe/send effect vocabulary* (spawn/observe/send/await as
-    typed effect forms the runtime executes). Rejected per the resolved
-    direction: it puts the runtime in the interaction loop, adds latency
-    and duplication (agents already have the tools), and hard-codes an
-    interaction grammar where free-form judgment is wanted.
-  - *Poll-based supervisor loop* (typed loop: capture → provider decision →
-    gated send-keys per iteration). Remains expressible today with zero new
-    capability and is the recommended baseline while this design is
-    pending — but rejected as the target: per-iteration invocation latency,
-    loop-bound cadence, and no live low-latency steering.
-  - *Supervisor attachment* (monitor declared as a companion of one worker
-    step). Rejected: asymmetric — cannot express bidirectional peers — and
-    couples the monitor to the worker's step authoring, against the post-hoc
-    composition requirement.
-  - *Background launch + join* (general async step primitive with an await).
-    Rejected for v1: leaks async in-flight state into checkpoint/resume
-    across arbitrary step distances; the structured scope achieves the
-    target use cases with a bounded blast radius.
-  - *Fixed settlement policies* (worker-primary / all-members /
-    monitor-authoritative as modes). Rejected: last-expression semantics
-    express all three as ordinary dataflow (see Design Details), with no
-    policy enum to maintain.
-  - *Opt-in pane hosting.* Rejected by user decision: always-on keeps the
-    1:1 invariant uniform, makes every invocation observable by default,
-    and avoids two transport paths diverging. (A degraded-environment
-    escape hatch is an open question, not a mode.)
-- **Tradeoffs accepted:** steered outputs are not reproducible from declared
-  inputs (hence atomic fresh replay); steering content is auditable only
-  through transcripts; tmux becomes a runtime dependency for all runs; N
-  live agent CLIs run concurrently (cost and workspace-contention
-  responsibility rest with the author, bounded by validation).
-- **Left open:** see Open Questions (degraded environments, interactive
-  provider templates, straggler grace default, explicit await annotations,
-  multi-step members, cross-run binding).
+### Chosen approach
 
-Naming note: the form is spelled `with-live-providers`; "bind" spellings were
-avoided because `bind-proc` owns partial-application vocabulary in this
-frontend.
+- provider execution remains on the current pipe/JSONL transports;
+- every invocation receives an additional tmux display pane;
+- the form has one observed worker and one observing supervisor;
+- the supervisor returns `ProviderSteeringDirective`;
+- `STEER` cancels the active worker process group, proves the
+  runtime-owned leader/PGID/future/capture boundary, and performs one session
+  resume;
+- a single coordinator aggregates member outcomes and publishes one atomic
+  workflow-state/result commit; and
+- a validated pure settlement expression determines the form's final value.
 
-## Design Details
+### Alternatives rejected
 
-### Part A: tmux-hosted invocation transport
+1. **Ordinary `send-keys` same-turn steering.** Rejected by the T3a behavior
+   probe.
+2. **Client-owned Escape/interruption.** Rejected because the observed client
+   acknowledgement did not terminate the prior tool process.
+3. **Wait for the worker to complete and always steer afterward.** Safe, but
+   post-hoc rather than live correction. The selected design may fall through
+   to this boundary when the worker naturally completes before the directive,
+   but it does not make that the only path.
+4. **Provider-native duplex protocol.** Potentially stronger, but it creates a
+   separate persistent transport, event, and lifecycle architecture. It is a
+   future proposal.
+5. **Concurrent calls into `WorkflowExecutor`.** Rejected because the executor
+   is not reentrant. Member threads may call only the low-level provider
+   executor with immutable prepared requests.
+6. **Arbitrary N-member dataflow settlement.** Rejected for v1 because
+   steering arbitration, member ownership, and effectful-body lowering are
+   not closed.
 
-- Each run owns a private tmux server socket under the run's state root
-  (recorded in run state); panes are named deterministically from run id,
-  step id, visit, and invocation index. The invocation's pane identity is
-  recorded in its invocation metadata, extending the existing
-  `monitor_process.json` family from "the orchestrator's own pane" to every
-  provider invocation.
-- The executor launches the composed provider command inside the pane; a
-  thin wrapper captures the exit status to a file and signals completion
-  (`tmux wait-for`-class mechanism). For unbound invocations the executor
-  still blocks synchronously — the transport changes, the execution model
-  does not.
-- Output capture: pane output is piped (pipe-pane or FIFO) into the existing
-  per-chunk callback machinery so that **masking, the transport spool, and
-  in-flight JSONL metadata parsing** (`_append_masked_transport`,
-  `_stream_codex_jsonl_chunk`) keep working unchanged. Preserving these
-  contracts under a TTY is feasibility item T1.
-- Timeout and kill: the existing invocation timeout budget applies; kill is
-  `tmux kill-pane` plus the existing process-tree kill as fallback.
-- Contract: an unbound invocation under pane hosting is **behaviorally
-  identical** to today's pipe transport — same result contracts, bundles,
-  metadata, and evidence; the pane is purely additional observability. This
-  equivalence gets a dedicated compatibility suite.
+### Accepted tradeoffs
 
-### Part B: the `with-live-providers` form
+- tmux is a required dependency for `with-live-providers`; ordinary calls
+  retain their provider result when the default observation mirror is
+  unavailable;
+- a steered first turn may consume time and provider capacity before
+  cancellation;
+- v1 supports one worker, one supervisor, and at most one correction;
+- an interrupted group gets no partial credit and is quarantined rather than
+  replayed automatically; and
+- the compiler-owned directive introduces a small typed control vocabulary,
+  while its guidance remains free-form.
 
-Authoring surface (illustrative):
+## Authoring And Type Contract
+
+Illustrative surface:
 
 ```lisp
 (with-live-providers
-    ((w (call procs.run-migration :input plan))
-     (m (call procs.supervise
-          :input policy
-          :tmux-binding-of w)))
-  (settle-migration m))          ;; form value = body's last expression
+  ((w (call procs.run-migration :input plan))
+   (m (call procs.supervise :input policy)
+      :observes w))
+  (make-supervised-outcome
+    :work w
+    :directive m))
 ```
 
-- **Members.** Each binding pairs a name with a provider call: a provider
-  invocation form, or a call to an already-defined procedure that lowers to
-  exactly one provider invocation (verified at compile time with a dedicated
-  diagnostic). This keeps the concurrency unit equal to the invocation and
-  preserves the 1:1 pane invariant, while covering the normal
-  procedure-first case of thin typed wrappers around one invocation.
-  Members keep their declared return types, contracts, and effect
-  classifications unchanged.
-- **Bindings.** `:tmux-binding-of <member>` (one name or a list) must
-  resolve to sibling members; unknown names are compile diagnostics. Mutual
-  declarations express bidirectional pairs. At runtime, panes are allocated
-  before launch so every member's composed prompt can carry its peers' tmux
-  socket + target plus a standard interaction preamble, rendered by the
-  prompt composer exactly like the existing typed-input/consumes/asset
-  injections. Prompt-audit metadata records which binding injections were
-  applied — the structural (non-phrasing) assertion surface for tests.
-- **Typing.** The form's type is the body's last-expression type; member
-  names are lexical bindings of the members' declared return types within
-  the body. Bindings affect effects and injections, never types.
-- **Effects.** The form's effect summary is the union of member effects plus
-  a new `LiveBindingEffect` atom per declared binding (from-member,
-  to-member) — the visible marker that one invocation may steer another.
-- **Runtime execution (one atomic node):**
-  1. allocate panes for all members; compose prompts with binding
-     injections;
-  2. launch all member invocations concurrently (worker threads driving the
-     existing prepare/execute path per member);
-  3. await the members the body references (the compile-time free-variable
-     set of the body — conservative and deterministic); when they settle,
-     evaluate the body;
-  4. scope exit: members still running whose results are unreferenced get a
-     grace period, then termination — recorded as evidence with reason
-     `scope_exit`, never as a step failure.
-- **Settlement policies are dataflow, not modes.** The three natural
-  policies fall out of what the body references:
-  - reference only `w` → *worker-primary*: the supervisor is auxiliary and
-    is collected at scope exit;
-  - reference `w` and `m` → *all-members-typed*: both results are
-    first-class for downstream steps;
-  - reference only `m` → *monitor-authoritative*: the monitor's typed
-    verdict is the result; if it kills the worker, the worker's abnormal
-    exit is recorded evidence, not a failure.
-- **Failure semantics.** A **referenced** member failing (nonzero exit,
-  contract violation, kill) fails the form with a member-indexed diagnostic
-  and all transcripts attached. An **unreferenced** member's abnormal exit
-  is evidence only. Pane allocation failure fails the step closed. Each
-  member keeps its own invocation timeout; the step timeout bounds the
-  whole form.
-- **Checkpoint/resume.** One checkpoint identity for the whole form, derived
-  from static structure and declared inputs as usual. An interrupted form is
-  an incomplete step: resume re-executes it fresh — new panes, new
-  invocations. No member result is separately checkpointed; live targets are
-  never persisted.
-- **Observability.** Per-member transport spools and pane transcripts are
-  persisted as step-scoped evidence artifacts named by member. Because Part
-  A is universal, dashboards and live-notes can target member panes with the
-  same mechanics as any invocation.
-- **Equivalence contract.** `(with-live-providers ((x <call>)) x)` with no
-  bindings is IR- and behavior-equivalent to the plain call (dedicated
-  test), the analogue of prompt-queue's arity-1 rule.
+Binding shape:
 
-### Authority and security model
+```text
+(<name> <provider-call>)
+(<name> <provider-call> :observes <sibling-name>)
+```
 
-The binding injection is **information, not privilege**: member agents
-already hold shell tools, so the design grants no new capability — it tells
-an agent where its peer lives and that steering it is sanctioned. Bounded by:
-a run-private tmux socket (filesystem permissions scope which panes are
-reachable by path), injected targets naming only sibling panes, and secrets
-masking applying to the pane-capture evidence path (part of T1). The
-deliberate relaxation of input-explicitness — a steered member's inputs
-include untracked live keystrokes — is compensated by making the
-relationship explicit in the composition (`LiveBindingEffect`, prompt-audit
-flags) and by transcripts as evidence.
+Rules:
 
-## Contracts And Interfaces
+- There are exactly two bindings.
+- Exactly one binding declares `:observes`; its peer is the worker.
+- Both expressions must, after specialization and WCC elaboration, contain
+  exactly one unconditional provider perform and a pure return projection.
+  Branches, loops, additional effects, private workflow boundaries, and
+  residual calls are rejected with source-mapped diagnostics.
+- Thin procedures are allowed because eligibility is checked after
+  specialization, not inferred from a set-valued effect summary.
+- The worker may return any supported transportable type `T`.
+- The supervisor must return the compiler-owned
+  `ProviderSteeringDirective`.
+- The body must lower to the existing validated pure-expression payload over
+  `w` and `m`. Residual effects or control forms are rejected.
+- The form's type is the pure body's type. For a body of `w`, the form is `T`.
+- The form's effect summary is the union of both provider effects plus
+  `LiveSupervisionEffect(supervisor, worker)`.
+- The form requires target DSL `2.16`; earlier targets reject it.
 
-- **New:** pane-hosting transport contract (socket location, pane naming,
-  exit capture, spool wiring, kill path, per-invocation pane identity in
-  metadata); `with-live-providers` form and `:tmux-binding-of` parameter;
-  `LiveBindingEffect` atom; a new executable node kind (`provider_group`)
-  carrying member invocations and binding edges; member transcript evidence
-  naming; compile diagnostics (unknown peer, member-not-single-invocation,
-  binding outside the form); the standard interaction preamble as a
-  runtime-owned injection block.
-- **Changed:** the default provider invocation transport for all runs
-  (behavior-compatible by contract, proven by the compatibility suite).
-  Nothing else changes for existing workflows; the form is additive.
-- **Spec deltas required at implementation time:** `specs/providers.md`
-  (pane hosting, group execution, binding injection), `specs/io.md`
-  (transcripts are evidence-only), `specs/index.md` (amend the concurrency
-  exclusion narrowly: structured provider groups within a single step),
-  `specs/versioning.md` (feature gate), and the frontend specification
-  (form surface contract).
+### Post-specialization member extraction
 
-## Dependencies And Sequencing
+Thin procedure calls are accepted by normalization, not by treating a
+residual `WccCall` as a provider member:
 
-- **Feasibility items (recorded, phase-gated, not assumed):**
-  - **T1 — transport parity.** A pane-hosted invocation preserves today's
-    result and metadata contracts: exit-code capture, masked spool
-    equality, and in-flight codex JSONL session-id parsing through a TTY +
-    pipe-pane path. This is the trickiest mechanical claim and gates
-    flipping the default.
-  - **T2 — concurrent-member safety.** N member invocations in flight do
-    not corrupt shared run state (state writes, heartbeat, artifact paths);
-    audited and locked as needed. The compile-time pipeline's global-state
-    constraint is irrelevant here (runtime, not compile), but runtime state
-    writes are not currently exercised concurrently.
-  - **T3 — steering viability.** A real agent in one pane can effectively
-    steer a real agentic CLI in another. **Open prerequisite:** current
-    builtin templates run non-interactive `exec`-style commands that may
-    ignore stdin entirely; free-form steering requires the steered member's
-    CLI to read its TTY (interactive mode) — otherwise a binding is
-    observe-only. Provider templates gain a declared `interactive_input`
-    capability so authors know which members can be steered; whether any
-    builtin CLI supports it today must be probed, and an adverse result
-    triggers the stop/revise criteria, not a workaround.
-- **Sequencing:** scheduled as Stage 7 of the procedure-first roadmap
-  execution sequence (second 2026-07-13 amendment), deliberately before the
-  language server's final Stage 8 because this design changes the authoring
-  language and the provider transport the server should ship against. It
-  touches the provider executor, frontend, IR, and checkpoint policy, so
-  implementation is serial with Stage 5-6 work at shared surfaces per the
-  roadmap's concurrency rules. Part A (pane transport behind a flag) is
-  independently valuable — uniform live observability for every invocation —
-  and is deliberately the first phase.
-- Work that can proceed independently: independent design review; the T3
-  interactive-template probe; the poll-loop supervisor pattern as the
-  available-today baseline for urgent supervision needs.
+1. Parse and typecheck each binding expression normally.
+2. Resolve its monomorphic procedure specialization with the existing
+   procedure-specialization environment.
+3. Inline the specialized callee body into a closed member region using the
+   same substitution and source-provenance rules as ordinary inline
+   procedure lowering. Recursively normalize inline callees until no
+   `WccCall` remains.
+4. Accept only a canonical region whose control spine is straight-line
+   `WccLet`/`WccHalt`, with exactly one unconditional provider `WccPerform`;
+   all other bindings must be pure values/projections that feed that perform
+   or project its declared result.
+5. Reject `WccCall`, private workflow/call boundaries, `WccCase`, `WccIf`,
+   loop/recursion terms, a second perform, or any non-provider effect after
+   normalization. Diagnostics point to the original member call and the
+   disqualifying specialized form.
+6. Extract the provider owner payload and its pure result projection into a
+   `WccProviderSupervisionMember`; do not emit the member as an ordinary
+   sequential provider step.
+
+The group elaborates to one new closed `WccProviderSupervision` term
+containing the two extracted members, observation edge, and validated pure
+settlement payload. WCC verification repeats the canonical-shape invariant.
+Defunctionalization emits one Core/executable provider-supervision node.
+There is no direct surface-to-Core lowering path.
+
+## Steering Directive Contract
+
+`ProviderSteeringDirective` is a compiler-owned tagged union with exact wire
+forms:
+
+```json
+{"variant": "CONTINUE"}
+```
+
+```json
+{
+  "variant": "STEER",
+  "guidance": "Free-form corrective guidance for the next provider turn"
+}
+```
+
+Validation rules:
+
+- `variant` is required and is exactly `CONTINUE|STEER`;
+- `CONTINUE` forbids `guidance`;
+- `STEER` requires a non-empty string `guidance`;
+- unknown fields are rejected;
+- the supervisor's provider contract receives field guidance explaining that
+  `CONTINUE` accepts the worker's active turn and `STEER` replaces it at the
+  next validated provider-session boundary; and
+- the runtime consumes the validated value, not a prompt phrase, stdout
+  fragment, pane scrape, or transcript.
+
+The directive remains available to the pure settlement body. Its presence
+does not make guidance a public artifact unless the body explicitly returns
+it as part of its declared type.
+
+### Language integration
+
+`ProviderSteeringDirective` is a reserved, non-shadowable prelude
+`UnionTypeRef`, equivalent to:
+
+```lisp
+(defunion ProviderSteeringDirective
+  (CONTINUE)
+  (STEER
+    (guidance String
+      :description
+      "Corrective guidance for the replacement provider-session turn.")))
+```
+
+- The compiler installs and reserves this prelude type only when the module's
+  target DSL is `2.16` or later. Such modules may reference it without
+  importing or declaring it, and a module definition, schema, type parameter,
+  or import alias may not shadow the reserved name.
+- Targets below `2.16` neither receive nor reserve the name. They cannot use
+  `with-live-providers`, but an existing authored type named
+  `ProviderSteeringDirective` keeps its prior meaning.
+- Existing `variant` constructors, `match` exhaustiveness, variant proof,
+  type compatibility, WCC union carriage, pure-expression handling, Semantic
+  IR, and source-map rules apply unchanged.
+- The supervisor's provider result lowers through the ordinary
+  `variant_output` contract with discriminant `/variant`, a `CONTINUE`
+  variant with no payload, and a `STEER` variant requiring `/guidance`.
+- The ordinary union validator enforces discriminant, selected payload, and
+  forbidden cross-variant fields. Because general union bundles currently
+  tolerate unrelated extra JSON keys, the group coordinator additionally
+  requires the raw directive object key set to be exactly `{"variant"}` or
+  `{"variant", "guidance"}` before accepting it as runtime control.
+- The normalized WCC/runtime value uses the existing flattened union members
+  `variant` and optional `guidance`; no bespoke control-value representation
+  enters the type system.
+- Prelude source spans own generated type/contract structure; the authored
+  supervisor call and group observation clause remain the source-map owners
+  for its use.
+
+## Observation Pane Contract
+
+### Pane identity
+
+- Each successful pane allocation, including the optional worker resume turn,
+  owns one distinct pane on a run-scoped tmux server.
+- The pane is created before provider launch and destroyed only after the
+  invocation is terminal and its transcript is finalized.
+- Inside a supervision group, the fresh worker pane is retained until the
+  supervisor directive and group are terminal, even when the fresh worker
+  exits first, so the supervisor's declared observation target remains
+  captureable. Other panes follow their invocation lifetime.
+- Invocation-to-pane is 1:1; panes are never shared or reused.
+- Live socket and target strings do not enter workflow values, bundles,
+  `state.json`, result diagnostics, or later steps. They may appear in the
+  supervisor's actual prompt and existing debug prompt/command evidence; such
+  evidence is non-authoritative and the address is invalid after teardown.
+- The dedicated pane record stores a stable invocation/member/turn identity
+  and transcript path, not the live target.
+
+### Non-interference
+
+- Provider subprocesses continue to use the current authoritative stdin,
+  stdout, stderr, streaming, and session JSONL paths.
+- Existing callbacks append a normalized display stream to a member-local
+  display file.
+- The pane tails that display file. It is a view over execution, not the
+  execution transport.
+- Pane failure cannot substitute partial display data for provider output.
+- Outside `with-live-providers`, allocation, tail-process, callback, tmux
+  server, or teardown failure records observation status and leaves provider
+  execution/result semantics unchanged.
+- Inside `with-live-providers`, both initial panes are load-bearing:
+  allocation failure stops before member launch, and loss while the supervisor
+  is still active fails the group and triggers member cleanup. After a valid
+  directive is committed to the arbiter, later mirror/teardown failure is
+  evidence-only because observation can no longer change the control choice.
+- Ordinary provider invocations outside the form also receive a pane. Their
+  result, metadata, timeout, and output behavior must remain equivalent to
+  the pre-pane path.
+
+The supervisor receives the worker pane's process-local address plus a
+runtime-owned observation preamble through a structural prompt-injection
+record. Prompt-audit evidence records that the observation injection occurred;
+tests do not assert literal prompt wording.
+
+## Provider Capability Contract
+
+The worker template must opt in structurally through:
+
+```yaml
+session_support:
+  # existing metadata_mode, fresh_command, and resume_command
+  turn_boundary_resume: true
+```
+
+Presence of `turn_boundary_resume: true` is valid only when:
+
+- `fresh_command` and `resume_command` are present;
+- the resume command contains exactly one `${SESSION_ID}`;
+- the selected metadata parser can report exactly one stable session id
+  before the fresh process becomes terminal;
+- a resume result is checked against the requested session id; and
+- the invocation uses the runtime's cancellable process-group lifecycle.
+
+The supervisor needs no session capability.
+
+`input_mode`, TTY allocation, or a provider name never imply the capability.
+Compile/load validation rejects a worker whose resolved template lacks it.
+Runtime validation repeats the capability check before launch.
+
+### Session-transport codec
+
+Preterminal observation and terminal parsing use one metadata-mode codec and
+one identity accumulator. For `codex_exec_jsonl_stdout`:
+
+- the codec owns an incremental UTF-8 JSONL line buffer across arbitrary
+  callback chunk splits and coalesced lines, feeds every complete line
+  exactly once, and parses a non-empty EOF tail exactly once;
+- malformed UTF-8/JSON, a non-object event, or a malformed non-empty EOF tail
+  permanently invalidates the accumulator;
+- real `thread_id` and the retained compatibility `session_id` key both
+  normalize to the public provider-session identity;
+- a recognized key must contain a non-empty string;
+- when both keys occur in one event, their values must match;
+- the identity set across all observed events must remain exactly one;
+- a later different identity or malformed recognized key permanently marks
+  the stream invalid;
+- `turn.completed` and the retained fixture/legacy
+  `response.completed` spelling are the exact successful turn-terminal
+  events;
+  `item.completed` is not terminal; and
+- an `item.completed` event whose nested `item.type` is `agent_message`
+  contributes nested `item.text` to normalized assistant output without
+  changing terminal state. No suffix match, generic `completed|done` event,
+  or `status: completed` value is terminal.
+
+The in-flight readiness snapshot is provisional. After cancellation, the
+coordinator joins the executor future and capture threads and rechecks the
+final partial-stream accumulator before using the identity. Callback
+exceptions cannot be the correctness channel because pipe capture currently
+treats them as best-effort; invalidity is durable inside the accumulator
+returned to the coordinator.
+
+## Executable Contract
+
+The form lowers through WCC/schema 2 to one
+`ExecutableNodeKind.PROVIDER_SUPERVISION` node.
+
+Its config has node-local schema
+`provider_supervision.v1` and contains:
+
+- stable node id and source ownership;
+- worker and supervisor member ids;
+- immutable provider configs for both members;
+- one observation edge from supervisor to worker;
+- the worker result contract;
+- the compiler-owned supervisor directive contract;
+- the validated pure settlement payload and its result contract;
+- member-local timeout budgets plus the existing step budget;
+- `max_steers: 1`;
+- unique member/turn evidence and provisional bundle locations; and
+- prompt-audit/source-map ownership for the form, bindings, observation
+  clause, and settlement body.
+
+`workflow_executable_ir.v1`, runtime-plan v1, semantic-IR v1, source-map v1,
+and state schema 2.1 remain the envelope versions. The new node carries its
+own required schema tag; older runtimes reject the unknown node kind, and
+target DSL 2.16 prevents old workflows from emitting it. Existing node
+encodings do not change.
+
+The runtime plan shows one provider-supervision node with two initial members,
+one atomic workflow-state/result commit, and an optional bounded resume
+transition. Semantic IR explains the worker, supervisor, observation edge,
+directive type, and settlement type.
+
+## Runtime Ownership And Concurrency
+
+One group coordinator runs on the serial workflow cursor and is the sole
+owner of:
+
+- `StateManager`;
+- `current_step` and checkpoint publication;
+- provider-attempt allocation;
+- workflow variables and dataflow;
+- provider-session bookkeeping exposed to workflow state;
+- artifact/result validation and publication; and
+- the terminal group result.
+
+Before concurrency begins, the coordinator:
+
+1. allocates the workflow group visit and unique member/turn paths;
+2. creates the visit-qualified metadata/evidence record and persists the
+   ordinary single group `current_step` before any pane or provider process;
+3. creates the initial two display files and observation panes so the worker
+   target exists;
+4. composes the worker and supervisor prompts, substituting the live worker
+   target only into the supervisor's execution prompt;
+5. allocates and durably publishes one provider-attempt ordinal and immutable
+   prompt-dependency snapshot for each initial member;
+6. constructs immutable `ProviderInvocation` requests, gives both initial
+   members their own cancellation controls, and binds the worker control to
+   the fresh-session codec; and
+7. launches both provider commands.
+
+Member workers may:
+
+- call `ProviderExecutor.execute` with their immutable request;
+- append only to their member-local raw/display/transcript paths;
+- emit in-memory lifecycle events to the coordinator; and
+- return a `ProviderExecutionResult`.
+
+They may not call workflow-step preparation/finalization, mutate
+`StateManager`, allocate attempts, publish artifacts, change variables, or
+clear `current_step`.
+
+The coordinator consumes member events through one serialized arbiter and
+performs every workflow-state mutation after joining or cancelling the
+relevant provider work.
+
+### Provider-attempt ownership
+
+The group visit is not itself a provider attempt. Each actual provider
+invocation owns one ordinary crash-durable provider attempt:
+
+- worker fresh turn;
+- supervisor directive turn; and
+- worker resume turn, only when `STEER` selects it.
+
+Attempt scope is derived structurally from group step id, group visit, member
+id, and turn ordinal. The coordinator allocates every ordinal serially through
+the existing state-manager allocator. For the initial pair it allocates and
+persists both attempt records and their immutable prompt-dependency snapshots
+before concurrent launch. For a resume turn it allocates and persists the
+attempt only after the fresh worker boundary is proved and before resume
+launch, and gives that invocation its own cancellation control.
+
+Each attempt has distinct prompt audit, invocation metadata, display
+transcript, dependency snapshot, provisional result path, and terminal
+outcome. The terminal group result records the supervisor attempt and the
+selected worker attempt. Cancelled, failed, and unselected attempts remain
+evidence; they never publish member artifacts or a group result. A new
+authored retry uses a new group visit and new attempt ordinals.
+
+### Cancellable executor control
+
+An optional per-invocation `ProviderExecutionControl` is the only control
+surface between the coordinator and `ProviderExecutor`:
+
+- lifecycle is `NEW -> BOUND -> TERMINAL`, with `NEW -> TERMINAL` permitted
+  only when process creation fails before bind;
+- `bind(process, pgid)` occurs exactly once immediately after `Popen`;
+- cancellation requested in `NEW` latches and executes immediately on bind;
+- spawn failure terminalizes an unbound control with a frozen launch-failure
+  disposition and wakes every readiness/cancellation waiter;
+- session-codec updates publish immutable identity snapshots
+  (`missing|unique|ambiguous|invalid`, ids, exact-terminal-seen);
+- `cancel_and_reap(grace)` is idempotent and returns a frozen disposition,
+  leader return code, PGID-empty proof, and join status. It is invoked for
+  every `STEER`, including after natural leader exit. An already-terminal
+  invocation may skip signaling only when its frozen terminal snapshot
+  already proves the leader reaped, the owned PGID empty, and capture work
+  joined. A naturally exited leader with a still-live same-PGID child is
+  cleaned up but remains a failed boundary and is not resumable; and
+- terminal execution returns the untouched raw buffers plus a normal,
+  cancelled-provisional, or failed result classification.
+
+The coordinator resolves races as follows:
+
+| Race | Required outcome |
+| --- | --- |
+| cancellation requested before process bind | latch; cancel immediately after bind; never expose a promotable result |
+| `STEER` arrives before identity readiness | wait only until a unique identity, worker terminal state, or the earlier member/whole-step deadline; missing/invalid identity or deadline expiry fails and cleans the group without resume |
+| successful natural exit before `STEER` cancellation | invoke the same idempotent boundary verifier; resume only when the frozen terminal snapshot already proves leader reaped, owned PGID empty, and executor/capture work joined |
+| successful leader exit with a lingering same-PGID child | clean the owned PGID, classify the prior boundary as failed, and do not resume |
+| natural nonzero/transport failure before validated `STEER` | member failure wins; fail the group and do not resume |
+| natural exit concurrent with cancellation | join once; `STEER` still selects only the resume turn |
+| repeated cancellation | same frozen cancellation result; no second signals or publication |
+| unique id followed by malformed/conflicting input | final snapshot is invalid/ambiguous; no resume |
+| launch failure | member failure; cancel/join the sibling; no group publication |
+| supervisor failure or timeout | cancel/join the worker; fail the group; no resume |
+| worker timeout with `CONTINUE` | fail the group after cleanup |
+| `STEER`-requested worker termination | classify the fresh result as expected `cancelled_provisional`; its nonzero exit is not a member failure and is never promotable |
+| whole-step timeout | cancel/join both initial members or the active resume turn; fail the group |
+| required mirror loss before directive | cancel/join both members; fail the group |
+| mirror loss after validated directive | record evidence; preserve the already-selected control path |
+
+Every group invocation receives a control object so sibling failure and the
+whole-step deadline can cancel and join the supervisor or active resume turn.
+Provider calls outside a group may omit one and retain their existing
+execution path.
+
+## Turn-Boundary State Machine
+
+### Launch
+
+1. Start the worker in fresh-session mode and the supervisor concurrently.
+2. Mirror normalized output into their distinct panes.
+3. Capture a candidate worker session id through the shared metadata-mode
+   codec and publish it only to the coordinator's in-memory arbiter.
+4. Validate the supervisor's result bundle as
+   `ProviderSteeringDirective`.
+
+### `CONTINUE`
+
+1. Record the validated directive.
+2. Await the current worker process if it is still active.
+3. Require a successful worker execution and valid worker bundle.
+4. Select that bundle as the worker result.
+
+### `STEER`
+
+1. Record the validated directive and require a unique stable worker session
+   id.
+2. If identity is not ready, wait only until the codec publishes one unique
+   identity, the worker becomes terminal, or the earlier worker/whole-step
+   deadline. Missing, invalid, ambiguous, or deadline-expired identity fails
+   and cleans the group without resume.
+3. Invoke `cancel_and_reap` for every `STEER`:
+   - send graceful termination to the owned process group;
+   - after a fixed bounded grace, send hard termination;
+   - reap the process leader;
+   - verify that the owned PGID is empty;
+   - join the executor future and both capture threads; and
+   - revalidate the final partial-stream identity snapshot as unique.
+   An already-terminal invocation skips signals only when its frozen terminal
+   snapshot already proves the complete boundary. If the leader exited while
+   a same-PGID child remained, cleanup still runs but the boundary is failed.
+4. If any process-group, join, or identity condition fails, fail the group.
+   Do not launch a resume turn.
+5. If the fresh worker completed successfully before the directive and its
+   frozen terminal snapshot proves the complete boundary, treat its execution
+   and transport as provisional and proceed. Once `STEER` is validated, the
+   coordinator does not read or validate the unselected fresh business
+   bundle. A lingering same-PGID child, natural nonzero exit, or transport
+   failure that became terminal before the validated directive fails the
+   group instead.
+6. Launch exactly one resume invocation with the captured session id and the
+   directive's free-form guidance as its conversational content. Render the
+   worker's output contract again for the same declared type, bind
+   `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` only to the resume turn's distinct
+   provisional path, and append that replacement-turn contract to the
+   guidance.
+7. Require the returned session identity to match, the invocation to succeed,
+   and the resumed worker bundle to validate.
+8. Select only the resumed bundle as the worker result.
+
+### Settlement
+
+1. Both the supervisor directive and selected worker result must exist.
+2. Evaluate the validated pure settlement payload.
+3. Validate the settlement result against the form's declared type.
+4. Commit one terminal group result and clear the single `current_step`.
+5. Finalize member transcripts and destroy all group panes.
+
+Directive/worker completion ordering does not change semantics:
+
+- `CONTINUE` always selects the fresh turn;
+- `STEER` always selects one resume turn;
+- a fresh bundle is never selected on `STEER`; and
+- the serialized arbiter prevents two publication paths from winning.
+
+## Result And Evidence Authority
+
+- Fresh worker, supervisor, and resumed worker turns use different
+  runtime-owned provisional bundle paths.
+- Every path is derived from group step id, visit, member id, and turn/attempt
+  ordinal. The coordinator requires the file to be absent and creates its
+  parent before launch; a stale preimage is a prelaunch failure, never a valid
+  result.
+- The fresh worker prompt renders the worker contract against the fresh path
+  because `CONTINUE` may select it. The resume prompt renders the same
+  contract against the resume path because `STEER` may select only that turn.
+- No member writes directly to the group result path.
+- The coordinator reads and validates the supervisor directive bundle only
+  after the supervisor is terminal. It reads the fresh worker business bundle
+  only when `CONTINUE` selects it, and reads the resume business bundle only
+  when `STEER` selects it.
+- On `STEER`, the fresh bundle is never promoted even if it is valid.
+- On `STEER`, a missing or invalid fresh business bundle is ignored because
+  it is unselected; execution, transport/session, and complete-boundary
+  failures remain fatal.
+- Only the selected worker value and validated directive enter the pure
+  settlement environment.
+- The settlement value is the only workflow result committed for the node.
+  Its step result, artifact/dataflow publications, selected-attempt refs,
+  terminal metadata, and exact matching `current_step` clearance land through
+  one `finalize_step_with_dataflow`-equivalent state transaction.
+- Pane mirrors, raw logs, normalized transcripts, cancellation records, and
+  member timing are evidence only.
+
+## Atomicity And Workspace Effects
+
+The word **atomic** in this design applies only to workflow state, checkpoint
+visibility, artifact/result publication, and the node's terminal commit. It
+does not describe a filesystem transaction around provider activity.
+
+- Both providers retain the ordinary provider execution authority of their
+  calls. Their workspace or external effects may occur before a validated
+  result exists.
+- The design does not enforce a mutation-free supervisor and does not roll
+  back worker or supervisor writes.
+- A cancelled fresh worker may have changed the workspace. The resume turn
+  starts from that current workspace and receives corrective guidance; it is
+  not a clean-snapshot retry.
+- Concurrent provider behavior and workspace bytes are therefore not
+  deterministic. T2's determinism claim is limited to event arbitration,
+  selected-result authority, workflow-state transitions, and publication.
+- Authors are responsible for choosing worker/supervisor calls whose
+  concurrent effects are compatible. Integration fixtures and the real smoke
+  use an isolated toy workspace so their expected state is auditable.
+
+A future mutation-containment or rollback contract would be a separate
+feature. It is not implied by `with-live-providers`.
+
+## Checkpoint, Retry, And Resume
+
+- The whole form owns one checkpoint identity derived from its static
+  structure, member calls, observation edge, pure settlement payload, and
+  declared inputs.
+- No member result, session id, pane target, steering progress, or
+  cancellation state is a separately resumable checkpoint.
+- A member failure, directive failure, cancellation failure, resume failure,
+  or settlement failure fails the node and cleans up every active member.
+- An authored retry is eligible only after the live coordinator has joined or
+  cancelled every member and durably finalized the failed attempt. That retry
+  starts the whole group with a fresh provider session and new panes.
+- Before publishing the ordinary `current_step`, the coordinator creates a
+  visit-qualified provider-supervision metadata record and member evidence
+  paths. The record begins in `running`/`pending` state and remains secondary
+  observability evidence; `state.json` is authoritative.
+- If ordinary run resume finds `current_step.status: running` for a
+  provider-supervision node without that exact visit's terminal group result,
+  it quarantines the visit before restart-index planning, mutation for a new
+  visit, or provider launch. It never fresh-replays the group, reuses a member
+  session, or infers process death from stale process metadata.
+- Quarantine atomically sets the run to failed, clears the exact matching
+  `current_step`, preserves older terminal results, records a sticky
+  `provider_supervision_interrupted_visit_quarantined` run error, and updates
+  the visit metadata/evidence as interrupted. Later ordinary resume fails
+  immediately from that marker.
+- Only explicit `--force-restart` or a new run may cross that quarantine
+  boundary, matching the existing provider-session external-state policy.
+- A crash may leave partial member evidence, but no member bundle is
+  authoritative unless the group terminal commit landed.
+- Existing root checksum, callee checksum, lexical checkpoint, and projection
+  validation remain unchanged.
 
 ## Invariants And Failure Modes
 
-Invariants that must hold after implementation:
+### Invariants
 
-1. 1:1 invocation↔pane; panes are never shared, reused, or outlived by the
-   scope that created them.
-2. Concurrency exists only inside a `provider_group` node; the step cursor
-   remains strictly serial.
-3. Live tmux targets never escape the scope: not in results, bundles,
-   artifacts, persisted state, or diagnostics payloads (paths to transcript
-   evidence are fine; live targets are not).
-4. The runtime mediates no interaction: after injection, all
-   observation/steering happens through member agents' own tool use.
-5. Results travel only as members' validated bundles consumed by the body's
-   dataflow; pane transcripts and spools are evidence, never a result
-   channel.
-6. One checkpoint per form; incomplete forms replay fresh; no live state is
-   treated as durable workflow state.
-7. No name-keyed branches: hosting, grouping, and binding mechanics never
-   consult workflow, provider, family, or domain names.
-8. An unbound invocation under pane hosting is behaviorally identical to the
-   pipe transport, and a single-member binding-free form is equivalent to
-   the plain call.
+1. Every invocation attempts one pane; every successfully allocated pane has
+   exactly one invocation and is never reused. A supervision member requires
+   its pane.
+2. The provider transport remains authoritative; the pane is a view.
+3. Workflow state has one writer: the group coordinator.
+4. Exactly one worker turn supplies the selected worker result.
+5. `STEER` cannot resume until the fresh leader is reaped, the owned PGID is
+   empty, its executor future and capture threads are joined, and the final
+   partial-stream identity is still unique.
+6. The supervisor directive is accepted only from its validated bundle.
+7. Guidance is free-form content; the runtime interprets only
+   `CONTINUE|STEER`.
+8. Live targets and provider session ids never escape as workflow values;
+   debug prompt/command evidence may retain a now-ephemeral target.
+9. The group has one atomic workflow-state/result commit; an interrupted live
+   visit is quarantined and never replayed by ordinary resume.
+10. No mechanism consults provider, workflow, family, module, or domain
+    names.
 
-Failure behavior:
+### Fail-closed cases
 
-- unknown peer name, member that is not a single provider invocation, or
-  `:tmux-binding-of` outside the form → compile diagnostics;
-- pane or socket allocation failure → step fails closed before any launch;
-- referenced member failure (exit, contract, kill) → form failure with
-  member-indexed diagnostic and all member transcripts attached;
-- unreferenced member abnormal exit or scope-exit termination → recorded
-  evidence, not failure;
-- tmux absent at run start → run fails at preflight with a clear diagnostic
-  (subject to the degraded-environment open question);
-- crash mid-form → incomplete step; resume replays the whole form fresh.
+- wrong arity, missing/duplicate observation edge, unknown peer, ineligible
+  member, or effectful settlement body;
+- target DSL below 2.16;
+- worker template missing valid turn-boundary capability;
+- required supervision-pane allocation or pre-directive display-mirror
+  failure;
+- supervisor failure or invalid directive;
+- missing, empty, plural, changing, or late-only worker session identity when
+  `STEER` needs active-turn cancellation;
+- worker leader/PGID/future/capture-thread boundary not proved;
+- resume identity mismatch;
+- member timeout or nonzero exit;
+- supervisor directive-contract failure or selected worker
+  business-contract failure; an unselected fresh bundle is not read after
+  `STEER`;
+- provisional bundle path collision or contamination;
+- pure settlement validation failure; or
+- crash before the atomic terminal commit.
 
-## Security, Operations, And Performance
+## Compatibility And Versioning
 
-- No new authority: agents already hold shell tools; the design adds
-  addressing information and sanction, scoped by a run-private socket.
-  Secrets masking must hold on the pane-capture path (T1).
-- Wall-time for a group is the slowest referenced member plus grace, versus
-  the sum for sequential alternatives; cost is N concurrent agent CLIs —
-  authors size groups deliberately.
-- tmux becomes a preflighted runtime dependency for every run (user
-  decision); it is headless-compatible, and CI environments must provide it.
-- Workspace contention between concurrent members is the author's
-  responsibility; existing artifact-path validation continues to apply per
-  member.
-
-## Evidence And Implementation Boundaries
-
-- The compatibility suite (pipe vs pane transport on fixture providers) is
-  the sanctioned proof for Part A; flipping the default transport without it
-  is prohibited.
-- Fixture "agents" for group tests are scripted CLIs (one sends keys, the
-  other reacts deterministically) — test infrastructure, not the
-  implementation; end-to-end evidence must include one real agentic CLI
-  steered by a real supervisor provider (gated on T3).
-- Binding behavior is asserted through prompt-audit flags, invocation
-  metadata, transcripts, and evidence records — never through prompt
-  phrasing or transcript wording.
-
-## Compatibility And Migration
-
-- Additive for all existing workflows; no YAML surface. The transport change
-  is behavior-compatible by contract and lands behind a flag until the
-  compatibility suite proves parity (then flips to default per the user
-  decision).
-- The filesystem-inbox multi-agent pattern and the cross-run watchdog remain
-  valid, sanctioned layers; this design adds the intra-step live layer
-  between them.
+- Existing Workflow Lisp source and all existing provider steps keep their
+  current provider transport and result contracts.
+- Pane mirroring is attempted by default after T1 parity passes. Ordinary
+  calls degrade observability rather than provider correctness when it is
+  unavailable; the live form requires its initial mirrors.
+- `with-live-providers` is new in target DSL 2.16.
+- There is no YAML spelling.
+- Providers without turn-boundary resume remain fully usable for ordinary
+  calls and as supervisors; they are rejected only in the observed-worker
+  position.
+- Current file/inbox coordination, cross-run watchdogs, and sequential
+  provider-session steps remain valid.
 
 ## Verification Strategy
 
-- **Transport (Part A):** golden compatibility suite — identical result
-  contracts, bundles, metadata, masked spool content, timeout/kill behavior,
-  and codex JSONL session-id parsing across pipe vs pane transports; pane
-  identity recorded in invocation metadata; preflight failure without tmux.
-- **Typecheck:** unknown-peer and non-single-invocation rejections; binding
-  outside the form rejected; form type equals body type; member bindings
-  typed as declared returns; effect summary carries `LiveBindingEffect`
-  edges.
-- **Lowering:** golden IR for a two-member group (one `provider_group` node,
-  member order, binding edges, source-map entries per member); single-member
-  equivalence against the plain call.
-- **Runtime (fixture agents):** concurrent launch with 1:1 panes; binding
-  injection applied to the declared member only (prompt-audit); interaction
-  proven by transcript (fixture A sends keys, fixture B's behavior changes);
-  body referencing only `w` terminates `m` at scope exit with `scope_exit`
-  evidence; body referencing only `m` while `m` kills `w` yields `m`'s
-  typed result with `w`'s abnormal exit as evidence; referenced-member
-  failure fails the form with member-indexed diagnostics; crash mid-form
-  resumes as fresh replay with new pane identities.
-- **Concurrency safety (T2):** parallel members hammering state
-  writes/heartbeat/artifacts with integrity assertions.
-- **End-to-end (repo rule):** one orchestrator smoke compiling and running a
-  small `.orc` workflow where a real supervisor provider steers a real
-  interactive-capable worker CLI on a toy task, settling via the body's
-  dataflow (gated on T3's template probe).
-- **Negative:** a workflow attempting to place a live tmux target in an
-  output bundle or artifact fails validation; binding to a non-member fails
-  at compile time, not runtime.
+### T1 — observation non-interference
 
-## Declarative Acceptance Scenario
+Compare pane-disabled and pane-enabled execution for:
 
-A `.orc` workflow declares `with-live-providers` with members `w` (a
-migration-executor procedure) and `m` (a supervisor procedure declaring
-`:tmux-binding-of w`), body returning `m`'s `SupervisionVerdict`. Running it:
+- ordinary non-stream provider calls;
+- streaming calls;
+- session JSONL calls and in-flight session-id extraction;
+- adjudicated candidate/evaluator invocations and managed-provider
+  invocations;
+- stdout, stderr, exit code, timeout, and normalized result;
+- output bundles and provider-session metadata; and
+- pane allocation failure, tail-process failure, tmux-server loss, callback
+  failure, transcript finalization, and teardown.
 
-- launches both invocations concurrently, each in its own pane on the run's
-  private socket, with `w`'s tmux target and the interaction preamble
-  injected into `m`'s prompt only (prompt-audit asserts this structurally);
-- `m` observes `w` mid-flight via capture-pane and sends corrective input
-  via send-keys at moments of its own choosing — no runtime mediation
-  appears in any log;
-- when `m` returns its validated verdict bundle, the form's value is the
-  verdict; `w`, still running and unreferenced, receives grace then
-  termination recorded as `scope_exit` evidence alongside both transcripts;
-- on resume after a mid-form crash, the form re-executes fresh with new pane
-  identities and no reuse of prior live state.
+The test must prove that terminal-rendered pane bytes never feed the raw
+provider parser or result path.
 
-This proves the intended integration because every assertion rests on
-invocation metadata, prompt-audit flags, evidence records, typed bundles,
-and checkpoint behavior — not on transcript phrasing or fixture-only
-shortcuts.
+### T2 — single-writer concurrency
+
+Use scripted providers to prove:
+
+- worker and supervisor overlap in wall-clock time;
+- member workers receive immutable requests;
+- member workers never call `StateManager` or workflow-executor mutation
+  entrypoints;
+- member-local ids and paths do not collide;
+- group heartbeat and one `current_step` remain coherent;
+- only the coordinator commits artifacts and the terminal result; and
+- all coordinator event orderings produce one deterministic selected-result
+  and workflow-state outcome; provider behavior and workspace bytes are not
+  claimed deterministic.
+
+### T3b — turn-boundary integration
+
+Both-direction fixtures:
+
+- `CONTINUE` selects the fresh worker result and never launches resume;
+- `STEER` observes a live worker, captures one canonical session id, reaps the
+  leader, empties the owned PGID, joins the executor/capture work, performs
+  one resume, and selects only the resumed result;
+- no session id rejects;
+- plural/changing session ids reject;
+- real `thread.started.thread_id` canonicalizes and becomes available before
+  `turn.completed`;
+- real nested `item.completed.item` agent messages contribute normalized
+  assistant text without marking the turn terminal;
+- cross-key identity disagreement and malformed identity values reject;
+- `item.completed` does not mark the provider turn terminal;
+- invalid directive rejects;
+- failed or ambiguous quiescence rejects before resume;
+- successful leader exit with a lingering same-PGID child rejects without a
+  resume, while a clean natural exit may resume;
+- resume identity mismatch rejects;
+- stale fresh bundle never wins;
+- a missing/invalid fresh business bundle fails `CONTINUE` but is not read
+  after a valid `STEER` whose resume bundle succeeds;
+- stale provisional preimages reject before launch;
+- a missing resume bundle rejects even when a stale fresh bundle is valid;
+- settlement failure commits no member result or artifact publication; the
+  failed group finalization follows ordinary failure persistence;
+- second steering is impossible; and
+- live-coordinator retry starts fresh only after complete cleanup;
+- controller-crash resume quarantines before any provider launch; and
+- later ordinary resume fails immediately from the sticky quarantine marker.
+
+One real-provider smoke must demonstrate a real supervisor observing a real
+session-capable worker and producing a correction whose resumed typed result
+differs as intended. If session identity is not available before worker
+completion, or the leader/owned-PGID/future/capture-thread boundary cannot be
+proved, Stage 7 stops at the fixture implementation and the live-correction
+claim is not shipped.
+
+### Frontend and IR
+
+- parser/type diagnostics for every invalid form shape;
+- target `2.16` installs/reserves the prelude directive while earlier targets
+  neither install nor reserve that name;
+- post-specialization member eligibility;
+- supervisor directive type enforcement;
+- body pure-projection enforcement;
+- `LiveSupervisionEffect` and source ownership;
+- executable, runtime-plan, semantic, source-map, checkpoint, and build
+  artifact projections;
+- target-DSL version rejection and acceptance; and
+- end-to-end `.orc` compile/run/report behavior.
+
+Tests assert behavior, contracts, lineage, and dataflow—not literal prompt
+phrasing.
+
+## Dependencies And Sequencing
+
+The Stage 7 implementation order is:
+
+1. **Observation and cancellation substrate.** Pane mirror behind a flag,
+   cancellable provider execution, shared real-shape session codec,
+   preterminal identity callback, T1 parity, and a minimal real Codex
+   identity → cancel/owned-PGID proof → resume spike. This phase stops if the
+   real boundary fails; frontend work may not begin on fixture evidence alone.
+2. **Runtime group coordinator.** Hand-built executable nodes, immutable
+   member execution, directive arbitration, one-turn resume, result
+   promotion, atomic state, and T2/T3b fixtures.
+3. **Workflow Lisp surface.** Syntax, specialization eligibility, typing,
+   effects, WCC/schema-2 defunctionalization, executable projections, pure
+   settlement, and DSL 2.16.
+4. **Capability promotion and integration.** Structurally opt in eligible
+   templates, run the real T3b smoke, update normative specs and authoring
+   docs, enable the pane default, and close Stage 7 evidence.
+
+Each phase must use TDD and receive specification-compliance and code-quality
+review before the next dependent phase.
 
 ## Success Criteria
 
-- Compatibility suite green and the transport default flipped with fresh
-  evidence; T1-T3 outcomes recorded.
-- All Verification Strategy checks implemented and green, including the
-  fixture-agent interaction proofs and the real-CLI end-to-end smoke.
-- Single-member equivalence proven at IR and behavior level.
-- Spec deltas landed with the implementation; capability matrix row and
-  doc-index routing added.
-- Independent design review signoff before implementation starts.
+- This design passes independent review after the adverse T3a result is
+  incorporated.
+- T1 proves observation non-interference for every current provider execution
+  path.
+- The phase-1 real Codex spike proves canonical preterminal identity,
+  cancellation boundary, and session resume before group/frontend
+  implementation.
+- T2 proves the group coordinator is the only workflow-state writer.
+- Fixture T3b proves both `CONTINUE` and `STEER`, including strict negative
+  paths.
+- The real T3b smoke proves effective live correction, preterminal canonical
+  session identity, leader reaping, owned-PGID emptiness, and joined
+  executor/capture work.
+- DSL 2.16 frontend, IR, runtime, state, report, and typed-result checks pass.
+- Existing provider behavior remains non-regressive.
+- Normative specs, capability status, authoring guidance, and roadmap routing
+  describe the implemented contract.
 
 ## Stop / Revise Criteria
 
-- **T3 fails** — no viable interactive-input provider CLI exists and none
-  can be added: revise the control path toward turn-boundary steering
-  (resume-turn injection against the worker's provider session) before
-  building the form; do not ship send-keys steering that provably cannot
-  steer.
-- **T1 fails** — pane hosting cannot preserve metadata/masking contracts:
-  keep pane hosting opt-in per group instead of the global default, and
-  bring the always-on decision back to the user rather than weakening the
-  contracts.
-- **T2 fails boundedly** — concurrent state safety needs more than
-  targeted locking: stop and reconsider a single-flight attachment model
-  before introducing broad locking.
-- Last-expression settlement proves error-prone in practice (authors
-  accidentally terminate members they needed): add explicit `:await` /
-  `:auxiliary` member annotations rather than changing the default
-  semantics silently.
-- The form cannot be implemented without consulting provider or workflow
-  names → stop; the abstraction is wrong.
+- Raw provider behavior changes when the pane mirror is enabled: stop and keep
+  ordinary mirrors opt-in until non-interference is restored.
+- A real supported provider cannot expose a stable session id before
+  completion: do not claim active-turn correction; revise to post-turn resume
+  or a separately designed native protocol.
+- The runtime cannot prove the old worker's leader/owned-PGID/future/capture
+  boundary: do not launch the resume turn.
+- The implementation requires concurrent workflow-executor mutation: stop and
+  preserve the single-writer boundary.
+- The form cannot lower through WCC/schema 2 without a direct frontend escape
+  path: stop and revise the frontend contract.
+- Any mechanism requires provider- or workflow-name branching: stop; the
+  abstraction is wrong.
 
 ## Documentation Impact
 
-At implementation time: `specs/providers.md`, `specs/io.md`,
-`specs/index.md`, `specs/versioning.md`, the frontend specification,
-`docs/capability_status_matrix.md`, `docs/index.md` +
-`docs/design/README.md` routing updates, the drafting guide (authoring
-guidance, the settlement-as-dataflow patterns, and the equivalence note),
-and `docs/workflow_monitoring.md` (pane identities as an observability
-surface). None are edited by this proposal beyond the routing entries that
-announce it.
+Implementation updates:
 
-## Implementation Handoff
+- `docs/design/workflow_lisp_executable_ir.md`;
+- `docs/design/workflow_lisp_frontend_specification.md`;
+- `specs/providers.md`, `specs/io.md`, `specs/state.md`,
+  `specs/versioning.md`, `specs/observability.md`, and `specs/index.md`;
+- `docs/capability_status_matrix.md`;
+- the Workflow Lisp drafting guide;
+- provider monitoring documentation;
+- `docs/design/README.md` and `docs/index.md`; and
+- the Stage 7 roadmap status and execution-plan links.
 
-Suggested phases (each independently testable):
+## Deferred Follow-Ons
 
-1. **Pane transport behind a flag** — socket/pane lifecycle, exit capture,
-   spool/masking/JSONL wiring, invocation-metadata pane identity, the
-   compatibility suite (T1). Independently valuable observability win; zero
-   frontend changes.
-2. **Group node and runtime** — `provider_group` executable node, concurrent
-   member execution with settlement/grace/termination semantics, T2 safety
-   work, fixture-agent runtime tests. Producible only by hand-built IR in
-   tests; still no frontend exposure.
-3. **Frontend surface** — `with-live-providers` parsing, member/binding
-   typecheck, `LiveBindingEffect`, lowering with source-map entries,
-   equivalence tests, prompt-composer binding injection + prompt-audit.
-4. **Steering viability and end-to-end** — `interactive_input` template
-   capability, T3 probe, real-CLI smoke, spec deltas, transport default
-   flip, capability matrix and docs.
+Separate proposals are required for:
 
-Likely-touched modules: `orchestrator/providers/executor.py` (transport),
-`orchestrator/providers/types.py`/`registry.py` (`interactive_input`),
-`orchestrator/workflow/executor.py` (node dispatch),
-`orchestrator/workflow/executable_ir.py`, `orchestrator/workflow/prompting.py`
-(injection), `orchestrator/workflow_lisp/effects.py`, `typecheck_effects.py`,
-form registry/expressions, lowering, `lexical_checkpoints.py` (atomic
-policy), `orchestrator/state.py` (concurrent-write safety), evidence/state
-layout for transcripts.
-
-Known tricky areas: TTY line/chunk integrity for in-flight JSONL parsing
-under pipe-pane (T1); masking on the pane path; deterministic
-free-variable analysis of the body for the awaited-member set; straggler
-termination racing a member's natural exit; keeping pane identities out of
-every persisted result surface.
-
-Safe first step: phase 1 behind its flag with the compatibility suite —
-fully removable, immediately useful.
-
-Out of scope for the implementation: cross-run binding, multi-step members,
-typed steering vocabularies, event-driven wake-ups, background/join
-primitives, YAML surface.
-
-## Open Questions
-
-1. **Degraded environments** — is tmux a hard preflight dependency for every
-   run (uniformity, the user's default) or is a config fallback to pipe
-   transport permitted where tmux is unavailable (breaks the 1:1
-   uniformity)? Recommendation: hard dependency with preflight diagnostic;
-   revisit on real deployment evidence. Blocking: no.
-2. **Interactive provider templates (T3 owner)** — which CLIs support
-   effective TTY steering mid-invocation, and what does the builtin
-   registry's `interactive_input` story look like? Owner: provider registry.
-   Blocking: for the steering end-to-end only; observe-only bindings work
-   regardless.
-3. **Straggler grace period** — default value and whether it is per-form
-   configurable. Recommendation: one default (order of 30s), per-form
-   override later if evidence demands. Blocking: no.
-4. **Explicit await annotations** — should authors be able to override the
-   free-variable analysis with `:await`/`:auxiliary` marks from day one?
-   Recommendation: analysis-only in v1; annotations are the recorded
-   fallback if the stop/revise trigger fires. Blocking: no.
-5. **Multi-step members** — the future shape for composing procedures with
-   several internal steps (concurrent sub-graphs). Deferred; requires its
-   own design. Blocking: no.
-6. **Cross-run binding** — supervising another run's panes (watchdog
-   upgrade). Deferred; interacts with run-private socket isolation.
-   Blocking: no.
+- provider-native active-turn protocols;
+- repeated or unbounded steering;
+- N-member or bidirectional supervision;
+- effectful settlement;
+- multi-step member procedures;
+- cross-run live binding; and
+- general background/join semantics.
