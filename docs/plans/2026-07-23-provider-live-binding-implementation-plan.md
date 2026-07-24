@@ -42,8 +42,8 @@ The bound amendment supersedes commit `afd0fec5` as current implementation
 authority. The historical simulation does not override the accepted
 observable cancellation linearization or the narrower resume-boundary rule.
 
-**Status:** Execution in progress. Tasks 1-3 and the evidence-driven Task 1R
-amendment are complete. The real resume-boundary gate passed; Task 4 is next.
+**Status:** Execution in progress. Tasks 1-4 and the evidence-driven Task 1R
+amendment are complete. The real resume-boundary gate passed; Task 5 is next.
 
 **Plan-review evidence:** Independent specification/sequence review: `PASS`.
 Independent path/selector/shell-order audit: `PASS` for the pre-amendment plan.
@@ -591,21 +591,29 @@ persisted. Ordered independent verdicts: `SPEC_COMPLIANT`; `APPROVED`.
 - Create: `tests/test_provider_observation.py`
 - Modify: `orchestrator/providers/__init__.py`
 
-- [ ] Write RED tests for one run-scoped server, unique invocation panes,
+- [x] Write RED tests for one run-scoped server, unique invocation panes,
   pre-created display files, tail startup, opaque target access, transcript
   finalization, independent teardown, allocation/tail/tmux loss, concurrent
   handles, and a real local tmux tail smoke when tmux exists.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_provider_observation.py`.
-- [ ] Implement a locked `ProviderObservationManager` and
+- [x] Implement a locked `ProviderObservationManager` and
   `ProviderObservationHandle`. The display/transcript file—not
   `capture-pane`—is evidence authority.
-- [ ] Keep socket/target strings process-local; persisted pane records contain
+- [x] Keep socket/target strings process-local; persisted pane records contain
   stable invocation/member/turn identities and paths only.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_provider_observation.py`.
-- [ ] Complete specification review, quality review, and commit:
+- [x] Complete specification review, quality review, and commit:
   `Add provider observation pane lifecycle`.
+
+**Task 4 evidence (2026-07-23):** Initial RED failed collection because the
+observation module was absent. Review-driven REDs then exposed untyped display
+precreation, incomplete loss/teardown coverage, concurrent-close early return,
+and an unretryable live-server teardown. Final verification collected 13
+tests; all 13 passed warning-strict serially and with
+`-n 4 --dist=worksteal`, including the isolated real-tmux tail/cleanup smoke.
+Ordered independent verdicts: `SPEC_COMPLIANT`; `APPROVED`.
 
 ### Task 5: Observation Non-Interference Across Every Provider Route
 

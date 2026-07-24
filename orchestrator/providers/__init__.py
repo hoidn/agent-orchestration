@@ -22,6 +22,11 @@ from .session_transport import (
     create_session_transport_accumulator,
 )
 from .control import ProviderCancellationResult, ProviderExecutionControl
+from .observation import (
+    ProviderObservationError,
+    ProviderObservationHandle,
+    ProviderObservationManager,
+)
 from .executor import (
     ProviderExecutionClassification,
     ProviderExecutor,
@@ -56,6 +61,9 @@ __all__ = [
     "create_session_transport_accumulator",
     "ProviderCancellationResult",
     "ProviderExecutionControl",
+    "ProviderObservationError",
+    "ProviderObservationHandle",
+    "ProviderObservationManager",
     "ProviderExecutionClassification",
     "ProviderExecutor",
     "ProviderExecutionResult",
