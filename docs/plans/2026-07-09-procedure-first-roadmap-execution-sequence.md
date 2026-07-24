@@ -431,7 +431,7 @@ compatibility or a family migration wave.
 
 The procedure-first migration wave is complete. Stage 6 YAML retirement Tasks
 1-6 and the Task-7 product changes are also complete; the current selector is
-Task 7's final broad comparison and independent reviews.
+Task 7's final scoped broad comparison and independent reviews.
 
 Execute only accepted plans, in this order:
 
