@@ -16,6 +16,11 @@ from .types import (
     InputMode,
 )
 from .registry import ProviderRegistry
+from .session_transport import (
+    CodexExecJsonlAccumulator,
+    SessionIdentitySnapshot,
+    create_session_transport_accumulator,
+)
 from .executor import ProviderExecutor, ProviderExecutionResult
 from .isolation import (
     HistoryRetrievalPolicy,
@@ -41,6 +46,9 @@ __all__ = [
     "ProviderSessionSupport",
     "InputMode",
     "ProviderRegistry",
+    "CodexExecJsonlAccumulator",
+    "SessionIdentitySnapshot",
+    "create_session_transport_accumulator",
     "ProviderExecutor",
     "ProviderExecutionResult",
     "HistoryRetrievalPolicy",

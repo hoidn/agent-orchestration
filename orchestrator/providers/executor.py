@@ -1,6 +1,5 @@
 """Provider executor for running provider commands."""
 
-import json
 import logging
 import os
 import signal
@@ -17,7 +16,6 @@ from .types import (
     InputMode,
     ProviderInvocation,
     ProviderParams,
-    ProviderSessionMetadataMode,
     ProviderSessionMode,
     ProviderSessionRequest,
     escape_provider_command_token,
@@ -25,6 +23,11 @@ from .types import (
     restore_provider_command_token,
 )
 from .registry import ProviderRegistry
+from .session_transport import (
+    CodexExecJsonlAccumulator,
+    create_session_transport_accumulator,
+    extract_codex_assistant_text,
+)
 from ..security.secrets import SecretsManager
 from ..variables.substitution import VariableSubstitutor
 
@@ -683,10 +686,34 @@ class ProviderExecutor:
 
             stdout_buf = bytearray()
             stderr_buf = bytearray()
+            expected_session_id = self._expected_session_id(invocation)
+            accumulator: CodexExecJsonlAccumulator | None = None
+
+            def _emit_assistant_text(assistant_text: str) -> None:
+                if accumulator is None:
+                    return
+                snapshot = accumulator.snapshot()
+                if snapshot.status in {"ambiguous", "invalid"}:
+                    return
+                if (
+                    expected_session_id is not None
+                    and snapshot.status == "unique"
+                    and snapshot.session_ids != (expected_session_id,)
+                ):
+                    return
+                self._emit_session_assistant_text(assistant_text)
+
+            accumulator = create_session_transport_accumulator(
+                invocation.metadata_mode,
+                assistant_text_callback=(
+                    _emit_assistant_text if stream_output else None
+                ),
+            )
             stdout_callback = self._build_session_stdout_callback(
                 invocation=invocation,
                 stream_output=stream_output,
                 session_runtime=session_runtime,
+                accumulator=accumulator,
             )
 
             stdout_thread = threading.Thread(
@@ -738,6 +765,7 @@ class ProviderExecutor:
                 stderr=bytes(stderr_buf),
                 duration_ms=duration_ms,
                 stream_output=stream_output,
+                accumulator=accumulator,
             )
         except Exception as exc:
             duration_ms = int((time.time() - start_time) * 1000)
@@ -784,29 +812,21 @@ class ProviderExecutor:
         invocation: ProviderInvocation,
         stream_output: bool,
         session_runtime: Optional[Dict[str, Any]],
+        accumulator: CodexExecJsonlAccumulator | None = None,
     ) -> Callable[[bytes], None]:
         """Build the session stdout handler used during live pipe capture."""
-        expected_session_id = (
-            invocation.session_request.session_id
-            if invocation.session_request is not None
-            and invocation.session_request.mode == ProviderSessionMode.RESUME
-            else None
-        )
-        stream_state: Dict[str, Any] = {
-            "blocked": False,
-            "session_ids": set(),
-        }
+        if accumulator is None:
+            accumulator = create_session_transport_accumulator(
+                invocation.metadata_mode,
+                assistant_text_callback=(
+                    self._emit_session_assistant_text if stream_output else None
+                ),
+            )
 
         def _handle_chunk(chunk: bytes) -> None:
             self._append_masked_transport(chunk, session_runtime)
-            if not stream_output:
-                return
-            if invocation.metadata_mode == ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value:
-                self._stream_codex_jsonl_chunk(
-                    chunk,
-                    expected_session_id=expected_session_id,
-                    stream_state=stream_state,
-                )
+            if accumulator is not None:
+                accumulator.feed(chunk)
 
         return _handle_chunk
 
@@ -817,39 +837,44 @@ class ProviderExecutor:
         expected_session_id: Optional[str],
         stream_state: Dict[str, Any],
     ) -> None:
-        """Emit assistant text from one JSONL stdout chunk while transport is still in flight."""
+        """Compatibility wrapper around the shared incremental JSONL codec."""
         if stream_state.get("blocked"):
             return
 
-        for raw_line in raw_chunk.decode("utf-8", errors="replace").splitlines():
-            if not raw_line.strip():
-                continue
-            try:
-                event = json.loads(raw_line)
-            except json.JSONDecodeError:
-                stream_state["blocked"] = True
-                return
+        accumulator = stream_state.get("accumulator")
+        if not isinstance(accumulator, CodexExecJsonlAccumulator):
 
-            if not isinstance(event, dict):
-                stream_state["blocked"] = True
-                return
-
-            session_id = event.get("session_id")
-            if isinstance(session_id, str) and session_id:
-                session_ids = stream_state["session_ids"]
-                session_ids.add(session_id)
-                if expected_session_id is not None and session_id != expected_session_id:
-                    stream_state["blocked"] = True
+            def _emit_if_valid(assistant_text: str) -> None:
+                active_accumulator = stream_state.get("accumulator")
+                if not isinstance(active_accumulator, CodexExecJsonlAccumulator):
                     return
-                if len(session_ids) > 1:
-                    stream_state["blocked"] = True
+                snapshot = active_accumulator.snapshot()
+                if snapshot.status in {"ambiguous", "invalid"}:
                     return
+                if (
+                    expected_session_id is not None
+                    and snapshot.status == "unique"
+                    and snapshot.session_ids != (expected_session_id,)
+                ):
+                    return
+                self._emit_session_assistant_text(assistant_text)
 
-            assistant_text = self._extract_assistant_text(event)
-            if assistant_text:
-                output = sys.stdout.buffer if hasattr(sys.stdout, "buffer") else sys.stdout
-                output.write(assistant_text.encode("utf-8"))
-                output.flush()
+            accumulator = CodexExecJsonlAccumulator(
+                assistant_text_callback=_emit_if_valid,
+            )
+            stream_state["accumulator"] = accumulator
+
+        accumulator.feed(raw_chunk)
+        snapshot = accumulator.snapshot()
+        stream_state["session_ids"] = set(snapshot.session_ids)
+        if snapshot.status in {"ambiguous", "invalid"}:
+            stream_state["blocked"] = True
+        elif (
+            expected_session_id is not None
+            and snapshot.status == "unique"
+            and snapshot.session_ids != (expected_session_id,)
+        ):
+            stream_state["blocked"] = True
 
     def _finalize_session_result(
         self,
@@ -860,23 +885,31 @@ class ProviderExecutor:
         stderr: bytes,
         duration_ms: int,
         stream_output: bool,
+        accumulator: CodexExecJsonlAccumulator | None = None,
     ) -> ProviderExecutionResult:
         """Parse session transport and emit normalized assistant text."""
         normalized_stdout = b""
         provider_session: Dict[str, Any] | None = None
         error = None
-        if invocation.metadata_mode == ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value:
-            provider_session, error = self._parse_codex_jsonl_transport(
-                raw_stdout,
-                expected_session_id=(
-                    invocation.session_request.session_id
-                    if invocation.session_request is not None
-                    and invocation.session_request.mode == ProviderSessionMode.RESUME
-                    else None
-                ),
+        if accumulator is None:
+            accumulator = create_session_transport_accumulator(
+                invocation.metadata_mode,
             )
+            if accumulator is not None:
+                accumulator.feed(raw_stdout)
+        if accumulator is not None:
+            parsed_session, parse_error = accumulator.finalize(
+                expected_session_id=self._expected_session_id(invocation),
+                require_terminal=True,
+            )
+            provider_session = (
+                dict(parsed_session) if parsed_session is not None else None
+            )
+            error = dict(parse_error) if parse_error is not None else None
             if error is None and provider_session is not None:
-                normalized_stdout = str(provider_session.get("normalized_stdout", "")).encode("utf-8")
+                normalized_stdout = str(
+                    provider_session.get("normalized_stdout", "")
+                ).encode("utf-8")
 
         if error is not None and exit_code == 0:
             exit_code = 2
@@ -898,100 +931,35 @@ class ProviderExecutor:
         *,
         expected_session_id: Optional[str] = None,
     ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
-        """Parse Codex JSONL stdout into normalized assistant text plus session metadata."""
-        session_ids: set[str] = set()
-        text_parts: List[str] = []
-        terminal_seen = False
-        event_count = 0
-
-        for line_number, raw_line in enumerate(raw_stdout.decode("utf-8", errors="replace").splitlines(), start=1):
-            if not raw_line.strip():
-                continue
-            event_count += 1
-            try:
-                event = json.loads(raw_line)
-            except json.JSONDecodeError as exc:
-                return None, {
-                    "type": "provider_session_transport_error",
-                    "message": "Session transport is not valid JSONL",
-                    "context": {"line": line_number, "error": str(exc)},
-                }
-
-            if not isinstance(event, dict):
-                return None, {
-                    "type": "provider_session_transport_error",
-                    "message": "Session transport event must be a JSON object",
-                    "context": {"line": line_number},
-                }
-
-            session_id = event.get("session_id")
-            if isinstance(session_id, str) and session_id:
-                session_ids.add(session_id)
-
-            event_type = event.get("type")
-            if isinstance(event_type, str) and (
-                event_type.endswith("completed")
-                or event_type in {"completed", "done"}
-            ):
-                terminal_seen = True
-            if event.get("status") == "completed":
-                terminal_seen = True
-
-            assistant_text = self._extract_assistant_text(event)
-            if assistant_text:
-                text_parts.append(assistant_text)
-
-        if not terminal_seen:
-            return None, {
-                "type": "provider_session_transport_error",
-                "message": "Session transport is missing a terminal completion marker",
-                "context": {"events": event_count},
-            }
-
-        if not session_ids:
-            return None, {
-                "type": "provider_session_transport_error",
-                "message": "Session transport did not expose a session_id",
-                "context": {"events": event_count},
-            }
-
-        if len(session_ids) != 1:
-            return None, {
-                "type": "provider_session_transport_error",
-                "message": "Session transport exposed conflicting session identifiers",
-                "context": {"session_ids": sorted(session_ids)},
-            }
-
-        session_id = next(iter(session_ids))
-        if expected_session_id is not None and session_id != expected_session_id:
-            return None, {
-                "type": "provider_session_transport_error",
-                "message": "Session transport did not match the requested session_id",
-                "context": {
-                    "expected_session_id": expected_session_id,
-                    "observed_session_id": session_id,
-                },
-            }
-
-        return {
-            "session_id": session_id,
-            "normalized_stdout": "".join(text_parts),
-            "event_count": event_count,
-        }, None
+        """Compatibility delegator for callers of the former final parser."""
+        accumulator = CodexExecJsonlAccumulator()
+        accumulator.feed(raw_stdout)
+        provider_session, error = accumulator.finalize(
+            expected_session_id=expected_session_id,
+            require_terminal=True,
+        )
+        return (
+            dict(provider_session) if provider_session is not None else None,
+            dict(error) if error is not None else None,
+        )
 
     def _extract_assistant_text(self, event: Dict[str, Any]) -> Optional[str]:
-        """Extract assistant-visible text from one provider transport event."""
-        if event.get("role") == "assistant":
-            if isinstance(event.get("text"), str):
-                return event["text"]
-            if isinstance(event.get("delta"), str):
-                return event["delta"]
-            return None
+        """Compatibility delegator for assistant-text extraction."""
+        return extract_codex_assistant_text(event)
 
-        event_type = event.get("type")
-        if isinstance(event_type, str) and "assistant" in event_type:
-            if isinstance(event.get("text"), str):
-                return event["text"]
-            if isinstance(event.get("delta"), str):
-                return event["delta"]
+    @staticmethod
+    def _expected_session_id(
+        invocation: ProviderInvocation,
+    ) -> Optional[str]:
+        if (
+            invocation.session_request is not None
+            and invocation.session_request.mode == ProviderSessionMode.RESUME
+        ):
+            return invocation.session_request.session_id
         return None
+
+    @staticmethod
+    def _emit_session_assistant_text(assistant_text: str) -> None:
+        output = sys.stdout.buffer if hasattr(sys.stdout, "buffer") else sys.stdout
+        output.write(assistant_text.encode("utf-8"))
+        output.flush()
