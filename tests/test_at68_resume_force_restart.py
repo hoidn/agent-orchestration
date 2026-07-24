@@ -6,7 +6,6 @@ from pathlib import Path
 import tempfile
 import hashlib
 from unittest.mock import patch, MagicMock
-import uuid
 
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.state import StateManager
@@ -22,22 +21,28 @@ def temp_workspace():
 
 @pytest.fixture
 def sample_workflow(temp_workspace):
-    """Create a sample workflow file."""
-    workflow_path = temp_workspace / "test_workflow.yaml"
-    workflow_content = """
-version: "1.1"
-name: Test Force Restart Workflow
-steps:
-  - name: Step1
-    command: ["echo", "Hello from Step1"]
-    output_capture: text
-  - name: Step2
-    command: ["echo", "Hello from Step2"]
-    output_capture: text
-  - name: Step3
-    command: ["echo", "Hello from Step3"]
-    output_capture: text
-"""
+    """Create a minimal compiled-ORC workflow."""
+    workflow_path = temp_workspace / "test_workflow.orc"
+    workflow_content = "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.15")',
+            "  (defmodule test_workflow)",
+            "  (export orchestrate)",
+            "  (defrecord ResumeSummary",
+            "    (status String)",
+            "    (ready Bool))",
+            "  (defworkflow orchestrate",
+            "    ((approved Bool)",
+            "     (status String))",
+            "    -> ResumeSummary",
+            "    (record ResumeSummary",
+            "      :status status",
+            "      :ready approved)))",
+            "",
+        ]
+    )
     workflow_path.write_text(workflow_content)
 
     # Calculate checksum in StateManager format
@@ -58,7 +63,7 @@ def existing_run_state(temp_workspace, sample_workflow):
 
     # Create state.json
     state = {
-        "schema_version": "1.1.1",
+        "schema_version": StateManager.SCHEMA_VERSION,
         "run_id": run_id,
         "workflow_file": str(workflow_path),
         "workflow_checksum": checksum,
@@ -66,6 +71,10 @@ def existing_run_state(temp_workspace, sample_workflow):
         "updated_at": "2024-01-01T00:01:00Z",
         "status": "suspended",
         "context": {},
+        "bound_inputs": {
+            "approved": False,
+            "status": "pending",
+        },
         "steps": {
             "Step1": {
                 "status": "completed",
@@ -137,8 +146,6 @@ def test_at68_resume_force_restart_creates_new_run(temp_workspace, existing_run_
     old_state_file = old_state_dir / "state.json"
     assert old_state_file.exists()
 
-    # Verify a new state directory was created for the new run
-    new_state_dir = temp_workspace / '.orchestrate' / 'runs' / new_run_id
     # Note: In the mock, the state might not actually be written to disk,
     # but we're testing the logic flow here
 
@@ -152,18 +159,27 @@ def test_at68_force_restart_ignores_workflow_changes(temp_workspace, existing_ru
     old_run_id, old_state_dir = existing_run_state
 
     # Modify the workflow file (this would normally fail checksum validation)
-    workflow_path = temp_workspace / "test_workflow.yaml"
-    modified_content = """
-version: "1.1"
-name: Modified Workflow
-steps:
-  - name: Step1
-    command: ["echo", "Modified Step1"]
-    output_capture: text
-  - name: NewStep
-    command: ["echo", "This is a new step"]
-    output_capture: text
-"""
+    workflow_path = temp_workspace / "test_workflow.orc"
+    modified_content = "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.15")',
+            "  (defmodule test_workflow)",
+            "  (export modified-workflow)",
+            "  (defrecord ResumeSummary",
+            "    (status String)",
+            "    (ready Bool))",
+            "  (defworkflow modified-workflow",
+            "    ((approved Bool)",
+            "     (status String))",
+            "    -> ResumeSummary",
+            "    (record ResumeSummary",
+            "      :status status",
+            "      :ready approved)))",
+            "",
+        ]
+    )
     workflow_path.write_text(modified_content)
 
     with patch('orchestrator.cli.commands.resume.WorkflowExecutor') as MockExecutor:
@@ -189,7 +205,7 @@ steps:
         assert MockExecutor.called
         init_kwargs = MockExecutor.call_args.kwargs
         workflow = init_kwargs['workflow']
-        assert workflow.surface.name == 'Modified Workflow'
+        assert workflow.surface.name == 'test_workflow::modified-workflow'
 
     assert result == 0
 
@@ -203,15 +219,11 @@ def test_at68_resume_without_force_restart_validates_checksum(temp_workspace, ex
     old_run_id, old_state_dir = existing_run_state
 
     # Modify the workflow file
-    workflow_path = temp_workspace / "test_workflow.yaml"
-    modified_content = """
-version: "1.1"
-name: Modified Workflow
-steps:
-  - name: Step1
-    command: ["echo", "Modified"]
-"""
-    workflow_path.write_text(modified_content)
+    workflow_path = temp_workspace / "test_workflow.orc"
+    workflow_path.write_text(
+        workflow_path.read_text(encoding="utf-8") + "; checksum change\n",
+        encoding="utf-8",
+    )
 
     with patch('os.getcwd', return_value=str(temp_workspace)):
         # Should fail due to checksum mismatch

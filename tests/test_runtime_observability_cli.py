@@ -27,15 +27,25 @@ LISP_SOURCE_ROOT = WORKFLOW_LISP_FIXTURES / "modules" / "valid" / "imported_bund
 
 
 def _write_workflow(workspace: Path) -> Path:
-    workflow = workspace / "workflow.yaml"
+    workflow = workspace / "workflow.orc"
     workflow.write_text(
         "\n".join(
             [
-                'version: "1.1"',
-                "name: runtime-cli-test",
-                "steps:",
-                "  - name: Step1",
-                '    command: ["bash", "-lc", "true"]',
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule workflow)",
+                "  (export orchestrate)",
+                "  (defrecord ResumeSummary",
+                "    (status String)",
+                "    (ready Bool))",
+                "  (defworkflow orchestrate",
+                "    ((approved Bool)",
+                "     (status String))",
+                "    -> ResumeSummary",
+                "    (record ResumeSummary",
+                "      :status status",
+                "      :ready approved)))",
             ]
         )
         + "\n",
@@ -49,7 +59,7 @@ def _run_args(workflow: Path) -> Namespace:
         workflow=str(workflow),
         context=None,
         context_file=None,
-        input=None,
+        input=["approved=true", "status=ready"],
         input_file=None,
         clean_processed=False,
         archive_processed=None,
@@ -127,9 +137,12 @@ def test_run_workflow_records_closed_executor_session(tmp_path: Path, monkeypatc
 
 
 def test_resume_workflow_records_second_session_and_excludes_gap(tmp_path: Path, monkeypatch):
-    workflow = _write_workflow(tmp_path)
+    _write_workflow(tmp_path)
     manager = StateManager(tmp_path, run_id="resume-runtime")
-    state = manager.initialize("workflow.yaml")
+    state = manager.initialize(
+        "workflow.orc",
+        bound_inputs={"approved": True, "status": "ready"},
+    )
     state.status = "failed"
     state.updated_at = "2026-04-29T10:20:00+00:00"
     state.runtime_observability = {
@@ -292,7 +305,7 @@ def test_run_workflow_logs_compiled_frontend_source_context(
         result = run_workflow(args)
 
     messages = "\n".join(record.getMessage() for record in caplog.records)
-    assert result == 1
+    assert result == 0
     assert "Running step runtime/entry::orchestrate__remote__call_selector-run" in messages
     assert f"source: {workflow}" in messages
     assert "form: workflow-lisp > defworkflow > orchestrate" in messages

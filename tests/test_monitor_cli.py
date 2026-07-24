@@ -137,7 +137,7 @@ def _run_args(workflow: Path) -> SimpleNamespace:
         workflow=str(workflow),
         context=None,
         context_file=None,
-        input=None,
+        input=["approved=true", "status=ready"],
         input_file=None,
         clean_processed=False,
         archive_processed=None,
@@ -161,15 +161,28 @@ def _run_args(workflow: Path) -> SimpleNamespace:
 
 
 def _write_workflow(workspace: Path) -> Path:
-    workflow = workspace / "workflow.yaml"
+    workflow = workspace / "workflow.orc"
     workflow.write_text(
-        """
-version: "1.1"
-name: monitor-sidecar-test
-steps:
-  - name: Step
-    command: ["bash", "-lc", "true"]
-""",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule workflow)",
+                "  (export orchestrate)",
+                "  (defrecord ResumeSummary",
+                "    (status String)",
+                "    (ready Bool))",
+                "  (defworkflow orchestrate",
+                "    ((approved Bool)",
+                "     (status String))",
+                "    -> ResumeSummary",
+                "    (record ResumeSummary",
+                "      :status status",
+                "      :ready approved)))",
+                "",
+            ]
+        ),
         encoding="utf-8",
     )
     return workflow
@@ -201,10 +214,14 @@ def test_run_workflow_sidecar_write_failure_is_nonfatal(tmp_path: Path, monkeypa
 def test_resume_workflow_refreshes_monitor_process_sidecar(tmp_path: Path, monkeypatch):
     workspace = tmp_path / "repo"
     workspace.mkdir()
-    workflow = _write_workflow(workspace)
+    _write_workflow(workspace)
     monkeypatch.chdir(workspace)
     state_manager = StateManager(workspace=workspace, run_id="run-resume")
-    state_manager.initialize("workflow.yaml", {})
+    state_manager.initialize(
+        "workflow.orc",
+        {},
+        bound_inputs={"approved": True, "status": "ready"},
+    )
     assert state_manager.state is not None
     state_manager.state.status = "failed"
     state_manager._write_state()

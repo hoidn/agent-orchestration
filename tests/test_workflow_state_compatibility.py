@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -656,8 +657,14 @@ def test_repeat_until_call_resume_preserves_call_frame_checkpoint_surfaces(tmp_p
         _build_repeat_until_call_resume_workflow(),
     )
     workflow = WorkflowLoader(tmp_path).load(workflow_path)
+    resume_marker = tmp_path / "repeat_until_call_resume.orc"
+    resume_marker.write_text("(workflow-lisp)\n", encoding="utf-8")
+    resume_bundle = replace(
+        workflow,
+        provenance=replace(workflow.provenance, workflow_path=resume_marker),
+    )
     state_manager = StateManager(workspace=tmp_path, run_id="repeat-until-call-state")
-    state_manager.initialize("repeat_until_call_resume.yaml")
+    state_manager.initialize(resume_marker.name)
 
     first_run = WorkflowExecutor(workflow, tmp_path, state_manager).execute(on_error="stop")
     failed_state = _persisted_state(tmp_path, "repeat-until-call-state")
@@ -684,7 +691,10 @@ def test_repeat_until_call_resume_preserves_call_frame_checkpoint_surfaces(tmp_p
     assert failed_transition_count == 0
 
     (tmp_path / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
-    with patch("os.getcwd", return_value=str(tmp_path)):
+    with patch("os.getcwd", return_value=str(tmp_path)), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=resume_bundle,
+    ):
         result = resume_workflow(
             run_id="repeat-until-call-state",
             repair=False,
@@ -714,8 +724,14 @@ def test_repeat_until_call_resume_preserves_call_frame_checkpoint_surfaces(tmp_p
 def test_finalization_resume_preserves_completed_indices_and_clears_current_step(tmp_path: Path):
     workflow_path = _write_yaml(tmp_path / "resume_finally.yaml", _build_finalization_resume_workflow())
     workflow = WorkflowLoader(tmp_path).load(workflow_path)
+    resume_marker = tmp_path / "resume_finally.orc"
+    resume_marker.write_text("(workflow-lisp)\n", encoding="utf-8")
+    resume_bundle = replace(
+        workflow,
+        provenance=replace(workflow.provenance, workflow_path=resume_marker),
+    )
     state_manager = StateManager(workspace=tmp_path, run_id="finalization-state")
-    state_manager.initialize("resume_finally.yaml")
+    state_manager.initialize(resume_marker.name)
 
     first_run = WorkflowExecutor(workflow, tmp_path, state_manager).execute(on_error="stop")
     failed_state = _persisted_state(tmp_path, "finalization-state")
@@ -730,7 +746,10 @@ def test_finalization_resume_preserves_completed_indices_and_clears_current_step
     assert failed_state["transition_count"] == 2
 
     (tmp_path / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
-    with patch("os.getcwd", return_value=str(tmp_path)):
+    with patch("os.getcwd", return_value=str(tmp_path)), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=resume_bundle,
+    ):
         result = resume_workflow(
             run_id="finalization-state",
             repair=False,

@@ -20,6 +20,8 @@ def _run_args(workflow_path: Path) -> Namespace:
         workflow=str(workflow_path),
         context=None,
         context_file=None,
+        input=["approved=true", "status=ready"],
+        input_file=None,
         clean_processed=False,
         archive_processed=None,
         debug=False,
@@ -96,21 +98,27 @@ def test_executor_unexpected_exception_persists_error_and_current_step_context(
 
 
 def test_run_command_persists_unexpected_executor_exception(tmp_path: Path):
-    workflow_path = tmp_path / "crash.yaml"
+    workflow_path = tmp_path / "crash.orc"
     workflow_path.write_text(
-        json.dumps(
-            {
-                "version": "1.1.1",
-                "name": "cli-crash-workflow",
-                "steps": [
-                    {
-                        "name": "Crash",
-                        "kind": "command",
-                        "command": "echo should-not-matter",
-                    }
-                ],
-            },
-            sort_keys=False,
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.15")',
+                "  (defmodule crash)",
+                "  (export orchestrate)",
+                "  (defrecord ResumeSummary",
+                "    (status String)",
+                "    (ready Bool))",
+                "  (defworkflow orchestrate",
+                "    ((approved Bool)",
+                "     (status String))",
+                "    -> ResumeSummary",
+                "    (record ResumeSummary",
+                "      :status status",
+                "      :ready approved)))",
+                "",
+            ]
         ),
         encoding="utf-8",
     )
@@ -173,5 +181,5 @@ def test_report_handles_orc_run_state_without_yaml_loader_error(
     assert "orc-failed-run" in captured.out
     assert "failed" in captured.out
     assert "synthetic failed .orc run" in captured.out
-    assert "Workflow definition could not be loaded" in captured.out
+    assert "showing a state-only report" in captured.out
     assert "Workflow must be a YAML object/dictionary" not in captured.err
