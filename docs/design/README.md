@@ -86,8 +86,8 @@ validation. The exact reviewed
 then completed at `fdf1e06b` with focused acceptance evidence, deterministic
 public CLI smoke, broad baseline equivalence, and independent specification and
 quality reviews. It is now historical implementation evidence; the current
-roadmap selector is the
-[procedure-first migration waves plan](../plans/2026-07-13-procedure-first-migration-waves-plan.md).
+roadmap selector is Stage 6 Task 7 final verification in the
+[Procedure-First Roadmap Execution Sequence](../plans/2026-07-09-procedure-first-roadmap-execution-sequence.md).
 
 | Doc | Applies to | Current checkout? | Normal authoring guidance? | Notes |
 | --- | --- | ---: | ---: | --- |
