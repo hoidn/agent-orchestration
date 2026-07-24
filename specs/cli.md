@@ -1,7 +1,7 @@
 # CLI Contract (Normative)
 
 - Commands
-  - `orchestrate run <workflow.yaml> [--context k=v ...] [--context-file path] [--input name=value ...] [--input-file path] [--clean-processed] [--archive-processed <dst>]`
+  - `orchestrate run <workflow.orc> [--context k=v ...] [--context-file path] [--input name=value ...] [--input-file path] [--clean-processed] [--archive-processed <dst>]`
     - `--dry-run` validates the workflow and may emit advisory lint warnings; warnings do not change the exit code for an otherwise valid workflow.
   - `orchestrate resume <run_id>`
     - v2.10: if the persisted run stopped mid-visit on a session-enabled provider step, resume quarantines that exact visit instead of replaying the provider. Later resume attempts fail fast from the persisted quarantine marker until the operator chooses `--force-restart` or starts a new run.
@@ -22,7 +22,7 @@
     - `--dry-run-mark-sent` may be used only with `--dry-run`; it updates the ledger after rendering so duplicate suppression can be rehearsed.
     - `--ledger` overrides the default notification ledger path.
     - Exit code `0` means the scan completed and eligible notifications were handled; `1` means config, scan, or delivery failed; `130` means polling was interrupted.
-  - Optional/post-MVP: `orchestrate run-step <step_name> --workflow <file>`, `orchestrate watch <workflow.yaml>`
+  - Optional/post-MVP: `orchestrate run-step <step_name> --workflow <workflow.orc>`, `orchestrate watch <workflow.orc>`
 
 - Debugging and recovery flags
   - `--debug`, `--stream-output`, `--progress` (post-MVP), `--trace` (post-MVP), `--dry-run`
@@ -46,14 +46,13 @@
 ## Commands and Examples
 
 ```bash
-# Run workflow from beginning
-orchestrate run workflows/demo.yaml \
-  --context key=value \
-  --context-file context.json \
-  --input max_cycles=3 \
-  --input-file inputs.json \
-  --clean-processed \           # Empty processed/ before run
-  --archive-processed output.zip # Archive processed/ on success
+# Run a Workflow Lisp workflow from the beginning
+orchestrate run workflows/examples/cycle_guard_demo.orc \
+  --entry-workflow cycle-guard-demo \
+  --source-root workflows/examples \
+  --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/cycle_guard_demo.commands.json \
+  --input terminal_status=READY \
+  --input guard_cycles=0
 
 # Resume failed/interrupted run
 orchestrate resume <run_id>
@@ -67,14 +66,20 @@ orchestrate dashboard --workspace "$(pwd)" --host 127.0.0.1 --port 8765
 # Monitor configured workspaces once without sending email
 orchestrator monitor --config ~/.config/orchestrator/monitor.json --once --dry-run
 
-# Validate and show advisory lint warnings without executing
-orchestrate run workflows/demo.yaml --dry-run
+# Validate the same Workflow Lisp source without executing
+orchestrate run workflows/examples/cycle_guard_demo.orc \
+  --entry-workflow cycle-guard-demo \
+  --source-root workflows/examples \
+  --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/cycle_guard_demo.commands.json \
+  --input terminal_status=READY \
+  --input guard_cycles=0 \
+  --dry-run
 
 # Execute single step (optional/post-MVP)
-orchestrate run-step <step_name> --workflow workflows/demo.yaml
+orchestrate run-step <step_name> --workflow workflows/examples/cycle_guard_demo.orc
 
 # Watch for changes and re-run (optional/post-MVP)
-orchestrate watch workflows/demo.yaml
+orchestrate watch workflows/examples/cycle_guard_demo.orc
 ```
 
 ### Extended CLI Options
