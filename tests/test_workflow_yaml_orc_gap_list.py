@@ -274,7 +274,7 @@ def _section(text: str, heading: str) -> str:
     return remainder if next_heading == -1 else remainder[:next_heading]
 
 
-def test_yaml_retirement_tasks_1_through_6_are_closed_and_task_7_is_current() -> None:
+def test_yaml_retirement_tasks_1_through_7_are_closed() -> None:
     program = YAML_RETIREMENT_PROGRAM.read_text(encoding="utf-8")
     task_1 = _section(program, "### Task 1: Close the `.orc` language-gap list — ENABLING")
     task_2 = _section(program, "### Task 2: Move dashboard structure reads to the typed surface — ENABLING")
@@ -290,7 +290,7 @@ def test_yaml_retirement_tasks_1_through_6_are_closed_and_task_7_is_current() ->
     )
     task_7 = _section(
         program,
-        "### Task 7: Remove the user-facing YAML frontend — FINAL VERIFICATION",
+        "### Task 7: Remove the user-facing YAML frontend — COMPLETE",
     )
 
     assert task_1.count("- [x]") == 3
@@ -305,14 +305,28 @@ def test_yaml_retirement_tasks_1_through_6_are_closed_and_task_7_is_current() ->
     assert "- [ ]" not in task_5
     assert task_6.count("- [x]") == 6
     assert "- [ ]" not in task_6
-    assert task_7.count("- [x]") == 5
-    assert task_7.count("- [ ]") == 2
-    assert "**Current selector:** Task 7" in program
-    assert "eligible and current" in task_7
+    assert task_7.count("- [x]") == 7
+    assert "- [ ]" not in task_7
     normalized_task_7 = " ".join(task_7.lower().replace("-", " ").split())
-    assert "final scoped broad comparison" in normalized_task_7
-    assert "independent specification and code quality reviews" in normalized_task_7
-    assert "stage 6 is not yet complete" in program.lower()
+    assert "1,020" in normalized_task_7
+    assert "5 skipped" in normalized_task_7
+    assert "6,386 passed" in normalized_task_7
+    assert "15 skipped" in normalized_task_7
+    assert "four failures" in normalized_task_7
+    assert "zero new" in normalized_task_7
+    assert "owner adopted six row baseline" in normalized_task_7
+    assert "fresh" in normalized_task_7
+    assert ".orc" in task_7
+    assert "smoke" in normalized_task_7
+    assert "d9baa120" in normalized_task_7
+    assert "pass" in normalized_task_7
+    assert "approved" in normalized_task_7
+    normalized_program = " ".join(program.lower().replace("-", " ").split())
+    assert "stage 6" in normalized_program
+    assert "complete" in normalized_program
+    assert "stage 6 is not yet complete" not in normalized_program
+    assert "eligible and current" not in normalized_task_7
+    assert not re.search(r"\btask 7\b.{0,80}\bcurrent\b", normalized_program)
     assert "PASS" in task_1
     assert "APPROVED" in task_1
     assert "PASS" in task_2
@@ -325,7 +339,7 @@ def test_yaml_retirement_tasks_1_through_6_are_closed_and_task_7_is_current() ->
     assert "e38b14de" in task_5
 
 
-def test_canonical_routing_surfaces_select_yaml_task_7_final_verification() -> None:
+def test_canonical_routing_surfaces_close_stage_6_without_starting_stage_7() -> None:
     roadmap = ROADMAP.read_text(encoding="utf-8")
     capability = CAPABILITY_MATRIX.read_text(encoding="utf-8")
     index = DOCS_INDEX.read_text(encoding="utf-8")
@@ -333,25 +347,38 @@ def test_canonical_routing_surfaces_select_yaml_task_7_final_verification() -> N
     for text in (roadmap, capability, index):
         normalized = " ".join(text.lower().split())
         assert re.search(
-            r"\byaml retirement\b[^.;]{0,200}\btask 7\b"
-            r"[^.;]{0,80}\bfinal verification\b[^.;]{0,80}\bcurrent\b"
-            r"|\bcurrent selector\b[^.;]{0,160}\btask 7\b"
-            r"[^.;]{0,80}\bfinal verification\b",
+            r"\bstage 6\b[^.;]{0,200}\bcomplete\b"
+            r"|\byaml retirement\b[^.;]{0,200}\btask 7\b"
+            r"[^.;]{0,80}\bcomplete\b",
             normalized,
         )
-        for stale_task in (1, 2, 3, 4, 5, 6):
+        for stale_task in (1, 2, 3, 4, 5, 6, 7):
             assert re.search(
                 rf"\byaml retirement\b[^.;]{{0,120}}\btask {stale_task}\b"
-                rf"[^.;]{{0,40}}\bcurrent\b"
+                rf"[^.;]{{0,40}}\b(?:is|remains) current\b"
                 rf"|\bcurrent selector\b[^.;]{{0,120}}\byaml retirement\b"
                 rf"[^.;]{{0,80}}\btask {stale_task}\b",
                 normalized,
             ) is None
+        assert re.search(
+            r"\bstage 7\b[^.;]{0,120}\b(?:is current|has started|is started)\b"
+            r"|\bcurrent selector\b[^.;]{0,120}\bstage 7\b",
+            normalized,
+        ) is None
 
     stage_6 = _section(roadmap, "### Stage 6: Resume YAML Retirement")
     normalized_stage_6 = " ".join(stage_6.lower().split())
-    assert "**Current selector:** Task 7 final verification" in stage_6
-    assert "tasks 1-6 are complete" in normalized_stage_6
+    assert "**Status:** Complete" in stage_6
+    assert "task 7" in normalized_stage_6
+    assert "1,020" in normalized_stage_6
+    assert "5 skipped" in normalized_stage_6
+    assert "scoped broad" in normalized_stage_6
+    assert "zero new" in normalized_stage_6
     assert "orc-only" in normalized_stage_6
-    assert "final scoped broad" in normalized_stage_6
-    assert "independent reviews" in normalized_stage_6
+    assert "d9baa120" in normalized_stage_6
+    assert "pass" in normalized_stage_6
+    assert "approved" in normalized_stage_6
+
+    assert "stage 7" in normalized_stage_6
+    assert "owner" in normalized_stage_6
+    assert "schedul" in normalized_stage_6
