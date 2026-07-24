@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple, Any
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 from dataclasses import dataclass
 
 from .types import (
@@ -37,6 +37,35 @@ from ..variables.substitution import VariableSubstitutor
 logger = logging.getLogger(__name__)
 
 
+ProviderExecutionClassification = Literal[
+    "normal",
+    "cancelled_provisional",
+    "failed",
+]
+
+
+class _ControlledOutputAdapter:
+    """Keep optional controlled display failures outside the core worker."""
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+
+    @property
+    def buffer(self) -> "_ControlledOutputAdapter":
+        return self
+
+    def write(self, chunk: bytes) -> None:
+        try:
+            output = getattr(self._stream, "buffer", self._stream)
+            output.write(chunk)
+            output.flush()
+        except BaseException:
+            pass
+
+    def flush(self) -> None:
+        pass
+
+
 @dataclass
 class ProviderExecutionResult:
     """Result from provider execution."""
@@ -50,7 +79,14 @@ class ProviderExecutionResult:
     raw_stdout: Optional[bytes] = None
     normalized_stdout: Optional[bytes] = None
     provider_session: Optional[Dict[str, Any]] = None
-    classification: Optional[str] = None
+    classification: Optional[ProviderExecutionClassification] = None
+
+    @property
+    def is_promotable(self) -> bool:
+        """Return the single authority for accepting provider output."""
+        if self.classification is None:
+            return self.exit_code == 0 and self.error is None
+        return self.classification == "normal"
 
 
 class ProviderExecutor:
@@ -501,6 +537,7 @@ class ProviderExecutor:
         try:
             control.claim_spawn()
         except Exception as exc:
+            control.spawn_failed(exc)
             return self._controlled_launch_failure_result(
                 error=exc,
                 start_time=start_time,
@@ -553,13 +590,16 @@ class ProviderExecutor:
         # Binding is deliberately the first action after successful creation.
         try:
             control.bind(process, process.pid)
-        except Exception as exc:
-            return self._fail_control_bind(
+        except BaseException as exc:
+            failure_result = self._fail_control_bind(
                 process=process,
                 control=control,
                 start_time=start_time,
                 error=exc,
             )
+            if not isinstance(exc, Exception):
+                raise
+            return failure_result
 
         stdout_buf = bytearray()
         stderr_buf = bytearray()
@@ -595,8 +635,8 @@ class ProviderExecutor:
                 stdin_outcomes=stdin_outcomes,
                 stdin_outcome_lock=stdin_outcome_lock,
             )
-        except Exception as exc:
-            return self._fail_bound_controlled_invocation(
+        except BaseException as exc:
+            failure_result = self._fail_bound_controlled_invocation(
                 invocation=invocation,
                 process=process,
                 stdin_input=stdin_input,
@@ -614,6 +654,9 @@ class ProviderExecutor:
                 stdin_outcome_lock=stdin_outcome_lock,
                 error=exc,
             )
+            if not isinstance(exc, Exception):
+                raise
+            return failure_result
 
     @staticmethod
     def _controlled_launch_failure_result(
@@ -641,15 +684,16 @@ class ProviderExecutor:
         process: subprocess.Popen,
         control: ProviderExecutionControl,
         start_time: float,
-        error: Exception,
+        error: BaseException,
     ) -> ProviderExecutionResult:
         """Clean and reap a process whose control binding was rejected."""
         pgid = process.pid
-        term_sent = True
+        term_sent = False
         kill_sent = False
         cleanup_errors: List[str] = []
         try:
             os.killpg(pgid, signal.SIGTERM)
+            term_sent = True
         except ProcessLookupError:
             pass
         except OSError as exc:
@@ -657,30 +701,59 @@ class ProviderExecutor:
 
         leader_reaped = False
         return_code: int | None = None
-        try:
-            return_code = process.wait(timeout=0.2)
-            leader_reaped = True
-        except subprocess.TimeoutExpired:
-            kill_sent = True
+
+        def _bounded_wait() -> bool:
+            nonlocal leader_reaped, return_code
+            try:
+                return_code = process.wait(timeout=0.2)
+                leader_reaped = True
+            except subprocess.TimeoutExpired:
+                return False
+            except BaseException as exc:
+                cleanup_errors.append(
+                    f"failed to reap process leader: {exc}"
+                )
+            return leader_reaped
+
+        _bounded_wait()
+        if not leader_reaped:
             try:
                 os.killpg(pgid, signal.SIGKILL)
+                kill_sent = True
             except ProcessLookupError:
                 pass
             except OSError as exc:
                 cleanup_errors.append(f"failed to kill process group: {exc}")
+            _bounded_wait()
+
+        if not leader_reaped:
             try:
-                return_code = process.wait()
-                leader_reaped = True
-            except Exception as exc:
-                cleanup_errors.append(f"failed to reap process leader: {exc}")
-        except Exception as exc:
-            cleanup_errors.append(f"failed to reap process leader: {exc}")
+                process.terminate()
+            except BaseException as exc:
+                cleanup_errors.append(
+                    f"failed to terminate process leader: {exc}"
+                )
+            _bounded_wait()
+
+        if not leader_reaped:
+            try:
+                process.kill()
+            except BaseException as exc:
+                cleanup_errors.append(
+                    f"failed to kill process leader: {exc}"
+                )
+            _bounded_wait()
+
+        if not leader_reaped:
+            cleanup_errors.append(
+                "provider process leader was not reaped within cleanup bounds"
+            )
 
         if not self._wait_for_process_group_empty(pgid, timeout=0.2):
             if not kill_sent:
-                kill_sent = True
                 try:
                     os.killpg(pgid, signal.SIGKILL)
+                    kill_sent = True
                 except ProcessLookupError:
                     pass
                 except OSError as exc:
@@ -694,7 +767,7 @@ class ProviderExecutor:
         if process.stdin is not None:
             try:
                 process.stdin.close()
-            except Exception:
+            except BaseException:
                 pass
         stdout = b""
         stderr = b""
@@ -705,17 +778,18 @@ class ProviderExecutor:
             if pipe is None or getattr(pipe, "closed", False):
                 continue
             try:
-                remainder = pipe.read() or b""
-                if is_stdout:
-                    stdout += remainder
-                else:
-                    stderr += remainder
-            except Exception as exc:
+                if leader_reaped:
+                    remainder = pipe.read() or b""
+                    if is_stdout:
+                        stdout += remainder
+                    else:
+                        stderr += remainder
+            except BaseException as exc:
                 cleanup_errors.append(f"failed to read provider pipe: {exc}")
             finally:
                 try:
                     pipe.close()
-                except Exception:
+                except BaseException:
                     pass
 
         terminal_error = str(error)
@@ -732,7 +806,8 @@ class ProviderExecutor:
             error=terminal_error,
         )
         return self._controlled_boundary_failure_result(
-            terminal=terminal,
+            leader_return_code=terminal.leader_return_code,
+            boundary_error=terminal.error,
             raw_stdout=stdout,
             stderr=stderr,
             duration_ms=int((time.time() - start_time) * 1000),
@@ -926,7 +1001,8 @@ class ProviderExecutor:
 
         if boundary.disposition == "boundary_failed":
             return self._controlled_boundary_failure_result(
-                terminal=boundary,
+                leader_return_code=boundary.leader_return_code,
+                boundary_error=boundary.error,
                 raw_stdout=raw_stdout,
                 stderr=stderr,
                 duration_ms=duration_ms,
@@ -952,10 +1028,8 @@ class ProviderExecutor:
 
         if boundary.disposition == "cancelled":
             return ProviderExecutionResult(
-                exit_code=(
+                exit_code=self._nonzero_controlled_exit_code(
                     boundary.leader_return_code
-                    if boundary.leader_return_code is not None
-                    else 1
                 ),
                 stdout=b"",
                 stderr=stderr,
@@ -1034,7 +1108,7 @@ class ProviderExecutor:
         stdin_threads: List[threading.Thread],
         stdin_outcomes: Dict[str, Tuple[bool, Optional[str]]],
         stdin_outcome_lock: Any,
-        error: Exception,
+        error: BaseException,
     ) -> ProviderExecutionResult:
         """Fail closed after bind while preserving executor-owned wait."""
         control.request_cancel(
@@ -1127,7 +1201,8 @@ class ProviderExecutor:
             boundary_error="; ".join(boundary_errors),
         )
         return self._controlled_boundary_failure_result(
-            terminal=boundary,
+            leader_return_code=boundary.leader_return_code,
+            boundary_error=boundary.error,
             raw_stdout=bytes(stdout_buf),
             stderr=bytes(stderr_buf),
             duration_ms=int((time.time() - start_time) * 1000),
@@ -1136,16 +1211,15 @@ class ProviderExecutor:
     @staticmethod
     def _controlled_boundary_failure_result(
         *,
-        terminal: Any,
+        leader_return_code: int | None,
+        boundary_error: str | None,
         raw_stdout: bytes,
         stderr: bytes,
         duration_ms: int,
     ) -> ProviderExecutionResult:
         return ProviderExecutionResult(
-            exit_code=(
-                terminal.leader_return_code
-                if terminal.leader_return_code is not None
-                else 1
+            exit_code=ProviderExecutor._nonzero_controlled_exit_code(
+                leader_return_code
             ),
             stdout=b"",
             stderr=stderr,
@@ -1157,24 +1231,16 @@ class ProviderExecutor:
             error={
                 "type": "provider_cancellation_boundary_failed",
                 "message": (
-                    terminal.error
+                    boundary_error
                     or "Provider cancellation boundary could not be proved"
                 ),
-                "context": {
-                    "leader_reaped": terminal.leader_reaped,
-                    "pgid_empty": terminal.pgid_empty,
-                    "capture_threads_joined": (
-                        terminal.capture_threads_joined
-                    ),
-                    "execution_joined": getattr(
-                        terminal,
-                        "execution_joined",
-                        False,
-                    ),
-                    "final_identity_valid": terminal.final_identity_valid,
-                },
+                "context": {},
             },
         )
+
+    @staticmethod
+    def _nonzero_controlled_exit_code(exit_code: int | None) -> int:
+        return 1 if exit_code in {None, 0} else exit_code
 
     def _terminate_process_tree(self, process: subprocess.Popen) -> None:
         """Terminate a managed provider process group with a hard-kill fallback."""
@@ -1298,12 +1364,7 @@ class ProviderExecutor:
         if pipe is None:
             return
 
-        output = out_stream
-        if out_stream is not None:
-            try:
-                output = getattr(out_stream, "buffer", out_stream)
-            except BaseException:
-                output = None
+        output = out_stream.buffer if out_stream is not None and hasattr(out_stream, "buffer") else out_stream
         try:
             while True:
                 if read_mode == "lines":
@@ -1316,19 +1377,19 @@ class ProviderExecutor:
                 if chunk_callback is not None:
                     try:
                         chunk_callback(chunk)
-                    except BaseException:
+                    except Exception:
                         pass
                 if output is not None:
                     try:
                         output.write(chunk)
                         output.flush()
-                    except BaseException:
+                    except Exception:
                         # Streaming should never break execution/capture path.
                         pass
         finally:
             try:
                 pipe.close()
-            except BaseException:
+            except Exception:
                 pass
 
     def _capture_controlled_pipe(
@@ -1347,6 +1408,19 @@ class ProviderExecutor:
         **capture_kwargs: Any,
     ) -> None:
         """Capture one controlled pipe and retain core worker failures."""
+        chunk_callback = capture_kwargs.get("chunk_callback")
+        if chunk_callback is not None:
+            def _best_effort_callback(chunk: bytes) -> None:
+                try:
+                    chunk_callback(chunk)
+                except BaseException:
+                    pass
+
+            capture_kwargs["chunk_callback"] = _best_effort_callback
+        out_stream = capture_kwargs.get("out_stream")
+        if out_stream is not None:
+            capture_kwargs["out_stream"] = _ControlledOutputAdapter(out_stream)
+
         try:
             self._capture_pipe(
                 pipe,

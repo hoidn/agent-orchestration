@@ -22,7 +22,11 @@ from .session_transport import (
     create_session_transport_accumulator,
 )
 from .control import ProviderCancellationResult, ProviderExecutionControl
-from .executor import ProviderExecutor, ProviderExecutionResult
+from .executor import (
+    ProviderExecutionClassification,
+    ProviderExecutor,
+    ProviderExecutionResult,
+)
 from .isolation import (
     HistoryRetrievalPolicy,
     ProviderEnvironmentIdentity,
@@ -52,6 +56,7 @@ __all__ = [
     "create_session_transport_accumulator",
     "ProviderCancellationResult",
     "ProviderExecutionControl",
+    "ProviderExecutionClassification",
     "ProviderExecutor",
     "ProviderExecutionResult",
     "HistoryRetrievalPolicy",

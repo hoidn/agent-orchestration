@@ -6,7 +6,7 @@ import os
 import signal
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any, Literal, Mapping
 
@@ -102,6 +102,7 @@ class ProviderExecutionControl:
 
     _DEFAULT_CANCELLATION_GRACE_SEC = 0.2
     _FINALIZATION_TIMEOUT_SEC = 5.0
+    _PREBIND_TIMEOUT_SEC = 0.2
     _POLL_INTERVAL_SEC = 0.01
 
     def __init__(self) -> None:
@@ -117,6 +118,7 @@ class ProviderExecutionControl:
         )
         self._cancellation_applied_before_completion = False
         self._cancellation_application_unproved = False
+        self._term_attempted_at: float | None = None
         self._term_applied_at: float | None = None
         self._term_sent = False
         self._kill_sent = False
@@ -125,7 +127,6 @@ class ProviderExecutionControl:
         self._pgid_empty = False
         self._capture_threads_joined = False
         self._missing_terminal_eof_preceded_cancellation = False
-        self._execution_joined = False
         self._identity_required = False
         self._session_snapshot: SessionIdentitySnapshot | None = None
         self._natural_exit_with_lingering_group = False
@@ -134,7 +135,9 @@ class ProviderExecutionControl:
         self._execution_future_attached = False
         self._execution_future_done = False
         self._spawn_claimed = False
+        self._pre_spawn_abort_requested = False
         self._boundary: _ProviderExecutionBoundary | None = None
+        self._pending_terminal_result: ProviderCancellationResult | None = None
         self._terminal_result: ProviderCancellationResult | None = None
 
     @property
@@ -162,7 +165,16 @@ class ProviderExecutionControl:
             raise ValueError("stdin failure grace must be non-negative")
         with self._condition:
             expected = self._cancellation_applied_before_completion
-            if not expected and self._terminal_result is None:
+            if (
+                not expected
+                and (
+                    self._terminal_result is None
+                    or (
+                        self._pgid is not None
+                        and not self._leader_reaped
+                    )
+                )
+            ):
                 self._request_cancel_locked(
                     reason="stdin_writer_failure",
                     grace=failure_grace,
@@ -193,12 +205,25 @@ class ProviderExecutionControl:
                 raise RuntimeError("provider execution future is already attached")
             self._execution_future_attached = True
             self._execution_future = future
+            cancel_before_spawn = (
+                self._pre_spawn_abort_requested
+                and not self._spawn_claimed
+            )
 
         add_done_callback(self._execution_future_completed)
+        if cancel_before_spawn:
+            try:
+                future.cancel()
+            except Exception:
+                pass
 
     def claim_spawn(self) -> None:
         """Claim this fresh control for exactly one executor launch."""
         with self._condition:
+            if self._pre_spawn_abort_requested:
+                raise RuntimeError(
+                    "provider execution was cancelled before process spawn"
+                )
             if self._state != "NEW" or self._terminal_result is not None:
                 raise RuntimeError(
                     f"provider execution control cannot spawn from {self._state}"
@@ -243,6 +268,8 @@ class ProviderExecutionControl:
         with self._condition:
             if self._terminal_result is not None:
                 return self._terminal_result
+            if self._pending_terminal_result is not None:
+                return self._pending_terminal_result
             if self._state not in {"NEW", "BOUND"}:
                 raise RuntimeError(
                     "provider bind failure requires a live launch control"
@@ -273,6 +300,13 @@ class ProviderExecutionControl:
                 cancellation_reason=self._cancellation_reason,
                 error=f"provider process bind failed: {error}",
             )
+            if (
+                self._execution_future_attached
+                and not self._execution_future_done
+            ):
+                self._pending_terminal_result = result
+                self._condition.notify_all()
+                return result
             return self._freeze_terminal_locked(result)
 
     def publish_session_snapshot(
@@ -313,6 +347,8 @@ class ProviderExecutionControl:
         with self._condition:
             if self._terminal_result is not None:
                 return self._terminal_result
+            if self._pending_terminal_result is not None:
+                return self._pending_terminal_result
             if self._state != "NEW":
                 raise RuntimeError(
                     "spawn failure is valid only before process binding"
@@ -335,6 +371,13 @@ class ProviderExecutionControl:
                 cancellation_reason=self._cancellation_reason,
                 error=str(error),
             )
+            if (
+                self._execution_future_attached
+                and not self._execution_future_done
+            ):
+                self._pending_terminal_result = result
+                self._condition.notify_all()
+                return result
             return self._freeze_terminal_locked(result)
 
     def request_cancel(
@@ -365,25 +408,27 @@ class ProviderExecutionControl:
         """Apply pending signals after the executor observed an incomplete wait."""
         with self._condition:
             if (
-                self._terminal_result is not None
-                or self._state != "BOUND"
+                self._pgid is None
+                or self._leader_reaped
                 or not self._cancellation_requested
             ):
                 return
 
-            if not self._term_sent:
+            now = time.monotonic()
+            if self._term_attempted_at is None:
+                self._term_attempted_at = now
                 if self._send_signal_locked(signal.SIGTERM):
                     self._cancellation_applied_before_completion = True
-                    self._term_applied_at = time.monotonic()
+                    self._term_applied_at = now
                 else:
                     self._cancellation_application_unproved = True
             elif (
                 not self._kill_sent
-                and self._term_applied_at is not None
-                and time.monotonic() - self._term_applied_at
+                and now - self._term_attempted_at
                 >= self._cancellation_grace_sec
             ):
-                self._send_signal_locked(signal.SIGKILL)
+                if self._send_signal_locked(signal.SIGKILL):
+                    self._cancellation_applied_before_completion = True
             self._condition.notify_all()
 
     def record_leader_reaped(
@@ -394,9 +439,7 @@ class ProviderExecutionControl:
     ) -> None:
         """Record the executor-owned wait and clean any residual owned group."""
         with self._condition:
-            if self._terminal_result is not None:
-                return
-            if self._state != "BOUND":
+            if self._process is None or self._pgid is None:
                 raise RuntimeError(
                     "provider leader can be reaped only after process binding"
                 )
@@ -440,13 +483,13 @@ class ProviderExecutionControl:
     ) -> _ProviderExecutionBoundary | ProviderCancellationResult:
         """Record executor-owned facts before the attached Future can complete."""
         with self._condition:
-            if self._terminal_result is not None:
-                return self._terminal_result
-            if self._state != "BOUND":
+            if self._process is None or self._pgid is None:
                 raise RuntimeError(
                     "provider boundary can be recorded only after process binding"
                 )
             if self._boundary is not None:
+                if self._terminal_result is not None:
+                    return self._terminal_result
                 raise RuntimeError("provider execution boundary is already recorded")
 
             self._capture_threads_joined = bool(capture_threads_joined)
@@ -487,7 +530,11 @@ class ProviderExecutionControl:
             else:
                 disposition = "natural_exit"
 
-            error = boundary_error or self._proof_error_locked(identity_valid)
+            proof_error = self._proof_error_locked(identity_valid)
+            if boundary_error is not None and proof_error is not None:
+                error = f"{boundary_error}; {proof_error}"
+            else:
+                error = boundary_error or proof_error
             boundary = _ProviderExecutionBoundary(
                 disposition=disposition,
                 pgid=self._pgid,
@@ -507,10 +554,13 @@ class ProviderExecutionControl:
                 error=error,
             )
             self._boundary = boundary
-            if self._execution_future_done:
+            if (
+                self._terminal_result is None
+                and self._execution_future_done
+            ):
                 self._freeze_boundary_result_locked(boundary)
             self._condition.notify_all()
-            return boundary
+            return self._terminal_result or boundary
 
     def cancel_and_reap(
         self,
@@ -520,6 +570,7 @@ class ProviderExecutionControl:
         if grace < 0:
             raise ValueError("cancellation grace must be non-negative")
 
+        future_to_cancel: Any = None
         with self._condition:
             if self._terminal_result is not None:
                 return self._terminal_result
@@ -528,10 +579,40 @@ class ProviderExecutionControl:
                     reason="external",
                     grace=grace,
                 )
-                while self._state == "NEW" and self._terminal_result is None:
-                    self._condition.wait()
+                if self._state == "NEW":
+                    if not self._spawn_claimed:
+                        self._pre_spawn_abort_requested = True
+                        if (
+                            self._execution_future_attached
+                            and not self._execution_future_done
+                        ):
+                            future_to_cancel = self._execution_future
+
+        if future_to_cancel is not None:
+            try:
+                future_to_cancel.cancel()
+            except Exception:
+                pass
+
+        with self._condition:
+            if self._terminal_result is not None:
+                return self._terminal_result
+            if self._boundary is None:
+                prebind_deadline = (
+                    time.monotonic() + self._PREBIND_TIMEOUT_SEC
+                )
+                while (
+                    self._state == "NEW"
+                    and self._terminal_result is None
+                ):
+                    remaining = prebind_deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    self._condition.wait(timeout=remaining)
                 if self._terminal_result is not None:
                     return self._terminal_result
+                if self._state == "NEW":
+                    return self._freeze_unjoined_failure_locked()
 
                 term_deadline = time.monotonic() + grace
                 while (
@@ -575,8 +656,28 @@ class ProviderExecutionControl:
                 self._condition.notify_all()
                 return
             self._execution_future_done = True
-            self._execution_joined = True
-            if self._state == "NEW" and self._terminal_result is None:
+            if (
+                self._boundary is not None
+                and self._terminal_result is None
+            ):
+                self._freeze_boundary_result_locked(self._boundary)
+                return
+            if (
+                self._pending_terminal_result is not None
+                and self._terminal_result is None
+            ):
+                self._freeze_terminal_locked(
+                    replace(
+                        self._pending_terminal_result,
+                        execution_joined=True,
+                    )
+                )
+                return
+            if (
+                self._state == "NEW"
+                and not self._spawn_claimed
+                and self._terminal_result is None
+            ):
                 if future.cancelled():
                     launch_error = (
                         "provider execution future was cancelled before "
@@ -598,11 +699,6 @@ class ProviderExecutionControl:
                         )
                 self.spawn_failed(launch_error)
                 return
-            if (
-                self._boundary is not None
-                and self._terminal_result is None
-            ):
-                self._freeze_boundary_result_locked(self._boundary)
             self._condition.notify_all()
 
     def _freeze_boundary_result_locked(
@@ -668,11 +764,25 @@ class ProviderExecutionControl:
             natural_lingering = self._natural_exit_with_lingering_group
 
         if not self._execution_future_attached:
-            error = "provider execution future was not attached"
+            join_error = "provider execution future was not attached"
         elif not self._execution_future_done:
-            error = "provider execution future was not joined"
+            join_error = "provider execution future was not joined"
         else:
-            error = "provider executor did not record a complete boundary"
+            join_error = "provider executor did not record a complete boundary"
+        primary_error = (
+            boundary.error
+            if boundary is not None
+            else (
+                self._pending_terminal_result.error
+                if self._pending_terminal_result is not None
+                else self._proof_error_locked(final_identity_valid)
+            )
+        )
+        error = (
+            join_error
+            if primary_error is None
+            else f"{primary_error}; {join_error}"
+        )
         result = ProviderCancellationResult(
             disposition="boundary_failed",
             pgid=pgid,
@@ -680,7 +790,7 @@ class ProviderExecutionControl:
             leader_reaped=leader_reaped,
             pgid_empty=pgid_empty,
             capture_threads_joined=capture_threads_joined,
-            execution_joined=False,
+            execution_joined=self._execution_future_done,
             final_session_snapshot=final_session_snapshot,
             final_identity_valid=final_identity_valid,
             proof_complete=False,
