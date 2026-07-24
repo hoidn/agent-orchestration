@@ -18,7 +18,23 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .sexpr import BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
 from .spans import SourceSpan
 
-SUPPORTED_TARGET_DSL_VERSIONS = frozenset({"2.14", "2.15"})
+SUPPORTED_TARGET_DSL_VERSIONS = frozenset({"2.14", "2.15", "2.16"})
+PROVIDER_STEERING_DIRECTIVE_TYPE_NAME = "ProviderSteeringDirective"
+PROVIDER_SUPERVISION_MIN_TARGET_DSL_VERSION = "2.16"
+
+
+def target_dsl_supports_provider_supervision(target_dsl_version: str) -> bool:
+    """Return whether a validated target includes the live-supervision surface."""
+
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+        minimum = tuple(
+            int(part)
+            for part in PROVIDER_SUPERVISION_MIN_TARGET_DSL_VERSION.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
 
 
 @dataclass(frozen=True)

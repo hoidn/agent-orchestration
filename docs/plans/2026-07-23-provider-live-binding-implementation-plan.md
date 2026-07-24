@@ -936,19 +936,19 @@ provider-control/execution selectors. Ordered verdicts:
 - Modify: `orchestrator/workflow/validation.py`
 - Create: `tests/test_workflow_lisp_provider_supervision.py`
 
-- [ ] Write RED tests proving target 2.16 is accepted through both version
+- [x] Write RED tests proving target 2.16 is accepted through both version
   validators, 2.16 installs the exact union, 2.16 rejects
   authored/import/type-parameter/schema shadowing, and targets below 2.16
   neither install nor reserve the same authored name. The form-specific 2.15
   rejection belongs to Task 11 after that form exists.
-- [ ] Add union construction, match exhaustiveness, variant proof, structural
+- [x] Add union construction, match exhaustiveness, variant proof, structural
   compatibility, and exact `variant_output` contract tests.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_workflow_lisp_provider_supervision.py -k 'directive or target or shadow'`.
-- [ ] Add 2.16 and the target-scoped prelude union using existing union types;
+- [x] Add 2.16 and the target-scoped prelude union using existing union types;
   make compiler definition-module validation target-sensitive, and do not add
   a bespoke runtime value representation.
-- [ ] Run:
+- [x] Run:
 
   ```bash
   pytest -q \
@@ -957,8 +957,22 @@ provider-control/execution selectors. Ordered verdicts:
     tests/test_workflow_lisp_procedures.py \
     -k 'directive or target or shadow or prelude or union'
   ```
-- [ ] Complete specification review, quality review, and commit:
+- [x] Complete specification review, quality review, and commit:
   `Add target-gated steering directive type`.
+
+**Task 10 evidence (2026-07-24):** RED tests first proved both version
+validators rejected 2.16, the directive type was absent, and all eight
+target-scoped shadowing cases failed open. The implementation admits 2.16,
+installs the exact compiler-owned directive through ordinary union machinery,
+preserves 2.15 authored-name behavior, and rejects local type/schema,
+type-parameter, import-alias, and unqualified type/schema collisions. A
+quality-review negative control corrected over-reservation so a non-type
+import may retain the same spelling in its separate namespace. Fresh
+verification passed 22 Task 10 tests, 41 combined
+directive/target/shadow/prelude/union tests, 39 structured-result
+union/guidance tests, and 3 shared-version tests. Ordered verdicts:
+`TASK10_CORE_SPEC_APPROVED`, `TASK10_SHADOW_SPEC_APPROVED`, then
+`TASK10_CORE_QUALITY_APPROVED` and `TASK10_SHADOW_QUALITY_APPROVED`.
 
 ### Task 11: `with-live-providers` Surface, Types, And Effects
 

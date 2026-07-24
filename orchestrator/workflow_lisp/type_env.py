@@ -9,7 +9,9 @@ from .definitions import (
     EnumDef,
     PathDef,
     RecordDef,
+    RecordField,
     ResourceDef,
+    SchemaDef,
     TransitionDef,
     UnionDef,
     UnionVariant,
@@ -17,7 +19,12 @@ from .definitions import (
 )
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .modules import canonical_callable_key
+from .result_guidance import ResultGuidance
 from .spans import SourcePosition, SourceSpan
+from .syntax import (
+    PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
+    target_dsl_supports_provider_supervision,
+)
 from .type_expressions import (
     ListTypeExpr,
     MapTypeExpr,
@@ -73,8 +80,71 @@ PRELUDE_PATH_TYPES = {
     ),
 }
 
+PRELUDE_PROVIDER_STEERING_DIRECTIVE = UnionDef(
+    name=PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
+    variants=(
+        UnionVariant(
+            name="CONTINUE",
+            fields=(),
+            span=_prelude_span(
+                f"{PROVIDER_STEERING_DIRECTIVE_TYPE_NAME}.CONTINUE"
+            ),
+        ),
+        UnionVariant(
+            name="STEER",
+            fields=(
+                RecordField(
+                    name="guidance",
+                    type_name="String",
+                    span=_prelude_span(
+                        f"{PROVIDER_STEERING_DIRECTIVE_TYPE_NAME}.STEER.guidance"
+                    ),
+                    guidance=ResultGuidance(
+                        description=(
+                            "Corrective guidance for the replacement "
+                            "provider-session turn."
+                        )
+                    ),
+                ),
+            ),
+            span=_prelude_span(
+                f"{PROVIDER_STEERING_DIRECTIVE_TYPE_NAME}.STEER"
+            ),
+        ),
+    ),
+    span=_prelude_span(PROVIDER_STEERING_DIRECTIVE_TYPE_NAME),
+)
+
 
 PRELUDE_TYPE_NAMES = PRELUDE_PRIMITIVE_TYPE_NAMES | frozenset(PRELUDE_PATH_TYPES)
+
+
+def prelude_type_names_for_target(target_dsl_version: str) -> frozenset[str]:
+    """Return compiler-owned prelude names installed for one target."""
+
+    if target_dsl_supports_provider_supervision(target_dsl_version):
+        return PRELUDE_TYPE_NAMES | frozenset(
+            {PROVIDER_STEERING_DIRECTIVE_TYPE_NAME}
+        )
+    return PRELUDE_TYPE_NAMES
+
+
+def _local_type_definition_form_path(
+    definition: EnumDef | PathDef | RecordDef | UnionDef | SchemaDef,
+) -> tuple[str, ...]:
+    """Return the authored form path used by defensive prelude checks."""
+
+    if isinstance(definition, EnumDef):
+        form_name = "defenum"
+    elif isinstance(definition, PathDef):
+        form_name = "defpath"
+    elif isinstance(definition, SchemaDef):
+        form_name = "defschema"
+    elif isinstance(definition, RecordDef):
+        form_name = "defrecord"
+    else:
+        form_name = "defunion"
+    return ("workflow-lisp", form_name, definition.name)
 
 
 @dataclass(frozen=True)
@@ -226,6 +296,34 @@ class FrontendTypeEnvironment:
         imported_resource_defs: Mapping[str, ResourceDef] | None = None,
         imported_transition_defs: Mapping[str, TransitionDef] | None = None,
     ) -> "FrontendTypeEnvironment":
+        reserved_target_prelude_type_names = (
+            prelude_type_names_for_target(module.target_dsl_version)
+            - PRELUDE_TYPE_NAMES
+        )
+        for definition in (*module.definitions, *module.schemas):
+            if definition.name in reserved_target_prelude_type_names:
+                _raise_error(
+                    (
+                        f"type name `{definition.name}` is reserved by target "
+                        f"DSL {module.target_dsl_version}"
+                    ),
+                    code="prelude_type_name_reserved",
+                    span=definition.span,
+                    form_path=_local_type_definition_form_path(definition),
+                )
+        if imported_type_refs:
+            for imported_name in imported_type_refs:
+                if imported_name in reserved_target_prelude_type_names:
+                    _raise_error(
+                        (
+                            f"imported type `{imported_name}` would replace a "
+                            "compiler-owned prelude type"
+                        ),
+                        code="prelude_type_name_reserved",
+                        span=module.span,
+                        form_path=("workflow-lisp", "import", imported_name),
+                    )
+
         type_refs: dict[str, TypeRef] = {
             name: PrimitiveTypeRef(name=name) for name in PRELUDE_PRIMITIVE_TYPE_NAMES
         }
@@ -235,6 +333,19 @@ class FrontendTypeEnvironment:
                 for name, definition in PRELUDE_PATH_TYPES.items()
             }
         )
+        if target_dsl_supports_provider_supervision(
+            module.target_dsl_version
+        ):
+            type_refs[PROVIDER_STEERING_DIRECTIVE_TYPE_NAME] = UnionTypeRef(
+                name=PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
+                definition=PRELUDE_PROVIDER_STEERING_DIRECTIVE,
+                variant_field_types={
+                    "CONTINUE": {},
+                    "STEER": {
+                        "guidance": type_refs["String"],
+                    },
+                },
+            )
         for definition in module.definitions:
             if isinstance(definition, EnumDef):
                 enum_ref = PrimitiveTypeRef(

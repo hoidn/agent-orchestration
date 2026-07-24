@@ -166,6 +166,7 @@ from .type_env import (
     UnionTypeRef,
     VariantCaseTypeRef,
     WorkflowRefTypeRef,
+    prelude_type_names_for_target,
 )
 from .type_expressions import (
     ListTypeExpr,
@@ -3658,8 +3659,26 @@ def _validate_definition_module(
     """Validate definition names and type references for one module."""
 
     diagnostics: list[LispFrontendDiagnostic] = []
+    target_prelude_type_names = prelude_type_names_for_target(
+        module.target_dsl_version
+    )
+    reserved_target_prelude_type_names = (
+        target_prelude_type_names - PRELUDE_TYPE_NAMES
+    )
     definition_names: dict[str, object] = {}
     for definition in module.definitions:
+        if definition.name in reserved_target_prelude_type_names:
+            diagnostics.append(
+                LispFrontendDiagnostic(
+                    code="prelude_type_name_reserved",
+                    message=(
+                        f"type name `{definition.name}` is reserved by target "
+                        f"DSL {module.target_dsl_version}"
+                    ),
+                    span=definition.span,
+                    form_path=_definition_form_path(definition),
+                )
+            )
         if definition.name in definition_names:
             diagnostics.append(
                 LispFrontendDiagnostic(
@@ -3672,6 +3691,18 @@ def _validate_definition_module(
         else:
             definition_names[definition.name] = definition
     for schema in module.schemas:
+        if schema.name in reserved_target_prelude_type_names:
+            diagnostics.append(
+                LispFrontendDiagnostic(
+                    code="prelude_type_name_reserved",
+                    message=(
+                        f"type name `{schema.name}` is reserved by target "
+                        f"DSL {module.target_dsl_version}"
+                    ),
+                    span=schema.span,
+                    form_path=_definition_form_path(schema),
+                )
+            )
         if schema.name in definition_names:
             diagnostics.append(
                 LispFrontendDiagnostic(
@@ -3706,7 +3737,12 @@ def _validate_definition_module(
         if module.module_name
         else frozenset()
     )
-    available_type_names = PRELUDE_TYPE_NAMES | local_type_names | qualified_local_type_names | imported_type_names
+    available_type_names = (
+        target_prelude_type_names
+        | local_type_names
+        | qualified_local_type_names
+        | imported_type_names
+    )
     for definition in module.definitions:
         if isinstance(definition, RecordDef):
             diagnostics.extend(_validate_field_list(definition.fields, _definition_form_path(definition)))

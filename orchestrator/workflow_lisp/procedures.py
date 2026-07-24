@@ -14,6 +14,7 @@ from .result_guidance import ReturnSpec, parse_return_spec
 from .spans import SourceSpan
 from .syntax import (
     ExpansionStack,
+    PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
     SyntaxKeyword,
     SyntaxList,
     SyntaxNode,
@@ -22,6 +23,7 @@ from .syntax import (
     syntax_identifier,
     syntax_node_datum,
     syntax_resolved_name,
+    target_dsl_supports_provider_supervision,
 )
 from .type_env import FrontendTypeEnvironment, TypeRef
 
@@ -362,10 +364,22 @@ def _type_ref_identity(type_ref: TypeRef) -> str:
 def elaborate_procedure_definitions(module_syntax: WorkflowLispSyntaxModule) -> tuple[ProcedureDef, ...]:
     """Extract and parse every `defproc` form in a syntax module."""
 
+    reserved_prelude_type_names = (
+        frozenset({PROVIDER_STEERING_DIRECTIVE_TYPE_NAME})
+        if target_dsl_supports_provider_supervision(
+            module_syntax.target_dsl_version
+        )
+        else frozenset()
+    )
     definitions: list[ProcedureDef] = []
     for form in module_syntax.forms:
         if syntax_resolved_name(syntax_head(form)) == "defproc":
-            definitions.append(_elaborate_procedure_definition(form))
+            definitions.append(
+                _elaborate_procedure_definition(
+                    form,
+                    reserved_prelude_type_names=reserved_prelude_type_names,
+                )
+            )
     return tuple(definitions)
 
 
@@ -472,7 +486,11 @@ def validate_procedure_effects(
     )
 
 
-def _elaborate_procedure_definition(form: SyntaxNode) -> ProcedureDef:
+def _elaborate_procedure_definition(
+    form: SyntaxNode,
+    *,
+    reserved_prelude_type_names: frozenset[str],
+) -> ProcedureDef:
     datum = syntax_node_datum(form)
     if not isinstance(datum, SyntaxList) or len(datum.items) < 7:
         _raise_parse_error(
@@ -492,7 +510,11 @@ def _elaborate_procedure_definition(form: SyntaxNode) -> ProcedureDef:
     index = 2
     type_params: tuple[ProcedureTypeParam, ...] = ()
     if _keyword_value(datum.items[index]) == ":forall":
-        type_params = _elaborate_type_params(datum.items[index + 1] if index + 1 < len(datum.items) else None, form)
+        type_params = _elaborate_type_params(
+            datum.items[index + 1] if index + 1 < len(datum.items) else None,
+            form,
+            reserved_prelude_type_names=reserved_prelude_type_names,
+        )
         index += 2
 
     if index >= len(datum.items):
@@ -652,7 +674,12 @@ def _elaborate_procedure_definition(form: SyntaxNode) -> ProcedureDef:
     )
 
 
-def _elaborate_type_params(raw_node: object | None, form: SyntaxNode) -> tuple[ProcedureTypeParam, ...]:
+def _elaborate_type_params(
+    raw_node: object | None,
+    form: SyntaxNode,
+    *,
+    reserved_prelude_type_names: frozenset[str],
+) -> tuple[ProcedureTypeParam, ...]:
     if not isinstance(raw_node, SyntaxList):
         _raise_invalid_parametric_clause(
             "`defproc` `:forall` must be followed by a list of type-parameter names",
@@ -668,6 +695,22 @@ def _elaborate_type_params(raw_node: object | None, form: SyntaxNode) -> tuple[P
                 "`defproc` `:forall` entries must be symbols",
                 node=item,
                 form=form,
+            )
+        if identifier.resolved_name in reserved_prelude_type_names:
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="prelude_type_name_reserved",
+                        message=(
+                            "procedure type parameter "
+                            f"`{identifier.display_name}` shadows a "
+                            "compiler-owned prelude type"
+                        ),
+                        span=identifier.span,
+                        form_path=form.form_path,
+                        expansion_stack=identifier.expansion_stack,
+                    ),
+                )
             )
         if identifier.resolved_name in seen:
             raise LispFrontendCompileError(

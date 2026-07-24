@@ -11,7 +11,13 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .macros import MacroCatalog, MacroDef
 from .reader import read_sexpr_file
 from .spans import SourceSpan
-from .syntax import ImportDirective, WorkflowLispSyntaxModule, build_syntax_module
+from .syntax import (
+    PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
+    ImportDirective,
+    WorkflowLispSyntaxModule,
+    build_syntax_module,
+    target_dsl_supports_provider_supervision,
+)
 
 
 @dataclass(frozen=True)
@@ -568,7 +574,28 @@ def build_import_scope(
     workflow_bindings: dict[str, ModuleMemberBinding] = {}
     unqualified_type_bindings: dict[str, ModuleMemberBinding] = {}
     unqualified_schema_bindings: dict[str, ModuleMemberBinding] = {}
+    reserved_prelude_type_names = (
+        frozenset({PROVIDER_STEERING_DIRECTIVE_TYPE_NAME})
+        if target_dsl_supports_provider_supervision(
+            module.target_dsl_version
+        )
+        else frozenset()
+    )
     for import_directive in module.imports:
+        if import_directive.alias in reserved_prelude_type_names:
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="prelude_type_name_reserved",
+                        message=(
+                            f"import alias `{import_directive.alias}` shadows "
+                            "a compiler-owned prelude type"
+                        ),
+                        span=import_directive.span,
+                        form_path=import_directive.form_path,
+                    ),
+                )
+            )
         if import_directive.alias in alias_to_module:
             raise LispFrontendCompileError(
                 (
@@ -615,6 +642,23 @@ def build_import_scope(
                         LispFrontendDiagnostic(
                             code="module_export_missing",
                             message=f"module `{surface.module_name}` does not export `{member_name}`",
+                            span=import_directive.span,
+                            form_path=import_directive.form_path,
+                        ),
+                    )
+                )
+            if (
+                member_name in reserved_prelude_type_names
+                and binding.kind in {"type", "schema"}
+            ):
+                raise LispFrontendCompileError(
+                    (
+                        LispFrontendDiagnostic(
+                            code="prelude_type_name_reserved",
+                            message=(
+                                f"unqualified import `{member_name}` shadows "
+                                "a compiler-owned prelude type"
+                            ),
                             span=import_directive.span,
                             form_path=import_directive.form_path,
                         ),
