@@ -349,6 +349,32 @@ class LetProcExpr:
 
 
 @dataclass(frozen=True)
+class LiveProviderBinding:
+    """One named member of a bounded live-provider supervision group."""
+
+    name: str
+    value_expr: "ExprNode"
+    observes: str | None
+    name_span: SourceSpan
+    observes_span: SourceSpan | None
+    observed_name_span: SourceSpan | None
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class WithLiveProvidersExpr:
+    """Exactly two live providers plus their pure settlement body."""
+
+    bindings: tuple[LiveProviderBinding, ...]
+    body: "ExprNode"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class PromptDependencySpec:
     """Typed authored exact-path inputs for one provider prompt."""
 
@@ -611,6 +637,7 @@ ExprNode = (
     | ProcRefLiteralExpr
     | BindProcExpr
     | LetProcExpr
+    | WithLiveProvidersExpr
     | ProviderResultExpr
     | ProviderBundlePathExpr
     | CommandResultExpr
@@ -1049,6 +1076,7 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "proc_ref": _route_proc_ref,
         "bind_proc": _elaborate_bind_proc,
         "let_proc_guard": _guard_let_proc_route,
+        "with_live_providers": _elaborate_with_live_providers,
         "provider_result": _elaborate_provider_result,
         "provider_bundle_path": _elaborate_provider_bundle_path,
         "command_result": _elaborate_command_result,
@@ -2026,6 +2054,184 @@ def _elaborate_with_phase(
             datum.items[3],
             form_path=form_path,
             bound_names=bound_names,
+            procedure_names=procedure_names,
+        ),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_with_live_providers(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> WithLiveProvidersExpr:
+    if len(datum.items) != 3:
+        _raise_error(
+            "`with-live-providers` requires one binding list and one settlement body",
+            code="with_live_providers_arity_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    raw_bindings = datum.items[1]
+    if not isinstance(raw_bindings, SyntaxList) or len(raw_bindings.items) != 2:
+        _raise_error(
+            "`with-live-providers` requires exactly two bindings",
+            code="with_live_providers_bindings_invalid",
+            span=raw_bindings.span,
+            form_path=form_path,
+            expansion_stack=raw_bindings.expansion_stack,
+        )
+
+    parsed: list[
+        tuple[
+            SyntaxList,
+            SyntaxIdentifier,
+            SyntaxNode | Any,
+            SyntaxKeyword | None,
+            SyntaxIdentifier | None,
+        ]
+    ] = []
+    names: set[str] = set()
+    for raw_binding in raw_bindings.items:
+        if not isinstance(raw_binding, SyntaxList) or len(raw_binding.items) not in (2, 4):
+            _raise_error(
+                "live-provider bindings must be `(name expr)` or `(name expr :observes peer)`",
+                code="with_live_providers_binding_invalid",
+                span=raw_binding.span,
+                form_path=form_path,
+                expansion_stack=raw_binding.expansion_stack,
+            )
+        name_node = syntax_identifier(raw_binding.items[0])
+        if name_node is None:
+            _raise_error(
+                "live-provider binding names must be symbols",
+                code="with_live_providers_binding_invalid",
+                span=raw_binding.items[0].span,
+                form_path=form_path,
+                expansion_stack=raw_binding.items[0].expansion_stack,
+            )
+        if name_node.resolved_name in names:
+            _raise_error(
+                f"duplicate live-provider binding `{name_node.display_name}`",
+                code="with_live_providers_binding_duplicate",
+                span=name_node.span,
+                form_path=form_path,
+                expansion_stack=name_node.expansion_stack,
+            )
+        names.add(name_node.resolved_name)
+
+        observes_keyword: SyntaxKeyword | None = None
+        observed_name: SyntaxIdentifier | None = None
+        if len(raw_binding.items) == 4:
+            keyword_node = raw_binding.items[2]
+            observed_node = raw_binding.items[3]
+            observed_name = syntax_identifier(observed_node)
+            if (
+                not isinstance(keyword_node, SyntaxKeyword)
+                or keyword_node.value != ":observes"
+                or observed_name is None
+            ):
+                invalid_clause_node = (
+                    observed_node
+                    if (
+                        isinstance(keyword_node, SyntaxKeyword)
+                        and keyword_node.value == ":observes"
+                    )
+                    else keyword_node
+                )
+                _raise_error(
+                    "live-provider observation clauses must be `:observes peer`",
+                    code="with_live_providers_binding_invalid",
+                    span=invalid_clause_node.span,
+                    form_path=form_path,
+                    expansion_stack=invalid_clause_node.expansion_stack,
+                )
+            observes_keyword = keyword_node
+        parsed.append(
+            (
+                raw_binding,
+                name_node,
+                raw_binding.items[1],
+                observes_keyword,
+                observed_name,
+            )
+        )
+
+    observed = [item for item in parsed if item[3] is not None]
+    if not observed:
+        _raise_error(
+            "`with-live-providers` requires exactly one `:observes` edge",
+            code="with_live_providers_observation_missing",
+            span=raw_bindings.span,
+            form_path=form_path,
+            expansion_stack=raw_bindings.expansion_stack,
+        )
+    if len(observed) != 1:
+        duplicate_keyword = observed[1][3]
+        assert duplicate_keyword is not None
+        _raise_error(
+            "`with-live-providers` permits exactly one `:observes` edge",
+            code="with_live_providers_observation_duplicate",
+            span=duplicate_keyword.span,
+            form_path=form_path,
+            expansion_stack=duplicate_keyword.expansion_stack,
+        )
+    observer_name = observed[0][1].resolved_name
+    observed_name = observed[0][4]
+    assert observed_name is not None
+    if observed_name.resolved_name not in names or observed_name.resolved_name == observer_name:
+        _raise_error(
+            "`:observes` must name the sibling live-provider binding",
+            code="with_live_providers_observed_peer_invalid",
+            span=observed_name.span,
+            form_path=form_path,
+            expansion_stack=observed_name.expansion_stack,
+        )
+
+    bindings = tuple(
+        LiveProviderBinding(
+            name=name_node.resolved_name,
+            value_expr=_elaborate(
+                value_node,
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            ),
+            observes=(
+                observed_name_node.resolved_name
+                if observed_name_node is not None
+                else None
+            ),
+            name_span=name_node.span,
+            observes_span=(
+                observes_keyword.span if observes_keyword is not None else None
+            ),
+            observed_name_span=(
+                observed_name_node.span if observed_name_node is not None else None
+            ),
+            span=raw_binding.span,
+            form_path=form_path,
+            expansion_stack=raw_binding.expansion_stack,
+        )
+        for (
+            raw_binding,
+            name_node,
+            value_node,
+            observes_keyword,
+            observed_name_node,
+        ) in parsed
+    )
+    return WithLiveProvidersExpr(
+        bindings=bindings,
+        body=_elaborate(
+            datum.items[2],
+            form_path=form_path,
+            bound_names=frozenset(set(bound_names) | names),
             procedure_names=procedure_names,
         ),
         span=datum.span,

@@ -427,6 +427,18 @@ _FORM_SPECS = (
         rationale="Provider effects elaborate through a fixed compiler path.",
     ),
     _spec(
+        "with-live-providers",
+        kind=FormKind.CORE_EFFECT,
+        owner_module="expressions",
+        introduced_in="workflow_lisp_provider_live_binding",
+        remove_by=None,
+        macro_bindable=False,
+        admitted_top_level=False,
+        elaboration_route="with_live_providers",
+        feature_tags=("provider_supervision",),
+        rationale="Bounded live-provider supervision elaborates through one fixed compiler path.",
+    ),
+    _spec(
         "provider-bundle-path",
         kind=FormKind.CORE_SPECIAL,
         owner_module="expressions",

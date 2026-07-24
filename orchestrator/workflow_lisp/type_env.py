@@ -273,6 +273,7 @@ class FrontendTypeEnvironment:
         self,
         type_refs: dict[str, TypeRef],
         *,
+        target_dsl_version: str | None = None,
         import_scope: "ModuleImportScope | None" = None,
         canonical_name_overrides: dict[str, str] | None = None,
         schema_names: frozenset[str] = frozenset(),
@@ -280,6 +281,7 @@ class FrontendTypeEnvironment:
         transition_defs: Mapping[str, TransitionDef] | None = None,
     ):
         self._type_refs = dict(type_refs)
+        self.target_dsl_version = target_dsl_version
         self._import_scope = import_scope
         self._canonical_name_overrides = dict(canonical_name_overrides or {})
         self._schema_names = frozenset(schema_names)
@@ -449,6 +451,7 @@ class FrontendTypeEnvironment:
                                 )
         return cls(
             type_refs,
+            target_dsl_version=module.target_dsl_version,
             import_scope=import_scope,
             schema_names=frozenset(schema_names),
             resource_defs=_resource_declaration_map(

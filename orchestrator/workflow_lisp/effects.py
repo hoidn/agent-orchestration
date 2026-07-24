@@ -51,6 +51,14 @@ class UsesProviderEffect:
 
 
 @dataclass(frozen=True)
+class LiveSupervisionEffect:
+    """Compiler-inferred ownership of one bounded live provider group."""
+
+    supervisor: str
+    worker: str
+
+
+@dataclass(frozen=True)
 class UsesCommandEffect:
     """Declared command or adapter invocation dependency."""
 
@@ -111,6 +119,7 @@ EffectAtom = (
     | WriteEffect
     | PublishEffect
     | UsesProviderEffect
+    | LiveSupervisionEffect
     | UsesCommandEffect
     | CallsWorkflowEffect
     | UpdatesStateEffect
@@ -294,6 +303,11 @@ def render_effect_atom(effect: EffectAtom) -> str:
         label = "publishes"
     elif isinstance(effect, UsesProviderEffect):
         label = "uses-provider"
+    elif isinstance(effect, LiveSupervisionEffect):
+        return (
+            "live-supervision("
+            f"supervisor={effect.supervisor}, worker={effect.worker})"
+        )
     elif isinstance(effect, UsesCommandEffect):
         label = "uses-command"
     elif isinstance(effect, CallsWorkflowEffect):

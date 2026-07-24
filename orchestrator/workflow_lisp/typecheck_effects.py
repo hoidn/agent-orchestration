@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from .effects import (
     EMPTY_EFFECT_SUMMARY,
+    LiveSupervisionEffect,
     UsesCommandEffect,
     UsesProviderEffect,
     effect_summary_from_direct,
@@ -14,10 +17,16 @@ from .expressions import (
     EnumMemberExpr,
     ExprNode,
     FieldAccessExpr,
+    LiveProviderBinding,
     LiteralExpr,
     NameExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
+    WithLiveProvidersExpr,
+)
+from .syntax import (
+    PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
+    target_dsl_supports_provider_supervision,
 )
 from .phase import is_implementation_attempt_result_type
 from .type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, type_refs_compatible
@@ -52,6 +61,192 @@ def _literal_string(expr: ExprNode) -> str | None:
     if isinstance(expr, LiteralExpr) and expr.literal_kind == "string" and isinstance(expr.value, str):
         return expr.value
     return None
+
+
+def typecheck_with_live_providers_expr(
+    expr: WithLiveProvidersExpr,
+    *,
+    context,
+    recurse,
+    typed_factory,
+):
+    """Type one bounded live-provider group and infer its ownership effect."""
+
+    if not target_dsl_supports_provider_supervision(
+        context.type_env.target_dsl_version
+    ):
+        raise_error(
+            "`with-live-providers` requires target DSL 2.16 or newer",
+            code="provider_supervision_target_dsl_unsupported",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+
+    supervisor_binding, worker_binding = _validated_live_provider_roles(expr)
+
+    typed_members = {
+        binding.name: recurse(binding.value_expr)
+        for binding in expr.bindings
+    }
+    typed_supervisor = typed_members[supervisor_binding.name]
+    typed_worker = typed_members[worker_binding.name]
+
+    directive_type = context.type_env.resolve_type(
+        PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
+        span=supervisor_binding.value_expr.span,
+        form_path=supervisor_binding.value_expr.form_path,
+        expansion_stack=supervisor_binding.value_expr.expansion_stack,
+    )
+    if (
+        not isinstance(typed_supervisor.type_ref, UnionTypeRef)
+        or typed_supervisor.type_ref != directive_type
+    ):
+        raise_error(
+            (
+                "the observing provider must return the exact compiler-owned "
+                f"`{PROVIDER_STEERING_DIRECTIVE_TYPE_NAME}` union"
+            ),
+            code="provider_supervision_supervisor_type_invalid",
+            span=supervisor_binding.value_expr.span,
+            form_path=supervisor_binding.value_expr.form_path,
+            expansion_stack=supervisor_binding.value_expr.expansion_stack,
+        )
+
+    from .contracts import is_transportable_result_type
+
+    if not is_transportable_result_type(typed_worker.type_ref):
+        raise_error(
+            "the observed provider must return a transportable result type",
+            code="provider_supervision_worker_type_invalid",
+            span=worker_binding.value_expr.span,
+            form_path=worker_binding.value_expr.form_path,
+            expansion_stack=worker_binding.value_expr.expansion_stack,
+        )
+
+    typed_body = recurse(
+        expr.body,
+        value_env={
+            **context.value_env,
+            **{
+                binding.name: typed_members[binding.name].type_ref
+                for binding in expr.bindings
+            },
+        },
+    )
+    body_effects = typed_body.effect_summary
+    if (
+        body_effects.direct_effects
+        or body_effects.transitive_effects
+        or body_effects.procedure_edges
+    ):
+        raise_error(
+            "`with-live-providers` settlement body must be pure",
+            code="provider_supervision_settlement_effectful",
+            span=expr.body.span,
+            form_path=expr.body.form_path,
+            expansion_stack=expr.body.expansion_stack,
+        )
+
+    rewritten_bindings = tuple(
+        replace(
+            binding,
+            value_expr=typed_members[binding.name].expr,
+        )
+        for binding in expr.bindings
+    )
+    live_summary = effect_summary_from_direct(
+        direct_effects=(
+            LiveSupervisionEffect(
+                supervisor=supervisor_binding.name,
+                worker=worker_binding.name,
+            ),
+        )
+    )
+    return typed_factory(
+        expr=replace(
+            expr,
+            bindings=rewritten_bindings,
+            body=typed_body.expr,
+        ),
+        type_ref=typed_body.type_ref,
+        effect=merge_effect_summaries(
+            *(typed_member.effect_summary for typed_member in typed_members.values()),
+            typed_body.effect_summary,
+            live_summary,
+        ),
+    )
+
+
+def _validated_live_provider_roles(
+    expr: WithLiveProvidersExpr,
+) -> tuple[LiveProviderBinding, LiveProviderBinding]:
+    """Revalidate exported AST invariants before selecting member roles."""
+
+    if len(expr.bindings) != 2:
+        raise_error(
+            "`with-live-providers` requires exactly two bindings",
+            code="with_live_providers_bindings_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+
+    seen_names: set[str] = set()
+    for binding in expr.bindings:
+        if binding.name in seen_names:
+            raise_error(
+                f"duplicate live-provider binding `{binding.name}`",
+                code="with_live_providers_binding_duplicate",
+                span=binding.name_span,
+                form_path=binding.form_path,
+                expansion_stack=binding.expansion_stack,
+            )
+        seen_names.add(binding.name)
+
+    observers = tuple(
+        binding for binding in expr.bindings if binding.observes is not None
+    )
+    if not observers:
+        raise_error(
+            "`with-live-providers` requires exactly one `:observes` edge",
+            code="with_live_providers_observation_missing",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if len(observers) != 1:
+        duplicate = observers[1]
+        raise_error(
+            "`with-live-providers` permits exactly one `:observes` edge",
+            code="with_live_providers_observation_duplicate",
+            span=duplicate.observes_span or duplicate.span,
+            form_path=duplicate.form_path,
+            expansion_stack=duplicate.expansion_stack,
+        )
+
+    supervisor_binding = observers[0]
+    worker_binding = next(
+        (
+            binding
+            for binding in expr.bindings
+            if binding.name == supervisor_binding.observes
+            and binding is not supervisor_binding
+        ),
+        None,
+    )
+    if worker_binding is None:
+        raise_error(
+            "`:observes` must name the sibling live-provider binding",
+            code="with_live_providers_observed_peer_invalid",
+            span=(
+                supervisor_binding.observed_name_span
+                or supervisor_binding.span
+            ),
+            form_path=supervisor_binding.form_path,
+            expansion_stack=supervisor_binding.expansion_stack,
+        )
+    return supervisor_binding, worker_binding
 
 
 def validate_command_argv(

@@ -53,6 +53,7 @@ from .expressions import (
     RunProviderPhaseExpr,
     UnionVariantExpr,
     WorkflowRefLiteralExpr,
+    WithLiveProvidersExpr,
     WithPhaseExpr,
 )
 from .loops import LoopControlTypeRef, ensure_loop_projectable_type
@@ -96,6 +97,7 @@ from .typecheck_effects import (
     typecheck_command_result_expr as _typecheck_command_result_expr,
     typecheck_provider_bundle_path_expr as _typecheck_provider_bundle_path_expr,
     typecheck_provider_result_expr as _typecheck_provider_result_expr,
+    typecheck_with_live_providers_expr as _typecheck_with_live_providers_expr,
 )
 from .typecheck_pure_ops import typecheck_pure_expr as _typecheck_pure_expr
 from .typecheck_resource_view import (
@@ -514,6 +516,13 @@ def _typecheck(
             typed_factory=_typed,
             raise_error=_raise_error,
             type_label=_type_label,
+        )
+    if isinstance(expr, WithLiveProvidersExpr):
+        return _typecheck_with_live_providers_expr(
+            expr,
+            context=context,
+            recurse=recurse,
+            typed_factory=_typed,
         )
     if isinstance(expr, RecordExpr):
         record_type = type_env.resolve_type(expr.type_name, span=expr.span, form_path=expr.form_path)

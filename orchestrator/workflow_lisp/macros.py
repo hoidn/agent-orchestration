@@ -453,6 +453,13 @@ def _apply_hygiene(
         return _hygienic_match(datum, macro_name=macro_name, expansion_id=expansion_id, env=active_env)
     if head_name == "defworkflow":
         return _hygienic_defworkflow(datum, macro_name=macro_name, expansion_id=expansion_id, env=active_env)
+    if head_name == "with-live-providers":
+        return _hygienic_with_live_providers(
+            datum,
+            macro_name=macro_name,
+            expansion_id=expansion_id,
+            env=active_env,
+        )
     if head_name == "record":
         return _replace_list_item_range(
             datum,
@@ -523,13 +530,132 @@ def _apply_hygiene(
     if head_name == "phase-target":
         # `phase-target` remains intrinsic-only until the promoted stdlib idiom fully replaces it.
         return datum
+    return _hygienic_generic_list(
+        datum,
+        macro_name=macro_name,
+        expansion_id=expansion_id,
+        env=active_env,
+    )
+
+
+def _hygienic_generic_list(
+    datum: SyntaxList,
+    *,
+    macro_name: str,
+    expansion_id: str,
+    env: Mapping[str, str],
+) -> SyntaxList:
     return replace(
         datum,
         items=tuple(
-            item if index == 0 else _apply_hygiene(item, macro_name=macro_name, expansion_id=expansion_id, env=active_env)
+            item
+            if index == 0
+            else _apply_hygiene(
+                item,
+                macro_name=macro_name,
+                expansion_id=expansion_id,
+                env=env,
+            )
             for index, item in enumerate(datum.items)
         ),
     )
+
+
+def _hygienic_with_live_providers(
+    datum: SyntaxList,
+    *,
+    macro_name: str,
+    expansion_id: str,
+    env: Mapping[str, str],
+) -> SyntaxDatum:
+    if len(datum.items) != 3:
+        return _hygienic_generic_list(
+            datum,
+            macro_name=macro_name,
+            expansion_id=expansion_id,
+            env=env,
+        )
+    bindings_node = datum.items[1]
+    if not isinstance(bindings_node, SyntaxList) or len(bindings_node.items) != 2:
+        return _hygienic_generic_list(
+            datum,
+            macro_name=macro_name,
+            expansion_id=expansion_id,
+            env=env,
+        )
+
+    raw_bindings: list[SyntaxList] = []
+    for raw_binding in bindings_node.items:
+        if (
+            not isinstance(raw_binding, SyntaxList)
+            or len(raw_binding.items) not in (2, 4)
+            or not isinstance(raw_binding.items[0], SyntaxIdentifier)
+            or (
+                len(raw_binding.items) == 4
+                and (
+                    not isinstance(raw_binding.items[2], SyntaxKeyword)
+                    or raw_binding.items[2].value != ":observes"
+                    or not isinstance(raw_binding.items[3], SyntaxIdentifier)
+                )
+            )
+        ):
+            return _hygienic_generic_list(
+                datum,
+                macro_name=macro_name,
+                expansion_id=expansion_id,
+                env=env,
+            )
+        raw_bindings.append(raw_binding)
+
+    local_env = dict(env)
+    renamed_binders: list[SyntaxIdentifier] = []
+    for raw_binding in raw_bindings:
+        name_node = raw_binding.items[0]
+        assert isinstance(name_node, SyntaxIdentifier)
+        if name_node.introduced_by_expansion_id == expansion_id:
+            renamed = introduced_identifier(
+                name_node,
+                macro_name=macro_name,
+                expansion_id=expansion_id,
+            )
+            local_env[name_node.resolved_name] = renamed.resolved_name
+            name_node = renamed
+        renamed_binders.append(name_node)
+
+    new_bindings: list[SyntaxDatum] = []
+    for raw_binding, name_node in zip(
+        raw_bindings,
+        renamed_binders,
+        strict=True,
+    ):
+        updated_binding = list(raw_binding.items)
+        updated_binding[0] = name_node
+        updated_binding[1] = _apply_hygiene(
+            raw_binding.items[1],
+            macro_name=macro_name,
+            expansion_id=expansion_id,
+            env=env,
+        )
+        if len(updated_binding) == 4:
+            updated_binding[3] = _apply_hygiene(
+                raw_binding.items[3],
+                macro_name=macro_name,
+                expansion_id=expansion_id,
+                env=local_env,
+            )
+        new_bindings.append(
+            replace(raw_binding, items=tuple(updated_binding))
+        )
+
+    updated = list(datum.items)
+    updated[1] = replace(bindings_node, items=tuple(new_bindings))
+    updated[2] = _apply_hygiene(
+        datum.items[2],
+        macro_name=macro_name,
+        expansion_id=expansion_id,
+        env=local_env,
+    )
+    return replace(datum, items=tuple(updated))
 
 
 def _hygienic_letstar(

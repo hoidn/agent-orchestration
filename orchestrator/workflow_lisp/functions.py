@@ -20,6 +20,7 @@ from .expressions import (
     FunctionCallExpr,
     IfExpr,
     LetStarExpr,
+    LiveProviderBinding,
     LiteralExpr,
     MaterializeViewExpr,
     LoopStateField,
@@ -40,6 +41,7 @@ from .expressions import (
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
+    WithLiveProvidersExpr,
     WithPhaseExpr,
     elaborate_expression,
 )
@@ -551,6 +553,31 @@ def _normalize_expr(
                 else None
             ),
         )
+    if isinstance(expr, WithLiveProvidersExpr):
+        return replace(
+            expr,
+            bindings=tuple(
+                LiveProviderBinding(
+                    name=binding.name,
+                    value_expr=_normalize_expr(
+                        binding.value_expr,
+                        typed_functions_by_name=typed_functions_by_name,
+                    ),
+                    observes=binding.observes,
+                    name_span=binding.name_span,
+                    observes_span=binding.observes_span,
+                    observed_name_span=binding.observed_name_span,
+                    span=binding.span,
+                    form_path=binding.form_path,
+                    expansion_stack=binding.expansion_stack,
+                )
+                for binding in expr.bindings
+            ),
+            body=_normalize_expr(
+                expr.body,
+                typed_functions_by_name=typed_functions_by_name,
+            ),
+        )
     if isinstance(expr, WithPhaseExpr):
         return replace(
             expr,
@@ -868,6 +895,8 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
         return "resource-transition"
     if isinstance(expr, MaterializeViewExpr):
         return "materialize-view"
+    if isinstance(expr, WithLiveProvidersExpr):
+        return "with-live-providers"
     if isinstance(expr, FinalizeSelectedItemExpr):
         return "finalize-selected-item"
     if isinstance(expr, LoopRecurExpr):

@@ -39,6 +39,7 @@ from .expressions import (
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
+    WithLiveProvidersExpr,
     WithPhaseExpr,
     WorkflowRefLiteralExpr,
 )
@@ -135,6 +136,8 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return expr.args
     if isinstance(expr, WithPhaseExpr):
         return (expr.ctx_expr, expr.body)
+    if isinstance(expr, WithLiveProvidersExpr):
+        return tuple(binding.value_expr for binding in expr.bindings) + (expr.body,)
     if isinstance(expr, BindProcExpr):
         return (expr.base_expr,) + tuple(binding.value_expr for binding in expr.bindings)
     if isinstance(expr, LetProcExpr):

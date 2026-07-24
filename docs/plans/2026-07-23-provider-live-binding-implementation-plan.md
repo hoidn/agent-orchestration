@@ -989,17 +989,17 @@ union/guidance tests, and 3 shared-version tests. Ordered verdicts:
 - Modify: `orchestrator/workflow_lisp/effects.py`
 - Test: `tests/test_workflow_lisp_provider_supervision.py`
 
-- [ ] Write RED parser/span/traversal/type/effect tests for exactly two
+- [x] Write RED parser/span/traversal/type/effect tests for exactly two
   bindings, exactly one valid `:observes` edge, worker type `T`, supervisor
   directive type, pure settlement result, and
   `LiveSupervisionEffect(supervisor, worker)`.
-- [ ] Add diagnostics for wrong arity, duplicate/missing/unknown edge,
+- [x] Add diagnostics for wrong arity, duplicate/missing/unknown edge,
   wrong supervisor type, effectful body, and unsupported form position.
-- [ ] Add a target-2.15 test that parses the now-known form and rejects it with
+- [x] Add a target-2.15 test that parses the now-known form and rejects it with
   the specific version-gate diagnostic code/span rather than an unknown-form
   error. Add registry tests for the 2.16 elaboration route and reserved macro
   name.
-- [ ] Run and verify diagnostic codes/spans, not literal messages:
+- [x] Run and verify diagnostic codes/spans, not literal messages:
 
   ```bash
   pytest -q \
@@ -1008,12 +1008,23 @@ union/guidance tests, and 3 shared-version tests. Ordered verdicts:
     tests/test_workflow_lisp_macros.py \
     -k 'live_provider or provider_supervision or form_registry or target_2_15'
   ```
-- [ ] Implement the smallest AST/traversal/type/effect surface while preserving
+- [x] Implement the smallest AST/traversal/type/effect surface while preserving
   existing macro/function normalization.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_workflow_lisp_provider_supervision.py -k 'parse or type or effect or diagnostic'`.
-- [ ] Complete specification review, quality review, and commit:
+- [x] Complete specification review, quality review, and commit:
   `Type bounded live provider supervision`.
+
+**Task 11 evidence (2026-07-24):** RED coverage established the new
+two-member AST, one sibling observation edge, target gate, exact supervisor
+type, transportable worker, pure settlement, and inferred live-supervision
+effect. Specification review corrected malformed-clause span ownership and
+added the public pure-helper-position diagnostic. Quality review then closed
+raw `StopIteration` and silent-collision paths by revalidating exported AST
+invariants before role selection. Fresh verification passed all 52 provider
+supervision tests and all 97 adjacent expression, macro, and function tests.
+Ordered final verdicts: `AST_SPEC_APPROVED`, `TYPE_SPEC_APPROVED`, then
+`AST_QUALITY_APPROVED` and `TYPE_QUALITY_APPROVED`.
 
 ### Task 12A: WCC Member Normalization And Eligibility
 
