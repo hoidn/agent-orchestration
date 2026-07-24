@@ -105,6 +105,45 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
   - These profiles are generic provider data. Their presence does not prove
     workflow-family parity or promotion eligibility.
 
+- Provider-phase isolation policy (versioned contract; runtime integration pending)
+  - `provider_phase_isolation.v1` is an external runtime-owned JSON policy,
+    not provider-template data or authored workflow data. Its closed top-level
+    fields are `schema_version`, `mode`, `backend`, `session_mode`,
+    `workspace`, `provider_environment`, `process_environment`,
+    `result_bundle`, `shared_network_review`, and `history_retrieval`; unknown
+    fields and versions are rejected recursively.
+  - V1 accepts only `mode: required`, `backend: bubblewrap.v1`, and
+    `session_mode: fresh_only`. Candidate access is `read_write` while the
+    runtime-owned `.orchestrate` subtree is masked. The selected provider
+    environment is a sealed, digest-verified rootfs snapshot with a distinct
+    absolute provider-visible build prefix; ambient host roots and mutable
+    controller toolchains are not substitutes.
+  - Omitting the policy preserves the current unrestricted provider launcher,
+    environment inheritance, and security claim. Once public run/resume
+    integration is present, a required policy must fail before provider launch
+    whenever its environment, backend, or requested capability cannot be
+    enforced; it may never warn and fall back to the unrestricted launcher.
+  - Direct provider credentials are exactly the intersection of
+    `process_environment.credential_env` and the provider step's declared
+    `secrets`. A policy-listed name that the step did not declare is not
+    granted. A declared name outside the policy or absent from the controller
+    environment fails before launch. Authored provider `env` is unsupported in
+    v1 apart from runtime-owned bindings.
+  - `history_retrieval` represents provider API transport separately from
+    remote Git, browser, source-search, and repository-fetch retrieval. V1
+    allows provider transport and requests denial of all four retrieval
+    channels; `eligibility_requirement` is `classify` or `require_causal`.
+    `shared_network_review` binds an absolute controller-private inventory
+    path, its canonical SHA-256 identity, and the sole v1 decision
+    `accept_unlisted_reachability`.
+  - Built-in provider bypass flags do not establish this boundary. A copied
+    workspace likewise remains only an orchestrator-managed validation and
+    promotion boundary, not an OS sandbox.
+  - This section defines the staged policy contract only. The policy loader and
+    schema do not make provider execution isolated; the feature must not be
+    described as available until the launcher, state, CLI, resume, and
+    attestation integration gates land.
+
 - Managed provider job policy JSON (v2.13)
   - `managed_jobs.policy` points to workspace-relative JSON that classifies payloads launched by the guarded provider process. It is separate from provider-template configuration.
   - Minimal explicit-metadata shape:

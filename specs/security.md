@@ -12,7 +12,42 @@
     - `asset_file` and `asset_depends_on` resolve from the directory containing the authored workflow file and must remain within that workflow source tree.
     - `input_file`, `depends_on`, `output_file`, `expected_outputs.path`, `output_bundle.path`, `consume_bundle.path`, and deterministic `relpath` outputs remain WORKSPACE-relative under `call`.
 
-Note: These safety checks apply to paths the orchestrator resolves (e.g., `input_file`, `output_file`, `depends_on`, `wait_for`). Child processes invoked by `command`/`provider` can read/write any locations permitted by the OS; use OS/user sandboxing if stricter isolation is required.
+Note: These safety checks apply to paths the orchestrator resolves (e.g., `input_file`, `output_file`, `depends_on`, `wait_for`). Child processes invoked by `command`/`provider` can read/write any locations permitted by the OS; use OS/user sandboxing if stricter isolation is required. This remains the current runtime contract while provider-phase isolation integration is pending: packaging the versioned policy schema by itself does not change process authority.
+
+- Provider-phase isolation boundary (versioned contract; runtime integration pending)
+  - Omission of `provider_phase_isolation.v1` means current unrestricted
+    behavior. It must not be interpreted as an implicit or best-effort
+    isolation request.
+  - A selected `mode: required` policy is fail-closed. Once integrated into
+    public run/resume, an unavailable or mismatched backend, sealed
+    environment, network review, grant, or capability must stop before
+    provider launch; unrestricted subprocess fallback is forbidden.
+  - Isolated profiles require a content-addressed, read-only, run-owned
+    provider rootfs snapshot. Provider executables, interpreters, loaders,
+    libraries, and non-secret configuration must resolve from that snapshot.
+    The host `/`, host home, mutable environment source, or controller checkout
+    must not be mounted for convenience.
+  - The positive filesystem grant is the writable candidate product plus
+    invocation-private runtime surfaces. Candidate `.orchestrate` is masked.
+    Workflow source, prompt assets, controller/control state, evaluators, peer
+    arms, parent checkouts, prior raw result bundles, and their ancestor
+    authorities must not be granted by mount or inherited descriptor.
+  - Direct credentials are names, not values, in policy. Effective values are
+    the intersection of the policy allowlist and each provider step's declared
+    `secrets`; unrelated ambient environment and reserved runtime, loader,
+    interpreter, shell-bootstrap, locale, and time variables are absent.
+    Authored provider `env` is unsupported in v1.
+  - Built-in tool approval/sandbox bypass flags remain provider behavior inside
+    the outer boundary; they are not isolation controls. Candidate copies,
+    changed working directories, prompt omission, and reviewer-package filters
+    are also not OS isolation boundaries.
+  - No control, controller, evaluator, peer, or parent authority may be added
+    to make an isolated provider work. If the provider cannot run from the
+    sealed environment and narrow grants, implementation must stop for a
+    reviewed versioned extension.
+  - This staged contract is not an implementation-status claim. Provider
+    execution remains unrestricted until the production launcher, state,
+    CLI/resume, and attestation integration is complete and verified.
 
 - Adjudicated provider child workspaces (v2.11)
   - Candidate workspaces are run-owned copies created from a fixed immutable baseline snapshot. They are isolation boundaries for orchestrator-managed output validation and promotion, not OS sandboxes.

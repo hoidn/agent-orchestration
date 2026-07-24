@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://orchestrator.invalid/schemas/provider-phase-isolation-v1.schema.json",
+  "title": "Provider phase isolation policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "mode",
+    "backend",
+    "session_mode",
+    "workspace",
+    "provider_environment",
+    "process_environment",
+    "result_bundle",
+    "shared_network_review",
+    "history_retrieval"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "provider_phase_isolation.v1"
+    },
+    "mode": {
+      "const": "required"
+    },
+    "backend": {
+      "const": "bubblewrap.v1"
+    },
+    "session_mode": {
+      "const": "fresh_only"
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "access",
+        "masked_runtime_roots"
+      ],
+      "properties": {
+        "access": {
+          "const": "read_write"
+        },
+        "masked_runtime_roots": {
+          "const": [
+            ".orchestrate"
+          ]
+        }
+      }
+    },
+    "provider_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "provider_prefix",
+        "digest"
+      ],
+      "properties": {
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider_prefix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 71,
+          "maxLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "process_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "credential_env"
+      ],
+      "properties": {
+        "credential_env": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          }
+        }
+      }
+    },
+    "result_bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_bytes"
+      ],
+      "properties": {
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16777216
+        }
+      }
+    },
+    "shared_network_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inventory_path",
+        "inventory_digest",
+        "decision"
+      ],
+      "properties": {
+        "inventory_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inventory_digest": {
+          "type": "string",
+          "minLength": 71,
+          "maxLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "decision": {
+          "const": "accept_unlisted_reachability"
+        }
+      }
+    },
+    "history_retrieval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eligibility_requirement",
+        "provider_api_transport",
+        "remote_git",
+        "browser",
+        "source_search",
+        "repository_fetch"
+      ],
+      "properties": {
+        "eligibility_requirement": {
+          "enum": [
+            "classify",
+            "require_causal"
+          ]
+        },
+        "provider_api_transport": {
+          "const": "allow"
+        },
+        "remote_git": {
+          "const": "deny"
+        },
+        "browser": {
+          "const": "deny"
+        },
+        "source_search": {
+          "const": "deny"
+        },
+        "repository_fetch": {
+          "const": "deny"
+        }
+      }
+    }
+  }
+}

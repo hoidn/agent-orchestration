@@ -21,6 +21,9 @@ dev = [
 where = ["."]
 include = ["orchestrator*"]
 
+[tool.setuptools.package-data]
+"orchestrator.providers.schemas" = ["*.json"]
+
 [tool.pytest.ini_options]
 markers = [
     "e2e: end-to-end tests that may require network or secrets; skipped by default",

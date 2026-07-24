@@ -17,6 +17,17 @@ from .types import (
 )
 from .registry import ProviderRegistry
 from .executor import ProviderExecutor, ProviderExecutionResult
+from .isolation import (
+    HistoryRetrievalPolicy,
+    ProviderEnvironmentIdentity,
+    ProviderIsolationIssue,
+    ProviderIsolationPolicyError,
+    ProviderPhaseIsolationPolicy,
+    canonical_isolation_json_bytes,
+    load_provider_isolation_schema,
+    load_provider_phase_isolation_policy,
+    validate_provider_phase_isolation_policy,
+)
 
 
 __all__ = [
@@ -32,4 +43,13 @@ __all__ = [
     "ProviderRegistry",
     "ProviderExecutor",
     "ProviderExecutionResult",
+    "HistoryRetrievalPolicy",
+    "ProviderEnvironmentIdentity",
+    "ProviderIsolationIssue",
+    "ProviderIsolationPolicyError",
+    "ProviderPhaseIsolationPolicy",
+    "canonical_isolation_json_bytes",
+    "load_provider_isolation_schema",
+    "load_provider_phase_isolation_policy",
+    "validate_provider_phase_isolation_policy",
 ]
