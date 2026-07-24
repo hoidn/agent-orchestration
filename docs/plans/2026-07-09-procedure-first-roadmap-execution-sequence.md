@@ -246,8 +246,9 @@ both dedicated `.orc` port promotions, and every gated archive/deletion queue.
 Task 7 subsequently made the fresh frontend ORC-only, removed the user-facing
 loader and project PyYAML dependency, passed its focused gate, and passed a
 fresh non-mutating `.orc` dry-run smoke. Its final scoped broad comparison and
-independent reviews are the current selector. After YAML retirement, continue
-with `docs/design/workflow_lisp_provider_live_binding.md` and
+independent reviews are the current selector in
+`docs/plans/2026-07-07-yaml-retirement-program.md`. After YAML retirement,
+continue with `docs/design/workflow_lisp_provider_live_binding.md` and
 `docs/design/workflow_lisp_language_server.md`, in that order.
 
 The completed Phase 1 execution order was:
