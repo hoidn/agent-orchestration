@@ -4,7 +4,6 @@ Acceptance tests: AT-28-35, AT-53
 """
 
 import pytest
-import yaml
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -21,7 +20,7 @@ def create_workflow_file(workspace: Path, workflow: dict, filename: str = "test.
     """Helper to create workflow file on disk for StateManager."""
     workflow_path = workspace / filename
     with open(workflow_path, 'w') as f:
-        yaml.dump(workflow, f)
+        json.dump(workflow, f)
     return filename
 
 
@@ -92,7 +91,7 @@ def test_at28_basic_injection(temp_workspace, mock_provider_registry):
 
             # Write workflow to file for state manager
             workflow_file = temp_workspace / 'test_workflow.yaml'
-            workflow_file.write_text(yaml.dump(workflow))
+            workflow_file.write_text(json.dumps(workflow))
 
             # Create workflow file and state manager
             workflow_file = create_workflow_file(temp_workspace, workflow, 'test_workflow.yaml')

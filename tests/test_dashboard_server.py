@@ -8,7 +8,6 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-import yaml
 
 from orchestrator.dashboard.scanner import RunScanner
 from orchestrator.dashboard.server import DashboardApp
@@ -16,7 +15,7 @@ from orchestrator.dashboard.server import DashboardApp
 
 def _write_yaml(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
     return path
 
 

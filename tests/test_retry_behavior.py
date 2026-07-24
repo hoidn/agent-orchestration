@@ -3,13 +3,13 @@ Test suite for retry behavior implementation.
 Tests AT-20, AT-21: Timeout and retry logic for providers and commands.
 """
 
+import json
 import tempfile
 import time
 from pathlib import Path
 from unittest.mock import patch, MagicMock, call
 
 import pytest
-import yaml
 
 from orchestrator.exec.retry import RetryPolicy
 from orchestrator.exec.step_executor import StepExecutor, ExecutionResult
@@ -116,7 +116,7 @@ class TestWorkflowRetryExecution:
 
         # Create workflow file for state manager
         workflow_file = self.workspace / 'test_workflow.yaml'
-        workflow_file.write_text(yaml.dump(workflow))
+        workflow_file.write_text(json.dumps(workflow))
 
         state_manager = StateManager(self.workspace)
         state_manager.initialize(str(workflow_file), {})
@@ -169,7 +169,7 @@ class TestWorkflowRetryExecution:
 
         # Create workflow file for state manager
         workflow_file = self.workspace / 'test_workflow.yaml'
-        workflow_file.write_text(yaml.dump(workflow))
+        workflow_file.write_text(json.dumps(workflow))
 
         state_manager = StateManager(self.workspace)
         state_manager.initialize(str(workflow_file), {})
@@ -237,7 +237,7 @@ class TestWorkflowRetryExecution:
 
         # Create workflow file for state manager
         workflow_file = self.workspace / 'test_workflow.yaml'
-        workflow_file.write_text(yaml.dump(workflow))
+        workflow_file.write_text(json.dumps(workflow))
 
         state_manager = StateManager(self.workspace)
         state_manager.initialize(str(workflow_file), {})
@@ -296,7 +296,7 @@ class TestWorkflowRetryExecution:
 
         # Create workflow file for state manager
         workflow_file = self.workspace / 'test_workflow.yaml'
-        workflow_file.write_text(yaml.dump(workflow))
+        workflow_file.write_text(json.dumps(workflow))
 
         state_manager = StateManager(self.workspace)
         state_manager.initialize(str(workflow_file), {})
@@ -353,7 +353,7 @@ class TestWorkflowRetryExecution:
 
         # Create workflow file for state manager
         workflow_file = self.workspace / 'test_workflow.yaml'
-        workflow_file.write_text(yaml.dump(workflow))
+        workflow_file.write_text(json.dumps(workflow))
 
         state_manager = StateManager(self.workspace)
         state_manager.initialize(str(workflow_file), {})
@@ -426,7 +426,7 @@ class TestWorkflowRetryExecution:
 
         # Create workflow file for state manager
         workflow_file = self.workspace / 'test_workflow.yaml'
-        workflow_file.write_text(yaml.dump(workflow))
+        workflow_file.write_text(json.dumps(workflow))
 
         state_manager = StateManager(self.workspace)
         state_manager.initialize(str(workflow_file), {})
@@ -483,7 +483,7 @@ class TestWorkflowRetryExecution:
 
         # Create workflow file for state manager
         workflow_file = self.workspace / 'test_workflow.yaml'
-        workflow_file.write_text(yaml.dump(workflow))
+        workflow_file.write_text(json.dumps(workflow))
 
         state_manager = StateManager(self.workspace)
         state_manager.initialize(str(workflow_file), {})
@@ -533,7 +533,7 @@ class TestWorkflowRetryExecution:
         }
 
         workflow_file = self.workspace / 'retry_visits.yaml'
-        workflow_file.write_text(yaml.dump(workflow))
+        workflow_file.write_text(json.dumps(workflow))
 
         state_manager = StateManager(self.workspace, run_id='retry-visits-run')
         state_manager.initialize('retry_visits.yaml', {})

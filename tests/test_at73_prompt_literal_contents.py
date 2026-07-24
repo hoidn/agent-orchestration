@@ -8,7 +8,6 @@ Test AT-73: Prompt literal contents
 import json
 import pytest
 import tempfile
-import yaml
 from pathlib import Path
 from unittest.mock import Mock, MagicMock, patch
 import subprocess
@@ -61,7 +60,7 @@ class TestPromptLiteralContents:
         # Save workflow to file
         workflow_path = workspace / 'workflow.yaml'
         with open(workflow_path, 'w') as f:
-            yaml.dump(workflow, f)
+            json.dump(workflow, f)
 
         # Create executor
         state_manager = StateManager(
@@ -145,7 +144,7 @@ class TestPromptLiteralContents:
         # Save workflow to file
         workflow_path = workspace / 'workflow.yaml'
         with open(workflow_path, 'w') as f:
-            yaml.dump(workflow, f)
+            json.dump(workflow, f)
 
         # Create executor
         state_manager = StateManager(
@@ -240,7 +239,7 @@ class TestPromptLiteralContents:
         # Save workflow to file
         workflow_path = workspace / 'workflow.yaml'
         with open(workflow_path, 'w') as f:
-            yaml.dump(workflow, f)
+            json.dump(workflow, f)
 
         # Create executor
         state_manager = StateManager(
@@ -330,7 +329,7 @@ class TestPromptLiteralContents:
         # Save workflow to file
         workflow_path = workspace / 'workflow.yaml'
         with open(workflow_path, 'w') as f:
-            yaml.dump(workflow, f)
+            json.dump(workflow, f)
 
         # Create executor
         state_manager = StateManager(
@@ -406,7 +405,7 @@ class TestPromptLiteralContents:
         # Save workflow to file
         workflow_path = workspace / 'workflow.yaml'
         with open(workflow_path, 'w') as f:
-            yaml.dump(workflow, f)
+            json.dump(workflow, f)
 
         # Create executor
         state_manager = StateManager(

@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from tests.golden_state import (
     _build_observation,
@@ -49,7 +48,10 @@ def _run_v214_workflow(
         _write_provider_scenario(workspace, json.loads(scenario_path.read_text(encoding="utf-8")))
     else:
         _write_provider_scenario(workspace, {"mode": scenario_name})
-    (workspace / "workflow.yaml").write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    (workspace / "workflow.yaml").write_text(
+        json.dumps(workflow, sort_keys=False),
+        encoding="utf-8",
+    )
     state = _execute_workflow(workspace=workspace, workflow_relpath="workflow.yaml", inputs={})
     return _build_observation(workspace, state)
 

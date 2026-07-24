@@ -16,7 +16,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-import yaml
 
 from orchestrator.workflow_lisp import LispFrontendCompileError
 from orchestrator.exec.output_capture import CaptureMode, CaptureResult
