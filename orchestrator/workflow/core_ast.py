@@ -118,6 +118,14 @@ class CoreProviderStep:
 
 
 @dataclass(frozen=True)
+class CoreProviderSupervisionStep:
+    meta: CoreStmtMeta
+    common: Any
+    provider_supervision: Any
+    _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
 class CoreAdjudicatedProviderStep:
     meta: CoreStmtMeta
     common: Any
@@ -528,6 +536,13 @@ def _build_statement(
             ),
             _surface_step=step,
         )
+    if step.kind is SurfaceStepKind.PROVIDER_SUPERVISION:
+        return CoreProviderSupervisionStep(
+            meta=meta,
+            common=step.common,
+            provider_supervision=step.provider_supervision,
+            _surface_step=step,
+        )
     if step.kind is SurfaceStepKind.ADJUDICATED_PROVIDER:
         return CoreAdjudicatedProviderStep(
             meta=meta,
@@ -917,6 +932,8 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
                 statement.compiler_prompt_dependency_contract
             ),
         )
+    elif isinstance(statement, CoreProviderSupervisionStep):
+        kwargs["provider_supervision"] = statement.provider_supervision
     elif isinstance(statement, CoreAdjudicatedProviderStep):
         kwargs["adjudicated_provider"] = statement.adjudicated_provider
     elif isinstance(statement, CoreWaitForStep):
@@ -1120,6 +1137,16 @@ def _statement_to_json(statement: Any) -> dict[str, Any]:
             payload["provider_call_policy"] = _serialize_provider_call_policy(
                 statement.provider_call_policy
             )
+        return payload
+    if isinstance(statement, CoreProviderSupervisionStep):
+        payload.update(
+            {
+                "kind": "provider_supervision",
+                "provider_supervision": _json_data(
+                    statement.provider_supervision
+                ),
+            }
+        )
         return payload
     if isinstance(statement, CoreAdjudicatedProviderStep):
         payload.update({"kind": "adjudicated_provider", "adjudicated_provider": _json_data(statement.adjudicated_provider)})

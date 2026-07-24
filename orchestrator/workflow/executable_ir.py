@@ -14,10 +14,30 @@ from .prompt_dependency_contract import (
     serialize_compiler_prompt_dependency_contract,
     validate_compiler_prompt_dependency_contract,
 )
+from .provider_supervision.models import (
+    ProviderSupervisionObservation,
+    ProviderSupervisionSourceOwnership,
+)
+from .provider_supervision.directive import (
+    PROVIDER_STEERING_DIRECTIVE_CONTRACT_KIND,
+    PROVIDER_STEERING_DIRECTIVE_CONTRACT_VALUE_TYPE,
+    PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
+    provider_steering_directive_type_descriptor,
+)
+from .provider_supervision.paths import (
+    ProviderSupervisionPaths,
+    derive_provider_supervision_paths,
+)
+from .pure_expr import (
+    PureExprEvaluationError,
+    canonical_json_for_pure_value,
+    validate_pure_expr_payload,
+)
 from .surface_ast import WorkflowProvenance, empty_frozen_mapping
 
 
 WORKFLOW_EXECUTABLE_IR_SCHEMA_VERSION = "workflow_executable_ir.v1"
+PROVIDER_SUPERVISION_SCHEMA_VERSION = "provider_supervision.v1"
 
 
 def _serialize_provider_call_policy(policy: Mapping[str, str]) -> dict[str, str]:
@@ -40,6 +60,7 @@ class ExecutableNodeKind(str, Enum):
 
     COMMAND = "command"
     PROVIDER = "provider"
+    PROVIDER_SUPERVISION = "provider_supervision"
     ADJUDICATED_PROVIDER = "adjudicated_provider"
     WAIT_FOR = "wait_for"
     ASSERT = "assert"
@@ -227,6 +248,33 @@ class ProviderStepConfig:
 
 
 @dataclass(frozen=True)
+class ProviderSupervisionMemberConfig:
+    """One immutable member invocation and its provisional result contract."""
+
+    member_id: str
+    provider_config: ProviderStepConfig
+    result_contract: ExecutableContract
+    timeout_sec: int
+
+
+@dataclass(frozen=True)
+class ProviderSupervisionStepConfig:
+    """Closed node-local executable contract for one bounded live group."""
+
+    common: StepCommonConfig
+    schema_version: str
+    node_id: str
+    worker: ProviderSupervisionMemberConfig
+    supervisor: ProviderSupervisionMemberConfig
+    observation: ProviderSupervisionObservation
+    settlement_payload: Mapping[str, Any]
+    settlement_result_contract: ExecutableContract
+    max_steers: int
+    paths: ProviderSupervisionPaths
+    source_ownership: ProviderSupervisionSourceOwnership
+
+
+@dataclass(frozen=True)
 class AdjudicatedProviderStepConfig:
     """Executable adjudicated-provider step config."""
 
@@ -344,6 +392,7 @@ class RepeatUntilStepConfig:
 ExecutableStepConfig = (
     CommandStepConfig
     | ProviderStepConfig
+    | ProviderSupervisionStepConfig
     | AdjudicatedProviderStepConfig
     | WaitForStepConfig
     | AssertStepConfig
@@ -501,6 +550,7 @@ class ExecutableWorkflow:
 _LEAF_EXECUTION_CONFIG_TYPES = (
     CommandStepConfig,
     ProviderStepConfig,
+    ProviderSupervisionStepConfig,
     AdjudicatedProviderStepConfig,
     WaitForStepConfig,
     AssertStepConfig,
@@ -525,6 +575,7 @@ _NODE_TYPE_BY_KIND = {
 _LEAF_KIND_TO_CONFIG = {
     ExecutableNodeKind.COMMAND: CommandStepConfig,
     ExecutableNodeKind.PROVIDER: ProviderStepConfig,
+    ExecutableNodeKind.PROVIDER_SUPERVISION: ProviderSupervisionStepConfig,
     ExecutableNodeKind.ADJUDICATED_PROVIDER: AdjudicatedProviderStepConfig,
     ExecutableNodeKind.WAIT_FOR: WaitForStepConfig,
     ExecutableNodeKind.ASSERT: AssertStepConfig,
@@ -573,6 +624,18 @@ def workflow_executable_ir_to_json(ir: ExecutableWorkflow) -> dict[str, Any]:
     }
     if ir.result_guidance is not None:
         payload["result_guidance"] = _json_value(ir.result_guidance)
+    return payload
+
+
+def provider_supervision_config_to_runtime_dict(
+    config: ProviderSupervisionStepConfig,
+) -> dict[str, Any]:
+    """Return the node-local mapping view; common fields remain step-level."""
+
+    payload = _json_value(config)
+    if not isinstance(payload, dict):
+        raise TypeError("provider supervision config must serialize to an object")
+    payload.pop("common", None)
     return payload
 
 
@@ -743,6 +806,12 @@ def _validate_node_shape(
                         workflow_name=workflow_name,
                         node=node,
                     )
+        if isinstance(node.execution_config, ProviderSupervisionStepConfig):
+            _validate_provider_supervision_step_config(
+                node.execution_config,
+                workflow_name=workflow_name,
+                node=node,
+            )
     elif isinstance(node, CallBoundaryNode):
         if not isinstance(node.execution_config, CallStepConfig):
             _raise_executable_ir_invalid(
@@ -798,6 +867,162 @@ def _validate_node_shape(
             workflow_name=workflow_name,
             node=node,
         )
+
+
+def _validate_provider_supervision_step_config(
+    config: ProviderSupervisionStepConfig,
+    *,
+    workflow_name: str | None,
+    node: ExecutableNode,
+) -> None:
+    def fail(reason: str) -> None:
+        _raise_executable_ir_invalid(
+            f"executable_ir_invalid: provider supervision {reason}",
+            workflow_name=workflow_name,
+            node=node,
+        )
+
+    def contract_descriptor_matches(
+        contract: ExecutableContract,
+        observed_descriptor: Any,
+        *,
+        malformed_reason: str,
+        require_closed_definition: bool = False,
+    ) -> bool:
+        definition = contract.definition
+        if (
+            not isinstance(definition, Mapping)
+            or "type" not in definition
+            or (
+                require_closed_definition
+                and set(definition) != {"type"}
+            )
+        ):
+            fail(malformed_reason)
+        try:
+            contract_descriptor_json = canonical_json_for_pure_value(
+                definition["type"]
+            )
+            observed_descriptor_json = canonical_json_for_pure_value(
+                observed_descriptor
+            )
+        except (KeyError, TypeError, ValueError):
+            fail(malformed_reason)
+        return contract_descriptor_json == observed_descriptor_json
+
+    if config.schema_version != PROVIDER_SUPERVISION_SCHEMA_VERSION:
+        fail("schema is unsupported")
+    if not isinstance(config.node_id, str) or config.node_id != node.node_id:
+        fail("node id does not match its executable node")
+    if (
+        isinstance(config.common.timeout_sec, bool)
+        or not isinstance(config.common.timeout_sec, int)
+        or config.common.timeout_sec <= 0
+    ):
+        fail("step timeout must be a positive integer")
+    if isinstance(config.max_steers, bool) or config.max_steers != 1:
+        fail("max_steers must be exactly integer 1")
+
+    if not isinstance(config.worker, ProviderSupervisionMemberConfig):
+        fail("worker member must be typed")
+    if not isinstance(config.supervisor, ProviderSupervisionMemberConfig):
+        fail("supervisor member must be typed")
+    members = (config.worker, config.supervisor)
+    for role, member in zip(("worker", "supervisor"), members):
+        if not isinstance(member.member_id, str) or not member.member_id:
+            fail(f"{role} member id must be non-empty")
+        if not isinstance(member.provider_config, ProviderStepConfig):
+            fail(f"{role} provider config must be ProviderStepConfig")
+        if (
+            not isinstance(member.provider_config.provider, str)
+            or not member.provider_config.provider
+        ):
+            fail(f"{role} provider must be non-empty")
+        if not isinstance(member.result_contract, ExecutableContract):
+            fail(f"{role} result contract must be ExecutableContract")
+        if (
+            isinstance(member.timeout_sec, bool)
+            or not isinstance(member.timeout_sec, int)
+            or member.timeout_sec <= 0
+        ):
+            fail(f"{role} timeout must be a positive integer")
+    if config.worker.member_id == config.supervisor.member_id:
+        fail("worker and supervisor member ids must be distinct")
+    directive_contract = config.supervisor.result_contract
+    if (
+        directive_contract.name != PROVIDER_STEERING_DIRECTIVE_TYPE_NAME
+        or directive_contract.kind != PROVIDER_STEERING_DIRECTIVE_CONTRACT_KIND
+        or directive_contract.value_type
+        != PROVIDER_STEERING_DIRECTIVE_CONTRACT_VALUE_TYPE
+    ):
+        fail("supervisor directive contract identity is invalid")
+    if not contract_descriptor_matches(
+        directive_contract,
+        provider_steering_directive_type_descriptor(),
+        malformed_reason="supervisor directive contract descriptor is invalid",
+        require_closed_definition=True,
+    ):
+        fail("supervisor directive contract descriptor is invalid")
+
+    if not isinstance(config.observation, ProviderSupervisionObservation):
+        fail("observation edge must be typed")
+    if (
+        config.observation.observer_member_id != config.supervisor.member_id
+        or config.observation.observed_member_id != config.worker.member_id
+    ):
+        fail("observation edge must be exactly supervisor to worker")
+
+    if not isinstance(config.settlement_result_contract, ExecutableContract):
+        fail("settlement result contract must be ExecutableContract")
+    if not isinstance(config.settlement_payload, Mapping):
+        fail("settlement payload must be a mapping")
+    try:
+        validate_pure_expr_payload(config.settlement_payload)
+    except (PureExprEvaluationError, TypeError, ValueError):
+        fail("settlement payload is not a validated pure expression")
+    bindings = config.settlement_payload.get("bindings")
+    if not isinstance(bindings, Mapping) or set(bindings) != {
+        config.worker.member_id,
+        config.supervisor.member_id,
+    }:
+        fail("settlement bindings must be exactly the worker and supervisor")
+    for role, member in zip(("worker", "supervisor"), members):
+        binding = bindings.get(member.member_id)
+        if (
+            not isinstance(binding, Mapping)
+            or "type" not in binding
+        ):
+            fail(
+                f"settlement binding `{member.member_id}` is incompatible with "
+                "its member result contract"
+            )
+        if not contract_descriptor_matches(
+            member.result_contract,
+            binding["type"],
+            malformed_reason=f"{role} member contract descriptor is invalid",
+        ):
+            fail(
+                f"settlement binding `{member.member_id}` is incompatible with "
+                "its member result contract"
+            )
+    if not contract_descriptor_matches(
+        config.settlement_result_contract,
+        config.settlement_payload.get("result_type"),
+        malformed_reason="settlement result contract descriptor is invalid",
+    ):
+        fail("settlement result contract is incompatible with the pure result type")
+
+    if not isinstance(config.source_ownership, ProviderSupervisionSourceOwnership):
+        fail("source ownership must be typed")
+    if not isinstance(config.paths, ProviderSupervisionPaths):
+        fail("path plan must be typed")
+    expected_paths = derive_provider_supervision_paths(
+        node_id=config.node_id,
+        worker_member_id=config.worker.member_id,
+        supervisor_member_id=config.supervisor.member_id,
+    )
+    if config.paths != expected_paths:
+        fail("path plan does not match the fixed member and turn roles")
 
 
 def _validate_contract(

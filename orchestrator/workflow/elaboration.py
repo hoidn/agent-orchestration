@@ -526,6 +526,11 @@ def _elaborate_step(
             and isinstance(step.get("consumes_injection_position"), str)
             else None
         ),
+        provider_supervision=(
+            freeze_value(step.get("provider_supervision"))
+            if kind is SurfaceStepKind.PROVIDER_SUPERVISION
+            else None
+        ),
         wait_for=freeze_mapping(step.get("wait_for")) if kind is SurfaceStepKind.WAIT_FOR else freeze_mapping(None),
         set_scalar=freeze_mapping(step.get("set_scalar")) if kind is SurfaceStepKind.SET_SCALAR else freeze_mapping(None),
         resource_transition=(
@@ -902,6 +907,13 @@ def _surface_step_kind(
         return SurfaceStepKind.ADJUDICATED_PROVIDER
     if "provider" in step:
         return SurfaceStepKind.PROVIDER
+    if "provider_supervision" in step:
+        if not allow_generated_step_kinds:
+            raise ValueError(
+                "provider_supervision is compiler-generated only and cannot "
+                "appear in authored workflows"
+            )
+        return SurfaceStepKind.PROVIDER_SUPERVISION
     if "command" in step:
         return SurfaceStepKind.COMMAND
     if "wait_for" in step:
@@ -954,6 +966,10 @@ def _validate_reserved_generated_step_kinds(
             if "resource_transition" in step:
                 validation_backend.add_error(
                     f"Step '{step_name}': resource_transition is compiler-generated only and cannot appear in authored workflows"
+                )
+            if "provider_supervision" in step:
+                validation_backend.add_error(
+                    f"Step '{step_name}': provider_supervision is compiler-generated only and cannot appear in authored workflows"
                 )
             if is_if_statement(step):
                 visit_block(step.get("then"), "then")

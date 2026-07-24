@@ -38,6 +38,7 @@ from .executable_ir import (
     ManagedJobsRoutes,
     NodeResultAddress,
     ProviderStepConfig,
+    ProviderSupervisionStepConfig,
     PureProjectionStepConfig,
     ResourceTransitionStepConfig,
     RepeatUntilFrameNode,
@@ -922,6 +923,7 @@ def _leaf_node_kind(kind: SurfaceStepKind, region: WorkflowRegion) -> Executable
     mapping = {
         SurfaceStepKind.COMMAND: ExecutableNodeKind.COMMAND,
         SurfaceStepKind.PROVIDER: ExecutableNodeKind.PROVIDER,
+        SurfaceStepKind.PROVIDER_SUPERVISION: ExecutableNodeKind.PROVIDER_SUPERVISION,
         SurfaceStepKind.ADJUDICATED_PROVIDER: ExecutableNodeKind.ADJUDICATED_PROVIDER,
         SurfaceStepKind.WAIT_FOR: ExecutableNodeKind.WAIT_FOR,
         SurfaceStepKind.ASSERT: ExecutableNodeKind.ASSERT,
@@ -1026,6 +1028,19 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
                 step.compiler_prompt_dependency_contract
             ),
         )
+    if step.kind is SurfaceStepKind.PROVIDER_SUPERVISION:
+        if not isinstance(
+            step.provider_supervision,
+            ProviderSupervisionStepConfig,
+        ):
+            raise LoweringError(
+                "provider_supervision requires a typed compiler-generated config"
+            )
+        return replace(
+            step.provider_supervision,
+            common=common,
+            node_id=step.step_id,
+        )
     if step.kind is SurfaceStepKind.ADJUDICATED_PROVIDER:
         return AdjudicatedProviderStepConfig(
             common=common,
@@ -1118,6 +1133,7 @@ def _report_kind_for_node(node: ExecutableNode) -> str:
         ExecutableNodeKind.CALL_BOUNDARY: "call",
         ExecutableNodeKind.FINALIZATION_STEP: "finally",
         ExecutableNodeKind.PROVIDER: "provider",
+        ExecutableNodeKind.PROVIDER_SUPERVISION: "provider_supervision",
         ExecutableNodeKind.ADJUDICATED_PROVIDER: "adjudicated_provider",
         ExecutableNodeKind.COMMAND: "command",
         ExecutableNodeKind.WAIT_FOR: "wait_for",

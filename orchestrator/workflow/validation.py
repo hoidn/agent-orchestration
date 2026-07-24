@@ -1086,6 +1086,7 @@ class _WorkflowMappingValidator:
             # AT-10: Provider/Command exclusivity
             execution_fields = [
                 'provider',
+                'provider_supervision',
                 'adjudicated_provider',
                 'command',
                 'wait_for',

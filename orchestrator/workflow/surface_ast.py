@@ -41,6 +41,7 @@ class SurfaceStepKind(str, Enum):
 
     COMMAND = "command"
     PROVIDER = "provider"
+    PROVIDER_SUPERVISION = "provider_supervision"
     ADJUDICATED_PROVIDER = "adjudicated_provider"
     WAIT_FOR = "wait_for"
     ASSERT = "assert"
@@ -263,6 +264,7 @@ class SurfaceStep:
         default=None,
         metadata={"json_omit_if_none": True},
     )
+    provider_supervision: Any = None
     wait_for: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     set_scalar: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     resource_transition: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)

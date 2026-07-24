@@ -21,12 +21,14 @@ from .executable_ir import (
     MaterializeArtifactsStepConfig,
     PureProjectionStepConfig,
     ProviderStepConfig,
+    ProviderSupervisionStepConfig,
     ResourceTransitionStepConfig,
     RepeatUntilStepConfig,
     SelectVariantOutputStepConfig,
     SetScalarStepConfig,
     StepCommonConfig,
     WaitForStepConfig,
+    provider_supervision_config_to_runtime_dict,
 )
 
 
@@ -242,6 +244,11 @@ class RuntimeStep(Mapping[str, Any]):
                 }
             raise KeyError(key)
 
+        if isinstance(config, ProviderSupervisionStepConfig):
+            if key == "provider_supervision":
+                return provider_supervision_config_to_runtime_dict(config)
+            raise KeyError(key)
+
         if isinstance(config, AdjudicatedProviderStepConfig):
             if key == "adjudicated_provider":
                 return thaw_runtime_value(config.adjudicated_provider)
@@ -380,6 +387,10 @@ class RuntimeStep(Mapping[str, Any]):
                 except KeyError:
                     continue
                 yield key
+            return
+
+        if isinstance(config, ProviderSupervisionStepConfig):
+            yield "provider_supervision"
             return
 
         if isinstance(config, AdjudicatedProviderStepConfig):

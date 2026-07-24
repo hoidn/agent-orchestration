@@ -42,8 +42,8 @@ The bound amendment supersedes commit `afd0fec5` as current implementation
 authority. The historical simulation does not override the accepted
 observable cancellation linearization or the narrower resume-boundary rule.
 
-**Status:** Execution in progress. Tasks 1-5 and the evidence-driven Task 1R
-amendment are complete. The real resume-boundary gate passed; Task 6 is next.
+**Status:** Execution in progress. Tasks 1-6 and the evidence-driven Task 1R
+amendment are complete. The real resume-boundary gate passed; Task 7 is next.
 
 **Plan-review evidence:** Independent specification/sequence review: `PASS`.
 Independent path/selector/shell-order audit: `PASS` for the pre-amendment plan.
@@ -717,21 +717,35 @@ cross-specification verdicts: `PROVIDER_SPEC_PASS`,
 - Modify: `orchestrator/workflow/runtime_step.py`
 - Modify: `orchestrator/workflow/validation.py`
 
-- [ ] Write RED hand-built IR tests for the exact
+- [x] Write RED hand-built IR tests for the exact
   `provider_supervision.v1` schema, two fixed members, one observation edge,
   worker/directive/result contracts, pure settlement payload, timeouts,
   `max_steers: 1`, source ownership, and unknown/missing/extra-field rejection.
-- [ ] Add round-trip tests proving existing executable/runtime envelope
+- [x] Add round-trip tests proving existing executable/runtime envelope
   versions stay unchanged, the generated Surface/Core bridge projects
   deterministically, and classic authored YAML cannot construct the node.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_provider_supervision_ir.py`.
-- [ ] Add the typed executable kind/config and mapping view; keep the node-local
+- [x] Add the typed executable kind/config and mapping view; keep the node-local
   schema closed and generic.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_provider_supervision_ir.py tests/test_workflow_ir_lowering.py tests/test_workflow_executor_characterization.py -k 'executable_ir or runtime_step or provider_supervision'`.
-- [ ] Complete specification review, quality review, and commit:
+- [x] Complete specification review, quality review, and commit:
   `Define provider supervision executable node`.
+
+**Task 6 evidence (2026-07-23):** The primitive RED first failed on the
+absent provider-supervision package, and the generated-projection RED then
+failed on the absent Core statement. Review-driven REDs exposed two
+fail-closed gaps: a same-name but structurally false supervisor directive
+contract, and raw descriptor-decoding exceptions from malformed hand-built
+member or settlement contracts. The final contract uses one immutable
+compiler-owned `CONTINUE|STEER(guidance: String)` descriptor, exact contract
+identity and shape checks, translated malformed-descriptor failures, fixed
+derived turn paths, and a generated-only Surface/Core bridge while retaining
+`workflow_executable_ir.v1`. Fresh verification collected and passed 41
+warning-strict focused tests, passed all 111 affected three-module tests, and
+passed 17 additional Surface/Core/shared-validation selectors. Ordered final
+review verdicts: `TASK6_SPEC_APPROVED`, then `TASK6_QUALITY_APPROVED`.
 
 ### Task 7: CONTINUE Coordinator And Atomic Settlement
 
