@@ -169,10 +169,10 @@ def test_completed_legacy_resume_is_state_only_noop_when_source_is_missing(
 
 
 @pytest.mark.parametrize(
-    ("status", "force_restart"),
+    ("status", "force_restart", "schema_version"),
     [
-        ("failed", False),
-        ("completed", True),
+        ("failed", False, "1.1.1"),
+        ("completed", True, StateManager.SCHEMA_VERSION),
     ],
 )
 def test_resume_rejects_executable_legacy_runs_with_orc_required(
@@ -181,12 +181,14 @@ def test_resume_rejects_executable_legacy_runs_with_orc_required(
     capsys: pytest.CaptureFixture[str],
     status: str,
     force_restart: bool,
+    schema_version: str,
 ) -> None:
     state_path = _write_run_state(
         tmp_path,
         run_id="legacy-execution",
         workflow_file="retired.YAML",
         status=status,
+        schema_version=schema_version,
     )
     run_root = state_path.parent
     before = _run_tree_snapshot(run_root)

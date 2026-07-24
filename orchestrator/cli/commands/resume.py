@@ -369,6 +369,12 @@ def resume_workflow(
     ):
         print(f"Run {run_id} has already completed successfully")
         return 0
+    if workflow_suffix != ".orc":
+        print(
+            "Error: .orc required: authored workflows must use the Workflow Lisp frontend",
+            file=sys.stderr,
+        )
+        return 1
     if state.schema_version != StateManager.SCHEMA_VERSION and not force_restart:
         print(
             "Error: State schema version "
@@ -381,12 +387,6 @@ def resume_workflow(
 
     observability: Optional[Dict[str, Any]] = None
 
-    if workflow_suffix != ".orc":
-        print(
-            "Error: .orc required: authored workflows must use the Workflow Lisp frontend",
-            file=sys.stderr,
-        )
-        return 1
     if not workflow_path.exists():
         # Try relative to current directory
         workflow_path = Path.cwd() / workflow_file
