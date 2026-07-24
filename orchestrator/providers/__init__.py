@@ -21,6 +21,7 @@ from .session_transport import (
     SessionIdentitySnapshot,
     create_session_transport_accumulator,
 )
+from .control import ProviderCancellationResult, ProviderExecutionControl
 from .executor import ProviderExecutor, ProviderExecutionResult
 from .isolation import (
     HistoryRetrievalPolicy,
@@ -49,6 +50,8 @@ __all__ = [
     "CodexExecJsonlAccumulator",
     "SessionIdentitySnapshot",
     "create_session_transport_accumulator",
+    "ProviderCancellationResult",
+    "ProviderExecutionControl",
     "ProviderExecutor",
     "ProviderExecutionResult",
     "HistoryRetrievalPolicy",

@@ -23,8 +23,10 @@ from .types import (
     restore_provider_command_token,
 )
 from .registry import ProviderRegistry
+from .control import ProviderExecutionControl
 from .session_transport import (
     CodexExecJsonlAccumulator,
+    SessionIdentitySnapshot,
     create_session_transport_accumulator,
     extract_codex_assistant_text,
 )
@@ -48,6 +50,7 @@ class ProviderExecutionResult:
     raw_stdout: Optional[bytes] = None
     normalized_stdout: Optional[bytes] = None
     provider_session: Optional[Dict[str, Any]] = None
+    classification: Optional[str] = None
 
 
 class ProviderExecutor:
@@ -255,6 +258,7 @@ class ProviderExecutor:
         cwd: Optional[Path] = None,
         stream_output: bool = False,
         session_runtime: Optional[Dict[str, Any]] = None,
+        control: Optional[ProviderExecutionControl] = None,
     ) -> ProviderExecutionResult:
         """
         Execute a prepared provider invocation.
@@ -262,6 +266,7 @@ class ProviderExecutor:
         Args:
             invocation: Provider invocation to execute
             cwd: Working directory (default: workspace)
+            control: Optional cancellable process-group lifecycle
 
         Returns:
             Execution result with output and metadata
@@ -283,6 +288,18 @@ class ProviderExecutor:
             logger.debug(f"Executing command: {invocation.command}")
             if invocation.input_mode == InputMode.STDIN:
                 logger.debug(f"Using stdin mode, prompt size: {len(invocation.prompt or '')} bytes")
+
+            if control is not None:
+                return self._execute_controlled_invocation(
+                    invocation=invocation,
+                    working_dir=working_dir,
+                    process_env=process_env,
+                    stdin_input=stdin_input,
+                    stream_output=stream_output,
+                    start_time=start_time,
+                    session_runtime=session_runtime,
+                    control=control,
+                )
 
             session_enabled = invocation.session_request is not None
             if session_enabled:
@@ -449,6 +466,389 @@ class ProviderExecutor:
                     "context": {}
                 }
             )
+
+    def _execute_controlled_invocation(
+        self,
+        *,
+        invocation: ProviderInvocation,
+        working_dir: Path,
+        process_env: Dict[str, str],
+        stdin_input: Optional[bytes],
+        stream_output: bool,
+        start_time: float,
+        session_runtime: Optional[Dict[str, Any]],
+        control: ProviderExecutionControl,
+    ) -> ProviderExecutionResult:
+        """Execute one opt-in invocation inside a runtime-owned process group."""
+        expected_session_id: Optional[str] = None
+        accumulator: CodexExecJsonlAccumulator | None = None
+
+        def _emit_assistant_text(assistant_text: str) -> None:
+            if accumulator is None:
+                return
+            snapshot = accumulator.snapshot()
+            if snapshot.status in {"ambiguous", "invalid"}:
+                return
+            if (
+                expected_session_id is not None
+                and snapshot.status == "unique"
+                and snapshot.session_ids != (expected_session_id,)
+            ):
+                return
+            self._emit_session_assistant_text(assistant_text)
+
+        try:
+            expected_session_id = self._expected_session_id(invocation)
+            accumulator = create_session_transport_accumulator(
+                invocation.metadata_mode,
+                assistant_text_callback=(
+                    _emit_assistant_text if stream_output else None
+                ),
+            )
+            if accumulator is not None:
+                control.publish_session_snapshot(accumulator.snapshot())
+            process = subprocess.Popen(
+                invocation.command,
+                cwd=str(working_dir),
+                env=process_env,
+                stdin=(
+                    subprocess.PIPE
+                    if stdin_input is not None
+                    else subprocess.DEVNULL
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            )
+        except Exception as exc:
+            control.spawn_failed(exc)
+            duration_ms = int((time.time() - start_time) * 1000)
+            return ProviderExecutionResult(
+                exit_code=1,
+                stdout=b"",
+                stderr=str(exc).encode("utf-8"),
+                duration_ms=duration_ms,
+                classification="failed",
+                raw_stdout=b"",
+                error={
+                    "type": "execution_error",
+                    "message": str(exc),
+                    "context": {},
+                },
+            )
+
+        # start_new_session makes the leader pid the invocation-owned PGID.
+        # Binding is deliberately the first action after successful creation.
+        control.bind(process, process.pid)
+
+        stdout_buf = bytearray()
+        stderr_buf = bytearray()
+        capture_threads: List[threading.Thread] = []
+        try:
+            return self._run_bound_controlled_invocation(
+                invocation=invocation,
+                process=process,
+                stdin_input=stdin_input,
+                stream_output=stream_output,
+                start_time=start_time,
+                session_runtime=session_runtime,
+                control=control,
+                accumulator=accumulator,
+                expected_session_id=expected_session_id,
+                stdout_buf=stdout_buf,
+                stderr_buf=stderr_buf,
+                capture_threads=capture_threads,
+            )
+        except Exception as exc:
+            return self._fail_bound_controlled_invocation(
+                invocation=invocation,
+                process=process,
+                start_time=start_time,
+                control=control,
+                accumulator=accumulator,
+                expected_session_id=expected_session_id,
+                stdout_buf=stdout_buf,
+                stderr_buf=stderr_buf,
+                capture_threads=capture_threads,
+                error=exc,
+            )
+
+    def _run_bound_controlled_invocation(
+        self,
+        *,
+        invocation: ProviderInvocation,
+        process: subprocess.Popen,
+        stdin_input: Optional[bytes],
+        stream_output: bool,
+        start_time: float,
+        session_runtime: Optional[Dict[str, Any]],
+        control: ProviderExecutionControl,
+        accumulator: CodexExecJsonlAccumulator | None,
+        expected_session_id: Optional[str],
+        stdout_buf: bytearray,
+        stderr_buf: bytearray,
+        capture_threads: List[threading.Thread],
+    ) -> ProviderExecutionResult:
+        """Run capture, wait, transport finalization, and boundary recording."""
+        if stdin_input is not None and process.stdin is not None:
+            try:
+                process.stdin.write(stdin_input)
+                process.stdin.close()
+            except BrokenPipeError:
+                pass
+
+        stdout_callback: Optional[Callable[[bytes], None]] = None
+        if accumulator is not None:
+            stdout_callback = self._build_session_stdout_callback(
+                invocation=invocation,
+                stream_output=stream_output,
+                session_runtime=session_runtime,
+                accumulator=accumulator,
+                identity_snapshot_callback=control.publish_session_snapshot,
+            )
+
+        stdout_thread = threading.Thread(
+            target=self._capture_pipe,
+            args=(process.stdout, stdout_buf),
+            kwargs={
+                "out_stream": (
+                    sys.stdout
+                    if stream_output and accumulator is None
+                    else None
+                ),
+                "chunk_callback": stdout_callback,
+                "read_mode": "lines" if accumulator is not None else "chunks",
+            },
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=self._capture_pipe,
+            args=(process.stderr, stderr_buf),
+            kwargs={"out_stream": sys.stderr if stream_output else None},
+            daemon=True,
+        )
+        capture_threads.extend((stdout_thread, stderr_thread))
+        stdout_thread.start()
+        stderr_thread.start()
+
+        timed_out = False
+        try:
+            exit_code = process.wait(timeout=invocation.timeout_sec)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            control.request_cancel(reason="timeout")
+            try:
+                exit_code = process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                control.force_kill()
+                exit_code = process.wait()
+
+        control.record_leader_reaped(exit_code)
+        stdout_thread.join()
+        stderr_thread.join()
+        capture_threads_joined = (
+            not stdout_thread.is_alive() and not stderr_thread.is_alive()
+        )
+
+        final_identity_valid = invocation.session_request is None
+        if accumulator is not None:
+            _, identity_error = accumulator.finalize(
+                expected_session_id=expected_session_id,
+                require_terminal=False,
+            )
+            control.publish_session_snapshot(accumulator.snapshot())
+            final_identity_valid = identity_error is None
+
+        duration_ms = int((time.time() - start_time) * 1000)
+        raw_stdout = bytes(stdout_buf)
+        stderr = bytes(stderr_buf)
+        natural_result: ProviderExecutionResult
+        if accumulator is not None:
+            natural_result = self._finalize_session_result(
+                invocation=invocation,
+                exit_code=exit_code,
+                raw_stdout=raw_stdout,
+                stderr=stderr,
+                duration_ms=duration_ms,
+                stream_output=stream_output,
+                accumulator=accumulator,
+            )
+            natural_result.classification = (
+                "normal"
+                if (
+                    natural_result.exit_code == 0
+                    and natural_result.error is None
+                )
+                else "failed"
+            )
+        else:
+            natural_result = ProviderExecutionResult(
+                exit_code=exit_code,
+                stdout=raw_stdout,
+                stderr=stderr,
+                duration_ms=duration_ms,
+                classification="normal" if exit_code == 0 else "failed",
+                raw_stdout=raw_stdout,
+            )
+
+        boundary = control.record_execution_boundary(
+            capture_threads_joined=capture_threads_joined,
+            final_identity_valid=final_identity_valid,
+        )
+
+        if boundary.disposition == "boundary_failed":
+            return self._controlled_boundary_failure_result(
+                terminal=boundary,
+                raw_stdout=raw_stdout,
+                stderr=stderr,
+                duration_ms=duration_ms,
+            )
+
+        if timed_out:
+            return ProviderExecutionResult(
+                exit_code=124,
+                stdout=b"",
+                stderr=stderr,
+                duration_ms=duration_ms,
+                classification="failed",
+                raw_stdout=raw_stdout,
+                error={
+                    "type": "timeout",
+                    "message": (
+                        f"Provider timed out after "
+                        f"{invocation.timeout_sec} seconds"
+                    ),
+                    "context": {"timeout_sec": invocation.timeout_sec},
+                },
+            )
+
+        if boundary.disposition == "cancelled":
+            return ProviderExecutionResult(
+                exit_code=(
+                    boundary.leader_return_code
+                    if boundary.leader_return_code is not None
+                    else 1
+                ),
+                stdout=b"",
+                stderr=stderr,
+                duration_ms=duration_ms,
+                classification="cancelled_provisional",
+                raw_stdout=raw_stdout,
+                normalized_stdout=None,
+                provider_session=None,
+            )
+
+        return natural_result
+
+    def _fail_bound_controlled_invocation(
+        self,
+        *,
+        invocation: ProviderInvocation,
+        process: subprocess.Popen,
+        start_time: float,
+        control: ProviderExecutionControl,
+        accumulator: CodexExecJsonlAccumulator | None,
+        expected_session_id: Optional[str],
+        stdout_buf: bytearray,
+        stderr_buf: bytearray,
+        capture_threads: List[threading.Thread],
+        error: Exception,
+    ) -> ProviderExecutionResult:
+        """Fail closed after bind while preserving executor-owned wait."""
+        control.request_cancel(reason="execution_error")
+        try:
+            exit_code = process.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
+            control.force_kill()
+            exit_code = process.wait()
+        control.record_leader_reaped(exit_code)
+
+        for thread in capture_threads:
+            if thread.ident is not None:
+                thread.join()
+
+        for pipe, buffer in (
+            (process.stdout, stdout_buf),
+            (process.stderr, stderr_buf),
+        ):
+            if pipe is None or getattr(pipe, "closed", False):
+                continue
+            try:
+                remainder = pipe.read()
+                if remainder:
+                    buffer.extend(remainder)
+            finally:
+                try:
+                    pipe.close()
+                except Exception:
+                    pass
+
+        final_identity_valid = invocation.session_request is None
+        if accumulator is not None:
+            _, identity_error = accumulator.finalize(
+                expected_session_id=expected_session_id,
+                require_terminal=False,
+            )
+            control.publish_session_snapshot(accumulator.snapshot())
+            final_identity_valid = identity_error is None
+
+        boundary = control.record_execution_boundary(
+            capture_threads_joined=all(
+                not thread.is_alive()
+                for thread in capture_threads
+            ),
+            final_identity_valid=final_identity_valid,
+            boundary_error=f"provider execution failed after bind: {error}",
+        )
+        return self._controlled_boundary_failure_result(
+            terminal=boundary,
+            raw_stdout=bytes(stdout_buf),
+            stderr=bytes(stderr_buf),
+            duration_ms=int((time.time() - start_time) * 1000),
+        )
+
+    @staticmethod
+    def _controlled_boundary_failure_result(
+        *,
+        terminal: Any,
+        raw_stdout: bytes,
+        stderr: bytes,
+        duration_ms: int,
+    ) -> ProviderExecutionResult:
+        return ProviderExecutionResult(
+            exit_code=(
+                terminal.leader_return_code
+                if terminal.leader_return_code is not None
+                else 1
+            ),
+            stdout=b"",
+            stderr=stderr,
+            duration_ms=duration_ms,
+            classification="failed",
+            raw_stdout=raw_stdout,
+            normalized_stdout=None,
+            provider_session=None,
+            error={
+                "type": "provider_cancellation_boundary_failed",
+                "message": (
+                    terminal.error
+                    or "Provider cancellation boundary could not be proved"
+                ),
+                "context": {
+                    "leader_reaped": terminal.leader_reaped,
+                    "pgid_empty": terminal.pgid_empty,
+                    "capture_threads_joined": (
+                        terminal.capture_threads_joined
+                    ),
+                    "execution_joined": getattr(
+                        terminal,
+                        "execution_joined",
+                        False,
+                    ),
+                    "final_identity_valid": terminal.final_identity_valid,
+                },
+            },
+        )
 
     def _terminate_process_tree(self, process: subprocess.Popen) -> None:
         """Terminate a managed provider process group with a hard-kill fallback."""
@@ -813,6 +1213,9 @@ class ProviderExecutor:
         stream_output: bool,
         session_runtime: Optional[Dict[str, Any]],
         accumulator: CodexExecJsonlAccumulator | None = None,
+        identity_snapshot_callback: Optional[
+            Callable[[SessionIdentitySnapshot], None]
+        ] = None,
     ) -> Callable[[bytes], None]:
         """Build the session stdout handler used during live pipe capture."""
         if accumulator is None:
@@ -826,6 +1229,8 @@ class ProviderExecutor:
         def _handle_chunk(chunk: bytes) -> None:
             if accumulator is not None:
                 accumulator.feed(chunk)
+                if identity_snapshot_callback is not None:
+                    identity_snapshot_callback(accumulator.snapshot())
             self._append_masked_transport(chunk, session_runtime)
 
         return _handle_chunk
