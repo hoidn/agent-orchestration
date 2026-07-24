@@ -691,6 +691,10 @@ def _assert_migration_wave_complete_and_yaml_task_current(
         rf"|\bcurrent\b.{{0,100}}\byaml retirement\b.{{0,100}}"
         rf"\btask {yaml_current_task}\b",
         normalized,
+    ) or re.search(
+        rf"\byaml retirement\b.{{0,400}}\btask {yaml_current_task}\b"
+        rf".{{0,300}}\bcurrent selector\b",
+        normalized,
     ), label
     assert re.search(
         rf"\byaml retirement\b.{{0,120}}\btasks? 1[ -]{yaml_current_task - 1}\b"
@@ -699,6 +703,34 @@ def _assert_migration_wave_complete_and_yaml_task_current(
         rf"\bcomplete\w*\b.{{0,120}}\byaml retirement\b",
         normalized,
     ), label
+    if yaml_current_task == 7:
+        assert re.search(
+            r"\byaml retirement\b[^.]{0,200}\btask 7\b"
+            r"[^.]{0,100}\bfinal verification\b[^.]{0,100}\bcurrent\b"
+            r"|\bcurrent selector\b[^.]{0,120}\btask 7\b"
+            r"[^.]{0,160}\b(?:final verification|final (?:scoped )?broad comparison"
+            r"[^.]{0,80}independent reviews?)\b",
+            normalized,
+        ) or (
+            "task 7 subsequently" in normalized
+            and re.search(
+                r"\bits final scoped broad comparison\b[^.]{0,120}"
+                r"\bindependent reviews?\b[^.]{0,80}\bcurrent selector\b",
+                normalized,
+            )
+        ), label
+        assert "orc only" in normalized, label
+        assert (
+            "focused" in normalized and "smoke" in normalized
+        ) or re.search(
+            r"\btask 7\b.{0,80}\bproduct changes\b.{0,40}\bcomplete\b",
+            normalized,
+        ), label
+        assert (
+            "final scoped broad" in normalized
+            or "final broad comparison" in normalized
+        ), label
+        assert "independent review" in normalized, label
     for stale_task in (
         task_number
         for task_number in range(1, 8)
@@ -763,7 +795,7 @@ def _assert_current_task_3_recovery_status(
     assert CONTRADICTORY_RECOVERY_STATUS.search(normalized) is None, label
 
 
-def test_procedure_first_status_surfaces_route_completed_wave_to_yaml_task_6() -> None:
+def test_procedure_first_status_surfaces_route_completed_wave_to_yaml_task_7() -> None:
     capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
     sequence = (
         REPO_ROOT
@@ -796,29 +828,30 @@ def test_procedure_first_status_surfaces_route_completed_wave_to_yaml_task_6() -
 
     yaml_row = _markdown_table_row(capability_matrix_path, "YAML DSL v2.x")
     normalized_yaml_row = _normalized_routing_text(yaml_row)
-    assert re.search(
-        r"\byaml retirement\b.{0,80}\btasks? 1[ -]5\b.{0,80}\bcomplete\b",
-        normalized_yaml_row,
-    )
-    assert re.search(
-        r"\bcurrent selector\b.{0,80}\byaml retirement\b.{0,80}\btask 6\b",
-        normalized_yaml_row,
-    )
-    assert "yaml remains legacy" in normalized_yaml_row
-    assert "task 7 parser removal is incomplete" in normalized_yaml_row
+    assert "| Retired |" in yaml_row
+    assert "all five content addressed queues are drained" in normalized_yaml_row
+    assert "fresh run is orc only" in normalized_yaml_row
+    assert "loader and project pyyaml dependency are removed" in normalized_yaml_row
+    assert "task 7 is in final verification" in normalized_yaml_row
+    assert "final scoped broad comparison" in normalized_yaml_row
+    assert "both independent reviews have not yet run" in normalized_yaml_row
 
     stage_6 = _normalized_routing_text(
         sequence.split("### Stage 6: Resume YAML Retirement", 1)[1].split(
             "### Stage 7:", 1
         )[0]
     )
-    assert re.search(r"\bcurrent selector\b.{0,40}\btask 6\b", stage_6)
-    assert re.search(r"\btasks? 1[ -]5\b.{0,80}\bcomplete\b", stage_6)
-    assert "yaml remains legacy" in stage_6
-    assert "task 7" in stage_6 and "parser removal" in stage_6
+    assert re.search(
+        r"\bcurrent selector\b.{0,40}\btask 7\b.{0,40}\bfinal verification\b",
+        stage_6,
+    )
+    assert re.search(r"\btasks? 1[ -]6\b.{0,80}\bcomplete\b", stage_6)
+    assert "orc only" in stage_6
+    assert "final scoped broad" in stage_6
+    assert "independent reviews" in stage_6
 
 
-def test_stage_6_numbered_sequence_routes_completed_ports_through_task_6_before_task_7() -> None:
+def test_stage_6_numbered_sequence_routes_completed_queues_to_task_7_verification() -> None:
     sequence = (
         REPO_ROOT
         / "docs"
@@ -842,30 +875,51 @@ def test_stage_6_numbered_sequence_routes_completed_ports_through_task_6_before_
         if "verified_iteration_drain" in step and "generic_run_watchdog" in step
         and "port" in step and "promot" in step
     ]
-    current_indexes = [
-        index for index, step in enumerate(steps) if "current selector" in step
+    closeout_indexes = [
+        index for index, step in enumerate(steps) if "current closeout gate" in step
     ]
     frontend_indexes = [
         index
         for index, step in enumerate(steps)
         if "task 7" in step and "frontend" in step
     ]
+    queue_indexes = [
+        index
+        for index, step in enumerate(steps)
+        if "task 6" in step
+        and "archive" in step
+        and "deletion" in step
+        and "queue" in step
+    ]
+    archive_indexes = [
+        index
+        for index, step in enumerate(steps)
+        if "design delta" in step and "archive" in step and "historical" in step
+    ]
 
     assert len(promotion_indexes) == 1
+    assert len(queue_indexes) == 1
+    assert len(archive_indexes) == 1
     assert len(frontend_indexes) == 1
     promotion_index = promotion_indexes[0]
+    queue_index = queue_indexes[0]
+    archive_index = archive_indexes[0]
     frontend_index = frontend_indexes[0]
+    normalized_stage_6 = _normalized_routing_text(stage_6)
+    assert "current selector: task 7 final verification" in normalized_stage_6
     assert "complete" in steps[promotion_index]
-    assert "history" in steps[promotion_index]
-    assert current_indexes == [promotion_index + 1]
-    current = steps[current_indexes[0]]
-    assert "task 6" in current
-    assert "gated" in current
-    assert "archive" in current and "deletion" in current and "queue" in current
-    assert promotion_index < current_indexes[0] < frontend_index
+    assert "historical decision evidence" in steps[archive_index]
+    assert "complete" in steps[queue_index]
+    assert closeout_indexes == [frontend_index]
+    current = steps[closeout_indexes[0]]
+    assert "task 7" in current
+    assert "frontend" in current
+    assert "product work complete" in current
+    assert "broad" in current and "review" in current
+    assert archive_index < promotion_index < queue_index < frontend_index
 
 
-def test_migration_wave_closeout_preserves_history_and_routes_live_yaml_task_6() -> None:
+def test_migration_wave_closeout_preserves_history_and_routes_yaml_task_7_verification() -> None:
     plan = (REPO_ROOT / CURRENT_SELECTOR_PATH).read_text(encoding="utf-8")
     current_queue = plan.split(
         "## Current queue after Task 6 closeout",
@@ -959,7 +1013,7 @@ def test_migration_wave_closeout_preserves_history_and_routes_live_yaml_task_6()
         _assert_migration_wave_complete_and_yaml_task_current(
             surface,
             label,
-            yaml_current_task=6,
+            yaml_current_task=7,
         )
 
     for label in ("docs index", "roadmap current routing"):
@@ -1232,7 +1286,7 @@ def test_yaml_retirement_program_uses_exact_handoff_queues_and_two_ports() -> No
     assert "never stage, restore, rewrite, format, or delete" not in normalized_release
 
 
-def test_yaml_task_6_is_complete_and_routes_next_to_task_7() -> None:
+def test_yaml_task_6_is_complete_and_task_7_is_in_final_verification() -> None:
     program = (
         REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md"
     ).read_text(encoding="utf-8")
@@ -1250,9 +1304,13 @@ def test_yaml_task_6_is_complete_and_routes_next_to_task_7() -> None:
     assert "supported run" in _normalized_routing_text(task_6)
     assert task_6.count("- [x]") == 6
     assert "- [ ]" not in task_6
-    assert task_7.count("- [ ]") == 5
-    assert "- [x]" not in task_7
+    assert task_7.count("- [x]") == 5
+    assert task_7.count("- [ ]") == 2
     assert "eligible and current" in _normalized_routing_text(task_7)
+    normalized_task_7 = _normalized_routing_text(task_7)
+    assert "final verification" in normalized_task_7
+    assert "final scoped broad comparison" in normalized_task_7
+    assert "independent specification and code quality reviews" in normalized_task_7
     assert "2026-07-17-yaml-retirement-task-6-execution-plan.md" in program
     assert "task 5 remains the current selector" not in normalized_program
 
@@ -1363,7 +1421,7 @@ def test_task_2_step_1_closes_on_bounded_identity_retirement_ineligibility() -> 
     _assert_migration_wave_complete_and_yaml_task_current(
         index_routing,
         "docs index component routing",
-        yaml_current_task=6,
+        yaml_current_task=7,
     )
 
 
@@ -1484,11 +1542,12 @@ def test_task_2_step_3_closes_on_live_route_strict_compatibility() -> None:
         "Stage 6 YAML retirement Task 3 remains current.",
         "Stage 6 YAML retirement Task 4 is current.",
         "Stage 6 YAML retirement Task 5 is current.",
+        "Stage 6 YAML retirement Task 6 is current.",
         "Stage 6 YAML retirement Task 7 is current.",
-        "Task 6 remains open; Task 7 has started.",
+        "Stage 7 provider live binding is current.",
     ),
 )
-def test_yaml_task_6_current_selector_guard_rejects_stale_or_skipped_routing(
+def test_yaml_task_7_final_verification_guard_rejects_stale_or_premature_routing(
     replacement: str,
 ) -> None:
     docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
@@ -1497,7 +1556,7 @@ def test_yaml_task_6_current_selector_guard_rejects_stale_or_skipped_routing(
         "**Current procedure-first substrate:**", 1
     )[0]
     mutated = re.sub(
-        r"(?:Stage 6 )?YAML retirement[^.]{0,200}Task 6[^.]{0,100}(?:current|selected)[^.]*\.",
+        r"(?:Stage 6 )?YAML retirement[^.]{0,200}Task 7[^.]{0,100}(?:current|selected)[^.]*\.",
         replacement,
         docs_index_routing,
         count=0,
@@ -1508,7 +1567,7 @@ def test_yaml_task_6_current_selector_guard_rejects_stale_or_skipped_routing(
         _assert_migration_wave_complete_and_yaml_task_current(
             mutated,
             "mutated docs-index routing",
-            yaml_current_task=6,
+            yaml_current_task=7,
         )
 
 
@@ -1831,7 +1890,8 @@ def test_provider_call_policy_is_a_separate_generic_implemented_capability() -> 
     assert "public compile run resume" in normalized_row
     assert "generic implementation closure" in normalized_gap_list
     assert "both survivor families have closed parity and promotion" in normalized_gap_list
-    assert "yaml deletion remains pending" in normalized_gap_list
+    assert "both former yaml twins are retired" in normalized_gap_list
+    assert "yaml deletion remains pending" not in normalized_gap_list
 
 
 def test_provider_invocation_profile_is_separate_generic_implemented_data() -> None:
@@ -1881,12 +1941,15 @@ def test_prompt_dependency_contract_is_routed_as_generic_implemented_capability(
     assert "fresh snapshot on retry" in normalized_row
     assert "runtime plan remains topology only" in normalized_row
     assert "evidence is non authoritative" in normalized_row
-    assert "yaml content mode remains legacy" in normalized_row
+    assert "historical yaml content mode behavior" in normalized_row
+    assert "no live authored frontend" in normalized_row
+    assert "yaml content mode remains legacy" not in normalized_row
     assert "verified_iteration_drain" in matrix_row
     assert "closed their family parity and promotion gates" in normalized_row
     assert "generic_run_watchdog" in matrix_row
     assert "both" in normalized_row and "parity and promotion" in normalized_row
-    assert "all yaml deletion remains pending" in normalized_row
+    assert "yaml twins are retired" in normalized_row
+    assert "all yaml deletion remains pending" not in normalized_row
     assert "workflow lisp provider prompt dependencies" in docs_index
     assert "workflow lisp provider prompt dependencies" in design_index
 

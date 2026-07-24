@@ -157,7 +157,7 @@ def test_prompt_dependency_gap_closes_both_survivor_family_applications() -> Non
     assert "their yaml twins subsequently passed the task 6 deletion gates" in normalized
 
 
-def test_prompt_dependency_status_is_discoverable_without_promoting_yaml_or_survivors() -> None:
+def test_prompt_dependency_status_preserves_historical_yaml_evidence_after_retirement() -> None:
     capability = CAPABILITY_MATRIX.read_text(encoding="utf-8")
     index = DOCS_INDEX.read_text(encoding="utf-8")
 
@@ -169,7 +169,12 @@ def test_prompt_dependency_status_is_discoverable_without_promoting_yaml_or_surv
         assert "implemented" in normalized
         assert "runtime plan remains topology only" in normalized
         assert "evidence is non authoritative" in normalized
-        assert "yaml content mode remains legacy" in normalized
+        assert "historical" in normalized
+        assert (
+            "retired yaml twins" in normalized
+            or "no live authored frontend" in normalized
+        )
+        assert "yaml content mode remains legacy" not in normalized
         assert "verified iteration drain" in normalized
         assert "generic run watchdog" in normalized
         assert "both" in normalized and "parity" in normalized
@@ -192,7 +197,8 @@ def test_both_survivor_family_gates_and_yaml_retirement_are_closed() -> None:
     ) in text
     normalized = " ".join(text.lower().replace("-", " ").split())
     assert "both survivor families have closed their family proof and promotion gates" in normalized
-    assert "both former yaml twins passed the task 6 reference" in normalized
+    assert "both former port twins" in normalized
+    assert "task 6 reference and supported run gates" in normalized
     assert "are retired" in normalized
 
 
@@ -284,7 +290,7 @@ def test_yaml_retirement_tasks_1_through_6_are_closed_and_task_7_is_current() ->
     )
     task_7 = _section(
         program,
-        "### Task 7: Remove the user-facing YAML frontend — CURRENT / ELIGIBLE",
+        "### Task 7: Remove the user-facing YAML frontend — FINAL VERIFICATION",
     )
 
     assert task_1.count("- [x]") == 3
@@ -299,11 +305,14 @@ def test_yaml_retirement_tasks_1_through_6_are_closed_and_task_7_is_current() ->
     assert "- [ ]" not in task_5
     assert task_6.count("- [x]") == 6
     assert "- [ ]" not in task_6
-    assert task_7.count("- [ ]") == 5
-    assert "- [x]" not in task_7
+    assert task_7.count("- [x]") == 5
+    assert task_7.count("- [ ]") == 2
     assert "**Current selector:** Task 7" in program
     assert "eligible and current" in task_7
-    assert "none of its implementation checklist is claimed complete" in task_7
+    normalized_task_7 = " ".join(task_7.lower().replace("-", " ").split())
+    assert "final scoped broad comparison" in normalized_task_7
+    assert "independent specification and code quality reviews" in normalized_task_7
+    assert "stage 6 is not yet complete" in program.lower()
     assert "PASS" in task_1
     assert "APPROVED" in task_1
     assert "PASS" in task_2
@@ -316,15 +325,21 @@ def test_yaml_retirement_tasks_1_through_6_are_closed_and_task_7_is_current() ->
     assert "e38b14de" in task_5
 
 
-def test_canonical_routing_surfaces_select_only_yaml_retirement_task_6() -> None:
+def test_canonical_routing_surfaces_select_yaml_task_7_final_verification() -> None:
     roadmap = ROADMAP.read_text(encoding="utf-8")
     capability = CAPABILITY_MATRIX.read_text(encoding="utf-8")
     index = DOCS_INDEX.read_text(encoding="utf-8")
 
     for text in (roadmap, capability, index):
-        assert "YAML retirement Task 6" in text
         normalized = " ".join(text.lower().split())
-        for stale_task in (1, 2, 3, 4, 5, 7):
+        assert re.search(
+            r"\byaml retirement\b[^.;]{0,200}\btask 7\b"
+            r"[^.;]{0,80}\bfinal verification\b[^.;]{0,80}\bcurrent\b"
+            r"|\bcurrent selector\b[^.;]{0,160}\btask 7\b"
+            r"[^.;]{0,80}\bfinal verification\b",
+            normalized,
+        )
+        for stale_task in (1, 2, 3, 4, 5, 6):
             assert re.search(
                 rf"\byaml retirement\b[^.;]{{0,120}}\btask {stale_task}\b"
                 rf"[^.;]{{0,40}}\bcurrent\b"
@@ -335,7 +350,8 @@ def test_canonical_routing_surfaces_select_only_yaml_retirement_task_6() -> None
 
     stage_6 = _section(roadmap, "### Stage 6: Resume YAML Retirement")
     normalized_stage_6 = " ".join(stage_6.lower().split())
-    assert "**Current selector:** Task 6" in stage_6
-    assert "tasks 1-5 are complete" in normalized_stage_6
-    assert "yaml remains `legacy`" in normalized_stage_6
-    assert "task 7" in normalized_stage_6 and "parser removal" in normalized_stage_6
+    assert "**Current selector:** Task 7 final verification" in stage_6
+    assert "tasks 1-6 are complete" in normalized_stage_6
+    assert "orc-only" in normalized_stage_6
+    assert "final scoped broad" in normalized_stage_6
+    assert "independent reviews" in normalized_stage_6
