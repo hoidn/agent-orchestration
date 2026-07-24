@@ -92,14 +92,12 @@ def test_at69_workflow_executor_creates_backups():
                 {'name': 'Step2', 'command': 'echo world'}
             ]
         }
-        workflow_file = workspace / "workflow.yaml"
-        import yaml
-        with open(workflow_file, 'w') as f:
-            yaml.dump(workflow, f)
+        workflow_file = workspace / "workflow.fixture.json"
+        workflow_file.write_text(json.dumps(workflow), encoding="utf-8")
 
         # Create state manager with debug=True
         state_manager = StateManager(workspace, debug=True)
-        state_manager.initialize("workflow.yaml")
+        state_manager.initialize("workflow.fixture.json")
 
         # Create executor with debug=True
         executor = WorkflowExecutor(
@@ -142,14 +140,12 @@ def test_at69_for_each_loop_backups():
                 }
             ]
         }
-        workflow_file = workspace / "workflow.yaml"
-        import yaml
-        with open(workflow_file, 'w') as f:
-            yaml.dump(workflow, f)
+        workflow_file = workspace / "workflow.fixture.json"
+        workflow_file.write_text(json.dumps(workflow), encoding="utf-8")
 
         # Create state manager with debug=True
         state_manager = StateManager(workspace, debug=True)
-        state_manager.initialize("workflow.yaml")
+        state_manager.initialize("workflow.fixture.json")
 
         # Create executor with debug=True
         executor = WorkflowExecutor(

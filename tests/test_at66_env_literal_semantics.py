@@ -47,13 +47,14 @@ class TestAT66EnvLiteralSemantics:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Write workflow to file (needed for checksum)
-            workflow_file = Path(tmpdir) / "workflow.yaml"
-            import yaml
-            with open(workflow_file, 'w') as f:
-                yaml.dump(workflow, f)
+            workflow_file = Path(tmpdir) / "workflow.fixture.json"
+            workflow_file.write_text(json.dumps(workflow), encoding="utf-8")
 
             state_manager = StateManager(workspace=Path(tmpdir), run_id="test-run")
-            state_manager.initialize("workflow.yaml", context={'some_key': 'context-value'})
+            state_manager.initialize(
+                "workflow.fixture.json",
+                context={'some_key': 'context-value'},
+            )
 
             executor = WorkflowExecutor(
                 workflow=load_workflow_bundle_for_test(Path(tmpdir), workflow_file),
@@ -141,13 +142,14 @@ class TestAT66EnvLiteralSemantics:
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            workflow_file = Path(tmpdir) / "workflow.yaml"
-            import yaml
-            with open(workflow_file, 'w') as f:
-                yaml.dump(workflow, f)
+            workflow_file = Path(tmpdir) / "workflow.fixture.json"
+            workflow_file.write_text(json.dumps(workflow), encoding="utf-8")
 
             state_manager = StateManager(workspace=Path(tmpdir), run_id="test-run")
-            state_manager.initialize("workflow.yaml", context={'key': 'value'})
+            state_manager.initialize(
+                "workflow.fixture.json",
+                context={'key': 'value'},
+            )
 
             executor = WorkflowExecutor(
                 workflow=load_workflow_bundle_for_test(Path(tmpdir), workflow_file),
@@ -195,13 +197,14 @@ class TestAT66EnvLiteralSemantics:
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            workflow_file = Path(tmpdir) / "workflow.yaml"
-            import yaml
-            with open(workflow_file, 'w') as f:
-                yaml.dump(workflow, f)
+            workflow_file = Path(tmpdir) / "workflow.fixture.json"
+            workflow_file.write_text(json.dumps(workflow), encoding="utf-8")
 
             state_manager = StateManager(workspace=Path(tmpdir), run_id="test-run")
-            state_manager.initialize("workflow.yaml", context={'value': 'context-val'})
+            state_manager.initialize(
+                "workflow.fixture.json",
+                context={'value': 'context-val'},
+            )
 
             executor = WorkflowExecutor(
                 workflow=load_workflow_bundle_for_test(Path(tmpdir), workflow_file),
@@ -259,13 +262,11 @@ class TestAT66EnvLiteralSemantics:
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            workflow_file = Path(tmpdir) / "workflow.yaml"
-            import yaml
-            with open(workflow_file, 'w') as f:
-                yaml.dump(workflow, f)
+            workflow_file = Path(tmpdir) / "workflow.fixture.json"
+            workflow_file.write_text(json.dumps(workflow), encoding="utf-8")
 
             state_manager = StateManager(workspace=Path(tmpdir), run_id="test-run")
-            state_manager.initialize("workflow.yaml")
+            state_manager.initialize("workflow.fixture.json")
 
             executor = WorkflowExecutor(
                 workflow=load_workflow_bundle_for_test(Path(tmpdir), workflow_file),
@@ -327,13 +328,11 @@ class TestAT66EnvLiteralSemantics:
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            workflow_file = Path(tmpdir) / "workflow.yaml"
-            import yaml
-            with open(workflow_file, 'w') as f:
-                yaml.dump(workflow, f)
+            workflow_file = Path(tmpdir) / "workflow.fixture.json"
+            workflow_file.write_text(json.dumps(workflow), encoding="utf-8")
 
             state_manager = StateManager(workspace=Path(tmpdir), run_id="test-run")
-            state_manager.initialize("workflow.yaml")
+            state_manager.initialize("workflow.fixture.json")
 
             executor = WorkflowExecutor(
                 workflow=load_workflow_bundle_for_test(Path(tmpdir), workflow_file),
