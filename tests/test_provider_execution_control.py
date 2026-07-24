@@ -43,18 +43,23 @@ def _wait_until(
 
 def _pid_is_running(pid: int) -> bool:
     """Treat a reaped-or-waiting-to-be-reaped zombie as no longer running."""
-    stat_path = Path(f"/proc/{pid}/stat")
-    try:
-        fields = stat_path.read_text(encoding="utf-8").split()
-    except FileNotFoundError:
-        return False
-    if len(fields) >= 3 and fields[2] == "Z":
+    state = _pid_state(pid)
+    if state is None or state == "Z":
         return False
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     return True
+
+
+def _pid_state(pid: int) -> str | None:
+    stat_path = Path(f"/proc/{pid}/stat")
+    try:
+        fields = stat_path.read_text(encoding="utf-8").split()
+    except FileNotFoundError:
+        return None
+    return fields[2] if len(fields) >= 3 else None
 
 
 def _start_execution(
@@ -197,6 +202,104 @@ def test_spawn_failure_terminalizes_an_unbound_control(
     assert terminal.leader_reaped is False
     assert terminal.proof_complete is False
     assert control.cancel_and_reap(grace=0.01) is terminal
+
+
+def test_controlled_prompt_encoding_failure_wakes_a_prebind_cancel_waiter(
+    executor: ProviderExecutor,
+) -> None:
+    control = ProviderExecutionControl()
+    completion: Future[Any] = Future()
+    control.attach_execution_future(completion)
+    invocation = ProviderInvocation(
+        command=[sys.executable, "-c", "pass"],
+        input_mode=InputMode.STDIN,
+        prompt="\ud800",
+    )
+    cancellation_box: dict[str, Any] = {}
+    cancellation_thread = threading.Thread(
+        target=lambda: cancellation_box.setdefault(
+            "result",
+            control.cancel_and_reap(grace=0.01),
+        ),
+        daemon=True,
+    )
+    cancellation_thread.start()
+    _wait_until(
+        lambda: control.cancellation_requested,
+        message="pre-bind cancellation was not latched",
+    )
+
+    execution_result = executor.execute(invocation, control=control)
+    completion.set_result(execution_result)
+    cancellation_thread.join(timeout=1)
+
+    assert not cancellation_thread.is_alive()
+    terminal = cancellation_box["result"]
+    assert execution_result.classification == "failed"
+    assert execution_result.raw_stdout == b""
+    assert terminal is control.terminal_result
+    assert terminal.disposition == "spawn_failed"
+    assert terminal.execution_joined is False
+    assert terminal.proof_complete is False
+
+
+@pytest.mark.parametrize(
+    "completion_kind",
+    ["done", "exceptional", "cancelled"],
+)
+@pytest.mark.parametrize(
+    "ordering",
+    ["attach-then-cancel", "cancel-then-attach"],
+)
+def test_execution_future_ending_in_new_terminalizes_and_wakes_waiter(
+    completion_kind: str,
+    ordering: str,
+) -> None:
+    control = ProviderExecutionControl()
+    completion: Future[Any] = Future()
+
+    if ordering == "attach-then-cancel":
+        control.attach_execution_future(completion)
+
+    cancellation_box: dict[str, Any] = {}
+    cancellation_thread = threading.Thread(
+        target=lambda: cancellation_box.setdefault(
+            "result",
+            control.cancel_and_reap(grace=0.01),
+        ),
+        daemon=True,
+    )
+    cancellation_thread.start()
+    _wait_until(
+        lambda: control.cancellation_requested,
+        message="pre-bind cancellation was not latched",
+    )
+
+    if completion_kind == "done":
+        completion.set_result(object())
+    elif completion_kind == "exceptional":
+        completion.set_exception(RuntimeError("launch future failed"))
+    else:
+        assert completion.cancel() is True
+
+    if ordering == "cancel-then-attach":
+        control.attach_execution_future(completion)
+
+    cancellation_thread.join(timeout=1)
+
+    assert not cancellation_thread.is_alive()
+    terminal = cancellation_box["result"]
+    assert terminal is control.terminal_result
+    assert terminal.disposition == "spawn_failed"
+    assert terminal.execution_joined is True
+    assert terminal.proof_complete is False
+    assert terminal.error is not None
+    if completion_kind == "done":
+        assert "completed before process binding" in terminal.error
+    elif completion_kind == "exceptional":
+        assert "launch future failed" in terminal.error
+    else:
+        assert "cancelled before process binding" in terminal.error
 
 
 def test_control_absence_keeps_the_legacy_result_unclassified(
@@ -517,6 +620,119 @@ def test_cancel_and_reap_waits_for_capture_threads_to_join(
     assert execution_result.raw_stdout == b"partial"
 
 
+def test_late_capture_finalization_keeps_frozen_failure_and_partial_buffers(
+    executor: ProviderExecutor,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        ProviderExecutionControl,
+        "_FINALIZATION_TIMEOUT_SEC",
+        0.05,
+    )
+    original_capture_pipe = executor._capture_pipe
+    capture_lock = threading.Lock()
+    capture_count = 0
+    captures_at_eof = threading.Event()
+    release_captures = threading.Event()
+
+    def _delayed_capture(*args: Any, **kwargs: Any) -> None:
+        nonlocal capture_count
+        original_capture_pipe(*args, **kwargs)
+        with capture_lock:
+            capture_count += 1
+            if capture_count == 2:
+                captures_at_eof.set()
+        assert release_captures.wait(timeout=5)
+
+    monkeypatch.setattr(executor, "_capture_pipe", _delayed_capture)
+    control = ProviderExecutionControl()
+    invocation = ProviderInvocation(
+        command=[
+            sys.executable,
+            "-c",
+            "import sys; "
+            "sys.stdout.write('partial'); sys.stdout.flush(); "
+            "sys.stderr.write('diagnostic'); sys.stderr.flush()",
+        ],
+        input_mode=InputMode.ARGV,
+    )
+    execution_thread, execution_box = _start_execution(
+        executor,
+        invocation,
+        control,
+    )
+    assert captures_at_eof.wait(timeout=5)
+
+    frozen = control.cancel_and_reap(grace=0.01)
+    assert frozen.disposition == "boundary_failed"
+    assert frozen.capture_threads_joined is False
+    assert frozen.execution_joined is False
+    assert frozen.proof_complete is False
+
+    release_captures.set()
+    execution_result = _join_execution(execution_thread, execution_box)
+
+    assert control.terminal_result is frozen
+    assert control.cancel_and_reap(grace=0.01) is frozen
+    assert execution_result.classification == "failed"
+    assert execution_result.stdout == b""
+    assert execution_result.raw_stdout == b"partial"
+    assert execution_result.stderr == b"diagnostic"
+    assert execution_result.normalized_stdout is None
+    assert execution_result.provider_session is None
+
+
+@pytest.mark.parametrize("failed_stream", ["stdout", "stderr"])
+def test_capture_worker_exception_fails_the_controlled_boundary(
+    executor: ProviderExecutor,
+    monkeypatch: pytest.MonkeyPatch,
+    failed_stream: str,
+) -> None:
+    original_capture_pipe = executor._capture_pipe
+
+    def _failing_capture(
+        pipe: Any,
+        buffer: bytearray,
+        **kwargs: Any,
+    ) -> None:
+        stream_name = "stdout" if "read_mode" in kwargs else "stderr"
+        if stream_name == failed_stream:
+            buffer.extend(f"partial-{stream_name}".encode("utf-8"))
+            raise RuntimeError(f"{stream_name} capture exploded")
+        original_capture_pipe(pipe, buffer, **kwargs)
+
+    monkeypatch.setattr(executor, "_capture_pipe", _failing_capture)
+    control = ProviderExecutionControl()
+    invocation = ProviderInvocation(
+        command=[sys.executable, "-c", "pass"],
+        input_mode=InputMode.ARGV,
+    )
+
+    execution_thread, execution_box = _start_execution(
+        executor,
+        invocation,
+        control,
+    )
+    execution_result = _join_execution(execution_thread, execution_box)
+    terminal = control.terminal_result
+
+    assert terminal is not None
+    assert terminal.disposition == "boundary_failed"
+    assert terminal.capture_threads_joined is True
+    assert terminal.proof_complete is False
+    assert f"{failed_stream} capture exploded" in (terminal.error or "")
+    assert execution_result.classification == "failed"
+    assert execution_result.error is not None
+    assert (
+        execution_result.error["type"]
+        == "provider_cancellation_boundary_failed"
+    )
+    if failed_stream == "stdout":
+        assert execution_result.raw_stdout == b"partial-stdout"
+    else:
+        assert execution_result.stderr == b"partial-stderr"
+
+
 def test_invalid_final_session_identity_rejects_the_cancellation_boundary(
     executor: ProviderExecutor,
     tmp_path: Path,
@@ -667,6 +883,110 @@ def test_post_bind_capture_setup_failure_cleans_and_reaps_owned_group(
                 except ProcessLookupError:
                     pass
                 process.wait(timeout=5)
+
+
+def test_bind_rejection_after_popen_is_reaped_by_the_executor_thread(
+    executor: ProviderExecutor,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_popen = subprocess.Popen
+    processes: list[subprocess.Popen] = []
+    wait_thread_ids: list[int] = []
+
+    def _recording_popen(*args: Any, **kwargs: Any) -> subprocess.Popen:
+        process = real_popen(*args, **kwargs)
+        processes.append(process)
+        real_wait = process.wait
+
+        def _wait(*wait_args: Any, **wait_kwargs: Any) -> int:
+            wait_thread_ids.append(threading.get_ident())
+            return real_wait(*wait_args, **wait_kwargs)
+
+        process.wait = _wait  # type: ignore[method-assign]
+        return process
+
+    monkeypatch.setattr(
+        "orchestrator.providers.executor.subprocess.Popen",
+        _recording_popen,
+    )
+    control = ProviderExecutionControl()
+    completion: Future[Any] = Future()
+    control.attach_execution_future(completion)
+
+    def _reject_bind(_process: subprocess.Popen, _pgid: int) -> None:
+        raise RuntimeError("injected bind rejection")
+
+    monkeypatch.setattr(control, "bind", _reject_bind)
+    invocation = ProviderInvocation(
+        command=[sys.executable, "-c", "import time; time.sleep(30)"],
+        input_mode=InputMode.ARGV,
+    )
+    execution_result: Any = None
+    execution_error: BaseException | None = None
+
+    try:
+        try:
+            execution_result = executor.execute(invocation, control=control)
+        except BaseException as exc:
+            execution_error = exc
+            completion.set_exception(exc)
+        else:
+            completion.set_result(execution_result)
+
+        assert execution_error is None
+        assert execution_result.classification == "failed"
+        terminal = control.terminal_result
+        assert terminal is not None
+        assert terminal.disposition == "boundary_failed"
+        assert terminal.pgid == processes[0].pid
+        assert terminal.leader_reaped is True
+        assert terminal.pgid_empty is True
+        assert terminal.proof_complete is False
+        assert "bind rejection" in (terminal.error or "")
+        assert processes[0].returncode is not None
+        with pytest.raises(ProcessLookupError):
+            os.killpg(processes[0].pid, 0)
+        assert wait_thread_ids
+        assert set(wait_thread_ids) == {threading.get_ident()}
+    finally:
+        for process in processes:
+            if process.returncode is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=5)
+
+
+def test_terminal_control_reuse_is_rejected_before_popen(
+    executor: ProviderExecutor,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    control = ProviderExecutionControl()
+    original_terminal = control.spawn_failed("first launch failed")
+    popen_called = False
+
+    def _unexpected_popen(*_args: Any, **_kwargs: Any) -> None:
+        nonlocal popen_called
+        popen_called = True
+        raise RuntimeError("Popen must not run for a reused control")
+
+    monkeypatch.setattr(
+        "orchestrator.providers.executor.subprocess.Popen",
+        _unexpected_popen,
+    )
+    invocation = ProviderInvocation(
+        command=[sys.executable, "-c", "pass"],
+        input_mode=InputMode.ARGV,
+    )
+
+    execution_result = executor.execute(invocation, control=control)
+
+    assert popen_called is False
+    assert execution_result.classification == "failed"
+    assert execution_result.error is not None
+    assert execution_result.error["type"] == "execution_error"
+    assert control.terminal_result is original_terminal
 
 
 @pytest.mark.parametrize(
@@ -944,6 +1264,110 @@ def test_cancel_after_wait_return_cannot_rehabilitate_a_lingering_child(
     assert execution_result.classification == "failed"
 
 
+def test_repeated_cancel_preserves_cancel_before_clean_exit_with_child(
+    executor: ProviderExecutor,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_popen = subprocess.Popen
+    real_killpg = os.killpg
+    wait_returned = threading.Event()
+    release_wait = threading.Event()
+    kill_seen = threading.Event()
+    child_pid_path = tmp_path / "cancelled-child.pid"
+    child_ready_path = tmp_path / "cancelled-child.ready"
+    parent_ready_path = tmp_path / "cancelled-parent.ready"
+
+    def _delayed_wait_popen(*args: Any, **kwargs: Any) -> subprocess.Popen:
+        process = real_popen(*args, **kwargs)
+        real_wait = process.wait
+
+        def _wait(*wait_args: Any, **wait_kwargs: Any) -> int:
+            return_code = real_wait(*wait_args, **wait_kwargs)
+            wait_returned.set()
+            assert release_wait.wait(timeout=5)
+            return return_code
+
+        process.wait = _wait  # type: ignore[method-assign]
+        return process
+
+    def _recording_killpg(pgid: int, sig: int) -> None:
+        if sig == signal.SIGKILL:
+            kill_seen.set()
+        real_killpg(pgid, sig)
+
+    monkeypatch.setattr(
+        "orchestrator.providers.executor.subprocess.Popen",
+        _delayed_wait_popen,
+    )
+    monkeypatch.setattr(
+        "orchestrator.providers.control.os.killpg",
+        _recording_killpg,
+    )
+    child_script = (
+        "import pathlib, signal, time; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        f"pathlib.Path({str(child_ready_path)!r}).write_text('ready'); "
+        "time.sleep(30)"
+    )
+    parent_script = (
+        "import pathlib, signal, subprocess, sys, time; "
+        f"child = subprocess.Popen([sys.executable, '-c', {child_script!r}]); "
+        f"pathlib.Path({str(child_pid_path)!r}).write_text(str(child.pid)); "
+        "signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); "
+        f"pathlib.Path({str(parent_ready_path)!r}).write_text('ready'); "
+        "\nwhile True: time.sleep(0.05)"
+    )
+    control = ProviderExecutionControl()
+    invocation = ProviderInvocation(
+        command=[sys.executable, "-c", parent_script],
+        input_mode=InputMode.ARGV,
+    )
+    execution_thread, execution_box = _start_execution(
+        executor,
+        invocation,
+        control,
+    )
+    _wait_until(parent_ready_path.exists, message="parent did not become ready")
+    _wait_until(child_ready_path.exists, message="child did not become ready")
+    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+
+    cancellation_results: list[Any] = []
+
+    def _cancel() -> None:
+        cancellation_results.append(control.cancel_and_reap(grace=0.05))
+
+    first_cancel = threading.Thread(target=_cancel, daemon=True)
+    first_cancel.start()
+    assert wait_returned.wait(timeout=5)
+    second_cancel = threading.Thread(target=_cancel, daemon=True)
+    second_cancel.start()
+    assert kill_seen.wait(timeout=5)
+    release_wait.set()
+
+    execution_result = _join_execution(execution_thread, execution_box)
+    first_cancel.join(timeout=5)
+    second_cancel.join(timeout=5)
+    assert not first_cancel.is_alive()
+    assert not second_cancel.is_alive()
+    _wait_until(
+        lambda: not _pid_is_running(child_pid),
+        message="cancelled same-PGID child survived cleanup",
+    )
+
+    assert len(cancellation_results) == 2
+    assert cancellation_results[1] is cancellation_results[0]
+    terminal = cancellation_results[0]
+    assert terminal.disposition == "cancelled"
+    assert terminal.leader_return_code == 0
+    assert terminal.natural_exit_with_lingering_group is False
+    assert terminal.pgid_empty is True
+    assert terminal.term_sent is True
+    assert terminal.kill_sent is True
+    assert terminal.proof_complete is True
+    assert execution_result.classification == "cancelled_provisional"
+
+
 def test_cancel_after_natural_nonzero_wait_preserves_failure_disposition(
     executor: ProviderExecutor,
     monkeypatch: pytest.MonkeyPatch,
@@ -1008,6 +1432,185 @@ def test_cancel_after_natural_nonzero_wait_preserves_failure_disposition(
     assert execution_result.classification == "failed"
 
 
+def test_unreaped_natural_nonzero_exit_cannot_become_cancellation(
+    executor: ProviderExecutor,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_popen = subprocess.Popen
+    processes: list[subprocess.Popen] = []
+    wait_entered = threading.Event()
+    allow_wait = threading.Event()
+
+    def _blocked_before_wait_popen(
+        *args: Any,
+        **kwargs: Any,
+    ) -> subprocess.Popen:
+        process = real_popen(*args, **kwargs)
+        processes.append(process)
+        real_wait = process.wait
+
+        def _wait(*wait_args: Any, **wait_kwargs: Any) -> int:
+            wait_entered.set()
+            assert allow_wait.wait(timeout=5)
+            return real_wait(*wait_args, **wait_kwargs)
+
+        process.wait = _wait  # type: ignore[method-assign]
+        return process
+
+    monkeypatch.setattr(
+        "orchestrator.providers.executor.subprocess.Popen",
+        _blocked_before_wait_popen,
+    )
+    control = ProviderExecutionControl()
+    invocation = ProviderInvocation(
+        command=[sys.executable, "-c", "raise SystemExit(7)"],
+        input_mode=InputMode.ARGV,
+    )
+    execution_thread, execution_box = _start_execution(
+        executor,
+        invocation,
+        control,
+    )
+    assert wait_entered.wait(timeout=5)
+    process = processes[0]
+    _wait_until(
+        lambda: _pid_state(process.pid) == "Z",
+        message="provider leader did not become an unreaped zombie",
+    )
+    assert process.returncode is None
+
+    cancellation_box: dict[str, Any] = {}
+    cancellation_thread = threading.Thread(
+        target=lambda: cancellation_box.setdefault(
+            "result",
+            control.cancel_and_reap(grace=0.01),
+        ),
+        daemon=True,
+    )
+    cancellation_thread.start()
+    _wait_until(
+        lambda: control.cancellation_requested,
+        message="cancellation did not latch for unreaped leader",
+    )
+    allow_wait.set()
+
+    execution_result = _join_execution(execution_thread, execution_box)
+    cancellation_thread.join(timeout=5)
+    assert not cancellation_thread.is_alive()
+    terminal = cancellation_box["result"]
+
+    assert terminal.disposition == "natural_exit"
+    assert terminal.leader_return_code == 7
+    assert terminal.proof_complete is True
+    assert execution_result.exit_code == 7
+    assert execution_result.classification == "failed"
+
+
+def test_completed_transport_failure_before_unreaped_wait_beats_cancellation(
+    executor: ProviderExecutor,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_popen = subprocess.Popen
+    processes: list[subprocess.Popen] = []
+    wait_entered = threading.Event()
+    allow_wait = threading.Event()
+    stdout_captured = threading.Event()
+
+    def _blocked_before_wait_popen(
+        *args: Any,
+        **kwargs: Any,
+    ) -> subprocess.Popen:
+        process = real_popen(*args, **kwargs)
+        processes.append(process)
+        real_wait = process.wait
+
+        def _wait(*wait_args: Any, **wait_kwargs: Any) -> int:
+            wait_entered.set()
+            assert allow_wait.wait(timeout=5)
+            return real_wait(*wait_args, **wait_kwargs)
+
+        process.wait = _wait  # type: ignore[method-assign]
+        return process
+
+    monkeypatch.setattr(
+        "orchestrator.providers.executor.subprocess.Popen",
+        _blocked_before_wait_popen,
+    )
+    identity_line = (
+        '{"type":"thread.started","thread_id":"session-natural"}\n'
+    )
+    control = ProviderExecutionControl()
+    record_capture_worker_completed = (
+        control.record_capture_worker_completed
+    )
+
+    def _observed_capture_completion(stream_name: str) -> None:
+        record_capture_worker_completed(stream_name)
+        if stream_name == "stdout":
+            stdout_captured.set()
+
+    monkeypatch.setattr(
+        control,
+        "record_capture_worker_completed",
+        _observed_capture_completion,
+    )
+    invocation = ProviderInvocation(
+        command=[
+            sys.executable,
+            "-c",
+            f"import sys; sys.stdout.write({identity_line!r}); sys.stdout.flush()",
+        ],
+        input_mode=InputMode.STDIN,
+        command_variant="fresh_command",
+        metadata_mode=(
+            ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value
+        ),
+        session_request=ProviderSessionRequest(
+            mode=ProviderSessionMode.FRESH,
+        ),
+    )
+    execution_thread, execution_box = _start_execution(
+        executor,
+        invocation,
+        control,
+    )
+    assert wait_entered.wait(timeout=5)
+    process = processes[0]
+    _wait_until(
+        lambda: _pid_state(process.pid) == "Z",
+        message="provider leader did not become an unreaped zombie",
+    )
+    assert stdout_captured.wait(timeout=5)
+    assert process.returncode is None
+
+    cancellation_box: dict[str, Any] = {}
+    cancellation_thread = threading.Thread(
+        target=lambda: cancellation_box.setdefault(
+            "result",
+            control.cancel_and_reap(grace=0.01),
+        ),
+        daemon=True,
+    )
+    cancellation_thread.start()
+    _wait_until(
+        lambda: control.cancellation_requested,
+        message="cancellation did not latch after completed transport",
+    )
+    allow_wait.set()
+
+    execution_result = _join_execution(execution_thread, execution_box)
+    cancellation_thread.join(timeout=5)
+    assert not cancellation_thread.is_alive()
+    terminal = cancellation_box["result"]
+
+    assert terminal.disposition == "natural_exit"
+    assert terminal.proof_complete is True
+    assert execution_result.classification == "failed"
+    assert execution_result.raw_stdout == identity_line.encode("utf-8")
+    assert execution_result.error is not None
+    assert execution_result.error["type"] == "provider_session_transport_error"
+
+
 def test_spool_failure_cannot_suppress_preterminal_identity_publication(
     executor: ProviderExecutor,
     tmp_path: Path,
@@ -1054,7 +1657,11 @@ def test_spool_failure_cannot_suppress_preterminal_identity_publication(
         )
     finally:
         terminal = control.cancel_and_reap(grace=0.1)
-        execution_thread.join(timeout=5)
+    execution_result = _join_execution(execution_thread, result_box)
 
     assert terminal.final_identity_valid is True
-    assert not execution_thread.is_alive()
+    assert terminal.proof_complete is True
+    assert execution_result.classification == "cancelled_provisional"
+    assert execution_result.raw_stdout == identity_line.encode("utf-8")
+    assert execution_result.normalized_stdout is None
+    assert execution_result.provider_session is None

@@ -274,6 +274,16 @@ class ProviderExecutor:
         working_dir = cwd or self.workspace
         start_time = time.time()
 
+        if control is not None:
+            return self._execute_controlled_invocation(
+                invocation=invocation,
+                working_dir=working_dir,
+                stream_output=stream_output,
+                start_time=start_time,
+                session_runtime=session_runtime,
+                control=control,
+            )
+
         # Setup environment
         process_env = os.environ.copy()
         if invocation.env:
@@ -288,18 +298,6 @@ class ProviderExecutor:
             logger.debug(f"Executing command: {invocation.command}")
             if invocation.input_mode == InputMode.STDIN:
                 logger.debug(f"Using stdin mode, prompt size: {len(invocation.prompt or '')} bytes")
-
-            if control is not None:
-                return self._execute_controlled_invocation(
-                    invocation=invocation,
-                    working_dir=working_dir,
-                    process_env=process_env,
-                    stdin_input=stdin_input,
-                    stream_output=stream_output,
-                    start_time=start_time,
-                    session_runtime=session_runtime,
-                    control=control,
-                )
 
             session_enabled = invocation.session_request is not None
             if session_enabled:
@@ -472,8 +470,6 @@ class ProviderExecutor:
         *,
         invocation: ProviderInvocation,
         working_dir: Path,
-        process_env: Dict[str, str],
-        stdin_input: Optional[bytes],
         stream_output: bool,
         start_time: float,
         session_runtime: Optional[Dict[str, Any]],
@@ -498,6 +494,26 @@ class ProviderExecutor:
             self._emit_session_assistant_text(assistant_text)
 
         try:
+            control.claim_spawn()
+        except Exception as exc:
+            return self._controlled_launch_failure_result(
+                error=exc,
+                start_time=start_time,
+            )
+
+        try:
+            process_env = os.environ.copy()
+            if invocation.env:
+                process_env.update(invocation.env)
+            stdin_input = None
+            if invocation.input_mode == InputMode.STDIN and invocation.prompt:
+                stdin_input = invocation.prompt.encode("utf-8")
+            logger.debug(f"Executing command: {invocation.command}")
+            if invocation.input_mode == InputMode.STDIN:
+                logger.debug(
+                    "Using stdin mode, prompt size: "
+                    f"{len(invocation.prompt or '')} bytes"
+                )
             expected_session_id = self._expected_session_id(invocation)
             accumulator = create_session_transport_accumulator(
                 invocation.metadata_mode,
@@ -522,28 +538,28 @@ class ProviderExecutor:
             )
         except Exception as exc:
             control.spawn_failed(exc)
-            duration_ms = int((time.time() - start_time) * 1000)
-            return ProviderExecutionResult(
-                exit_code=1,
-                stdout=b"",
-                stderr=str(exc).encode("utf-8"),
-                duration_ms=duration_ms,
-                classification="failed",
-                raw_stdout=b"",
-                error={
-                    "type": "execution_error",
-                    "message": str(exc),
-                    "context": {},
-                },
+            return self._controlled_launch_failure_result(
+                error=exc,
+                start_time=start_time,
             )
 
         # start_new_session makes the leader pid the invocation-owned PGID.
         # Binding is deliberately the first action after successful creation.
-        control.bind(process, process.pid)
+        try:
+            control.bind(process, process.pid)
+        except Exception as exc:
+            return self._fail_control_bind(
+                process=process,
+                control=control,
+                start_time=start_time,
+                error=exc,
+            )
 
         stdout_buf = bytearray()
         stderr_buf = bytearray()
         capture_threads: List[threading.Thread] = []
+        capture_failures: List[str] = []
+        capture_failure_lock = threading.Lock()
         try:
             return self._run_bound_controlled_invocation(
                 invocation=invocation,
@@ -558,6 +574,8 @@ class ProviderExecutor:
                 stdout_buf=stdout_buf,
                 stderr_buf=stderr_buf,
                 capture_threads=capture_threads,
+                capture_failures=capture_failures,
+                capture_failure_lock=capture_failure_lock,
             )
         except Exception as exc:
             return self._fail_bound_controlled_invocation(
@@ -570,8 +588,156 @@ class ProviderExecutor:
                 stdout_buf=stdout_buf,
                 stderr_buf=stderr_buf,
                 capture_threads=capture_threads,
+                capture_failures=capture_failures,
                 error=exc,
             )
+
+    @staticmethod
+    def _controlled_launch_failure_result(
+        *,
+        error: BaseException,
+        start_time: float,
+    ) -> ProviderExecutionResult:
+        return ProviderExecutionResult(
+            exit_code=1,
+            stdout=b"",
+            stderr=str(error).encode("utf-8"),
+            duration_ms=int((time.time() - start_time) * 1000),
+            classification="failed",
+            raw_stdout=b"",
+            error={
+                "type": "execution_error",
+                "message": str(error),
+                "context": {},
+            },
+        )
+
+    def _fail_control_bind(
+        self,
+        *,
+        process: subprocess.Popen,
+        control: ProviderExecutionControl,
+        start_time: float,
+        error: Exception,
+    ) -> ProviderExecutionResult:
+        """Clean and reap a process whose control binding was rejected."""
+        pgid = process.pid
+        term_sent = True
+        kill_sent = False
+        cleanup_errors: List[str] = []
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except OSError as exc:
+            cleanup_errors.append(f"failed to terminate process group: {exc}")
+
+        leader_reaped = False
+        return_code: int | None = None
+        try:
+            return_code = process.wait(timeout=0.2)
+            leader_reaped = True
+        except subprocess.TimeoutExpired:
+            kill_sent = True
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except OSError as exc:
+                cleanup_errors.append(f"failed to kill process group: {exc}")
+            try:
+                return_code = process.wait()
+                leader_reaped = True
+            except Exception as exc:
+                cleanup_errors.append(f"failed to reap process leader: {exc}")
+        except Exception as exc:
+            cleanup_errors.append(f"failed to reap process leader: {exc}")
+
+        if not self._wait_for_process_group_empty(pgid, timeout=0.2):
+            if not kill_sent:
+                kill_sent = True
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except OSError as exc:
+                    cleanup_errors.append(
+                        f"failed to kill residual process group: {exc}"
+                    )
+            if not self._wait_for_process_group_empty(pgid, timeout=0.2):
+                cleanup_errors.append("provider process group remained non-empty")
+        pgid_empty = self._process_group_is_empty(pgid)
+
+        if process.stdin is not None:
+            try:
+                process.stdin.close()
+            except Exception:
+                pass
+        stdout = b""
+        stderr = b""
+        for pipe, is_stdout in (
+            (process.stdout, True),
+            (process.stderr, False),
+        ):
+            if pipe is None or getattr(pipe, "closed", False):
+                continue
+            try:
+                remainder = pipe.read() or b""
+                if is_stdout:
+                    stdout += remainder
+                else:
+                    stderr += remainder
+            except Exception as exc:
+                cleanup_errors.append(f"failed to read provider pipe: {exc}")
+            finally:
+                try:
+                    pipe.close()
+                except Exception:
+                    pass
+
+        terminal_error = str(error)
+        if cleanup_errors:
+            terminal_error += "; " + "; ".join(cleanup_errors)
+        terminal = control.record_bind_failure(
+            process=process,
+            pgid=pgid,
+            return_code=return_code,
+            leader_reaped=leader_reaped,
+            pgid_empty=pgid_empty,
+            term_sent=term_sent,
+            kill_sent=kill_sent,
+            error=terminal_error,
+        )
+        return self._controlled_boundary_failure_result(
+            terminal=terminal,
+            raw_stdout=stdout,
+            stderr=stderr,
+            duration_ms=int((time.time() - start_time) * 1000),
+        )
+
+    @staticmethod
+    def _process_group_is_empty(pgid: int) -> bool:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return True
+        except OSError:
+            return False
+        return False
+
+    def _wait_for_process_group_empty(
+        self,
+        pgid: int,
+        *,
+        timeout: float,
+    ) -> bool:
+        deadline = time.monotonic() + max(timeout, 0.0)
+        while True:
+            if self._process_group_is_empty(pgid):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.01)
 
     def _run_bound_controlled_invocation(
         self,
@@ -588,6 +754,8 @@ class ProviderExecutor:
         stdout_buf: bytearray,
         stderr_buf: bytearray,
         capture_threads: List[threading.Thread],
+        capture_failures: List[str],
+        capture_failure_lock: Any,
     ) -> ProviderExecutionResult:
         """Run capture, wait, transport finalization, and boundary recording."""
         if stdin_input is not None and process.stdin is not None:
@@ -608,9 +776,13 @@ class ProviderExecutor:
             )
 
         stdout_thread = threading.Thread(
-            target=self._capture_pipe,
+            target=self._capture_controlled_pipe,
             args=(process.stdout, stdout_buf),
             kwargs={
+                "stream_name": "stdout",
+                "capture_failures": capture_failures,
+                "capture_failure_lock": capture_failure_lock,
+                "control": control,
                 "out_stream": (
                     sys.stdout
                     if stream_output and accumulator is None
@@ -622,9 +794,15 @@ class ProviderExecutor:
             daemon=True,
         )
         stderr_thread = threading.Thread(
-            target=self._capture_pipe,
+            target=self._capture_controlled_pipe,
             args=(process.stderr, stderr_buf),
-            kwargs={"out_stream": sys.stderr if stream_output else None},
+            kwargs={
+                "stream_name": "stderr",
+                "capture_failures": capture_failures,
+                "capture_failure_lock": capture_failure_lock,
+                "control": control,
+                "out_stream": sys.stderr if stream_output else None,
+            },
             daemon=True,
         )
         capture_threads.extend((stdout_thread, stderr_thread))
@@ -694,6 +872,12 @@ class ProviderExecutor:
         boundary = control.record_execution_boundary(
             capture_threads_joined=capture_threads_joined,
             final_identity_valid=final_identity_valid,
+            transport_failed=natural_result.error is not None,
+            boundary_error=(
+                "; ".join(capture_failures)
+                if capture_failures
+                else None
+            ),
         )
 
         if boundary.disposition == "boundary_failed":
@@ -752,6 +936,7 @@ class ProviderExecutor:
         stdout_buf: bytearray,
         stderr_buf: bytearray,
         capture_threads: List[threading.Thread],
+        capture_failures: List[str],
         error: Exception,
     ) -> ProviderExecutionResult:
         """Fail closed after bind while preserving executor-owned wait."""
@@ -792,13 +977,17 @@ class ProviderExecutor:
             control.publish_session_snapshot(accumulator.snapshot())
             final_identity_valid = identity_error is None
 
+        boundary_errors = [
+            f"provider execution failed after bind: {error}",
+            *capture_failures,
+        ]
         boundary = control.record_execution_boundary(
             capture_threads_joined=all(
                 not thread.is_alive()
                 for thread in capture_threads
             ),
             final_identity_valid=final_identity_valid,
-            boundary_error=f"provider execution failed after bind: {error}",
+            boundary_error="; ".join(boundary_errors),
         )
         return self._controlled_boundary_failure_result(
             terminal=boundary,
@@ -914,6 +1103,32 @@ class ProviderExecutor:
                 pipe.close()
             except Exception:
                 pass
+
+    def _capture_controlled_pipe(
+        self,
+        pipe: Optional[Any],
+        buffer: bytearray,
+        *,
+        stream_name: str,
+        capture_failures: List[str],
+        capture_failure_lock: Any,
+        control: ProviderExecutionControl,
+        **capture_kwargs: Any,
+    ) -> None:
+        """Capture one controlled pipe and retain core worker failures."""
+        try:
+            self._capture_pipe(
+                pipe,
+                buffer,
+                **capture_kwargs,
+            )
+        except Exception as exc:
+            with capture_failure_lock:
+                capture_failures.append(
+                    f"{stream_name} capture worker failed: {exc}"
+                )
+        else:
+            control.record_capture_worker_completed(stream_name)
 
     def _stream_pipe(
         self,
