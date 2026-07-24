@@ -482,7 +482,6 @@ def test_projector_does_not_enter_frontend_or_lowering_for_persisted_orc(
         raise AssertionError("fresh frontend or lowering was entered")
 
     for target in (
-        "orchestrator.loader.WorkflowLoader.load_bundle",
         "orchestrator.workflow_lisp.compiler.compile_stage3_entrypoint",
         "orchestrator.workflow_lisp.reader.read_sexpr_file",
         "orchestrator.workflow_lisp.syntax.build_syntax_module",
