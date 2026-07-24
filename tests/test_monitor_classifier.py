@@ -13,21 +13,23 @@ NOW = datetime(2026, 4, 28, 12, 0, tzinfo=timezone.utc)
 
 
 def _write_config(path: Path, workspace: Path) -> Path:
-    config_path = path / "monitor.yaml"
+    config_path = path / "monitor.json"
     config_path.write_text(
-        f"""
-workspaces:
-  - name: repo
-    path: {workspace}
-monitor:
-  poll_interval_seconds: 10
-  stale_after_seconds: 300
-email:
-  backend: smtp
-  from: monitor@example.com
-  to: [user@example.com]
-  smtp_host: smtp.example.com
-""",
+        json.dumps(
+            {
+                "workspaces": [{"name": "repo", "path": str(workspace)}],
+                "monitor": {
+                    "poll_interval_seconds": 10,
+                    "stale_after_seconds": 300,
+                },
+                "email": {
+                    "backend": "smtp",
+                    "from": "monitor@example.com",
+                    "to": ["user@example.com"],
+                    "smtp_host": "smtp.example.com",
+                },
+            }
+        ),
         encoding="utf-8",
     )
     return config_path

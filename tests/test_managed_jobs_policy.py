@@ -1,15 +1,15 @@
+import json
 from pathlib import Path
 
 import pytest
-import yaml
 
 from orchestrator.managed_jobs.identity import compute_job_identity_hash
 from orchestrator.managed_jobs.policy import ManagedJobPolicyError, load_policy
 
 
 def _write_policy(tmp_path: Path, payload: dict) -> Path:
-    path = tmp_path / "policy.yaml"
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    path = tmp_path / "policy.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
     return path
 
 
@@ -26,14 +26,22 @@ def _job_metadata() -> dict:
 
 def test_policy_rejects_missing_file(tmp_path: Path) -> None:
     with pytest.raises(ManagedJobPolicyError, match="does not exist"):
-        load_policy(tmp_path / "missing.yaml", workspace=tmp_path)
+        load_policy(tmp_path / "missing.json", workspace=tmp_path)
 
 
-def test_policy_rejects_unparsable_yaml(tmp_path: Path) -> None:
-    path = tmp_path / "policy.yaml"
-    path.write_text("entries: [", encoding="utf-8")
+def test_policy_rejects_unparsable_json(tmp_path: Path) -> None:
+    path = tmp_path / "policy.json"
+    path.write_text('{"entries": [', encoding="utf-8")
 
-    with pytest.raises(ManagedJobPolicyError, match="could not parse"):
+    with pytest.raises(ManagedJobPolicyError, match="could not parse policy JSON"):
+        load_policy(path, workspace=tmp_path)
+
+
+def test_policy_rejects_yaml_syntax(tmp_path: Path) -> None:
+    path = tmp_path / "policy.json"
+    path.write_text("entries: []\n", encoding="utf-8")
+
+    with pytest.raises(ManagedJobPolicyError, match="could not parse policy JSON"):
         load_policy(path, workspace=tmp_path)
 
 

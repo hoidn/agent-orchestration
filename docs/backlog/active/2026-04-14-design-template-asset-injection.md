@@ -15,17 +15,17 @@ The current docs-template placement was chosen so already-running workflows can 
 - Restore a workflow-bundled template under `workflows/library/prompts/common/design_template.md` or an equivalent prompt-asset path.
 - Wire `DraftDesign` and `DraftBigDesign` to inject the template with `asset_depends_on`.
 - Keep the design drafting prompts concise: they should tell the agent to use the injected template and omit irrelevant optional sections.
-- Sync the workflow asset, YAML, and prompt wording to downstream workflow copies that are expected to run from their own checkout.
-- Regenerate or check `docs/workflow_prompt_map.md` so the injected asset appears in the prompt map.
+- Sync the workflow asset, Workflow Lisp source, and prompt wording to downstream workflow copies that are expected to run from their own checkout.
+- Compile and shared-validate the affected `.orc` workflows so their source-relative asset bindings are checked directly.
 
 ## Non-Goals
 - Do not require active workflows to restart just to see the design template.
 - Do not make the design template a mandatory rigid schema for every small change.
-- Do not duplicate substantive design instructions in YAML and prompt prose.
+- Do not duplicate substantive design instructions in workflow source and prompt prose.
 - Do not add prompt-phrasing tests.
 
 ## Success Criteria
 - Reusable design workflows carry the design template with the workflow source tree.
-- `docs/workflow_prompt_map.md` lists the injected design template asset for the relevant design-drafting steps.
+- The affected `.orc` workflows compile and shared-validate with the injected design template asset.
 - Downstream copies can be validated with orchestrator dry-runs after the sync.
 - Any remaining docs-template file has a clear role and does not silently drift from the injected asset.

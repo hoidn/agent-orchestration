@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -6,25 +7,27 @@ from orchestrator.monitor.config import load_monitor_config
 
 
 def test_load_monitor_config_accepts_explicit_workspaces_and_smtp_env_names(tmp_path: Path):
-    config_path = tmp_path / "monitor.yaml"
+    config_path = tmp_path / "monitor.json"
     config_path.write_text(
-        """
-workspaces:
-  - name: repo
-    path: /tmp/repo
-monitor:
-  poll_interval_seconds: 10
-  stale_after_seconds: 120
-email:
-  backend: smtp
-  from: monitor@example.com
-  to: [user@example.com]
-  smtp_host: smtp.example.com
-  smtp_port: 587
-  use_starttls: true
-  username_env: SMTP_USER
-  password_env: SMTP_PASSWORD
-""",
+        json.dumps(
+            {
+                "workspaces": [{"name": "repo", "path": "/tmp/repo"}],
+                "monitor": {
+                    "poll_interval_seconds": 10,
+                    "stale_after_seconds": 120,
+                },
+                "email": {
+                    "backend": "smtp",
+                    "from": "monitor@example.com",
+                    "to": ["user@example.com"],
+                    "smtp_host": "smtp.example.com",
+                    "smtp_port": 587,
+                    "use_starttls": True,
+                    "username_env": "SMTP_USER",
+                    "password_env": "SMTP_PASSWORD",
+                },
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -41,93 +44,117 @@ email:
 
 
 @pytest.mark.parametrize(
-    ("body", "message"),
+    ("payload", "message"),
     [
         (
-            """
-workspaces: []
-email:
-  backend: smtp
-  from: monitor@example.com
-  to: [user@example.com]
-  smtp_host: smtp.example.com
-""",
+            {
+                "workspaces": [],
+                "email": {
+                    "backend": "smtp",
+                    "from": "monitor@example.com",
+                    "to": ["user@example.com"],
+                    "smtp_host": "smtp.example.com",
+                },
+            },
             "at least one workspace",
         ),
         (
-            """
-workspaces:
-  - name: repo
-    path: /tmp/repo
-monitor:
-  poll_interval_seconds: 0
-email:
-  backend: smtp
-  from: monitor@example.com
-  to: [user@example.com]
-  smtp_host: smtp.example.com
-""",
+            {
+                "workspaces": [{"name": "repo", "path": "/tmp/repo"}],
+                "monitor": {"poll_interval_seconds": 0},
+                "email": {
+                    "backend": "smtp",
+                    "from": "monitor@example.com",
+                    "to": ["user@example.com"],
+                    "smtp_host": "smtp.example.com",
+                },
+            },
             "poll_interval_seconds",
         ),
         (
-            """
-workspaces:
-  - name: repo
-    path: /tmp/repo
-monitor:
-  stale_after_seconds: -1
-email:
-  backend: smtp
-  from: monitor@example.com
-  to: [user@example.com]
-  smtp_host: smtp.example.com
-""",
+            {
+                "workspaces": [{"name": "repo", "path": "/tmp/repo"}],
+                "monitor": {"stale_after_seconds": -1},
+                "email": {
+                    "backend": "smtp",
+                    "from": "monitor@example.com",
+                    "to": ["user@example.com"],
+                    "smtp_host": "smtp.example.com",
+                },
+            },
             "stale_after_seconds",
         ),
         (
-            """
-workspaces:
-  - name: repo
-    path: /tmp/repo
-email:
-  backend: webhook
-  from: monitor@example.com
-  to: [user@example.com]
-  smtp_host: smtp.example.com
-""",
+            {
+                "workspaces": [{"name": "repo", "path": "/tmp/repo"}],
+                "email": {
+                    "backend": "webhook",
+                    "from": "monitor@example.com",
+                    "to": ["user@example.com"],
+                    "smtp_host": "smtp.example.com",
+                },
+            },
             "unsupported email backend",
         ),
         (
-            """
-workspaces:
-  - name: repo
-    path: /tmp/repo
-email:
-  backend: smtp
-  from: monitor@example.com
-  smtp_host: smtp.example.com
-""",
+            {
+                "workspaces": [{"name": "repo", "path": "/tmp/repo"}],
+                "email": {
+                    "backend": "smtp",
+                    "from": "monitor@example.com",
+                    "smtp_host": "smtp.example.com",
+                },
+            },
             "email.to",
         ),
         (
-            """
-workspaces:
-  - name: repo
-    path: /tmp/repo
-email:
-  backend: smtp
-  from: monitor@example.com
-  to: [user@example.com]
-  smtp_host: smtp.example.com
-  password: literal-secret
-""",
+            {
+                "workspaces": [{"name": "repo", "path": "/tmp/repo"}],
+                "email": {
+                    "backend": "smtp",
+                    "from": "monitor@example.com",
+                    "to": ["user@example.com"],
+                    "smtp_host": "smtp.example.com",
+                    "password": "literal-secret",
+                },
+            },
             "literal password",
         ),
     ],
 )
-def test_load_monitor_config_rejects_invalid_config(tmp_path: Path, body: str, message: str):
-    config_path = tmp_path / "monitor.yaml"
-    config_path.write_text(body, encoding="utf-8")
+def test_load_monitor_config_rejects_invalid_config(
+    tmp_path: Path, payload: dict, message: str
+):
+    config_path = tmp_path / "monitor.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(ValueError, match=message):
+        load_monitor_config(config_path)
+
+
+def test_load_monitor_config_rejects_yaml_syntax(tmp_path: Path):
+    config_path = tmp_path / "monitor.json"
+    config_path.write_text(
+        """
+workspaces:
+  - name: repo
+    path: /tmp/repo
+email:
+  backend: smtp
+  from: monitor@example.com
+  to: [user@example.com]
+  smtp_host: smtp.example.com
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="failed to parse monitor config as JSON"):
+        load_monitor_config(config_path)
+
+
+def test_load_monitor_config_reports_malformed_json(tmp_path: Path):
+    config_path = tmp_path / "monitor.json"
+    config_path.write_text('{"workspaces": [', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="failed to parse monitor config as JSON"):
         load_monitor_config(config_path)

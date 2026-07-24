@@ -913,7 +913,7 @@ def test_managed_jobs_lowers_to_provider_config_and_routes(tmp_path: Path):
                     "id": "execute",
                     "provider": "impl",
                     "managed_jobs": {
-                        "policy": "workflows/managed_jobs/policy.yaml",
+                        "policy": "workflows/managed_jobs/policy.json",
                         "watch_roots": ["scripts/training", "scripts/studies"],
                         "backend": "auto",
                         "poll_budget_sec": 60,
@@ -936,7 +936,7 @@ def test_managed_jobs_lowers_to_provider_config_and_routes(tmp_path: Path):
     execute_node = bundle.ir.nodes[execute_step.step_id]
 
     assert execute_step.managed_jobs is not None
-    assert execute_step.managed_jobs.policy == "workflows/managed_jobs/policy.yaml"
+    assert execute_step.managed_jobs.policy == "workflows/managed_jobs/policy.json"
     assert isinstance(execute_node.execution_config, ProviderStepConfig)
     managed_jobs = execute_node.execution_config.managed_jobs
     assert managed_jobs is not None
@@ -952,7 +952,7 @@ def test_managed_jobs_lowers_to_provider_config_and_routes(tmp_path: Path):
         step_id=execute_step.step_id,
     )
     assert materialized["managed_jobs"] == {
-        "policy": "workflows/managed_jobs/policy.yaml",
+        "policy": "workflows/managed_jobs/policy.json",
         "watch_roots": ["scripts/training", "scripts/studies"],
         "backend": "auto",
         "poll_budget_sec": 60,

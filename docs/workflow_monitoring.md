@@ -9,29 +9,39 @@ processes, or depend on workflow-authored finalization steps.
 
 Create a monitor config outside the repository, for example:
 
-```yaml
-workspaces:
-  - name: agent-orchestration
-    path: /home/ollie/Documents/agent-orchestration
-  - name: EasySpin
-    path: /home/ollie/Documents/EasySpin
-  - name: PtychoPINN
-    path: /home/ollie/Documents/PtychoPINN
-
-monitor:
-  poll_interval_seconds: 60
-  stale_after_seconds: 900
-
-email:
-  backend: smtp
-  from: workflow-monitor@example.com
-  to:
-    - user@example.com
-  smtp_host: smtp.example.com
-  smtp_port: 587
-  use_starttls: true
-  username_env: WORKFLOW_MONITOR_SMTP_USER
-  password_env: WORKFLOW_MONITOR_SMTP_PASSWORD
+```json
+{
+  "workspaces": [
+    {
+      "name": "agent-orchestration",
+      "path": "/home/ollie/Documents/agent-orchestration"
+    },
+    {
+      "name": "EasySpin",
+      "path": "/home/ollie/Documents/EasySpin"
+    },
+    {
+      "name": "PtychoPINN",
+      "path": "/home/ollie/Documents/PtychoPINN"
+    }
+  ],
+  "monitor": {
+    "poll_interval_seconds": 60,
+    "stale_after_seconds": 900
+  },
+  "email": {
+    "backend": "smtp",
+    "from": "workflow-monitor@example.com",
+    "to": [
+      "user@example.com"
+    ],
+    "smtp_host": "smtp.example.com",
+    "smtp_port": 587,
+    "use_starttls": true,
+    "username_env": "WORKFLOW_MONITOR_SMTP_USER",
+    "password_env": "WORKFLOW_MONITOR_SMTP_PASSWORD"
+  }
+}
 ```
 
 Secrets belong in environment variables, not in the config file:
@@ -50,7 +60,7 @@ Verify scan and message content without sending email:
 
 ```bash
 python -m orchestrator monitor \
-  --config ~/.config/orchestrator/monitor.yaml \
+  --config ~/.config/orchestrator/monitor.json \
   --once \
   --dry-run
 ```
@@ -60,7 +70,7 @@ suppression intentionally:
 
 ```bash
 python -m orchestrator monitor \
-  --config ~/.config/orchestrator/monitor.yaml \
+  --config ~/.config/orchestrator/monitor.json \
   --once \
   --dry-run \
   --dry-run-mark-sent
@@ -74,7 +84,7 @@ secrets in the repository:
 
 ```bash
 tmux -S /tmp/claude-tmux-sockets/claude.sock new -d -s orchestrator-monitor \
-  'cd /home/ollie/Documents/agent-orchestration && source ~/.config/orchestrator/monitor.env && python -m orchestrator monitor --config ~/.config/orchestrator/monitor.yaml'
+  'cd /home/ollie/Documents/agent-orchestration && source ~/.config/orchestrator/monitor.env && python -m orchestrator monitor --config ~/.config/orchestrator/monitor.json'
 ```
 
 A systemd user service can run the same command if the service environment

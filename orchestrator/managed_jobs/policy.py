@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Mapping
-
-import yaml
 
 from .extractors import metadata_from_extractor
 from .models import ManagedJobMetadata, ManagedJobPolicy, ManagedJobPolicyEntry
@@ -40,7 +39,7 @@ def _string_tuple(node: Any, context: str, *, allow_empty: bool = False) -> tupl
 
 
 def metadata_from_mapping(node: Mapping[str, Any], *, context: str) -> ManagedJobMetadata:
-    """Normalize explicit job metadata from policy YAML."""
+    """Normalize explicit job metadata from policy JSON."""
 
     name_template = node.get("name_template")
     state_root_template = node.get("state_root_template")
@@ -67,16 +66,16 @@ def metadata_from_mapping(node: Mapping[str, Any], *, context: str) -> ManagedJo
     )
 
 
-def _load_yaml(path: Path) -> Mapping[str, Any]:
+def _load_json(path: Path) -> Mapping[str, Any]:
     try:
         with path.open("r", encoding="utf-8") as handle:
-            payload = yaml.safe_load(handle)
-    except yaml.YAMLError as exc:
-        raise ManagedJobPolicyError(f"could not parse policy YAML: {exc}") from exc
+            payload = json.load(handle)
+    except json.JSONDecodeError as exc:
+        raise ManagedJobPolicyError(f"could not parse policy JSON: {exc}") from exc
     except OSError as exc:
         raise ManagedJobPolicyError(f"could not read policy: {exc}") from exc
     if not isinstance(payload, Mapping):
-        raise ManagedJobPolicyError("policy must be a mapping")
+        raise ManagedJobPolicyError("policy JSON must be an object")
     return payload
 
 
@@ -85,7 +84,7 @@ def load_policy(path: Path, *, workspace: Path) -> ManagedJobPolicy:
 
     if not path.exists():
         raise ManagedJobPolicyError(f"policy file '{path}' does not exist")
-    payload = _load_yaml(path)
+    payload = _load_json(path)
     defaults = payload.get("backend_defaults", {})
     default_backend = "auto"
     if isinstance(defaults, Mapping) and isinstance(defaults.get("backend"), str):

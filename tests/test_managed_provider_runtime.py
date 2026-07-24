@@ -12,7 +12,7 @@ from orchestrator.workflow.executable_ir import ManagedJobsConfig, ManagedJobsRo
 
 def _managed_config() -> ManagedJobsConfig:
     return ManagedJobsConfig(
-        policy="workflows/managed_jobs/policy.yaml",
+        policy="workflows/managed_jobs/policy.json",
         watch_roots=("scripts/training", "scripts/studies"),
         backend="auto",
         poll_budget_sec=60,

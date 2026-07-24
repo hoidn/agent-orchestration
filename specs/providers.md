@@ -100,28 +100,40 @@
   - These profiles are generic provider data. Their presence does not prove
     workflow-family parity, promotion eligibility, or YAML deletion.
 
-- Managed provider job policy YAML (v2.13)
-  - `managed_jobs.policy` points to workspace-relative YAML that classifies payloads launched by the guarded provider process. It is separate from provider-template YAML.
+- Managed provider job policy JSON (v2.13)
+  - `managed_jobs.policy` points to workspace-relative JSON that classifies payloads launched by the guarded provider process. It is separate from provider-template configuration.
   - Minimal explicit-metadata shape:
-    ```yaml
-    backend_defaults:
-      backend: local        # auto|local|slurm
-    entries:
-      - id: train_model
-        mode: force_managed # force_managed|auto_managed|force_local|unmanaged
-        path: scripts/training/train.py
-        backend: slurm      # optional override; auto|local|slurm
-        job:
-          name_template: train-{job_identity_hash}
-          state_root_template: state/managed_jobs/{entry_id}/{job_identity_hash}
-          output_root_arg: --output-dir
-          verify_files:
-            - "{output_root}/metrics.json"
-          snapshot_roots:
-            - scripts/training
-          config_globs:
-            - configs/training/*.yaml
+    ```json
+    {
+      "backend_defaults": {
+        "backend": "local"
+      },
+      "entries": [
+        {
+          "id": "train_model",
+          "mode": "force_managed",
+          "path": "scripts/training/train.py",
+          "backend": "slurm",
+          "job": {
+            "name_template": "train-{job_identity_hash}",
+            "state_root_template": "state/managed_jobs/{entry_id}/{job_identity_hash}",
+            "output_root_arg": "--output-dir",
+            "verify_files": [
+              "{output_root}/metrics.json"
+            ],
+            "snapshot_roots": [
+              "scripts/training"
+            ],
+            "config_globs": [
+              "configs/training/*.yaml"
+            ]
+          }
+        }
+      ]
+    }
     ```
+    `backend` accepts `auto`, `local`, or `slurm`; `mode` accepts
+    `force_managed`, `auto_managed`, `force_local`, or `unmanaged`.
   - Named extractors may be declared under top-level `extractors` and referenced from an entry with `extractor: <name>` instead of inline `job` metadata.
   - Managed modes (`force_managed`, `auto_managed`) require complete `job` metadata or an `extractor` that derives the same metadata. Missing state root, verification targets, snapshot inputs, or extractor output is invalid before launch.
   - Unmanaged modes (`force_local`, `unmanaged`) run locally through the original payload path and do not append managed-job audit events.

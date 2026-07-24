@@ -435,7 +435,7 @@ def create_parser() -> argparse.ArgumentParser:
     monitor_parser.add_argument(
         '--config',
         required=True,
-        help='Path to monitor YAML config'
+        help='Path to monitor JSON config'
     )
     monitor_parser.add_argument(
         '--once',

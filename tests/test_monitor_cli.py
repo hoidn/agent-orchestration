@@ -13,21 +13,23 @@ from orchestrator.state import StateManager
 
 
 def _write_config(tmp_path: Path, workspace: Path) -> Path:
-    config = tmp_path / "monitor.yaml"
+    config = tmp_path / "monitor.json"
     config.write_text(
-        f"""
-workspaces:
-  - name: repo
-    path: {workspace}
-monitor:
-  poll_interval_seconds: 1
-  stale_after_seconds: 300
-email:
-  backend: smtp
-  from: monitor@example.com
-  to: [user@example.com]
-  smtp_host: smtp.example.com
-""",
+        json.dumps(
+            {
+                "workspaces": [{"name": "repo", "path": str(workspace)}],
+                "monitor": {
+                    "poll_interval_seconds": 1,
+                    "stale_after_seconds": 300,
+                },
+                "email": {
+                    "backend": "smtp",
+                    "from": "monitor@example.com",
+                    "to": ["user@example.com"],
+                    "smtp_host": "smtp.example.com",
+                },
+            }
+        ),
         encoding="utf-8",
     )
     return config
@@ -60,6 +62,7 @@ def test_monitor_help_exposes_expected_flags():
 
     assert result.returncode == 0
     assert "--config" in result.stdout
+    assert "JSON config" in result.stdout
     assert "--once" in result.stdout
     assert "--dry-run" in result.stdout
     assert "--dry-run-mark-sent" in result.stdout
@@ -122,7 +125,7 @@ def test_monitor_dry_run_mark_sent_suppresses_second_notification(tmp_path: Path
 
 
 def test_monitor_missing_config_exits_nonzero(capsys):
-    exit_code = main(["monitor", "--config", "/tmp/does-not-exist.yaml", "--once", "--dry-run"])
+    exit_code = main(["monitor", "--config", "/tmp/does-not-exist.json", "--once", "--dry-run"])
 
     captured = capsys.readouterr()
     assert exit_code == 1

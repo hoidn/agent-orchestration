@@ -2,21 +2,19 @@ import json
 from pathlib import Path
 
 import pytest
-import yaml
 
 from orchestrator.managed_jobs.audit import read_events
 from orchestrator.managed_jobs.runner import ManagedJobRunnerError, run_managed_job
 
 
 def _write_policy(tmp_path: Path, entries: list[dict], *, default_backend: str = "local") -> Path:
-    path = tmp_path / "policy.yaml"
+    path = tmp_path / "policy.json"
     path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "backend_defaults": {"backend": default_backend},
                 "entries": entries,
             },
-            sort_keys=False,
         ),
         encoding="utf-8",
     )

@@ -30,7 +30,7 @@ def _write_workflow(tmp_path: Path, *, provider_code: str = "0") -> Path:
                 "id": "execute",
                 "provider": "impl",
                 "managed_jobs": {
-                    "policy": "workflows/managed_jobs/policy.yaml",
+                    "policy": "workflows/managed_jobs/policy.json",
                     "watch_roots": ["scripts/training"],
                     "backend": "auto",
                     "poll_budget_sec": 1,

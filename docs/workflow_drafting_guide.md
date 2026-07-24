@@ -194,7 +194,7 @@ steps:
     id: execute_managed_job
     provider: local_managed_provider
     managed_jobs:
-      policy: workflows/managed_jobs/policy.yaml
+      policy: workflows/managed_jobs/policy.json
       watch_roots:
         - scripts/training
       backend: auto
@@ -206,26 +206,36 @@ steps:
         outstanding: fail_resumable
 ```
 
-Policy YAML owns the command classification and deterministic job metadata:
+Policy JSON owns the command classification and deterministic job metadata:
 
-```yaml
-backend_defaults:
-  backend: local
-entries:
-  - id: train_model
-    mode: force_managed
-    path: scripts/training/train.py
-    backend: slurm
-    job:
-      name_template: train-{job_identity_hash}
-      state_root_template: state/managed_jobs/{entry_id}/{job_identity_hash}
-      output_root_arg: --output-dir
-      verify_files:
-        - "{output_root}/metrics.json"
-      snapshot_roots:
-        - scripts/training
-      config_globs:
-        - configs/training/*.yaml
+```json
+{
+  "backend_defaults": {
+    "backend": "local"
+  },
+  "entries": [
+    {
+      "id": "train_model",
+      "mode": "force_managed",
+      "path": "scripts/training/train.py",
+      "backend": "slurm",
+      "job": {
+        "name_template": "train-{job_identity_hash}",
+        "state_root_template": "state/managed_jobs/{entry_id}/{job_identity_hash}",
+        "output_root_arg": "--output-dir",
+        "verify_files": [
+          "{output_root}/metrics.json"
+        ],
+        "snapshot_roots": [
+          "scripts/training"
+        ],
+        "config_globs": [
+          "configs/training/*.yaml"
+        ]
+      }
+    }
+  ]
+}
 ```
 
 Conventions:

@@ -29,7 +29,7 @@ def _base_workflow(version: str) -> dict:
                 "name": "Execute",
                 "provider": "impl",
                 "managed_jobs": {
-                    "policy": "workflows/managed_jobs/policy.yaml",
+                    "policy": "workflows/managed_jobs/policy.json",
                     "watch_roots": ["scripts/training"],
                     "backend": "auto",
                     "poll_budget_sec": 60,
@@ -110,7 +110,7 @@ def test_managed_jobs_loads_at_v213(tmp_path: Path) -> None:
         (lambda workflow: workflow["steps"][0].update({"on": {"success": {"goto": "Review"}}}), "managed_jobs cannot be combined with ordinary on handlers"),
         (lambda workflow: workflow["steps"][0]["managed_jobs"].pop("policy"), "managed_jobs.policy is required"),
         (lambda workflow: workflow["steps"][0]["managed_jobs"].update({"watch_roots": []}), "managed_jobs.watch_roots must be a non-empty list"),
-        (lambda workflow: workflow["steps"][0]["managed_jobs"].update({"policy": "/tmp/policy.yaml"}), "managed_jobs.policy: absolute paths not allowed"),
+        (lambda workflow: workflow["steps"][0]["managed_jobs"].update({"policy": "/tmp/policy.json"}), "managed_jobs.policy: absolute paths not allowed"),
         (lambda workflow: workflow["steps"][0]["managed_jobs"].update({"watch_roots": ["../training"]}), "managed_jobs.watch_roots[0]: parent directory traversal"),
         (lambda workflow: workflow["steps"][0]["managed_jobs"].update({"backend": "pbs"}), "managed_jobs.backend must be one of"),
         (lambda workflow: workflow["steps"][0]["managed_jobs"].update({"poll_budget_sec": 0}), "managed_jobs.poll_budget_sec must be a positive integer"),

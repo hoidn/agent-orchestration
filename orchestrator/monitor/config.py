@@ -2,24 +2,25 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Mapping
-
-import yaml
 
 from .models import EmailConfig, MonitorConfig, MonitorTiming, MonitorWorkspace
 
 
 def load_monitor_config(path: str | Path) -> MonitorConfig:
-    """Load and validate a monitor YAML config."""
+    """Load and validate a monitor JSON config."""
 
     config_path = Path(path).expanduser()
     try:
-        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        raw = json.loads(config_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"failed to parse monitor config as JSON: {exc}") from exc
     except OSError as exc:
         raise ValueError(f"failed to read monitor config: {config_path}") from exc
     if not isinstance(raw, Mapping):
-        raise ValueError("monitor config must be a YAML mapping")
+        raise ValueError("monitor config must be a JSON object")
 
     return MonitorConfig(
         workspaces=_parse_workspaces(raw.get("workspaces")),

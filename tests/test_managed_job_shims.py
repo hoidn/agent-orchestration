@@ -71,7 +71,7 @@ def test_provider_guard_materializes_shims_and_exports_environment(tmp_path: Pat
         status = provider_guard.main(
             [
                 "--policy",
-                str(tmp_path / "policy.yaml"),
+                str(tmp_path / "policy.json"),
                 "--audit-path",
                 str(tmp_path / "audit.jsonl"),
                 "--state-root",

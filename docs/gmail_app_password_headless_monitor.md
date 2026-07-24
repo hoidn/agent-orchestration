@@ -46,24 +46,28 @@ export WORKFLOW_MONITOR_SMTP_PASSWORD='xxxx xxxx xxxx xxxx'
 
 The monitor config should reference those environment variable names:
 
-```yaml
-email:
-  backend: smtp
-  from: workflow-monitor@example.com
-  to:
-    - workflow-alerts@example.com
-  smtp_host: smtp.gmail.com
-  smtp_port: 587
-  use_starttls: true
-  username_env: WORKFLOW_MONITOR_SMTP_USER
-  password_env: WORKFLOW_MONITOR_SMTP_PASSWORD
+```json
+{
+  "email": {
+    "backend": "smtp",
+    "from": "workflow-monitor@example.com",
+    "to": [
+      "workflow-alerts@example.com"
+    ],
+    "smtp_host": "smtp.gmail.com",
+    "smtp_port": 587,
+    "use_starttls": true,
+    "username_env": "WORKFLOW_MONITOR_SMTP_USER",
+    "password_env": "WORKFLOW_MONITOR_SMTP_PASSWORD"
+  }
+}
 ```
 
 ## Verify Without Sending
 
 ```bash
 python -m orchestrator monitor \
-  --config ~/.config/orchestrator/monitor.yaml \
+  --config ~/.config/orchestrator/monitor.json \
   --once \
   --dry-run
 ```
@@ -75,7 +79,7 @@ that file in the tmux command:
 
 ```bash
 tmux -S /tmp/claude-tmux-sockets/claude.sock new -d -s orchestrator-monitor \
-  'cd /home/ollie/Documents/agent-orchestration && source ~/.config/orchestrator/monitor.env && python -m orchestrator monitor --config ~/.config/orchestrator/monitor.yaml'
+  'cd /home/ollie/Documents/agent-orchestration && source ~/.config/orchestrator/monitor.env && python -m orchestrator monitor --config ~/.config/orchestrator/monitor.json'
 ```
 
 Check output:
@@ -90,4 +94,4 @@ tmux -S /tmp/claude-tmux-sockets/claude.sock capture-pane -p -J -t orchestrator-
 - Keep the app password out of repository files.
 - For long-term service use, put the environment variables in a user-level
   systemd environment file or another local secret store, not in the monitor
-  YAML.
+  JSON.

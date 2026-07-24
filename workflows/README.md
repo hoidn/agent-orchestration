@@ -131,14 +131,10 @@ route-readiness registry rather than falling back to a retired YAML monolith.
 
 ## Prompt Resolution
 
-For an exhaustive workflow-to-prompt table, see `docs/workflow_prompt_map.md`.
-
 Resolution rules:
 - `input_file` is repo-root relative and is intended for workspace-owned or runtime-generated prompt material.
-- `asset_file` is relative to the workflow YAML file and is intended for prompt assets bundled with reusable workflows.
+- `asset_file` is relative to the workflow source file and is intended for prompt assets bundled with reusable workflows.
 - `asset_depends_on` follows the same workflow-source-relative rule as `asset_file`.
-
-The prompt map reports missing paths; a missing path may indicate a stale example, a downstream snapshot with external assets, or a prompt generated at runtime by an earlier step.
 
 ## Catalog Status
 
@@ -149,7 +145,7 @@ The prompt map reports missing paths; a missing path may indicate a stale exampl
 - **Legacy or migration**: still useful as historical or migration references, but not the first place to copy patterns.
 - **Negative fixture**: expected to fail validation or runtime checks for a specific test purpose.
 - **Input-required**: requires `--input` or fixture files for dry-run validation.
-- **Prompt asset issue**: references missing or external prompt assets; check `docs/workflow_prompt_map.md` before running.
+- **Prompt asset issue**: references missing or external prompt assets; inspect the source-relative bindings before running.
 - **Needs schema cleanup**: use this status when an example fails dry-run validation because it predates current loader schema.
 
 ## Workflow Catalog

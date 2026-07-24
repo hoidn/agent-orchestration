@@ -65,7 +65,7 @@ orchestrate report --format md
 orchestrate dashboard --workspace "$(pwd)" --host 127.0.0.1 --port 8765
 
 # Monitor configured workspaces once without sending email
-orchestrator monitor --config ~/.config/orchestrator/monitor.yaml --once --dry-run
+orchestrator monitor --config ~/.config/orchestrator/monitor.json --once --dry-run
 
 # Validate and show advisory lint warnings without executing
 orchestrate run workflows/demo.yaml --dry-run
