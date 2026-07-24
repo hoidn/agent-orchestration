@@ -1,51 +1,62 @@
-version: "2.7"
-name: "v214-review-oracle"
-
-providers:
-  fake:
-    command: ["python", "tests/fixtures/bin/fake_provider.py"]
-    input_mode: "stdin"
-
-outputs:
-  review_decision:
-    kind: scalar
-    type: enum
-    allowed: ["APPROVE", "REVISE"]
-    from:
-      ref: root.steps.PublishReviewDecision.artifacts.review_decision
-
-steps:
-  - name: InitializeReviewTargets
-    command:
-      - bash
-      - -lc
-      - |
-        mkdir -p state/review artifacts/review
-        printf '%s\n' "artifacts/review/implementation_review.md" > state/review/implementation_review_report_path.txt
-
-  - name: ReviewImplementation
-    provider: fake
-    input_file: prompt.md
-
-  - name: PublishReviewDecision
-    command:
-      - python
-      - -c
-      - |
-        import pathlib
-        import sys
-
-        decision_path = pathlib.Path(sys.argv[1])
-        output_path = pathlib.Path(sys.argv[2])
-        decision = decision_path.read_text(encoding="utf-8").strip()
-        if decision not in {"APPROVE", "REVISE"}:
-            raise SystemExit(f"Unexpected review decision: {decision}")
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(decision + "\n", encoding="utf-8")
-      - state/review/implementation_review_decision.txt
-      - state/review/final_review_decision.txt
-    expected_outputs:
-      - name: review_decision
-        path: state/review/final_review_decision.txt
-        type: enum
-        allowed: ["APPROVE", "REVISE"]
+{
+  "version": "2.7",
+  "name": "v214-review-oracle",
+  "providers": {
+    "fake": {
+      "command": [
+        "python",
+        "tests/fixtures/bin/fake_provider.py"
+      ],
+      "input_mode": "stdin"
+    }
+  },
+  "outputs": {
+    "review_decision": {
+      "kind": "scalar",
+      "type": "enum",
+      "allowed": [
+        "APPROVE",
+        "REVISE"
+      ],
+      "from": {
+        "ref": "root.steps.PublishReviewDecision.artifacts.review_decision"
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "InitializeReviewTargets",
+      "command": [
+        "bash",
+        "-lc",
+        "mkdir -p state/review artifacts/review\nprintf '%s\\n' \"artifacts/review/implementation_review.md\" > state/review/implementation_review_report_path.txt\n"
+      ]
+    },
+    {
+      "name": "ReviewImplementation",
+      "provider": "fake",
+      "input_file": "prompt.md"
+    },
+    {
+      "name": "PublishReviewDecision",
+      "command": [
+        "python",
+        "-c",
+        "import pathlib\nimport sys\n\ndecision_path = pathlib.Path(sys.argv[1])\noutput_path = pathlib.Path(sys.argv[2])\ndecision = decision_path.read_text(encoding=\"utf-8\").strip()\nif decision not in {\"APPROVE\", \"REVISE\"}:\n    raise SystemExit(f\"Unexpected review decision: {decision}\")\noutput_path.parent.mkdir(parents=True, exist_ok=True)\noutput_path.write_text(decision + \"\\n\", encoding=\"utf-8\")\n",
+        "state/review/implementation_review_decision.txt",
+        "state/review/final_review_decision.txt"
+      ],
+      "expected_outputs": [
+        {
+          "name": "review_decision",
+          "path": "state/review/final_review_decision.txt",
+          "type": "enum",
+          "allowed": [
+            "APPROVE",
+            "REVISE"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -82,7 +82,8 @@ def test_runs_index_returns_html_with_security_headers_and_escaped_fields(tmp_pa
     assert response.headers["Content-Type"] == "text/html; charset=utf-8"
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert "default-src 'none'" in response.headers["Content-Security-Policy"]
-    assert "&lt;script&gt;flow&lt;/script&gt;" in body
+    assert "workflows/flow.yaml" in body
+    assert "&lt;script&gt;flow&lt;/script&gt;" not in body
     assert "&lt;script&gt;run&lt;/script&gt;" in body
     assert 'href="/runs/w0/run1"' in body
     assert "file://" not in body
@@ -705,7 +706,9 @@ def test_tmux_viewer_renders_captured_pane_from_monitor_metadata(
     assert "<script>bad</script>" not in body
 
 
-def test_summary_hub_renders_authored_workflow_structure(tmp_path: Path):
+def test_summary_hub_degrades_legacy_workflow_to_observed_summary_sequence(
+    tmp_path: Path,
+):
     prompt = tmp_path / "workflows" / "prompts" / "select.md"
     context = tmp_path / "workflows" / "prompts" / "context.md"
     input_file = tmp_path / "docs" / "operator-input.md"
@@ -844,7 +847,18 @@ def test_summary_hub_renders_authored_workflow_structure(tmp_path: Path):
     summaries = run_root / "summaries"
     summaries.mkdir(parents=True)
     (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
+        json.dumps(
+            {
+                "schema": "orchestrator_summary_index/v1",
+                "entries": [
+                    {"step_name": "SelectNextWork", "kind": "provider"},
+                    {"step_name": "ReadOperatorInput", "kind": "provider"},
+                    {"step_name": "Review", "kind": "provider"},
+                    {"step_name": "Fix", "kind": "provider"},
+                    {"step_name": "Finalize", "kind": "phase"},
+                ],
+            }
+        ),
         encoding="utf-8",
     )
     (run_root / "state.json").write_text(
@@ -853,6 +867,13 @@ def test_summary_hub_renders_authored_workflow_structure(tmp_path: Path):
                 "run_id": "run1",
                 "status": "completed",
                 "workflow_file": str(workflow.relative_to(tmp_path)),
+                "steps": {
+                    "SelectNextWork": {"status": "completed"},
+                    "ReadOperatorInput": {"status": "completed"},
+                    "Review": {"status": "completed"},
+                    "Fix": {"status": "completed"},
+                    "Finalize": {"status": "completed"},
+                },
             }
         ),
         encoding="utf-8",
@@ -863,48 +884,35 @@ def test_summary_hub_renders_authored_workflow_structure(tmp_path: Path):
     body = response.body.decode("utf-8")
     assert response.status == 200
     assert body.index("Current Step") < body.index("Workflow Structure")
-    assert "Workflow: StructuredWorkflow" in body
+    assert (
+        "Observed summary sequence. authored workflow typed surface is unavailable."
+        in body
+    )
+    assert "Workflow: StructuredWorkflow" not in body
     assert "Provider Flow" in body
     assert '<div class="provider-flow-strip"' in body
     assert '<svg class="provider-flow-svg"' not in body
-    assert "provider-flow-loop-card" in body
     assert "provider-flow-provider-card" in body
     assert '<details class="provider-flow-source">' in body
     assert "<summary>Mermaid source</summary>" in body
     assert "flowchart TD" in body
     assert "SelectNextWork" in body
-    assert "RunReviewLoop" in body
-    assert "repeat_until max=3" in body
     assert "Review" in body
     assert "Fix" in body
-    assert "loops until approved" in body
-    assert "-. repeat .-&gt;" in body
     assert "classDef provider" in body
-    assert "classDef loop" in body
-    assert 'class="workflow-node provider"' in body
-    assert 'class="workflow-node deterministic"' in body
-    assert 'class="workflow-node deterministic contains-provider"' in body
-    assert "provider inside" in body
+    assert 'class="workflow-node provider observed"' in body
     assert "<details class=\"workflow-card\">" in body
     assert "<details class=\"workflow-card\" open>" not in body
     assert "<summary class=\"workflow-title\">" in body
-    assert "SelectNextWork" in body
-    assert "RunReviewLoop" in body
-    assert "repeat_until max=3" in body
-    assert "RouteDecision" in body
-    assert "case APPROVE" in body
-    assert "PublishApproval" in body
-    assert "case REVISE" in body
-    assert "Fix" in body
     assert "Finalize" in body
-    assert 'href="/runs/w0/run1/files/workspace/workflows/prompts/select.md"' in body
-    assert 'href="/runs/w0/run1/files/workspace/workflows/prompts/context.md"' in body
-    assert 'href="/runs/w0/run1/files/workspace/docs/operator-input.md"' in body
-    assert "Prompts" in body
+    assert "RunReviewLoop" not in body
+    assert 'href="/runs/w0/run1/files/workspace/workflows/prompts/select.md"' not in body
     assert str(tmp_path) not in body
 
 
-def test_summary_hub_classifies_structure_from_loaded_typed_step_kinds(tmp_path: Path):
+def test_summary_hub_does_not_reclassify_legacy_steps_from_authored_source(
+    tmp_path: Path,
+):
     workflow = _write_yaml(
         tmp_path / "workflows" / "typed-structure.yaml",
         {
@@ -928,7 +936,12 @@ def test_summary_hub_classifies_structure_from_loaded_typed_step_kinds(tmp_path:
     summaries = run_root / "summaries"
     summaries.mkdir(parents=True)
     (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
+        json.dumps(
+            {
+                "schema": "orchestrator_summary_index/v1",
+                "entries": [{"step_name": "Visit", "kind": "phase"}],
+            }
+        ),
         encoding="utf-8",
     )
     (run_root / "state.json").write_text(
@@ -937,6 +950,7 @@ def test_summary_hub_classifies_structure_from_loaded_typed_step_kinds(tmp_path:
                 "run_id": "run1",
                 "status": "completed",
                 "workflow_file": str(workflow.relative_to(tmp_path)),
+                "steps": {"Visit": {"status": "completed"}},
             }
         ),
         encoding="utf-8",
@@ -946,9 +960,11 @@ def test_summary_hub_classifies_structure_from_loaded_typed_step_kinds(tmp_path:
 
     body = response.body.decode("utf-8")
     assert response.status == 200
-    assert '<span class="workflow-kind">for_each</span>' in body
+    assert "Observed summary sequence" in body
     assert '<span class="workflow-name">Visit</span>' in body
-    assert '<span class="workflow-kind">command</span>' in body
+    assert '<span class="workflow-kind">observed</span>' in body
+    assert '<span class="workflow-kind">for_each</span>' not in body
+    assert '<span class="workflow-kind">command</span>' not in body
 
 
 def test_summary_hub_falls_back_to_observed_sequence_when_typed_surface_is_unavailable(
@@ -1001,7 +1017,9 @@ def test_summary_hub_falls_back_to_observed_sequence_when_typed_surface_is_unava
     assert 'class="workflow-node provider observed"' in body
 
 
-def test_summary_hub_expands_called_workflow_links_from_call_frame(tmp_path: Path):
+def test_summary_hub_uses_observed_steps_and_persisted_call_frame_artifacts(
+    tmp_path: Path,
+):
     prompt = tmp_path / "workflows" / "library" / "prompts" / "selector" / "select.md"
     steering = tmp_path / "docs" / "steering.md"
     selection = tmp_path / "state" / "selection.json"
@@ -1063,7 +1081,19 @@ def test_summary_hub_expands_called_workflow_links_from_call_frame(tmp_path: Pat
     summaries = run_root / "summaries"
     summaries.mkdir(parents=True)
     (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
+        json.dumps(
+            {
+                "schema": "orchestrator_summary_index/v1",
+                "entries": [
+                    {"step_name": "CallSelector", "kind": "phase"},
+                    {
+                        "step_name": "SelectNextWork",
+                        "kind": "provider",
+                        "frame_root": "call_frames/root.call_selector__visit__1",
+                    },
+                ],
+            }
+        ),
         encoding="utf-8",
     )
     (run_root / "state.json").write_text(
@@ -1072,6 +1102,7 @@ def test_summary_hub_expands_called_workflow_links_from_call_frame(tmp_path: Pat
                 "run_id": "run1",
                 "status": "completed",
                 "workflow_file": str(workflow.relative_to(tmp_path)),
+                "steps": {"CallSelector": {"status": "completed"}},
                 "call_frames": {
                     "root.call_selector::visit::1": {
                         "state": {
@@ -1090,6 +1121,13 @@ def test_summary_hub_expands_called_workflow_links_from_call_frame(tmp_path: Pat
                             "artifact_versions": {
                                 "steering": [
                                     {"version": 1, "value": "docs/steering.md", "producer": "MaterializeInputs"}
+                                ],
+                                "selection_bundle": [
+                                    {
+                                        "version": 1,
+                                        "value": "state/selection.json",
+                                        "producer": "SelectNextWork",
+                                    }
                                 ]
                             },
                             "artifact_consumes": {"SelectNextWork": {"steering": 1}},
@@ -1105,14 +1143,14 @@ def test_summary_hub_expands_called_workflow_links_from_call_frame(tmp_path: Pat
 
     body = response.body.decode("utf-8")
     assert response.status == 200
+    assert "Observed summary sequence" in body
     assert "CallSelector" in body
     assert "SelectNextWork" in body
-    assert 'href="/runs/w0/run1/files/workspace/workflows/library/prompts/selector/select.md"' in body
-    assert 'href="/runs/w0/run1/files/workspace/docs/steering.md"' in body
-    assert 'href="/runs/w0/run1/files/workspace/state/selection.json"' in body
-    assert "Prompts" in body
-    assert "Published" in body
-    assert "Consumed" in body
+    assert 'href="/runs/w0/run1/files/workspace/workflows/library/prompts/selector/select.md"' not in body
+
+    detail_body = _app(tmp_path).handle("GET", "/runs/w0/run1").body.decode("utf-8")
+    assert 'href="/runs/w0/run1/files/workspace/docs/steering.md"' in detail_body
+    assert 'href="/runs/w0/run1/files/workspace/state/selection.json"' in detail_body
 
 
 def test_summary_hub_step_details_include_summary_artifact_links(tmp_path: Path):
@@ -1165,15 +1203,17 @@ def test_summary_hub_step_details_include_summary_artifact_links(tmp_path: Path)
 
     body = response.body.decode("utf-8")
     assert response.status == 200
-    assert '<span class="workflow-badge">1 summary</span>' in body
-    assert "Step summary artifacts" in body
-    assert "provider completed loop iteration 2 / visit 4 123 ms" in body
+    assert "Observed summary sequence" in body
+    assert '<span class="workflow-name">ProviderStep</span>' in body
+    assert "Step summary artifacts" not in body
     assert "ProviderStep <span class=\"summary-context\">loop iteration 2 / visit 4</span>" in body
     assert 'href="/runs/w0/run1/files/run/summaries/ProviderStep.provider.summary.md"' in body
     assert 'href="/runs/w0/run1/files/run/summaries/ProviderStep.provider.snapshot.json"' in body
 
 
-def test_summary_hub_links_provider_dependency_and_output_targets_from_bound_inputs(tmp_path: Path):
+def test_run_detail_links_persisted_provider_dependencies_and_outputs_for_legacy_state(
+    tmp_path: Path,
+):
     prompt = tmp_path / "workflows" / "library" / "prompts" / "review.md"
     prompt.parent.mkdir(parents=True)
     prompt.write_text("review", encoding="utf-8")
@@ -1234,6 +1274,18 @@ def test_summary_hub_links_provider_dependency_and_output_targets_from_bound_inp
                     "state_root": "state/item",
                     "steering_path": "docs/steering.md",
                 },
+                "workflow_outputs": {
+                    "architecture_review_report_path": "artifacts/review/architecture-review.md",
+                },
+                "artifact_versions": {
+                    "steering_path": [
+                        {
+                            "version": 1,
+                            "value": "docs/steering.md",
+                            "producer": "MaterializeInputs",
+                        }
+                    ]
+                },
                 "steps": {
                     "ReviewArchitecture": {
                         "status": "completed",
@@ -1247,26 +1299,23 @@ def test_summary_hub_links_provider_dependency_and_output_targets_from_bound_inp
         encoding="utf-8",
     )
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
 
     body = response.body.decode("utf-8")
     assert response.status == 200
     assert "Inputs" in body
     assert "Outputs" in body
-    assert 'href="/runs/w0/run1/files/workspace/docs/steering.md" title="docs/steering.md">steering_path</a>' in body
-    assert ">required 1</a>" not in body
+    assert 'href="/runs/w0/run1/files/workspace/docs/steering.md"' in body
     assert (
-        'href="/runs/w0/run1/files/workspace/artifacts/review/architecture-review.md" '
-        'title="artifacts/review/architecture-review.md">architecture-review.md</a>'
-    ) in body
-    assert (
-        'href="/runs/w0/run1/files/workspace/state/item/architecture_review_report_path.txt" '
-        'title="state/item/architecture_review_report_path.txt">architecture_review_report_path pointer</a>'
-    ) in body
-    assert ">architecture_review_report_path</a>" not in body
+        'href="/runs/w0/run1/files/workspace/artifacts/review/architecture-review.md"'
+        in body
+    )
+    assert "/files/workspace/state/item/architecture_review_report_path.txt" not in body
 
 
-def test_summary_hub_links_relpath_fields_from_output_bundle(tmp_path: Path):
+def test_run_detail_links_persisted_relpath_fields_from_legacy_output_state(
+    tmp_path: Path,
+):
     architecture = tmp_path / "docs" / "plans" / "arch.md"
     architecture.parent.mkdir(parents=True)
     architecture.write_text("# Architecture\n", encoding="utf-8")
@@ -1320,22 +1369,32 @@ def test_summary_hub_links_relpath_fields_from_output_bundle(tmp_path: Path):
                 "status": "completed",
                 "workflow_file": str(workflow.relative_to(tmp_path)),
                 "bound_inputs": {"state_root": "state/item"},
-                "steps": {"DraftArchitecture": {"status": "completed", "artifacts": {"status": "DRAFTED"}}},
+                "steps": {
+                    "DraftArchitecture": {
+                        "status": "completed",
+                        "artifacts": {
+                            "bundle_path": "state/item/bundle.json",
+                            "architecture_path": "docs/plans/arch.md",
+                            "status": "DRAFTED",
+                        },
+                    }
+                },
             }
         ),
         encoding="utf-8",
     )
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
 
     body = response.body.decode("utf-8")
     assert response.status == 200
     assert 'href="/runs/w0/run1/files/workspace/state/item/bundle.json"' in body
-    assert 'href="/runs/w0/run1/files/workspace/docs/plans/arch.md" title="docs/plans/arch.md">arch.md</a>' in body
-    assert ">architecture_path</a>" not in body
+    assert 'href="/runs/w0/run1/files/workspace/docs/plans/arch.md"' in body
 
 
-def test_summary_hub_links_root_result_relpath_from_empty_pointer_output_bundle(tmp_path: Path):
+def test_run_detail_links_persisted_root_result_from_legacy_output_state(
+    tmp_path: Path,
+):
     architecture = tmp_path / "docs" / "plans" / "arch.md"
     architecture.parent.mkdir(parents=True)
     architecture.write_text("# Architecture\n", encoding="utf-8")
@@ -1381,22 +1440,31 @@ def test_summary_hub_links_root_result_relpath_from_empty_pointer_output_bundle(
                 "run_id": "run1",
                 "status": "running",
                 "workflow_file": str(workflow.relative_to(tmp_path)),
-                "steps": {"DraftArchitecture": {"status": "running"}},
+                "steps": {
+                    "DraftArchitecture": {
+                        "status": "running",
+                        "artifacts": {
+                            "bundle_path": "state/item/bundle.json",
+                            "__result__": "docs/plans/arch.md",
+                        },
+                    }
+                },
             }
         ),
         encoding="utf-8",
     )
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
 
     body = response.body.decode("utf-8")
     assert response.status == 200
     assert 'href="/runs/w0/run1/files/workspace/state/item/bundle.json"' in body
-    assert 'href="/runs/w0/run1/files/workspace/docs/plans/arch.md" title="docs/plans/arch.md">arch.md</a>' in body
-    assert ">__result__</a>" not in body
+    assert 'href="/runs/w0/run1/files/workspace/docs/plans/arch.md"' in body
 
 
-def test_summary_hub_groups_repeated_step_summaries_by_invocation(tmp_path: Path):
+def test_summary_hub_lists_repeated_legacy_step_summaries_without_authored_invocations(
+    tmp_path: Path,
+):
     workflow = _write_yaml(
         tmp_path / "workflows" / "flow.yaml",
         {
@@ -1459,13 +1527,17 @@ def test_summary_hub_groups_repeated_step_summaries_by_invocation(tmp_path: Path
 
     body = response.body.decode("utf-8")
     assert response.status == 200
-    assert "Invocation 1" in body
-    assert "Invocation 2" in body
+    assert "Observed summary sequence" in body
+    assert '<span class="workflow-name">ProviderStep</span>' in body
+    assert "Invocation 1" not in body
+    assert "Invocation 2" not in body
     assert 'href="/runs/w0/run1/files/run/call_frames/root.loop%230.provider__visit__1/summaries/ProviderStep.provider.summary.md"' in body
     assert 'href="/runs/w0/run1/files/run/call_frames/root.loop%231.provider__visit__1/summaries/ProviderStep.provider.summary.md"' in body
 
 
-def test_summary_hub_invocation_links_use_matching_call_frame_state(tmp_path: Path):
+def test_run_detail_links_matching_persisted_legacy_call_frame_artifacts(
+    tmp_path: Path,
+):
     child = _write_yaml(
         tmp_path / "workflows" / "library" / "child.yaml",
         {
@@ -1567,6 +1639,22 @@ def test_summary_hub_invocation_links_use_matching_call_frame_state(tmp_path: Pa
                         "state": {
                             "workflow_file": str(child.relative_to(tmp_path)),
                             "bound_inputs": {"state_root": "state/first"},
+                            "artifact_versions": {
+                                "review_report_pointer": [
+                                    {
+                                        "version": 1,
+                                        "value": "state/first/review_report_path.txt",
+                                        "producer": "ReviewArchitecture",
+                                    }
+                                ],
+                                "review_report_path": [
+                                    {
+                                        "version": 1,
+                                        "value": "artifacts/review/first.md",
+                                        "producer": "ReviewArchitecture",
+                                    }
+                                ],
+                            },
                             "steps": {
                                 "ReviewArchitecture": {
                                     "status": "completed",
@@ -1579,6 +1667,22 @@ def test_summary_hub_invocation_links_use_matching_call_frame_state(tmp_path: Pa
                         "state": {
                             "workflow_file": str(child.relative_to(tmp_path)),
                             "bound_inputs": {"state_root": "state/second"},
+                            "artifact_versions": {
+                                "review_report_pointer": [
+                                    {
+                                        "version": 1,
+                                        "value": "state/second/review_report_path.txt",
+                                        "producer": "ReviewArchitecture",
+                                    }
+                                ],
+                                "review_report_path": [
+                                    {
+                                        "version": 1,
+                                        "value": "artifacts/review/second.md",
+                                        "producer": "ReviewArchitecture",
+                                    }
+                                ],
+                            },
                             "steps": {
                                 "ReviewArchitecture": {
                                     "status": "completed",
@@ -1597,19 +1701,37 @@ def test_summary_hub_invocation_links_use_matching_call_frame_state(tmp_path: Pa
 
     body = response.body.decode("utf-8")
     assert response.status == 200
-    first_start = body.index("Invocation 1")
-    second_start = body.index("Invocation 2")
-    first_panel = body[first_start:second_start]
-    second_panel = body[second_start:]
-    assert "/files/workspace/state/first/review_report_path.txt" in first_panel
-    assert "/files/workspace/artifacts/review/first.md" in first_panel
-    assert "/files/workspace/state/second/review_report_path.txt" not in first_panel
-    assert "/files/workspace/artifacts/review/second.md" not in first_panel
-    assert "/files/workspace/state/second/review_report_path.txt" in second_panel
-    assert "/files/workspace/artifacts/review/second.md" in second_panel
+    assert "Observed summary sequence" in body
+    assert "Invocation 1" not in body
+    assert 'href="/runs/w0/run1/files/run/call_frames/root.call_child__visit__1/summaries/ReviewArchitecture.provider.summary.md"' in body
+    assert 'href="/runs/w0/run1/files/run/call_frames/root.call_child__visit__2/summaries/ReviewArchitecture.provider.summary.md"' in body
+
+    detail_body = _app(tmp_path).handle("GET", "/runs/w0/run1").body.decode("utf-8")
+    assert (
+        "root.call_child::visit::1.review_report_pointer: "
+        '<a href="/runs/w0/run1/files/workspace/state/first/review_report_path.txt">'
+        in detail_body
+    )
+    assert (
+        "root.call_child::visit::1.review_report_path: "
+        '<a href="/runs/w0/run1/files/workspace/artifacts/review/first.md">'
+        in detail_body
+    )
+    assert (
+        "root.call_child::visit::2.review_report_pointer: "
+        '<a href="/runs/w0/run1/files/workspace/state/second/review_report_path.txt">'
+        in detail_body
+    )
+    assert (
+        "root.call_child::visit::2.review_report_path: "
+        '<a href="/runs/w0/run1/files/workspace/artifacts/review/second.md">'
+        in detail_body
+    )
 
 
-def test_summary_hub_does_not_attach_provider_summaries_to_same_named_call_step(tmp_path: Path):
+def test_summary_hub_collapses_same_named_legacy_call_and_provider_to_observed_provider(
+    tmp_path: Path,
+):
     child = _write_yaml(
         tmp_path / "workflows" / "library" / "child.yaml",
         {
@@ -1683,14 +1805,11 @@ def test_summary_hub_does_not_attach_provider_summaries_to_same_named_call_step(
 
     body = response.body.decode("utf-8")
     assert response.status == 200
-    call_start = body.index('<span class="workflow-kind">call child</span>')
-    provider_start = body.index('<span class="workflow-kind">provider</span>', call_start)
-    call_panel = body[call_start:provider_start]
-    provider_panel = body[provider_start:]
-    assert "1 summary" not in call_panel
-    assert "Step summary artifacts" not in call_panel
-    assert "1 summary" in provider_panel
-    assert "Step summary artifacts" in provider_panel
+    assert "Observed summary sequence" in body
+    assert '<span class="workflow-kind">call child</span>' not in body
+    assert body.count('<span class="workflow-kind">provider</span>') == 1
+    assert "Step summary artifacts" not in body
+    assert 'href="/runs/w0/run1/files/run/call_frames/root.draft_design_gap_architecture__visit__1/summaries/DraftDesignGapArchitecture.provider.summary.md"' in body
 
 
 def test_summary_live_endpoint_includes_current_step_iteration_and_visit(tmp_path: Path):
