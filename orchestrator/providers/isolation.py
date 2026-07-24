@@ -614,7 +614,7 @@ def _json_path(parts: tuple[object, ...]) -> str:
 def _append_json_path(parent: str, name: str) -> str:
     if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
         return f"{parent}.{name}"
-    return f"{parent}[{json.dumps(name, ensure_ascii=False)}]"
+    return f"{parent}[{json.dumps(name, ensure_ascii=True)}]"
 
 
 __all__ = [

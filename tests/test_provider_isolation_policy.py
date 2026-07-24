@@ -152,6 +152,36 @@ def test_unknown_fields_and_versions_are_rejected_recursively() -> None:
     )
 
 
+def test_top_level_unknown_surrogate_property_has_ascii_safe_issue_path() -> None:
+    api = _api()
+    document = deepcopy(VALID_POLICY)
+    document["bad\ud800"] = True
+
+    issues = _issues(document)
+
+    assert [(issue.code, issue.path) for issue in issues] == [
+        ("provider_isolation_policy_invalid", r'$["bad\ud800"]')
+    ]
+    with pytest.raises(api.ProviderIsolationPolicyError) as exc_info:
+        _load(document)
+    assert str(exc_info.value).encode("utf-8")
+
+
+def test_nested_unknown_surrogate_property_has_ascii_safe_issue_path() -> None:
+    api = _api()
+    document = deepcopy(VALID_POLICY)
+    document["workspace"]["bad\ud800"] = True
+
+    issues = _issues(document)
+
+    assert [(issue.code, issue.path) for issue in issues] == [
+        ("provider_isolation_policy_invalid", r'$.workspace["bad\ud800"]')
+    ]
+    with pytest.raises(api.ProviderIsolationPolicyError) as exc_info:
+        _load(document)
+    assert str(exc_info.value).encode("utf-8")
+
+
 @pytest.mark.parametrize(
     ("path", "value"),
     [
