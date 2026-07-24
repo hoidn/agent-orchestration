@@ -9,13 +9,13 @@
 becomes the only authored workflow surface. Persisted run data and internal
 debug serialization are outside this program.
 
-**Current selector:** Task 7 final verification. Tasks 1-6 are complete, and
-Task 7 has implemented the ORC-only fresh frontend, removed the user-facing
-loader and project PyYAML dependency, and preserved the bounded state-only
-terminal-run compatibility surface. Its consolidated focused gate and fresh
-production `.orc` dry-run smoke pass. The final scoped broad comparison and
-both independent reviews remain open, so Stage 6 is not yet complete. Task 4's
-historical reviewed implementation record is
+**Status:** Stage 6 complete. Tasks 1-7 are complete: the ORC-only fresh
+frontend is implemented, the user-facing loader and project PyYAML dependency
+are removed, and the bounded state-only terminal-run compatibility surface is
+preserved. The consolidated focused gate, final scoped broad comparison, fresh
+production `.orc` dry-run smoke, and both independent reviews passed. Stage 7
+has not started and begins only when the owner schedules its live-binding
+design review. Task 4's historical reviewed implementation record is
 `docs/plans/2026-07-17-yaml-deprecation-surface-implementation-plan.md`.
 
 **Architecture:** The content-addressed handoff in
@@ -35,8 +35,8 @@ only through content-addressed git history before deletion. At
 for the non-progress step-back workflow; the reviewed handoff requeued it for
 deletion with no replacement. Its reference and supported-run-consumer gates
 subsequently passed and the path is retired. Every deletion, archive, and port
-queue is now drained. Task 7's parser-removal product work is implemented and
-awaits the final broad comparison and independent reviews.
+queue is drained. Task 7's parser-removal work and final verification are
+complete.
 
 ## Entry gate
 
@@ -257,14 +257,13 @@ Historical prose may still name deleted files. Retirement does not require
 zero textual history; it requires zero unclassified active references, exact
 queue reconciliation, preserved content identities, and passing runtime gates.
 
-### Task 7: Remove the user-facing YAML frontend — FINAL VERIFICATION
+### Task 7: Remove the user-facing YAML frontend — COMPLETE
 
 Both ports are promoted, every deletion and archive queue is drained, all five
 queues reconcile to zero live authored YAML/YML paths, and Tasks 2–3 made
-dashboard and `.orc` lowering independent of YAML parsing. Task 7 is therefore
-eligible and current. The product-facing implementation and focused checks
-subsequently landed; only the final scoped broad comparison and two ordered
-independent reviews remain open.
+dashboard and `.orc` lowering independent of YAML parsing. The product-facing
+implementation, focused checks, scoped broad comparison, production smoke, and
+two ordered independent reviews are complete.
 
 - [x] Replace fresh YAML/YML execution in run and executable resume paths with
   a clear `.orc`-required error before new state or run-root mutation.
@@ -273,23 +272,28 @@ independent reviews remain open.
 - [x] Verify `find workflows -type f \( -name '*.yaml' -o -name '*.yml' \)` is
   empty and the machine inventory agrees.
 - [x] Run focused CLI, fixture-adapter, lowering, dashboard, and
-  migration-parity tests: the consolidated gate passed 821 with 5 skipped.
-- [ ] Run the final scoped broad comparison under the active user-directed
-  security-test exclusion with `pytest -q -n 16 --dist=worksteal` in tmux.
+  migration-parity tests: the consolidated gate passed 1,020 with 5 skipped.
+- [x] Run the final scoped broad comparison under the active user-directed
+  security-test exclusion with `pytest -q -n 16 --dist=worksteal` in tmux:
+  6,386 passed, 15 skipped, and the four failures were the exact retained
+  members of the owner-adopted six-row baseline, with zero new failures. The
+  other two baseline test nodes were retired with their YAML-only surfaces.
 - [x] Run a fresh `.orc` production dry-run smoke and confirm the run-directory
   count is unchanged before updating capability and routing status.
-- [ ] Obtain the final independent specification and code-quality reviews.
+- [x] Obtain the final independent specification and code-quality reviews:
+  specification PASS and quality APPROVED at `d9baa120`.
 
 The user-facing `orchestrator/loader.py` boundary and the project PyYAML
 dependency are absent. Fresh run accepts only a case-insensitive `.orc` suffix;
 nonterminal or restarted legacy YAML/YML runs reject without mutation.
 Completed legacy runs retain state-only resume/report/dashboard observability
-without reopening authored source. These claims do not substitute for the
-still-pending final broad comparison or independent reviews.
+without reopening authored source. The final comparison excluded the four
+security modules at the user's direction; neither final review assessed those
+modules.
 
 ## Program completion contract
 
-Stage 6 is complete only when:
+Stage 6 is complete. Its completion contract required:
 
 1. exactly the two specified `.orc` ports are primary and verified;
 2. the handoff reconciles all 110 original authored YAML/YML paths through the

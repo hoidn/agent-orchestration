@@ -96,7 +96,7 @@ plan checkboxes are not authoritative when commits and fresh checks disagree.
 | `2026-07-16-same-file-build-checks-identity-retirement-plan.md` | Complete by fail-closed route-eligibility stop. The containing route is live/current and therefore requires strict compatibility; the source stayed unchanged and the row moved to `effect-adapter` even though known-store scans found zero matching consumers. This was not a competing roadmap selector and authorized no run or owner gate. |
 | `2026-07-16-design-delta-exported-workflow-retention-plan.md` | Complete after specification PASS and quality APPROVED. Seven calls remain active `effect-adapter` because their five unique callees are exported CLI-selectable workflows that cannot use reviewed internal retirement; five separate public-boundary records make that negative explicit. No source/run mutation or store/owner gate occurred. |
 | `2026-07-09-workflow-lisp-structured-result-field-guidance-plan.md` | Superseded historical proposal; do not execute. Its scope is absorbed by the two 2026-07-10 plans above. |
-| `2026-07-07-yaml-retirement-program.md` | Current selector at Task 7 final verification. Tasks 1-6 and the Task-7 product work are complete: all five queues are drained, exactly the two specified `.orc` ports are primary, no authored workflow YAML/YML remains, fresh execution is ORC-only, the user-facing loader and project PyYAML dependency are absent, the focused gate passed, and a fresh `.orc` dry-run smoke passed without run-root mutation. The final scoped broad comparison and both independent reviews remain open, so Stage 6 is not yet complete. |
+| `2026-07-07-yaml-retirement-program.md` | Stage 6 complete. Tasks 1-7 are complete: all five queues are drained, exactly the two specified `.orc` ports are primary, no authored workflow YAML/YML remains, fresh execution is ORC-only, and the user-facing loader and project PyYAML dependency are absent. The 1,020-passed/5-skipped focused gate, fresh non-mutating `.orc` smoke, scoped broad comparison with zero new failures against the owner-adopted baseline, and ordered specification PASS/quality APPROVED reviews closed the stage at `d9baa120`. Stage 7 has not started and awaits an owner-scheduled design review. |
 | `2026-07-23-refusal-diagnosability-fixes-plan.md` | Queued small fix; not a competing selector. Applies design principle 28 (refusals name their rule) to the entry-bootstrap name-allowlist gate: denial diagnostic, declared-property rule replacing the name key, and promoted-route identity non-drift verification. Execute after the current YAML-retirement task or opportunistically between capture windows. |
 
 ## Concrete Execution Sequence
@@ -244,12 +244,13 @@ then completed the reviewed gap contract, digest-bound persisted dashboard
 surface, shared mapping-validation authority, deprecation and author routing,
 both dedicated `.orc` port promotions, and every gated archive/deletion queue.
 Task 7 subsequently made the fresh frontend ORC-only, removed the user-facing
-loader and project PyYAML dependency, passed its focused gate, and passed a
-fresh non-mutating `.orc` dry-run smoke. Its final scoped broad comparison and
-independent reviews are the current selector in
-`docs/plans/2026-07-07-yaml-retirement-program.md`. After YAML retirement,
-continue with `docs/design/workflow_lisp_provider_live_binding.md` and
-`docs/design/workflow_lisp_language_server.md`, in that order.
+loader and project PyYAML dependency, passed its 1,020-passed/5-skipped focused
+gate, and passed a fresh non-mutating `.orc` dry-run smoke. Its final scoped
+broad comparison recorded 6,386 passed, 15 skipped, and the four exact retained
+owner-baseline failures with zero new failures; ordered independent review
+returned specification PASS and quality APPROVED at `d9baa120`. Stage 6 is
+complete. Stage 7 provider live binding has not started and begins only when
+the owner schedules its design review; the language server remains later.
 
 The completed Phase 1 execution order was:
 
@@ -429,9 +430,9 @@ compatibility or a family migration wave.
 
 ### Stage 5: Implement Procedure-First Reuse In Waves
 
-The procedure-first migration wave is complete. Stage 6 YAML retirement Tasks
-1-6 and the Task-7 product changes are also complete; the current selector is
-Task 7's final scoped broad comparison and independent reviews.
+The procedure-first migration wave and Stage 6 YAML retirement are complete.
+Stage 7 provider live binding has not started and awaits an owner-scheduled
+design review.
 
 Execute only accepted plans, in this order:
 
@@ -518,9 +519,10 @@ Execute only accepted plans, in this order:
    established unrelated broad failures adjudicated as four digest-exact plus
    two logger-location-only. Whole-wave specification PASS and quality APPROVED
    advanced the selector to Stage 6 Task 1 without deleting a YAML family.
-   Tasks 1-6 are now complete, the Task-7 ORC-only frontend changes and focused
-   checks have landed, and only Task 7's final broad comparison and independent
-   reviews remain.
+   Tasks 1-7 are complete. The Task-7 ORC-only frontend, focused checks,
+   non-mutating smoke, scoped broad comparison with zero new baseline failures,
+   and ordered specification PASS/quality APPROVED reviews closed Stage 6 at
+   `d9baa120`.
 
 Every wave must pass:
 
@@ -532,15 +534,16 @@ Every wave must pass:
 
 ### Stage 6: Resume YAML Retirement
 
-**Current selector:** Task 7 final verification. Tasks 1-6 are complete, every
-fixed queue is drained, and the Task-7 product work has made fresh execution
-ORC-only while retaining the bounded completed-run state-only compatibility
-surface. The user-facing YAML loader and project PyYAML dependency are absent,
-the authored workflow estate is empty, the focused gate passed, and a fresh
+**Status:** Complete. Tasks 1-7 are complete and every fixed queue is drained.
+The Task-7 product work made fresh execution ORC-only while retaining the
+bounded completed-run state-only compatibility surface. The user-facing YAML
+loader and project PyYAML dependency are absent, the authored workflow estate
+is empty, the focused gate passed 1,020 tests with 5 skipped, and a fresh
 `.orc` dry-run smoke left the run-root count unchanged. The final scoped broad
-comparison and both independent reviews remain open, so Stage 6 is not yet
-complete. Provider live binding and the `.orc` language server remain next, in
-that order, but neither begins as part of this closeout.
+comparison matched the owner-adopted baseline with zero new failures, and both
+independent reviews approved the final product tree at `d9baa120`. Provider
+live binding and the `.orc` language server remain next, in that order, but
+Stage 7 begins only when the owner schedules its design review.
 
 Use the procedure-first model as the target authoring architecture. The
 2026-07-14 steering amendment to
@@ -575,10 +578,11 @@ dependency order.
    order — complete. Each archive, port-source, and owner-directed holdout gate
    closed independently rather than treating promotion as deletion evidence.
 7. Delete the user-facing YAML frontend under Task 7 after the estate reached
-   zero — product work complete. Fresh YAML/YML execution rejects before
-   mutation; the authored loader and project PyYAML dependency are removed.
-   The final scoped broad comparison and both independent reviews are the
-   current closeout gate.
+   zero — complete. Fresh YAML/YML execution rejects before mutation; the
+   authored loader and project PyYAML dependency are removed. The final scoped
+   broad comparison introduced zero new owner-baseline failures, and ordered
+   independent review returned specification PASS and quality APPROVED at
+   `d9baa120`.
 
 Do not port a YAML family into a reusable `.orc` workflow when Stage 4
 classifies that unit as a procedure candidate.

@@ -4,11 +4,11 @@
 
 **Effective:** 2026-07-23.
 
-**Status:** Active execution authority through Task 7 final verification. This
-record changed execution proportion, not the frozen queue membership or the
-product-safety meaning of a zero live reference. All queue work and Task-7
-product implementation are complete; the final scoped broad comparison and two
-independent reviews remain open.
+**Status:** Fulfilled. This record changed execution proportion, not the frozen
+queue membership or the product-safety meaning of a zero live reference. All
+queue work, Task-7 product implementation, final scoped broad comparison, and
+both independent reviews are complete. Stage 6 is complete; Stage 7 has not
+started.
 
 ## Decision
 
@@ -122,16 +122,22 @@ The owner-directed final batch subsequently passed its fresh reference,
 five-root supported-consumer, and live-process checks and retired the YAML,
 its dedicated test, and its YAML-only input helper without mutating run stores.
 The authored workflow YAML/YML estate is empty, all Task 6 queue work is
-drained, and Task 7 is now current and eligible. This note does not claim any
-Task 7 parser-removal implementation at the Task-6 closeout boundary.
+drained, and Task 7 became eligible at that Task-6 closeout boundary. This
+historical boundary statement does not claim Task 7 parser-removal
+implementation there.
 
 Task 7 subsequently made fresh execution ORC-only, retained only completed
 legacy state-only resume/report/dashboard compatibility, removed the authored
 YAML loader and project PyYAML dependency, retired the stale YAML demo runner,
-and passed its consolidated focused gate with 821 passed and 5 skipped. A fresh
-production `.orc` dry-run smoke also passed without changing the run-directory
-count. The final scoped broad comparison and both independent reviews have not
-yet run, so this note does not report Stage 6 complete.
+and passed its consolidated focused gate with 1,020 passed and 5 skipped. A
+fresh production `.orc` dry-run smoke also passed without changing the
+run-directory count. The final security-excluded broad comparison recorded
+6,386 passed, 15 skipped, and the four exact retained failures from the
+owner-adopted baseline, with zero new failures; the other two baseline test
+nodes were retired with their YAML-only surfaces. Ordered independent review
+returned specification PASS and quality APPROVED at `d9baa120`. Stage 6 is
+complete, and execution stops before the owner-scheduled Stage-7 live-binding
+design review.
 
 ## Supersession Boundary
 

@@ -17,10 +17,11 @@ Task 7 now rejects fresh non-`.orc` execution before state creation, rejects
 nonterminal or restarted legacy YAML/YML resume without mutation, and preserves
 completed legacy runs through state-only resume/report/dashboard paths. There
 is no current `WorkflowLoader` or YAML deprecation event. The authored workflow
-YAML/YML estate is empty, the focused Task-7 gate passed 821 tests with 5
+YAML/YML estate is empty, the focused Task-7 gate passed 1,020 tests with 5
 skipped, and a production `.orc` dry-run smoke left the run-directory count
-unchanged. The final scoped broad comparison and both independent reviews
-remain pending; this historical design does not claim Stage-6 completion.
+unchanged. The final scoped broad comparison introduced zero new failures
+against the owner-adopted baseline, and ordered independent review returned
+specification PASS and quality APPROVED at `d9baa120`. Stage 6 is complete.
 
 The sections below preserve the implemented Task-4 warning contract at its
 reviewed commit. They are provenance, not current runtime or authoring guidance.
@@ -38,7 +39,8 @@ removal of the project PyYAML dependency.
 ## Governing contracts
 
 - `docs/plans/2026-07-07-yaml-retirement-program.md` defined Task 4 and kept
-  YAML `Legacy` at that historical gate; it now owns Task-7 final verification.
+  YAML `Legacy` at that historical gate; it records completed Task 7 and
+  Stage 6.
 - `specs/dsl.md` owned the normative advisory-warning behavior while the
   Task-4 frontend existed.
 - `docs/capability_status_matrix.md` owns current copy-safety status and records
