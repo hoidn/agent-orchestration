@@ -41,8 +41,8 @@ if TYPE_CHECKING:
     )
 
 
-_INITIAL_TURN_ROLES = frozenset(
-    {"worker_fresh", "supervisor_directive"}
+_TURN_ROLES = frozenset(
+    {"worker_fresh", "worker_resume", "supervisor_directive"}
 )
 PROVIDER_SUPERVISION_OBSERVATION_INJECTION_SCHEMA_VERSION = (
     "provider_supervision_observation_injection.v1"
@@ -70,8 +70,8 @@ class ProviderSupervisionTurnBinding:
 
     def __post_init__(self) -> None:
         _nonempty(self.member_id, "turn.member_id")
-        if self.turn_role not in _INITIAL_TURN_ROLES:
-            raise ValueError("turn.turn_role is not an initial v1 turn")
+        if self.turn_role not in _TURN_ROLES:
+            raise ValueError("turn.turn_role is not a provider-supervision turn")
         _nonempty(self.runtime_step_id, "turn.runtime_step_id")
         if not isinstance(self.evidence_path, Path):
             raise TypeError("turn.evidence_path must be a Path")
@@ -93,8 +93,10 @@ class ProviderSupervisionObservationBinding:
 
     def __post_init__(self) -> None:
         _nonempty(self.member_id, "observation.member_id")
-        if self.turn_role not in _INITIAL_TURN_ROLES:
-            raise ValueError("observation.turn_role is not an initial v1 turn")
+        if self.turn_role not in _TURN_ROLES:
+            raise ValueError(
+                "observation.turn_role is not a provider-supervision turn"
+            )
         if not isinstance(self.socket_path, Path) or not self.socket_path.is_absolute():
             raise ValueError(
                 "observation.socket_path must be an absolute Path"
@@ -300,7 +302,7 @@ class ProviderSupervisionMemberRequest:
 
     member_id: str
     turn: ProviderSupervisionTurnBinding
-    observation: ProviderSupervisionObservationBinding
+    observation: ProviderSupervisionObservationBinding | None
     attempt: ProviderSupervisionAttemptBinding
     invocation: ProviderSupervisionInvocationSnapshot
     control: Any
@@ -309,10 +311,16 @@ class ProviderSupervisionMemberRequest:
         _nonempty(self.member_id, "request.member_id")
         if self.member_id != self.turn.member_id:
             raise ValueError("request member contradicts its turn")
-        if self.member_id != self.observation.member_id:
-            raise ValueError("request member contradicts its observation")
-        if self.turn.turn_role != self.observation.turn_role:
-            raise ValueError("request turn contradicts its observation")
+        if self.observation is None:
+            if self.turn.turn_role != "worker_resume":
+                raise ValueError(
+                    "only worker_resume may omit its observation"
+                )
+        else:
+            if self.member_id != self.observation.member_id:
+                raise ValueError("request member contradicts its observation")
+            if self.turn.turn_role != self.observation.turn_role:
+                raise ValueError("request turn contradicts its observation")
         if not isinstance(
             self.invocation,
             ProviderSupervisionInvocationSnapshot,
@@ -638,6 +646,7 @@ class WorkflowProviderSupervisionBindings:
         self._scopes: dict[str, ProviderAttemptScope] = {}
         self._members: dict[str, ProviderSupervisionMemberConfig] = {
             "worker_fresh": config.worker,
+            "worker_resume": config.worker,
             "supervisor_directive": config.supervisor,
         }
         self._steps: dict[str, dict[str, Any]] = {}
@@ -648,6 +657,13 @@ class WorkflowProviderSupervisionBindings:
         self._prompt_injections: dict[str, dict[str, str] | None] = {}
         self._pending_prompts: dict[str, dict[str, Any]] = {}
         self._final_prompts: dict[str, str] = {}
+        self._resume_preflight: tuple[
+            int,
+            Path,
+            Path,
+            ProviderAttemptScope,
+        ] | None = None
+        self._resume_binding_derived = False
 
     def assert_current_step(
         self,
@@ -690,13 +706,11 @@ class WorkflowProviderSupervisionBindings:
         }
         turns: dict[str, ProviderSupervisionTurnBinding] = {}
         run_root = Path(self.executor.state_manager.run_root).resolve()
-        for role, path_spec in path_specs.items():
-            scope = derive_provider_attempt_member_turn_scope(
-                base_scope,
-                member_id=path_spec.member_id,
-                turn_ordinal=0,
-            )
-            self._scopes[role] = scope
+        realized_paths: dict[str, tuple[Path, Path]] = {}
+        for role, path_spec in {
+            **path_specs,
+            "worker_resume": config.paths.worker_resume,
+        }.items():
             evidence_path = self._realize_path(
                 run_root,
                 path_spec.evidence_relpath,
@@ -707,6 +721,26 @@ class WorkflowProviderSupervisionBindings:
                 path_spec.provisional_bundle_relpath,
                 visit_count,
             )
+            if evidence_path.exists() or bundle_path.exists():
+                raise ValueError(
+                    "provider supervision provisional path preimage exists"
+                )
+            realized_paths[role] = (evidence_path, bundle_path)
+        resume_evidence, resume_bundle = realized_paths["worker_resume"]
+        self._resume_preflight = (
+            visit_count,
+            resume_evidence,
+            resume_bundle,
+            base_scope,
+        )
+        for role, path_spec in path_specs.items():
+            scope = derive_provider_attempt_member_turn_scope(
+                base_scope,
+                member_id=path_spec.member_id,
+                turn_ordinal=0,
+            )
+            self._scopes[role] = scope
+            evidence_path, bundle_path = realized_paths[role]
             for path in (evidence_path, bundle_path):
                 if path.exists():
                     raise ValueError(
@@ -721,6 +755,48 @@ class WorkflowProviderSupervisionBindings:
                 provisional_bundle_path=bundle_path,
             )
         return turns
+
+    def derive_resume_turn_binding(
+        self,
+        *,
+        config: ProviderSupervisionStepConfig,
+        visit_count: int,
+    ) -> ProviderSupervisionTurnBinding:
+        """Realize the one lazy resume turn after boundary proof."""
+
+        if config is not self.config:
+            raise ValueError("provider supervision config changed")
+        if self._resume_binding_derived:
+            raise ValueError(
+                "provider supervision resume binding is already derived"
+            )
+        preflight = self._resume_preflight
+        if preflight is None or preflight[0] != visit_count:
+            raise ValueError(
+                "provider supervision resume path was not preflighted"
+            )
+        _, evidence_path, bundle_path, base_scope = preflight
+        if evidence_path.exists() or bundle_path.exists():
+            raise ValueError(
+                "provider supervision provisional path preimage exists"
+            )
+        for path in (evidence_path, bundle_path):
+            path.parent.mkdir(parents=True, exist_ok=True)
+        path_spec = config.paths.worker_resume
+        scope = derive_provider_attempt_member_turn_scope(
+            base_scope,
+            member_id=path_spec.member_id,
+            turn_ordinal=1,
+        )
+        self._scopes["worker_resume"] = scope
+        self._resume_binding_derived = True
+        return ProviderSupervisionTurnBinding(
+            member_id=path_spec.member_id,
+            turn_role="worker_resume",
+            runtime_step_id=scope.runtime_step_id,
+            evidence_path=evidence_path,
+            provisional_bundle_path=bundle_path,
+        )
 
     @staticmethod
     def _realize_path(
@@ -881,6 +957,115 @@ class WorkflowProviderSupervisionBindings:
         }
         return prompt
 
+    def compose_resume_prompt(
+        self,
+        *,
+        member: ProviderSupervisionMemberConfig,
+        turn: ProviderSupervisionTurnBinding,
+        guidance: str,
+    ) -> str:
+        """Snapshot one guidance-only resume prompt and worker contract."""
+
+        if (
+            turn.turn_role != "worker_resume"
+            or self._members.get(turn.turn_role) is not member
+        ):
+            raise ValueError("provider supervision resume member changed")
+        if not isinstance(guidance, str) or not guidance:
+            raise ValueError(
+                "provider supervision resume guidance must be non-empty"
+            )
+        member_step = _provider_member_step(
+            member,
+            runtime_step_id=turn.runtime_step_id,
+        )
+        contract_kind, prompt_contract, descriptor = _bundle_contract(
+            member.result_contract,
+            path=str(turn.provisional_bundle_path),
+        )
+        contract_step = dict(member_step)
+        contract_step[contract_kind] = prompt_contract
+        compiler_contract = (
+            member.provider_config.compiler_prompt_dependency_contract
+        )
+        if compiler_contract is None:
+            raise ValueError(
+                "provider supervision member has no compiler "
+                "prompt-dependency contract"
+            )
+        depends_on = member_step.get("depends_on")
+        if not isinstance(depends_on, Mapping):
+            raise ValueError(
+                "provider supervision prompt dependencies are missing"
+            )
+        context_value = self.state.get("context")
+        context = (
+            {"context": context_value}
+            if isinstance(context_value, dict) and context_value
+            else {}
+        )
+        variables = self.executor._build_substitution_variables(
+            context,
+            self.state,
+        )
+        resolution = self.executor._resolve_typed_content_dependencies(
+            contract=compiler_contract,
+            depends_on=depends_on,
+            variables=variables,
+        )
+        if not resolution.is_valid:
+            raise ValueError(
+                "provider supervision prompt dependencies are invalid"
+            )
+        snapshot = snapshot_content_dependencies(
+            self.executor.workspace,
+            resolution.classified_rows,
+        )
+        inject = depends_on.get("inject")
+        if not isinstance(inject, Mapping):
+            raise ValueError(
+                "provider supervision prompt dependency injection is invalid"
+            )
+        instruction = inject.get(
+            "instruction",
+            self.executor.dependency_injector._get_default_instruction(
+                "content",
+                bool(depends_on.get("required")),
+            ),
+        )
+        if not isinstance(instruction, str):
+            raise ValueError(
+                "provider supervision prompt dependency instruction is invalid"
+            )
+        instruction_source = (
+            "authored"
+            if compiler_contract.instruction_utf8_sha256_or_null is not None
+            else (
+                "default_required"
+                if compiler_contract.required_binding_refs
+                else "default_optional"
+            )
+        )
+        self._steps[turn.turn_role] = member_step
+        self._contracts[turn.turn_role] = (
+            contract_kind,
+            prompt_contract,
+            descriptor,
+        )
+        self._prompt_injections[turn.turn_role] = None
+        self._pending_prompts[turn.turn_role] = {
+            "base_prompt": guidance,
+            "compiler_contract": compiler_contract,
+            "snapshot": snapshot,
+            "instruction": instruction,
+            "instruction_source": instruction_source,
+            "position": compiler_contract.position.value,
+            "contract_step": contract_step,
+            "context": context,
+            "observation_injection": None,
+        }
+        return guidance
+
     def allocate_attempt(
         self,
         *,
@@ -974,6 +1159,53 @@ class WorkflowProviderSupervisionBindings:
         turn: ProviderSupervisionTurnBinding,
         prompt: str,
     ) -> ProviderInvocation:
+        session_request = (
+            ProviderSessionRequest(mode=ProviderSessionMode.FRESH)
+            if turn.turn_role == "worker_fresh"
+            else None
+        )
+        return self._prepare_bound_invocation(
+            member=member,
+            turn=turn,
+            prompt=prompt,
+            session_request=session_request,
+        )
+
+    def prepare_resume_invocation(
+        self,
+        *,
+        member: ProviderSupervisionMemberConfig,
+        turn: ProviderSupervisionTurnBinding,
+        prompt: str,
+        session_id: str,
+    ) -> ProviderInvocation:
+        if (
+            turn.turn_role != "worker_resume"
+            or self._members.get(turn.turn_role) is not member
+        ):
+            raise ValueError("provider supervision resume member changed")
+        if not isinstance(session_id, str) or not session_id:
+            raise ValueError(
+                "provider supervision resume session id must be non-empty"
+            )
+        return self._prepare_bound_invocation(
+            member=member,
+            turn=turn,
+            prompt=prompt,
+            session_request=ProviderSessionRequest(
+                mode=ProviderSessionMode.RESUME,
+                session_id=session_id,
+            ),
+        )
+
+    def _prepare_bound_invocation(
+        self,
+        *,
+        member: ProviderSupervisionMemberConfig,
+        turn: ProviderSupervisionTurnBinding,
+        prompt: str,
+        session_request: ProviderSessionRequest | None,
+    ) -> ProviderInvocation:
         step = self._steps.get(turn.turn_role)
         if step is None:
             raise ValueError("provider supervision member step is missing")
@@ -1011,11 +1243,6 @@ class WorkflowProviderSupervisionBindings:
         env = dict(step.get("env") or {})
         env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] = str(
             turn.provisional_bundle_path
-        )
-        session_request = (
-            ProviderSessionRequest(mode=ProviderSessionMode.FRESH)
-            if turn.turn_role == "worker_fresh"
-            else None
         )
         invocation, error = self.executor.provider_executor.prepare_invocation(
             provider_name=provider_name,
@@ -1068,7 +1295,11 @@ class WorkflowProviderSupervisionBindings:
                 or self.executor.stream_output
             ),
             control=request.control,
-            observation_handle=request.observation.handle,
+            observation_handle=(
+                None
+                if request.observation is None
+                else request.observation.handle
+            ),
         )
 
     def observation_is_healthy(

@@ -8993,7 +8993,7 @@ class WorkflowExecutor:
         step_name: str,
         runtime_step_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Execute one closed group through the serial CONTINUE coordinator."""
+        """Execute one closed group through the bounded directive coordinator."""
 
         if not callable(
             getattr(
@@ -9047,7 +9047,7 @@ class WorkflowExecutor:
             step_name=step_name,
             runtime_step_id=runtime_step_id or config.node_id,
         )
-        return ProviderSupervisionCoordinator(bindings).run_continue(
+        return ProviderSupervisionCoordinator(bindings).run(
             config,
             step_name=step_name,
             visit_count=visit_count,

@@ -822,7 +822,7 @@ executor characterizations. Ordered final verdicts:
 - Modify: `orchestrator/workflow/provider_supervision/bindings.py`
 - Modify: `orchestrator/workflow/executor.py`
 
-- [ ] Write RED tests for early `STEER`, bounded resume-boundary wait,
+- [x] Write RED tests for early `STEER`, bounded resume-boundary wait,
   identity-only refusal, exact-marker readiness, cancel-before-bind, active
   cancellation requiring `terminal_seen: false`, clean natural success using
   its complete frozen terminal boundary, natural nonzero exit, exact
@@ -835,12 +835,12 @@ executor characterizations. Ordered final verdicts:
   `terminal_seen: true`,
   supervisor/worker/whole-step timeout, second-steer rejection, and all
   directive/worker completion orders.
-- [ ] Add stale-preimage, distinct fresh/resume path, missing resume bundle,
+- [x] Add stale-preimage, distinct fresh/resume path, missing resume bundle,
   stale fresh bundle, and selected-only authority tests. A valid `STEER` must
   not read an invalid/missing unselected fresh business bundle.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_provider_supervision_resume.py`.
-- [ ] Implement one serialized `STEER` path that always invokes the idempotent
+- [x] Implement one serialized `STEER` path that always invokes the idempotent
   boundary verifier, allocates a new attempt/path only after proof, renders a
   fresh typed output contract into the guidance prompt, and selects only the
   resumed bundle. The active-cancellation branch requires unique identity,
@@ -848,12 +848,26 @@ executor characterizations. Ordered final verdicts:
   the clean-natural-success branch requires its frozen complete boundary,
   unique identity, the sticky readiness observation, and a live whole-step
   deadline immediately before resume launch.
-- [ ] Ensure all group invocations have controls and all failure paths cancel
+- [x] Ensure all group invocations have controls and all failure paths cancel
   and join active siblings before terminal failure publication.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_provider_supervision_runtime.py tests/test_provider_supervision_resume.py`.
-- [ ] Complete specification review, quality review, and commit:
+- [x] Complete specification review, quality review, and commit:
   `Add bounded provider supervision STEER path`.
+
+**Task 8 evidence (2026-07-24):** TDD coverage closed early directive
+arbitration, both eligible resume boundaries, deadline and terminal-result
+races, exact session identity, lazy resume allocation, selected-only result
+authority, and bounded fail-closed sibling cleanup. Review-driven regressions
+also proved that a frozen terminal proof waits for member-result authority, a
+late structurally valid cancelled boundary reports the worker timeout, and a
+provider-raised `TimeoutError` is not rewritten as a coordinator timeout.
+Fresh verification passed 86 runtime/resume tests, 121 attempt/state tests,
+53 provider-control/execution selectors, 33 observation-execution tests, and
+6 executor characterizations. Ordered verdicts:
+`TASK8_BINDINGS_SPEC_APPROVED`, `TASK8_COORDINATOR_SPEC_APPROVED`, then
+`TASK8_INTEGRATION_QUALITY_APPROVED`, `TASK8_CLEANUP_QUALITY_APPROVED`, and
+`TASK8_RACE_QUALITY_APPROVED`.
 
 ### Task 9: Interrupted-Visit Quarantine And Retry Boundary
 
