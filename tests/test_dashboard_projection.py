@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -12,7 +11,7 @@ from orchestrator.dashboard.projection import RunProjector
 from orchestrator.dashboard.scanner import RunScanner
 
 
-def _write_yaml(path: Path, payload: dict) -> Path:
+def _write_legacy_source(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
     return path
@@ -33,7 +32,7 @@ def _scan_one(workspace: Path):
 def test_projector_uses_legacy_state_only_and_keeps_display_status_separate(
     tmp_path: Path,
 ):
-    workflow_path = _write_yaml(
+    workflow_path = _write_legacy_source(
         tmp_path / "workflows" / "flow.yaml",
         {
             "version": "1.3",
@@ -75,7 +74,7 @@ def test_projector_uses_legacy_state_only_and_keeps_display_status_separate(
 def test_projector_does_not_reopen_legacy_typed_workflow_surface(
     tmp_path: Path,
 ):
-    workflow_path = _write_yaml(
+    workflow_path = _write_legacy_source(
         tmp_path / "workflows" / "typed.yaml",
         {
             "version": "1.1",
@@ -112,11 +111,10 @@ def test_projector_does_not_reopen_legacy_typed_workflow_surface(
     assert [step.name for step in detail.steps] == ["VisitItems"]
 
 
-def test_projector_persisted_yaml_read_emits_no_authoring_deprecation(
+def test_projector_persisted_legacy_state_is_degraded_without_source_read(
     tmp_path: Path,
-    caplog,
 ):
-    workflow_path = _write_yaml(
+    workflow_path = _write_legacy_source(
         tmp_path / "workflows" / "persisted.yaml",
         {
             "version": "1.3",
@@ -134,26 +132,17 @@ def test_projector_persisted_yaml_read_emits_no_authoring_deprecation(
         },
     )
 
-    with caplog.at_level(
-        logging.WARNING,
-        logger="orchestrator.loader.yaml_deprecation",
-    ):
-        detail = RunProjector().project_detail(_scan_one(tmp_path))
+    detail = RunProjector().project_detail(_scan_one(tmp_path))
 
     assert detail.row.workflow_name is None
     assert detail.workflow_structure is None
     assert detail.degraded is True
-    assert [
-        record
-        for record in caplog.records
-        if record.name == "orchestrator.loader.yaml_deprecation"
-    ] == []
 
 
 def test_projector_uses_injected_time_for_workflow_aware_stale_heartbeat(
     tmp_path: Path,
 ):
-    workflow_path = _write_yaml(
+    workflow_path = _write_legacy_source(
         tmp_path / "workflows" / "flow.yaml",
         {
             "version": "1.3",

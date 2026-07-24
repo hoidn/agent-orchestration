@@ -4,16 +4,17 @@ import ast
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import replace
+import json
 from pathlib import Path
 import re
 
 import pytest
 import tempfile
-import yaml
 
-from orchestrator.loader import WorkflowBoundaryValidationPolicy, WorkflowLoader
 from orchestrator.exceptions import WorkflowValidationError
+from orchestrator.workflow.validation import WorkflowBoundaryValidationPolicy
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_provenance
+from tests.workflow_fixture_loader import WorkflowLoader
 from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
 from tests.workflow_bundle_helpers import materialize_projection_body_steps, thaw_surface_workflow
 
@@ -211,117 +212,6 @@ def _enable_v214_loader(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_workflow_loader_uses_shared_validator_by_composition() -> None:
-    from orchestrator.workflow import validation
-
-    assert validation._WorkflowMappingValidator not in WorkflowLoader.__mro__
-    assert "_WorkflowMappingValidator" not in Path(
-        __import__("orchestrator.loader", fromlist=["__file__"]).__file__
-    ).read_text(encoding="utf-8")
-
-
-def test_parsed_yaml_delegates_once_to_shared_validation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import orchestrator.loader as loader_module
-
-    workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(
-        'version: "2.14"\nname: delegated-once\nsteps:\n  - name: Done\n    command: [echo, done]\n',
-        encoding="utf-8",
-    )
-    calls = []
-    real_validate = loader_module.validate_workflow_mapping
-
-    def capture(request, *, options):
-        calls.append((request.workflow_path, options))
-        return real_validate(request, options=options)
-
-    monkeypatch.setattr(loader_module, "validate_workflow_mapping", capture)
-    WorkflowLoader(tmp_path).load_bundle(workflow_path)
-
-    assert [path for path, _ in calls] == [workflow_path.resolve()]
-
-
-def test_recursive_import_delegates_each_parsed_yaml_once(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import orchestrator.loader as loader_module
-
-    child = tmp_path / "child.yaml"
-    child.write_text(
-        'version: "2.14"\nname: child\ninputs: {}\noutputs: {}\nsteps:\n  - name: Child\n    command: [echo, child]\n',
-        encoding="utf-8",
-    )
-    root = tmp_path / "root.yaml"
-    root.write_text(
-        'version: "2.14"\nname: root\nimports:\n  child: child.yaml\nsteps:\n  - name: Root\n    command: [echo, root]\n',
-        encoding="utf-8",
-    )
-    calls = []
-    real_validate = loader_module.validate_workflow_mapping
-
-    def capture(request, *, options):
-        calls.append(request.workflow_path)
-        return real_validate(request, options=options)
-
-    monkeypatch.setattr(loader_module, "validate_workflow_mapping", capture)
-    WorkflowLoader(tmp_path).load_bundle(root)
-
-    assert calls == [root.resolve(), child.resolve()]
-
-
-@pytest.mark.parametrize(
-    ("attribute", "replacement"),
-    (
-        ("SUPPORTED_VERSIONS", {"2.14"}),
-        ("VERSION_ORDER", ["2.14"]),
-        ("SUPPORTED_OUTPUT_TYPES", {"string"}),
-        ("PRIVATE_COLLECTION_OUTPUT_TYPES", {"list"}),
-        ("STRING_CONTRACT_VERSION", "2.14"),
-        ("ENV_VAR_PATTERN", re.compile(r"never-env")),
-        ("INPUT_REF_PATTERN", re.compile(r"never-input")),
-    ),
-)
-def test_compatibility_policy_binding_reaches_shared_validation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    attribute: str,
-    replacement,
-) -> None:
-    import orchestrator.loader as loader_module
-
-    workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(
-        'version: "2.14"\nname: policy-binding\nsteps:\n  - name: Done\n    command: [echo, done]\n',
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(WorkflowLoader, attribute, replacement)
-    observed = []
-    real_validate = loader_module.validate_workflow_mapping
-
-    def capture(request, *, options):
-        observed.append(getattr(options, attribute.lower()))
-        return real_validate(request, options=options)
-
-    monkeypatch.setattr(loader_module, "validate_workflow_mapping", capture)
-    WorkflowLoader(tmp_path).load_bundle(workflow_path)
-
-    expected = tuple(replacement) if attribute == "VERSION_ORDER" else replacement
-    expected = (
-        frozenset(replacement)
-        if attribute in {
-            "SUPPORTED_VERSIONS",
-            "SUPPORTED_OUTPUT_TYPES",
-            "PRIVATE_COLLECTION_OUTPUT_TYPES",
-        }
-        else expected
-    )
-    assert observed == [expected]
-
-
 def _compile_loop_recur_workflow(workspace: Path) -> dict:
     from orchestrator.workflow_lisp.compiler import compile_stage3_module
 
@@ -500,31 +390,40 @@ class TestLoaderValidation:
         self.loader = WorkflowLoader(self.workspace)
 
     def write_workflow(self, content: dict) -> Path:
-        """Helper to write workflow YAML."""
-        path = self.workspace / "workflow.yml"
-        with open(path, 'w') as f:
-            yaml.dump(content, f)
+        """Write a JSON fixture for the shared mapping validator."""
+        path = self.workspace / "workflow.fixture.json"
+        path.write_text(
+            json.dumps(content, indent=2) + "\n",
+            encoding="utf-8",
+        )
         return path
 
     def test_shared_validation_preserves_imported_version_mismatch_order(self):
-        child_path = self.workspace / "child.yaml"
+        child_path = self.workspace / "child.json"
         child_path.write_text(
-            'version: "2.13"\n'
-            "name: child\n"
-            "steps:\n"
-            "  - name: Done\n"
-            "    command: [echo, done]\n",
+            json.dumps(
+                {
+                    "version": "2.13",
+                    "name": "child",
+                    "steps": [{"name": "Done", "command": ["echo", "done"]}],
+                },
+                indent=2,
+            )
+            + "\n",
             encoding="utf-8",
         )
-        workflow_path = self.workspace / "workflow.yaml"
+        workflow_path = self.workspace / "workflow.json"
         workflow_path.write_text(
-            'version: "2.14"\n'
-            "name: parent\n"
-            "imports:\n"
-            "  child: child.yaml\n"
-            "steps:\n"
-            "  - name: Done\n"
-            "    command: [echo, done]\n",
+            json.dumps(
+                {
+                    "version": "2.14",
+                    "name": "parent",
+                    "imports": {"child": "child.json"},
+                    "steps": [{"name": "Done", "command": ["echo", "done"]}],
+                },
+                indent=2,
+            )
+            + "\n",
             encoding="utf-8",
         )
 
@@ -536,358 +435,38 @@ class TestLoaderValidation:
             "their caller (expected '2.14', found '2.13')"
         )
 
-    def test_duplicate_import_alias_keys_are_rejected_before_bundle_construction(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ):
-        for filename in ("child.yaml", "replacement.yaml"):
-            (self.workspace / filename).write_text(
-                """\
-version: "2.5"
-name: imported
-steps:
-  - name: Done
-    command: [echo, done]
-""",
-                encoding="utf-8",
-            )
-        path = self.workspace / "workflow.yml"
-        path.write_text(
-            """\
-version: "2.5"
-name: duplicate-import-alias
-imports:
-  child: child.yaml
-  child: replacement.yaml
-steps:
-  - name: Done
-    command: [echo, done]
-""",
-            encoding="utf-8",
-        )
-
-        def reject_bundle_construction(*args, **kwargs):
-            pytest.fail("bundle construction must not run for duplicate import aliases")
-
-        monkeypatch.setattr(
-            "orchestrator.workflow.validation.build_loaded_workflow_bundle",
-            reject_bundle_construction,
-        )
-
-        with pytest.raises(WorkflowValidationError) as exc_info:
-            self.loader.load(path)
-
-        message = str(exc_info.value)
-        assert "imports.child: duplicate import alias" in message
-        assert "line 4, column 3" in message
-        assert "line 5, column 3" in message
-
-    def test_merge_induced_duplicate_import_alias_is_rejected_before_bundle_construction(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ):
-        for filename in ("child.yaml", "replacement.yaml"):
-            (self.workspace / filename).write_text(
-                """\
-version: "2.5"
-name: imported
-steps:
-  - name: Done
-    command: [echo, done]
-""",
-                encoding="utf-8",
-            )
-        path = self.workspace / "workflow.yml"
-        path.write_text(
-            """\
-version: "2.5"
-name: merge-duplicate-import-alias
-imports:
-  <<: &import_defaults
-    child: child.yaml
-  child: replacement.yaml
-steps:
-  - name: Done
-    command: [echo, done]
-""",
-            encoding="utf-8",
-        )
-
-        def reject_bundle_construction(*args, **kwargs):
-            pytest.fail("bundle construction must not run for duplicate import aliases")
-
-        monkeypatch.setattr(
-            "orchestrator.workflow.validation.build_loaded_workflow_bundle",
-            reject_bundle_construction,
-        )
-
-        with pytest.raises(WorkflowValidationError) as exc_info:
-            self.loader.load(path)
-
-        message = str(exc_info.value)
-        assert "imports.child: duplicate import alias" in message
-        assert "line 5, column 5" in message
-        assert "line 6, column 3" in message
-
-    def test_repeated_import_sections_with_duplicate_alias_are_rejected_before_bundle_construction(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ):
-        for filename in ("child.yaml", "replacement.yaml", "sibling.yaml"):
-            (self.workspace / filename).write_text(
-                """\
-version: "2.5"
-name: imported
-steps:
-  - name: Done
-    command: [echo, done]
-""",
-                encoding="utf-8",
-            )
-        path = self.workspace / "workflow.yml"
-        path.write_text(
-            """\
-version: "2.5"
-name: repeated-import-sections-duplicate-alias
-imports:
-  sibling: sibling.yaml
-  child: child.yaml
-imports:
-  child: replacement.yaml
-steps:
-  - name: Done
-    command: [echo, done]
-""",
-            encoding="utf-8",
-        )
-
-        def reject_bundle_construction(*args, **kwargs):
-            pytest.fail("bundle construction must not run for duplicate import aliases")
-
-        monkeypatch.setattr(
-            "orchestrator.workflow.validation.build_loaded_workflow_bundle",
-            reject_bundle_construction,
-        )
-
-        with pytest.raises(WorkflowValidationError) as exc_info:
-            self.loader.load(path)
-
-        message = str(exc_info.value)
-        assert message.count("imports.child: duplicate import alias") == 1
-        assert "line 5, column 3" in message
-        assert "line 7, column 3" in message
-
-    def test_repeated_import_sections_with_distinct_aliases_are_rejected_before_bundle_construction(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ):
-        for filename, workflow_name in (
-            ("child.yaml", "child"),
-            ("sibling.yaml", "sibling"),
-        ):
-            (self.workspace / filename).write_text(
-                f"""\
-version: "2.5"
-name: {workflow_name}
-steps:
-  - name: Done
-    command: [echo, done]
-""",
-                encoding="utf-8",
-            )
-        path = self.workspace / "workflow.yml"
-        path.write_text(
-            """\
-version: "2.5"
-name: repeated-import-sections-distinct-aliases
-imports:
-  child: child.yaml
-imports:
-  sibling: sibling.yaml
-steps:
-  - name: Done
-    command: [echo, done]
-""",
-            encoding="utf-8",
-        )
-
-        def reject_bundle_construction(*args, **kwargs):
-            pytest.fail("bundle construction must not run for duplicate import sections")
-
-        monkeypatch.setattr(
-            "orchestrator.workflow.validation.build_loaded_workflow_bundle",
-            reject_bundle_construction,
-        )
-
-        with pytest.raises(WorkflowValidationError) as exc_info:
-            self.loader.load(path)
-
-        message = str(exc_info.value)
-        assert message.count("imports: duplicate top-level mapping") == 1
-        assert "line 3, column 1" in message
-        assert "line 5, column 1" in message
-        assert "duplicate import alias" not in message
-
-    def test_top_level_merged_and_explicit_import_sections_are_rejected_before_bundle_construction(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ):
-        for filename, workflow_name in (
-            ("child.yaml", "child"),
-            ("sibling.yaml", "sibling"),
-        ):
-            (self.workspace / filename).write_text(
-                f"""\
-version: "2.5"
-name: {workflow_name}
-steps:
-  - name: Done
-    command: [echo, done]
-""",
-                encoding="utf-8",
-            )
-        path = self.workspace / "workflow.yml"
-        path.write_text(
-            """\
-<<: &workflow_defaults
-  imports:
-    child: child.yaml
-version: "2.5"
-name: merged-and-explicit-import-sections
-imports:
-  sibling: sibling.yaml
-steps:
-  - name: Done
-    command: [echo, done]
-""",
-            encoding="utf-8",
-        )
-
-        def reject_bundle_construction(*args, **kwargs):
-            pytest.fail("bundle construction must not run for duplicate import sections")
-
-        monkeypatch.setattr(
-            "orchestrator.workflow.validation.build_loaded_workflow_bundle",
-            reject_bundle_construction,
-        )
-
-        with pytest.raises(WorkflowValidationError) as exc_info:
-            self.loader.load(path)
-
-        message = str(exc_info.value)
-        assert message.count("imports: duplicate top-level mapping") == 1
-        assert "line 2, column 3" in message
-        assert "line 6, column 1" in message
-        assert "duplicate import alias" not in message
-
-    def test_top_level_merge_sources_with_duplicate_alias_are_rejected_before_bundle_construction(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ):
-        for filename in ("child.yaml", "replacement.yaml"):
-            (self.workspace / filename).write_text(
-                """\
-version: "2.5"
-name: imported
-steps:
-  - name: Done
-    command: [echo, done]
-""",
-                encoding="utf-8",
-            )
-        path = self.workspace / "workflow.yml"
-        path.write_text(
-            """\
-<<:
-  - &first_defaults
-    imports:
-      child: child.yaml
-  - &second_defaults
-    imports:
-      child: replacement.yaml
-version: "2.5"
-name: merged-import-alias-collision
-steps:
-  - name: Done
-    command: [echo, done]
-""",
-            encoding="utf-8",
-        )
-
-        def reject_bundle_construction(*args, **kwargs):
-            pytest.fail("bundle construction must not run for duplicate import aliases")
-
-        monkeypatch.setattr(
-            "orchestrator.workflow.validation.build_loaded_workflow_bundle",
-            reject_bundle_construction,
-        )
-
-        with pytest.raises(WorkflowValidationError) as exc_info:
-            self.loader.load(path)
-
-        message = str(exc_info.value)
-        assert message.count("imports.child: duplicate import alias") == 1
-        assert "line 4, column 7" in message
-        assert "line 7, column 7" in message
-        assert "duplicate top-level mapping" not in message
-
-    def test_single_top_level_merged_import_section_loads(self):
-        (self.workspace / "child.yaml").write_text(
-            """\
-version: "2.5"
-name: child
-steps:
-  - name: Done
-    command: [echo, done]
-""",
-            encoding="utf-8",
-        )
-        path = self.workspace / "workflow.yml"
-        path.write_text(
-            """\
-<<: &workflow_defaults
-  imports:
-    child: child.yaml
-version: "2.5"
-name: single-merged-import-section
-steps:
-  - name: Done
-    command: [echo, done]
-""",
-            encoding="utf-8",
-        )
-
-        loaded = self.loader.load(path)
-
-        assert tuple(loaded.imports) == ("child",)
-
     def test_unique_import_aliases_load(self):
         for filename, workflow_name in (
-            ("child.yaml", "child"),
-            ("sibling.yaml", "sibling"),
+            ("child.json", "child"),
+            ("sibling.json", "sibling"),
         ):
             (self.workspace / filename).write_text(
-                f"""\
-version: "2.5"
-name: {workflow_name}
-steps:
-  - name: Done
-    command: [echo, done]
-""",
+                json.dumps(
+                    {
+                        "version": "2.5",
+                        "name": workflow_name,
+                        "steps": [{"name": "Done", "command": ["echo", "done"]}],
+                    },
+                    indent=2,
+                )
+                + "\n",
                 encoding="utf-8",
             )
-        path = self.workspace / "workflow.yml"
+        path = self.workspace / "workflow.json"
         path.write_text(
-            """\
-version: "2.5"
-name: unique-import-aliases
-imports:
-  on: child.yaml
-  sibling: sibling.yaml
-steps:
-  - name: Done
-    command: [echo, done]
-""",
+            json.dumps(
+                {
+                    "version": "2.5",
+                    "name": "unique-import-aliases",
+                    "imports": {
+                        "on": "child.json",
+                        "sibling": "sibling.json",
+                    },
+                    "steps": [{"name": "Done", "command": ["echo", "done"]}],
+                },
+                indent=2,
+            )
+            + "\n",
             encoding="utf-8",
         )
 
@@ -2481,7 +2060,7 @@ steps:
         assert any("repeat_until.on_exhausted.outputs.decision is invalid" in msg for msg in messages)
         assert any("repeat_until.on_exhausted.outputs.loop_exhausted is invalid" in msg for msg in messages)
 
-    def test_repeat_until_on_exhausted_rejects_ref_override_in_authored_yaml(self):
+    def test_repeat_until_on_exhausted_rejects_ref_override_in_public_mapping(self):
         """Authored YAML may not use ref-backed on_exhausted scalar overrides."""
         workflow = self._repeat_until_on_exhausted_workflow(
             on_exhausted={
@@ -2558,10 +2137,10 @@ steps:
 
     def test_repeat_until_body_accepts_nested_call_and_match(self):
         """repeat_until bodies may compose statement-layer call and match forms."""
-        library_path = self.workspace / "workflows" / "library" / "repeat_until_review_fixture.yaml"
+        library_path = self.workspace / "workflows" / "library" / "repeat_until_review_fixture.json"
         library_path.parent.mkdir(parents=True, exist_ok=True)
         library_path.write_text(
-            yaml.safe_dump(
+            json.dumps(
                 {
                     "version": "2.7",
                     "name": "repeat-until-review-loop",
@@ -2608,15 +2187,16 @@ steps:
                         }
                     ],
                 },
-                sort_keys=False,
-            ),
+                indent=2,
+            )
+            + "\n",
             encoding="utf-8",
         )
         workflow = {
             "version": "2.7",
             "name": "repeat-until-call-match",
             "imports": {
-                "review_loop": "workflows/library/repeat_until_review_fixture.yaml",
+                "review_loop": "workflows/library/repeat_until_review_fixture.json",
             },
             "artifacts": {
                 "review_decision": {
@@ -2771,9 +2351,9 @@ steps:
         """Frontend-generated loop/recur workflows should load through the shared repeat_until surface."""
         _enable_v214_loader(monkeypatch)
 
-        workflow_path = self.workspace / "loop_recur_minimal.yaml"
+        workflow_path = self.workspace / "loop_recur_minimal.json"
         workflow_path.write_text(
-            yaml.safe_dump(_compile_loop_recur_workflow(self.workspace), sort_keys=False),
+            json.dumps(_compile_loop_recur_workflow(self.workspace), indent=2) + "\n",
             encoding="utf-8",
         )
 
@@ -5577,7 +5157,7 @@ steps:
         assert any("variant_output.shared_fields[0] missing required 'type'" in str(err.message)
                    for err in exc_info.value.errors)
 
-    def test_output_bundle_rejects_collection_field_types_in_authored_yaml(self):
+    def test_output_bundle_rejects_collection_field_types_in_public_mapping(self):
         """Authored YAML DSL must not accept lowered-only collection schema types."""
         workflow = {
             "version": "1.3",
@@ -5605,7 +5185,7 @@ steps:
         assert any("output_bundle.fields[0] invalid output_bundle field type 'list'" in str(err.message)
                    for err in exc_info.value.errors)
 
-    def test_variant_output_rejects_collection_field_types_in_authored_yaml(self):
+    def test_variant_output_rejects_collection_field_types_in_public_mapping(self):
         """Authored YAML variant_output must also reject lowered-only collection schema types."""
         workflow = {
             "version": "2.14",

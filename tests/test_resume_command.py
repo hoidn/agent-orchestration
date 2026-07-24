@@ -2,7 +2,6 @@
 
 import os
 import json
-import logging
 import pytest
 from pathlib import Path
 import signal
@@ -1861,44 +1860,8 @@ def sample_workflow(temp_workspace):
     return workflow_path, checksum
 
 
-def test_persisted_yaml_resume_load_emits_no_authoring_deprecation(
+def test_persisted_orc_resume_rebuilds_compiled_bundle_dependency(
     temp_workspace,
-    sample_workflow,
-    caplog,
-):
-    workflow_path, _checksum = sample_workflow
-    run_id = "persisted-yaml-deprecation"
-    expected_bundle = WorkflowLoader(
-        temp_workspace,
-        emit_yaml_deprecation_warning=False,
-    ).load_bundle(workflow_path)
-    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
-    state_manager.initialize(
-        str(workflow_path),
-        context=bundle_context_dict(expected_bundle),
-    )
-
-    with caplog.at_level(
-        logging.WARNING,
-        logger="orchestrator.loader.yaml_deprecation",
-    ):
-        loaded = resume_command._load_resume_workflow_bundle(
-            workflow_path=workflow_path,
-            workspace_dir=temp_workspace,
-            run_root=state_manager.run_root,
-        )
-
-    assert loaded.bundle == expected_bundle
-    assert [
-        record
-        for record in caplog.records
-        if record.name == "orchestrator.loader.yaml_deprecation"
-    ] == []
-
-
-def test_persisted_orc_resume_yaml_bundle_dependency_emits_no_authoring_deprecation(
-    temp_workspace,
-    caplog,
 ):
     fixture_root = Path(__file__).resolve().parent / "fixtures" / "workflow_lisp"
     source_root = fixture_root / "modules" / "valid" / "imported_bundle_mix"
@@ -1941,23 +1904,17 @@ def test_persisted_orc_resume_yaml_bundle_dependency_emits_no_authoring_deprecat
         ),
     )
 
-    with caplog.at_level(
-        logging.WARNING,
-        logger="orchestrator.loader.yaml_deprecation",
-    ):
-        loaded = resume_command._load_resume_workflow_bundle(
-            workflow_path=workflow_path,
-            workspace_dir=temp_workspace,
-            run_root=run_root,
-        )
+    loaded = resume_command._load_resume_workflow_bundle(
+        workflow_path=workflow_path,
+        workspace_dir=temp_workspace,
+        run_root=run_root,
+    )
 
     assert loaded.bundle.surface.name.endswith("orchestrate")
-    assert loaded.bundle.imports["selector-run"].surface.name == "selector-run"
-    assert [
-        record
-        for record in caplog.records
-        if record.name == "orchestrator.loader.yaml_deprecation"
-    ] == []
+    assert (
+        loaded.bundle.imports["selector-run"].surface.name
+        == "imported_selector::selector-run"
+    )
 
 
 @pytest.fixture
@@ -2129,7 +2086,16 @@ def test_at4_resume_nonexistent_run(temp_workspace):
 
 def test_resume_rejects_pre_task6_schema_state(temp_workspace, sample_workflow, capsys):
     """Task 6 should reject resume from pre-identity-schema state without an upgrader."""
-    workflow_path, checksum = sample_workflow
+    fixture_path, _fixture_checksum = sample_workflow
+    workflow_path = temp_workspace / "old_schema_source.orc"
+    workflow_source = (
+        "(workflow-lisp\n"
+        '  (:language "0.1")\n'
+        '  (:target-dsl "2.14")\n'
+        "  (defworkflow old-schema () -> Bool true))\n"
+    )
+    workflow_path.write_text(workflow_source, encoding="utf-8")
+    checksum = f"sha256:{hashlib.sha256(workflow_source.encode()).hexdigest()}"
     run_id = "old-schema-run"
     state_dir = temp_workspace / '.orchestrate' / 'runs' / run_id
     state_dir.mkdir(parents=True)
@@ -2146,7 +2112,7 @@ def test_resume_rejects_pre_task6_schema_state(temp_workspace, sample_workflow, 
             "Step1": {"status": "completed", "exit_code": 0},
         },
     }, indent=2))
-    bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
+    bundle = WorkflowLoader(temp_workspace).load_bundle(fixture_path)
 
     with patch('os.getcwd', return_value=str(temp_workspace)), patch(
         'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
@@ -4281,47 +4247,26 @@ def test_projection_resume_schema_boundary_rejects_pre_v2_and_pre_2_1_call_state
 ) -> None:
     """`resume_workflow` rejects both historical schema boundaries pre-bundle."""
     run_id = f"projection-schema-{schema_version.replace('.', '-')}"
-    child_path = temp_workspace / "projection_schema_child.yaml"
+    child_path = temp_workspace / "projection_schema_child.orc"
     child_path.write_text(
-        json.dumps(
-            {
-                "version": workflow_version,
-                "name": "projection-schema-child",
-                "steps": [
-                    {
-                        "name": "ChildStep",
-                        "id": "child_step",
-                        "command": ["bash", "-lc", "true"],
-                    }
-                ],
-            },
-            sort_keys=False,
+        (
+            "(workflow-lisp\n"
+            '  (:language "0.1")\n'
+            f'  (:target-dsl "{workflow_version}")\n'
+            "  (defmodule projection-schema-child))\n"
         ),
         encoding="utf-8",
     )
-    workflow = {
-        "version": workflow_version,
-        "name": "projection-schema-root",
-        "steps": [
-            (
-                {
-                    "name": "InvokeChild",
-                    "id": "invoke_child",
-                    "call": "child",
-                }
-                if with_reusable_call
-                else {
-                    "name": "RootStep",
-                    "id": "root_step",
-                    "command": ["bash", "-lc", "true"],
-                }
-            )
-        ],
-    }
-    if with_reusable_call:
-        workflow["imports"] = {"child": child_path.name}
-    workflow_path = temp_workspace / "projection_schema_root.yaml"
-    workflow_path.write_text(json.dumps(workflow, sort_keys=False), encoding="utf-8")
+    workflow_path = temp_workspace / "projection_schema_root.orc"
+    workflow_path.write_text(
+        (
+            "(workflow-lisp\n"
+            '  (:language "0.1")\n'
+            f'  (:target-dsl "{workflow_version}")\n'
+            "  (defmodule projection-schema-root))\n"
+        ),
+        encoding="utf-8",
+    )
     manager = StateManager(temp_workspace, run_id=run_id)
     state = manager.initialize(workflow_path.name)
     state.schema_version = schema_version

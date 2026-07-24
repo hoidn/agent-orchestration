@@ -3,15 +3,15 @@
 import ast
 import builtins
 import importlib
+import json
 from pathlib import Path
 from types import MappingProxyType, ModuleType
 
 import pytest
-import yaml
 
 from orchestrator.exceptions import ValidationError, WorkflowValidationError
-from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from tests.workflow_fixture_loader import WorkflowLoader
 from tests.workflow_bundle_helpers import thaw_surface_workflow
 
 
@@ -231,7 +231,9 @@ def test_provider_call_policy_accepts_closed_string_mapping_for_workflow_lisp(
     assert dict(result.bundle.surface.steps[0].provider_call_policy or {}) == policy
 
 
-def test_yaml_reservation_rejects_internal_provider_call_policy(tmp_path: Path) -> None:
+def test_public_mapping_reservation_rejects_internal_provider_call_policy(
+    tmp_path: Path,
+) -> None:
     result = _validate_provider_policy(
         tmp_path,
         {"model": "gpt-5"},
@@ -245,7 +247,9 @@ def test_yaml_reservation_rejects_internal_provider_call_policy(tmp_path: Path) 
     )
 
 
-def test_yaml_reservation_rejects_provider_call_policy_bindings(tmp_path: Path) -> None:
+def test_public_mapping_reservation_rejects_provider_call_policy_bindings(
+    tmp_path: Path,
+) -> None:
     validation = _validation_module()
     mapping = _provider_policy_mapping({"model": "gpt-5"})
     del mapping["steps"][0]["provider_call_policy"]
@@ -255,7 +259,7 @@ def test_yaml_reservation_rejects_provider_call_policy_bindings(tmp_path: Path) 
     result = validation.validate_workflow_mapping(
         validation.WorkflowMappingBuildRequest(
             authored_mapping=mapping,
-            workflow_path=tmp_path / "provider-policy.yaml",
+            workflow_path=tmp_path / "provider-policy.fixture.json",
         ),
         options=_default_options(tmp_path),
     )
@@ -269,7 +273,7 @@ def test_shared_validation_builds_bundle_from_in_memory_mapping(tmp_path: Path) 
     result = validation.validate_workflow_mapping(
         validation.WorkflowMappingBuildRequest(
             authored_mapping=_minimal_mapping(),
-            workflow_path=tmp_path / "never-read.yaml",
+            workflow_path=tmp_path / "never-read.fixture.json",
         ),
         options=_default_options(tmp_path),
     )
@@ -346,7 +350,7 @@ def test_shared_validation_request_isolation(tmp_path: Path) -> None:
     assert first.errors == second.errors == ()
 
 
-def test_shared_validation_parser_isolation_has_no_yaml_or_authored_file_reads(
+def test_shared_validation_has_no_authored_file_reads(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -380,14 +384,16 @@ def test_shared_validation_parser_isolation_has_no_yaml_or_authored_file_reads(
     assert result.bundle is not None
 
 
-def test_shared_private_validator_is_not_a_frontend_dependency() -> None:
+def test_shared_private_validator_is_not_a_workflow_lisp_frontend_dependency() -> None:
     validation = _validation_module()
-    loader_source = Path(importlib.import_module("orchestrator.loader").__file__).read_text(
+    lowering_source = Path(
+        importlib.import_module("orchestrator.workflow_lisp.lowering.core").__file__
+    ).read_text(
         encoding="utf-8"
     )
 
     assert not hasattr(validation, "WorkflowMappingValidator")
-    assert "_WorkflowMappingValidator" not in loader_source
+    assert "_WorkflowMappingValidator" not in lowering_source
 
 
 def test_shared_validation_generated_step_policy_uses_same_actual_mapping(
@@ -418,28 +424,35 @@ def test_shared_validation_generated_step_policy_uses_same_actual_mapping(
         "pure_projection"
     ]
 
-    yaml_path = tmp_path / "generated.yaml"
-    yaml_path.write_text(
-        yaml.safe_dump(dict(generated_mapping), sort_keys=False),
-        encoding="utf-8",
-    )
-    dedicated_bundle = WorkflowLoader(
-        tmp_path,
-        boundary_validation_policy=(
-            validation.WorkflowBoundaryValidationPolicy.DEDICATED_RUNTIME_PROOF
+    dedicated_result = validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=generated_mapping,
+            workflow_path=tmp_path / "generated.fixture.json",
         ),
-    ).load_bundle(yaml_path)
-    assert [step.kind.value for step in dedicated_bundle.surface.steps] == [
+        options=validation.WorkflowMappingValidationOptions(
+            workspace_root=tmp_path,
+            boundary_validation_policy=(
+                validation.WorkflowBoundaryValidationPolicy.DEDICATED_RUNTIME_PROOF
+            ),
+        ),
+    )
+    assert dedicated_result.errors == ()
+    assert dedicated_result.bundle is not None
+    assert [step.kind.value for step in dedicated_result.bundle.surface.steps] == [
         "pure_projection"
     ]
 
-    with pytest.raises(WorkflowValidationError, match="compiler-generated only"):
-        WorkflowLoader(
-            tmp_path,
-            boundary_validation_policy=(
-                validation.WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
-            ),
-        ).load_bundle(yaml_path)
+    public_result = validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=generated_mapping,
+            workflow_path=tmp_path / "generated.fixture.json",
+        ),
+        options=_default_options(tmp_path),
+    )
+    assert public_result.bundle is None
+    assert any(
+        "compiler-generated only" in error.message for error in public_result.errors
+    )
 
 
 def test_shared_validation_rejects_imported_bundles_and_resolver_together(tmp_path: Path) -> None:
@@ -447,7 +460,7 @@ def test_shared_validation_rejects_imported_bundles_and_resolver_together(tmp_pa
     sentinel = MappingProxyType({})
     request = validation.WorkflowMappingBuildRequest(
         authored_mapping=_minimal_mapping(),
-        workflow_path=tmp_path / "workflow.yaml",
+        workflow_path=tmp_path / "workflow.fixture.json",
         imported_bundles={"child": sentinel},
         import_resolver=lambda *args, **kwargs: validation.WorkflowImportResolutionResult({}),
     )
@@ -462,23 +475,47 @@ def test_shared_validation_rejects_imported_bundles_and_resolver_together(tmp_pa
     )
 
 
-def test_shared_validation_contract_projects_yaml_bundle(tmp_path: Path) -> None:
-    workflow_path = tmp_path / "workflow.yaml"
+def test_shared_validation_contract_projects_json_fixture_bundle(tmp_path: Path) -> None:
+    workflow_path = tmp_path / "workflow.fixture.json"
     workflow_path.write_text(
-        'version: "2.14"\n'
-        "name: shared-validation-yaml\n"
-        "inputs:\n"
-        "  state_root: {type: relpath, under: state}\n"
-        "  steering_path: {type: relpath, under: docs, must_exist_target: true}\n"
-        "  design_path: {type: relpath, under: docs/plans, must_exist_target: true}\n"
-        "steps:\n"
-        "  - name: MaterializeInputs\n"
-        "    id: materialize_inputs\n"
-        "    materialize_artifacts:\n"
-        "      input_values:\n"
-        "        - names: [steering_path, design_path]\n"
-        "          contract: inherit\n"
-        '          pointer_template: "${inputs.state_root}/{name}.txt"\n',
+        json.dumps(
+            {
+                "version": "2.14",
+                "name": "shared-validation-json",
+                "inputs": {
+                    "state_root": {"type": "relpath", "under": "state"},
+                    "steering_path": {
+                        "type": "relpath",
+                        "under": "docs",
+                        "must_exist_target": True,
+                    },
+                    "design_path": {
+                        "type": "relpath",
+                        "under": "docs/plans",
+                        "must_exist_target": True,
+                    },
+                },
+                "steps": [
+                    {
+                        "name": "MaterializeInputs",
+                        "id": "materialize_inputs",
+                        "materialize_artifacts": {
+                            "input_values": [
+                                {
+                                    "names": ["steering_path", "design_path"],
+                                    "contract": "inherit",
+                                    "pointer_template": (
+                                        "${inputs.state_root}/{name}.txt"
+                                    ),
+                                }
+                            ]
+                        },
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -487,23 +524,23 @@ def test_shared_validation_contract_projects_yaml_bundle(tmp_path: Path) -> None
     stable_ids = ("root.materialize_inputs",)
 
     assert (bundle.surface.name, bundle.surface.version) == (
-        "shared-validation-yaml",
+        "shared-validation-json",
         "2.14",
     )
     assert (
         bundle.core_workflow_ast.schema_version,
         bundle.core_workflow_ast.workflow_name,
-    ) == ("core_workflow_ast.v1", "shared-validation-yaml")
+    ) == ("core_workflow_ast.v1", "shared-validation-json")
     assert bundle.semantic_ir.schema_version == "workflow_semantic_ir.v1"
-    assert tuple(sorted(bundle.semantic_ir.workflows)) == ("shared-validation-yaml",)
+    assert tuple(sorted(bundle.semantic_ir.workflows)) == ("shared-validation-json",)
     assert (bundle.ir.schema_version, bundle.ir.name) == (
         "workflow_executable_ir.v1",
-        "shared-validation-yaml",
+        "shared-validation-json",
     )
     assert tuple(sorted(bundle.ir.nodes)) == stable_ids
     assert (bundle.runtime_plan.schema_version, bundle.runtime_plan.workflow_name) == (
         "workflow_runtime_plan.v1",
-        "shared-validation-yaml",
+        "shared-validation-json",
     )
     assert bundle.runtime_plan.ordered_node_ids == stable_ids
     assert tuple(sorted(bundle.projection.entries_by_node_id)) == stable_ids
@@ -568,84 +605,10 @@ def test_shared_validation_contract_projects_real_orc_compile(tmp_path: Path) ->
     assert bundle.provenance.workflow_path == source_path.resolve()
 
 
-def test_orc_shared_validation_does_not_enter_legacy_yaml_loader(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "orchestrator.loader.WorkflowLoader.__init__",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("legacy YAML loader used")
-        ),
-    )
-    monkeypatch.setattr(
-        "orchestrator.loader.yaml.load",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("YAML parser used")
-        ),
-    )
-
-    result = compile_stage3_module(
-        FIXTURES / "defproc_inline.orc",
-        provider_externs={},
-        prompt_externs={},
-        command_boundaries={},
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    assert result.validated_bundles
-
-
-@pytest.mark.parametrize(
-    ("version_line", "imports", "expected_message"),
-    (
-        (
-            'version: "9.9"',
-            "",
-            "Unsupported version '9.9'",
-        ),
-        (
-            "version: 214",
-            "",
-            "'version' field must be a string, got int",
-        ),
-        (
-            'version: "2.14"',
-            "imports:\n  child: ../child.yaml\n",
-            "imports.child: asset path traversal outside the workflow source tree is not allowed",
-        ),
-    ),
-)
-def test_shared_validation_preserves_yaml_envelope_error_order(
-    tmp_path: Path,
-    version_line: str,
-    imports: str,
-    expected_message: str,
-) -> None:
-    workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(
-        f"{version_line}\n"
-        "name: invalid-envelope\n"
-        f"{imports}"
-        "steps:\n"
-        "  - name: Done\n"
-        "    command: [echo, done]\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(WorkflowValidationError) as exc_info:
-        WorkflowLoader(tmp_path).load_bundle(workflow_path)
-
-    assert expected_message in exc_info.value.errors[0].message
-
-
-def test_final_frontends_have_one_private_shared_mapping_validation_authority() -> None:
+def test_workflow_lisp_has_one_private_shared_mapping_validation_authority() -> None:
     validation_module = "orchestrator.workflow.validation"
-    loader_module = "orchestrator.loader"
     lowering_module = "orchestrator.workflow_lisp.lowering.core"
     validation_tree = _module_ast("orchestrator.workflow.validation")
-    loader_tree = _module_ast("orchestrator.loader")
     lowering_tree = _module_ast("orchestrator.workflow_lisp.lowering.core")
 
     validation_imports = _canonical_imported_symbols(
@@ -658,7 +621,8 @@ def test_final_frontends_have_one_private_shared_mapping_validation_authority() 
         for symbol in validation_imports
     )
     assert not any(
-        symbol == loader_module or symbol.startswith(f"{loader_module}.")
+        symbol == "orchestrator.loader"
+        or symbol.startswith("orchestrator.loader.")
         for symbol in validation_imports
     )
     assert not any(
@@ -666,34 +630,21 @@ def test_final_frontends_have_one_private_shared_mapping_validation_authority() 
         for symbol in lowering_imports
     )
     assert not any(
-        symbol == loader_module or symbol.startswith(f"{loader_module}.")
+        symbol == "orchestrator.loader"
+        or symbol.startswith("orchestrator.loader.")
         for symbol in lowering_imports
     )
 
-    for frontend_tree, frontend_module in (
-        (loader_tree, loader_module),
-        (lowering_tree, lowering_module),
-    ):
-        frontend_symbols = _canonical_imported_symbols(
-            frontend_tree,
-            frontend_module,
-        ) | _canonical_referenced_symbols(frontend_tree, frontend_module)
-        assert not any(
-            symbol == "_WorkflowMappingValidator"
-            or symbol.endswith("._WorkflowMappingValidator")
-            for symbol in frontend_symbols
-        )
+    lowering_symbols = _canonical_imported_symbols(
+        lowering_tree,
+        lowering_module,
+    ) | _canonical_referenced_symbols(lowering_tree, lowering_module)
+    assert not any(
+        symbol == "_WorkflowMappingValidator"
+        or symbol.endswith("._WorkflowMappingValidator")
+        for symbol in lowering_symbols
+    )
 
-    loader_entry = next(
-        node
-        for node in loader_tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "WorkflowLoader"
-    )
-    loader_mapping_entry = next(
-        node
-        for node in loader_entry.body
-        if isinstance(node, ast.FunctionDef) and node.name == "_load_workflow"
-    )
     lowering_entry = next(
         node
         for node in lowering_tree.body
@@ -703,16 +654,10 @@ def test_final_frontends_have_one_private_shared_mapping_validation_authority() 
     validator_entry = f"{validation_module}.validate_workflow_mapping"
     builder = "orchestrator.workflow.lowering.build_loaded_workflow_bundle"
     assert _canonical_called_symbols(
-        loader_mapping_entry,
-        loader_module,
-        import_tree=loader_tree,
-    ).count(validator_entry) == 1
-    assert _canonical_called_symbols(
         lowering_entry,
         lowering_module,
         import_tree=lowering_tree,
     ).count(validator_entry) == 1
-    assert builder not in _canonical_called_symbols(loader_tree, loader_module)
     assert builder not in _canonical_called_symbols(lowering_tree, lowering_module)
 
     shared_entry = next(
@@ -730,22 +675,22 @@ def test_final_frontends_have_one_private_shared_mapping_validation_authority() 
 
 def test_ast_authority_helpers_resolve_aliases_and_qualified_attributes() -> None:
     tree = ast.parse(
-        "import yaml as document_parser\n"
+        "import json as document_parser\n"
         "import orchestrator.workflow.validation as shared\n"
         "from orchestrator.workflow.lowering import "
         "build_loaded_workflow_bundle as assemble\n"
-        "document_parser.load(payload)\n"
+        "document_parser.loads(payload)\n"
         "shared._WorkflowMappingValidator(request, options)\n"
         "assemble(surface)\n"
     )
 
     assert _canonical_imported_symbols(tree, "example.frontend") == {
-        "yaml",
+        "json",
         "orchestrator.workflow.validation",
         "orchestrator.workflow.lowering.build_loaded_workflow_bundle",
     }
     assert _canonical_called_symbols(tree, "example.frontend") == [
-        "yaml.load",
+        "json.loads",
         "orchestrator.workflow.validation._WorkflowMappingValidator",
         "orchestrator.workflow.lowering.build_loaded_workflow_bundle",
     ]
@@ -839,8 +784,6 @@ def test_shared_validator_policy_has_one_request_bound_authority(
     assert not any(
         symbol == default_name
         or symbol.endswith(f".{default_name}")
-        or symbol == "WorkflowLoader"
-        or symbol.endswith(".WorkflowLoader")
         for symbol in validator_references
     )
 
@@ -872,43 +815,6 @@ def test_generated_step_admission_remains_derived_from_frontend_and_boundary_pol
         expected,
         include_attributes=False,
     )
-
-
-def test_yaml_parsing_precedes_exactly_one_shared_mapping_validation_call(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import orchestrator.loader as loader_module
-
-    workflow_path = tmp_path / "workflow.yaml"
-    workflow_path.write_text(
-        'version: "2.14"\nname: parser-order\nsteps:\n'
-        "  - name: Done\n    command: [echo, done]\n",
-        encoding="utf-8",
-    )
-    parsed = False
-    calls = 0
-    real_yaml_load = loader_module.yaml.load
-    real_validate = loader_module.validate_workflow_mapping
-
-    def capture_parse(*args, **kwargs):
-        nonlocal parsed
-        parsed = True
-        return real_yaml_load(*args, **kwargs)
-
-    def capture_validation(request, *, options):
-        nonlocal calls
-        assert parsed
-        calls += 1
-        return real_validate(request, options=options)
-
-    monkeypatch.setattr(loader_module.yaml, "load", capture_parse)
-    monkeypatch.setattr(loader_module, "validate_workflow_mapping", capture_validation)
-
-    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-
-    assert bundle.surface.name == "parser-order"
-    assert calls == 1
 
 
 def test_persisted_dashboard_typed_surface_does_not_use_fresh_frontends_or_source(
@@ -959,14 +865,12 @@ def test_persisted_dashboard_typed_surface_does_not_use_fresh_frontends_or_sourc
         "orchestrator.workflow.elaboration.elaborate_surface_workflow",
         "orchestrator.workflow.validation.elaborate_surface_workflow",
         "orchestrator.workflow.validation.validate_workflow_mapping",
-        "orchestrator.loader.validate_workflow_mapping",
         "orchestrator.workflow.lowering.build_loaded_workflow_bundle",
         "orchestrator.workflow.validation.build_loaded_workflow_bundle",
         "orchestrator.workflow.executable_ir.validate_executable_workflow",
         "orchestrator.workflow.lowering.validate_executable_workflow",
         "orchestrator.workflow.runtime_plan.derive_workflow_runtime_plan",
         "orchestrator.workflow.lowering.derive_workflow_runtime_plan",
-        "orchestrator.loader.yaml.load",
     )
 
     def resolve_dotted_target(target: str) -> object:
@@ -1042,7 +946,7 @@ def test_persisted_dashboard_typed_surface_does_not_use_fresh_frontends_or_sourc
     assert set(structure.nodes) == {
         "neurips/entry::orchestrate",
         "neurips/helper::provider-attempt",
-        "selector-run",
+        "imported_selector::selector-run",
     }
     assert isinstance(structure.nodes, MappingProxyType)
     with pytest.raises(TypeError):

@@ -10,7 +10,6 @@ from unittest.mock import patch
 
 import yaml
 
-from orchestrator.loader import WorkflowLoader
 from orchestrator.contracts.prompt_contract import render_variant_output_contract_block
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
@@ -22,6 +21,7 @@ from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from tests.workflow_fixture_loader import WorkflowLoader
 from tests.workflow_bundle_helpers import _thaw, bundle_context_dict
 from tests.test_workflow_lisp_native_returns_e2e import (
     _compile_guidance_runtime_bundle,

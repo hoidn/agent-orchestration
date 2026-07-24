@@ -10,17 +10,20 @@ import pytest
 import yaml
 
 from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block
-from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.prompting import PromptComposer
 from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from tests.workflow_fixture_loader import WorkflowLoader
 
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
-    workflow_file = workspace / "workflow.yaml"
-    workflow_file.write_text(yaml.dump(workflow))
+    workflow_file = workspace / "workflow.json"
+    workflow_file.write_text(
+        json.dumps(workflow, indent=2) + "\n",
+        encoding="utf-8",
+    )
     return workflow_file
 
 
@@ -501,7 +504,7 @@ def test_yaml_dependency_modes_remain_mapping_driven_without_typed_evidence(
     }
     loaded = WorkflowLoader(tmp_path).load(_write_workflow(tmp_path, workflow))
     manager = StateManager(tmp_path, run_id=f"yaml-{mode}-control")
-    manager.initialize("workflow.yaml")
+    manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, manager)
     prompts: list[str] = []
 
@@ -572,7 +575,7 @@ def test_content_dependency_retry_takes_one_fresh_snapshot_and_render_per_attemp
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     manager = StateManager(workspace=tmp_path, run_id="retry-content")
-    manager.initialize("workflow.yaml")
+    manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, manager)
 
     import orchestrator.workflow.prompting as prompting
@@ -1395,7 +1398,7 @@ def test_provider_expected_outputs_appends_contract_block_to_prompt(tmp_path: Pa
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}
@@ -1500,7 +1503,7 @@ def test_provider_variant_output_appends_variant_contract_block_to_prompt(tmp_pa
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}
@@ -1586,7 +1589,7 @@ def test_provider_variant_output_receives_runtime_bundle_env(tmp_path: Path, mon
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"env": {}}
@@ -1654,7 +1657,7 @@ def test_provider_variant_output_wrong_bundle_path_fails_contract(tmp_path: Path
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     def _prepare_invocation(*args, **kwargs):
@@ -1771,7 +1774,7 @@ def test_provider_expected_outputs_prompt_uses_resolved_path_templates(tmp_path:
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
     state_manager.initialize(
-        "workflow.yaml",
+        "workflow.json",
         bound_inputs={"state_root": "state/run-root"},
     )
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
@@ -1856,7 +1859,7 @@ def test_provider_output_bundle_appends_contract_block_with_resolved_path(tmp_pa
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
     state_manager.initialize(
-        "workflow.yaml",
+        "workflow.json",
         bound_inputs={"state_root": "state/run-root"},
     )
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
@@ -1960,7 +1963,7 @@ def test_provider_output_bundle_receives_runtime_bundle_env(tmp_path: Path):
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
     state_manager.initialize(
-        "workflow.yaml",
+        "workflow.json",
         bound_inputs={"state_root": "state/run-root"},
     )
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
@@ -2040,7 +2043,7 @@ def test_provider_output_bundle_schema_mismatch(tmp_path: Path):
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml", bound_inputs={"state_root": "state/run-root"})
+    state_manager.initialize("workflow.json", bound_inputs={"state_root": "state/run-root"})
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"env": {}}
@@ -2120,7 +2123,7 @@ def test_provider_output_bundle_stale_input(tmp_path: Path):
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="fresh-run")
-    state_manager.initialize("workflow.yaml", bound_inputs={"state_root": "state/run-root"})
+    state_manager.initialize("workflow.json", bound_inputs={"state_root": "state/run-root"})
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     def _prepare_invocation(*args, **kwargs):
@@ -2188,7 +2191,7 @@ def test_provider_output_bundle_missing_bundle(tmp_path: Path):
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml", bound_inputs={"state_root": "state/run-root"})
+    state_manager.initialize("workflow.json", bound_inputs={"state_root": "state/run-root"})
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     def _prepare_invocation(*args, **kwargs):
@@ -2627,7 +2630,7 @@ def test_provider_output_bundle_root_result_appends_json_value_contract_and_pers
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml", bound_inputs={"state_root": "state/run-root"})
+    state_manager.initialize("workflow.json", bound_inputs={"state_root": "state/run-root"})
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": "", "env": {}}
@@ -2738,7 +2741,7 @@ def test_provider_variant_output_shared_fields_render_once(tmp_path: Path) -> No
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}
@@ -3070,7 +3073,7 @@ def test_provider_session_resume_excludes_reserved_session_consume_from_prompt(t
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}
@@ -3134,7 +3137,7 @@ def test_output_contract_block_includes_guidance_fields(tmp_path: Path):
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}
@@ -3198,7 +3201,7 @@ def test_inject_output_contract_false_disables_prompt_suffix(tmp_path: Path):
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}
@@ -3257,7 +3260,7 @@ def test_command_steps_ignore_inject_output_contract(tmp_path: Path):
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
     state = executor.execute()
 
@@ -3326,7 +3329,7 @@ def test_provider_consumes_appends_consumed_artifacts_block_by_default(tmp_path:
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}
@@ -3421,7 +3424,7 @@ def test_provider_consumes_injection_still_works_in_v1_4(tmp_path: Path):
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}
@@ -3517,7 +3520,7 @@ def test_inject_consumes_false_disables_consumes_block(tmp_path: Path):
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}
@@ -3607,7 +3610,7 @@ def test_consumes_injection_position_append_places_block_after_prompt(tmp_path: 
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}
@@ -3731,7 +3734,7 @@ def test_prompt_consumes_injects_only_selected_artifacts(tmp_path: Path):
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}
@@ -3854,7 +3857,7 @@ def test_prompt_consumes_includes_guidance_fields_for_selected_artifacts(tmp_pat
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}
@@ -3975,7 +3978,7 @@ def test_missing_prompt_consumes_injects_all_consumed_artifacts(tmp_path: Path):
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}
@@ -4066,7 +4069,7 @@ def test_prompt_consumes_empty_list_injects_no_consumed_artifacts_block(tmp_path
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}
@@ -4318,7 +4321,7 @@ def test_provider_execute_falls_back_when_stream_output_kwarg_unsupported(tmp_pa
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     def _prepare_invocation(*args, **kwargs):
@@ -4395,7 +4398,7 @@ def test_provider_prompt_injection_renders_scalar_consumed_value(tmp_path: Path)
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}
@@ -4485,7 +4488,7 @@ def test_v2_nested_provider_prompt_consumes_uses_iteration_scoped_consume_identi
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
-    state_manager.initialize("workflow.yaml")
+    state_manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
 
     captured = {"prompt": ""}

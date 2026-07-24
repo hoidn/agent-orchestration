@@ -144,9 +144,9 @@ def _orc_compile_args(
     )
 
 
-def _yaml_run_args(
+def _legacy_run_args(
     *,
-    workflow: Path = CLI_FIXTURES / "imported_selector.yaml",
+    workflow: Path = Path("legacy-workflow.yaml"),
     dry_run: bool = True,
     input_values: list[str] | None = None,
 ) -> Namespace:
@@ -757,12 +757,15 @@ def test_run_workflow_kiss_backlog_item_dry_run_accepts_only_typed_backlog_input
     assert result == 0
 
 
-def test_run_workflow_yaml_dry_run_requires_bound_inputs(tmp_path: Path, monkeypatch) -> None:
+def test_run_workflow_rejects_non_orc_before_creating_state(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     monkeypatch.chdir(tmp_path)
 
-    result = run_workflow(_yaml_run_args())
+    result = run_workflow(_legacy_run_args())
 
-    assert result == 2
+    assert result == 1
     assert not (tmp_path / ".orchestrate" / "runs").exists()
 
 
@@ -1125,7 +1128,7 @@ def test_compile_workflow_rejects_non_orc_inputs_with_frontend_diagnostic(
     with caplog.at_level("ERROR"):
         result = compile_workflow(
             Namespace(
-                workflow=str(CLI_FIXTURES / "imported_selector.yaml"),
+                workflow="legacy-workflow.yaml",
                 entry_workflow=None,
                 source_root=None,
                 provider_externs_file=None,
@@ -1168,7 +1171,7 @@ def test_explain_workflow_rejects_non_orc_inputs_with_frontend_diagnostic(
     with caplog.at_level("ERROR"):
         result = explain_workflow(
             Namespace(
-                workflow=str(CLI_FIXTURES / "imported_selector.yaml"),
+                workflow="legacy-workflow.yaml",
                 form=None,
                 entry_workflow=None,
                 source_root=None,
