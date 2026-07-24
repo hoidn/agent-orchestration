@@ -25,8 +25,15 @@ groups, tmux, Workflow Lisp WCC schema 2, executable IR v1, state schema 2.1,
 pytest/pytest-xdist.
 
 **Accepted design:** `docs/design/workflow_lisp_provider_live_binding.md` at
-commit `99404956`, content digest
+commit `afd0fec5`, content digest
+`sha256:e88578cb2b3d02e6dc74ec52234d8ea66efecdcf049812d84086f579933e5b17`.
+
+**Historical behavior simulation:** The T3 report remains truthful historical
+evidence for the pre-clarification design bytes at `99404956` /
 `sha256:9c2a2f333eb277154c8a98a0897cf9b390339a42fcf8a7702ce5582824ada113`.
+The clarified design above is the current implementation authority; the
+historical simulation does not override its observable cancellation
+linearization rule.
 
 **Status:** Reviewed and approved for execution on 2026-07-23.
 
