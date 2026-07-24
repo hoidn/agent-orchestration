@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import yaml
+from neurips_markdown_frontmatter import parse_scalar_list_frontmatter
 
 
 REPO_ROOT = Path.cwd()
@@ -51,10 +51,8 @@ def _parse_frontmatter_and_body(path: Path) -> tuple[dict[str, Any], str]:
     end = text.find("\n---\n", 4)
     if end == -1:
         raise SystemExit(f"Missing frontmatter end fence: {path}")
-    parsed = yaml.safe_load(text[4:end]) or {}
-    if not isinstance(parsed, dict):
-        raise SystemExit(f"Frontmatter must be a mapping: {path}")
-    return {str(key): value for key, value in parsed.items()}, text[end + len("\n---\n") :].strip()
+    parsed = parse_scalar_list_frontmatter(text[4:end], path)
+    return parsed, text[end + len("\n---\n") :].strip()
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

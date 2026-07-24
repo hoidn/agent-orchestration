@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import yaml
+from neurips_markdown_frontmatter import parse_scalar_list_frontmatter
 
 
 REPO_ROOT = Path.cwd()
@@ -57,18 +57,12 @@ def _string_list(payload: dict[str, Any], key: str, *, required: bool = False) -
 def _parse_frontmatter(path: Path) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---\n"):
-        raise SystemExit(f"Backlog item missing YAML frontmatter start fence: {path}")
+        raise SystemExit(f"Backlog item missing frontmatter start fence: {path}")
     end = text.find("\n---\n", 4)
     if end == -1:
-        raise SystemExit(f"Backlog item missing YAML frontmatter end fence: {path}")
+        raise SystemExit(f"Backlog item missing frontmatter end fence: {path}")
 
-    try:
-        parsed = yaml.safe_load(text[4:end]) or {}
-    except yaml.YAMLError as exc:
-        raise SystemExit(f"Malformed YAML frontmatter in {path}: {exc}") from exc
-    if not isinstance(parsed, dict):
-        raise SystemExit(f"YAML frontmatter must be a mapping: {path}")
-    return {str(key): value for key, value in parsed.items()}
+    return parse_scalar_list_frontmatter(text[4:end], path)
 
 
 def _write_validation_failure(output_path: Path, reason: str) -> None:

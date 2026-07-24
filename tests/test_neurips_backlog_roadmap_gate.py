@@ -481,6 +481,7 @@ related_roadmap_phases:
     subprocess.run(
         [
             sys.executable,
+            "-S",
             str(BUILD_SCRIPT),
             "--backlog-root",
             "docs/backlog/active",
@@ -574,6 +575,7 @@ related_roadmap_phases:
     subprocess.run(
         [
             sys.executable,
+            "-S",
             str(VALIDATE_GAP_DRAFT_SCRIPT),
             "--gap-request-path",
             gap_request.relative_to(tmp_path).as_posix(),

@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 
-import yaml
+from neurips_markdown_frontmatter import parse_scalar_list_frontmatter
 
 
 REPO_ROOT = Path.cwd()
@@ -46,13 +46,8 @@ def _parse_frontmatter_and_body(path: Path) -> tuple[dict[str, object], str]:
     if end == -1:
         raise SystemExit(f"Missing frontmatter end fence: {path}")
 
-    try:
-        parsed = yaml.safe_load(text[4:end]) or {}
-    except yaml.YAMLError as exc:
-        raise SystemExit(f"Malformed YAML frontmatter in {path}: {exc}") from exc
-    if not isinstance(parsed, dict):
-        raise SystemExit(f"YAML frontmatter must be a mapping: {path}")
-    return {str(key): value for key, value in parsed.items()}, text[end + len("\n---\n") :].strip()
+    parsed = parse_scalar_list_frontmatter(text[4:end], path)
+    return parsed, text[end + len("\n---\n") :].strip()
 
 
 def main() -> int:

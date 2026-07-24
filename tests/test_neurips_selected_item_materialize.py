@@ -304,6 +304,7 @@ related_roadmap_phases:
     result = subprocess.run(
         [
             sys.executable,
+            "-S",
             str(MATERIALIZE_SCRIPT),
             "--selection-path",
             selection_path.relative_to(tmp_path).as_posix(),

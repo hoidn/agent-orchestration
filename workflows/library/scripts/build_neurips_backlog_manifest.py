@@ -8,32 +8,20 @@ import json
 from pathlib import Path
 from typing import Any
 
-import yaml
+from neurips_markdown_frontmatter import parse_scalar_list_frontmatter
 
 
 REPO_ROOT = Path.cwd()
 
 
-def _strip_wrapping_quotes(value: str) -> str:
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-        return value[1:-1]
-    return value
-
-
 def _parse_frontmatter(text: str, source_path: Path) -> dict:
     if not text.startswith("---\n"):
-        raise SystemExit(f"Backlog item missing YAML frontmatter start fence: {source_path}")
+        raise SystemExit(f"Backlog item missing frontmatter start fence: {source_path}")
     end = text.find("\n---\n", 4)
     if end == -1:
-        raise SystemExit(f"Backlog item missing YAML frontmatter end fence: {source_path}")
+        raise SystemExit(f"Backlog item missing frontmatter end fence: {source_path}")
 
-    try:
-        parsed = yaml.safe_load(text[4:end]) or {}
-    except yaml.YAMLError as exc:
-        raise SystemExit(f"Malformed YAML frontmatter in {source_path}: {exc}") from exc
-    if not isinstance(parsed, dict):
-        raise SystemExit(f"YAML frontmatter must be a mapping: {source_path}")
-    payload: dict[str, object] = {str(key): value for key, value in parsed.items()}
+    payload = parse_scalar_list_frontmatter(text[4:end], source_path)
     payload["_body"] = text[end + len("\n---\n") :]
     return payload
 

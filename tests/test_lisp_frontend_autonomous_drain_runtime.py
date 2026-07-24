@@ -325,6 +325,7 @@ def test_materializer_normalizes_backlog_selection(tmp_path):
 
     _run_script(
         workspace,
+        "-S",
         str(ROOT / "workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py"),
         "--selection-path",
         selection_path.relative_to(workspace).as_posix(),
