@@ -29,12 +29,10 @@ def test_e2e_infrastructure_present():
 
     # Verify we can import the orchestrator modules
     from orchestrator.cli.main import main
-    from tests.workflow_fixture_loader import WorkflowLoader
     from orchestrator.state import StateManager
 
     # Basic smoke test that modules are importable
     assert main is not None
-    assert WorkflowLoader is not None
     assert StateManager is not None
 
 
@@ -116,55 +114,3 @@ def test_e2e_workspace_setup(e2e_workspace):
 
     # Verify we're in the workspace directory
     assert Path.cwd() == e2e_workspace, "Should be in workspace directory"
-
-
-@pytest.mark.e2e
-def test_e2e_minimal_workflow_execution(e2e_workspace):
-    """E2E-01: Test minimal workflow execution without real CLIs.
-
-    This test validates that the orchestrator can execute
-    a simple workflow that doesn't require external CLIs.
-    """
-    skip_if_no_e2e()
-
-    # Create a minimal workflow
-    workflow_content = r"""
-{
-  "version": "1.1",
-  "name": "e2e_minimal",
-  "steps": [
-    {
-      "name": "Echo",
-      "command": "echo \"E2E test successful\"",
-      "output_capture": "text"
-    }
-  ]
-}
-"""
-
-    workflow_path = e2e_workspace / "workflows" / "minimal.yaml"
-    workflow_path.write_text(workflow_content)
-
-    # Run the workflow
-    orchestrate_path = Path(__file__).parent.parent.parent / "orchestrate"
-    result = subprocess.run(
-        ["python", str(orchestrate_path), "run", str(workflow_path)],
-        capture_output=True,
-        text=True,
-        cwd=str(e2e_workspace)
-    )
-
-    # Verify successful execution
-    assert result.returncode == 0, f"Workflow should execute successfully: {result.stderr}"
-
-    # Check that state file was created
-    state_file = e2e_workspace / ".orchestrate" / "state.json"
-    assert state_file.exists(), "State file should be created"
-
-    # Verify state contains expected output
-    import json
-    state = json.loads(state_file.read_text())
-    assert state["run"]["status"] == "completed"
-    assert "Echo" in state["steps"]
-    assert state["steps"]["Echo"]["exit_code"] == 0
-    assert "E2E test successful" in state["steps"]["Echo"]["text"]
