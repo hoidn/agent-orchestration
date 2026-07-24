@@ -336,27 +336,36 @@ class CodexExecJsonlAccumulator:
     ) -> tuple[Mapping[str, Any] | None, Mapping[str, Any] | None]: ...
 ```
 
-- [ ] Write RED tests for arbitrary split/coalesced JSONL chunks, one EOF tail,
+- [x] Write RED tests for arbitrary split/coalesced JSONL chunks, one EOF tail,
   `thread.started.thread_id`, retained `session_id`, cross-key conflict,
   changing/malformed IDs, nested `item.completed.item` agent text, exact
   `turn.completed|response.completed`, and rejection of suffix/status/generic
   terminal lookalikes.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_provider_session_transport.py`
   and confirm failures are missing codec behavior rather than fixture errors.
-- [ ] Implement the accumulator and metadata-mode factory without provider-name
+- [x] Implement the accumulator and metadata-mode factory without provider-name
   branches.
-- [ ] Replace the streaming/final parser divergence in
+- [x] Replace the streaming/final parser divergence in
   `ProviderExecutor` with one accumulator; preserve `_parse_codex_jsonl_transport`
   as a compatibility delegator if current tests call it.
-- [ ] Ensure the callback feeds the accumulator even when
+- [x] Ensure the callback feeds the accumulator even when
   `stream_output=False`; raw stdout stays byte-identical.
-- [ ] Run:
+- [x] Run:
   `pytest -q tests/test_provider_session_transport.py tests/test_provider_execution.py -k 'session or codex_jsonl'`.
-- [ ] Run:
+- [x] Run:
   `pytest --collect-only -q tests/test_provider_session_transport.py`.
-- [ ] Complete specification review, quality review, and commit:
+- [x] Complete specification review, quality review, and commit:
   `Parse real provider session transport consistently`.
+
+**Task 1 evidence (2026-07-23):** Initial implementation `59326044`;
+specification corrections `646f9d03`; quality corrections `02e9e5b7`.
+Observed RED: 30 missing-contract failures before production edits, followed
+by focused RED reproductions for spool independence, non-string terminal
+values, immutable snapshots, lone-surrogate text, and invalid EOF tails.
+Final verification: 59 passed/20 deselected in the required selector, 34/34
+in the full adjacent provider-execution module, and 45 tests collected.
+Independent verdicts: `SPEC_COMPLIANT`; `APPROVED`.
 
 ### Task 2: Generic Cancellable Provider Execution
 
