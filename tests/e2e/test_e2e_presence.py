@@ -8,6 +8,7 @@ This test validates that:
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -45,17 +46,13 @@ def test_e2e_cli_detection():
     """
     skip_if_no_e2e()
 
-    # Check for orchestrate CLI
-    orchestrate_path = Path(__file__).parent.parent.parent / "orchestrate"
-    assert orchestrate_path.exists(), f"orchestrate CLI script should exist at {orchestrate_path}"
-
-    # Test that we can run orchestrate --help
+    # Test the installed module entry point.
     result = subprocess.run(
-        ["python", str(orchestrate_path), "--help"],
+        [sys.executable, "-m", "orchestrator", "--help"],
         capture_output=True,
         text=True
     )
-    assert result.returncode == 0, f"orchestrate --help should succeed: {result.stderr}"
+    assert result.returncode == 0, f"orchestrator --help should succeed: {result.stderr}"
     assert "Multi-Agent Orchestration System" in result.stdout
 
 
