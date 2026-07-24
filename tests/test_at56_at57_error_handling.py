@@ -244,7 +244,7 @@ class TestErrorHandling:
         "exit",
         "1"
       ],
-      "true": {
+      "on": {
         "failure": {
           "goto": "recovery"
         }
@@ -325,7 +325,7 @@ class TestErrorHandling:
         "echo",
         "Step 1"
       ],
-      "true": {
+      "on": {
         "success": {
           "goto": "final"
         }
@@ -395,7 +395,7 @@ class TestErrorHandling:
         "exit",
         "1"
       ],
-      "true": {
+      "on": {
         "failure": {
           "goto": "recovery"
         },
@@ -469,7 +469,7 @@ class TestErrorHandling:
         "echo",
         "Step 1"
       ],
-      "true": {
+      "on": {
         "success": {
           "goto": "_end"
         }

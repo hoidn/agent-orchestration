@@ -2,6 +2,7 @@
 
 import pytest
 from pathlib import Path
+import json
 import tempfile
 
 from tests.workflow_fixture_loader import WorkflowLoader
@@ -38,7 +39,7 @@ def test_at71_retries_exhausted_triggers_failure_goto(temp_workspace):
         "exit 1"
       ],
       "retries": 2,
-      "true": {
+      "on": {
         "failure": {
           "goto": "ErrorHandler"
         }
@@ -212,7 +213,7 @@ def test_at71_provider_retries_with_failure_goto(temp_workspace):
     {
       "name": "FailingProviderStep",
       "provider": "failing_provider",
-      "true": {
+      "on": {
         "failure": {
           "goto": "ProviderErrorHandler"
         }
@@ -287,7 +288,7 @@ def test_at71_no_retries_immediate_failure_goto(temp_workspace):
         "-c",
         "exit 42"
       ],
-      "true": {
+      "on": {
         "failure": {
           "goto": "ImmediateHandler"
         }
