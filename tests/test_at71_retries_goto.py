@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 import tempfile
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
 
@@ -25,24 +25,43 @@ def test_at71_retries_exhausted_triggers_failure_goto(temp_workspace):
     the on.failure.goto handler is triggered.
     """
     # Create a workflow with retries and failure goto
-    workflow_content = """
-version: "1.1"
-name: Test Retries with Failure Goto
-steps:
-  - name: FailingStep
-    command: ["sh", "-c", "exit 1"]  # Always fails
-    retries: 2  # Will retry twice
-    on:
-      failure:
-        goto: ErrorHandler
-
-  - name: NormalStep
-    command: ["echo", "This should be skipped"]
-    output_capture: text
-
-  - name: ErrorHandler
-    command: ["echo", "Handling error after retries exhausted"]
-    output_capture: text
+    workflow_content = r"""
+{
+  "version": "1.1",
+  "name": "Test Retries with Failure Goto",
+  "steps": [
+    {
+      "name": "FailingStep",
+      "command": [
+        "sh",
+        "-c",
+        "exit 1"
+      ],
+      "retries": 2,
+      "true": {
+        "failure": {
+          "goto": "ErrorHandler"
+        }
+      }
+    },
+    {
+      "name": "NormalStep",
+      "command": [
+        "echo",
+        "This should be skipped"
+      ],
+      "output_capture": "text"
+    },
+    {
+      "name": "ErrorHandler",
+      "command": [
+        "echo",
+        "Handling error after retries exhausted"
+      ],
+      "output_capture": "text"
+    }
+  ]
+}
 """
     workflow_path = temp_workspace / "retry_goto_workflow.yaml"
     workflow_path.write_text(workflow_content)
@@ -102,30 +121,32 @@ fi
     script_path.write_text(script_content)
     script_path.chmod(0o755)
 
-    workflow_content = f"""
-version: "1.1"
-name: Test Retries Success No Goto
-steps:
-  - name: RetrySuccessStep
-    command: ["{script_path}"]
-    output_capture: text
-    retries: 2
-    on:
-      failure:
-        goto: ErrorHandler
-
-  - name: NormalStep
-    command: ["echo", "Normal execution continues"]
-    output_capture: text
-
-  - name: ErrorHandler
-    command: ["echo", "This should NOT be executed"]
-    output_capture: text
-    when:
-      equals:
-        left: "1"
-        right: "0"  # Never true - this step should only run via goto
-"""
+    workflow_content = json.dumps(
+        {
+            "version": "1.1",
+            "name": "Test Retries Success No Goto",
+            "steps": [
+                {
+                    "name": "RetrySuccessStep",
+                    "command": [str(script_path)],
+                    "output_capture": "text",
+                    "retries": 2,
+                    "on": {"failure": {"goto": "ErrorHandler"}},
+                },
+                {
+                    "name": "NormalStep",
+                    "command": ["echo", "Normal execution continues"],
+                    "output_capture": "text",
+                },
+                {
+                    "name": "ErrorHandler",
+                    "command": ["echo", "This should NOT be executed"],
+                    "output_capture": "text",
+                    "when": {"equals": {"left": "1", "right": "0"}},
+                },
+            ],
+        }
+    )
     workflow_path = temp_workspace / "retry_success_workflow.yaml"
     workflow_path.write_text(workflow_content)
 
@@ -173,28 +194,47 @@ def test_at71_provider_retries_with_failure_goto(temp_workspace):
     Provider steps have default retry behavior (retry on exit codes 1 and 124).
     """
     # Create a failing provider template
-    workflow_content = """
-version: "1.1"
-name: Test Provider Retries with Goto
-
-providers:
-  failing_provider:
-    command: ["sh", "-c", "echo 'Provider failed' && exit 1"]
-    input_mode: argv
-
-steps:
-  - name: FailingProviderStep
-    provider: failing_provider
-    on:
-      failure:
-        goto: ProviderErrorHandler
-
-  - name: SkippedStep
-    command: ["echo", "This should be skipped"]
-
-  - name: ProviderErrorHandler
-    command: ["echo", "Handling provider error after retries"]
-    output_capture: text
+    workflow_content = r"""
+{
+  "version": "1.1",
+  "name": "Test Provider Retries with Goto",
+  "providers": {
+    "failing_provider": {
+      "command": [
+        "sh",
+        "-c",
+        "echo 'Provider failed' && exit 1"
+      ],
+      "input_mode": "argv"
+    }
+  },
+  "steps": [
+    {
+      "name": "FailingProviderStep",
+      "provider": "failing_provider",
+      "true": {
+        "failure": {
+          "goto": "ProviderErrorHandler"
+        }
+      }
+    },
+    {
+      "name": "SkippedStep",
+      "command": [
+        "echo",
+        "This should be skipped"
+      ]
+    },
+    {
+      "name": "ProviderErrorHandler",
+      "command": [
+        "echo",
+        "Handling provider error after retries"
+      ],
+      "output_capture": "text"
+    }
+  ]
+}
 """
     workflow_path = temp_workspace / "provider_retry_goto.yaml"
     workflow_path.write_text(workflow_content)
@@ -235,23 +275,41 @@ def test_at71_no_retries_immediate_failure_goto(temp_workspace):
 
     This verifies the existing behavior still works when retries are not configured.
     """
-    workflow_content = """
-version: "1.1"
-name: Test No Retries Immediate Goto
-steps:
-  - name: FailImmediately
-    command: ["sh", "-c", "exit 42"]
-    # No retries configured - should fail immediately
-    on:
-      failure:
-        goto: ImmediateHandler
-
-  - name: SkippedStep
-    command: ["echo", "Skipped"]
-
-  - name: ImmediateHandler
-    command: ["echo", "Immediate failure handled"]
-    output_capture: text
+    workflow_content = r"""
+{
+  "version": "1.1",
+  "name": "Test No Retries Immediate Goto",
+  "steps": [
+    {
+      "name": "FailImmediately",
+      "command": [
+        "sh",
+        "-c",
+        "exit 42"
+      ],
+      "true": {
+        "failure": {
+          "goto": "ImmediateHandler"
+        }
+      }
+    },
+    {
+      "name": "SkippedStep",
+      "command": [
+        "echo",
+        "Skipped"
+      ]
+    },
+    {
+      "name": "ImmediateHandler",
+      "command": [
+        "echo",
+        "Immediate failure handled"
+      ],
+      "output_capture": "text"
+    }
+  ]
+}
 """
     workflow_path = temp_workspace / "no_retry_goto.yaml"
     workflow_path.write_text(workflow_content)

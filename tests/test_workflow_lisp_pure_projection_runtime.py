@@ -8,10 +8,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-import yaml
 
 from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
@@ -34,7 +33,7 @@ INVALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "invalid
 
 def _write_yaml(path: Path, payload: dict[str, object]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
     return path
 
 
@@ -557,7 +556,8 @@ def test_pure_projection_runtime_executes_native_root_result_projection(tmp_path
 def test_pure_projection_runtime_skips_inactive_union_variant_outputs(tmp_path: Path) -> None:
     bundle = _compile_runtime_union_variant_bundle(tmp_path)
     (tmp_path / "state").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "state" / "selector_selected.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "state" / "selector_selected.json").write_text(r"""{}
+""", encoding="utf-8")
     state_manager = StateManager(workspace=tmp_path, run_id="pure-projection-union-variant")
     state_manager.initialize(
         str(tmp_path / "pure_expr_runtime_union_variant.orc"),
@@ -606,7 +606,8 @@ def test_provider_bundle_path_projection_exports_generated_bundle_path(tmp_path:
         bundle_path.parent.mkdir(parents=True, exist_ok=True)
         selection_path = tmp_path / "state" / "provider-selection.json"
         selection_path.parent.mkdir(parents=True, exist_ok=True)
-        selection_path.write_text("{}\n", encoding="utf-8")
+        selection_path.write_text(r"""{}
+""", encoding="utf-8")
         bundle_path.write_text(
             json.dumps(
                 {

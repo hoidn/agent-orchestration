@@ -8,9 +8,9 @@ import re
 from types import MappingProxyType
 
 import pytest
-import yaml
+import json
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.workflow.state_projection import (
     CallBoundaryProjection,
     CompatibilityNodeProjection,
@@ -25,7 +25,7 @@ from tests.workflow_bundle_helpers import (
 
 def _write_yaml(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
     return path
 
 
@@ -1242,7 +1242,7 @@ def test_projection_resume_optional_step_id_supported_row_is_not_backfilled(
             }
         }
     }
-    before = yaml.safe_dump(state, sort_keys=True)
+    before = json.dumps(state, sort_keys=True)
 
     restart_node_id = ResumePlanner().determine_restart_node_id(
         state,
@@ -1250,7 +1250,7 @@ def test_projection_resume_optional_step_id_supported_row_is_not_backfilled(
     )
 
     assert restart_node_id == "root.route_ready.approve_path"
-    assert yaml.safe_dump(state, sort_keys=True) == before
+    assert json.dumps(state, sort_keys=True) == before
     assert "step_id" not in state["steps"]["SetReady"]
 
 
@@ -1272,7 +1272,7 @@ def test_projection_resume_slot_index_resolves_body_finalization_and_optional_om
             },
         }
     }
-    before = yaml.safe_dump(state, sort_keys=True)
+    before = json.dumps(state, sort_keys=True)
 
     slot_index = projection.enumerate_resume_slots(state)
 
@@ -1287,7 +1287,7 @@ def test_projection_resume_slot_index_resolves_body_finalization_and_optional_om
         "root.finally.cleanup.write_cleanup_marker",
         presentation_key="finally.WriteCleanupMarker",
     ).slot.region.value == "finalization"
-    assert yaml.safe_dump(state, sort_keys=True) == before
+    assert json.dumps(state, sort_keys=True) == before
     for presentation_key in ("SetReady", "RouteReady", "ReviewLoop", "ProcessItems"):
         assert "step_id" not in state["steps"][presentation_key]
 
@@ -1909,7 +1909,7 @@ def test_resume_projection_auditor_redacts_secret_list_identity_contents(
 
     assert exc_info.value.error["context"]["reason"] == "unsupported_shape"
     assert exc_info.value.error["context"]["offending_value"] is None
-    diagnostic_text = yaml.safe_dump(exc_info.value.error, sort_keys=True)
+    diagnostic_text = json.dumps(exc_info.value.error, sort_keys=True)
     assert "secret-one" not in diagnostic_text
     assert "secret-two" not in diagnostic_text
     assert state == before
@@ -1982,7 +1982,7 @@ def test_resume_projection_auditor_redacts_scalar_malformed_container_values(
     assert context["reason"] == "unsupported_shape"
     assert context["field"] == expected_field
     assert context["offending_value"] is None
-    assert secret not in yaml.safe_dump(exc_info.value.error, sort_keys=True)
+    assert secret not in json.dumps(exc_info.value.error, sort_keys=True)
     assert state == before
 
 
@@ -2040,7 +2040,7 @@ def test_resume_projection_auditor_rejects_malformed_step_result_shapes(
     assert context["reason"] == "unsupported_shape"
     assert context["field"] == expected_field
     assert context["offending_value"] is None
-    diagnostic_text = yaml.safe_dump(exc_info.value.error, sort_keys=True)
+    diagnostic_text = json.dumps(exc_info.value.error, sort_keys=True)
     assert "secret-" not in diagnostic_text
     assert state == before
 

@@ -2,16 +2,16 @@
 
 from pathlib import Path
 
-import yaml
+import json
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
     workflow_file = workspace / "workflow.yaml"
-    workflow_file.write_text(yaml.dump(workflow), encoding="utf-8")
+    workflow_file.write_text(json.dumps(workflow), encoding="utf-8")
     return workflow_file
 
 

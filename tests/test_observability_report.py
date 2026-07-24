@@ -9,9 +9,8 @@ from pathlib import Path
 from types import MappingProxyType
 
 import pytest
-import yaml
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.observability.report import (
     build_status_snapshot,
     derive_status_projection,
@@ -22,7 +21,7 @@ from orchestrator.monitor.process import process_start_time_token
 
 def _write_yaml(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
     return path
 
 
@@ -392,7 +391,7 @@ def test_snapshot_accepts_loaded_bundle_and_uses_projection_ordering(tmp_path: P
 
     workflow_path = tmp_path / "workflow.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.10",
                 "name": "bundle-report",
@@ -488,7 +487,7 @@ def test_snapshot_uses_projection_execution_order_when_ir_and_projection_order_d
 
     workflow_path = tmp_path / "workflow.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.10",
                 "name": "bundle-projection-order",
@@ -552,7 +551,7 @@ def test_snapshot_uses_ir_node_metadata_when_bundle_legacy_steps_are_missing(tmp
 
     workflow_path = tmp_path / "workflow.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.10",
                 "name": "bundle-ir-metadata",
@@ -632,7 +631,7 @@ def test_snapshot_uses_projection_metadata_when_bundle_ir_raw_and_legacy_steps_a
 
     workflow_path = tmp_path / "workflow.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.10",
                 "name": "bundle-projection-metadata",
@@ -707,7 +706,7 @@ def test_snapshot_resolves_current_step_from_projection_step_id(tmp_path: Path):
 
     workflow_path = tmp_path / "workflow.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.7",
                 "name": "bundle-report-current-step",
@@ -1203,7 +1202,7 @@ def test_snapshot_includes_finalization_progress_and_steps(tmp_path: Path):
 
     workflow_path = tmp_path / "workflow.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.3",
                 "name": "obs-finally",
@@ -1272,7 +1271,7 @@ def test_snapshot_includes_structured_helper_node_kinds(tmp_path: Path):
 
     workflow_path = tmp_path / "workflow.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.6",
                 "name": "obs-structured",

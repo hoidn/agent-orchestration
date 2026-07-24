@@ -9,9 +9,8 @@ from typing import cast
 from unittest.mock import patch
 
 import pytest
-import yaml
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.calls import CallExecutor
@@ -2973,7 +2972,8 @@ def test_record_blocked_recovery_outcome_hands_off_to_detector(tmp_path):
     )
     for path, text in [
         (progress_path, "# Progress Report\n\nThe architecture is under-scoped.\n"),
-        (implementation_state_path, "{}\n"),
+        (implementation_state_path, r"""{}
+"""),
         (architecture_path, "# Parser Syntax Architecture\n"),
         (plan_path, "# Parser Syntax Plan\n"),
     ]:
@@ -3093,7 +3093,8 @@ def test_prerequisite_block_recovery_stays_nonterminal_until_target_revision(tmp
     )
     for path, text in [
         (progress_path, "# Progress Report\n\nThe missing prerequisite gap must be added to the target design.\n"),
-        (implementation_state_path, "{}\n"),
+        (implementation_state_path, r"""{}
+"""),
         (architecture_path, "# Parser Syntax Architecture\n"),
         (plan_path, "# Parser Syntax Plan\n"),
     ]:
@@ -3188,7 +3189,8 @@ def test_blocked_recovery_recorder_does_not_persist_completed_prerequisite(tmp_p
             ),
         }) + "\n"),
         (progress_path, "# Progress Report\n\nA stale prerequisite was selected.\n"),
-        (implementation_state_path, "{}\n"),
+        (implementation_state_path, r"""{}
+"""),
         (architecture_path, "# Parser Syntax Architecture\n"),
         (plan_path, "# Parser Syntax Plan\n"),
     ]:
@@ -3289,7 +3291,8 @@ def test_blocked_recovery_recorder_marks_gap_revision_ready_to_retry(tmp_path):
             "changed_sections": ["Acceptance"],
         }) + "\n"),
         (progress_path, "# Progress Report\n\nBlocked by stale acceptance.\n"),
-        (implementation_state_path, "{}\n"),
+        (implementation_state_path, r"""{}
+"""),
         (architecture_path, "# Parser Syntax Architecture\n"),
         (plan_path, "# Parser Syntax Plan\n"),
     ]:
@@ -3406,7 +3409,8 @@ def test_blocked_recovery_recorder_does_not_reuse_completed_prerequisite_after_f
             "recovery_dependency_edge": edge,
         }) + "\n"),
         (progress_path, "# Progress Report\n\nThe retry still fails after the prerequisite.\n"),
-        (implementation_state_path, "{}\n"),
+        (implementation_state_path, r"""{}
+"""),
         (architecture_path, "# Parser Syntax Architecture\n"),
         (plan_path, "# Parser Syntax Plan\n"),
     ]:
@@ -3628,7 +3632,8 @@ def test_blocked_recovery_recorder_blocks_prerequisite_after_failed_retry(tmp_pa
             "waiting_on_work_source": "DESIGN_GAP",
         }) + "\n"),
         (progress_path, "# Progress Report\n\nRetry failed after prerequisite completion.\n"),
-        (implementation_state_path, "{}\n"),
+        (implementation_state_path, r"""{}
+"""),
         (architecture_path, "# Parser Syntax Architecture\n"),
         (plan_path, "# Parser Syntax Plan\n"),
     ]:
@@ -3707,7 +3712,8 @@ def test_blocked_recovery_recorder_rejects_self_prerequisite_edge(tmp_path):
             ),
         }) + "\n"),
         (progress_path, "# Progress Report\n\nA self prerequisite should fail closed.\n"),
-        (implementation_state_path, "{}\n"),
+        (implementation_state_path, r"""{}
+"""),
         (architecture_path, "# Parser Syntax Architecture\n"),
         (plan_path, "# Parser Syntax Plan\n"),
     ]:
@@ -3793,7 +3799,8 @@ def test_prerequisite_block_after_approved_target_revision_allows_prerequisite_s
         }) + "\n"),
         (review_decision, "APPROVE\n"),
         (progress_path, "# Progress Report\n\nA prerequisite gap is missing from target design scope.\n"),
-        (implementation_state_path, "{}\n"),
+        (implementation_state_path, r"""{}
+"""),
         (architecture_path, "# Parser Syntax Architecture\n"),
         (plan_path, "# Parser Syntax Plan\n"),
     ]:
@@ -3911,7 +3918,8 @@ def test_prerequisite_target_design_review_revise_keeps_gap_recoverable(tmp_path
         }) + "\n"),
         (review_decision, "REVISE\n"),
         (progress_path, "# Progress Report\n\nA prerequisite gap is missing from target design scope.\n"),
-        (implementation_state_path, "{}\n"),
+        (implementation_state_path, r"""{}
+"""),
         (architecture_path, "# Parser Syntax Architecture\n"),
         (plan_path, "# Parser Syntax Plan\n"),
     ]:
@@ -4149,7 +4157,8 @@ def test_prerequisite_recovery_records_compact_dependency_pointer(tmp_path):
                 "`private_exec_context_bootstrap_unsupported` before the finalizer branches.\n"
             ),
         ),
-        (implementation_state_path, "{}\n"),
+        (implementation_state_path, r"""{}
+"""),
         (architecture_path, "# Imported Adapter Bootstrap Architecture\n"),
         (plan_path, "# Imported Adapter Bootstrap Plan\n"),
     ]:
@@ -4271,7 +4280,8 @@ def test_blocked_recovery_completed_slice_records_follow_up_without_blocking_cur
     )
     for path, text in [
         (progress_path, "# Progress Report\n\nScope completed; broad closeout follow-up remains.\n"),
-        (implementation_state_path, '{"implementation_state":"BLOCKED"}\n'),
+        (implementation_state_path, r"""{"implementation_state":"BLOCKED"}
+"""),
         (architecture_path, "# Selected Slice Architecture\n"),
         (plan_path, "# Selected Slice Plan\n"),
     ]:
@@ -4383,7 +4393,8 @@ def test_prerequisite_recovery_rejects_missing_dependency_edge(tmp_path):
     )
     for path, text in [
         (progress_path, "# Progress Report\n\nBootstrap is still blocked, but no structured boundary evidence was emitted.\n"),
-        (implementation_state_path, "{}\n"),
+        (implementation_state_path, r"""{}
+"""),
         (architecture_path, "# Imported Adapter Bootstrap Architecture\n"),
         (plan_path, "# Imported Adapter Bootstrap Plan\n"),
     ]:
@@ -4476,7 +4487,8 @@ def test_prerequisite_recovery_accepts_proposed_prerequisite_gap(tmp_path):
     )
     for path, text in [
         (progress_path, "# Progress Report\n\nChild union provenance is missing.\n"),
-        (implementation_state_path, "{}\n"),
+        (implementation_state_path, r"""{}
+"""),
         (architecture_path, "# Parser Syntax Architecture\n"),
         (plan_path, "# Parser Syntax Plan\n"),
     ]:
@@ -5587,7 +5599,8 @@ def test_prerequisite_retry_ready_is_overridden_when_retry_blocks_again(tmp_path
 
     for path, text in [
         (progress_path, "# Progress Report\n\nRetry blocked again because another prerequisite is missing.\n"),
-        (implementation_state_path, "{}\n"),
+        (implementation_state_path, r"""{}
+"""),
         (architecture_path, "# Parser Syntax Architecture\n"),
         (plan_path, "# Parser Syntax Plan\n"),
     ]:
@@ -6818,7 +6831,8 @@ def test_detect_blocked_recovery_uses_recovered_architecture_validation_report_i
         path.parent.mkdir(parents=True, exist_ok=True)
     architecture.write_text("# Parser Syntax Architecture\n", encoding="utf-8")
     plan.write_text("# Parser Syntax Plan\n", encoding="utf-8")
-    validation.write_text('{"architecture_validation_status":"INVALID"}\n', encoding="utf-8")
+    validation.write_text(r"""{"architecture_validation_status":"INVALID"}
+""", encoding="utf-8")
     state_path.write_text(
         json.dumps(
             {
@@ -7233,13 +7247,15 @@ def _condition_has_recovered_retry_request_guard(condition: dict) -> bool:
 def test_prepare_design_delta_iteration_paths_clears_stale_iteration_outputs(tmp_path):
     manifest = tmp_path / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/0/manifest.json"
     manifest.parent.mkdir(parents=True)
-    manifest.write_text('{"items":[]}\n', encoding="utf-8")
+    manifest.write_text(r"""{"items":[]}
+""", encoding="utf-8")
     stale_selection = (
         tmp_path
         / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/0/selector/selection.json"
     )
     stale_selection.parent.mkdir(parents=True)
-    stale_selection.write_text('{"selection_status":"DONE"}\n', encoding="utf-8")
+    stale_selection.write_text(r"""{"selection_status":"DONE"}
+""", encoding="utf-8")
     stale_work_item = (
         tmp_path
         / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/0/design-gap-work-item/drain_status.txt"

@@ -2,15 +2,15 @@ from pathlib import Path
 from copy import deepcopy
 
 import pytest
-import yaml
+import json
 
 from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 
 
 def _write_workflow(tmp_path: Path, workflow: dict) -> Path:
     path = tmp_path / "workflow.yaml"
-    path.write_text(yaml.safe_dump(workflow), encoding="utf-8")
+    path.write_text(json.dumps(workflow), encoding="utf-8")
     return path
 
 

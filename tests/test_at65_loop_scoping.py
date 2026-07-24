@@ -12,9 +12,8 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
-import yaml
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
 from tests.workflow_bundle_helpers import load_workflow_bundle_for_test
@@ -70,7 +69,7 @@ def test_at65_loop_scoped_steps_current_iteration(tmp_path):
 
     workflow_path = tmp_path / "workflow.yaml"
     with open(workflow_path, 'w') as f:
-        yaml.dump(workflow, f)
+        json.dump(workflow, f)
 
     state_dir = tmp_path / "state"
     state_dir.mkdir()
@@ -159,7 +158,7 @@ def test_at65_outer_steps_undefined_in_loop(tmp_path):
 
     workflow_path = tmp_path / "workflow.yaml"
     with open(workflow_path, 'w') as f:
-        yaml.dump(workflow, f)
+        json.dump(workflow, f)
 
     state_dir = tmp_path / "state"
     state_dir.mkdir()
@@ -229,7 +228,7 @@ def test_at65_iteration_isolation(tmp_path):
 
     workflow_path = tmp_path / "workflow.yaml"
     with open(workflow_path, 'w') as f:
-        yaml.dump(workflow, f)
+        json.dump(workflow, f)
 
     state_dir = tmp_path / "state"
     state_dir.mkdir()
@@ -278,7 +277,7 @@ def test_loop_scoping_legacy_v14_steps_namespace_is_unchanged(tmp_path):
 
     workflow_path = tmp_path / "workflow.yaml"
     with open(workflow_path, 'w') as f:
-        yaml.dump(workflow, f)
+        json.dump(workflow, f)
 
     state_dir = tmp_path / "state"
     state_dir.mkdir()
@@ -422,7 +421,7 @@ def test_v2_nested_steps_execute_with_scoped_refs_inside_for_each(tmp_path):
 
     workflow_path = tmp_path / "workflow.yaml"
     with open(workflow_path, "w") as f:
-        yaml.dump(workflow, f)
+        json.dump(workflow, f)
 
     loader = WorkflowLoader(workspace)
     loaded = loader.load(workflow_path)
@@ -492,7 +491,7 @@ def test_v2_self_refs_do_not_fall_back_to_root_scope(tmp_path):
 
     workflow_path = tmp_path / "workflow.yaml"
     with open(workflow_path, "w") as f:
-        yaml.dump(workflow, f)
+        json.dump(workflow, f)
 
     loader = WorkflowLoader(tmp_path)
     loaded = loader.load(workflow_path)
@@ -542,7 +541,7 @@ def test_at65_nested_step_references_within_iteration(tmp_path):
 
     workflow_path = tmp_path / "workflow.yaml"
     with open(workflow_path, 'w') as f:
-        yaml.dump(workflow, f)
+        json.dump(workflow, f)
 
     state_dir = tmp_path / "state"
     state_dir.mkdir()
@@ -618,7 +617,7 @@ def test_at65_empty_steps_in_first_iteration(tmp_path):
 
     workflow_path = tmp_path / "workflow.yaml"
     with open(workflow_path, 'w') as f:
-        yaml.dump(workflow, f)
+        json.dump(workflow, f)
 
     state_dir = tmp_path / "state"
     state_dir.mkdir()

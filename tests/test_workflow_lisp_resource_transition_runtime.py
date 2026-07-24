@@ -7,10 +7,9 @@ import subprocess
 import sys
 
 import pytest
-import yaml
 
 from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.core_ast import build_core_workflow_ast, workflow_core_ast_to_json
 from orchestrator.workflow.executable_ir import ExecutableNodeKind
@@ -54,7 +53,7 @@ DESIGN_DELTA_MIGRATION_INPUTS = (
 
 def _write_yaml(path: Path, payload: dict[str, object]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
     return path
 
 

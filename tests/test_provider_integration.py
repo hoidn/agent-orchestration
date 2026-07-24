@@ -6,11 +6,11 @@ Tests the complete pipeline from workflow definition to provider execution.
 
 import pytest
 import tempfile
-import yaml
+import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.providers import ProviderRegistry, ProviderExecutor
 from orchestrator.exec.step_executor import StepExecutor
@@ -30,7 +30,7 @@ class TestProviderIntegration:
         """Helper to write workflow YAML."""
         path = self.workspace / "workflow.yml"
         with open(path, 'w') as f:
-            yaml.dump(content, f)
+            json.dump(content, f)
         return path
 
     def test_at8_provider_workflow_loading(self):

@@ -4,7 +4,7 @@ import json
 import textwrap
 from pathlib import Path
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 
@@ -15,38 +15,53 @@ def test_phase_performance_profile_summarizes_provider_and_call_boundaries(tmp_p
 
     child_file = tmp_path / "child.yaml"
     child_file.write_text(
-        """
-version: "2.5"
-name: summary-child
-inputs:
-  write_root:
-    type: relpath
-    under: state
-outputs:
-  child_status:
-    kind: scalar
-    type: enum
-    allowed: ["DONE"]
-    from:
-      ref: root.steps.ChildCommand.artifacts.child_status
-steps:
-  - name: ChildCommand
-    id: child_command
-    command:
-      - python
-      - -c
-      - |
-        import json, pathlib
-        path = pathlib.Path("${inputs.write_root}") / "child.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"child_status": "DONE"}))
-    output_bundle:
-      path: ${inputs.write_root}/child.json
-      fields:
-        - name: child_status
-          json_pointer: /child_status
-          type: enum
-          allowed: ["DONE"]
+        r"""
+{
+  "version": "2.5",
+  "name": "summary-child",
+  "inputs": {
+    "write_root": {
+      "type": "relpath",
+      "under": "state"
+    }
+  },
+  "outputs": {
+    "child_status": {
+      "kind": "scalar",
+      "type": "enum",
+      "allowed": [
+        "DONE"
+      ],
+      "from": {
+        "ref": "root.steps.ChildCommand.artifacts.child_status"
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "ChildCommand",
+      "id": "child_command",
+      "command": [
+        "python",
+        "-c",
+        "import json, pathlib\npath = pathlib.Path(\"${inputs.write_root}\") / \"child.json\"\npath.parent.mkdir(parents=True, exist_ok=True)\npath.write_text(json.dumps({\"child_status\": \"DONE\"}))\n"
+      ],
+      "output_bundle": {
+        "path": "${inputs.write_root}/child.json",
+        "fields": [
+          {
+            "name": "child_status",
+            "json_pointer": "/child_status",
+            "type": "enum",
+            "allowed": [
+              "DONE"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -54,32 +69,58 @@ steps:
 
     workflow_file = tmp_path / "workflow.yaml"
     workflow_file.write_text(
-        """
-version: "2.5"
-name: summary-runtime
-imports:
-  child: ./child.yaml
-providers:
-  fake_provider:
-    command: ["bash", "-lc", "cat >/dev/null; printf 'provider done\\n'"]
-    input_mode: "stdin"
-  fake_summary:
-    command: ["bash", "-lc", "cat >/dev/null; printf 'summary ok\\n'"]
-    input_mode: "stdin"
-steps:
-  - name: CommandWork
-    id: command_work
-    command: ["bash", "-lc", "echo command"]
-    output_capture: text
-  - name: ProviderWork
-    id: provider_work
-    provider: fake_provider
-    input_file: prompt.md
-  - name: PhaseWork
-    id: phase_work
-    call: child
-    with:
-      write_root: state/child
+        r"""
+{
+  "version": "2.5",
+  "name": "summary-runtime",
+  "imports": {
+    "child": "./child.yaml"
+  },
+  "providers": {
+    "fake_provider": {
+      "command": [
+        "bash",
+        "-lc",
+        "cat >/dev/null; printf 'provider done\n'"
+      ],
+      "input_mode": "stdin"
+    },
+    "fake_summary": {
+      "command": [
+        "bash",
+        "-lc",
+        "cat >/dev/null; printf 'summary ok\n'"
+      ],
+      "input_mode": "stdin"
+    }
+  },
+  "steps": [
+    {
+      "name": "CommandWork",
+      "id": "command_work",
+      "command": [
+        "bash",
+        "-lc",
+        "echo command"
+      ],
+      "output_capture": "text"
+    },
+    {
+      "name": "ProviderWork",
+      "id": "provider_work",
+      "provider": "fake_provider",
+      "input_file": "prompt.md"
+    },
+    {
+      "name": "PhaseWork",
+      "id": "phase_work",
+      "call": "child",
+      "with": {
+        "write_root": "state/child"
+      }
+    }
+  ]
+}
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -127,57 +168,83 @@ def test_phase_performance_profile_summarizes_nested_provider_visits(tmp_path: P
 
     workflow_file = tmp_path / "workflow.yaml"
     workflow_file.write_text(
-        """
-version: "2.7"
-name: nested-summary-runtime
-providers:
-  fake_provider:
-    command:
-      - bash
-      - -lc
-      - |
-        cat >/dev/null
-        mkdir -p state
-        count=$(cat state/review-count.txt 2>/dev/null || printf '0')
-        count=$((count + 1))
-        printf '%s\\n' "$count" > state/review-count.txt
-        if [ "$count" -lt 2 ]; then decision=REVISE; else decision=APPROVE; fi
-        printf '{"review_decision":"%s"}\\n' "$decision" > state/review-decision.json
-    input_mode: "stdin"
-  fake_summary:
-    command: ["bash", "-lc", "cat >/dev/null; printf 'summary ok\\n'"]
-    input_mode: "stdin"
-steps:
-  - name: ReviewLoop
-    id: review_loop
-    repeat_until:
-      id: review_iteration
-      outputs:
-        review_decision:
-          kind: scalar
-          type: enum
-          allowed: [APPROVE, REVISE]
-          from:
-            ref: self.steps.ReviewProvider.artifacts.review_decision
-      condition:
-        compare:
-          left:
-            ref: self.outputs.review_decision
-          op: eq
-          right: APPROVE
-      max_iterations: 3
-      steps:
-        - name: ReviewProvider
-          id: review_provider
-          provider: fake_provider
-          input_file: prompt.md
-          output_bundle:
-            path: state/review-decision.json
-            fields:
-              - name: review_decision
-                json_pointer: /review_decision
-                type: enum
-                allowed: [APPROVE, REVISE]
+        r"""
+{
+  "version": "2.7",
+  "name": "nested-summary-runtime",
+  "providers": {
+    "fake_provider": {
+      "command": [
+        "bash",
+        "-lc",
+        "cat >/dev/null\nmkdir -p state\ncount=$(cat state/review-count.txt 2>/dev/null || printf '0')\ncount=$((count + 1))\nprintf '%s\\n' \"$count\" > state/review-count.txt\nif [ \"$count\" -lt 2 ]; then decision=REVISE; else decision=APPROVE; fi\nprintf '{\"review_decision\":\"%s\"}\\n' \"$decision\" > state/review-decision.json\n"
+      ],
+      "input_mode": "stdin"
+    },
+    "fake_summary": {
+      "command": [
+        "bash",
+        "-lc",
+        "cat >/dev/null; printf 'summary ok\n'"
+      ],
+      "input_mode": "stdin"
+    }
+  },
+  "steps": [
+    {
+      "name": "ReviewLoop",
+      "id": "review_loop",
+      "repeat_until": {
+        "id": "review_iteration",
+        "outputs": {
+          "review_decision": {
+            "kind": "scalar",
+            "type": "enum",
+            "allowed": [
+              "APPROVE",
+              "REVISE"
+            ],
+            "from": {
+              "ref": "self.steps.ReviewProvider.artifacts.review_decision"
+            }
+          }
+        },
+        "condition": {
+          "compare": {
+            "left": {
+              "ref": "self.outputs.review_decision"
+            },
+            "op": "eq",
+            "right": "APPROVE"
+          }
+        },
+        "max_iterations": 3,
+        "steps": [
+          {
+            "name": "ReviewProvider",
+            "id": "review_provider",
+            "provider": "fake_provider",
+            "input_file": "prompt.md",
+            "output_bundle": {
+              "path": "state/review-decision.json",
+              "fields": [
+                {
+                  "name": "review_decision",
+                  "json_pointer": "/review_decision",
+                  "type": "enum",
+                  "allowed": [
+                    "APPROVE",
+                    "REVISE"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -233,32 +300,52 @@ def test_live_agent_notes_summarize_session_transport_during_provider_step(tmp_p
         """
     ).strip()
     workflow_file.write_text(
-        f"""
-version: "2.10"
-name: live-note-runtime
-providers:
-  session_provider:
-    command: ["python", "-c", {json.dumps(session_script)}]
-    input_mode: "stdin"
-    session_support:
-      metadata_mode: codex_exec_jsonl_stdout
-      fresh_command: ["python", "-c", {json.dumps(session_script)}]
-      resume_command: ["python", "-c", {json.dumps(session_script + " # ${SESSION_ID}")}]
-  live_summary:
-    command: ["bash", "-lc", "cat >/dev/null; printf 'live note from tail\\n'"]
-    input_mode: "stdin"
-steps:
-  - name: ProviderWork
-    id: provider_work
-    provider: session_provider
-    provider_session:
-      mode: fresh
-      publish_artifact: implementation_session_id
-artifacts:
-  implementation_session_id:
-    kind: scalar
-    type: string
-""".strip()
+        json.dumps(
+            {
+                "version": "2.10",
+                "name": "live-note-runtime",
+                "providers": {
+                    "session_provider": {
+                        "command": ["python", "-c", session_script],
+                        "input_mode": "stdin",
+                        "session_support": {
+                            "metadata_mode": "codex_exec_jsonl_stdout",
+                            "fresh_command": ["python", "-c", session_script],
+                            "resume_command": [
+                                "python",
+                                "-c",
+                                session_script + " # ${SESSION_ID}",
+                            ],
+                        },
+                    },
+                    "live_summary": {
+                        "command": [
+                            "bash",
+                            "-lc",
+                            "cat >/dev/null; printf 'live note from tail\\n'",
+                        ],
+                        "input_mode": "stdin",
+                    },
+                },
+                "steps": [
+                    {
+                        "name": "ProviderWork",
+                        "id": "provider_work",
+                        "provider": "session_provider",
+                        "provider_session": {
+                            "mode": "fresh",
+                            "publish_artifact": "implementation_session_id",
+                        },
+                    }
+                ],
+                "artifacts": {
+                    "implementation_session_id": {
+                        "kind": "scalar",
+                        "type": "string",
+                    }
+                },
+            }
+        )
         + "\n",
         encoding="utf-8",
     )

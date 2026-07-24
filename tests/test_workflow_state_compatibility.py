@@ -6,10 +6,9 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-import yaml
 
 from orchestrator.cli.commands.resume import resume_workflow
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from tests.workflow_bundle_helpers import materialize_projection_body_steps
@@ -17,7 +16,7 @@ from tests.workflow_bundle_helpers import materialize_projection_body_steps
 
 def _write_yaml(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
     return path
 
 

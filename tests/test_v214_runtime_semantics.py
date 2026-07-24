@@ -8,9 +8,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import yaml
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 
@@ -33,7 +32,7 @@ def _enable_v214_loader(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
     workflow_file = workspace / "workflow.yaml"
-    workflow_file.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    workflow_file.write_text(json.dumps(workflow, sort_keys=False), encoding="utf-8")
     return workflow_file
 
 

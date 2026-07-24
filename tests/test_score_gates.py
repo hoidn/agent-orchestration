@@ -3,10 +3,10 @@
 from pathlib import Path
 
 import pytest
-import yaml
+import json
 
 from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.predicates import TypedPredicateEvaluator
@@ -14,7 +14,7 @@ from orchestrator.workflow.predicates import TypedPredicateEvaluator
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
     workflow_file = workspace / "workflow.yaml"
-    workflow_file.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    workflow_file.write_text(json.dumps(workflow, sort_keys=False), encoding="utf-8")
     return workflow_file
 
 

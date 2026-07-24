@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.core_ast import build_core_workflow_ast, workflow_core_ast_to_json
 from orchestrator.workflow.executable_ir import ExecutableNodeKind
@@ -530,7 +530,8 @@ def test_entry_publication_runtime_fails_closed_when_publication_view_drifts_on_
         if isinstance(step.get("debug", {}).get("materialize_view"), dict)
     )
     target_path = tmp_path / first["steps"][publication_step_name]["artifacts"]["return"]
-    target_path.write_text('{"variant":"DONE","message":"tampered"}\n', encoding="utf-8")
+    target_path.write_text(r"""{"variant":"DONE","message":"tampered"}
+""", encoding="utf-8")
 
     _resume_failed_single_step(state_manager, step_name=publication_step_name)
     resumed = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)
@@ -586,7 +587,8 @@ def test_materialize_view_runtime_fails_closed_when_rendered_bytes_drift_for_sam
 
     WorkflowExecutor(bundle, tmp_path, state_manager).execute()
     target_path = tmp_path / "artifacts/work/materialized-summary.json"
-    target_path.write_text('{"status":"tampered"}\n', encoding="utf-8")
+    target_path.write_text(r"""{"status":"tampered"}
+""", encoding="utf-8")
 
     _resume_failed_single_step(state_manager, step_name="MaterializeView")
     resumed = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)

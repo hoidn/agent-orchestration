@@ -9,9 +9,9 @@ import time
 from pathlib import Path
 
 import pytest
-import yaml
+import json
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
 from tests.workflow_bundle_helpers import load_workflow_bundle_for_test
@@ -45,7 +45,7 @@ class TestRetryIntegration:
 
         # Create workflow file
         workflow_file = self.workspace / 'retry_workflow.yaml'
-        workflow_file.write_text(yaml.dump(workflow))
+        workflow_file.write_text(json.dumps(workflow))
 
         # Initialize state manager
         state_manager = StateManager(self.workspace)
@@ -96,7 +96,7 @@ exit 0
 
         # Create workflow file
         workflow_file = self.workspace / 'no_retry_workflow.yaml'
-        workflow_file.write_text(yaml.dump(workflow))
+        workflow_file.write_text(json.dumps(workflow))
 
         # Initialize state manager
         state_manager = StateManager(self.workspace)
@@ -136,7 +136,7 @@ exit 0
 
         # Create workflow file
         workflow_file = self.workspace / 'timeout_workflow.yaml'
-        workflow_file.write_text(yaml.dump(workflow))
+        workflow_file.write_text(json.dumps(workflow))
 
         # Initialize state manager
         state_manager = StateManager(self.workspace)
@@ -195,7 +195,7 @@ exit 0
 
         # Create workflow file
         workflow_file = self.workspace / 'delay_workflow.yaml'
-        workflow_file.write_text(yaml.dump(workflow))
+        workflow_file.write_text(json.dumps(workflow))
 
         # Initialize state manager
         state_manager = StateManager(self.workspace)

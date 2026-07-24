@@ -12,7 +12,7 @@ import pytest
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 import orchestrator.workflow_lisp.build as build_helpers
 from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
-from orchestrator.loader import WorkflowBoundaryValidationPolicy
+from orchestrator.workflow.validation import WorkflowBoundaryValidationPolicy
 from orchestrator.workflow.loaded_bundle import (
     workflow_boundary_projection,
     workflow_managed_write_root_inputs,

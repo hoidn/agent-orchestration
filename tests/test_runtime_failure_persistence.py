@@ -6,11 +6,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-import yaml
 
 from orchestrator.cli.commands.report import report_workflow
 from orchestrator.cli.commands.run import run_workflow
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 
@@ -53,7 +52,7 @@ def test_executor_unexpected_exception_persists_error_and_current_step_context(
 ):
     workflow_path = tmp_path / "crash.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "1.1.1",
                 "name": "crash-workflow",
@@ -99,7 +98,7 @@ def test_executor_unexpected_exception_persists_error_and_current_step_context(
 def test_run_command_persists_unexpected_executor_exception(tmp_path: Path):
     workflow_path = tmp_path / "crash.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "1.1.1",
                 "name": "cli-crash-workflow",

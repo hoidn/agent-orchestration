@@ -12,7 +12,7 @@ import shutil
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.pointers import PointerResolver
 from orchestrator.state import StateManager
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 
 
 class TestPointerResolution:
@@ -161,21 +161,37 @@ class TestForEachExecution:
     def test_at3_for_each_dynamic_items(self):
         """AT-3: Dynamic for-each with items_from executes correctly."""
         # Create a workflow with for_each using items_from
-        workflow_yaml = """
-version: "1.1"
-steps:
-  - name: ListFiles
-    command: ["echo", "file1.txt\\nfile2.txt\\nfile3.txt"]
-    output_capture: lines
-
-  - name: ProcessFiles
-    for_each:
-      items_from: "steps.ListFiles.lines"
-      as: filename
-      steps:
-        - name: ProcessFile
-          command: ["echo", "Processing ${filename}"]
-          output_capture: text
+        workflow_yaml = r"""
+{
+  "version": "1.1",
+  "steps": [
+    {
+      "name": "ListFiles",
+      "command": [
+        "echo",
+        "file1.txt\nfile2.txt\nfile3.txt"
+      ],
+      "output_capture": "lines"
+    },
+    {
+      "name": "ProcessFiles",
+      "for_each": {
+        "items_from": "steps.ListFiles.lines",
+        "as": "filename",
+        "steps": [
+          {
+            "name": "ProcessFile",
+            "command": [
+              "echo",
+              "Processing ${filename}"
+            ],
+            "output_capture": "text"
+          }
+        ]
+      }
+    }
+  ]
+}
 """
         workflow_file = self.workspace / 'workflow.yaml'
         workflow_file.write_text(workflow_yaml)
@@ -276,20 +292,36 @@ steps:
     def test_at13_for_each_json_pointer(self):
         """AT-13: for_each with nested JSON pointer."""
         # Create a workflow that uses nested JSON path
-        workflow_yaml = """
-version: "1.1"
-steps:
-  - name: GetData
-    command: ["echo", '{"tasks": {"items": ["task1", "task2", "task3"]}}']
-    output_capture: json
-
-  - name: ProcessTasks
-    for_each:
-      items_from: "steps.GetData.json.tasks.items"
-      as: task
-      steps:
-        - name: HandleTask
-          command: ["echo", "Handling ${task}"]
+        workflow_yaml = r"""
+{
+  "version": "1.1",
+  "steps": [
+    {
+      "name": "GetData",
+      "command": [
+        "echo",
+        "{\"tasks\": {\"items\": [\"task1\", \"task2\", \"task3\"]}}"
+      ],
+      "output_capture": "json"
+    },
+    {
+      "name": "ProcessTasks",
+      "for_each": {
+        "items_from": "steps.GetData.json.tasks.items",
+        "as": "task",
+        "steps": [
+          {
+            "name": "HandleTask",
+            "command": [
+              "echo",
+              "Handling ${task}"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
 """
         workflow_file = self.workspace / 'workflow.yaml'
         workflow_file.write_text(workflow_yaml)
@@ -377,15 +409,27 @@ steps:
 
     def test_for_each_invalid_pointer_fails(self):
         """Test for_each with invalid pointer fails with exit code 2."""
-        workflow_yaml = """
-version: "1.1"
-steps:
-  - name: ProcessItems
-    for_each:
-      items_from: "steps.NonExistent.lines"
-      steps:
-        - name: Process
-          command: ["echo", "test"]
+        workflow_yaml = r"""
+{
+  "version": "1.1",
+  "steps": [
+    {
+      "name": "ProcessItems",
+      "for_each": {
+        "items_from": "steps.NonExistent.lines",
+        "steps": [
+          {
+            "name": "Process",
+            "command": [
+              "echo",
+              "test"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
 """
         workflow_file = self.workspace / 'workflow.yaml'
         workflow_file.write_text(workflow_yaml)
@@ -417,19 +461,35 @@ steps:
 
     def test_for_each_non_array_pointer_fails(self):
         """Test for_each with pointer to non-array fails."""
-        workflow_yaml = """
-version: "1.1"
-steps:
-  - name: GetValue
-    command: ["echo", '{"value": 42}']
-    output_capture: json
-
-  - name: ProcessValue
-    for_each:
-      items_from: "steps.GetValue.json.value"
-      steps:
-        - name: Process
-          command: ["echo", "test"]
+        workflow_yaml = r"""
+{
+  "version": "1.1",
+  "steps": [
+    {
+      "name": "GetValue",
+      "command": [
+        "echo",
+        "{\"value\": 42}"
+      ],
+      "output_capture": "json"
+    },
+    {
+      "name": "ProcessValue",
+      "for_each": {
+        "items_from": "steps.GetValue.json.value",
+        "steps": [
+          {
+            "name": "Process",
+            "command": [
+              "echo",
+              "test"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
 """
         workflow_file = self.workspace / 'workflow.yaml'
         workflow_file.write_text(workflow_yaml)
@@ -482,17 +542,33 @@ steps:
 
     def test_for_each_loop_variables(self):
         """Test loop variables are accessible within for_each."""
-        workflow_yaml = """
-version: "1.1"
-steps:
-  - name: ProcessItems
-    for_each:
-      items: ["alpha", "beta", "gamma"]
-      as: value
-      steps:
-        - name: ShowIndex
-          command: ["echo", "Item ${loop.index} of ${loop.total}: ${value}"]
-          output_capture: text
+        workflow_yaml = r"""
+{
+  "version": "1.1",
+  "steps": [
+    {
+      "name": "ProcessItems",
+      "for_each": {
+        "items": [
+          "alpha",
+          "beta",
+          "gamma"
+        ],
+        "as": "value",
+        "steps": [
+          {
+            "name": "ShowIndex",
+            "command": [
+              "echo",
+              "Item ${loop.index} of ${loop.total}: ${value}"
+            ],
+            "output_capture": "text"
+          }
+        ]
+      }
+    }
+  ]
+}
 """
         workflow_file = self.workspace / 'workflow.yaml'
         workflow_file.write_text(workflow_yaml)
@@ -548,17 +624,33 @@ steps:
 
     def test_for_each_persists_loop_bookkeeping_state(self):
         """Completed loops must persist durable for_each bookkeeping for resume."""
-        workflow_yaml = """
-version: "1.1"
-steps:
-  - name: ProcessItems
-    for_each:
-      items: ["alpha", "beta", "gamma"]
-      as: value
-      steps:
-        - name: ProcessItem
-          command: ["echo", "Processing ${value}"]
-          output_capture: text
+        workflow_yaml = r"""
+{
+  "version": "1.1",
+  "steps": [
+    {
+      "name": "ProcessItems",
+      "for_each": {
+        "items": [
+          "alpha",
+          "beta",
+          "gamma"
+        ],
+        "as": "value",
+        "steps": [
+          {
+            "name": "ProcessItem",
+            "command": [
+              "echo",
+              "Processing ${value}"
+            ],
+            "output_capture": "text"
+          }
+        ]
+      }
+    }
+  ]
+}
 """
         workflow_file = self.workspace / 'workflow.yaml'
         workflow_file.write_text(workflow_yaml)

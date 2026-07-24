@@ -17,7 +17,7 @@ from orchestrator.runtime_observability import (
 )
 from orchestrator.monitor.process import write_process_metadata
 from orchestrator.state import StateManager
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.exceptions import ValidationSubjectRef
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.frontend_origins import CompiledFrontendIndex
@@ -162,7 +162,13 @@ def test_reconcile_open_sessions_marks_dead_session_abandoned():
 
 def test_state_round_trips_runtime_observability(tmp_path: Path):
     workflow = tmp_path / "workflow.yaml"
-    workflow.write_text("version: '1.0'\nname: test\nsteps: []\n", encoding="utf-8")
+    workflow.write_text(r"""
+{
+  "version": "1.0",
+  "name": "test",
+  "steps": []
+}
+""", encoding="utf-8")
     manager = StateManager(tmp_path, run_id="runtime-state")
     state = manager.initialize("workflow.yaml")
 

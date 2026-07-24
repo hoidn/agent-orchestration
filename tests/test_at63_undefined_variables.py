@@ -10,7 +10,7 @@ from pathlib import Path
 import json
 
 from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.variables.substitution import VariableSubstitutor
 from orchestrator.workflow.runtime_context import RuntimeContext
@@ -57,11 +57,16 @@ def test_at63_undefined_variable_in_command():
 
         # Create workflow with undefined variable reference
         workflow_path = workspace / "workflow.yaml"
-        workflow_content = """
-version: "1.1"
-steps:
-  - name: UseUndefined
-    command: echo "Value is ${context.undefined_key}"
+        workflow_content = r"""
+{
+  "version": "1.1",
+  "steps": [
+    {
+      "name": "UseUndefined",
+      "command": "echo \"Value is ${context.undefined_key}\""
+    }
+  ]
+}
 """
         workflow_path.write_text(workflow_content)
 
@@ -116,11 +121,19 @@ def test_at63_undefined_variable_in_list_command():
 
         # Create workflow with list command containing undefined variable
         workflow_path = workspace / "workflow.yaml"
-        workflow_content = """
-version: "1.1"
-steps:
-  - name: ListCommand
-    command: ["echo", "Step ${steps.PreviousStep.exit_code} completed"]
+        workflow_content = r"""
+{
+  "version": "1.1",
+  "steps": [
+    {
+      "name": "ListCommand",
+      "command": [
+        "echo",
+        "Step ${steps.PreviousStep.exit_code} completed"
+      ]
+    }
+  ]
+}
 """
         workflow_path.write_text(workflow_content)
 
@@ -161,11 +174,16 @@ def test_at63_multiple_undefined_variables():
 
         # Create workflow with multiple undefined variables
         workflow_path = workspace / "workflow.yaml"
-        workflow_content = """
-version: "1.1"
-steps:
-  - name: MultipleUndefined
-    command: "process ${run.missing} --input ${context.absent} --loop ${loop.index}"
+        workflow_content = r"""
+{
+  "version": "1.1",
+  "steps": [
+    {
+      "name": "MultipleUndefined",
+      "command": "process ${run.missing} --input ${context.absent} --loop ${loop.index}"
+    }
+  ]
+}
 """
         workflow_path.write_text(workflow_content)
 
@@ -210,13 +228,20 @@ def test_at63_defined_variables_execute_normally():
 
         # Create workflow with all variables defined
         workflow_path = workspace / "workflow.yaml"
-        workflow_content = """
-version: "1.1"
-steps:
-  - name: FirstStep
-    command: echo "Starting"
-  - name: SecondStep
-    command: echo "First step exit code was ${steps.FirstStep.exit_code}"
+        workflow_content = r"""
+{
+  "version": "1.1",
+  "steps": [
+    {
+      "name": "FirstStep",
+      "command": "echo \"Starting\""
+    },
+    {
+      "name": "SecondStep",
+      "command": "echo \"First step exit code was ${steps.FirstStep.exit_code}\""
+    }
+  ]
+}
 """
         workflow_path.write_text(workflow_content)
 
@@ -258,12 +283,20 @@ def test_at63_no_execution_on_undefined():
 
         # Create workflow that would create a file if executed
         workflow_path = workspace / "workflow.yaml"
-        workflow_content = f"""
-version: "1.1"
-steps:
-  - name: CreateFile
-    command: touch {marker_file} && echo "Created ${{context.undefined}}"
-"""
+        workflow_content = json.dumps(
+            {
+                "version": "1.1",
+                "steps": [
+                    {
+                        "name": "CreateFile",
+                        "command": (
+                            f'touch {marker_file} && echo '
+                            '"Created ${context.undefined}"'
+                        ),
+                    }
+                ],
+            }
+        )
         workflow_path.write_text(workflow_content)
 
         loader = WorkflowLoader(workspace)
@@ -302,21 +335,33 @@ def test_at63_undefined_variables_normalize_to_pre_execution_for_typed_routing()
         workspace.mkdir()
 
         workflow_path = workspace / "workflow.yaml"
-        workflow_content = """
-version: "1.6"
-steps:
-  - name: BadCommand
-    command: echo "Value is ${context.undefined_key}"
-    on:
-      failure:
-        goto: CheckFailure
-  - name: CheckFailure
-    assert:
-      compare:
-        left:
-          ref: root.steps.BadCommand.outcome.phase
-        op: eq
-        right: pre_execution
+        workflow_content = r"""
+{
+  "version": "1.6",
+  "steps": [
+    {
+      "name": "BadCommand",
+      "command": "echo \"Value is ${context.undefined_key}\"",
+      "true": {
+        "failure": {
+          "goto": "CheckFailure"
+        }
+      }
+    },
+    {
+      "name": "CheckFailure",
+      "assert": {
+        "compare": {
+          "left": {
+            "ref": "root.steps.BadCommand.outcome.phase"
+          },
+          "op": "eq",
+          "right": "pre_execution"
+        }
+      }
+    }
+  ]
+}
 """
         workflow_path.write_text(workflow_content)
 

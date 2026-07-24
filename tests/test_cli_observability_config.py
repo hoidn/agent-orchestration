@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.cli.commands.run import build_observability_config, run_workflow
 from orchestrator.cli.main import create_parser
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 
 
@@ -25,15 +25,12 @@ def _state_manager_mock(workspace: Path) -> MagicMock:
 
 
 def _write_minimal_resume_bundle(workflow_path: Path, *, version: str = "1.3"):
-    workflow_content = "\n".join(
-        [
-            f'version: "{version}"',
-            "name: test",
-            "steps:",
-            "  - name: Noop",
-            '    command: ["true"]',
-            "",
-        ]
+    workflow_content = json.dumps(
+        {
+            "version": version,
+            "name": "test",
+            "steps": [{"name": "Noop", "command": ["true"]}],
+        }
     )
     workflow_path.write_text(workflow_content, encoding="utf-8")
     return (
@@ -267,7 +264,20 @@ def test_build_observability_config_defaults_live_agent_notes_to_haiku_provider(
 @patch('orchestrator.cli.commands.run.WorkflowLoader')
 def test_run_workflow_persists_observability_runtime_config(mock_loader, mock_state, mock_executor, tmp_path, monkeypatch):
     workflow_file = tmp_path / 'workflow.yaml'
-    workflow_file.write_text('version: "1.3"\nname: test\nsteps:\n  - name: Noop\n    command: ["true"]\n')
+    workflow_file.write_text(r"""
+{
+  "version": "1.3",
+  "name": "test",
+  "steps": [
+    {
+      "name": "Noop",
+      "command": [
+        "true"
+      ]
+    }
+  ]
+}
+""")
     monkeypatch.chdir(tmp_path)
 
     mock_loader.return_value.load_bundle.return_value = WorkflowLoader(tmp_path).load_bundle(workflow_file)
@@ -438,7 +448,8 @@ def test_resume_workflow_reuses_orc_launch_metadata_from_monitor_process(
     commands = tmp_path / 'commands.json'
     source_root.mkdir()
     for path in (providers, prompts, imports, commands):
-        path.write_text('{}\n', encoding='utf-8')
+        path.write_text(r"""{}
+""", encoding='utf-8')
 
     run_dir = tmp_path / '.orchestrate' / 'runs' / run_id
     run_dir.mkdir(parents=True)
@@ -527,14 +538,24 @@ def test_resume_force_restart_uses_typed_bundle_context_when_legacy_adapter_drif
     monkeypatch.chdir(tmp_path)
 
     workflow_path = tmp_path / 'workflow.yaml'
-    workflow_text = """
-version: "2.1"
-name: typed-resume
-context:
-  max_review_cycles: "3"
-steps:
-  - name: Noop
-    command: ["bash", "-lc", "true"]
+    workflow_text = r"""
+{
+  "version": "2.1",
+  "name": "typed-resume",
+  "context": {
+    "max_review_cycles": "3"
+  },
+  "steps": [
+    {
+      "name": "Noop",
+      "command": [
+        "bash",
+        "-lc",
+        "true"
+      ]
+    }
+  ]
+}
 """.strip() + "\n"
     workflow_path.write_text(workflow_text, encoding='utf-8')
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)

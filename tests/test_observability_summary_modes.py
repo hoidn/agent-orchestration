@@ -4,7 +4,7 @@ import json
 import time
 from pathlib import Path
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.observability.summary import SummaryObserver
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
@@ -371,17 +371,32 @@ def test_summary_observer_passes_invocation_context_to_provider(tmp_path: Path):
 def test_summary_failures_do_not_change_step_result_and_dataflow_state(tmp_path: Path):
     workflow_file = tmp_path / "workflow.yaml"
     workflow_file.write_text(
-        """
-version: "1.3"
-name: summary-failure-safe
-providers:
-  bad_summary:
-    command: ["bash", "-lc", "exit 9"]
-    input_mode: "argv"
-steps:
-  - name: StepA
-    command: ["bash", "-lc", "echo hello"]
-    output_capture: text
+        r"""
+{
+  "version": "1.3",
+  "name": "summary-failure-safe",
+  "providers": {
+    "bad_summary": {
+      "command": [
+        "bash",
+        "-lc",
+        "exit 9"
+      ],
+      "input_mode": "argv"
+    }
+  },
+  "steps": [
+    {
+      "name": "StepA",
+      "command": [
+        "bash",
+        "-lc",
+        "echo hello"
+      ],
+      "output_capture": "text"
+    }
+  ]
+}
 """.strip()
         + "\n"
     )
@@ -419,61 +434,95 @@ steps:
 def test_repeat_until_body_provider_writes_summary_hub_entry(tmp_path: Path):
     workflow_file = tmp_path / "workflow.yaml"
     workflow_file.write_text(
-        """
-version: "2.14"
-name: repeat-provider-summary
-providers:
-  worker:
-    command:
-      - bash
-      - -lc
-      - >-
-        mkdir -p state artifacts/work &&
-        printf '{"status":"DONE","report":"artifacts/work/report.md"}\\n' > state/result.json &&
-        printf 'report\\n' > artifacts/work/report.md
-    input_mode: stdin
-  summary:
-    command: ["bash", "-lc", "cat >/dev/null; printf 'loop provider summary\\n'"]
-    input_mode: stdin
-steps:
-  - name: ReviewLoop
-    repeat_until:
-      id: iteration
-      max_iterations: 2
-      outputs:
-        status:
-          kind: scalar
-          type: enum
-          allowed: ["CONTINUE", "DONE"]
-          from:
-            ref: self.steps.RunOnce.artifacts.status
-        report:
-          type: relpath
-          under: artifacts/work
-          must_exist_target: true
-          from:
-            ref: self.steps.RunOnce.artifacts.report
-      condition:
-        compare:
-          left:
-            ref: self.outputs.status
-          op: eq
-          right: DONE
-      steps:
-        - name: RunOnce
-          provider: worker
-          output_bundle:
-            path: state/result.json
-            fields:
-              - name: status
-                json_pointer: /status
-                type: enum
-                allowed: ["CONTINUE", "DONE"]
-              - name: report
-                json_pointer: /report
-                type: relpath
-                under: artifacts/work
-                must_exist_target: true
+        r"""
+{
+  "version": "2.14",
+  "name": "repeat-provider-summary",
+  "providers": {
+    "worker": {
+      "command": [
+        "bash",
+        "-lc",
+        "mkdir -p state artifacts/work && printf '{\"status\":\"DONE\",\"report\":\"artifacts/work/report.md\"}\\n' > state/result.json && printf 'report\\n' > artifacts/work/report.md"
+      ],
+      "input_mode": "stdin"
+    },
+    "summary": {
+      "command": [
+        "bash",
+        "-lc",
+        "cat >/dev/null; printf 'loop provider summary\n'"
+      ],
+      "input_mode": "stdin"
+    }
+  },
+  "steps": [
+    {
+      "name": "ReviewLoop",
+      "repeat_until": {
+        "id": "iteration",
+        "max_iterations": 2,
+        "outputs": {
+          "status": {
+            "kind": "scalar",
+            "type": "enum",
+            "allowed": [
+              "CONTINUE",
+              "DONE"
+            ],
+            "from": {
+              "ref": "self.steps.RunOnce.artifacts.status"
+            }
+          },
+          "report": {
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": true,
+            "from": {
+              "ref": "self.steps.RunOnce.artifacts.report"
+            }
+          }
+        },
+        "condition": {
+          "compare": {
+            "left": {
+              "ref": "self.outputs.status"
+            },
+            "op": "eq",
+            "right": "DONE"
+          }
+        },
+        "steps": [
+          {
+            "name": "RunOnce",
+            "provider": "worker",
+            "output_bundle": {
+              "path": "state/result.json",
+              "fields": [
+                {
+                  "name": "status",
+                  "json_pointer": "/status",
+                  "type": "enum",
+                  "allowed": [
+                    "CONTINUE",
+                    "DONE"
+                  ]
+                },
+                {
+                  "name": "report",
+                  "json_pointer": "/report",
+                  "type": "relpath",
+                  "under": "artifacts/work",
+                  "must_exist_target": true
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
 """.strip()
         + "\n"
     )

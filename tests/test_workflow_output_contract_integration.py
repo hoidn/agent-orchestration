@@ -4,10 +4,9 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import yaml
 
 from orchestrator.contracts.output_contract import validate_output_bundle
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_input_contracts
@@ -16,7 +15,7 @@ from orchestrator.workflow.signatures import bind_workflow_inputs
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
     workflow_file = workspace / "workflow.yaml"
-    workflow_file.write_text(yaml.dump(workflow))
+    workflow_file.write_text(json.dumps(workflow))
     return workflow_file
 
 
@@ -1060,7 +1059,8 @@ def test_provider_step_persists_artifacts_from_output_bundle(tmp_path: Path):
 
     def _fake_execute(_invocation, **_kwargs):
         (tmp_path / "artifacts" / "work").mkdir(parents=True, exist_ok=True)
-        (tmp_path / "artifacts" / "work" / "review.json").write_text('{"review_decision":"APPROVE"}\n')
+        (tmp_path / "artifacts" / "work" / "review.json").write_text(r"""{"review_decision":"APPROVE"}
+""")
         return SimpleNamespace(
             exit_code=0,
             stdout=b"ok",
@@ -1114,7 +1114,8 @@ def test_provider_valid_output_bundle_overrides_raw_nonzero_exit(tmp_path: Path)
     def _fake_execute(_invocation, **_kwargs):
         (tmp_path / "artifacts" / "work").mkdir(parents=True, exist_ok=True)
         (tmp_path / "artifacts" / "work" / "review.json").write_text(
-            '{"review_decision":"APPROVE"}\n',
+            r"""{"review_decision":"APPROVE"}
+""",
             encoding="utf-8",
         )
         return SimpleNamespace(

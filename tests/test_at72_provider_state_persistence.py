@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 from orchestrator.state import StateManager, StepResult
 from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 
 
 class TestProviderStatePersistence:
@@ -48,8 +48,8 @@ class TestProviderStatePersistence:
         # Write workflow file
         workflow_file = self.test_workspace / "test_workflow.yaml"
         with open(workflow_file, 'w') as f:
-            import yaml
-            yaml.dump(workflow_data, f)
+            import json
+            json.dump(workflow_data, f)
 
         # Load workflow
         loader = WorkflowLoader(self.test_workspace)
@@ -147,8 +147,8 @@ class TestProviderStatePersistence:
         # Write workflow file
         workflow_file = self.test_workspace / "test_workflow.yaml"
         with open(workflow_file, 'w') as f:
-            import yaml
-            yaml.dump(workflow_data, f)
+            import json
+            json.dump(workflow_data, f)
 
         # Load workflow
         loader = WorkflowLoader(self.test_workspace)
@@ -257,8 +257,8 @@ class TestProviderStatePersistence:
         # Write workflow file and dependencies
         workflow_file = self.test_workspace / "test_workflow.yaml"
         with open(workflow_file, 'w') as f:
-            import yaml
-            yaml.dump(workflow_data, f)
+            import json
+            json.dump(workflow_data, f)
 
         # Create required dependency and prompt files
         (self.test_workspace / "test.txt").write_text("Test content")
@@ -387,8 +387,8 @@ class TestProviderStatePersistence:
 
         workflow_file = self.test_workspace / "provider_session_workflow.yaml"
         with open(workflow_file, 'w') as f:
-            import yaml
-            yaml.dump(workflow_data, f)
+            import json
+            json.dump(workflow_data, f)
 
         workflow = WorkflowLoader(self.test_workspace).load(workflow_file)
         state_manager = StateManager(workspace=self.test_workspace, run_id="test-run")
@@ -467,8 +467,8 @@ class TestProviderStatePersistence:
 
         workflow_file = self.test_workspace / "provider_session_debug_workflow.yaml"
         with open(workflow_file, 'w') as f:
-            import yaml
-            yaml.dump(workflow_data, f)
+            import json
+            json.dump(workflow_data, f)
 
         workflow = WorkflowLoader(self.test_workspace).load(workflow_file)
         state_manager = StateManager(workspace=self.test_workspace, run_id="test-run", debug=True)
@@ -538,8 +538,8 @@ class TestProviderStatePersistence:
 
         workflow_file = self.test_workspace / "provider_session_ordering_workflow.yaml"
         with open(workflow_file, 'w') as f:
-            import yaml
-            yaml.dump(workflow_data, f)
+            import json
+            json.dump(workflow_data, f)
 
         workflow = WorkflowLoader(self.test_workspace).load(workflow_file)
         state_manager = StateManager(workspace=self.test_workspace, run_id="test-run")

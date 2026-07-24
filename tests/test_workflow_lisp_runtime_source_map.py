@@ -5,9 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import yaml
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
@@ -192,7 +191,7 @@ def test_source_free_contract_violation_uses_generated_step_origin(
 def test_yaml_contract_violation_does_not_invent_source_origin(tmp_path: Path) -> None:
     workflow_path = tmp_path / "workflow.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.10",
                 "name": "yaml-contract-without-provenance",

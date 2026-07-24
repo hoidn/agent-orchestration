@@ -14,7 +14,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
 
@@ -27,19 +27,35 @@ class TestErrorHandling:
         AT-56: Non-zero exit halts run when no goto and on_error=stop.
         """
         # Create workflow with failing step
-        workflow_yaml = """
-version: "1.1"
-name: test-strict-flow
-strict_flow: true
-steps:
-  - name: step1
-    command: ["echo", "Step 1"]
-
-  - name: step2
-    command: ["exit", "1"]  # This will fail
-
-  - name: step3
-    command: ["echo", "Step 3"]  # Should not execute
+        workflow_yaml = r"""
+{
+  "version": "1.1",
+  "name": "test-strict-flow",
+  "strict_flow": true,
+  "steps": [
+    {
+      "name": "step1",
+      "command": [
+        "echo",
+        "Step 1"
+      ]
+    },
+    {
+      "name": "step2",
+      "command": [
+        "exit",
+        "1"
+      ]
+    },
+    {
+      "name": "step3",
+      "command": [
+        "echo",
+        "Step 3"
+      ]
+    }
+  ]
+}
 """
         workflow_path = tmp_path / "workflow.yaml"
         workflow_path.write_text(workflow_yaml)
@@ -85,16 +101,28 @@ steps:
 
     def test_at56_strict_flow_stop_marks_run_failed(self, tmp_path):
         """Strict-flow stop must finalize run status as failed (not running)."""
-        workflow_yaml = """
-version: "1.1"
-name: test-strict-flow-status
-strict_flow: true
-steps:
-  - name: step1
-    command: ["echo", "Step 1"]
-
-  - name: step2
-    command: ["exit", "1"]
+        workflow_yaml = r"""
+{
+  "version": "1.1",
+  "name": "test-strict-flow-status",
+  "strict_flow": true,
+  "steps": [
+    {
+      "name": "step1",
+      "command": [
+        "echo",
+        "Step 1"
+      ]
+    },
+    {
+      "name": "step2",
+      "command": [
+        "exit",
+        "1"
+      ]
+    }
+  ]
+}
 """
         workflow_path = tmp_path / "workflow.yaml"
         workflow_path.write_text(workflow_yaml)
@@ -130,18 +158,34 @@ steps:
         AT-57: With --on-error continue, run proceeds after non-zero exit.
         """
         # Create workflow with failing step
-        workflow_yaml = """
-version: "1.1"
-name: test-continue-on-error
-steps:
-  - name: step1
-    command: ["echo", "Step 1"]
-
-  - name: step2
-    command: ["exit", "1"]  # This will fail
-
-  - name: step3
-    command: ["echo", "Step 3"]  # Should execute with continue
+        workflow_yaml = r"""
+{
+  "version": "1.1",
+  "name": "test-continue-on-error",
+  "steps": [
+    {
+      "name": "step1",
+      "command": [
+        "echo",
+        "Step 1"
+      ]
+    },
+    {
+      "name": "step2",
+      "command": [
+        "exit",
+        "1"
+      ]
+    },
+    {
+      "name": "step3",
+      "command": [
+        "echo",
+        "Step 3"
+      ]
+    }
+  ]
+}
 """
         workflow_path = tmp_path / "workflow.yaml"
         workflow_path.write_text(workflow_yaml)
@@ -188,25 +232,47 @@ steps:
         """
         AT-58: on.failure.goto executes before strict_flow applies.
         """
-        workflow_yaml = """
-version: "1.1"
-name: test-goto-precedence
-strict_flow: true
-steps:
-  - name: step1
-    command: ["exit", "1"]
-    on:
-      failure:
-        goto: recovery
-
-  - name: step2
-    command: ["echo", "Should be skipped"]
-
-  - name: recovery
-    command: ["echo", "Recovery step"]
-
-  - name: step3
-    command: ["echo", "After recovery"]
+        workflow_yaml = r"""
+{
+  "version": "1.1",
+  "name": "test-goto-precedence",
+  "strict_flow": true,
+  "steps": [
+    {
+      "name": "step1",
+      "command": [
+        "exit",
+        "1"
+      ],
+      "true": {
+        "failure": {
+          "goto": "recovery"
+        }
+      }
+    },
+    {
+      "name": "step2",
+      "command": [
+        "echo",
+        "Should be skipped"
+      ]
+    },
+    {
+      "name": "recovery",
+      "command": [
+        "echo",
+        "Recovery step"
+      ]
+    },
+    {
+      "name": "step3",
+      "command": [
+        "echo",
+        "After recovery"
+      ]
+    }
+  ]
+}
 """
         workflow_path = tmp_path / "workflow.yaml"
         workflow_path.write_text(workflow_yaml)
@@ -248,24 +314,46 @@ steps:
         """
         AT-58: on.success.goto executes and skips subsequent steps.
         """
-        workflow_yaml = """
-version: "1.1"
-name: test-goto-success
-steps:
-  - name: step1
-    command: ["echo", "Step 1"]
-    on:
-      success:
-        goto: final
-
-  - name: step2
-    command: ["echo", "Should be skipped"]
-
-  - name: step3
-    command: ["echo", "Also skipped"]
-
-  - name: final
-    command: ["echo", "Final step"]
+        workflow_yaml = r"""
+{
+  "version": "1.1",
+  "name": "test-goto-success",
+  "steps": [
+    {
+      "name": "step1",
+      "command": [
+        "echo",
+        "Step 1"
+      ],
+      "true": {
+        "success": {
+          "goto": "final"
+        }
+      }
+    },
+    {
+      "name": "step2",
+      "command": [
+        "echo",
+        "Should be skipped"
+      ]
+    },
+    {
+      "name": "step3",
+      "command": [
+        "echo",
+        "Also skipped"
+      ]
+    },
+    {
+      "name": "final",
+      "command": [
+        "echo",
+        "Final step"
+      ]
+    }
+  ]
+}
 """
         workflow_path = tmp_path / "workflow.yaml"
         workflow_path.write_text(workflow_yaml)
@@ -296,23 +384,42 @@ steps:
         """
         AT-59: on.always evaluated after success/failure handlers.
         """
-        workflow_yaml = """
-version: "1.1"
-name: test-goto-always
-steps:
-  - name: step1
-    command: ["exit", "1"]
-    on:
-      failure:
-        goto: recovery
-      always:
-        goto: cleanup  # Should override failure goto
-
-  - name: recovery
-    command: ["echo", "Recovery - should be skipped"]
-
-  - name: cleanup
-    command: ["echo", "Cleanup - always runs"]
+        workflow_yaml = r"""
+{
+  "version": "1.1",
+  "name": "test-goto-always",
+  "steps": [
+    {
+      "name": "step1",
+      "command": [
+        "exit",
+        "1"
+      ],
+      "true": {
+        "failure": {
+          "goto": "recovery"
+        },
+        "always": {
+          "goto": "cleanup"
+        }
+      }
+    },
+    {
+      "name": "recovery",
+      "command": [
+        "echo",
+        "Recovery - should be skipped"
+      ]
+    },
+    {
+      "name": "cleanup",
+      "command": [
+        "echo",
+        "Cleanup - always runs"
+      ]
+    }
+  ]
+}
 """
         workflow_path = tmp_path / "workflow.yaml"
         workflow_path.write_text(workflow_yaml)
@@ -351,21 +458,39 @@ steps:
         """
         Test that goto: _end terminates the workflow successfully.
         """
-        workflow_yaml = """
-version: "1.1"
-name: test-goto-end
-steps:
-  - name: step1
-    command: ["echo", "Step 1"]
-    on:
-      success:
-        goto: _end
-
-  - name: step2
-    command: ["echo", "Should be skipped"]
-
-  - name: step3
-    command: ["echo", "Also skipped"]
+        workflow_yaml = r"""
+{
+  "version": "1.1",
+  "name": "test-goto-end",
+  "steps": [
+    {
+      "name": "step1",
+      "command": [
+        "echo",
+        "Step 1"
+      ],
+      "true": {
+        "success": {
+          "goto": "_end"
+        }
+      }
+    },
+    {
+      "name": "step2",
+      "command": [
+        "echo",
+        "Should be skipped"
+      ]
+    },
+    {
+      "name": "step3",
+      "command": [
+        "echo",
+        "Also skipped"
+      ]
+    }
+  ]
+}
 """
         workflow_path = tmp_path / "workflow.yaml"
         workflow_path.write_text(workflow_yaml)
@@ -397,19 +522,35 @@ steps:
         """
         Test that strict_flow: false allows continuation after failures.
         """
-        workflow_yaml = """
-version: "1.1"
-name: test-no-strict-flow
-strict_flow: false
-steps:
-  - name: step1
-    command: ["echo", "Step 1"]
-
-  - name: step2
-    command: ["exit", "1"]
-
-  - name: step3
-    command: ["echo", "Step 3"]
+        workflow_yaml = r"""
+{
+  "version": "1.1",
+  "name": "test-no-strict-flow",
+  "strict_flow": false,
+  "steps": [
+    {
+      "name": "step1",
+      "command": [
+        "echo",
+        "Step 1"
+      ]
+    },
+    {
+      "name": "step2",
+      "command": [
+        "exit",
+        "1"
+      ]
+    },
+    {
+      "name": "step3",
+      "command": [
+        "echo",
+        "Step 3"
+      ]
+    }
+  ]
+}
 """
         workflow_path = tmp_path / "workflow.yaml"
         workflow_path.write_text(workflow_yaml)
@@ -449,22 +590,40 @@ steps:
         """
         Test that skipped steps (conditional false) don't trigger error handling.
         """
-        workflow_yaml = """
-version: "1.1"
-name: test-skipped-control-flow
-steps:
-  - name: step1
-    command: ["echo", "Step 1"]
-
-  - name: step2
-    command: ["exit", "1"]
-    when:
-      equals:
-        left: "false"
-        right: "true"  # Condition is false, step skipped
-
-  - name: step3
-    command: ["echo", "Step 3"]  # Should execute
+        workflow_yaml = r"""
+{
+  "version": "1.1",
+  "name": "test-skipped-control-flow",
+  "steps": [
+    {
+      "name": "step1",
+      "command": [
+        "echo",
+        "Step 1"
+      ]
+    },
+    {
+      "name": "step2",
+      "command": [
+        "exit",
+        "1"
+      ],
+      "when": {
+        "equals": {
+          "left": "false",
+          "right": "true"
+        }
+      }
+    },
+    {
+      "name": "step3",
+      "command": [
+        "echo",
+        "Step 3"
+      ]
+    }
+  ]
+}
 """
         workflow_path = tmp_path / "workflow.yaml"
         workflow_path.write_text(workflow_yaml)

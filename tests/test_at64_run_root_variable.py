@@ -11,21 +11,34 @@ from unittest.mock import Mock, patch
 
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 
 
 def test_at64_run_root_variable_in_command(tmp_path):
     """Test that ${run.root} resolves correctly in commands."""
 
     # Create workflow with ${run.root} reference
-    workflow_yaml = """
-version: "1.1"
-steps:
-  - name: CreateOutputDir
-    command: ["mkdir", "-p", "${run.root}/output"]
-
-  - name: WriteToRunRoot
-    command: ["echo", "test data > ${run.root}/output/test.txt"]
+    workflow_yaml = r"""
+{
+  "version": "1.1",
+  "steps": [
+    {
+      "name": "CreateOutputDir",
+      "command": [
+        "mkdir",
+        "-p",
+        "${run.root}/output"
+      ]
+    },
+    {
+      "name": "WriteToRunRoot",
+      "command": [
+        "echo",
+        "test data > ${run.root}/output/test.txt"
+      ]
+    }
+  ]
+}
 """
 
     # Write workflow to temp file
@@ -74,12 +87,20 @@ def test_at64_run_root_variable_in_paths(tmp_path):
     """Test that ${run.root} resolves correctly in file paths."""
 
     # Create workflow with ${run.root} in output_file
-    workflow_yaml = """
-version: "1.1"
-steps:
-  - name: WriteOutput
-    command: ["echo", "test output"]
-    output_file: "${run.root}/logs/custom_output.txt"
+    workflow_yaml = r"""
+{
+  "version": "1.1",
+  "steps": [
+    {
+      "name": "WriteOutput",
+      "command": [
+        "echo",
+        "test output"
+      ],
+      "output_file": "${run.root}/logs/custom_output.txt"
+    }
+  ]
+}
 """
 
     # Write workflow to temp file
@@ -121,11 +142,19 @@ steps:
 def test_at64_run_root_variable_with_context_vars(tmp_path):
     """Test ${run.root} works alongside other variable types."""
 
-    workflow_yaml = """
-version: "1.1"
-steps:
-  - name: CombineVariables
-    command: ["echo", "${context.prefix}_${run.root}_${context.suffix}"]
+    workflow_yaml = r"""
+{
+  "version": "1.1",
+  "steps": [
+    {
+      "name": "CombineVariables",
+      "command": [
+        "echo",
+        "${context.prefix}_${run.root}_${context.suffix}"
+      ]
+    }
+  ]
+}
 """
 
     # Write workflow to temp file
@@ -161,19 +190,31 @@ steps:
 def test_at64_run_root_in_provider_params(tmp_path):
     """Test that ${run.root} works in provider_params."""
 
-    workflow_yaml = """
-version: "1.1"
-providers:
-  test_provider:
-    command: ["bash", "-c", "Process ${file_path}"]
-    defaults:
-      file_path: "/default/path"
-
-steps:
-  - name: UseProvider
-    provider: test_provider
-    provider_params:
-      file_path: "${run.root}/data/input.txt"
+    workflow_yaml = r"""
+{
+  "version": "1.1",
+  "providers": {
+    "test_provider": {
+      "command": [
+        "bash",
+        "-c",
+        "Process ${file_path}"
+      ],
+      "defaults": {
+        "file_path": "/default/path"
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "UseProvider",
+      "provider": "test_provider",
+      "provider_params": {
+        "file_path": "${run.root}/data/input.txt"
+      }
+    }
+  ]
+}
 """
 
     # Write workflow to temp file
@@ -210,11 +251,19 @@ steps:
 def test_at64_run_root_persists_in_state(tmp_path):
     """Test that run_root is persisted in state.json and survives reload."""
 
-    workflow_yaml = """
-version: "1.1"
-steps:
-  - name: SimpleStep
-    command: ["echo", "test"]
+    workflow_yaml = r"""
+{
+  "version": "1.1",
+  "steps": [
+    {
+      "name": "SimpleStep",
+      "command": [
+        "echo",
+        "test"
+      ]
+    }
+  ]
+}
 """
 
     # Write workflow to temp file

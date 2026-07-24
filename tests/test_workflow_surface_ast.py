@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
-import yaml
+import json
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.workflow.conditions import EqualsConditionNode
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.loaded_bundle import (
@@ -25,7 +25,7 @@ from tests.workflow_bundle_helpers import materialize_projection_body_steps
 
 def _write_yaml(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
     return path
 
 
@@ -447,7 +447,7 @@ def test_elaboration_orchestrates_authored_shape_validation_before_ast_build(tmp
     """Elaboration owns authored-shape validation orchestration before AST materialization."""
     workflow_path = _write_surface_workflow(tmp_path)
     backend = _RecordingValidationBackend(managed_inputs=({"write_root"}, []))
-    raw_workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    raw_workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
 
     surface = elaborate_surface_workflow(
         raw_workflow,
@@ -475,7 +475,7 @@ def test_elaboration_returns_none_when_validation_backend_reports_errors(tmp_pat
     """Elaboration must stop before AST parsing if authored-shape validation already failed."""
     workflow_path = _write_surface_workflow(tmp_path)
     backend = _RecordingValidationBackend()
-    raw_workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    raw_workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
     backend.errors.append("synthetic validation failure")
 
     surface = elaborate_surface_workflow(

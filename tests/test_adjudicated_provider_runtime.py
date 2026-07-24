@@ -2,11 +2,10 @@ import json
 from pathlib import Path
 
 import pytest
-import yaml
 
 import orchestrator.workflow.executor as executor_module
 import orchestrator.workflow.prompting as prompting_module
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.observability.report import build_status_snapshot, render_status_markdown
 from orchestrator.state import StateManager
 from orchestrator.workflow.adjudication import (
@@ -39,7 +38,7 @@ def _install_fake_clock(monkeypatch: pytest.MonkeyPatch, fake_clock: _FakeClock)
 
 def _write_yaml(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
     return path
 
 

@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from tests.workflow_bundle_helpers import thaw_surface_workflow
 from tests.e2e.conftest import skip_if_no_cli, skip_if_no_e2e
 from tests.e2e.reporter import reporter
@@ -110,121 +110,190 @@ def _write_prompts(workspace: Path) -> None:
 
 
 def _write_workflow(workspace: Path) -> Path:
-    workflow = """
-version: "1.1.1"
-name: "e2e-multistep-prompted-loop"
-context:
-  max_cycles: "3"
-providers:
-  codex:
-    command: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${reasoning_effort}"]
-    input_mode: stdin
-    defaults:
-      model: "gpt-5.3-codex"
-      reasoning_effort: "high"
-  claude:
-    command: ["claude", "-p", "${PROMPT}", "--dangerously-skip-permissions", "--model", "${model}"]
-    input_mode: argv
-    defaults:
-      model: "claude-opus-4-6"
-steps:
-  - name: SelectBacklogItem
-    command:
-      - bash
-      - -lc
-      - "mkdir -p state && ls docs/backlog/*.md | head -n1 > state/backlog_item_path.txt"
-    expected_outputs:
-      - name: backlog_item_path
-        path: state/backlog_item_path.txt
-        type: relpath
-        under: docs/backlog
-        must_exist_target: true
-
-  - name: DraftPlan
-    provider: codex
-    input_file: prompts/draft_plan.md
-    timeout_sec: 180
-    expected_outputs:
-      - name: plan_path
-        path: state/plan_path.txt
-        type: relpath
-        under: docs/plans
-        must_exist_target: true
-
-  - name: ExecutePlan
-    provider: claude
-    input_file: prompts/execute_plan.md
-    timeout_sec: 240
-    expected_outputs:
-      - name: execution_log_path
-        path: state/execution_log_path.txt
-        type: relpath
-        under: artifacts/work
-        must_exist_target: true
-
-  - name: InitializePostTestCycle
-    command:
-      - bash
-      - -lc
-      - "mkdir -p state && printf '0\\n' > state/post_test_cycle.txt"
-    expected_outputs:
-      - name: post_test_cycle
-        path: state/post_test_cycle.txt
-        type: integer
-
-  - name: RunPostWorkTests
-    command:
-      - bash
-      - -lc
-      - "mkdir -p state && if pytest -q tests/test_calculator.py > state/post_pytest.log 2>&1; then printf '0\\n' > state/post_failed_count.txt; else printf '1\\n' > state/post_failed_count.txt; fi"
-    expected_outputs:
-      - name: failed_count
-        path: state/post_failed_count.txt
-        type: integer
-
-  - name: PostWorkGate
-    command:
-      - bash
-      - -lc
-      - 'test "$(cat state/post_failed_count.txt)" -eq 0'
-    on:
-      success:
-        goto: _end
-      failure:
-        goto: FixPostWorkIssues
-
-  - name: FixPostWorkIssues
-    provider: claude
-    input_file: prompts/fix_tests.md
-    timeout_sec: 240
-    expected_outputs:
-      - name: post_fix_path
-        path: state/post_fix_path.txt
-        type: relpath
-        under: artifacts/fixes
-        must_exist_target: true
-    on:
-      success:
-        goto: IncrementPostTestCycle
-
-  - name: IncrementPostTestCycle
-    command:
-      - bash
-      - -lc
-      - 'c=$(cat state/post_test_cycle.txt); printf "%s\\n" "$((c+1))" > state/post_test_cycle.txt'
-    expected_outputs:
-      - name: post_test_cycle
-        path: state/post_test_cycle.txt
-        type: integer
-
-  - name: PostCycleGate
-    command:
-      - bash
-      - -lc
-      - 'test "$(cat state/post_test_cycle.txt)" -lt 3'
-    on:
-      success:
-        goto: RunPostWorkTests
+    workflow = r"""
+{
+  "version": "1.1.1",
+  "name": "e2e-multistep-prompted-loop",
+  "context": {
+    "max_cycles": "3"
+  },
+  "providers": {
+    "codex": {
+      "command": [
+        "codex",
+        "exec",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--skip-git-repo-check",
+        "--model",
+        "${model}",
+        "--config",
+        "reasoning_effort=${reasoning_effort}"
+      ],
+      "input_mode": "stdin",
+      "defaults": {
+        "model": "gpt-5.3-codex",
+        "reasoning_effort": "high"
+      }
+    },
+    "claude": {
+      "command": [
+        "claude",
+        "-p",
+        "${PROMPT}",
+        "--dangerously-skip-permissions",
+        "--model",
+        "${model}"
+      ],
+      "input_mode": "argv",
+      "defaults": {
+        "model": "claude-opus-4-6"
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "SelectBacklogItem",
+      "command": [
+        "bash",
+        "-lc",
+        "mkdir -p state && ls docs/backlog/*.md | head -n1 > state/backlog_item_path.txt"
+      ],
+      "expected_outputs": [
+        {
+          "name": "backlog_item_path",
+          "path": "state/backlog_item_path.txt",
+          "type": "relpath",
+          "under": "docs/backlog",
+          "must_exist_target": true
+        }
+      ]
+    },
+    {
+      "name": "DraftPlan",
+      "provider": "codex",
+      "input_file": "prompts/draft_plan.md",
+      "timeout_sec": 180,
+      "expected_outputs": [
+        {
+          "name": "plan_path",
+          "path": "state/plan_path.txt",
+          "type": "relpath",
+          "under": "docs/plans",
+          "must_exist_target": true
+        }
+      ]
+    },
+    {
+      "name": "ExecutePlan",
+      "provider": "claude",
+      "input_file": "prompts/execute_plan.md",
+      "timeout_sec": 240,
+      "expected_outputs": [
+        {
+          "name": "execution_log_path",
+          "path": "state/execution_log_path.txt",
+          "type": "relpath",
+          "under": "artifacts/work",
+          "must_exist_target": true
+        }
+      ]
+    },
+    {
+      "name": "InitializePostTestCycle",
+      "command": [
+        "bash",
+        "-lc",
+        "mkdir -p state && printf '0\n' > state/post_test_cycle.txt"
+      ],
+      "expected_outputs": [
+        {
+          "name": "post_test_cycle",
+          "path": "state/post_test_cycle.txt",
+          "type": "integer"
+        }
+      ]
+    },
+    {
+      "name": "RunPostWorkTests",
+      "command": [
+        "bash",
+        "-lc",
+        "mkdir -p state && if pytest -q tests/test_calculator.py > state/post_pytest.log 2>&1; then printf '0\n' > state/post_failed_count.txt; else printf '1\n' > state/post_failed_count.txt; fi"
+      ],
+      "expected_outputs": [
+        {
+          "name": "failed_count",
+          "path": "state/post_failed_count.txt",
+          "type": "integer"
+        }
+      ]
+    },
+    {
+      "name": "PostWorkGate",
+      "command": [
+        "bash",
+        "-lc",
+        "test \"$(cat state/post_failed_count.txt)\" -eq 0"
+      ],
+      "true": {
+        "success": {
+          "goto": "_end"
+        },
+        "failure": {
+          "goto": "FixPostWorkIssues"
+        }
+      }
+    },
+    {
+      "name": "FixPostWorkIssues",
+      "provider": "claude",
+      "input_file": "prompts/fix_tests.md",
+      "timeout_sec": 240,
+      "expected_outputs": [
+        {
+          "name": "post_fix_path",
+          "path": "state/post_fix_path.txt",
+          "type": "relpath",
+          "under": "artifacts/fixes",
+          "must_exist_target": true
+        }
+      ],
+      "true": {
+        "success": {
+          "goto": "IncrementPostTestCycle"
+        }
+      }
+    },
+    {
+      "name": "IncrementPostTestCycle",
+      "command": [
+        "bash",
+        "-lc",
+        "c=$(cat state/post_test_cycle.txt); printf \"%s\\n\" \"$((c+1))\" > state/post_test_cycle.txt"
+      ],
+      "expected_outputs": [
+        {
+          "name": "post_test_cycle",
+          "path": "state/post_test_cycle.txt",
+          "type": "integer"
+        }
+      ]
+    },
+    {
+      "name": "PostCycleGate",
+      "command": [
+        "bash",
+        "-lc",
+        "test \"$(cat state/post_test_cycle.txt)\" -lt 3"
+      ],
+      "true": {
+        "success": {
+          "goto": "RunPostWorkTests"
+        }
+      }
+    }
+  ]
+}
 """
 
     workflow_path = workspace / "workflows" / WORKFLOW_FILENAME

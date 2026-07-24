@@ -9,9 +9,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-import yaml
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
@@ -25,7 +24,7 @@ PURE_EXPR_SELECTOR_PROJECTION = VALID_FIXTURES / "pure_expr_selector_action_proj
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
     workflow_file = workspace / "workflow.yaml"
-    workflow_file.write_text(yaml.dump(workflow), encoding="utf-8")
+    workflow_file.write_text(json.dumps(workflow), encoding="utf-8")
     return workflow_file
 
 
@@ -818,7 +817,7 @@ def test_projection_error_exits_for_each_and_repeat_until_without_next_iteration
 ) -> None:
     child_path = tmp_path / "child.yaml"
     child_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.7" if loop_kind == "repeat_until" else "2.5",
                 "name": "sticky-loop-child",
@@ -919,7 +918,7 @@ def test_projection_error_finalization_failure_is_supplemental(
 ) -> None:
     child_path = tmp_path / "child.yaml"
     child_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.5",
                 "name": "sticky-finalization-child",
@@ -996,7 +995,7 @@ def test_projection_error_finalization_sticky_failure_is_supplemental(
 ) -> None:
     child_path = tmp_path / "child.yaml"
     child_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.5",
                 "name": "sticky-finalization-precedence-child",

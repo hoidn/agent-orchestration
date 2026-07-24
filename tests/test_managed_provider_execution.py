@@ -2,10 +2,9 @@ from pathlib import Path
 from unittest.mock import patch
 import json
 import sys
-import yaml
 
 from orchestrator.managed_jobs.audit import append_event
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.providers.executor import ProviderExecutionResult, ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
@@ -55,7 +54,7 @@ def _write_workflow(tmp_path: Path, *, provider_code: str = "0") -> Path:
         ],
     }
     path = tmp_path / "workflow.yaml"
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
     return path
 
 
@@ -99,7 +98,7 @@ def test_managed_provider_structured_output_binding_survives_guard_wrap(tmp_path
         "bundle_path.write_text(json.dumps({'selection_decision': 'READY'}) + '\\n', encoding='utf-8')"
     )
     workflow_path = _write_workflow(tmp_path, provider_code=provider_code)
-    payload = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    payload = json.loads(workflow_path.read_text(encoding="utf-8"))
     payload["steps"][0]["output_bundle"] = {
         "path": "state/nested/output/selection.json",
         "fields": [
@@ -111,7 +110,7 @@ def test_managed_provider_structured_output_binding_survives_guard_wrap(tmp_path
             }
         ],
     }
-    workflow_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    workflow_path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
 
     executor = _executor(tmp_path, workflow_path)
     state = executor.execute()

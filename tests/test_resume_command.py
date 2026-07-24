@@ -17,7 +17,6 @@ from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 import hashlib
-import yaml
 
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 import orchestrator.cli.commands.resume as resume_command
@@ -26,7 +25,7 @@ from orchestrator.cli.main import main as cli_main
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.monitor.process import write_process_metadata
 from orchestrator.state import StateManager
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
 from orchestrator.workflow.identity import iteration_step_id
@@ -93,7 +92,7 @@ def _seed_projection_integrity_root_resume(
     """Seed a checksum-compatible failed v2.0 run with a stale explicit current id."""
     workflow_path = workspace / "projection_integrity_root.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.0",
                 "name": "projection-integrity-root",
@@ -146,7 +145,8 @@ def _seed_projection_integrity_root_resume(
     manager._write_state()
     preserved_sidecar = manager.run_root / "call_frames" / "preserved" / "sidecar.json"
     preserved_sidecar.parent.mkdir(parents=True)
-    preserved_sidecar.write_text('{"preserved": true}\n', encoding="utf-8")
+    preserved_sidecar.write_text(r"""{"preserved": true}
+""", encoding="utf-8")
     return workflow_path, manager
 
 
@@ -1234,7 +1234,8 @@ def _compile_root_result_collection_bundle(workspace: Path):
     work = workspace / "artifacts" / "work"
     work.mkdir(parents=True, exist_ok=True)
     (work / "report.md").write_text("report\n", encoding="utf-8")
-    (work / "summary.json").write_text("{}\n", encoding="utf-8")
+    (work / "summary.json").write_text(r"""{}
+""", encoding="utf-8")
     module_path = workspace / "root_result_collection_resume.orc"
     module_path.write_text(
         "\n".join(
@@ -1321,7 +1322,7 @@ def test_resume_root_result_scalar_output_bundle_persists_across_resume(temp_wor
     run_id = "root-result-scalar-resume"
     workflow_path = temp_workspace / "root_result_resume.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_root_result_resume_workflow(), sort_keys=False),
+        json.dumps(_build_root_result_resume_workflow(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -1350,7 +1351,7 @@ def test_resume_root_result_scalar_output_bundle_persists_across_resume(temp_wor
 def test_projection_runtime_plan_includes_root_result_output_bundle_entries(tmp_path: Path):
     workflow_path = tmp_path / "root_result_resume.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_root_result_resume_workflow(), sort_keys=False),
+        json.dumps(_build_root_result_resume_workflow(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -1426,7 +1427,7 @@ def test_resume_root_result_collection_bundles_persist_and_resume_at_lexical_che
 
 def _seed_resume_loop_state(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
     workflow_path = workspace / "resume_loop.yaml"
-    workflow_path.write_text(yaml.safe_dump(_build_resume_loop_workflow(), sort_keys=False))
+    workflow_path.write_text(json.dumps(_build_resume_loop_workflow(), sort_keys=False))
 
     state_dir = workspace / "state"
     state_dir.mkdir(exist_ok=True)
@@ -1453,7 +1454,7 @@ def _seed_resume_loop_state(workspace: Path, *, run_id: str) -> tuple[Path, Stat
 def _seed_structured_if_else_failure(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
     workflow_path = workspace / "structured_if_else_resume.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_structured_if_else_resume_workflow(), sort_keys=False),
+        json.dumps(_build_structured_if_else_resume_workflow(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -1469,7 +1470,7 @@ def _seed_structured_if_else_failure(workspace: Path, *, run_id: str) -> tuple[P
 def _seed_repeat_until_failure(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
     workflow_path = workspace / "repeat_until_resume.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_repeat_until_resume_workflow(), sort_keys=False),
+        json.dumps(_build_repeat_until_resume_workflow(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -1487,7 +1488,7 @@ def test_projection_runtime_plan_summarizes_artifacts_and_snapshots_from_executa
 ):
     workflow_path = tmp_path / "projection_runtime_plan_snapshot.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_projection_runtime_plan_snapshot_workflow(), sort_keys=False),
+        json.dumps(_build_projection_runtime_plan_snapshot_workflow(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -1532,12 +1533,12 @@ def test_repeat_until_runtime_plan_checkpoint_metadata_preserves_projection_resu
     library_path = tmp_path / "workflows" / "library" / "repeat_until_review_fixture.yaml"
     library_path.parent.mkdir(parents=True, exist_ok=True)
     library_path.write_text(
-        yaml.safe_dump(_build_repeat_until_call_resume_library_workflow(), sort_keys=False),
+        json.dumps(_build_repeat_until_call_resume_library_workflow(), sort_keys=False),
         encoding="utf-8",
     )
     workflow_path = tmp_path / "repeat_until_call_resume.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_repeat_until_call_resume_workflow(), sort_keys=False),
+        json.dumps(_build_repeat_until_call_resume_workflow(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -1758,7 +1759,7 @@ def test_resume_planner_marks_yaml_route_ineligible_without_lexical_restore(
 ) -> None:
     workflow_path = tmp_path / "resume_ineligible.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_structured_if_else_resume_workflow(), sort_keys=False),
+        json.dumps(_build_structured_if_else_resume_workflow(), sort_keys=False),
         encoding="utf-8",
     )
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
@@ -1790,12 +1791,12 @@ def _seed_repeat_until_call_failure(workspace: Path, *, run_id: str) -> tuple[Pa
     library_path = workspace / "workflows" / "library" / "repeat_until_review_fixture.yaml"
     library_path.parent.mkdir(parents=True, exist_ok=True)
     library_path.write_text(
-        yaml.safe_dump(_build_repeat_until_call_resume_library_workflow(), sort_keys=False),
+        json.dumps(_build_repeat_until_call_resume_library_workflow(), sort_keys=False),
         encoding="utf-8",
     )
     workflow_path = workspace / "repeat_until_call_resume.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_repeat_until_call_resume_workflow(), sort_keys=False),
+        json.dumps(_build_repeat_until_call_resume_workflow(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -1820,19 +1821,37 @@ def temp_workspace():
 def sample_workflow(temp_workspace):
     """Create a sample workflow file."""
     workflow_path = temp_workspace / "test_workflow.yaml"
-    workflow_content = """
-version: "1.1"
-name: Test Resume Workflow
-steps:
-  - name: Step1
-    command: ["echo", "Hello from Step1"]
-    output_capture: text
-  - name: Step2
-    command: ["echo", "Hello from Step2"]
-    output_capture: text
-  - name: Step3
-    command: ["echo", "Hello from Step3"]
-    output_capture: text
+    workflow_content = r"""
+{
+  "version": "1.1",
+  "name": "Test Resume Workflow",
+  "steps": [
+    {
+      "name": "Step1",
+      "command": [
+        "echo",
+        "Hello from Step1"
+      ],
+      "output_capture": "text"
+    },
+    {
+      "name": "Step2",
+      "command": [
+        "echo",
+        "Hello from Step2"
+      ],
+      "output_capture": "text"
+    },
+    {
+      "name": "Step3",
+      "command": [
+        "echo",
+        "Hello from Step3"
+      ],
+      "output_capture": "text"
+    }
+  ]
+}
 """
     workflow_path.write_text(workflow_content)
 
@@ -2032,7 +2051,7 @@ def test_workflow_lisp_lowering_schema_same_schema_completed_resume_passes_gate(
     _seed_orc_resume_schema_state(temp_workspace, run_id=run_id, lowering_schema=schema)
     audit_fixture = temp_workspace / f"schema_{schema}_audit_fixture.yaml"
     audit_fixture.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.0",
                 "name": f"schema-{schema}-audit-fixture",
@@ -2278,7 +2297,7 @@ def test_repeat_until_resume_advances_past_already_evaluated_condition_without_r
     run_id = "repeat-until-condition-resume-run"
     workflow_path = temp_workspace / "repeat_until_resume.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_repeat_until_resume_workflow(), sort_keys=False),
+        json.dumps(_build_repeat_until_resume_workflow(), sort_keys=False),
         encoding="utf-8",
     )
     workflow = WorkflowLoader(temp_workspace).load(workflow_path)
@@ -2456,13 +2475,13 @@ def test_repeat_until_resume_clears_stale_failed_nested_call_result_while_child_
     ]
     library_path.parent.mkdir(parents=True, exist_ok=True)
     library_path.write_text(
-        yaml.safe_dump(library_workflow, sort_keys=False),
+        json.dumps(library_workflow, sort_keys=False),
         encoding="utf-8",
     )
 
     workflow_path = temp_workspace / "repeat_until_call_resume.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_repeat_until_call_resume_workflow(), sort_keys=False),
+        json.dumps(_build_repeat_until_call_resume_workflow(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -2548,7 +2567,7 @@ def test_finally_smoke_resume_restarts_at_first_unfinished_cleanup_step(temp_wor
     """Resume should continue finalization from the first unfinished cleanup step."""
     workflow_path = temp_workspace / "resume_finally.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_finally_resume_workflow(), sort_keys=False),
+        json.dumps(_build_finally_resume_workflow(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -2598,12 +2617,12 @@ def test_call_subworkflow_smoke_resume_preserves_completed_nested_steps(temp_wor
     library_path = temp_workspace / "workflows" / "library" / "review_loop_fixture.yaml"
     library_path.parent.mkdir(parents=True, exist_ok=True)
     library_path.write_text(
-        yaml.safe_dump(_build_call_resume_library_workflow(), sort_keys=False),
+        json.dumps(_build_call_resume_library_workflow(), sort_keys=False),
         encoding="utf-8",
     )
     workflow_path = temp_workspace / "resume_call_workflow.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_call_resume_caller_workflow(), sort_keys=False),
+        json.dumps(_build_call_resume_caller_workflow(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -2655,12 +2674,12 @@ def test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch(tem
     library_path = temp_workspace / "workflows" / "library" / "review_loop_fixture.yaml"
     library_path.parent.mkdir(parents=True, exist_ok=True)
     library_path.write_text(
-        yaml.safe_dump(_build_call_resume_library_workflow(), sort_keys=False),
+        json.dumps(_build_call_resume_library_workflow(), sort_keys=False),
         encoding="utf-8",
     )
     workflow_path = temp_workspace / "resume_call_workflow.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_call_resume_caller_workflow(), sort_keys=False),
+        json.dumps(_build_call_resume_caller_workflow(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -2866,7 +2885,8 @@ def test_workflow_lisp_resume_ignores_shadow_checkpoint_sidecars(temp_workspace)
     summary_path = temp_workspace / "artifacts" / "work" / "summary.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text("report\n", encoding="utf-8")
-    summary_path.write_text("{}\n", encoding="utf-8")
+    summary_path.write_text(r"""{}
+""", encoding="utf-8")
 
     run_id = "workflow-lisp-shadow-sidecar-resume"
     state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
@@ -2939,7 +2959,8 @@ def test_workflow_lisp_lexical_checkpoint_resume_restores_private_checkpoint_reg
     summary_path = temp_workspace / "artifacts" / "work" / "summary.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text("report\n", encoding="utf-8")
-    summary_path.write_text("{}\n", encoding="utf-8")
+    summary_path.write_text(r"""{}
+""", encoding="utf-8")
 
     run_id = "workflow-lisp-restore-sidecar-resume"
     state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
@@ -3024,7 +3045,8 @@ def test_resume_command_writes_default_resume_report_for_eligible_workflow_lisp_
     summary_path = temp_workspace / "artifacts" / "work" / "summary.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text("report\n", encoding="utf-8")
-    summary_path.write_text("{}\n", encoding="utf-8")
+    summary_path.write_text(r"""{}
+""", encoding="utf-8")
 
     run_id = "workflow-lisp-default-resume-eligible"
     state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
@@ -3105,7 +3127,8 @@ def test_resume_command_reuses_planner_restore_decision_for_eligible_workflow_li
     summary_path = temp_workspace / "artifacts" / "work" / "summary.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text("report\n", encoding="utf-8")
-    summary_path.write_text("{}\n", encoding="utf-8")
+    summary_path.write_text(r"""{}
+""", encoding="utf-8")
 
     run_id = "workflow-lisp-default-resume-single-restore-decision"
     state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
@@ -3210,7 +3233,8 @@ def test_resume_command_writes_default_resume_report_for_historical_legacy_route
     summary_path = temp_workspace / "artifacts" / "work" / "summary.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text("report\n", encoding="utf-8")
-    summary_path.write_text("{}\n", encoding="utf-8")
+    summary_path.write_text(r"""{}
+""", encoding="utf-8")
 
     run_id = "workflow-lisp-default-resume-historical"
     state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
@@ -3274,7 +3298,7 @@ def test_resume_command_writes_default_resume_report_for_ineligible_yaml_route(
     run_id = "workflow-default-resume-ineligible"
     workflow_path = temp_workspace / "resume_ineligible.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_structured_if_else_resume_workflow(), sort_keys=False),
+        json.dumps(_build_structured_if_else_resume_workflow(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -3306,7 +3330,7 @@ def test_resume_retries_since_last_consume_step_after_failed_attempt(temp_worksp
     run_id = "since-last-consume-resume-run"
     workflow_path = temp_workspace / "resume_since_last_consume.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_since_last_consume_resume_workflow(), sort_keys=False),
+        json.dumps(_build_since_last_consume_resume_workflow(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -3742,7 +3766,8 @@ def test_projection_resume_root_cli_audit_precedes_override_session_process_and_
     assert not (manager.run_root / "monitor_process.json").exists()
     assert (
         manager.run_root / "call_frames" / "preserved" / "sidecar.json"
-    ).read_text(encoding="utf-8") == '{"preserved": true}\n'
+    ).read_text(encoding="utf-8") == r"""{"preserved": true}
+"""
     assert not (manager.run_root / "provider_sessions").exists()
     assert not (temp_workspace / "state" / "effect.txt").exists()
 
@@ -3814,7 +3839,7 @@ def test_projection_integrity_public_paths_never_call_retirement_readers(
     import orchestrator.workflow_lisp.procedure_identity_retirement as retirement
 
     workflow_path = _write_projection_integrity_call_graph(temp_workspace)
-    root_workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    root_workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
     root_workflow["steps"].insert(
         0,
         {
@@ -3824,7 +3849,7 @@ def test_projection_integrity_public_paths_never_call_retirement_readers(
         },
     )
     workflow_path.write_text(
-        yaml.safe_dump(root_workflow, sort_keys=False),
+        json.dumps(root_workflow, sort_keys=False),
         encoding="utf-8",
     )
     bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
@@ -3897,7 +3922,7 @@ def test_projection_resume_child_executor_skips_root_guard_structurally(
 ) -> None:
     workflow_path = temp_workspace / "projection_child.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.0",
                 "name": "projection-child",
@@ -3968,7 +3993,7 @@ def test_projection_resume_post_cli_identity_race_uses_three_field_delta_and_clo
     run_id = "projection-post-cli-race"
     workflow_path = temp_workspace / "projection_post_cli_race.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.0",
                 "name": "projection-post-cli-race",
@@ -4051,7 +4076,7 @@ def test_projection_resume_root_executor_checksum_mismatch_envelope(
 ) -> None:
     workflow_path = temp_workspace / f"checksum_{reason}.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.0",
                 "name": f"checksum-{reason}",
@@ -4144,7 +4169,7 @@ def _seed_public_omitted_step_id_state(
 ) -> tuple[StateManager, str]:
     workflow_path = workspace / f"public_omitted_{row_shape}.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.0",
                 "name": f"public-omitted-{row_shape}",
@@ -4258,7 +4283,7 @@ def test_projection_resume_schema_boundary_rejects_pre_v2_and_pre_2_1_call_state
     run_id = f"projection-schema-{schema_version.replace('.', '-')}"
     child_path = temp_workspace / "projection_schema_child.yaml"
     child_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": workflow_version,
                 "name": "projection-schema-child",
@@ -4296,7 +4321,7 @@ def test_projection_resume_schema_boundary_rejects_pre_v2_and_pre_2_1_call_state
     if with_reusable_call:
         workflow["imports"] = {"child": child_path.name}
     workflow_path = temp_workspace / "projection_schema_root.yaml"
-    workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    workflow_path.write_text(json.dumps(workflow, sort_keys=False), encoding="utf-8")
     manager = StateManager(temp_workspace, run_id=run_id)
     state = manager.initialize(workflow_path.name)
     state.schema_version = schema_version
@@ -4336,12 +4361,20 @@ def test_at4_resume_with_checksum_mismatch(temp_workspace, partial_run_state):
 
     # Modify the workflow file
     workflow_path = Path(json.loads((state_dir / "state.json").read_text())["workflow_file"])
-    workflow_path.write_text("""
-version: "1.1"
-name: Modified Workflow
-steps:
-  - name: Step1
-    command: ["echo", "Modified"]
+    workflow_path.write_text(r"""
+{
+  "version": "1.1",
+  "name": "Modified Workflow",
+  "steps": [
+    {
+      "name": "Step1",
+      "command": [
+        "echo",
+        "Modified"
+      ]
+    }
+  ]
+}
 """)
 
     with patch('os.getcwd', return_value=str(temp_workspace)):
@@ -4395,16 +4428,27 @@ def test_resume_force_restart_revalidates_persisted_bound_inputs(
     """Force restart must rebind persisted inputs against the current workflow contracts."""
     workflow_path = temp_workspace / "typed_input_workflow.yaml"
     workflow_path.write_text(
-        """
-version: "2.1"
-name: Force Restart Input Validation
-inputs:
-  max_cycles:
-    kind: scalar
-    type: integer
-steps:
-  - name: Finish
-    command: ["bash", "-lc", "printf 'done\\n'"]
+        r"""
+{
+  "version": "2.1",
+  "name": "Force Restart Input Validation",
+  "inputs": {
+    "max_cycles": {
+      "kind": "scalar",
+      "type": "integer"
+    }
+  },
+  "steps": [
+    {
+      "name": "Finish",
+      "command": [
+        "bash",
+        "-lc",
+        "printf 'done\n'"
+      ]
+    }
+  ]
+}
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -4997,20 +5041,37 @@ def test_at4_resume_partial_for_each_loop(temp_workspace):
     """Test resuming a partially completed for-each loop."""
     # Create workflow with for-each loop
     workflow_path = temp_workspace / "loop_workflow.yaml"
-    workflow_content = """
-version: "1.1"
-name: Loop Workflow
-steps:
-  - name: GenerateList
-    command: ["echo", "item1\\nitem2\\nitem3"]
-    output_capture: lines
-  - name: ProcessItems
-    for_each:
-      items_from: "steps.GenerateList.lines"
-      steps:
-        - name: ProcessItem
-          command: ["echo", "Processing ${item}"]
-          output_capture: text
+    workflow_content = r"""
+{
+  "version": "1.1",
+  "name": "Loop Workflow",
+  "steps": [
+    {
+      "name": "GenerateList",
+      "command": [
+        "echo",
+        "item1\nitem2\nitem3"
+      ],
+      "output_capture": "lines"
+    },
+    {
+      "name": "ProcessItems",
+      "for_each": {
+        "items_from": "steps.GenerateList.lines",
+        "steps": [
+          {
+            "name": "ProcessItem",
+            "command": [
+              "echo",
+              "Processing ${item}"
+            ],
+            "output_capture": "text"
+          }
+        ]
+      }
+    }
+  ]
+}
 """
     workflow_path.write_text(workflow_content)
     checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
@@ -5106,7 +5167,7 @@ def test_resume_partial_for_each_loop_skips_completed_iterations_using_bookkeepi
     }
 
     workflow_path = temp_workspace / "loop_resume_workflow.yaml"
-    workflow_text = yaml.safe_dump(workflow, sort_keys=False)
+    workflow_text = json.dumps(workflow, sort_keys=False)
     workflow_path.write_text(workflow_text)
     checksum = f"sha256:{hashlib.sha256(workflow_text.encode()).hexdigest()}"
 
@@ -5197,7 +5258,7 @@ def test_resume_partial_for_each_loop_uses_incremental_summary_bookkeeping(temp_
     }
 
     workflow_path = temp_workspace / "loop_resume_workflow.yaml"
-    workflow_text = yaml.safe_dump(workflow, sort_keys=False)
+    workflow_text = json.dumps(workflow, sort_keys=False)
     workflow_path.write_text(workflow_text)
     checksum = f"sha256:{hashlib.sha256(workflow_text.encode()).hexdigest()}"
 
@@ -5328,7 +5389,7 @@ def test_resume_ignores_stale_running_current_step_for_completed_side_effecting_
     """Resume should not rerun a completed side-effecting step just because current_step is stale."""
     workflow_path = temp_workspace / "stale_current_step.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "1.1",
                 "name": "stale-current-step",
@@ -5385,7 +5446,7 @@ def test_resume_ignores_stale_running_current_step_for_completed_side_effecting_
 def test_resume_continues_partial_finalization_without_rerunning_completed_cleanup(temp_workspace):
     workflow_path = temp_workspace / "structured_finally_resume.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(_build_structured_finally_resume_workflow(), sort_keys=False),
+        json.dumps(_build_structured_finally_resume_workflow(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -5490,16 +5551,29 @@ def test_at4_resume_with_retry_parameters(temp_workspace, partial_run_state):
 def test_resume_preserves_control_flow_counters(temp_workspace):
     """Resume keeps persisted cycle-guard counters available to the executor."""
     workflow_path = temp_workspace / "control_flow_resume.yaml"
-    workflow_content = """
-version: "1.8"
-name: Control Flow Resume Workflow
-max_transitions: 5
-steps:
-  - name: Step1
-    max_visits: 3
-    command: ["echo", "Hello from Step1"]
-  - name: Step2
-    command: ["echo", "Hello from Step2"]
+    workflow_content = r"""
+{
+  "version": "1.8",
+  "name": "Control Flow Resume Workflow",
+  "max_transitions": 5,
+  "steps": [
+    {
+      "name": "Step1",
+      "max_visits": 3,
+      "command": [
+        "echo",
+        "Hello from Step1"
+      ]
+    },
+    {
+      "name": "Step2",
+      "command": [
+        "echo",
+        "Hello from Step2"
+      ]
+    }
+  ]
+}
 """
     workflow_path.write_text(workflow_content)
     checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
@@ -5548,7 +5622,7 @@ def test_resume_uses_custom_state_dir_override(temp_workspace):
     """Resume should locate and reopen runs stored under a custom runs root."""
     workflow_path = temp_workspace / "custom_state_dir_resume.yaml"
     workflow_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "1.1",
                 "name": "Custom State Dir Resume Workflow",
@@ -5611,15 +5685,25 @@ def test_resume_uses_custom_state_dir_override(temp_workspace):
 def test_resume_defaults_retry_settings_for_provider_steps(temp_workspace):
     """Resume normalizes retry defaults before constructing the executor."""
     workflow_path = temp_workspace / "provider_resume.yaml"
-    workflow_content = """
-version: "1.1"
-name: Provider Resume Workflow
-providers:
-  test_provider:
-    command: ["echo", "${PROMPT}"]
-steps:
-  - name: ProviderStep
-    provider: test_provider
+    workflow_content = r"""
+{
+  "version": "1.1",
+  "name": "Provider Resume Workflow",
+  "providers": {
+    "test_provider": {
+      "command": [
+        "echo",
+        "${PROMPT}"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "name": "ProviderStep",
+      "provider": "test_provider"
+    }
+  ]
+}
 """
     workflow_path.write_text(workflow_content)
     checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
@@ -5699,28 +5783,51 @@ def test_at4_resume_displays_progress_information(temp_workspace, partial_run_st
 def test_resume_quarantines_interrupted_provider_session_visit(temp_workspace, capsys):
     """Interrupted provider-session visits are quarantined instead of replayed."""
     workflow_path = temp_workspace / "provider_session_resume.yaml"
-    workflow_content = """
-version: "2.10"
-name: provider-session-resume
-providers:
-  codex_session:
-    command: ["bash", "-lc", "echo should-not-run"]
-    input_mode: "stdin"
-    session_support:
-      metadata_mode: codex_exec_jsonl_stdout
-      fresh_command: ["bash", "-lc", "echo should-not-run"]
-      resume_command: ["bash", "-lc", "echo should-not-run ${SESSION_ID}"]
-artifacts:
-  implementation_session_id:
-    kind: scalar
-    type: string
-steps:
-  - name: StartImplementation
-    id: start_implementation
-    provider: codex_session
-    provider_session:
-      mode: fresh
-      publish_artifact: implementation_session_id
+    workflow_content = r"""
+{
+  "version": "2.10",
+  "name": "provider-session-resume",
+  "providers": {
+    "codex_session": {
+      "command": [
+        "bash",
+        "-lc",
+        "echo should-not-run"
+      ],
+      "input_mode": "stdin",
+      "session_support": {
+        "metadata_mode": "codex_exec_jsonl_stdout",
+        "fresh_command": [
+          "bash",
+          "-lc",
+          "echo should-not-run"
+        ],
+        "resume_command": [
+          "bash",
+          "-lc",
+          "echo should-not-run ${SESSION_ID}"
+        ]
+      }
+    }
+  },
+  "artifacts": {
+    "implementation_session_id": {
+      "kind": "scalar",
+      "type": "string"
+    }
+  },
+  "steps": [
+    {
+      "name": "StartImplementation",
+      "id": "start_implementation",
+      "provider": "codex_session",
+      "provider_session": {
+        "mode": "fresh",
+        "publish_artifact": "implementation_session_id"
+      }
+    }
+  ]
+}
 """
     workflow_path.write_text(workflow_content, encoding="utf-8")
     checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
@@ -5805,28 +5912,51 @@ def test_resume_quarantines_interrupted_provider_session_visit_without_current_s
 ):
     """Interrupted provider-session visits still quarantine when only durable identity survives."""
     workflow_path = temp_workspace / "provider_session_resume_missing_name.yaml"
-    workflow_content = """
-version: "2.10"
-name: provider-session-resume-missing-name
-providers:
-  codex_session:
-    command: ["bash", "-lc", "echo should-not-run"]
-    input_mode: "stdin"
-    session_support:
-      metadata_mode: codex_exec_jsonl_stdout
-      fresh_command: ["bash", "-lc", "echo should-not-run"]
-      resume_command: ["bash", "-lc", "echo should-not-run ${SESSION_ID}"]
-artifacts:
-  implementation_session_id:
-    kind: scalar
-    type: string
-steps:
-  - name: StartImplementation
-    id: start_implementation
-    provider: codex_session
-    provider_session:
-      mode: fresh
-      publish_artifact: implementation_session_id
+    workflow_content = r"""
+{
+  "version": "2.10",
+  "name": "provider-session-resume-missing-name",
+  "providers": {
+    "codex_session": {
+      "command": [
+        "bash",
+        "-lc",
+        "echo should-not-run"
+      ],
+      "input_mode": "stdin",
+      "session_support": {
+        "metadata_mode": "codex_exec_jsonl_stdout",
+        "fresh_command": [
+          "bash",
+          "-lc",
+          "echo should-not-run"
+        ],
+        "resume_command": [
+          "bash",
+          "-lc",
+          "echo should-not-run ${SESSION_ID}"
+        ]
+      }
+    }
+  },
+  "artifacts": {
+    "implementation_session_id": {
+      "kind": "scalar",
+      "type": "string"
+    }
+  },
+  "steps": [
+    {
+      "name": "StartImplementation",
+      "id": "start_implementation",
+      "provider": "codex_session",
+      "provider_session": {
+        "mode": "fresh",
+        "publish_artifact": "implementation_session_id"
+      }
+    }
+  ]
+}
 """
     workflow_path.write_text(workflow_content, encoding="utf-8")
     checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
@@ -5954,7 +6084,7 @@ def test_resume_quarantines_live_provider_session_with_retained_partial_spool(te
             }
         ],
     }
-    workflow_path.write_text(yaml.safe_dump(workflow_content, sort_keys=False), encoding="utf-8")
+    workflow_path.write_text(json.dumps(workflow_content, sort_keys=False), encoding="utf-8")
 
     runs_root = temp_workspace / ".orchestrate" / "runs"
     runs_root.mkdir(parents=True, exist_ok=True)
@@ -6046,19 +6176,27 @@ def test_resume_quarantines_live_provider_session_with_retained_partial_spool(te
 def test_resume_refuses_to_clear_existing_provider_session_quarantine(temp_workspace, capsys):
     """Persisted quarantine markers fail fast on later resume attempts."""
     workflow_path = temp_workspace / "provider_session_resume.yaml"
-    workflow_content = """
-version: "2.10"
-name: provider-session-resume
-steps:
-  - name: StartImplementation
-    provider: codex
-    provider_session:
-      mode: fresh
-      publish_artifact: implementation_session_id
-artifacts:
-  implementation_session_id:
-    kind: scalar
-    type: string
+    workflow_content = r"""
+{
+  "version": "2.10",
+  "name": "provider-session-resume",
+  "steps": [
+    {
+      "name": "StartImplementation",
+      "provider": "codex",
+      "provider_session": {
+        "mode": "fresh",
+        "publish_artifact": "implementation_session_id"
+      }
+    }
+  ],
+  "artifacts": {
+    "implementation_session_id": {
+      "kind": "scalar",
+      "type": "string"
+    }
+  }
+}
 """
     workflow_path.write_text(workflow_content, encoding="utf-8")
     checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"

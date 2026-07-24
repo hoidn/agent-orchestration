@@ -21,20 +21,33 @@ def test_at70_prompt_audit_with_debug(tmp_path):
 
     try:
         # Write workflow with provider step using secrets
-        workflow_file.write_text("""
-version: "1.1"
-providers:
-  test_provider:
-    command: ["echo", "${PROMPT}"]
-    input_mode: "argv"
-    defaults:
-      model: "test-model"
-steps:
-  - name: TestStep
-    provider: test_provider
-    input_file: prompt.txt
-    secrets: ["MY_SECRET_KEY"]
-    output_capture: text
+        workflow_file.write_text(r"""
+{
+  "version": "1.1",
+  "providers": {
+    "test_provider": {
+      "command": [
+        "echo",
+        "${PROMPT}"
+      ],
+      "input_mode": "argv",
+      "defaults": {
+        "model": "test-model"
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "TestStep",
+      "provider": "test_provider",
+      "input_file": "prompt.txt",
+      "secrets": [
+        "MY_SECRET_KEY"
+      ],
+      "output_capture": "text"
+    }
+  ]
+}
 """)
 
         # Write prompt that will contain the secret directly (to test masking)
@@ -43,7 +56,7 @@ steps:
         prompt_file.write_text("Testing with context: super-secret-value-123")
 
         # Run orchestrator with debug mode
-        from orchestrator.loader import WorkflowLoader
+        from tests.workflow_fixture_loader import WorkflowLoader
         from orchestrator.state import StateManager
         from orchestrator.workflow.executor import WorkflowExecutor
 
@@ -96,26 +109,37 @@ def test_at70_no_audit_without_debug(tmp_path):
     prompt_file = tmp_path / "prompt.txt"
 
     # Write workflow
-    workflow_file.write_text("""
-version: "1.1"
-providers:
-  test_provider:
-    command: ["echo", "${PROMPT}"]
-    input_mode: "argv"
-    defaults:
-      model: "test-model"
-steps:
-  - name: TestStep
-    provider: test_provider
-    input_file: prompt.txt
-    output_capture: text
+    workflow_file.write_text(r"""
+{
+  "version": "1.1",
+  "providers": {
+    "test_provider": {
+      "command": [
+        "echo",
+        "${PROMPT}"
+      ],
+      "input_mode": "argv",
+      "defaults": {
+        "model": "test-model"
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "TestStep",
+      "provider": "test_provider",
+      "input_file": "prompt.txt",
+      "output_capture": "text"
+    }
+  ]
+}
 """)
 
     # Write prompt
     prompt_file.write_text("Test prompt content")
 
     # Run orchestrator WITHOUT debug mode
-    from orchestrator.loader import WorkflowLoader
+    from tests.workflow_fixture_loader import WorkflowLoader
     from orchestrator.state import StateManager
     from orchestrator.workflow.executor import WorkflowExecutor
 
@@ -158,20 +182,34 @@ def test_at70_multiple_secrets_masked(tmp_path):
 
     try:
         # Write workflow
-        workflow_file.write_text("""
-version: "1.1"
-providers:
-  test_provider:
-    command: ["echo", "${PROMPT}"]
-    input_mode: "argv"
-    defaults:
-      model: "test-model"
-steps:
-  - name: TestStep
-    provider: test_provider
-    input_file: prompt.txt
-    secrets: ["API_KEY", "DB_PASSWORD"]
-    output_capture: text
+        workflow_file.write_text(r"""
+{
+  "version": "1.1",
+  "providers": {
+    "test_provider": {
+      "command": [
+        "echo",
+        "${PROMPT}"
+      ],
+      "input_mode": "argv",
+      "defaults": {
+        "model": "test-model"
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "TestStep",
+      "provider": "test_provider",
+      "input_file": "prompt.txt",
+      "secrets": [
+        "API_KEY",
+        "DB_PASSWORD"
+      ],
+      "output_capture": "text"
+    }
+  ]
+}
 """)
 
         # Write prompt with multiple secrets directly (AT-73: no variable substitution)
@@ -182,7 +220,7 @@ Regular text here
 """)
 
         # Run orchestrator with debug mode
-        from orchestrator.loader import WorkflowLoader
+        from tests.workflow_fixture_loader import WorkflowLoader
         from orchestrator.state import StateManager
         from orchestrator.workflow.executor import WorkflowExecutor
 
@@ -241,29 +279,43 @@ def test_at70_prompt_audit_with_dependency_injection(tmp_path):
     dep_file.write_text("dependency content")
 
     # Write workflow with dependency injection
-    workflow_file.write_text("""
-version: "1.1.1"
-providers:
-  test_provider:
-    command: ["echo", "${PROMPT}"]
-    input_mode: "argv"
-    defaults:
-      model: "test-model"
-steps:
-  - name: TestStep
-    provider: test_provider
-    input_file: prompt.txt
-    depends_on:
-      required: ["data.txt"]
-      inject: true
-    output_capture: text
+    workflow_file.write_text(r"""
+{
+  "version": "1.1.1",
+  "providers": {
+    "test_provider": {
+      "command": [
+        "echo",
+        "${PROMPT}"
+      ],
+      "input_mode": "argv",
+      "defaults": {
+        "model": "test-model"
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "TestStep",
+      "provider": "test_provider",
+      "input_file": "prompt.txt",
+      "depends_on": {
+        "required": [
+          "data.txt"
+        ],
+        "inject": true
+      },
+      "output_capture": "text"
+    }
+  ]
+}
 """)
 
     # Write prompt
     prompt_file.write_text("Original prompt content")
 
     # Run orchestrator with debug mode
-    from orchestrator.loader import WorkflowLoader
+    from tests.workflow_fixture_loader import WorkflowLoader
     from orchestrator.state import StateManager
     from orchestrator.workflow.executor import WorkflowExecutor
 

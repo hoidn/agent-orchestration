@@ -12,7 +12,7 @@ import pytest
 from orchestrator.workflow.conditions import ConditionEvaluator
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 
 
 class TestConditionEvaluator:
@@ -256,16 +256,26 @@ class TestWorkflowConditionalExecution:
             workspace = Path(tmpdir)
 
             # Create workflow with conditional step
-            workflow_yaml = """
-version: "1.1"
-name: "Conditional Test"
-steps:
-  - name: ConditionalStep
-    command: ["echo", "Should not run"]
-    when:
-      equals:
-        left: "skip"
-        right: "execute"
+            workflow_yaml = r"""
+{
+  "version": "1.1",
+  "name": "Conditional Test",
+  "steps": [
+    {
+      "name": "ConditionalStep",
+      "command": [
+        "echo",
+        "Should not run"
+      ],
+      "when": {
+        "equals": {
+          "left": "skip",
+          "right": "execute"
+        }
+      }
+    }
+  ]
+}
 """
             workflow_file = workspace / 'workflow.yaml'
             workflow_file.write_text(workflow_yaml)
@@ -302,16 +312,26 @@ steps:
             workspace = Path(tmpdir)
 
             # Create workflow with conditional step
-            workflow_yaml = """
-version: "1.1"
-name: "Conditional Test"
-steps:
-  - name: ConditionalStep
-    command: ["echo", "Should run"]
-    when:
-      equals:
-        left: "execute"
-        right: "execute"
+            workflow_yaml = r"""
+{
+  "version": "1.1",
+  "name": "Conditional Test",
+  "steps": [
+    {
+      "name": "ConditionalStep",
+      "command": [
+        "echo",
+        "Should run"
+      ],
+      "when": {
+        "equals": {
+          "left": "execute",
+          "right": "execute"
+        }
+      }
+    }
+  ]
+}
 """
             workflow_file = workspace / 'workflow.yaml'
             workflow_file.write_text(workflow_yaml)
@@ -351,18 +371,33 @@ steps:
             (workspace / 'data.txt').write_text('test data')
 
             # Create workflow with exists condition
-            workflow_yaml = """
-version: "1.1"
-name: "Exists Test"
-steps:
-  - name: CheckExists
-    command: ["echo", "File exists"]
-    when:
-      exists: "data.txt"
-  - name: CheckMissing
-    command: ["echo", "Should skip"]
-    when:
-      exists: "missing.txt"
+            workflow_yaml = r"""
+{
+  "version": "1.1",
+  "name": "Exists Test",
+  "steps": [
+    {
+      "name": "CheckExists",
+      "command": [
+        "echo",
+        "File exists"
+      ],
+      "when": {
+        "exists": "data.txt"
+      }
+    },
+    {
+      "name": "CheckMissing",
+      "command": [
+        "echo",
+        "Should skip"
+      ],
+      "when": {
+        "exists": "missing.txt"
+      }
+    }
+  ]
+}
 """
             workflow_file = workspace / 'workflow.yaml'
             workflow_file.write_text(workflow_yaml)
@@ -403,18 +438,33 @@ steps:
             (workspace / 'existing.txt').write_text('test data')
 
             # Create workflow with not_exists condition
-            workflow_yaml = """
-version: "1.1"
-name: "Not Exists Test"
-steps:
-  - name: CheckNotExists
-    command: ["echo", "Lock not present"]
-    when:
-      not_exists: "*.lock"
-  - name: CheckExists
-    command: ["echo", "Should skip"]
-    when:
-      not_exists: "existing.txt"
+            workflow_yaml = r"""
+{
+  "version": "1.1",
+  "name": "Not Exists Test",
+  "steps": [
+    {
+      "name": "CheckNotExists",
+      "command": [
+        "echo",
+        "Lock not present"
+      ],
+      "when": {
+        "not_exists": "*.lock"
+      }
+    },
+    {
+      "name": "CheckExists",
+      "command": [
+        "echo",
+        "Should skip"
+      ],
+      "when": {
+        "not_exists": "existing.txt"
+      }
+    }
+  ]
+}
 """
             workflow_file = workspace / 'workflow.yaml'
             workflow_file.write_text(workflow_yaml)
@@ -452,27 +502,50 @@ steps:
             workspace = Path(tmpdir)
 
             # Create workflow with variable-based condition
-            workflow_yaml = """
-version: "1.1"
-name: "Variable Condition Test"
-context:
-  environment: "production"
-steps:
-  - name: InitStep
-    command: ["echo", "init"]
-    output_capture: "text"
-  - name: ConditionalStep
-    command: ["echo", "In production"]
-    when:
-      equals:
-        left: "${context.environment}"
-        right: "production"
-  - name: SkipStep
-    command: ["echo", "Not in dev"]
-    when:
-      equals:
-        left: "${context.environment}"
-        right: "development"
+            workflow_yaml = r"""
+{
+  "version": "1.1",
+  "name": "Variable Condition Test",
+  "context": {
+    "environment": "production"
+  },
+  "steps": [
+    {
+      "name": "InitStep",
+      "command": [
+        "echo",
+        "init"
+      ],
+      "output_capture": "text"
+    },
+    {
+      "name": "ConditionalStep",
+      "command": [
+        "echo",
+        "In production"
+      ],
+      "when": {
+        "equals": {
+          "left": "${context.environment}",
+          "right": "production"
+        }
+      }
+    },
+    {
+      "name": "SkipStep",
+      "command": [
+        "echo",
+        "Not in dev"
+      ],
+      "when": {
+        "equals": {
+          "left": "${context.environment}",
+          "right": "development"
+        }
+      }
+    }
+  ]
+}
 """
             workflow_file = workspace / 'workflow.yaml'
             workflow_file.write_text(workflow_yaml)
@@ -512,20 +585,39 @@ steps:
             workspace = Path(tmpdir)
 
             # Create workflow with conditional steps in loop
-            workflow_yaml = """
-version: "1.1"
-name: "Loop Condition Test"
-steps:
-  - name: ProcessItems
-    for_each:
-      items: ["skip", "process", "skip", "process"]
-      steps:
-        - name: ConditionalProcess
-          command: ["echo", "Processing ${item}"]
-          when:
-            equals:
-              left: "${item}"
-              right: "process"
+            workflow_yaml = r"""
+{
+  "version": "1.1",
+  "name": "Loop Condition Test",
+  "steps": [
+    {
+      "name": "ProcessItems",
+      "for_each": {
+        "items": [
+          "skip",
+          "process",
+          "skip",
+          "process"
+        ],
+        "steps": [
+          {
+            "name": "ConditionalProcess",
+            "command": [
+              "echo",
+              "Processing ${item}"
+            ],
+            "when": {
+              "equals": {
+                "left": "${item}",
+                "right": "process"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
 """
             workflow_file = workspace / 'workflow.yaml'
             workflow_file.write_text(workflow_yaml)

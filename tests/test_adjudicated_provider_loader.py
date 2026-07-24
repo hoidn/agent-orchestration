@@ -1,16 +1,16 @@
 from pathlib import Path
 
 import pytest
-import yaml
+import json
 
 from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.workflow.executable_ir import AdjudicatedProviderStepConfig, ExecutableNodeKind
 from orchestrator.workflow.surface_ast import SurfaceStepKind
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
     return path
 
 

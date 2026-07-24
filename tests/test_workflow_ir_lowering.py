@@ -7,10 +7,10 @@ from types import MappingProxyType
 from pathlib import Path
 
 import pytest
-import yaml
+import json
 
 from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow.executable_ir import (
     CallStepConfig,
@@ -58,7 +58,7 @@ def _detach_core_ast_surface_links(value):
 
 def _write_yaml(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
     return path
 
 

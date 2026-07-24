@@ -3,10 +3,10 @@
 from pathlib import Path
 
 import pytest
-import yaml
+import json
 
 from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from tests.workflow_bundle_helpers import (
@@ -18,7 +18,7 @@ from tests.workflow_bundle_helpers import (
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
     workspace.mkdir(parents=True, exist_ok=True)
     workflow_file = workspace / "workflow.yaml"
-    workflow_file.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    workflow_file.write_text(json.dumps(workflow, sort_keys=False), encoding="utf-8")
     return workflow_file
 
 
@@ -558,7 +558,7 @@ def _write_repeat_until_call_library(workspace: Path) -> None:
     library_path = workspace / "workflows" / "library" / "repeat_until_review_fixture.yaml"
     library_path.parent.mkdir(parents=True, exist_ok=True)
     library_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
         {
             "version": "2.7",
             "name": "repeat-until-review-loop",

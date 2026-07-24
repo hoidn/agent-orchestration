@@ -6,9 +6,8 @@ from pathlib import Path
 from types import MappingProxyType
 
 import pytest
-import yaml
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executable_ir import ExecutableNodeKind, NodeResultAddress
 from orchestrator.workflow.executor import WorkflowExecutor
@@ -18,7 +17,7 @@ from tests.workflow_bundle_helpers import materialize_projection_step
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
     workflow_file = workspace / "workflow.yaml"
-    workflow_file.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+    workflow_file.write_text(json.dumps(workflow, sort_keys=False), encoding="utf-8")
     return workflow_file
 
 
@@ -1891,7 +1890,7 @@ def test_executor_uses_typed_call_alias_when_ir_raw_payload_drifts(tmp_path: Pat
     child_path = tmp_path / "workflows" / "library" / "child.yaml"
     child_path.parent.mkdir(parents=True, exist_ok=True)
     child_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.7",
                 "name": "child",
@@ -1945,7 +1944,7 @@ def test_executor_uses_non_counting_ir_transfer_metadata_for_typed_call_return(t
     child_path = tmp_path / "workflows" / "library" / "child.yaml"
     child_path.parent.mkdir(parents=True, exist_ok=True)
     child_path.write_text(
-        yaml.safe_dump(
+        json.dumps(
             {
                 "version": "2.7",
                 "name": "child",

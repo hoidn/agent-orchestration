@@ -6,7 +6,7 @@ from dataclasses import is_dataclass
 from pathlib import Path
 from typing import Any
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.workflow.conditions import (
     EqualsConditionNode,
     ExistsConditionNode,

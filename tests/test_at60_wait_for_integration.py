@@ -5,7 +5,7 @@ downstream steps run on success.
 """
 
 import pytest
-import yaml
+import json
 import tempfile
 import time
 from pathlib import Path
@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 
 
 class TestAT60WaitForIntegration:
@@ -51,7 +51,7 @@ class TestAT60WaitForIntegration:
 
         workflow_file = tmp_path / "workflow.yaml"
         with open(workflow_file, "w") as f:
-            yaml.dump(workflow_content, f)
+            json.dump(workflow_content, f)
 
         # Load workflow
         loader = WorkflowLoader(workspace)
@@ -133,7 +133,7 @@ class TestAT60WaitForIntegration:
 
         workflow_file = tmp_path / "workflow.yaml"
         with open(workflow_file, "w") as f:
-            yaml.dump(workflow_content, f)
+            json.dump(workflow_content, f)
 
         # Load workflow
         loader = WorkflowLoader(workspace)
@@ -200,7 +200,7 @@ class TestAT60WaitForIntegration:
 
         workflow_file = tmp_path / "workflow.yaml"
         with open(workflow_file, "w") as f:
-            yaml.dump(workflow_content, f)
+            json.dump(workflow_content, f)
 
         # Load workflow
         loader = WorkflowLoader(workspace)
@@ -256,7 +256,7 @@ class TestAT60WaitForIntegration:
 
         workflow_file = tmp_path / "workflow.yaml"
         with open(workflow_file, "w") as f:
-            yaml.dump(workflow_content, f)
+            json.dump(workflow_content, f)
 
         # Load workflow
         loader = WorkflowLoader(workspace)

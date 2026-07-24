@@ -8,7 +8,7 @@ from dataclasses import is_dataclass
 from pathlib import Path
 from typing import Any
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_context, workflow_input_contracts

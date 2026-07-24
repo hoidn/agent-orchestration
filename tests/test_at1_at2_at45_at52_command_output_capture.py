@@ -7,11 +7,11 @@ Tests that command steps properly convert output_capture string values
 """
 
 import tempfile
-import yaml
+import json
 import pytest
 from pathlib import Path
 
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
 
@@ -39,7 +39,7 @@ class TestCommandOutputCaptureConversion:
             # Write workflow file
             workflow_file = workspace / "workflow.yaml"
             with open(workflow_file, 'w') as f:
-                yaml.dump(workflow_content, f)
+                json.dump(workflow_content, f)
 
             # Load and execute workflow
             loader = WorkflowLoader(workspace)
@@ -79,7 +79,7 @@ class TestCommandOutputCaptureConversion:
             # Write workflow file
             workflow_file = workspace / "workflow.yaml"
             with open(workflow_file, 'w') as f:
-                yaml.dump(workflow_content, f)
+                json.dump(workflow_content, f)
 
             # Load and execute workflow
             loader = WorkflowLoader(workspace)
@@ -123,7 +123,7 @@ class TestCommandOutputCaptureConversion:
             # Write workflow file
             workflow_file = workspace / "workflow.yaml"
             with open(workflow_file, 'w') as f:
-                yaml.dump(workflow_content, f)
+                json.dump(workflow_content, f)
 
             # Load and execute workflow
             loader = WorkflowLoader(workspace)
@@ -167,7 +167,7 @@ class TestCommandOutputCaptureConversion:
             # Write workflow file
             workflow_file = workspace / "workflow.yaml"
             with open(workflow_file, 'w') as f:
-                yaml.dump(workflow_content, f)
+                json.dump(workflow_content, f)
 
             # Load and execute workflow
             loader = WorkflowLoader(workspace)

@@ -29,7 +29,7 @@ def test_e2e_infrastructure_present():
 
     # Verify we can import the orchestrator modules
     from orchestrator.cli.main import main
-    from orchestrator.loader import WorkflowLoader
+    from tests.workflow_fixture_loader import WorkflowLoader
     from orchestrator.state import StateManager
 
     # Basic smoke test that modules are importable
@@ -128,14 +128,18 @@ def test_e2e_minimal_workflow_execution(e2e_workspace):
     skip_if_no_e2e()
 
     # Create a minimal workflow
-    workflow_content = """
-version: "1.1"
-name: e2e_minimal
-
-steps:
-  - name: Echo
-    command: echo "E2E test successful"
-    output_capture: text
+    workflow_content = r"""
+{
+  "version": "1.1",
+  "name": "e2e_minimal",
+  "steps": [
+    {
+      "name": "Echo",
+      "command": "echo \"E2E test successful\"",
+      "output_capture": "text"
+    }
+  ]
+}
 """
 
     workflow_path = e2e_workspace / "workflows" / "minimal.yaml"

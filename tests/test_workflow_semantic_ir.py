@@ -9,10 +9,9 @@ from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 
 import pytest
-import yaml
 
 from orchestrator.exceptions import ValidationSubjectRef, WorkflowValidationError
-from orchestrator.loader import WorkflowLoader
+from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.workflow.core_ast import workflow_core_ast_to_json
 from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
@@ -310,7 +309,7 @@ def _g0_retirement_metadata(
 
 def _write_yaml(path: Path, payload: dict[str, object]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
     return path
 
 
