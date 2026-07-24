@@ -7,7 +7,6 @@ from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 
 import pytest
-import yaml
 
 from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block
 from orchestrator.state import StateManager
@@ -15,6 +14,7 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.prompting import PromptComposer
 from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from tests.prompt_contract_test_helpers import parse_prompt_contract_document
 from tests.workflow_fixture_loader import WorkflowLoader
 
 
@@ -43,17 +43,12 @@ def _enable_v214_loader(monkeypatch) -> None:
     )
 
 
-def _variant_contract_body_as_yaml(prompt_block: str) -> object:
-    return yaml.safe_load("\n".join(prompt_block.splitlines()[2:]))
+def _variant_contract_document(prompt_block: str) -> dict[str, object]:
+    return parse_prompt_contract_document(prompt_block)
 
 
-def _output_contract_body_as_yaml(prompt_block: str) -> object:
-    contract_start = next(
-        index
-        for index, line in enumerate(prompt_block.splitlines())
-        if line.startswith("- path:")
-    )
-    return yaml.safe_load("\n".join(prompt_block.splitlines()[contract_start:]))
+def _output_contract_document(prompt_block: str) -> dict[str, object]:
+    return parse_prompt_contract_document(prompt_block)
 
 
 def _typed_dependency_runtime(
@@ -466,7 +461,7 @@ def test_typed_dependency_mapping_rejects_extra_or_missing_projection_members(
 
 
 @pytest.mark.parametrize("mode", ["content", "list"])
-def test_yaml_dependency_modes_remain_mapping_driven_without_typed_evidence(
+def test_untyped_dependency_modes_remain_mapping_driven_without_typed_evidence(
     tmp_path: Path,
     mode: str,
 ) -> None:
@@ -477,12 +472,12 @@ def test_yaml_dependency_modes_remain_mapping_driven_without_typed_evidence(
         encoding="utf-8",
     )
     (tmp_path / "state/context.txt").write_text(
-        "YAML_DEPENDENCY_BODY_SENTINEL\n",
+        "UNTYPED_DEPENDENCY_BODY_SENTINEL\n",
         encoding="utf-8",
     )
     workflow = {
         "version": "2.7",
-        "name": f"yaml-{mode}-control",
+        "name": f"untyped-{mode}-control",
         "providers": {
             "mock_provider": {
                 "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
@@ -503,7 +498,7 @@ def test_yaml_dependency_modes_remain_mapping_driven_without_typed_evidence(
         ],
     }
     loaded = WorkflowLoader(tmp_path).load(_write_workflow(tmp_path, workflow))
-    manager = StateManager(tmp_path, run_id=f"yaml-{mode}-control")
+    manager = StateManager(tmp_path, run_id=f"untyped-{mode}-control")
     manager.initialize("workflow.json")
     executor = WorkflowExecutor(loaded, tmp_path, manager)
     prompts: list[str] = []
@@ -529,10 +524,10 @@ def test_yaml_dependency_modes_remain_mapping_driven_without_typed_evidence(
     assert state["status"] == "completed"
     assert len(prompts) == 1
     if mode == "content":
-        assert "YAML_DEPENDENCY_BODY_SENTINEL" in prompts[0]
+        assert "UNTYPED_DEPENDENCY_BODY_SENTINEL" in prompts[0]
     else:
         assert "state/context.txt" in prompts[0]
-        assert "YAML_DEPENDENCY_BODY_SENTINEL" not in prompts[0]
+        assert "UNTYPED_DEPENDENCY_BODY_SENTINEL" not in prompts[0]
     assert manager.load().provider_attempt_allocations == {}
     assert not (manager.run_root / "workflow_lisp/prompt_dependencies").exists()
 
@@ -1724,8 +1719,7 @@ def test_variant_output_prompt_contract_renders_structured_nested_constraints() 
         },
     })
 
-    rendered = _variant_contract_body_as_yaml(prompt_block)
-    bundle = rendered[0]
+    bundle = _variant_contract_document(prompt_block)
     completed_field = bundle["variants"]["COMPLETED"]["fields"][0]
     blocked_field = bundle["variants"]["BLOCKED"]["fields"][0]
     assert "for `under: artifacts/work`, write `artifacts/work/...`" in prompt_block
@@ -2278,7 +2272,7 @@ def test_output_bundle_guidance_renders_nested_context_and_canonical_examples() 
     }
 
     rendered = render_output_bundle_contract_block(contract)
-    bundle = _output_contract_body_as_yaml(rendered)[0]
+    bundle = _output_contract_document(rendered)
 
     assert list(bundle).index("guidance") < list(bundle).index("fields")
     assert bundle["guidance"] == contract["guidance"]
@@ -2379,8 +2373,8 @@ def test_typed_guidance_strings_roundtrip_through_structured_prompt_sections() -
 
     rendered_output = render_output_bundle_contract_block(output_contract)
     rendered_variant = render_variant_output_contract_block(variant_contract)
-    output_bundle = _output_contract_body_as_yaml(rendered_output)[0]
-    variant_bundle = _variant_contract_body_as_yaml(rendered_variant)[0]
+    output_bundle = _output_contract_document(rendered_output)
+    variant_bundle = _variant_contract_document(rendered_variant)
 
     assert output_bundle["guidance"] == output_contract["guidance"]
     assert output_bundle["fields"][0]["description"] == "[APPROVE, REVISE]"
@@ -2499,7 +2493,7 @@ def test_variant_output_guidance_uses_discriminant_order_and_canonical_examples(
     }
 
     rendered = render_variant_output_contract_block(contract)
-    bundle = _variant_contract_body_as_yaml(rendered)[0]
+    bundle = _variant_contract_document(rendered)
 
     assert list(bundle).index("guidance") < list(bundle).index("shared_fields")
     confidence = next(
@@ -2571,12 +2565,7 @@ def test_compiled_root_guidance_contract_is_the_prompt_renderer_input(tmp_path: 
         key: executable_field[key]
         for key in ("description", "format_hint", "example")
     }
-    contract_start = next(
-        index for index, line in enumerate(rendered.splitlines()) if line.startswith("- path:")
-    )
-    rendered_contract = yaml.safe_load(
-        "\n".join(rendered.splitlines()[contract_start:])
-    )[0]
+    rendered_contract = _output_contract_document(rendered)
     assert rendered_contract["description"] == executable_field["description"]
     assert rendered_contract["format_hint"] == executable_field["format_hint"]
     assert rendered_contract["example"] == executable_field["example"]

@@ -8,8 +8,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import yaml
-
 from orchestrator.contracts.prompt_contract import render_variant_output_contract_block
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
@@ -21,6 +19,7 @@ from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from tests.prompt_contract_test_helpers import parse_prompt_contract_document
 from tests.workflow_fixture_loader import WorkflowLoader
 from tests.workflow_bundle_helpers import _thaw, bundle_context_dict
 from tests.test_workflow_lisp_native_returns_e2e import (
@@ -54,11 +53,7 @@ def _write_bool_command(workspace: Path, name: str) -> ExternalToolBinding:
 
 
 def _contract_document(prompt: str) -> dict:
-    lines = prompt.splitlines()
-    start = next(index for index, line in enumerate(lines) if line.startswith("- path:"))
-    document = yaml.safe_load("\n".join(lines[start:]))
-    assert isinstance(document, list) and isinstance(document[0], dict)
-    return document[0]
+    return parse_prompt_contract_document(prompt)
 
 
 _GUIDANCE_KEYS = (
