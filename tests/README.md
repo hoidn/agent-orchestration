@@ -96,4 +96,7 @@ pytest tests/test_demo_provisioning.py tests/test_demo_nanobragg_provisioning.py
 - Assert observable state via `state.json`, `logs/`, and on-disk artifacts rather than parsing agent prose.
 
 ## Examples
-- Narrative E2E examples with YAML workflows live in `specs/examples/e2e.md` (informative). Use those flows as references when authoring new E2E tests.
+- Current E2E examples live under `tests/e2e/` and use the same `.orc`-only
+  frontend contract as production. Start new workflow fixtures from the
+  [Workflow Lisp drafting guide](../docs/lisp_workflow_drafting_guide.md) and
+  registry-approved `.orc` examples rather than historical YAML flows.

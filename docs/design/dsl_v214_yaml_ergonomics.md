@@ -1,11 +1,13 @@
-# DSL v2.14 YAML Ergonomics And LOC Reduction
+# Historical DSL v2.14 YAML Ergonomics And LOC Reduction
 
-## Status
+## Historical status
 
-Design follow-up for the public v2.14 materialization and variant-output
-release. The v2.14 runtime primitives are released, but the first NeurIPS stack
-translation increased YAML size. This note defines the correction needed before
-the v2.14 workflow style should be treated as the preferred authoring pattern.
+This is a pre-retirement design follow-up for the public v2.14
+materialization and variant-output release. Stage 6 subsequently retired the
+authored YAML/YML frontend; current runnable authoring uses Workflow Lisp
+`.orc`. The YAML LOC analysis and proposed corrections below are preserved as
+historical design context only. They are not current authoring guidance, and
+their forward-looking wording must not be used to reopen the retired frontend.
 
 ## Problem
 

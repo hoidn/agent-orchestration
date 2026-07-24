@@ -53,7 +53,7 @@ page, not a replacement for the linked docs.
 | [dsl_v214_materialization_variants_draft.md](dsl_v214_materialization_variants_draft.md) | v2.14 materialization and variant outputs | Yes | Yes | Read with `specs/dsl.md` for current normative behavior. |
 | [dsl_v214_pointer_authority.md](dsl_v214_pointer_authority.md) | Pointer authority and artifact identity | Partial/unknown from this index; read the doc and linked evidence | Yes | Use when pointer files risk becoming hidden semantic authority. |
 | [dsl_v214_variant_surface_decision.md](dsl_v214_variant_surface_decision.md) | Variant-output surface decision | Yes | Yes | Historical/design context for v2.14 variant output surfaces. |
-| [dsl_v214_yaml_ergonomics.md](dsl_v214_yaml_ergonomics.md) | YAML ergonomics around v2.14 | Partial/unknown from this index; read the doc and linked evidence | Yes | Use for YAML authoring ergonomics, not Workflow Lisp promotion authority. |
+| [dsl_v214_yaml_ergonomics.md](dsl_v214_yaml_ergonomics.md) | Historical YAML ergonomics around v2.14 | Retired historical design note | No | Preserves the pre-retirement YAML LOC analysis; use the Workflow Lisp drafting guide for current `.orc` authoring. |
 
 ## Frontend Design Direction
 
