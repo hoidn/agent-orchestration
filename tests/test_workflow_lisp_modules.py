@@ -4,7 +4,6 @@ from types import MappingProxyType
 
 import pytest
 
-from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
@@ -438,35 +437,26 @@ def test_compile_stage3_entrypoint_registers_canonical_callable_keys(tmp_path: P
     )
 
 
-def test_compile_stage3_entrypoint_does_not_relabel_explicit_classic_yaml_bundle(
+def test_compile_stage3_entrypoint_preserves_explicit_compiled_orc_bundle_identity(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    yaml_path = tmp_path / "imported_selector.yaml"
-    yaml_path.write_text(
-        (
-            Path(__file__).parent
-            / "fixtures"
-            / "workflow_lisp"
-            / "cli"
-            / "imported_selector.yaml"
-        ).read_text(encoding="utf-8"),
-        encoding="utf-8",
+    imported_source = (
+        Path(__file__).parent
+        / "fixtures"
+        / "workflow_lisp"
+        / "cli"
+        / "imported_selector.orc"
     )
-    imported_bundle = WorkflowLoader(tmp_path).load_bundle(yaml_path)
-    assert imported_bundle.provenance.frontend_kind is None
-    monkeypatch.setattr(
-        "orchestrator.loader.WorkflowLoader.__init__",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("legacy YAML loader used after imported bundle construction")
-        ),
+    imported_result = _compile_stage3_entrypoint(
+        imported_source,
+        source_root=imported_source.parent,
+        validate_shared=True,
+        tmp_path=tmp_path,
     )
-    monkeypatch.setattr(
-        "orchestrator.loader.yaml.load",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("YAML parser used after imported bundle construction")
-        ),
-    )
+    imported_bundle = imported_result.validated_bundles_by_name[
+        "imported_selector::selector-run"
+    ]
+    assert imported_bundle.provenance.frontend_kind == "workflow_lisp"
 
     source_root = VALID_FIXTURES / "imported_bundle_mix"
     result = _compile_stage3_entrypoint(
@@ -485,9 +475,9 @@ def test_compile_stage3_entrypoint_does_not_relabel_explicit_classic_yaml_bundle
     ].imports["selector-run"]
     assert linked_import is imported_bundle
     assert root_import is imported_bundle
-    assert linked_import.provenance.frontend_kind is None
-    assert root_import.provenance.frontend_kind is None
-    assert imported_bundle.provenance.frontend_kind is None
+    assert linked_import.provenance.frontend_kind == "workflow_lisp"
+    assert root_import.provenance.frontend_kind == "workflow_lisp"
+    assert imported_bundle.provenance.frontend_kind == "workflow_lisp"
     assert all(
         bundle.provenance.frontend_kind == "workflow_lisp"
         for bundle in result.validated_bundles_by_name.values()
