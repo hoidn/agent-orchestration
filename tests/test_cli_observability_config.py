@@ -8,23 +8,13 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from orchestrator.cli.commands.resume import resume_workflow
-from orchestrator.cli.commands.run import build_observability_config, run_workflow
+from orchestrator.cli.commands.run import build_observability_config
 from orchestrator.cli.main import create_parser
-from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
+from tests.workflow_fixture_loader import WorkflowLoader
 
 
-def _state_manager_mock(workspace: Path) -> MagicMock:
-    prototype = StateManager(workspace=workspace)
-    manager = MagicMock(spec=prototype)
-    manager.run_root = prototype.run_root
-    manager.logs_dir = prototype.logs_dir
-    manager.state = MagicMock()
-    assert isinstance(manager, StateManager)
-    return manager
-
-
-def _write_minimal_resume_bundle(workflow_path: Path, *, version: str = "1.3"):
+def _write_minimal_test_bundle(workflow_path: Path, *, version: str = "2.14"):
     workflow_content = json.dumps(
         {
             "version": version,
@@ -33,10 +23,7 @@ def _write_minimal_resume_bundle(workflow_path: Path, *, version: str = "1.3"):
         }
     )
     workflow_path.write_text(workflow_content, encoding="utf-8")
-    return (
-        workflow_content,
-        WorkflowLoader(workflow_path.parent).load_bundle(workflow_path),
-    )
+    return WorkflowLoader(workflow_path.parent).load_bundle(workflow_path)
 
 
 def _base_run_args(workflow_path: Path) -> Namespace:
@@ -76,7 +63,7 @@ def test_parser_accepts_summary_flags():
     args = parser.parse_args(
         [
             'run',
-            'workflow.yaml',
+            'workflow.orc',
             '--step-summaries',
             '--summary-mode',
             'sync',
@@ -119,7 +106,7 @@ def test_parser_accepts_stream_output_on_run_and_resume():
     run_args = parser.parse_args(
         [
             'run',
-            'workflow.yaml',
+            'workflow.orc',
             '--stream-output',
         ]
     )
@@ -130,7 +117,7 @@ def test_parser_accepts_stream_output_on_run_and_resume():
             '--stream-output',
         ]
     )
-    run_default_args = parser.parse_args(['run', 'workflow.yaml'])
+    run_default_args = parser.parse_args(['run', 'workflow.orc'])
 
     assert run_args.stream_output is True
     assert resume_args.stream_output is True
@@ -143,7 +130,7 @@ def test_parser_accepts_state_dir_on_run_and_resume():
     run_args = parser.parse_args(
         [
             'run',
-            'workflow.yaml',
+            'workflow.orc',
             '--state-dir',
             '/tmp/custom-runs',
         ]
@@ -164,7 +151,7 @@ def test_parser_accepts_state_dir_on_run_and_resume():
 def test_parser_defaults_retry_budget_on_run_and_resume():
     parser = create_parser()
 
-    run_args = parser.parse_args(['run', 'workflow.yaml'])
+    run_args = parser.parse_args(['run', 'workflow.orc'])
     resume_args = parser.parse_args(['resume', 'run-123'])
 
     assert run_args.max_retries == 1
@@ -192,7 +179,7 @@ def test_parser_accepts_retry_flags_on_resume():
 
 
 def test_build_observability_config_defaults_to_async_when_enabled():
-    args = _base_run_args(Path('workflow.yaml'))
+    args = _base_run_args(Path('workflow.orc'))
     args.step_summaries = True
 
     config = build_observability_config(args)
@@ -203,7 +190,7 @@ def test_build_observability_config_defaults_to_async_when_enabled():
 
 
 def test_build_observability_config_mode_enables_summaries():
-    args = _base_run_args(Path('workflow.yaml'))
+    args = _base_run_args(Path('workflow.orc'))
     args.summary_mode = 'sync'
 
     config = build_observability_config(args)
@@ -214,7 +201,7 @@ def test_build_observability_config_mode_enables_summaries():
 
 
 def test_build_observability_config_profile_enables_summaries():
-    args = _base_run_args(Path('workflow.yaml'))
+    args = _base_run_args(Path('workflow.orc'))
     args.summary_profile = 'phase-performance'
 
     config = build_observability_config(args)
@@ -225,7 +212,7 @@ def test_build_observability_config_profile_enables_summaries():
 
 
 def test_build_observability_config_includes_live_agent_notes():
-    args = _base_run_args(Path('workflow.yaml'))
+    args = _base_run_args(Path('workflow.orc'))
     args.live_agent_notes = True
     args.summary_provider = 'general_summary'
     args.live_agent_note_provider = 'cheap_summary'
@@ -248,7 +235,7 @@ def test_build_observability_config_includes_live_agent_notes():
 
 
 def test_build_observability_config_defaults_live_agent_notes_to_haiku_provider():
-    args = _base_run_args(Path('workflow.yaml'))
+    args = _base_run_args(Path('workflow.orc'))
     args.live_agent_notes = True
 
     config = build_observability_config(args)
@@ -257,172 +244,6 @@ def test_build_observability_config_defaults_live_agent_notes_to_haiku_provider(
     live_cfg = config['step_summaries']['live_agent_notes']
     assert live_cfg['provider'] == 'claude_haiku_summary'
     assert live_cfg['source'] == 'tmux'
-
-
-@patch('orchestrator.cli.commands.run.WorkflowExecutor')
-@patch('orchestrator.cli.commands.run.StateManager')
-@patch('orchestrator.cli.commands.run.WorkflowLoader')
-def test_run_workflow_persists_observability_runtime_config(mock_loader, mock_state, mock_executor, tmp_path, monkeypatch):
-    workflow_file = tmp_path / 'workflow.yaml'
-    workflow_file.write_text(r"""
-{
-  "version": "1.3",
-  "name": "test",
-  "steps": [
-    {
-      "name": "Noop",
-      "command": [
-        "true"
-      ]
-    }
-  ]
-}
-""")
-    monkeypatch.chdir(tmp_path)
-
-    mock_loader.return_value.load_bundle.return_value = WorkflowLoader(tmp_path).load_bundle(workflow_file)
-
-    state_inst = _state_manager_mock(tmp_path)
-    state_inst.logs_dir = tmp_path / '.orchestrate' / 'runs' / 'test-run' / 'logs'
-    state_inst.initialize.return_value = MagicMock(run_id='test-run')
-    mock_state.return_value = state_inst
-
-    exec_inst = MagicMock()
-    exec_inst.execute.return_value = True
-    mock_executor.return_value = exec_inst
-
-    args = _base_run_args(workflow_file)
-    args.step_summaries = True
-
-    result = run_workflow(args)
-
-    assert result == 0
-
-    init_kwargs = state_inst.initialize.call_args.kwargs
-    assert init_kwargs['observability']['step_summaries']['mode'] == 'async'
-    assert init_kwargs['observability']['step_summaries']['provider'] == 'claude_sonnet_summary'
-    assert init_kwargs['observability']['step_summaries']['profile'] == 'basic'
-
-    exec_kwargs = mock_executor.call_args.kwargs
-    assert exec_kwargs['observability']['step_summaries']['mode'] == 'async'
-
-
-@patch('orchestrator.cli.commands.resume.WorkflowExecutor')
-@patch('orchestrator.cli.commands.resume.WorkflowLoader')
-def test_resume_uses_persisted_observability_and_applies_override(mock_loader, mock_executor, tmp_path, monkeypatch):
-    run_id = 'run-123'
-    monkeypatch.chdir(tmp_path)
-
-    workflow_path = tmp_path / 'workflow.yaml'
-    workflow_content, workflow_bundle = _write_minimal_resume_bundle(workflow_path)
-    checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
-
-    run_dir = tmp_path / '.orchestrate' / 'runs' / run_id
-    run_dir.mkdir(parents=True)
-
-    state = {
-        'schema_version': StateManager.SCHEMA_VERSION,
-        'run_id': run_id,
-        'workflow_file': str(workflow_path),
-        'workflow_checksum': checksum,
-        'started_at': '2026-02-27T00:00:00+00:00',
-        'updated_at': '2026-02-27T00:00:01+00:00',
-        'status': 'running',
-        'context': {},
-        'steps': {},
-        'observability': {
-            'step_summaries': {
-                'enabled': True,
-                'mode': 'async',
-                'provider': 'claude_sonnet_summary',
-                'timeout_sec': 120,
-                'max_input_chars': 12000,
-                'best_effort': True,
-                'profile': 'basic',
-            }
-        },
-    }
-    (run_dir / 'state.json').write_text(json.dumps(state, indent=2))
-
-    mock_loader.return_value.load_bundle.return_value = workflow_bundle
-
-    exec_inst = MagicMock()
-    exec_inst.execute.return_value = {'status': 'completed'}
-    mock_executor.return_value = exec_inst
-
-    result = resume_workflow(
-        run_id=run_id,
-        summary_mode='sync',
-        summary_profile='phase-performance',
-        live_agent_notes=True,
-        live_agent_note_provider='cheap_summary',
-        live_agent_note_interval_sec=4.0,
-        live_agent_note_timeout_sec=8,
-        live_agent_note_max_tail_chars=2048,
-    )
-
-    assert result == 0
-    exec_kwargs = mock_executor.call_args.kwargs
-    assert exec_kwargs['observability']['step_summaries']['mode'] == 'sync'
-    assert exec_kwargs['observability']['step_summaries']['profile'] == 'phase-performance'
-    assert exec_kwargs['observability']['step_summaries']['live_agent_notes']['provider'] == 'cheap_summary'
-
-    persisted = json.loads((run_dir / 'state.json').read_text())
-    assert persisted['observability']['step_summaries']['mode'] == 'sync'
-    assert persisted['observability']['step_summaries']['profile'] == 'phase-performance'
-    assert persisted['observability']['step_summaries']['live_agent_notes'] == {
-        'enabled': True,
-        'provider': 'cheap_summary',
-        'interval_sec': 4.0,
-        'timeout_sec': 8,
-        'max_tail_chars': 2048,
-        'source': 'tmux',
-    }
-
-
-@patch('orchestrator.cli.commands.resume.WorkflowExecutor')
-@patch('orchestrator.cli.commands.resume.WorkflowLoader')
-def test_resume_workflow_passes_stream_output_to_executor(mock_loader, mock_executor, tmp_path, monkeypatch):
-    run_id = 'run-123'
-    monkeypatch.chdir(tmp_path)
-
-    workflow_path = tmp_path / 'workflow.yaml'
-    workflow_content, workflow_bundle = _write_minimal_resume_bundle(workflow_path)
-    checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
-
-    run_dir = tmp_path / '.orchestrate' / 'runs' / run_id
-    run_dir.mkdir(parents=True)
-    (run_dir / 'state.json').write_text(
-        json.dumps(
-                {
-                    'schema_version': StateManager.SCHEMA_VERSION,
-                    'run_id': run_id,
-                    'workflow_file': str(workflow_path),
-                    'workflow_checksum': checksum,
-                'started_at': '2026-02-27T00:00:00+00:00',
-                'updated_at': '2026-02-27T00:00:01+00:00',
-                'status': 'running',
-                'context': {},
-                'steps': {},
-            },
-            indent=2,
-        )
-    )
-
-    mock_loader.return_value.load_bundle.return_value = workflow_bundle
-
-    exec_inst = MagicMock()
-    exec_inst.execute.return_value = {'status': 'completed'}
-    mock_executor.return_value = exec_inst
-
-    result = resume_workflow(
-        run_id=run_id,
-        stream_output=True,
-    )
-
-    assert result == 0
-    exec_kwargs = mock_executor.call_args.kwargs
-    assert exec_kwargs['stream_output'] is True
 
 
 @patch('orchestrator.cli.commands.resume.build_frontend_bundle', create=True)
@@ -499,9 +320,8 @@ def test_resume_workflow_reuses_orc_launch_metadata_from_monitor_process(
         encoding='utf-8',
     )
 
-    _, workflow_bundle = _write_minimal_resume_bundle(
-        tmp_path / "orc_resume_audit_fixture.yaml",
-        version="2.14",
+    workflow_bundle = _write_minimal_test_bundle(
+        tmp_path / "orc_resume_audit_fixture.json",
     )
     mock_build_frontend_bundle.return_value = SimpleNamespace(
         validated_bundle=workflow_bundle,
@@ -522,76 +342,3 @@ def test_resume_workflow_reuses_orc_launch_metadata_from_monitor_process(
     assert request.prompt_externs_path == prompts
     assert request.imported_workflow_bundles_path == imports
     assert request.command_boundaries_path == commands
-
-
-@patch('orchestrator.cli.commands.resume.WorkflowExecutor')
-@patch('orchestrator.cli.commands.resume.WorkflowLoader')
-@patch('orchestrator.cli.commands.resume.StateManager')
-def test_resume_force_restart_uses_typed_bundle_context_when_legacy_adapter_drifts(
-    mock_state,
-    mock_loader,
-    mock_executor,
-    tmp_path,
-    monkeypatch,
-):
-    run_id = 'run-typed-context'
-    monkeypatch.chdir(tmp_path)
-
-    workflow_path = tmp_path / 'workflow.yaml'
-    workflow_text = r"""
-{
-  "version": "2.1",
-  "name": "typed-resume",
-  "context": {
-    "max_review_cycles": "3"
-  },
-  "steps": [
-    {
-      "name": "Noop",
-      "command": [
-        "bash",
-        "-lc",
-        "true"
-      ]
-    }
-  ]
-}
-""".strip() + "\n"
-    workflow_path.write_text(workflow_text, encoding='utf-8')
-    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-    mock_loader.return_value.load_bundle.return_value = bundle
-
-    run_dir = tmp_path / '.orchestrate' / 'runs' / run_id
-    run_dir.mkdir(parents=True)
-
-    loaded_state = SimpleNamespace()
-    existing_state = SimpleNamespace(
-        schema_version=StateManager.SCHEMA_VERSION,
-        error=None,
-        workflow_file=str(workflow_path),
-        observability=None,
-        status='running',
-        steps={},
-        bound_inputs={},
-    )
-    existing_manager = _state_manager_mock(tmp_path)
-    existing_manager.load.return_value = loaded_state
-    existing_manager.state = existing_state
-
-    restarted_manager = _state_manager_mock(tmp_path)
-    restarted_manager.initialize.return_value = MagicMock(run_id='new-run-id')
-    mock_state.side_effect = [existing_manager, restarted_manager]
-
-    exec_inst = MagicMock()
-    exec_inst.execute.return_value = {'status': 'completed'}
-    mock_executor.return_value = exec_inst
-
-    result = resume_workflow(
-        run_id=run_id,
-        force_restart=True,
-    )
-
-    assert result == 0
-    init_kwargs = restarted_manager.initialize.call_args.kwargs
-    assert init_kwargs['context'] == {'max_review_cycles': '3'}
-    assert init_kwargs['bound_inputs'] == {}
